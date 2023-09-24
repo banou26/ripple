@@ -2,7 +2,10 @@ import { css } from '@emotion/react'
 import { useDropzone } from 'react-dropzone'
 import { useCallback, useEffect } from 'react'
 import { Buffer } from 'buffer'
-import parseTorrent from 'parse-torrent'
+import parseTorrent, { Instance } from 'parse-torrent'
+import { useRxCollection, useRxQuery } from 'rxdb-hooks'
+
+import { addTorrent, torrentCollection } from '../torrent/collection'
 
 const style = css`
 display: flex;
@@ -48,7 +51,7 @@ const DragDrop = () => {
       [
         ...await Promise.all(acceptedFiles.map(file => {
           const reader = new FileReader()
-          return new Promise<parseTorrent.Instance>((resolve, reject) => {
+          return new Promise<Buffer>((resolve, reject) => {
             reader.onload = () => {
               if (!reader.result || !(reader.result instanceof ArrayBuffer)) return
               resolve(Buffer.from(reader.result))
@@ -59,7 +62,16 @@ const DragDrop = () => {
         })),
         ...magnet ? [magnet] : []
       ].map(parseTorrent)
-    )
+    ) as Instance[]
+
+    parsedTorrents.forEach(torrent => {
+      addTorrent({
+        name: torrent.name,
+        infoHash: torrent.infoHash,
+        magnet: magnet,
+        torrentFile: torrent
+      })
+    })
     console.log('parsedTorrents', parsedTorrents)
   }, [])
   const {getRootProps, getInputProps, isDragActive} = useDropzone({ onDrop: files => onAddTorrent(files, undefined) })
@@ -93,13 +105,24 @@ const DragDrop = () => {
 
 
 export const TorrentList = ({ ...rest }) => {
+  const collection = useRxCollection('torrents')
+  console.log('collection', collection)
+  const query = collection?.find()
+  const torrents = useRxQuery(query)
+  console.log('torrents', torrents)
 
   return (
     <div css={style} {...rest}>
+      {
+        torrents?.result.map(torrent => (
+          <div key={torrent.infoHash}>
+            {torrent.name}
+          </div>
+        ))
+      }
       <DragDrop/>
     </div>
   )
 }
 
 export default TorrentList
-

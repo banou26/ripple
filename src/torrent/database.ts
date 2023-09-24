@@ -1,6 +1,8 @@
-import { getLeaderElectorByBroadcastChannel } from 'rxdb/plugins/leader-election'
-import { createRxDatabase } from 'rxdb'
+import { RxDBLeaderElectionPlugin, getLeaderElectorByBroadcastChannel } from 'rxdb/plugins/leader-election'
+import { addRxPlugin, createRxDatabase } from 'rxdb'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
+
+addRxPlugin(RxDBLeaderElectionPlugin)
 
 import type { Collection as TorrentCollection } from './collection'
 
