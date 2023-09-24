@@ -1,18 +1,21 @@
 import { css } from '@emotion/react'
 import { Line } from 'react-chartjs-2'
 
-const contentStyle = css`
+const style = css`
 
+  .chart-wrapper {
+    height: 100%;
+  }
 
 `
 
 
-const DATA_COUNT = 12;
+const DATA_COUNT = 11;
 const labels = [];
 for (let i = 0; i < DATA_COUNT; ++i) {
   labels.push(i.toString());
 }
-const datapoints = [0, 20, 20, 60, 60, 120, NaN, 180, 120, 125, 105, 110, 170];
+const datapoints = [0, 20, 20, 60, 60, 120, 180, 120, 125, 105, 110, 170];
 const data = {
   labels: labels,
   datasets: [
@@ -36,7 +39,7 @@ const data = {
       fill: false
     }
   ]
-};
+}
 
 const config = {
   type: 'line',
@@ -45,40 +48,64 @@ const config = {
     responsive: true,
     plugins: {
       title: {
-        display: true,
+        display: false,
         text: 'Chart.js Line Chart - Cubic interpolation mode'
       },
+      legend: {
+        display: false
+      }
     },
     interaction: {
       intersect: false,
     },
     scales: {
       x: {
-        display: true,
+        display: false,
         title: {
-          display: true
+          display: false
         }
       },
       y: {
-        display: true,
+        display: false,
         title: {
-          display: true,
+          display: false,
           text: 'Value'
         },
-        suggestedMin: -10,
+        suggestedMin: 0,
         suggestedMax: 200
       }
     }
   },
 }
 
-export const StatisticsHeader = () => {
+// Should have 1 line for every second, and 120 lines total
+// mixed chart with custom tooltip example: https://stackoverflow.com/a/46343907
+export const StatisticsHeader = ({ ...rest }) => {
   return (
-    <div css={contentStyle}>
-      <Line
-        data={data}
-        options={config.options}
-      />
+    <div css={style} {...rest}>
+      <div className="chart-wrapper">
+        <Line
+          data={data}
+          options={{
+            ...config.options,
+            plugins: {
+              ...config.options.plugins,
+              tooltip: {
+                backgroundColor: '#4f4f4f',
+                displayColors: false,
+                animation: {
+                  duration: 0
+                }
+              }
+            },
+            interaction: {
+              mode: 'index',
+              axis: 'x',
+              intersect: false
+            }
+          }}
+        />
+      </div>
     </div>
   )
 }

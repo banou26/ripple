@@ -65,7 +65,4 @@ root.render(
     <Global styles={style}/>
     <Mount/>
   </>
-  // <StrictMode>
-
-  // </StrictMode>
 )

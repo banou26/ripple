@@ -5,12 +5,12 @@ import { createBrowserRouter } from 'react-router-dom'
 import Home from './home'
 import { getRouterRoutePath, Route } from './path'
 
-const contentStyle = css`
+const style = css`
 `
 
 const wrapElement = (children: React.ReactNode) =>
   <>
-    <div css={contentStyle}>
+    <div css={style}>
       {children}
     </div>
   </>
