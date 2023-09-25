@@ -1,16 +1,14 @@
 import type { Instance } from 'parse-torrent'
 import type { RxDatabase, RxCollection, RxJsonSchema, RxDocument } from 'rxdb'
-import { TorrentFile } from 'webtorrent'
 import { database } from './database'
 
 type TorrentStatus =
+  'paused' |
   'checking_files' |
   'downloading_metadata' |
   'downloading' |
   'finished' |
-  'seeding' |
-  'unused_enum_for_backwards_compatibility_allocating' |
-  'checking_resume_data'
+  'seeding'
 // 'idle' | 'downloading' | 'paused' | 'seeding' | 'error'
 
 export type Torrent = {
@@ -22,6 +20,7 @@ export type Torrent = {
   progress: number
   size: number
   p2p: boolean
+  addedAt?: number
 }
 
 export type Collection = RxCollection<TorrentDocType, TorrentDocMethods, TorrentCollectionMethods>
@@ -45,7 +44,7 @@ export type MyDatabaseCollections = {
 }
 
 export type TorrentDB = RxDatabase<MyDatabaseCollections>
-// magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com
+
 const torrentSchema: RxJsonSchema<TorrentDocType> = {
   title: 'Torrent schema',
   description: 'Describes a torrent',
@@ -63,7 +62,8 @@ const torrentSchema: RxJsonSchema<TorrentDocType> = {
     status: { type: 'string' },
     progress: { type: 'number' },
     size: { type: 'number' },
-    p2p: { type: 'boolean' }
+    p2p: { type: 'boolean' },
+    addedAt: { type: 'number' }
   },
   required: ['infoHash']
 }
@@ -80,7 +80,7 @@ const torrentCollectionMethods: TorrentCollectionMethods = {
   }
 }
 
-export const torrentCollection = await database.addCollections({
+const { torrents } = await database.addCollections({
   torrents: {
     schema: torrentSchema,
     methods: torrentDocMethods,
@@ -88,6 +88,13 @@ export const torrentCollection = await database.addCollections({
   }
 })
 
+export {
+  torrents as torrentCollection
+}
+
 export const addTorrent = async (torrentDocument: TorrentDocType) => {
-  await database.torrents.insert(torrentDocument)
+  await database.torrents.insert({
+    ...torrentDocument,
+    addedAt: Date.now()
+  })
 }

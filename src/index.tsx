@@ -1,8 +1,11 @@
 /// <reference types="@emotion/react/types/css-prop" />
+import './rxdb'
+import './torrent'
+import 'chart.js/auto'
+
 import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'
 import { Provider } from 'rxdb-hooks'
-import 'chart.js/auto'
 
 import Mount from './components/mount'
 import { database } from './torrent/database'

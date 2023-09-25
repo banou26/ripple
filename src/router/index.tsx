@@ -4,16 +4,15 @@ import { createBrowserRouter } from 'react-router-dom'
 
 import Home from './home'
 import { getRouterRoutePath, Route } from './path'
+import DropZone from '../components/drop-zone'
 
 const style = css`
 `
 
 const wrapElement = (children: React.ReactNode) =>
-  <>
-    <div css={style}>
-      {children}
-    </div>
-  </>
+  <DropZone>
+    {children}
+  </DropZone>
 
 const router = createBrowserRouter([
   {

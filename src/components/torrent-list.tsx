@@ -1,126 +1,84 @@
 import { css } from '@emotion/react'
-import { useDropzone } from 'react-dropzone'
-import { useCallback, useEffect } from 'react'
-import { Buffer } from 'buffer'
-import parseTorrent, { Instance } from 'parse-torrent'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 
-import { addTorrent, torrentCollection } from '../torrent/collection'
-
 const style = css`
-display: flex;
-align-items: center;
-justify-content: center;
-
-.drag-zone {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 
-  transition: all 0.2s ease-in-out;
+  width: 100%;
 
-  background-color: #0f0f0f;
-  border: 2px dashed #555;
-  padding: 2rem;
-  border-radius: 1rem;
+  .category {
+    width: 100%;
+    height: 100%;
 
-  cursor: pointer;
+    & > .title {
+      font-size: 2rem;
+      font-weight: bold;
+      width: 100%;
+      height: 4rem;
+      padding: 1rem;
+      border-bottom: 1px solid #fff;
+      background-color: #2f2f2f;
+    }
 
-  font-size: 2rem;
+    .items {
+      div {
+        width: 100%;
+        height: 8rem;
+        padding: 2rem;
+        border-bottom: 1px solid #fff;
+        background-color: #2f2f2f;
 
-  &:hover {
-    border-color: #aaa;
-  }
-  &:active {
-    border-color: #fff;
-  }
+        &:nth-of-type(-n+2) {
+          border-top: 1px solid #fff;
+        }
 
-  p {
-    color: #fff;
-    text-align: center;
-    margin: 0;
-    
-    &:last-child {
-      margin-top: 1rem;
+        :last-child {
+          border-bottom: none;
+        }
+      }
     }
   }
-}
 `
-
-const DragDrop = () => {
-  const onAddTorrent = useCallback(async (acceptedFiles: File[], magnet?: string) => {
-    const parsedTorrents = await Promise.all(
-      [
-        ...await Promise.all(acceptedFiles.map(file => {
-          const reader = new FileReader()
-          return new Promise<Buffer>((resolve, reject) => {
-            reader.onload = () => {
-              if (!reader.result || !(reader.result instanceof ArrayBuffer)) return
-              resolve(Buffer.from(reader.result))
-            }
-            reader.onerror = reject
-            reader.readAsArrayBuffer(file)
-          })
-        })),
-        ...magnet ? [magnet] : []
-      ].map(parseTorrent)
-    ) as Instance[]
-
-    parsedTorrents.forEach(torrent => {
-      addTorrent({
-        name: torrent.name,
-        infoHash: torrent.infoHash,
-        magnet: magnet,
-        torrentFile: torrent
-      })
-    })
-    console.log('parsedTorrents', parsedTorrents)
-  }, [])
-  const {getRootProps, getInputProps, isDragActive} = useDropzone({ onDrop: files => onAddTorrent(files, undefined) })
-
-  useEffect(() => {
-    const listener = (event: ClipboardEvent) =>
-      onAddTorrent(
-        [...event.clipboardData?.files ?? []],
-        event.clipboardData?.getData('Text')
-      )
-    addEventListener('paste', listener)
-    return () => removeEventListener('paste', listener)
-  }, [])
-
-  return (
-    <div {...getRootProps()} className="drag-zone">
-      <input {...getInputProps()} />
-      {
-        isDragActive ? <p>Drop the files here ...</p>
-        : (
-          <div>
-            <p>Drag and drop or click to select some torrents</p>
-            <p>You can also paste magnets & torrent files</p>
-          </div>
-        )
-      }
-    </div>
-  )
-}
-
 
 
 export const TorrentList = ({ ...rest }) => {
   const collection = useRxCollection('torrents')
-  console.log('collection', collection)
-  const query = collection?.find()
-  const torrents = useRxQuery(query)
-  console.log('torrents', torrents)
+  const query = collection?.find().sort({ addedAt: 'asc' })
+  const { result: torrents } = useRxQuery(query)
+  // console.log('torrents', torrents)
 
   return (
     <div css={style} {...rest}>
-      {
-        torrents?.result.map(torrent => (
-          <div key={torrent.infoHash}>
-            {torrent.name}
-          </div>
-        ))
-      }
-      <DragDrop/>
+      <div className="category">
+        <div className="title">Downloading</div>
+        <div>
+          Drop or Paste files or magnets to start downloading
+        </div>
+        {/* <div className="items">
+          {
+            torrents?.map(torrent => (
+              <div key={torrent.infoHash}>
+                {torrent.name}
+              </div>
+            ))
+          }
+        </div> */}
+      </div>
+      <div className="category">
+        <div className="title">Completed</div>
+        <div className="items">
+          {
+            torrents?.map(torrent => (
+              <div key={torrent.infoHash}>
+                {torrent.name}
+              </div>
+            ))
+          }
+        </div>
+      </div>
     </div>
   )
 }
