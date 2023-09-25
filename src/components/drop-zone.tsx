@@ -57,12 +57,7 @@ const DropZone = ({ children, ...rest }) => {
     ) as Instance[]
 
     parsedTorrents.forEach(torrent => {
-      console.log('adding torrent', {
-        name: torrent.name,
-        infoHash: torrent.infoHash,
-        magnet: magnet,
-        torrentFile: torrent
-      })
+      console.log('torrent', torrent)
       addTorrent({
         name: torrent.name,
         infoHash: torrent.infoHash,

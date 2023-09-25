@@ -1,5 +1,7 @@
 import type { Instance } from 'parse-torrent'
 import type { RxDatabase, RxCollection, RxJsonSchema, RxDocument } from 'rxdb'
+import { Buffer } from 'buffer'
+
 import { database } from './database'
 
 type TorrentStatus =
@@ -92,9 +94,44 @@ export {
   torrents as torrentCollection
 }
 
+export const serializeTorrentFile = (torrentFile: Instance): TorrentDocType => ({
+  ...torrentFile,
+  info: torrentFile.info && {
+    ...torrentFile.info,
+    name: Buffer.from(torrentFile.name).toString('base64'),
+    pieces: Buffer.from(torrentFile.info.pieces).toString('base64')
+  },
+  infoBuffer: Buffer.from(torrentFile.infoBuffer).toString('base64'),
+  infoHashBuffer: Buffer.from(torrentFile.infoHashBuffer).toString('base64')
+})
+
+export const deserializeTorrentFile = (torrentFile: TorrentDocType['torrentFile']): Instance => ({
+  ...torrentFile,
+  info: torrentFile.info && {
+    ...torrentFile.info,
+    name: new Uint8Array(Buffer.from(torrentFile.info.name, 'base64')),
+    pieces: new Uint8Array(Buffer.from(torrentFile.info.pieces, 'base64'))
+  },
+  infoBuffer: new Uint8Array(Buffer.from(torrentFile.infoBuffer, 'base64')),
+  infoHashBuffer: new Uint8Array(Buffer.from(torrentFile.infoHashBuffer, 'base64'))
+})
+
+torrents.preInsert(torrent => {
+  console.log('preInsert torrent', torrent)
+  torrent.torrentFile = serializeTorrentFile(torrent.torrentFile)
+  torrent.addedAt = Date.now()
+}, true)
+
+torrents.postCreate((torrentData, rxDocument) => {
+  console.log('postCreate torrent', torrentData, rxDocument)
+  const torrentFile = deserializeTorrentFile(torrentData.torrentFile)
+  Object.defineProperty(
+    rxDocument,
+    'torrentFile',
+    { get: () => torrentFile }
+  )
+})
+
 export const addTorrent = async (torrentDocument: TorrentDocType) => {
-  await database.torrents.insert({
-    ...torrentDocument,
-    addedAt: Date.now()
-  })
+  await database.torrents.insert(torrentDocument)
 }
