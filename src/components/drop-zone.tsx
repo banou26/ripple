@@ -14,6 +14,7 @@ export const style = css`
     position: absolute;
     display: flex;
     inset: 1rem;
+    bottom: 3.5rem;
     align-items: center;
     justify-content: center;
     background-color: rgba(0,0,0,.1);

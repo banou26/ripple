@@ -1,10 +1,12 @@
+import type { ExtractDocumentTypeFromTypedRxJsonSchema, RxCollection, RxDocument, RxJsonSchema } from 'rxdb'
 import type { Instance } from 'parse-torrent'
-import type { RxDatabase, RxCollection, RxJsonSchema, RxDocument } from 'rxdb'
+
+import { toTypedRxJsonSchema } from 'rxdb'
 import { Buffer } from 'buffer'
 
 import { database } from './database'
 
-type TorrentStatus =
+export type TorrentStatus =
   'paused' |
   'checking_files' |
   'downloading_metadata' |
@@ -13,41 +15,7 @@ type TorrentStatus =
   'seeding'
 // 'idle' | 'downloading' | 'paused' | 'seeding' | 'error'
 
-export type Torrent = {
-  infoHash: string
-  magnet?: string
-  name?: string
-  torrentFile?: Instance
-  status?: TorrentStatus
-  progress: number
-  size: number
-  p2p: boolean
-  addedAt?: number
-}
-
-export type Collection = RxCollection<TorrentDocType, TorrentDocMethods, TorrentCollectionMethods>
-
-export type TorrentDocType = Torrent
-
-export type TorrentDocMethods = {
-  // scream: (v: string) => string
-}
-
-export type TorrentDocument = RxDocument<TorrentDocType, TorrentDocMethods>
-
-export type TorrentCollectionMethods = {
-  countAllDocuments: () => Promise<number>
-}
-
-export type TorrentCollection = RxCollection<TorrentDocType, TorrentDocMethods, TorrentCollectionMethods>
-
-export type MyDatabaseCollections = {
-  torrents: TorrentCollection
-}
-
-export type TorrentDB = RxDatabase<MyDatabaseCollections>
-
-const torrentSchema: RxJsonSchema<TorrentDocType> = {
+const torrentSchemaLiteral = {
   title: 'Torrent schema',
   description: 'Describes a torrent',
   version: 0,
@@ -64,37 +32,59 @@ const torrentSchema: RxJsonSchema<TorrentDocType> = {
     status: { type: 'string' },
     progress: { type: 'number' },
     size: { type: 'number' },
+    peers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        uniqueItems: true,
+        properties: {
+          ip: { type: 'string' },
+          port: { type: 'number' }
+        }
+      }
+    },
+    proxy: { type: 'boolean' },
     p2p: { type: 'boolean' },
     addedAt: { type: 'number' }
   },
   required: ['infoHash']
+} as const
+
+const schemaTyped = toTypedRxJsonSchema(torrentSchemaLiteral)
+
+export type TorrentDocType = ExtractDocumentTypeFromTypedRxJsonSchema<typeof schemaTyped>
+
+// export type TorrentDocument =
+//   Exclude<ExtractDocumentTypeFromTypedRxJsonSchema<typeof schemaTyped>, 'status'> & {
+//     status: TorrentStatus
+//   }
+
+
+export type TorrentMethods = {
+  _: undefined
 }
 
-const torrentDocMethods: TorrentDocMethods = {
-  // scream: function(this: TorrentDocument, what: string) {
-  //   return this.id + ' screams: ' + what.toUpperCase()
-  // }
+export type TorrentCollectionMethods = {
+  __: undefined
 }
 
-const torrentCollectionMethods: TorrentCollectionMethods = {
-  countAllDocuments: async function(this: TorrentCollection) {
-    return (await this.find().exec()).length
-  }
-}
+export type TorrentDocument = RxDocument<TorrentDocType, TorrentMethods>
 
-const { torrents } = await database.addCollections({
+export const torrentSchema: RxJsonSchema<TorrentDocType> = torrentSchemaLiteral
+
+export type Collection = RxCollection<TorrentDocument>
+
+const { torrents: torrentCollection } = await database.addCollections({
   torrents: {
-    schema: torrentSchema,
-    methods: torrentDocMethods,
-    statics: torrentCollectionMethods
+    schema: torrentSchema
   }
 })
 
 export {
-  torrents as torrentCollection
+  torrentCollection
 }
 
-export const serializeTorrentFile = (torrentFile: Instance): TorrentDocType => ({
+export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => ({
   ...torrentFile,
   info: torrentFile.info && {
     ...torrentFile.info,
@@ -105,7 +95,7 @@ export const serializeTorrentFile = (torrentFile: Instance): TorrentDocType => (
   infoHashBuffer: Buffer.from(torrentFile.infoHashBuffer).toString('base64')
 })
 
-export const deserializeTorrentFile = (torrentFile: TorrentDocType['torrentFile']): Instance => ({
+export const deserializeTorrentFile = (torrentFile: TorrentDocument['torrentFile']): Instance => ({
   ...torrentFile,
   info: torrentFile.info && {
     ...torrentFile.info,
@@ -116,13 +106,13 @@ export const deserializeTorrentFile = (torrentFile: TorrentDocType['torrentFile'
   infoHashBuffer: new Uint8Array(Buffer.from(torrentFile.infoHashBuffer, 'base64'))
 })
 
-torrents.preInsert(torrent => {
+torrentCollection.preInsert(torrent => {
   console.log('preInsert torrent', torrent)
   torrent.torrentFile = serializeTorrentFile(torrent.torrentFile)
   torrent.addedAt = Date.now()
 }, true)
 
-torrents.postCreate((torrentData, rxDocument) => {
+torrentCollection.postCreate((torrentData, rxDocument) => {
   console.log('postCreate torrent', torrentData, rxDocument)
   const torrentFile = deserializeTorrentFile(torrentData.torrentFile)
   Object.defineProperty(

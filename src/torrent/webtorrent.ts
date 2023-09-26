@@ -10,37 +10,34 @@ const webtorrent = new WebTorrent({
 
 console.log('webtorrent', webtorrent)
 
-const addTorrent = async (torrentFile: TorrentDocument) => {
-  console.log('file', torrentFile)
-  return
-  const _torrent = torrentFile.toMutableJSON().torrentFile ?? torrentFile.magnet
-  if (!_torrent) throw new Error('torrent file and magnet not set')
+const addTorrent = async (torrentDoc: TorrentDocument) => {
+  console.log('addTorrent', torrentDoc)
+  const { torrentFile } = torrentDoc
+  if (!torrentFile) throw new Error('torrent file and magnet not set')
 
-  console.log('adding torrent: ', _torrent)
+  console.log('adding torrent: ', torrentFile)
   const torrent = webtorrent.add(
-    _torrent,
+    torrentFile,
     {
       path: torrentFile.name,
       announce: [
-        'd3NzOi8vdHJhY2tlci5vcGVud2VidG9ycmVudC5jb20=',
         'd3NzOi8vdHJhY2tlci53ZWJ0b3JyZW50LmRldg==',
         'd3NzOi8vdHJhY2tlci5maWxlcy5mbTo3MDczL2Fubm91bmNl',
-        'd3NzOi8vdHJhY2tlci5idG9ycmVudC54eXov',
         'aHR0cDovL255YWEudHJhY2tlci53Zjo3Nzc3L2Fubm91bmNl'
-      ].map(btoa)
+      ].map(atob)
     }
   )
   console.log('torrent', torrent)
   torrent.on('done', () => {
     console.log('done')
-    torrentFile.modify((doc) => {
+    torrentDoc.incrementalModify((doc) => {
       doc.status = torrent.paused ? 'finished' : 'seeding'
       return doc
     })
   })
   torrent.on('download', () => {
     console.log('download')
-    torrentFile.modify((doc) => {
+    torrentDoc.incrementalModify((doc) => {
       doc.progress = torrent.progress
       return doc
     })
@@ -50,21 +47,21 @@ const addTorrent = async (torrentFile: TorrentDocument) => {
   })
   torrent.on('infoHash', () => {
     console.log('infoHash')
-    torrentFile.modify((doc) => {
+    torrentDoc.incrementalModify((doc) => {
       doc.infoHash = torrent.infoHash
       return doc
     })
   })
   torrent.on('metadata', () => {
     console.log('metadata')
-    torrentFile.modify((doc) => {
+    torrentDoc.incrementalModify((doc) => {
       doc.name = torrent.name
       return doc
     })
   })
   torrent.on('ready', () => {
     console.log('ready')
-    torrentFile.modify((doc) => {
+    torrentDoc.incrementalModify((doc) => {
       doc.status =
         torrent.done ? 'finished' :
         torrent.paused ? 'paused' :
@@ -72,10 +69,14 @@ const addTorrent = async (torrentFile: TorrentDocument) => {
       return doc
     })
   })
-  torrent.on('warning', (err) => {
-    console.warn(err)
-  })
+  // torrent.on('warning', (err) => {
+  //   console.warn(err)
+  // })
   torrent.on('wire', (wire) => {
+    torrentDoc.incrementalModify((doc) => {
+      doc.peers = torrent.numPeers
+      return doc
+    })
     console.log('wire', wire)
   })
   torrent.on('download', () => {
@@ -85,6 +86,10 @@ const addTorrent = async (torrentFile: TorrentDocument) => {
     console.log('upload', torrent.progress)
   })
   torrent.on('noPeers', (announceType) => {
+    torrentDoc.incrementalModify((doc) => {
+      doc.peers = torrent.numPeers
+      return doc
+    })
     console.log('noPeers', announceType)
   })
 }

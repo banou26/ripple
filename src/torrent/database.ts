@@ -12,6 +12,7 @@ export const database = await createRxDatabase<Collections>({
   name: 'ripple',
   storage: getRxStorageDexie()
 })
+
 export type Database = typeof database
 
 const { broadcastChannel } = database.leaderElector()

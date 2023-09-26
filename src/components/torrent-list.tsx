@@ -1,3 +1,5 @@
+import type { Collection as TorrentCollection } from '../torrent/collection'
+
 import { css } from '@emotion/react'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 
@@ -45,10 +47,12 @@ const style = css`
 
 
 export const TorrentList = ({ ...rest }) => {
-  const collection = useRxCollection('torrents')
-  const query = collection?.find().sort({ addedAt: 'asc' })
-  const { result: torrents } = useRxQuery(query)
-  // console.log('torrents', torrents)
+  const collection = useRxCollection<TorrentCollection>('torrents')
+  const downloadingTorrentQuery = collection?.find({ selector: { status: 'downloading' } }).sort({ addedAt: 'asc' })
+  const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
+  const completedTorrentQuery = collection?.find({ selector: { status: 'finished', $or: [{ status: 'seeding' }] } }).sort({ addedAt: 'asc' })
+  const { result: completedTorrents } = useRxQuery(completedTorrentQuery)
+  console.log('completedTorrents', completedTorrents)
 
   return (
     <div css={style} {...rest}>
@@ -57,23 +61,23 @@ export const TorrentList = ({ ...rest }) => {
         <div>
           Drop or Paste files or magnets to start downloading
         </div>
-        {/* <div className="items">
+        <div className="items">
           {
-            torrents?.map(torrent => (
+            downloadingTorrents?.map(torrent => (
               <div key={torrent.infoHash}>
-                {torrent.name}
+                {torrent.name} | {torrent.peers}
               </div>
             ))
           }
-        </div> */}
+        </div>
       </div>
       <div className="category">
         <div className="title">Completed</div>
         <div className="items">
           {
-            torrents?.map(torrent => (
+            completedTorrents?.map(torrent => (
               <div key={torrent.infoHash}>
-                {torrent.name}
+                {torrent.name} | {torrent.peers}
               </div>
             ))
           }
