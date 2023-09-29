@@ -1,7 +1,7 @@
-import type { ExtractDocumentTypeFromTypedRxJsonSchema, RxCollection, RxDocument, RxJsonSchema } from 'rxdb'
+import type { RxDocument } from 'rxdb'
+
 import type { Instance } from 'parse-torrent'
 
-import { toTypedRxJsonSchema } from 'rxdb'
 import { Buffer } from 'buffer'
 
 import { database } from './database'
@@ -48,35 +48,25 @@ const torrentSchemaLiteral = {
     addedAt: { type: 'number' }
   },
   required: ['infoHash']
-} as const
-
-const schemaTyped = toTypedRxJsonSchema(torrentSchemaLiteral)
-
-export type TorrentDocType = ExtractDocumentTypeFromTypedRxJsonSchema<typeof schemaTyped>
-
-// export type TorrentDocument =
-//   Exclude<ExtractDocumentTypeFromTypedRxJsonSchema<typeof schemaTyped>, 'status'> & {
-//     status: TorrentStatus
-//   }
-
-
-export type TorrentMethods = {
-  _: undefined
 }
 
-export type TorrentCollectionMethods = {
-  __: undefined
+export type TorrentDocument = {
+  infoHash: string
+  magnet: string
+  name: string
+  torrentFile: Instance
+  status: TorrentStatus
+  progress: number
+  size: number
+  peers: Array<{ ip: string, port: number }>
+  proxy: boolean
+  p2p: boolean
+  addedAt: number
 }
-
-export type TorrentDocument = RxDocument<TorrentDocType, TorrentMethods>
-
-export const torrentSchema: RxJsonSchema<TorrentDocType> = torrentSchemaLiteral
-
-export type Collection = RxCollection<TorrentDocument>
 
 const { torrents: torrentCollection } = await database.addCollections({
   torrents: {
-    schema: torrentSchema
+    schema: torrentSchemaLiteral
   }
 })
 
@@ -122,6 +112,6 @@ torrentCollection.postCreate((torrentData, rxDocument) => {
   )
 })
 
-export const addTorrent = async (torrentDocument: TorrentDocType) => {
+export const addTorrent = async (torrentDocument: TorrentDocument) => {
   await database.torrents.insert(torrentDocument)
 }
