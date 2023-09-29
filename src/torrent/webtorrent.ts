@@ -6,7 +6,8 @@ import { database, leaderElector } from './database'
 import WebTorrent from 'webtorrent/dist/webtorrent.min.js'
 
 const webtorrent = new WebTorrent({
-  trackers: []
+  trackers: [],
+  downloadLimit: 1000
 }) as Instance
 
 console.log('webtorrent', webtorrent)
