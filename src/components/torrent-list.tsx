@@ -50,16 +50,19 @@ const style = css`
       .main {
         display: flex;
         padding: 1rem;
+        gap: 2rem;
 
         .preview {
           height: 10rem;
-          margin-right: 1rem;
+          width: 20rem;
+          background-color: #0f0f0f;
+          background-size: cover;
+          background-position: center;
         }
 
         .content {
           display: flex;
           flex-direction: column;
-          margin-left: 1rem;
 
           .name {
             font-size: 2rem;
@@ -241,7 +244,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   return (
     <div key={torrent.infoHash} className="item">
       <div className="main">
-        <img className="preview" src={imgUrl} alt="" />
+        <div className="preview" style={{ backgroundImage: `url(${imgUrl})` }} />
         <div className="content">
           <div className="name">{torrent.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.torrentFile.length)}</span>
