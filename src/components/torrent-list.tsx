@@ -7,7 +7,8 @@ import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 
 import { getHumanReadableByteString } from '../utils/bytes'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, Square } from 'react-feather'
+import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, Square, Users, UserCheck } from 'react-feather'
+import { Link } from 'react-router-dom'
 
 const style = css`
   display: flex;
@@ -133,7 +134,7 @@ const style = css`
           align-items: center;
           justify-content: space-between;
 
-          .percentage {
+          .status {
             font-size: 1.5rem;
             font-weight: bold;
             margin-right: 1rem;
@@ -172,28 +173,18 @@ const style = css`
               display: flex;
               align-items: center;
               gap: .5rem;
-
-              svg {
-                width: 1.5rem;
-                height: 1.5rem;
-              }
             }
           }
 
           .stats {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 2rem;
 
             span {
               display: flex;
               align-items: center;
               gap: .5rem;
-
-              svg {
-                width: 1.5rem;
-                height: 1.5rem;
-              }
             }
           }
         }
@@ -237,6 +228,16 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     getFirstGoogleImageResult(torrent.name).then(setImgUrl)
   }, [])
 
+  const toggleP2P = () => {
+    torrent.update({ $set: { p2p: !torrent.p2p } })
+  }
+
+  const toggleProxy = () => {
+    torrent.update({ $set: { proxy: !torrent.proxy } })
+  }
+
+  const remainingTimeString = new Date(torrent.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
+
   return (
     <div key={torrent.infoHash} className="item">
       <div className="main">
@@ -245,41 +246,97 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
           <div className="name">{torrent.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.torrentFile.length)}</span>
           <div className="sources">
-            <button className={torrent.p2p ? 'active' : ''}>{torrent.p2p ? <CheckSquare/> : <Square/>} P2P</button>
-            <button className={torrent.proxy ? 'active' : ''}>{torrent.proxy ? <CheckSquare/> : <Square/>} VPN*</button>
+            <button className={torrent.p2p && !torrent.proxy ? 'active' : ''} onClick={toggleP2P}>{torrent.p2p ? <CheckSquare/> : <Square/>} P2P</button>
+            <button className={torrent.proxy ? 'active' : ''} onClick={toggleProxy}>{torrent.proxy ? <CheckSquare/> : <Square/>} VPN*</button>
           </div>
         </div>
       </div>
       <div className="info">
         <div className="progress-title">
-          <span className="percentage">Downloading {(torrent.progress * 100).toPrecision(1)}%</span>
-          <span className="remaining"><span className="highlight">{torrent.remaining ?? 'x:xx'}</span> remaining</span>
+          <span className="status">
+            {
+              torrent.status === 'downloading' && `Downloading ${(torrent.progress * 100).toFixed(2)}%`
+            }
+            {
+              torrent.status === 'finished' && 'Finished'
+            }
+            {
+              torrent.status === 'seeding' && 'Seeding'
+            }
+            {
+              torrent.status === 'paused' && 'Paused'
+            }
+          </span>
+          <span className="remaining">
+            {
+              torrent.status === 'downloading' && (
+                <>
+                  <span className="highlight">
+                    {remainingTimeString}
+                  </span>
+                  &nbsp;
+                  <span>remaining</span>
+                </>
+              )
+            }
+          </span>
         </div>
         <div className="progress-bar">
-          <div className="inner" style={{ width: `${torrent.progress * 10000}%`, height: '100%', backgroundColor: '#fff' }} />
+          <div className="inner" style={{ width: `${torrent.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
         </div>
         <div className="torrent-info">
           <div className="peers">
-            <span><ArrowUpCircle/> {torrent.peers.length}</span>
-            <span><ArrowDownCircle/> {torrent.peers.length}</span>
+            {
+              torrent.p2p && !torrent.proxy && (
+                <>
+                  <span><UserCheck size={20}/> {torrent.peers.length}</span>
+                  <span><Users size={20}/> {torrent.peers.length}</span>
+                  <span>
+                    <Divide size={22}/>
+                    <span>{torrent.ratio?.toFixed(2)}</span>
+                  </span>
+                </>
+              )
+            }
           </div>
           <div className="stats">
+            {
+              torrent.p2p && !torrent.proxy && (
+                <span>
+                  <ArrowUpCircle size={20}/>
+                  <span className="highlight">{getHumanReadableByteString(torrent.uploadSpeed ?? 0)}/s</span>
+                </span>
+              )
+            }
+            {
+              torrent.status === 'downloading' && (
+                <span>
+                  <ArrowDownCircle size={20}/>
+                  <span className="highlight">{getHumanReadableByteString(torrent.downloadSpeed ?? 0)}/s</span>
+                </span>
+              )
+            }
+            {
+              torrent.p2p && !torrent.proxy && (
+                <span>
+                  <Upload size={22}/>
+                  <span className="highlight">{getHumanReadableByteString(torrent.uploaded ?? 0)}</span>
+                  <span>/ {getHumanReadableByteString(torrent.torrentFile.length)}</span>
+                </span>
+              )
+            }
             <span>
-              <Divide/>
-              <span>{(torrent.downloaded ?? 0) / (torrent.uploaded ?? 0)}</span>
-            </span>
-            <span>
-              <Download/>
+              <Download size={22}/>
               <span className="highlight">{getHumanReadableByteString(torrent.downloaded ?? 0)}</span>
-              <span>/ {getHumanReadableByteString(torrent.torrentFile.length)}</span>
-            </span>
-            <span>
-              <Upload/>
-              <span className="highlight">{getHumanReadableByteString(torrent.uploaded ?? 0)}</span>
               <span>/ {getHumanReadableByteString(torrent.torrentFile.length)}</span>
             </span>
           </div>
         </div>
+      </div>
+      <div className="actions">
+        <Link to={`/watch/${torrent.infoHash}`} className="play">
+          <button>play</button>
+        </Link>
       </div>
     </div>
   )
@@ -287,7 +344,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 
 export const TorrentList = ({ ...rest }) => {
   const collection = useRxCollection<TorrentDocument>('torrents')
-  const downloadingTorrentQuery = collection?.find({ selector: { status: 'downloading' } }).sort({ addedAt: 'asc' })
+  const downloadingTorrentQuery = collection?.find({ selector: { status: { $in: ['downloading', 'paused'] } } }).sort({ addedAt: 'asc' })
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
   const completedTorrentQuery = collection?.find({ selector: { status: { $in: ['finished', 'seeding'] } } }).sort({ addedAt: 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)

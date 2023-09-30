@@ -45,16 +45,43 @@ const torrentSchemaLiteral = {
     },
     proxy: { type: 'boolean' },
     p2p: { type: 'boolean' },
-    addedAt: { type: 'number' }
+    addedAt: { type: 'number' },
+    remainingTime: { type: 'number' },
+    peersCount: { type: 'number' },
+    seedersCount: { type: 'number' },
+    leechersCount: { type: 'number' },
+    downloaded: { type: 'number' },
+    uploaded: { type: 'number' },
+    downloadSpeed: { type: 'number' },
+    uploadSpeed: { type: 'number' },
+    ratio: { type: 'number' },
+    path: { type: 'string' },
+    files: {
+      type: 'array',
+      items: {
+        type: 'object',
+        uniqueItems: true,
+        properties: {
+          name: { type: 'string' },
+          path: { type: 'string' },
+          offset: { type: 'number' },
+          length: { type: 'number' },
+          downloaded: { type: 'number' },
+          progress: { type: 'number' },
+          selected: { type: 'boolean' },
+          priority: { type: 'number' }
+        }
+      }
+    }
   },
   required: ['infoHash']
 }
 
 export type TorrentDocument = {
   infoHash: string
-  magnet: string
+  magnet?: string
+  torrentFile?: Instance
   name: string
-  torrentFile: Instance
   status: TorrentStatus
   progress: number
   size: number
@@ -62,6 +89,26 @@ export type TorrentDocument = {
   proxy: boolean
   p2p: boolean
   addedAt: number
+  remainingTime?: number
+  peersCount?: number
+  seedersCount?: number
+  leechersCount?: number
+  downloaded?: number
+  uploaded?: number
+  downloadSpeed?: number
+  uploadSpeed?: number
+  ratio?: number
+  path?: string
+  files?: Array<{
+    name: string
+    path: string
+    offset: number
+    length: number
+    downloaded: number
+    progress: number
+    selected: boolean
+    priority: number
+  }>
 }
 
 const { torrents: torrentCollection } = await database.addCollections({
@@ -76,6 +123,7 @@ export {
 
 export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => ({
   ...torrentFile,
+  created: torrentFile.created.getTime(),
   info: torrentFile.info && {
     ...torrentFile.info,
     name: Buffer.from(torrentFile.name).toString('base64'),
@@ -87,6 +135,7 @@ export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => 
 
 export const deserializeTorrentFile = (torrentFile: TorrentDocument['torrentFile']): Instance => ({
   ...torrentFile,
+  created: new Date(torrentFile.created),
   info: torrentFile.info && {
     ...torrentFile.info,
     name: new Uint8Array(Buffer.from(torrentFile.info.name, 'base64')),
@@ -112,6 +161,29 @@ torrentCollection.postCreate((torrentData, rxDocument) => {
   )
 })
 
-export const addTorrent = async (torrentDocument: TorrentDocument) => {
-  await database.torrents.insert(torrentDocument)
+export const addTorrent = async (torrentDocument: Partial<TorrentDocument>) => {
+  await database.torrents.insert({
+    status: torrentDocument.torrentFile ? 'downloading' : 'downloading_metadata',
+    progress: 0,
+    size: torrentDocument.torrentFile?.length || 0,
+    peers: [],
+    proxy: false,
+    p2p: false,
+    addedAt: Date.now(),
+    remainingTime: 0,
+    peersCount: 0,
+    seedersCount: 0,
+    leechersCount: 0,
+    downloaded: 0,
+    uploaded: 0,
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    ratio: 0,
+    files: torrentDocument.torrentFile?.files?.map((file) => ({
+      ...file,
+      selected: true,
+      priority: 1
+    })) ?? [],
+    ...torrentDocument
+  })
 }

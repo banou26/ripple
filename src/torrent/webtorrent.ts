@@ -5,9 +5,11 @@ import { TorrentDocument, torrentCollection } from './collection'
 import { database, leaderElector } from './database'
 import WebTorrent from 'webtorrent/dist/webtorrent.min.js'
 
-const webtorrent = new WebTorrent({
+import { queuedDebounceWithLastCall } from 'queue-utils'
+
+export const webtorrent = new WebTorrent({
   trackers: [],
-  downloadLimit: 1000
+  downloadLimit: 10000
 }) as Instance
 
 console.log('webtorrent', webtorrent)
@@ -21,7 +23,6 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
   const torrent = webtorrent.add(
     torrentFile,
     {
-      path: torrentFile.name,
       announce: [
         'd3NzOi8vdHJhY2tlci53ZWJ0b3JyZW50LmRldg==',
         'd3NzOi8vdHJhY2tlci5maWxlcy5mbTo3MDczL2Fubm91bmNl',
@@ -29,6 +30,31 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
       ].map(atob)
     }
   )
+
+  const debounce = queuedDebounceWithLastCall(500, (torrentDoc: RxDocument<TorrentDocument>) => {
+    if (!torrentDoc.p2p) return
+    torrentDoc.incrementalModify((doc) => {
+      doc.progress = torrent.progress
+      doc.downloaded = torrent.downloaded
+      doc.downloadSpeed = torrent.downloadSpeed
+      doc.uploaded = torrent.uploaded
+      doc.uploadSpeed = torrent.uploadSpeed
+      doc.ratio = torrent.ratio
+      doc.remainingTime = torrent.timeRemaining
+
+      doc.peersCount = torrent.numPeers
+      doc.seedersCount = torrent.numPeers
+      doc.leechersCount = torrent.numPeers
+
+      doc.status =
+        torrent.done ? 'finished' :
+        torrent.paused ? 'paused' :
+        'downloading'
+
+      return doc
+    })
+  })
+
   console.log('torrent', torrent)
   torrent.on('done', () => {
     console.log('done')
@@ -39,10 +65,7 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
   })
   torrent.on('download', () => {
     console.log('download')
-    torrentDoc.incrementalModify((doc) => {
-      doc.progress = torrent.progress
-      return doc
-    })
+    debounce(torrentDoc)
   })
   torrent.on('error', (err) => {
     console.error(err)
@@ -159,6 +182,24 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
   })
 }
 
+const removeTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
+  const { infoHash } = torrentDoc
+  if (!infoHash) throw new Error('infoHash not set')
+  const torrent = webtorrent.get(infoHash)
+  if (!torrent) throw new Error('torrent not found')
+  // torrent.destroy({ destroyStore: true })
+  webtorrent.remove(infoHash, { destroyStore: true })
+}
+
+const disableTorrent = async (torrentDoc: WebTorrent.Torrent) => {
+  const { infoHash } = torrentDoc
+  if (!infoHash) throw new Error('infoHash not set')
+  const torrent = webtorrent.get(infoHash)
+  if (!torrent) throw new Error('torrent not found')
+  webtorrent.remove(infoHash, { destroyStore: false })
+  // torrent.destroy({ destroyStore: true })
+}
+
 database
   .waitForLeadership()
   .then(() => {
@@ -167,15 +208,23 @@ database
     torrentCollection
       .find()
       .$
-      .subscribe(async (torrentFiles) => {
-        console.log('torrents', torrentFiles)
+      .subscribe(async (torrentDocuments: RxDocument<TorrentDocument>[]) => {
+        const filteredTorrentDocs = torrentDocuments.filter((torrentDoc) => torrentDoc.p2p && !torrentDoc.proxy)
+        console.log('torrents', torrentDocuments)
 
-        for (const torrentFile of torrentFiles) {
-          if (await webtorrent.get(torrentFile.infoHash)) {
-            console.log('torrent already set', torrentFile.infoHash)
+        for (const torrent of webtorrent.torrents) {
+          if (!filteredTorrentDocs.find((torrentDoc) => torrentDoc.infoHash === torrent.infoHash)) {
+            console.log('disableTorrent', torrent.infoHash)
+            await disableTorrent(torrent)
+          }
+        }
+
+        for (const torrentDoc of filteredTorrentDocs) {
+          if (await webtorrent.get(torrentDoc.infoHash)) {
+            console.log('torrent already set', torrentDoc.infoHash)
             continue
           }
-          await addTorrent(torrentFile)
+          await addTorrent(torrentDoc)
         }
       })
   })

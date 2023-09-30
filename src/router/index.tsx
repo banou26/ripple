@@ -3,6 +3,7 @@ import { RouterProvider } from 'react-router'
 import { createBrowserRouter } from 'react-router-dom'
 
 import Home from './home'
+import Watch from './watch'
 import { getRouterRoutePath, Route } from './path'
 import DropZone from '../components/drop-zone'
 
@@ -19,6 +20,10 @@ const router = createBrowserRouter([
 
     path: getRouterRoutePath(Route.HOME),
     element: wrapElement(<Home/>)
+  },
+  {
+    path: '/watch/:infoHash',
+    element: wrapElement(<Watch/>)
   },
   {
     path: '/*',
