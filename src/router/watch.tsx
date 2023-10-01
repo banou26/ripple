@@ -10,8 +10,10 @@ import FKNMediaPlayer from '@banou/media-player'
 
 import { fetch } from '../utils/fetch'
 import { torrent } from '@fkn/lib'
-import { webtorrent } from '../torrent/webtorrent'
+import { isReady, webtorrent } from '../torrent/webtorrent'
 import { useParams } from 'react-router'
+import { useRxCollection, useRxQuery } from 'rxdb-hooks'
+import { TorrentDocument } from 'src/torrent/collection'
 
 const playerStyle = css`
 height: 100%;
@@ -134,6 +136,17 @@ const Player = () => {
   const [currentStreamOffset, setCurrentStreamOffset] = useState<number>(0)
   const [streamReader, setStreamReader] = useState<ReadableStreamDefaultReader<Uint8Array>>()
 
+  const collection = useRxCollection<TorrentDocument>('torrents')
+  const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
+  const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
+
+  useEffect(() => {
+    if (!torrentDoc?.state.torrentFile?.length) return
+    setSize(torrentDoc.state.torrentFile.length)
+  }, [torrentDoc?.state.torrentFile?.length])
+
+  console.log('torrentDoc', torrentDoc)
+
   useEffect(() => {
     if (!streamReader) return
     return () => {
@@ -182,34 +195,18 @@ const Player = () => {
   }
 
   useEffect(() => {
-    if (!infoHash) return
-    setTimeout(() => {
-      console.log(webtorrent.torrents)
+    if (!infoHash || !torrentDoc?.state.torrentFile) return
+    console.log(webtorrent.torrents)
+    isReady.then(() => {
+      console.log('watch webtorrent get running')
       ;(webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent => {
         console.log('torrent', torrent)
         if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
         // @ts-expect-error the webtorrent types arent up to date, infoBuffer exists as an Uint8Array
         setTorrentFileArrayBuffer(torrent.infoBuffer.buffer)
       })
-    }, 1000)
-  }, [infoHash])
-
-  useEffect(() => {
-    if (!torrentFileArrayBuffer) return
-    torrent({ arrayBuffer: structuredClone(torrentFileArrayBuffer), fileIndex: 0, offset: 0, end: 1 })
-      .then(async (res) => {
-        const { headers, body } = res
-        if (!body) throw new Error('no body')
-        const contentRangeContentLength = headers.get('Content-Range')?.split('/').at(1)
-        const contentLength =
-          contentRangeContentLength
-            ? Number(contentRangeContentLength)
-            : Number(headers.get('Content-Length'))
-
-        if (BACKPRESSURE_STREAM_ENABLED) await setupStream(0)
-        setSize(contentLength)
-      })
-  }, [torrentFileArrayBuffer])
+    })
+  }, [infoHash, torrentDoc?.state.torrentFile])
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL('/build/jassub-worker.js', new URL(window.location.toString()).origin).toString()

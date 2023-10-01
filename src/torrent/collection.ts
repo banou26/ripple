@@ -26,50 +26,133 @@ const torrentSchemaLiteral = {
       type: 'string',
       maxLength: 255
     },
-    magnet: { type: 'string' },
-    name: { type: 'string' },
-    torrentFile: { type: 'object' },
-    status: { type: 'string' },
-    progress: { type: 'number' },
-    size: { type: 'number' },
-    peers: {
-      type: 'array',
-      items: {
-        type: 'object',
-        uniqueItems: true,
-        properties: {
-          ip: { type: 'string' },
-          port: { type: 'number' }
+    options: {
+      type: 'object',
+      properties: {
+        proxy: {
+          type: 'boolean'
+        },
+        p2p: {
+          type: 'boolean'
+        },
+        paused: {
+          type: 'boolean'
         }
       }
     },
-    proxy: { type: 'boolean' },
-    p2p: { type: 'boolean' },
-    addedAt: { type: 'number' },
-    remainingTime: { type: 'number' },
-    peersCount: { type: 'number' },
-    seedersCount: { type: 'number' },
-    leechersCount: { type: 'number' },
-    downloaded: { type: 'number' },
-    uploaded: { type: 'number' },
-    downloadSpeed: { type: 'number' },
-    uploadSpeed: { type: 'number' },
-    ratio: { type: 'number' },
-    path: { type: 'string' },
-    files: {
-      type: 'array',
-      items: {
-        type: 'object',
-        uniqueItems: true,
-        properties: {
-          name: { type: 'string' },
-          path: { type: 'string' },
-          offset: { type: 'number' },
-          length: { type: 'number' },
-          downloaded: { type: 'number' },
-          progress: { type: 'number' },
-          selected: { type: 'boolean' },
-          priority: { type: 'number' }
+    state: {
+      type: 'object',
+      properties: {
+        magnet: {
+          type: 'string',
+          maxLength: 255
+        },
+        torrentFile: {
+          type: 'object'
+        },
+        name: {
+          type: 'string',
+          maxLength: 255
+        },
+        status: {
+          type: 'string',
+          enum: [
+            'paused',
+            'checking_files',
+            'downloading_metadata',
+            'downloading',
+            'finished',
+            'seeding'
+          ]
+        },
+        progress: {
+          type: 'number'
+        },
+        size: {
+          type: 'number'
+        },
+        peers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              ip: {
+                type: 'string',
+                maxLength: 255
+              },
+              port: {
+                type: 'number'
+              }
+            }
+          }
+        },
+        addedAt: {
+          type: 'number'
+        },
+        remainingTime: {
+          type: 'number'
+        },
+        peersCount: {
+          type: 'number'
+        },
+        seedersCount: {
+          type: 'number'
+        },
+        leechersCount: {
+          type: 'number'
+        },
+        downloaded: {
+          type: 'number'
+        },
+        uploaded: {
+          type: 'number'
+        },
+        downloadSpeed: {
+          type: 'number'
+        },
+        uploadSpeed: {
+          type: 'number'
+        },
+        ratio: {
+          type: 'number'
+        },
+        path: {
+          type: 'string',
+          maxLength: 255
+        },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                maxLength: 255
+              },
+              path: {
+                type: 'string',
+                maxLength: 255
+              },
+              offset: {
+                type: 'number'
+              },
+              length: {
+                type: 'number'
+              },
+              downloaded: {
+                type: 'number'
+              },
+              progress: {
+                type: 'number'
+              },
+              selected: {
+                type: 'boolean'
+              },
+              priority: {
+                type: 'number'
+              }
+            }
+          }
         }
       }
     }
@@ -79,36 +162,41 @@ const torrentSchemaLiteral = {
 
 export type TorrentDocument = {
   infoHash: string
-  magnet?: string
-  torrentFile?: Instance
-  name: string
-  status: TorrentStatus
-  progress: number
-  size: number
-  peers: Array<{ ip: string, port: number }>
-  proxy: boolean
-  p2p: boolean
-  addedAt: number
-  remainingTime?: number
-  peersCount?: number
-  seedersCount?: number
-  leechersCount?: number
-  downloaded?: number
-  uploaded?: number
-  downloadSpeed?: number
-  uploadSpeed?: number
-  ratio?: number
-  path?: string
-  files?: Array<{
+  options: {
+    proxy: boolean
+    p2p: boolean
+    paused: boolean
+  },
+  state: {
+    magnet?: string
+    torrentFile?: Instance
     name: string
-    path: string
-    offset: number
-    length: number
-    downloaded: number
+    status: TorrentStatus
     progress: number
-    selected: boolean
-    priority: number
-  }>
+    size: number
+    peers: Array<{ ip: string, port: number }>
+    addedAt: number
+    remainingTime?: number
+    peersCount?: number
+    seedersCount?: number
+    leechersCount?: number
+    downloaded?: number
+    uploaded?: number
+    downloadSpeed?: number
+    uploadSpeed?: number
+    ratio?: number
+    path?: string
+    files?: Array<{
+      name: string
+      path: string
+      offset: number
+      length: number
+      downloaded: number
+      progress: number
+      selected: boolean
+      priority: number
+    }>
+  }
 }
 
 const { torrents: torrentCollection } = await database.addCollections({
@@ -146,16 +234,14 @@ export const deserializeTorrentFile = (torrentFile: TorrentDocument['torrentFile
 })
 
 torrentCollection.preInsert(torrent => {
-  console.log('preInsert torrent', torrent)
-  torrent.torrentFile = serializeTorrentFile(torrent.torrentFile)
-  torrent.addedAt = Date.now()
+  torrent.state.torrentFile = serializeTorrentFile(torrent.state.torrentFile)
+  torrent.state.addedAt = Date.now()
 }, true)
 
 torrentCollection.postCreate((torrentData, rxDocument) => {
-  console.log('postCreate torrent', torrentData, rxDocument)
-  const torrentFile = deserializeTorrentFile(torrentData.torrentFile)
+  const torrentFile = deserializeTorrentFile(torrentData.state.torrentFile)
   Object.defineProperty(
-    rxDocument,
+    rxDocument.state,
     'torrentFile',
     { get: () => torrentFile }
   )
@@ -163,27 +249,36 @@ torrentCollection.postCreate((torrentData, rxDocument) => {
 
 export const addTorrent = async (torrentDocument: Partial<TorrentDocument>) => {
   await database.torrents.insert({
-    status: torrentDocument.torrentFile ? 'downloading' : 'downloading_metadata',
-    progress: 0,
-    size: torrentDocument.torrentFile?.length || 0,
-    peers: [],
-    proxy: false,
-    p2p: false,
-    addedAt: Date.now(),
-    remainingTime: 0,
-    peersCount: 0,
-    seedersCount: 0,
-    leechersCount: 0,
-    downloaded: 0,
-    uploaded: 0,
-    downloadSpeed: 0,
-    uploadSpeed: 0,
-    ratio: 0,
-    files: torrentDocument.torrentFile?.files?.map((file) => ({
-      ...file,
-      selected: true,
-      priority: 1
-    })) ?? [],
-    ...torrentDocument
+    ...torrentDocument,
+    options: {
+      proxy: false,
+      p2p: false,
+      paused: false
+    },
+    state: {
+      name: torrentDocument.state?.torrentFile?.name || '',
+      status: torrentDocument.state?.torrentFile ? 'downloading' : 'downloading_metadata',
+      progress: 0,
+      size: torrentDocument.state?.torrentFile?.length || 0,
+      peers: [],
+      proxy: false,
+      p2p: false,
+      addedAt: Date.now(),
+      remainingTime: 0,
+      peersCount: 0,
+      seedersCount: 0,
+      leechersCount: 0,
+      downloaded: 0,
+      uploaded: 0,
+      downloadSpeed: 0,
+      uploadSpeed: 0,
+      ratio: 0,
+      files: torrentDocument.state?.torrentFile?.files?.map((file) => ({
+        ...file,
+        selected: true,
+        priority: 1
+      })) ?? [],
+      ...torrentDocument.state
+    }
   })
 }

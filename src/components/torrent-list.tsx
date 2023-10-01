@@ -35,7 +35,11 @@ const style = css`
     }
 
     .items {
-
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+      padding: .5rem .1rem;
+      padding-bottom: 1rem;
     }
 
     .item {
@@ -46,6 +50,20 @@ const style = css`
       background-color: rgb(35, 38, 40);
       /* border-bottom: 1px solid #fff;
       background-color: #2f2f2f; */
+      border: 1px solid rgb(48, 52, 54);
+
+      .highlight {
+        color: #fff;
+      }
+
+
+      /* &:nth-of-type(-n+2) {
+        border-top: 1px solid rgb(48, 52, 54);
+      } */
+
+      /* :last-child {
+        border-bottom: none;
+      } */
 
       .main {
         display: flex;
@@ -192,19 +210,6 @@ const style = css`
           }
         }
       }
-
-      .highlight {
-        color: #fff;
-      }
-
-
-      &:nth-of-type(-n+2) {
-        border-top: 1px solid rgb(48, 52, 54);
-      }
-
-      :last-child {
-        border-bottom: none;
-      }
     }
   }
 `
@@ -228,29 +233,33 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
 
   useEffect(() => {
-    getFirstGoogleImageResult(torrent.name).then(setImgUrl)
+    getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
   }, [])
 
   const toggleP2P = () => {
-    torrent.update({ $set: { p2p: !torrent.p2p } })
+    torrent.update({ $set: { 'options.p2p': !torrent.options.p2p } })
   }
 
   const toggleProxy = () => {
-    torrent.update({ $set: { proxy: !torrent.proxy } })
+    torrent.update({ $set: { 'options.proxy': !torrent.options.proxy } })
   }
 
-  const remainingTimeString = new Date(torrent.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
+  const remainingTimeString = new Date(torrent.state.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
+
+  const removeTorrent = () => {
+    // torrent.remove()
+  }
 
   return (
     <div key={torrent.infoHash} className="item">
       <div className="main">
         <div className="preview" style={{ backgroundImage: `url(${imgUrl})` }} />
         <div className="content">
-          <div className="name">{torrent.name}</div>
-          <span className="size">{getHumanReadableByteString(torrent.torrentFile.length)}</span>
+          <div className="name">{torrent.state.name}</div>
+          <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
           <div className="sources">
-            <button className={torrent.p2p && !torrent.proxy ? 'active' : ''} onClick={toggleP2P}>{torrent.p2p ? <CheckSquare/> : <Square/>} P2P</button>
-            <button className={torrent.proxy ? 'active' : ''} onClick={toggleProxy}>{torrent.proxy ? <CheckSquare/> : <Square/>} VPN*</button>
+            <button className={torrent.options.p2p && !torrent.options.proxy ? 'active' : ''} onClick={toggleP2P}>{torrent.options.p2p ? <CheckSquare/> : <Square/>} P2P</button>
+            <button className={torrent.options.proxy ? 'active' : ''} onClick={toggleProxy}>{torrent.options.proxy ? <CheckSquare/> : <Square/>} VPN*</button>
           </div>
         </div>
       </div>
@@ -258,21 +267,21 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         <div className="progress-title">
           <span className="status">
             {
-              torrent.status === 'downloading' && `Downloading ${(torrent.progress * 100).toFixed(2)}%`
+              torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
             }
             {
-              torrent.status === 'finished' && 'Finished'
+              torrent.state.status === 'finished' && 'Finished'
             }
             {
-              torrent.status === 'seeding' && 'Seeding'
+              torrent.state.status === 'seeding' && 'Seeding'
             }
             {
-              torrent.status === 'paused' && 'Paused'
+              torrent.state.status === 'paused' && 'Paused'
             }
           </span>
           <span className="remaining">
             {
-              torrent.status === 'downloading' && (
+              torrent.state.status === 'downloading' && (
                 <>
                   <span className="highlight">
                     {remainingTimeString}
@@ -285,18 +294,18 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
           </span>
         </div>
         <div className="progress-bar">
-          <div className="inner" style={{ width: `${torrent.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
+          <div className="inner" style={{ width: `${torrent.state.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
         </div>
         <div className="torrent-info">
           <div className="peers">
             {
-              torrent.p2p && !torrent.proxy && (
+              torrent.options.p2p && !torrent.options.proxy && (
                 <>
-                  <span><UserCheck size={20}/> {torrent.peers.length}</span>
-                  <span><Users size={20}/> {torrent.peers.length}</span>
+                  <span><UserCheck size={20}/> {torrent.state.peers.length}</span>
+                  <span><Users size={20}/> {torrent.state.peers.length}</span>
                   <span>
                     <Divide size={22}/>
-                    <span>{torrent.ratio?.toFixed(2)}</span>
+                    <span>{torrent.state.ratio?.toFixed(2)}</span>
                   </span>
                 </>
               )
@@ -304,34 +313,34 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
           </div>
           <div className="stats">
             {
-              torrent.p2p && !torrent.proxy && (
+              torrent.options.p2p && !torrent.options.proxy && (
                 <span>
                   <ArrowUpCircle size={20}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.uploadSpeed ?? 0)}/s</span>
+                  <span className="highlight">{getHumanReadableByteString(torrent.state.uploadSpeed ?? 0)}/s</span>
                 </span>
               )
             }
             {
-              torrent.status === 'downloading' && (
+              torrent.state.status === 'downloading' && (
                 <span>
                   <ArrowDownCircle size={20}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.downloadSpeed ?? 0)}/s</span>
+                  <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
                 </span>
               )
             }
             {
-              torrent.p2p && !torrent.proxy && (
+              torrent.options.p2p && !torrent.options.proxy && (
                 <span>
                   <Upload size={22}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.uploaded ?? 0)}</span>
-                  <span>/ {getHumanReadableByteString(torrent.torrentFile.length)}</span>
+                  <span className="highlight">{getHumanReadableByteString(torrent.state.uploaded ?? 0)}</span>
+                  <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
                 </span>
               )
             }
             <span>
               <Download size={22}/>
-              <span className="highlight">{getHumanReadableByteString(torrent.downloaded ?? 0)}</span>
-              <span>/ {getHumanReadableByteString(torrent.torrentFile.length)}</span>
+              <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
+              <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
             </span>
           </div>
         </div>
@@ -347,9 +356,9 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 
 export const TorrentList = ({ ...rest }) => {
   const collection = useRxCollection<TorrentDocument>('torrents')
-  const downloadingTorrentQuery = collection?.find({ selector: { status: { $in: ['downloading', 'paused'] } } }).sort({ addedAt: 'asc' })
+  const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['downloading', 'paused'] } } }).sort({ addedAt: 'asc' })
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
-  const completedTorrentQuery = collection?.find({ selector: { status: { $in: ['finished', 'seeding'] } } }).sort({ addedAt: 'asc' })
+  const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ addedAt: 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)
   console.log('downloadingTorrents', downloadingTorrents)
   console.log('completedTorrents', completedTorrents)
