@@ -1,6 +1,7 @@
 import type ParseTorrentFile from 'parse-torrent-file'
 import type WebTorrent from 'webtorrent'
 
+
 import { useEffect, useMemo, useState } from 'react'
 import { Buffer } from 'buffer'
 import parseTorrent, { toMagnetURI } from 'parse-torrent'
@@ -140,11 +141,6 @@ const Player = () => {
   const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
   const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
 
-  useEffect(() => {
-    if (!torrentDoc?.state.torrentFile?.length) return
-    setSize(torrentDoc.state.torrentFile.length)
-  }, [torrentDoc?.state.torrentFile?.length])
-
   console.log('torrentDoc', torrentDoc)
 
   useEffect(() => {
@@ -155,6 +151,7 @@ const Player = () => {
   }, [streamReader])
 
   const setupStream = async (offset: number) => {
+    console.log('setupStream', offset)
     if (streamReader) {
       streamReader.cancel()
     }
@@ -168,16 +165,31 @@ const Player = () => {
   }
 
   const onFetch = async (offset: number, end?: number, force?: boolean) => {
+    console.log('onFetch', offset, end, force)
     if (force || end !== undefined && ((end - offset) + 1) !== BASE_BUFFER_SIZE) {
+      console.log('onFetch torrent', offset, end, force, torrentFileArrayBuffer)
+
+      const arrayBuffer = structuredClone(torrentFileArrayBuffer)
+
+      console.log('TORRENT', await webtorrent.get(infoHash))
+
+      const test = [
+        await parseTorrent(new Uint8Array(arrayBuffer)) as ParseTorrentFile.Instance,
+        toMagnetURI(await parseTorrent(new Uint8Array(arrayBuffer)))
+      ]
+
+      console.log('test', test)
+
       return torrent({
-        arrayBuffer: structuredClone(torrentFileArrayBuffer),
+        arrayBuffer,
         fileIndex: 0,
         offset,
         end
       })
     }
+    console.log('onFetch _streamReader', offset, currentStreamOffset, streamReader)
     const _streamReader =
-      currentStreamOffset !== offset
+      !streamReader || currentStreamOffset !== offset
         ? await setupStream(offset)
         : streamReader
 
@@ -195,18 +207,23 @@ const Player = () => {
   }
 
   useEffect(() => {
-    if (!infoHash || !torrentDoc?.state.torrentFile) return
-    console.log(webtorrent.torrents)
-    isReady.then(() => {
-      console.log('watch webtorrent get running')
-      ;(webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent => {
-        console.log('torrent', torrent)
-        if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
-        // @ts-expect-error the webtorrent types arent up to date, infoBuffer exists as an Uint8Array
-        setTorrentFileArrayBuffer(torrent.infoBuffer.buffer)
-      })
+    if (!infoHash || !torrentDoc?.state.torrentFile || size || torrentFileArrayBuffer) return
+    isReady.then(async () => {
+      const torrent =
+        await (webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent =>
+          torrent
+            ? webtorrent.get(infoHash)
+            : new Promise((resolve, reject) => {
+              webtorrent.on('torrent', (torrent) => torrent.infoHash === infoHash && resolve(torrent))
+              setTimeout(() => reject(new Error(`No torrent found for infohash: ${infoHash}`)), 5000)
+            })
+        ) as unknown as WebTorrent.Torrent | null
+      if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
+      console.log('RESULT', torrent, torrent.length, torrent.torrentFile.buffer, webtorrent)
+      setTorrentFileArrayBuffer(torrent.torrentFile.buffer)
+      setSize(torrent.length)
     })
-  }, [infoHash, torrentDoc?.state.torrentFile])
+  }, [infoHash, torrentDoc?.state.torrentFile, size, torrentFileArrayBuffer])
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL('/build/jassub-worker.js', new URL(window.location.toString()).origin).toString()

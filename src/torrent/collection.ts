@@ -211,9 +211,13 @@ export {
 
 export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => ({
   ...torrentFile,
-  created: torrentFile.created.getTime(),
+  created: torrentFile.created?.getTime(),
   info: torrentFile.info && {
     ...torrentFile.info,
+    files: torrentFile.info.files && torrentFile.info.files.map((file) => ({
+      ...file,
+      path: file.path.map(path => Buffer.from(path).toString('base64'))
+    })),
     name: Buffer.from(torrentFile.name).toString('base64'),
     pieces: Buffer.from(torrentFile.info.pieces).toString('base64')
   },
@@ -223,9 +227,13 @@ export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => 
 
 export const deserializeTorrentFile = (torrentFile: TorrentDocument['torrentFile']): Instance => ({
   ...torrentFile,
-  created: new Date(torrentFile.created),
+  created: torrentFile.created ? new Date(torrentFile.created) : undefined,
   info: torrentFile.info && {
     ...torrentFile.info,
+    files: torrentFile.info.files && torrentFile.info.files.map((file) => ({
+      ...file,
+      path: file.path.map(path => new Uint8Array(Buffer.from(path, 'base64')))
+    })),
     name: new Uint8Array(Buffer.from(torrentFile.info.name, 'base64')),
     pieces: new Uint8Array(Buffer.from(torrentFile.info.pieces, 'base64'))
   },

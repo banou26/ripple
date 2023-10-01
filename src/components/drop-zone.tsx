@@ -2,9 +2,10 @@ import { css } from '@emotion/react'
 import { useDropzone } from 'react-dropzone'
 import { useCallback, useEffect } from 'react'
 import { Buffer } from 'buffer'
-import parseTorrent, { Instance } from 'parse-torrent'
+import parseTorrent, { Instance, toMagnetURI } from 'parse-torrent'
 
 import { addTorrent } from '../torrent/collection'
+import { webtorrent } from '../torrent/webtorrent'
 
 export const style = css`
   position: relative;
@@ -57,8 +58,14 @@ const DropZone = ({ children, ...rest }) => {
       ].map(parseTorrent)
     ) as Instance[]
 
-    parsedTorrents.forEach(torrent => {
-      console.log('torrent', torrent)
+    parsedTorrents.forEach(async torrent => {
+      // console.log('torrent', torrent)
+      // const torr = await webtorrent.add(torrent)
+      // torr.on('ready', async () => {
+      //   console.log('torr', torr)
+      //   console.log('parseTorrent(torrent.torrentFile)', torr, await parseTorrent(torr.torrentFile))
+      //   console.log('toMagnetURI(torrent.torrentFile)', torr, await toMagnetURI(await parseTorrent(torr.torrentFile)))
+      // })
       addTorrent({
         infoHash: torrent.infoHash,
         state: {
@@ -68,7 +75,7 @@ const DropZone = ({ children, ...rest }) => {
         }
       })
     })
-    console.log('parsedTorrents', parsedTorrents)
+    // console.log('parsedTorrents', parsedTorrents)
   }, [])
   const {getRootProps, getInputProps, isDragActive} = useDropzone({
     onDrop: files => onAddTorrent(files, undefined),

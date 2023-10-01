@@ -42,7 +42,7 @@ const style = css`
     // font-family: "Segoe UI", Roboto, "Fira Sans",  "Helvetica Neue", Arial, sans-serif;
   }
 
-  body > div {
+  body > .mount {
     height: 100vh;
     width: 100%;
   }
@@ -63,7 +63,9 @@ const style = css`
 `
 
 
-const root = createRoot(document.body.appendChild(document.createElement('div')))
+const rootElem = document.body.appendChild(document.createElement('div'))
+rootElem.classList.add('mount')
+const root = createRoot(rootElem)
 
 root.render(
   <Provider db={database}>
