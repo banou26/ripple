@@ -403,8 +403,8 @@ export const TorrentList = ({ ...rest }) => {
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
   const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ addedAt: 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)
-  console.log('downloadingTorrents', downloadingTorrents)
-  console.log('completedTorrents', completedTorrents)
+  // console.log('downloadingTorrents', downloadingTorrents)
+  // console.log('completedTorrents', completedTorrents)
 
   return (
     <div css={style} {...rest}>

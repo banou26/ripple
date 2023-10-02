@@ -12,14 +12,14 @@ export const webtorrent = new WebTorrent({
   // downloadLimit: 10000
 }) as Instance
 
-console.log('webtorrent', webtorrent)
+// console.log('webtorrent', webtorrent)
 
 const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
-  console.log('addTorrent', torrentDoc)
+  // console.log('addTorrent', torrentDoc)
   const { state: { torrentFile } } = torrentDoc
   if (!torrentFile) throw new Error('torrent file and magnet not set')
 
-  console.log('adding torrent: ', torrentFile)
+  // console.log('adding torrent: ', torrentFile)
   const torrent = webtorrent.add(
     torrentFile,
     {
@@ -55,37 +55,37 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
     })
   })
 
-  console.log('torrent', torrent)
+  // console.log('torrent', torrent)
   torrent.on('done', () => {
-    console.log('done')
+    // console.log('done')
     torrentDoc.incrementalModify((doc) => {
       doc.state.status = torrent.paused ? 'finished' : 'seeding'
       return doc
     })
   })
   torrent.on('download', () => {
-    console.log('download')
+    // console.log('download')
     debounce(torrentDoc)
   })
   torrent.on('error', (err) => {
-    console.error(err)
+    // console.error(err)
   })
   torrent.on('infoHash', () => {
-    console.log('infoHash')
+    // console.log('infoHash')
     torrentDoc.incrementalModify((doc) => {
       doc.infoHash = torrent.infoHash
       return doc
     })
   })
   torrent.on('metadata', () => {
-    console.log('metadata')
+    // console.log('metadata')
     torrentDoc.incrementalModify((doc) => {
       doc.state.name = torrent.name
       return doc
     })
   })
   torrent.on('ready', () => {
-    console.log('ready')
+    // console.log('ready')
     debounce(torrentDoc)
     torrentDoc.incrementalModify((doc) => {
       doc.state.status =
@@ -100,62 +100,62 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
   // })
   torrent.on('wire', (wire) => {
     wire.on('bitfield', (ev) => {
-      console.log('bitfield', ev)
+      // console.log('bitfield', ev)
     })
     wire.on('cancel', (ev) => {
-      console.log('cancel', ev)
+      // console.log('cancel', ev)
     })
     wire.on('choke', (ev) => {
-      console.log('choke', ev)
+      // console.log('choke', ev)
     })
     wire.on('download', (ev) => {
-      console.log('download', ev)
+      // console.log('download', ev)
     })
     wire.on('extended', (ev) => {
-      console.log('extended', ev)
+      // console.log('extended', ev)
     })
     wire.on('handshake', (ev) => {
-      console.log('handshake', ev)
+      // console.log('handshake', ev)
     })
     wire.on('have', (ev) => {
-      console.log('have', ev)
+      // console.log('have', ev)
     })
     wire.on('interested', (ev) => {
-      console.log('interested', ev)
+      // console.log('interested', ev)
     })
     wire.on('keep-alive', (ev) => {
-      console.log('keep', ev)
+      // console.log('keep', ev)
     })
     wire.on('piece', (ev) => {
-      console.log('piece', ev)
+      // console.log('piece', ev)
     })
     wire.on('port', (ev) => {
-      console.log('port', ev)
+      // console.log('port', ev)
     })
     wire.on('request', (ev) => {
-      console.log('request', ev)
+      // console.log('request', ev)
     })
     wire.on('timeout', (ev) => {
-      console.log('timeout', ev)
+      // console.log('timeout', ev)
     })
     wire.on('unchoke', (ev) => {
-      console.log('unchoke', ev)
+      // console.log('unchoke', ev)
     })
     wire.on('uninterested', (ev) => {
-      console.log('uninterested', ev)
+      // console.log('uninterested', ev)
     })
     wire.on('unknownmessage', (ev) => {
-      console.log('unknownmessage', ev)
+      // console.log('unknownmessage', ev)
     })
     wire.on('upload', (ev) => {
-      console.log('upload', ev)
+      // console.log('upload', ev)
     })
     wire.on('close', () => {
       torrentDoc.incrementalModify((doc) => {
         doc.state.peers = doc.state.peers.filter((peer) => peer.ip !== wire.remoteAddress || peer.port !== wire.remotePort)
         return doc
       })
-      console.log('close')
+      // console.log('close')
     })
     torrentDoc.incrementalModify((doc) => {
       doc.state.peers = [
@@ -167,20 +167,20 @@ const addTorrent = async (torrentDoc: RxDocument<TorrentDocument>) => {
       ]
       return doc
     })
-    console.log('wire', wire)
+    // console.log('wire', wire)
   })
   torrent.on('download', () => {
-    console.log('download', torrent.progress)
+    // console.log('download', torrent.progress)
   })
   torrent.on('upload', () => {
-    console.log('upload', torrent.progress)
+    // console.log('upload', torrent.progress)
   })
   torrent.on('noPeers', (announceType) => {
     torrentDoc.incrementalModify((doc) => {
       doc.state.peers = []
       return doc
     })
-    console.log('noPeers', announceType)
+    // console.log('noPeers', announceType)
   })
 }
 
@@ -229,21 +229,21 @@ database
       .$
       .subscribe(async (torrentDocuments: RxDocument<TorrentDocument>[]) => {
         const filteredTorrentDocs = torrentDocuments.filter((torrentDoc) => torrentDoc.options.p2p && !torrentDoc.options.proxy)
-        console.log('torrents', torrentDocuments)
+        // console.log('torrents', torrentDocuments)
 
         for (const torrent of webtorrent.torrents) {
           if (!filteredTorrentDocs.find((torrentDoc) => torrentDoc.infoHash === torrent.infoHash)) {
-            console.log('disableTorrent', torrent.infoHash)
+            // console.log('disableTorrent', torrent.infoHash)
             await disableTorrent(torrent)
           }
         }
 
         for (const torrentDoc of filteredTorrentDocs) {
           if (await webtorrent.get(torrentDoc.infoHash)) {
-            console.log('torrent already set', torrentDoc.infoHash)
+            // console.log('torrent already set', torrentDoc.infoHash)
             continue
           }
-            console.log('adding torrent', torrentDoc.infoHash)
+            // console.log('adding torrent', torrentDoc.infoHash)
             await addTorrent(torrentDoc)
         }
         _resolve()

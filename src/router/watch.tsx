@@ -129,6 +129,22 @@ export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, s
     }
   })
 
+const iteratorToStream = (iterator: AsyncIterableIterator<Uint8Array>) =>
+  new ReadableStream<Uint8Array>({
+    type: 'bytes',
+    async pull (controller) {
+      const { value, done } = await iterator.next()
+      if (done) {
+        controller.close()
+      } else {
+        controller.enqueue(value)
+      }
+    },
+    cancel () {
+      iterator.return?.()
+    }
+  })
+
 const Player = () => {
   const { infoHash } = useParams<{ infoHash: string }>()
   const [torrentFileArrayBuffer, setTorrentFileArrayBuffer] = useState<ArrayBuffer | undefined>()
@@ -141,7 +157,7 @@ const Player = () => {
   const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
   const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
 
-  console.log('torrentDoc', torrentDoc)
+  // console.log('torrentDoc', torrentDoc)
 
   useEffect(() => {
     if (!streamReader) return
@@ -167,21 +183,18 @@ const Player = () => {
   const onFetch = async (offset: number, end?: number, force?: boolean) => {
     console.log('onFetch', offset, end, force)
     if (force || end !== undefined && ((end - offset) + 1) !== BASE_BUFFER_SIZE) {
-      console.log('onFetch torrent', offset, end, force, torrentFileArrayBuffer)
-
-      const arrayBuffer = structuredClone(torrentFileArrayBuffer)
-
-      console.log('TORRENT', await webtorrent.get(infoHash))
-
-      const test = [
-        await parseTorrent(new Uint8Array(arrayBuffer)) as ParseTorrentFile.Instance,
-        toMagnetURI(await parseTorrent(new Uint8Array(arrayBuffer)))
-      ]
-
-      console.log('test', test)
-
+      // const torrent = await webtorrent.get(infoHash)
+      // console.log('torrent', torrent)
+      // if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
+      // console.log('getting iterator from', offset, end)
+      // const iterator = torrent.files[5][Symbol.asyncIterator]({ start: offset, end })
+      // console.log('iterator', iterator)
+      // const stream = iteratorToStream(iterator)
+      // console.log('onFetch stream', stream)
+      // return new Response(stream)
+      console.log('torrentFileArrayBuffer', torrentFileArrayBuffer)
       return torrent({
-        arrayBuffer,
+        arrayBuffer: structuredClone(torrentFileArrayBuffer),
         fileIndex: 0,
         offset,
         end
@@ -207,8 +220,9 @@ const Player = () => {
   }
 
   useEffect(() => {
-    if (!infoHash || !torrentDoc?.state.torrentFile || size || torrentFileArrayBuffer) return
+    if (!infoHash || !torrentDoc?.state.torrentFile || torrentFileArrayBuffer) return
     isReady.then(async () => {
+      console.log('isReady')
       const torrent =
         await (webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent =>
           torrent
@@ -218,12 +232,18 @@ const Player = () => {
               setTimeout(() => reject(new Error(`No torrent found for infohash: ${infoHash}`)), 5000)
             })
         ) as unknown as WebTorrent.Torrent | null
+      console.log('torrent')
       if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
-      console.log('RESULT', torrent, torrent.length, torrent.torrentFile.buffer, webtorrent)
+      console.log('torrent', torrent)
       setTorrentFileArrayBuffer(torrent.torrentFile.buffer)
-      setSize(torrent.length)
     })
-  }, [infoHash, torrentDoc?.state.torrentFile, size, torrentFileArrayBuffer])
+  }, [infoHash, torrentDoc?.state.torrentFile, torrentFileArrayBuffer])
+
+  useEffect(() => {
+    if (!torrentDoc?.state.torrentFile || !torrentFileArrayBuffer || size || !setupStream) return
+    if (BACKPRESSURE_STREAM_ENABLED) setupStream(0)
+    setSize(torrentDoc?.state.torrentFile.length)
+  }, [torrentDoc?.state.torrentFile, torrentFileArrayBuffer, size, setupStream])
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL('/build/jassub-worker.js', new URL(window.location.toString()).origin).toString()
