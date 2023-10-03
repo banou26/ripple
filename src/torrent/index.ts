@@ -1,26 +1,20 @@
-import { leaderElector } from './database'
-import './webtorrent'
+import { database, leaderElector } from './database'
 
+let isLeader =
+  leaderElector
+    .awaitLeadership()
+    .then(() => leaderElector.isLeader)
 
+database
+  .waitForLeadership()
+  .then(() => {
+    isLeader = Promise.resolve(true)
+  })
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const getTorrentFileStream = async (hash: string, ) => {
-  if (leaderElector.isLeader) {
-    
+export const getTorrentFileStream = async (hash: string) => {
+  if (!await leaderElector.hasLeader()) throw new Error('no leader')
+  if (await isLeader) {
+    return
   }
   const { infoHash } = torrentDoc
   if (!infoHash) throw new Error('infoHash not set')

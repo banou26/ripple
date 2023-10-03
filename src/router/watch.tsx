@@ -1,17 +1,9 @@
-import type ParseTorrentFile from 'parse-torrent-file'
-import type WebTorrent from 'webtorrent'
-
-
 import { useEffect, useMemo, useState } from 'react'
-import { Buffer } from 'buffer'
-import parseTorrent, { toMagnetURI } from 'parse-torrent'
 import { css } from '@emotion/react'
 
 import FKNMediaPlayer from '@banou/media-player'
 
-import { fetch } from '../utils/fetch'
 import { torrent } from '@fkn/lib'
-import { isReady, webtorrent } from '../torrent/webtorrent'
 import { useParams } from 'react-router'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { TorrentDocument } from 'src/torrent/collection'
@@ -167,7 +159,6 @@ const Player = () => {
   }, [streamReader])
 
   const setupStream = async (offset: number) => {
-    console.log('setupStream', offset)
     if (streamReader) {
       streamReader.cancel()
     }
@@ -183,16 +174,6 @@ const Player = () => {
   const onFetch = async (offset: number, end?: number, force?: boolean) => {
     console.log('onFetch', offset, end, force)
     if (force || end !== undefined && ((end - offset) + 1) !== BASE_BUFFER_SIZE) {
-      // const torrent = await webtorrent.get(infoHash)
-      // console.log('torrent', torrent)
-      // if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
-      // console.log('getting iterator from', offset, end)
-      // const iterator = torrent.files[5][Symbol.asyncIterator]({ start: offset, end })
-      // console.log('iterator', iterator)
-      // const stream = iteratorToStream(iterator)
-      // console.log('onFetch stream', stream)
-      // return new Response(stream)
-      console.log('torrentFileArrayBuffer', torrentFileArrayBuffer)
       return torrent({
         arrayBuffer: structuredClone(torrentFileArrayBuffer),
         fileIndex: 0,
@@ -223,19 +204,24 @@ const Player = () => {
     if (!infoHash || !torrentDoc?.state.torrentFile || torrentFileArrayBuffer) return
     isReady.then(async () => {
       console.log('isReady')
-      const torrent =
-        await (webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent =>
-          torrent
-            ? webtorrent.get(infoHash)
-            : new Promise((resolve, reject) => {
-              webtorrent.on('torrent', (torrent) => torrent.infoHash === infoHash && resolve(torrent))
-              setTimeout(() => reject(new Error(`No torrent found for infohash: ${infoHash}`)), 5000)
-            })
-        ) as unknown as WebTorrent.Torrent | null
-      console.log('torrent')
-      if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
-      console.log('torrent', torrent)
-      setTorrentFileArrayBuffer(torrent.torrentFile.buffer)
+      try {
+        const torrent =
+          await (webtorrent.get(infoHash) as unknown as Promise<WebTorrent.Torrent | null>).then(torrent =>
+            torrent
+              ? webtorrent.get(infoHash)
+              : new Promise((resolve, reject) => {
+                webtorrent.on('torrent', (torrent) => torrent.infoHash === infoHash && resolve(torrent))
+                setTimeout(() => reject(new Error(`No torrent found for infohash: ${infoHash}`)), 5000)
+              })
+          ) as unknown as WebTorrent.Torrent | null
+        console.log('torrent')
+        if (!torrent) throw new Error(`No torrent found for infohash: ${infoHash}`)
+        console.log('torrent', torrent)
+        setTorrentFileArrayBuffer(torrent.torrentFile.buffer)
+      } catch (err) {
+        console.log('torrentDoc', torrentDoc)
+        setTorrentFileArrayBuffer(torrentDoc)
+      }
     })
   }, [infoHash, torrentDoc?.state.torrentFile, torrentFileArrayBuffer])
 

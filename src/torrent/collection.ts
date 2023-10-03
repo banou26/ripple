@@ -1,5 +1,3 @@
-import type { RxDocument } from 'rxdb'
-
 import type { Instance } from 'parse-torrent'
 
 import { Buffer } from 'buffer'

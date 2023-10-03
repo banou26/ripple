@@ -2,10 +2,9 @@ import { css } from '@emotion/react'
 import { useDropzone } from 'react-dropzone'
 import { useCallback, useEffect } from 'react'
 import { Buffer } from 'buffer'
-import parseTorrent, { Instance, toMagnetURI } from 'parse-torrent'
+import parseTorrent, { Instance } from 'parse-torrent'
 
 import { addTorrent } from '../torrent/collection'
-import { webtorrent } from '../torrent/webtorrent'
 
 export const style = css`
   position: relative;
@@ -39,7 +38,7 @@ export const style = css`
   }
 `
 
-const DropZone = ({ children, ...rest }) => {
+const DropZone = ({ children }) => {
   const onAddTorrent = useCallback(async (acceptedFiles: File[], magnet?: string) => {
     const parsedTorrents = await Promise.all(
       [
@@ -59,25 +58,21 @@ const DropZone = ({ children, ...rest }) => {
     ) as Instance[]
 
     parsedTorrents.forEach(async torrent => {
-      // console.log('torrent', torrent)
-      // const torr = await webtorrent.add(torrent)
-      // torr.on('ready', async () => {
-      //   console.log('torr', torr)
-      //   console.log('parseTorrent(torrent.torrentFile)', torr, await parseTorrent(torr.torrentFile))
-      //   console.log('toMagnetURI(torrent.torrentFile)', torr, await toMagnetURI(await parseTorrent(torr.torrentFile)))
-      // })
       addTorrent({
         infoHash: torrent.infoHash,
+        options: {
+          proxy: true,
+          p2p: false,
+          paused: false,
+        },
         state: {
-          name: torrent.name,
           magnet: magnet,
           torrentFile: torrent
         }
       })
     })
-    // console.log('parsedTorrents', parsedTorrents)
   }, [])
-  const {getRootProps, getInputProps, isDragActive} = useDropzone({
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: files => onAddTorrent(files, undefined),
     noClick: true
   })
@@ -90,7 +85,7 @@ const DropZone = ({ children, ...rest }) => {
       )
     addEventListener('paste', listener)
     return () => removeEventListener('paste', listener)
-  }, [])
+  }, [onAddTorrent])
 
   return (
     <div css={style} {...getRootProps()} className={`drag-zone ${isDragActive ? 'active' : ''}`}>

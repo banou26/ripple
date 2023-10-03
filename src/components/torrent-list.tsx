@@ -259,7 +259,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         <div className="content">
           <div className="name">{torrent.state.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-          <div className="sources">
+          {/* <div className="sources">
             <button
               className={
                 (torrent.options.p2p && !torrent.options.proxy) ||
@@ -303,7 +303,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
                 VPN*
               </button>
             </Tooltip>
-          </div>
+          </div> */}
         </div>
       </div>
       <div className="info">
