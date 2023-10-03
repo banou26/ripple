@@ -238,14 +238,6 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
   }, [])
 
-  const toggleP2P = () => {
-    torrent.update({ $set: { 'options.p2p': !torrent.options.p2p } })
-  }
-
-  const toggleProxy = () => {
-    torrent.update({ $set: { 'options.proxy': !torrent.options.proxy } })
-  }
-
   const remainingTimeString = new Date(torrent.state.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
 
   const removeTorrent = () => {
@@ -259,51 +251,6 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         <div className="content">
           <div className="name">{torrent.state.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-          {/* <div className="sources">
-            <button
-              className={
-                (torrent.options.p2p && !torrent.options.proxy) ||
-                torrent.options.proxy && torrent.options.p2p && torrent.state.status === 'seeding'
-                  ? 'active'
-                  : ''
-              }
-              onClick={toggleP2P}
-            >
-              {
-                torrent.options.p2p
-                  ? (
-                    torrent.options.proxy && !(torrent.options.proxy && torrent.state.status === 'seeding')
-                      ? <MinusSquare/>
-                      : <CheckSquare/>
-                  )
-                  : <Square/>
-              }
-              P2P
-            </button>
-            <Tooltip
-              tooltipChildren={
-                <div>
-                  <div>Uses the FKN Proxy service</div>
-                  <div>If enabled while P2P is enabled, download is done</div>
-                  <div>through the proxy and seeding is done via P2P</div>
-                  <b>If you want your traffic to be hidden, do not enable P2P</b>
-                </div>
-              }
-            >
-              <button className={torrent.options.proxy && !(torrent.options.p2p && torrent.state.status === 'seeding') ? 'active' : ''} onClick={toggleProxy}>
-                {
-                  torrent.options.proxy
-                    ? (
-                      torrent.options.p2p && torrent.state.status === 'seeding'
-                        ? <MinusSquare/>
-                        : <CheckSquare/>
-                    )
-                    : <Square/>
-                }
-                VPN*
-              </button>
-            </Tooltip>
-          </div> */}
         </div>
       </div>
       <div className="info">

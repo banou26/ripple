@@ -23,12 +23,6 @@ export const torrentSchema = {
     options: {
       type: 'object',
       properties: {
-        proxy: {
-          type: 'boolean'
-        },
-        p2p: {
-          type: 'boolean'
-        },
         paused: {
           type: 'boolean'
         }
@@ -157,8 +151,6 @@ export const torrentSchema = {
 export type TorrentDocument = {
   infoHash: string
   options: {
-    proxy: boolean
-    p2p: boolean
     paused: boolean
   },
   state: {

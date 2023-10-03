@@ -23,10 +23,3 @@ globalThis.addEventListener('connect', ({ ports: [port] }) => {
   console.log('message', port)
   port.postMessage('init')
 })
-
-setInterval(() => {
-  console.log('aa')
-}, 1000)
-console.log('WORKER')
-
-console.log('torrentCollection', torrentCollection)

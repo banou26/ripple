@@ -36,8 +36,6 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
 export const serializeTorrentDocument = (torrentDocument: Partial<TorrentDocument>): TorrentDocument => ({
   ...torrentDocument,
   options: {
-    proxy: false,
-    p2p: false,
     paused: false,
     ...torrentDocument.options
   },
