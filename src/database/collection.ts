@@ -1,4 +1,4 @@
-import { database } from './'
+import { database } from './database'
 import { torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
 import { Instance } from 'parse-torrent'

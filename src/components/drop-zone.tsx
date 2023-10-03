@@ -4,7 +4,7 @@ import { useCallback, useEffect } from 'react'
 import { Buffer } from 'buffer'
 import parseTorrent, { Instance } from 'parse-torrent'
 
-import { addTorrent } from '../torrent/collection'
+import { addTorrent } from '../database'
 
 export const style = css`
   position: relative;

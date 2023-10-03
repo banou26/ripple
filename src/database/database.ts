@@ -2,7 +2,7 @@ import { getLeaderElectorByBroadcastChannel } from 'rxdb/plugins/leader-election
 import { createRxDatabase } from 'rxdb'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
 
-import type { Collection as TorrentCollection } from './collection'
+import type { TorrentCollection } from './collection'
 
 export type Collections = {
   torrents: TorrentCollection
@@ -10,7 +10,9 @@ export type Collections = {
 
 export const database = await createRxDatabase<Collections>({
   name: 'ripple',
-  storage: getRxStorageDexie()
+  storage: getRxStorageDexie(),
+  multiInstance: true,
+  eventReduce: true
 })
 
 export type Database = typeof database

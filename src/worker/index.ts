@@ -1,4 +1,5 @@
 import { makeCallListener, registerListener } from 'osra'
+import { torrentCollection } from '../database'
 
 console.log('WORKER')
 const init = makeCallListener(async ({ magnet }: { magnet: string }) => {
@@ -27,3 +28,5 @@ setInterval(() => {
   console.log('aa')
 }, 1000)
 console.log('WORKER')
+
+console.log('torrentCollection', torrentCollection)

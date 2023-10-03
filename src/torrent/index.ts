@@ -1,4 +1,4 @@
-import { database, leaderElector } from './database'
+import { database, leaderElector } from '../database'
 
 let isLeader =
   leaderElector

@@ -399,9 +399,9 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 
 export const TorrentList = ({ ...rest }) => {
   const collection = useRxCollection<TorrentDocument>('torrents')
-  const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['downloading', 'paused'] } } }).sort({ addedAt: 'asc' })
+  const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['downloading', 'paused'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
-  const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ addedAt: 'asc' })
+  const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)
   // console.log('downloadingTorrents', downloadingTorrents)
   // console.log('completedTorrents', completedTorrents)
