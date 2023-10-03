@@ -1,6 +1,7 @@
 /// <reference types="@emotion/react/types/css-prop" />
 import './rxdb'
 import './torrent'
+import './worker'
 import 'chart.js/auto'
 
 import { css, Global } from '@emotion/react'

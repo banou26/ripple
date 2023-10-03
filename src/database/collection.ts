@@ -1,5 +1,3 @@
-import type { TorrentDocument } from './schema'
-
 import { database } from './'
 import { torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
