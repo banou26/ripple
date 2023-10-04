@@ -59,16 +59,8 @@ const DropZone = ({ children }) => {
 
     parsedTorrents.forEach(async torrent => {
       addTorrent({
-        infoHash: torrent.infoHash,
-        options: {
-          proxy: true,
-          p2p: false,
-          paused: false,
-        },
-        state: {
-          magnet: magnet,
-          torrentFile: torrent
-        }
+        magnet,
+        torrentFile: torrent
       })
     })
   }, [])

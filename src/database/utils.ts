@@ -1,4 +1,6 @@
 import { Instance } from 'parse-torrent'
+import { Buffer } from 'buffer'
+
 import { TorrentDocument } from './schema'
 
 export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => ({

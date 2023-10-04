@@ -2,12 +2,11 @@ import type { Instance } from 'parse-torrent'
 
 export type TorrentStatus =
   'paused' |
-  'checking_files' |
-  'downloading_metadata' |
+  'checkingFiles' |
+  'downloadingMetadata' |
   'downloading' |
   'finished' |
   'seeding'
-// 'idle' | 'downloading' | 'paused' | 'seeding' | 'error'
 
 export const torrentSchema = {
   title: 'Torrent schema',
@@ -33,21 +32,21 @@ export const torrentSchema = {
       properties: {
         magnet: {
           type: 'string',
-          maxLength: 255
+          maxLength: 2**15
         },
         torrentFile: {
           type: 'object'
         },
         name: {
           type: 'string',
-          maxLength: 255
+          maxLength: 2**11
         },
         status: {
           type: 'string',
           enum: [
             'paused',
-            'checking_files',
-            'downloading_metadata',
+            'checkingFiles',
+            'downloadingMetadata',
             'downloading',
             'finished',
             'seeding'
@@ -72,6 +71,12 @@ export const torrentSchema = {
                 type: 'number'
               }
             }
+          }
+        },
+        pieces: {
+          type: 'array',
+          items: {
+            type: 'number'
           }
         },
         addedAt: {
@@ -138,6 +143,20 @@ export const torrentSchema = {
               },
               priority: {
                 type: 'number'
+              },
+              downloadedRanges: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    start: {
+                      type: 'number'
+                    },
+                    end: {
+                      type: 'number'
+                    }
+                  }
+                }
               }
             }
           }
@@ -156,12 +175,16 @@ export type TorrentDocument = {
   state: {
     magnet?: string
     torrentFile?: Instance
-    name: string
+
     status: TorrentStatus
     progress: number
-    size: number
-    peers: Array<{ ip: string, port: number }>
     addedAt: number
+
+    name?: string
+    size?: number
+    peers: { ip: string, port: number }[]
+    // 0 = not downloaded, 1 = downloaded, 2 = partially downloaded (in the case of a piece spanning multiple files)
+    pieces?: number[]
     remainingTime?: number
     peersCount?: number
     seedersCount?: number
@@ -172,7 +195,7 @@ export type TorrentDocument = {
     uploadSpeed?: number
     ratio?: number
     path?: string
-    files?: Array<{
+    files?: {
       name: string
       path: string
       offset: number
@@ -181,6 +204,10 @@ export type TorrentDocument = {
       progress: number
       selected: boolean
       priority: number
-    }>
+      downloadedRanges: {
+        start: number
+        end: number
+      }[]
+    }[]
   }
 }

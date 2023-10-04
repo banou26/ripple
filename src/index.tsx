@@ -1,7 +1,7 @@
 /// <reference types="@emotion/react/types/css-prop" />
 import './database'
 import './torrent'
-import './worker'
+import './shared-worker'
 import 'chart.js/auto'
 
 import { css, Global } from '@emotion/react'

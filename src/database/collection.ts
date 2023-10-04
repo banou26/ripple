@@ -1,7 +1,7 @@
 import { database } from './database'
 import { torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
-import { Instance } from 'parse-torrent'
+import parseTorrent, { Instance } from 'parse-torrent'
 
 const { torrents: torrentCollection } = await database.addCollections({
   torrents: {
@@ -28,16 +28,19 @@ torrentCollection.postCreate((torrentData, rxDocument) => {
   )
 })
 
-export const addTorrent = async ({ magnet, torrentFile }: { magnet: string, torrentFile: Instance }) => {
-  await database.torrents.insert(
+export const addTorrent = async (options: { magnet: string } | { torrentFile: Instance }) => {
+  const { magnet, torrentFile } = {
+    magnet: 'magnet' in options ? options.magnet : undefined,
+    torrentFile: 'torrentFile' in options ? options.torrentFile : undefined
+  }
+  const infoHash = torrentFile?.infoHash ?? parseTorrent(magnet!).infoHash
+  const torrentDoc =
     serializeTorrentDocument({
-      options: {
-        proxy: true
-      },
+      infoHash,
       state: {
         magnet,
         torrentFile
       }
     })
-  )
+  await database.torrents.insert(torrentDoc)
 }
