@@ -81,6 +81,29 @@ const config = {
 // Should have 1 line for every second, and 120 lines total
 // mixed chart with custom tooltip example: https://stackoverflow.com/a/46343907
 export const StatisticsHeader = ({ ...rest }) => {
+
+  // delete all IDB instances
+  const resetIdb = () => {
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
+  }
+
+  const resetOPFS = async () => {
+    const directory = await navigator.storage.getDirectory()
+    console.log('directory', directory)
+    const iterator = directory.entries()
+    const nextEntry = async () => {
+      const { done, value } = await iterator.next()
+      if (!value) return
+      const [filePath, handle] = value
+      await (handle as FileSystemDirectoryHandle).removeEntry(filePath, { recursive: true })
+      if (done) return
+      nextEntry()
+    }
+    nextEntry()
+  }
+
+
   return (
     <div css={style} {...rest}>
       <div className="chart-wrapper">
@@ -105,6 +128,8 @@ export const StatisticsHeader = ({ ...rest }) => {
             }
           }}
         />
+      <button onClick={resetIdb}>reset IDB</button>
+      <button onClick={resetOPFS}>reset OPFS</button>
       </div>
     </div>
   )
