@@ -6,7 +6,8 @@ export type TorrentStatus =
   'downloadingMetadata' |
   'downloading' |
   'finished' |
-  'seeding'
+  'seeding' |
+  'error'
 
 export const torrentSchema = {
   title: 'Torrent schema',
@@ -49,7 +50,8 @@ export const torrentSchema = {
             'downloadingMetadata',
             'downloading',
             'finished',
-            'seeding'
+            'seeding',
+            'error'
           ]
         },
         progress: {

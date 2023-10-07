@@ -39,3 +39,37 @@ export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) 
     statusText: response.statusText
   })
 }
+
+export const throttleStream = (stream: ReadableStream<Uint8Array>, maxBytesPerSecond: number) => {
+  const reader = stream.getReader()
+  const controller = new AbortController()
+  return new ReadableStream({
+    async start(controller) {
+      while (true) {
+        const startTime = Date.now()
+        const { done, value } = await reader.read()
+
+        if (done) {
+          controller.close()
+          return
+        }
+
+        controller.enqueue(value)
+
+        const endTime = Date.now()
+        const duration = endTime - startTime
+        const bytesRead = value.length
+
+        // Calculate how much time to wait in order to maintain the desired bandwidth
+        const waitTime = (bytesRead / maxBytesPerSecond * 1000) - duration
+        if (waitTime > 0) {
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+        }
+      }
+    },
+    cancel() {
+      controller.abort()
+    }
+  })
+}
+
