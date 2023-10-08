@@ -2,7 +2,6 @@ import { css } from '@emotion/react'
 
 import StatisticsHeader from '../../components/statistics-header'
 import TorrentList from '../../components/torrent-list'
-import FileSystemAccessPopup from '../../components/file-system-access-popup'
 
 const style = css`
 --header-height: 20rem;
@@ -23,7 +22,6 @@ const style = css`
 export const Home = () => {
   return (
     <div css={style}>
-      <FileSystemAccessPopup/>
       <StatisticsHeader className="header"/>
       <TorrentList className="torrent-list"/>
     </div>

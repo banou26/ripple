@@ -3,6 +3,7 @@ import { setApiTarget } from '@fkn/lib'
 
 import type { Resolvers as SharedWorkerFknApiResolvers } from '../shared-worker'
 
+import './test'
 import './torrent-manager'
 
 const newLeader = makeCallListener(async ({ magnet }: { magnet: string }) => {
