@@ -1,121 +1,91 @@
-import type { TorrentDocument } from '../database'
+import type { Actor, ActorRefFrom } from 'xstate'
+import { createMachine, createActor, assign, fromPromise } from 'xstate'
 
-import type { RxDocument } from 'rxdb'
-import { torrent } from '@fkn/lib'
+import { TorrentDocument, torrentCollection } from '../database'
+import { torrentMachine } from './torrent'
 
-import { torrentCollection } from '../database'
-import { throttleStream } from './utils'
-import parseTorrent, { toMagnetURI } from 'parse-torrent'
+const getTorrents = () => torrentCollection.find().exec()
 
-// todo: switch to using https://xstate.js.org/docs/
-
-const managedTorrentList = new Map<string, ReturnType<typeof makeManagedTorrent>>()
-const managedDownloadList = new Map<string, ReturnType<typeof makeManagedDownload>>()
-const managedFileDownloadList = new Map<string, ReturnType<typeof makeManagedFileDownload>>()
-
-const toFileDownloadIndex = (torrentDoc: RxDocument<TorrentDocument>, fileDoc: NonNullable<TorrentDocument['state']['files']>[number]) =>
- `${torrentDoc.infoHash}:-:${fileDoc.path}}`
-
-const fromFileDownloadIndex = (fileDownloadIndex: string) =>
-  fileDownloadIndex.split(':-:') as [string, string]
-
-
-
-const makeManagedFileDownload = (torrentDoc: RxDocument<TorrentDocument>, fileDoc: NonNullable<TorrentDocument['state']['files']>[number]) => {
-  if (managedFileDownloadList.has(toFileDownloadIndex(torrentDoc, fileDoc))) return managedFileDownloadList.get(toFileDownloadIndex(torrentDoc, fileDoc))
-
-  console.log('torrent', torrentDoc.state.magnet, fileDoc.path)
-  const responsePromise = torrent({ magnet: torrentDoc.state.magnet, path: fileDoc.path }) as Promise<Response>
-  const readerPromise = responsePromise.then(response => {
-    if (!response.body) throw new Error('no body')
-    return throttleStream(response.body, 1_000_000).getReader()
-  })
-
-  readerPromise.then((reader) => {
-    if (!reader) return
-    // const read = async () => {
-    //   const { done, value } = await reader.read()
-    //   if (done) return
-    //   console.log(value)
-    //   read()
-    // }
-    // read()
-  })
-
-  const result = {
-    interrupt: async () => {
-      await readerPromise.then(reader => reader?.cancel())
-      managedFileDownloadList.delete(toFileDownloadIndex(torrentDoc, fileDoc))
-      torrentDoc.update({ $set: { 'state.files': { $pull: [toFileDownloadIndex(torrentDoc, fileDoc)] } } })
+const torrentManagerMachine = createMachine({
+  id: 'torrentManager',
+  initial: 'waitingForDb',
+  context: {
+    torrentDocuments: [] as TorrentDocument[],
+    torrents: [] as ActorRefFrom<typeof torrentMachine>[]
+  },
+  on: {
+    'WORKER.DISCONNECTED': {
+      actions: ({ context, self }) => {
+        context.torrents.forEach(torrent => torrent.stop())
+      },
+      target: '.waitingForWorker'
+    },
+    'ADD.TORRENT': {
+      actions: assign({
+        torrents: ({ spawn, context, event }) => [
+          ...context.torrents,
+          spawn(torrentMachine, { id: `torrent-${event.output.torrentHash}` })
+        ]
+      })
     }
-  }
-
-  managedFileDownloadList.set(toFileDownloadIndex(torrentDoc, fileDoc), result)
-  return result
-}
-
-const makeManagedDownload = (torrentDoc: RxDocument<TorrentDocument>) => {
-  if (managedDownloadList.has(torrentDoc.infoHash)) return managedDownloadList.get(torrentDoc.infoHash)
-  if (!torrentDoc.state || !torrentDoc.state.torrentFile || !torrentDoc.state.files) throw new Error('Torrent document has no state')
-
-  const { files } = torrentDoc.state
-
-  const managedFileDownloads =
-    files
-      .filter(fileDoc => fileDoc.selected)
-      .map(fileDoc => makeManagedFileDownload(torrentDoc, fileDoc))
-
-  console.log('download', torrentDoc, files)
-
-  const result = {
-    interrupt: async () => {
-      await Promise.all(managedFileDownloads?.map(managedFileDownload => managedFileDownload.interrupt()))
-      torrentDoc.update({ $set: { 'state.status': 'paused' } })
-    }
-  }
-
-  return result
-}
-
-const makeManagedTorrent = (torrentDoc: RxDocument<TorrentDocument>) => {
-  if (managedTorrentList.has(torrentDoc.infoHash)) return managedTorrentList.get(torrentDoc.infoHash)
-
-  const result = {
-
-  }
-
-  torrentDoc.$.subscribe(async (torrentDoc) => {
-    if (torrentDoc.state.torrentFile && !torrentDoc.state.magnet) {
-      torrentDoc.update({ $set: { 'state.magnet': toMagnetURI(await parseTorrent(torrentDoc.state.torrentFile)) } })
-    }
-
-    if (torrentDoc.options.paused) {
-      torrentDoc.update({ $set: { 'state.status': 'paused' } })
-    } else if (!torrentDoc.options.paused && torrentDoc.state.status === 'paused') {
-      torrentDoc.update({ $set: { 'state.status': 'downloading' } })
-    } else if (!torrentDoc.state) {
-      torrentDoc.update({ $set: { 'state.status': 'downloadingMetadata' } })
-    }
-    if (torrentDoc.state.status === 'downloading' && torrentDoc.state) {
-      makeManagedDownload(torrentDoc)
-    } else {
-      const managedDownload = managedDownloadList.get(torrentDoc.infoHash)
-      if (managedDownload) {
-        managedDownloadList.interrupt(torrentDoc.infoHash)
+  },
+  states: {
+    waitingForDb: {
+      invoke: {
+        id: 'getTorrents',
+        src: fromPromise(getTorrents),
+        onDone: {
+          target: 'init',
+          actions: assign({
+            torrentDocuments: ({ event }) => void console.log('event.output', event.output) || event.output,
+            torrents: ({ spawn, context, event }) => [
+              ...context.torrents,
+              ...event.output.map(({ infoHash }) => spawn(torrentMachine, { id: `torrent-${infoHash}` }))
+            ]
+          })
+        },
+        onError: {}
+      },
+      on: {
+        'DB.READY': {
+          target: 'init'
+        }
       }
+    },
+    init: {
+      entry: assign({
+        torrents: ({ spawn }) => [
+          spawn(torrentMachine)
+        ]
+      })
+    },
+    waitingForWorker: {
+      entry: ({ context }) => {
+        context
+          .torrents
+          .forEach(torrent => torrent.stop())
+      },
+      on: {
+        'WORKER.READY': 'idle'
+      }
+    },
+    idle: {
+      entry: assign({
+        torrents: ({ spawn, context, event }) => [
+          ...context.torrents,
+          spawn(torrentMachine, { id: `torrent-${event.torrentHash}` })
+        ]
+      })
     }
-  })
+  }
+})
 
-  console.log('torrent', torrentDoc)
+const manager =
+  createActor(torrentManagerMachine)
+    .start()
 
-  managedTorrentList.set(torrentDoc.infoHash, result)
-  return result
-}
+setTimeout(() => {
+  console.log('manager', manager.getSnapshot())
+}, 500)
 
-torrentCollection
-  .find()
-  .$
-  .subscribe(async (torrentDocuments: RxDocument<TorrentDocument>[]) =>
-    torrentDocuments
-      .map(torrentDocument => makeManagedTorrent(torrentDocument))
-  )
+export default manager

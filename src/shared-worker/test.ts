@@ -31,10 +31,10 @@
 // export {}
 
 
-import WorkerUrl from './worker?worker&url'
+// import WorkerUrl from './worker?worker&url'
 
-const worker = new Worker(WorkerUrl, { type: 'module' })
-console.log('worker', worker)
+// const worker = new Worker(WorkerUrl, { type: 'module' })
+// console.log('worker', worker)
 
 
 console.log('test')

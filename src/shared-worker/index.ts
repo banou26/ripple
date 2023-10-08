@@ -6,9 +6,8 @@ import type { Resolvers as SharedWorkerFknApiResolvers } from '../shared-worker'
 import './test'
 import './torrent-manager'
 
-const newLeader = makeCallListener(async ({ magnet }: { magnet: string }) => {
-
-  return magnet
+const newLeader = makeCallListener(async ({ workerPort }: { workerPort: MessagePort }) => {
+  console.log('newLeader', workerPort)
 })
 
 const resolvers = {
@@ -30,6 +29,7 @@ globalThis.addEventListener('connect', (ev) => {
 
   if (registers) registers.unregister()
   registers = registerListener({
+    key: 'shared-worker-fkn-api',
     target: port as unknown as Worker,
     resolvers
   })

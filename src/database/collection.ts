@@ -1,13 +1,17 @@
+import type { RxCollection } from 'rxdb'
+
 import { database } from './database'
-import { torrentSchema } from './schema'
+import { TorrentDocument, torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
 import parseTorrent, { Instance } from 'parse-torrent'
 
-const { torrents: torrentCollection } = await database.addCollections({
+const { torrents } = await database.addCollections({
   torrents: {
     schema: torrentSchema
   }
 })
+
+const torrentCollection = torrents as unknown as RxCollection<TorrentDocument>
 
 export type TorrentCollection = typeof torrentCollection
 export {
