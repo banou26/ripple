@@ -1,84 +1,81 @@
-import type { Actor, ActorRefFrom } from 'xstate'
+import type { ActorRefFrom } from 'xstate'
 import { createMachine, createActor, assign, fromPromise } from 'xstate'
 
 import { TorrentDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
 
-const getTorrents = () => torrentCollection.find().exec()
+const getTorrentDocuments = () => torrentCollection.find().exec()
 
-const torrentManagerMachine = createMachine({
+export const torrentManagerMachine = createMachine({
   id: 'torrentManager',
-  initial: 'waitingForDb',
+  initial: 'waitingForDocuments',
   context: {
     torrentDocuments: [] as TorrentDocument[],
     torrents: [] as ActorRefFrom<typeof torrentMachine>[]
   },
   on: {
     'WORKER.DISCONNECTED': {
-      actions: ({ context, self }) => {
-        context.torrents.forEach(torrent => torrent.stop())
-      },
       target: '.waitingForWorker'
     },
-    'ADD.TORRENT': {
+    'TORRENT.ADD': {
       actions: assign({
-        torrents: ({ spawn, context, event }) => [
+        torrents: ({ spawn, context, event, self }) => [
           ...context.torrents,
-          spawn(torrentMachine, { id: `torrent-${event.output.torrentHash}` })
+          spawn(
+            torrentMachine,
+            {
+              id: `torrent-${event.output.infoHash}`,
+              input: {
+                parent: self,
+                document: event.output
+              }
+            }
+          )
         ]
       })
     }
   },
   states: {
-    waitingForDb: {
+    waitingForDocuments: {
       invoke: {
-        id: 'getTorrents',
-        src: fromPromise(getTorrents),
+        id: 'getTorrentDocuments',
+        src: fromPromise(getTorrentDocuments),
         onDone: {
-          target: 'init',
+          target: 'waitingForWorker',
           actions: assign({
-            torrentDocuments: ({ event }) => void console.log('event.output', event.output) || event.output,
-            torrents: ({ spawn, context, event }) => [
+            torrentDocuments: ({ event }) => event.output,
+            torrents: ({ spawn, context, event, self }) => [
               ...context.torrents,
-              ...event.output.map(({ infoHash }) => spawn(torrentMachine, { id: `torrent-${infoHash}` }))
+              ...event.output.map((torrentDocument) =>
+                spawn(
+                  torrentMachine,
+                  {
+                    id: `torrent-${torrentDocument.infoHash}`,
+                    input: {
+                      parent: self,
+                      document: torrentDocument
+                    }
+                  }
+                )
+              )
             ]
           })
         },
         onError: {}
-      },
-      on: {
-        'DB.READY': {
-          target: 'init'
-        }
       }
     },
-    init: {
-      entry: assign({
-        torrents: ({ spawn }) => [
-          spawn(torrentMachine)
-        ]
-      })
-    },
     waitingForWorker: {
-      entry: ({ context }) => {
-        context
-          .torrents
-          .forEach(torrent => torrent.stop())
-      },
       on: {
         'WORKER.READY': 'idle'
       }
     },
     idle: {
-      entry: assign({
-        torrents: ({ spawn, context, event }) => [
-          ...context.torrents,
-          spawn(torrentMachine, { id: `torrent-${event.torrentHash}` })
-        ]
-      })
+
     }
   }
 })
+
+export type TorrentManagerMachine = typeof torrentManagerMachine
 
 const manager =
   createActor(torrentManagerMachine)
@@ -86,6 +83,17 @@ const manager =
 
 setTimeout(() => {
   console.log('manager', manager.getSnapshot())
+  console.log(
+    'torrents',
+    Object.fromEntries(
+      Object
+        .entries(manager.getSnapshot().children)
+        .map(([key, actor]) => [
+          key,
+          actor.getSnapshot()
+        ])
+    )
+  )
 }, 500)
 
 export default manager

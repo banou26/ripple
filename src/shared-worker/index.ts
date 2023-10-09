@@ -4,10 +4,16 @@ import { setApiTarget } from '@fkn/lib'
 import type { Resolvers as SharedWorkerFknApiResolvers } from '../shared-worker'
 
 import './test'
-import './torrent-manager'
+import torrentManager from './torrent-manager'
+
+let ioWorkerPort: MessagePort
+
+export const getIoWorkerPort = () => ioWorkerPort
 
 const newLeader = makeCallListener(async ({ workerPort }: { workerPort: MessagePort }) => {
   console.log('newLeader', workerPort)
+  ioWorkerPort = workerPort
+  torrentManager.send({ type: 'WORKER.READY' })
 })
 
 const resolvers = {
