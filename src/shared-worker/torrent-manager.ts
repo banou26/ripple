@@ -94,6 +94,21 @@ setTimeout(() => {
         ])
     )
   )
+  console.log(
+    'torrentsFiles',
+    Object.fromEntries(
+      Object
+        .entries(manager.getSnapshot().children)
+        .flatMap(([key, actor]) =>
+          Object
+            .entries(actor.getSnapshot().children)
+            .map(([key, actor]) => [
+              key,
+              actor.getSnapshot()
+            ])
+        )
+    )
+  )
 }, 500)
 
 export default manager

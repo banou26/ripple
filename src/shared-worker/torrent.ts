@@ -33,15 +33,12 @@ export const torrentMachine = createMachine({
         input: ({ context }) => context,
         src: fromObservable((ctx) => {
           console.log('document', ctx.input.document)
-          return ctx.input.document.get$('state.torrentFile')
+          return ctx.input.document.$
         }),
         onSnapshot: {
           target: 'checkingFiles',
-          guard: ({ event }) => event.snapshot.context !== undefined
+          guard: ({ event }) => event.snapshot.context?.state?.torrentFile !== undefined
         }
-      },
-      on: {
-        'METADATA.READY': 'checkingFiles'
       }
     },
     checkingFiles: {
@@ -62,11 +59,23 @@ export const torrentMachine = createMachine({
             )
           })
       }),
-      on: {
-        'FILES.READY': 'downloading'
-      }
+      // after: {
+      //   500: [
+      //     {
+      //       target: 'downloading',
+      //       guard: ({ context }) =>
+      //         context?.options.paused === false
+      //     },
+      //     {
+      //       target: 'paused',
+      //       guard: ({ context }) =>
+      //         context?.options.paused === true
+      //     }
+      //   ]
+      // }
     },
     downloading: {
+      entry: () => console.log('downloading'),
       on: {
         'FILES.FINISHED': 'finished',
         'TORRENT.PAUSE': 'paused'

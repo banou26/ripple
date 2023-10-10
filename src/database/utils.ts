@@ -59,8 +59,9 @@ export const serializeTorrentDocument = (torrentDocument: Partial<TorrentDocumen
     downloadSpeed: 0,
     uploadSpeed: 0,
     ratio: 0,
-    files: torrentDocument.state?.torrentFile?.files?.map((file) => ({
+    files: torrentDocument.state?.torrentFile?.files?.map((file, index) => ({
       ...file,
+      index,
       selected: true,
       priority: 1
     })) ?? [],

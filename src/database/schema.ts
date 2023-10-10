@@ -120,6 +120,20 @@ export const torrentSchema = {
           items: {
             type: 'object',
             properties: {
+              status: {
+                type: 'string',
+                enum: [
+                  'paused',
+                  'checking',
+                  'downloading',
+                  'finished',
+                  'seeding',
+                  'error'
+                ]
+              },
+              index: {
+                type: 'number'
+              },
               name: {
                 type: 'string',
                 maxLength: 255
