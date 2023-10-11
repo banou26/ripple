@@ -3,7 +3,7 @@ import type { RxCollection } from 'rxdb'
 import { database } from './database'
 import { TorrentDocument, torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
-import parseTorrent, { Instance } from 'parse-torrent'
+import parseTorrent, { Instance, toMagnetURI } from 'parse-torrent'
 
 const { torrents } = await database.addCollections({
   torrents: {
@@ -42,7 +42,10 @@ export const addTorrent = async (options: { magnet: string } | { torrentFile: In
     serializeTorrentDocument({
       infoHash,
       state: {
-        magnet,
+        magnet:
+          magnet
+          ? magnet
+          : toMagnetURI(torrentFile!),
         torrentFile
       }
     })

@@ -10,13 +10,16 @@ export type Resolvers = typeof resolvers
 
 const sharedWorker = new SharedWorker(SharedWorkerURL, { type: 'module' })
 
+//! This is needed, as we need to wait for the api to make a connection to the FKN API's worker
+// todo: check WHY though, it shouldnt be needed
+await getApiTarget()
+
 export const { resolvers } = registerListener({
   resolvers: {
     getApiTargetPort: makeCallListener(() => getApiTargetPort())
   },
   target: sharedWorker.port as unknown as Window,
-  key: 'shared-worker-fkn-api',
-  proxyTarget: await getApiTarget()
+  key: 'shared-worker-fkn-port'
 })
 
 sharedWorker.port.addEventListener('error', (err) => {
@@ -33,12 +36,13 @@ leaderElector.awaitLeadership().then(() => {
   const { port1, port2 } = messageChannel
 
   port1.addEventListener('message', (event) => {
+    console.log('MSG PROXY TO IO WORKER', event.data)
     // proxyMessage({ key: 'shared-worker-fkn-api', target: worker }, event)
     const { type, data, port } = event.data
     const transferables = getTransferableObjects(data)
     worker.postMessage(
       {
-        source: 'shared-worker-fkn-api',
+        source: 'io-worker',
         type,
         data,
         port

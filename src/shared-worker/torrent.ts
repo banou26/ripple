@@ -1,8 +1,6 @@
 import type { ActorRefFrom } from 'xstate'
 
 import type { torrentManagerMachine } from './torrent-manager'
-// import type { TorrentManagerMachine } from './torrent-manager'
-import type { FileMachine } from './file'
 
 import { createMachine, assign, fromObservable } from 'xstate'
 
@@ -43,9 +41,9 @@ export const torrentMachine = createMachine({
     },
     checkingFiles: {
       entry: assign({
-        files: ({ spawn, context }) =>
-          void console.log('context', context) ||
-          context.document.state.files.map(file => {
+        files: ({ spawn, context }) => {
+          context.files.forEach(file => file.stop())
+          return context.document.state.files.map(file => {
             return spawn(
               fileMachine,
               {
@@ -58,21 +56,8 @@ export const torrentMachine = createMachine({
               }
             )
           })
-      }),
-      // after: {
-      //   500: [
-      //     {
-      //       target: 'downloading',
-      //       guard: ({ context }) =>
-      //         context?.options.paused === false
-      //     },
-      //     {
-      //       target: 'paused',
-      //       guard: ({ context }) =>
-      //         context?.options.paused === true
-      //     }
-      //   ]
-      // }
+        }
+      })
     },
     downloading: {
       entry: () => console.log('downloading'),
