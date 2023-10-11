@@ -63,7 +63,8 @@ export const serializeTorrentDocument = (torrentDocument: Partial<TorrentDocumen
       ...file,
       index,
       selected: true,
-      priority: 1
+      priority: 1,
+      downloadedRanges: []
     })) ?? [],
     ...torrentDocument.state
   }

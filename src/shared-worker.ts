@@ -10,8 +10,7 @@ export type Resolvers = typeof resolvers
 
 const sharedWorker = new SharedWorker(SharedWorkerURL, { type: 'module' })
 
-//! This is needed, as we need to wait for the api to make a connection to the FKN API's worker
-// todo: check WHY though, it shouldnt be needed
+// todo: THIS HELPS WITH A RACE CONDITION BUT THIS SHOULD BE FIXED
 await getApiTarget()
 
 export const { resolvers } = registerListener({
