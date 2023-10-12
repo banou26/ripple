@@ -3,7 +3,7 @@ import { createRxDatabase } from 'rxdb'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
 import { BroadcastChannel } from 'broadcast-channel'
 
-import type { TorrentCollection } from './collection'
+import type { TorrentCollection } from './torrents'
 
 const broadcastChannel = new BroadcastChannel('ripple')
 

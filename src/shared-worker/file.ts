@@ -52,7 +52,6 @@ export const fileMachine = createMachine({
       }
     },
     downloading: {
-      entry: (ctx) => console.log('File downloading entry', ctx),
       invoke: {
         id: 'downloadFile',
         input: ({ context }) => context,
@@ -131,13 +130,14 @@ export const fileMachine = createMachine({
                   // })
                   if (!cancelled) read()
                 }
-                // read()
+                read()
               }).catch((err) => {
                 console.log('downloadFile err', err)
                 observer.error(err)
               })
 
               return () => {
+                console.log('download file cancelled')
                 cancelled = true
               }
             })
@@ -145,6 +145,9 @@ export const fileMachine = createMachine({
         onDone: {
           target: 'finished'
         }
+      },
+      on: {
+        'FILE.PAUSE': 'paused'
       }
     },
     paused: {

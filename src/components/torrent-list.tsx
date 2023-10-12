@@ -1,11 +1,11 @@
-import type { TorrentDocument } from '../torrent/collection'
+import type { TorrentDocument } from '../database'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, MinusSquare, Square, Users, UserCheck } from 'react-feather'
+import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, MinusSquare, Square, Users, UserCheck, Pause } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -25,6 +25,10 @@ const style = css`
     height: 100%;
 
     & > .title {
+      display: flex;
+      align-items: center;
+
+      gap: 1rem;
       font-size: 2rem;
       font-weight: bold;
       width: 100%;
@@ -34,6 +38,12 @@ const style = css`
       background-color: rgb(35, 38, 40);
       /* border-bottom: 1px solid #fff;
       background-color: #2f2f2f; */
+
+      span {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+      }
     }
 
     .items {
@@ -71,6 +81,7 @@ const style = css`
         display: flex;
         padding: 1rem;
         gap: 2rem;
+        max-width: 75%;
 
         .preview {
           height: 10rem;
@@ -83,6 +94,7 @@ const style = css`
         .content {
           display: flex;
           flex-direction: column;
+          max-width: 75%;
 
           .name {
             font-size: 2rem;
@@ -249,7 +261,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
       <div className="main">
         <div className="preview" style={{ backgroundImage: `url(${imgUrl})` }} />
         <div className="content">
-          <div className="name">{torrent.state.name}</div>
+          <div className="name" title={torrent.state.name}>{torrent.state.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
         </div>
       </div>
@@ -356,7 +368,10 @@ export const TorrentList = ({ ...rest }) => {
   return (
     <div css={style} {...rest}>
       <div className="category">
-        <div className="title">Downloading</div>
+        <div className="title">
+          <span>Downloading</span>
+          <span><Pause/></span>
+        </div>
         {
           !downloadingTorrents?.length && (
             <div className="items">

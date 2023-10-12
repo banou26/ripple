@@ -227,3 +227,56 @@ export type TorrentDocument = {
     }[]
   }
 }
+
+export const settingsSchema = {
+  title: 'Settings schema',
+  description: 'Describes the settings of the app',
+  version: 0,
+  primaryKey: 'infoHash',
+  type: 'object',
+  properties: {
+    infoHash: {
+      type: 'string',
+      maxLength: 255
+    },
+    options: {
+      type: 'object',
+      properties: {
+        paused: {
+          type: 'boolean'
+        }
+      }
+    },
+    state: {
+      type: 'object',
+      properties: {
+        paused: {
+          type: 'boolean'
+        },
+        throttle: {
+          type: 'number'
+        },
+        maxConnections: {
+          type: 'number'
+        },
+        maxDownloadSpeed: {
+          type: 'number'
+        }
+      }
+    }
+  },
+  required: ['infoHash']
+}
+
+export type SettingsDocument = {
+  infoHash: string
+  options: {
+    paused: boolean
+  },
+  state: {
+    paused: boolean
+    throttle: number
+    maxConnections: number
+    maxDownloadSpeed: number
+  }
+}

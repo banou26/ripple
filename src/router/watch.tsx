@@ -6,7 +6,7 @@ import FKNMediaPlayer from '@banou/media-player'
 import { torrent } from '@fkn/lib'
 import { useParams } from 'react-router'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { TorrentDocument } from 'src/torrent/collection'
+import { TorrentDocument } from 'src/torrent/torrents'
 
 const playerStyle = css`
 height: 100%;

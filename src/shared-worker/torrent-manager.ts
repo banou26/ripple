@@ -15,23 +15,6 @@ export const torrentManagerMachine = createMachine({
   },
   on: {
     'WORKER.DISCONNECTED': { target: '.waitingForWorker' },
-    'TORRENT.ADD': {
-      actions: assign({
-        torrents: ({ spawn, context, event, self }) => [
-          ...context.torrents,
-          spawn(
-            torrentMachine,
-            {
-              id: `torrent-${event.output.infoHash}`,
-              input: {
-                parent: self,
-                document: event.output
-              }
-            }
-          )
-        ]
-      })
-    }
   },
   states: {
     waitingForDocuments: {
@@ -76,7 +59,37 @@ export const torrentManagerMachine = createMachine({
       }
     },
     idle: {
-
+      on: {
+        'TORRENT.ADD': {
+          actions: assign({
+            torrents: ({ spawn, context, event, self }) => [
+              ...context.torrents,
+              spawn(
+                torrentMachine,
+                {
+                  id: `torrent-${event.output.infoHash}`,
+                  input: {
+                    parent: self,
+                    document: event.output
+                  }
+                }
+              )
+            ]
+          })
+        }
+      }
+    },
+    paused: {
+      invoke: {
+        id: 'getTorrentDocuments',
+        input: ({ context }) => context,
+        src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
+          input.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+        }),
+      },
+      on: {
+        'RESUME': 'idle'
+      }
     }
   }
 })

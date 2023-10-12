@@ -1,4 +1,4 @@
 import './rxdb'
 export * from './database'
-export * from './collection'
+export * from './torrents'
 export * from './schema'
