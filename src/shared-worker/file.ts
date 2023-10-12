@@ -10,17 +10,16 @@ import { Observable, filter, first, map, tap } from 'rxjs'
 import { torrent } from '@fkn/lib'
 
 import { getIoWorkerPort } from './io-worker'
-import { throttleStream } from './utils'
+import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
 
 export const fileMachine = createMachine({
   id: 'torrentFile',
   initial: 'checkingFile',
-  context: <T extends ActorRefFrom<TorrentMachine>>(
+  context: (
     { input }:
-    { input: { parent: T, document: TorrentDocument, file: NonNullable<TorrentDocument['state']['files']>[number] } }
-  ) =>
-  console.log('File input', input) || ({
+    { input: { parent: ActorRefFrom<TorrentMachine>, document: RxDocument<TorrentDocument>, file: NonNullable<RxDocument<TorrentDocument>['state']['files']>[number] } }
+  ) => ({
     parent: input.parent as unknown as ActorRefFrom<TorrentMachine>,
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number]
@@ -63,33 +62,32 @@ export const fileMachine = createMachine({
               const document = ctx.input.document as RxDocument<TorrentDocument>
               console.log('downloadFile observable', ctx)
               
-              const offsetStart = ctx.input.file.downloadedRanges?.reduce((acc, range) => {
-                if (range.end > acc) return range.end
-                return acc
-              }, 0) || 0
+              const offsetStart =
+                ctx
+                  .input
+                  .file
+                  .downloadedRanges
+                  .sort((a, b) => a.start - b.start)
+                  .at(0)?.end || 0
+              console.log('downloadFile offsetStart', offsetStart)
 
               let cancelled = false
               torrent({
                 magnet: document.state.magnet,
-                path: ctx.input.file.path
+                path: ctx.input.file.path,
+                offset: offsetStart
               }).then(async (res: Response) => {
-                console.log('downloadFile res', res)
                 const throttledResponse = throttleStream(res.body!, 1_000_000)
-                console.log('downloadFile throttledResponse', throttledResponse)
-                const reader = throttledResponse.getReader()
+                const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
-                // const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
-                //   'openWriteStream',
-                //   {
-                //     filePath: `torrents/${ctx.input.document.infoHash}/${ctx.input.file.path}`,
-                //     offset: 0,
-                //     size: ctx.input.file.length
-                //   }
-                // )
-
-                // offsetStart depending on already downloaded ranges
-
-                // const offsetStart = ctx.input.file.offset
+                const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
+                  'openWriteStream',
+                  {
+                    filePath: `torrents/${ctx.input.document.infoHash}/${ctx.input.file.path}`,
+                    offset: offsetStart,
+                    size: ctx.input.file.length
+                  }
+                )
 
                 setInterval(() => {
                   console.log('doc', document.getLatest().state.files[0]?.downloadedRanges)
@@ -107,36 +105,30 @@ export const fileMachine = createMachine({
                     observer.complete()
                     return
                   }
+                  console.log('pull', value)
                   // await write(value)
-                  document.incrementalModify((doc) => {
-                    const file = doc.state.files.find((file) => file.index === ctx.input.file.index)
-                    if (!file) return doc
-                    file.downloaded += value.length
-                    file.progress = file.downloaded / file.length
-                    // get current downloadRange and update it, create one if it doesn't exist
-                    const downloadRange = file.downloadedRanges?.find((range) => range.start <= offsetStart && range.end >= offsetStart + value.length)
-                    if (downloadRange) {
-                      downloadRange.end = downloadRange.end + value.length
-                    } else {
-                      file.downloadedRanges.push({
-                        start: offsetStart,
-                        end: value.length
-                      })
-                    }
+                  // document.incrementalModify((doc) => {
+                  //   const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
+                  //   if (!file) return doc
+                  //   // get current downloadRange and update it, create one if it doesn't exist
+                  //   const downloadRange =
+                  //     file
+                  //       .downloadedRanges
+                  //       ?.find((range) => range.start <= offsetStart && range.end >= offsetStart)
+                  //   if (downloadRange) {
+                  //     downloadRange.end = downloadRange.end + value.byteLength
+                  //   } else {
+                  //     file.downloadedRanges.push({
+                  //       start: offsetStart,
+                  //       end: offsetStart + value.byteLength
+                  //     })
+                  //   }
 
-                    // merge downloadedRanges if they are adjacent
-                    file.downloadedRanges = file.downloadedRanges.reduce((acc, range) => {
-                      const lastRange = acc[acc.length - 1]
-                      if (lastRange && lastRange.end === range.start) {
-                        lastRange.end = range.end
-                      } else {
-                        acc.push(range)
-                      }
-                      return acc
-                    }, [] as { start: number, end: number }[])
+                  //   // merge downloadedRanges
+                  //   file.downloadedRanges = mergeRanges(file.downloadedRanges)
 
-                    return doc
-                  })
+                  //   return doc
+                  // })
                   if (!cancelled) read()
                 }
                 // read()

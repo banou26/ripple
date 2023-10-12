@@ -27,7 +27,7 @@ const { resolvers } = registerListener({
           await writable.seek(offset)
         },
         write: async (buffer: ArrayBuffer) => {
-          await writable.write(buffer)
+          await writable.write({ type: 'write', data: buffer })
         },
         close: async () => {
           await writable.close()
