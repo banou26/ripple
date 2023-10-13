@@ -22,6 +22,24 @@ export const torrentMachine = createMachine({
         (context.files as ActorRefFrom<typeof torrentMachine>[])
           .every(file => file.getSnapshot().value === 'ready'),
       target: '.finished'
+    },
+    'TORRENT.PAUSE': {
+      actions: assign({
+        files: ({ context, event }) => {
+          console.log('TORRENT# on PAUSE EVENT', event)
+          context.files.forEach(file => file.send({ type: 'FILE.PAUSE' }))
+          return context.files
+        }
+      })
+    },
+    'TORRENT.RESUME': {
+      actions: assign({
+        files: ({ context, event }) => {
+          console.log('TORRENT# on RESUME EVENT', event)
+          context.files.forEach(file => file.send({ type: 'FILE.RESUME' }))
+          return context.files
+        }
+      })
     }
   },
   states: {
@@ -63,12 +81,30 @@ export const torrentMachine = createMachine({
       entry: () => console.log('downloading'),
       on: {
         'FILES.FINISHED': 'finished',
-        'TORRENT.PAUSE': 'paused'
+        'TORRENT.PAUSE': {
+          target: 'paused',
+          actions: assign({
+            files: ({ context, event }) => {
+              console.log('TORRENT# downloading->TORRENT.PAUSE EVENT', event)
+              context.files.forEach(file => file.send({ type: 'FILE.PAUSE' }))
+              return context.files
+            }
+          })
+        }
       }
     },
     paused: {
       on: {
-        'TORRENT.RESUME': 'downloading'
+        'TORRENT.RESUME': {
+          target: 'downloading',
+          actions: assign({
+            files: ({ context, event }) => {
+              console.log('TORRENT# paused->TORRENT.RESUME EVENT', event)
+              context.files.forEach(file => file.send({ type: 'FILE.RESUME' }))
+              return context.files
+            }
+          })
+        }
       }
     },
     finished: {

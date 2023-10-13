@@ -1,11 +1,11 @@
-import type { TorrentDocument } from '../database'
+import { useSettingsDocument, type TorrentDocument } from '../database'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, MinusSquare, Square, Users, UserCheck, Pause } from 'react-feather'
+import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, MinusSquare, Square, Users, UserCheck, Pause, Play } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -357,6 +357,8 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 }
 
 export const TorrentList = ({ ...rest }) => {
+  const settings = useSettingsDocument()
+  console.log('settings', settings)
   const collection = useRxCollection<TorrentDocument>('torrents')
   const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['downloading', 'paused'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
@@ -365,12 +367,27 @@ export const TorrentList = ({ ...rest }) => {
   // console.log('downloadingTorrents', downloadingTorrents)
   // console.log('completedTorrents', completedTorrents)
 
+  const togglePauseAll = async () => {
+    await settings?.incrementalModify(doc => {
+      doc.paused = !doc.paused
+      return doc
+    })
+  }
+
   return (
     <div css={style} {...rest}>
       <div className="category">
         <div className="title">
           <span>Downloading</span>
-          <span><Pause/></span>
+          <span onClick={togglePauseAll}>
+            {
+              settings?.paused ? (
+                <Play size={20}/>
+              ) : (
+                <Pause size={20}/>
+              )
+            }
+          </span>
         </div>
         {
           !downloadingTorrents?.length && (

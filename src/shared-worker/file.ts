@@ -4,7 +4,7 @@ import type { TorrentMachine } from './torrent'
 import type { Resolvers } from '../worker'
 import type { TorrentDocument } from '../database'
 
-import { createMachine, fromObservable } from 'xstate'
+import { assign, createMachine, fromObservable } from 'xstate'
 import { call } from 'osra'
 import { Observable, filter, first, map, tap } from 'rxjs'
 import { torrent } from '@fkn/lib'
@@ -147,12 +147,30 @@ export const fileMachine = createMachine({
         }
       },
       on: {
-        'FILE.PAUSE': 'paused'
+        'FILE.PAUSE': {
+          target: 'paused',
+          actions: assign({
+            file: ({ context, event }) => {
+              console.log('FILE downloading->FILE.PAUSE EVENT', event)
+              // context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+              return context.file
+            }
+          })
+        }
       }
     },
     paused: {
       on: {
-        'TORRENT.RESUME': 'downloading'
+        'FILE.RESUME': {
+          target: 'downloading',
+          actions: assign({
+            file: ({ context, event }) => {
+              console.log('FILE downloading->FILE.RESUME EVENT', event)
+              // context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
+              return context.file
+            }
+          })
+        }
       }
     },
     finished: {

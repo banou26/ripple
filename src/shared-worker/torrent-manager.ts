@@ -1,7 +1,7 @@
 import type { ActorRefFrom } from 'xstate'
 import { createMachine, createActor, assign, fromPromise } from 'xstate'
 
-import { TorrentDocument, torrentCollection } from '../database'
+import { TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
 
 const getTorrentDocuments = () => torrentCollection.find().exec()
@@ -12,6 +12,34 @@ export const torrentManagerMachine = createMachine({
   context: {
     torrentDocuments: [] as TorrentDocument[],
     torrents: [] as ActorRefFrom<typeof torrentMachine>[]
+  },
+  types: {
+    events: {} as {
+      TORRENT: {
+        ADD: {
+          output: TorrentDocument
+        },
+        REMOVE: {
+          output: TorrentDocument
+        },
+        PAUSE: {
+          output: TorrentDocument
+        },
+        RESUME: {
+          output: TorrentDocument
+        },
+        'REMOVE-AND-DELETE-FILES': {
+          output: TorrentDocument
+        },
+        'REMOVE-AND-KEEP-FILES': {
+          output: TorrentDocument
+        }
+      },
+      WORKER: {
+        READY: {},
+        DISCONNECTED: {}
+      }
+    }
   },
   on: {
     'WORKER.DISCONNECTED': { target: '.waitingForWorker' },
@@ -76,6 +104,61 @@ export const torrentManagerMachine = createMachine({
               )
             ]
           })
+        },
+        'TORRENT.REMOVE': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
+              torrent?.stop()
+              return context.torrents.filter(torrent => torrent.id !== `torrent-${event.output.infoHash}`)
+            }
+          })
+        },
+        'TORRENT.PAUSE': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
+              torrent?.send({ type: 'TORRENT.PAUSE' })
+              return context.torrents
+            }
+          })
+        },
+        'TORRENT.RESUME': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
+              torrent?.send({ type: 'TORRENT.RESUME' })
+              return context.torrents
+            }
+          })
+        },
+        'TORRENT.REMOVE-AND-DELETE-FILES': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
+              torrent?.send({ type: 'TORRENT.REMOVE-AND-DELETE-FILES' })
+              return context.torrents
+            }
+          })
+        },
+        'TORRENT.REMOVE-AND-KEEP-FILES': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
+              torrent?.send({ type: 'TORRENT.REMOVE-AND-KEEP-FILES' })
+              return context.torrents
+            }
+          })
+        },
+        'PAUSE': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              console.log('EVENT', event)
+              context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+              return context.torrents
+            }
+          }),
+          target: 'paused'
         }
       }
     },
@@ -88,7 +171,16 @@ export const torrentManagerMachine = createMachine({
         }),
       },
       on: {
-        'RESUME': 'idle'
+        'RESUME': {
+          actions: assign({
+            torrents: ({ context, event }) => {
+              console.log('EVENT', event)
+              context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
+              return context.torrents
+            }
+          }),
+          target: 'paused'
+        },
       }
     }
   }
@@ -99,6 +191,16 @@ export type TorrentManagerMachine = typeof torrentManagerMachine
 const manager =
   createActor(torrentManagerMachine)
     .start()
+
+getSettingsDocument().then(settingsDocument => {
+  settingsDocument?.$.subscribe(settings => {
+    if (settings?.paused) {
+      manager.send({ type: 'PAUSE' })
+    } else {
+      manager.send({ type: 'RESUME' })
+    }
+  })
+})
 
 setTimeout(() => {
   console.log('manager', manager.getSnapshot())

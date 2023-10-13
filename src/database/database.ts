@@ -1,14 +1,16 @@
+import type { TorrentCollection } from './torrents'
+import type { SettingsCollection } from './settings'
+
 import { getLeaderElectorByBroadcastChannel } from 'rxdb/plugins/leader-election'
 import { createRxDatabase } from 'rxdb'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
 import { BroadcastChannel } from 'broadcast-channel'
 
-import type { TorrentCollection } from './torrents'
-
 const broadcastChannel = new BroadcastChannel('ripple')
 
 export type Collections = {
   torrents: TorrentCollection
+  settings: SettingsCollection
 }
 
 export const database = await createRxDatabase<Collections>({
