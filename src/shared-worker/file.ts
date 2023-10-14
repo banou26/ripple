@@ -6,12 +6,13 @@ import type { TorrentDocument } from '../database'
 
 import { assign, createMachine, fromObservable } from 'xstate'
 import { call } from 'osra'
-import { Observable, filter, first, map, tap } from 'rxjs'
+import { Observable, filter, first, map, merge, tap } from 'rxjs'
 import { torrent } from '@fkn/lib'
 
 import { getIoWorkerPort } from './io-worker'
 import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
+import { partition } from 'xstate/dist/declarations/src/utils'
 
 export const fileMachine = createMachine({
   id: 'torrentFile',
@@ -24,6 +25,30 @@ export const fileMachine = createMachine({
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number]
   }),
+  // invoke: {
+  //   id: 'syncDBState',
+  //   src: fromObservable(({ context, self }) => {
+
+  //     self.subscribe((event) => {
+  //       console.log('FILE EVENT', event)
+  //       context.document.incrementalModify((doc) => {
+  //         const file = doc.state.files.find((file) => file.path === context.file.path)
+  //         if (!file) return doc
+          
+  //         return doc
+  //       })
+  //     })
+
+  //     const foo = partition(self, (event) => event.type === 'FILE.PAUSE')
+  //     const bar = partition(self, (event) => event.type === 'FILE.RESUME')
+
+  //     return merge(
+  //       foo,
+  //       bar
+  //     )
+  //     // return context.document.$.pipe()
+  //   })
+  // },
   states: {
     checkingFile: {
       invoke: {

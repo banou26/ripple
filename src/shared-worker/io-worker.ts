@@ -9,39 +9,19 @@ let ioWorkerPort: MessagePort
 
 export const getIoWorkerPort = () => ioWorkerPort
 
-const newLeader = makeCallListener(async ({ workerPort }: { workerPort: MessagePort }) => {
-  if (ioWorkerPort) torrentManager.send({ type: 'WORKER.DISCONNECTED' })
+export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: MessagePort }) => {
   console.log('newLeader', workerPort)
+  if (ioWorkerPort) {
+    console.log('torrentManager WORKER.DISCONNECTED')
+    torrentManager.send({ type: 'WORKER.DISCONNECTED' })
+  }
   ioWorkerPort = workerPort
-  torrentManager.send({ type: 'WORKER.READY' })
+    console.log('torrentManager WORKER.READY')
+    torrentManager.send({ type: 'WORKER.READY' })
 })
 
-const resolvers = {
+export const resolvers = {
   newLeader
 }
 
 export type Resolvers = typeof resolvers
-
-let _port: MessagePort
-
-globalThis.addEventListener('connect', (ev) => {
-  console.log('SHAREDWORKER connect', ev)
-  const { ports: [port] } = ev
-  port.start()
-  console.log('SHAREDWORKER port', port)
-
-  if (!_port) {
-    call<SharedWorkerFknApiResolvers>(port, { key: 'shared-worker-fkn-port' })('getApiTargetPort')
-      .then(port => {
-        console.log('SET API TARGET PORT', port)
-        setApiTarget(port)
-        _port = port
-      })
-  }
-
-  registerListener({
-    key: 'shared-worker-fkn-api',
-    target: port as unknown as Worker,
-    resolvers
-  })
-})

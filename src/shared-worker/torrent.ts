@@ -7,6 +7,8 @@ import { createMachine, assign, fromObservable } from 'xstate'
 import { TorrentDocument } from '../database'
 import { fileMachine } from './file'
 
+
+
 export const torrentMachine = createMachine({
   id: 'torrent',
   initial: 'downloadingMetadata',
@@ -15,6 +17,15 @@ export const torrentMachine = createMachine({
     document: input.document,
     files: [] as ActorRefFrom<typeof torrentMachine>[]
   }),
+  // invoke: {
+  //   id: 'getTorrentMetadata',
+  //   src: fromObservable(({ context, self }) => {
+
+  //     return context.document.$.pipe(
+
+  //     )
+  //   })
+  // },
   on: {
     'FILE.CHECKING': '.checkingFiles',
     'FILE.FINISHED': {
