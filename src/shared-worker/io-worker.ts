@@ -1,7 +1,4 @@
-import type { Resolvers as SharedWorkerFknApiResolvers } from '../shared-worker'
-
-import { call, makeCallListener, registerListener } from 'osra'
-import { setApiTarget } from '@fkn/lib'
+import { call, makeCallListener } from 'osra'
 
 import torrentManager from './torrent-manager'
 
@@ -16,8 +13,30 @@ export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: M
     torrentManager.send({ type: 'WORKER.DISCONNECTED' })
   }
   ioWorkerPort = workerPort
-    console.log('torrentManager WORKER.READY')
-    torrentManager.send({ type: 'WORKER.READY' })
+  await new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      call(workerPort, { key: 'torrent-manager' })('ping')
+        .then(res => {
+          clearInterval(interval)
+          console.log('ping', res)
+          resolve(undefined)
+        })
+    }, 100)
+
+    call(workerPort, { key: 'torrent-manager' })('ping')
+      .then(res => {
+        clearInterval(interval)
+        console.log('ping', res)
+        resolve(undefined)
+      })
+
+    setTimeout(() => {
+      clearInterval(interval)
+      reject()
+    }, 1000)
+  })
+  console.log('torrentManager WORKER.READY')
+  torrentManager.send({ type: 'WORKER.READY' })
 })
 
 export const resolvers = {

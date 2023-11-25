@@ -4,15 +4,14 @@ import type { TorrentMachine } from './torrent'
 import type { Resolvers } from '../worker'
 import type { TorrentDocument } from '../database'
 
-import { assign, createMachine, fromObservable } from 'xstate'
+import { assign, createMachine, fromObservable, fromPromise } from 'xstate'
 import { call } from 'osra'
-import { Observable, filter, first, map, merge, tap } from 'rxjs'
+import { Observable, filter, first, from, map, merge, partition, tap } from 'rxjs'
 import { torrent } from '@fkn/lib'
 
 import { getIoWorkerPort } from './io-worker'
 import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
-import { partition } from 'xstate/dist/declarations/src/utils'
 
 export const fileMachine = createMachine({
   id: 'torrentFile',
@@ -25,30 +24,64 @@ export const fileMachine = createMachine({
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number]
   }),
-  // invoke: {
-  //   id: 'syncDBState',
-  //   src: fromObservable(({ context, self }) => {
+  on: {
+    'FILE.PAUSE': {
+      target: '.paused'
+    },
+    'FILE.RESUME': {
+      target: '.downloading'
+    }
+  },
+  invoke: {
+    id: 'syncDBState',
+    src: fromObservable(({ context, self, ...rest }) => {
 
-  //     self.subscribe((event) => {
-  //       console.log('FILE EVENT', event)
-  //       context.document.incrementalModify((doc) => {
-  //         const file = doc.state.files.find((file) => file.path === context.file.path)
-  //         if (!file) return doc
+      // self.subscribe((event) => {
+      //   console.log('FILE EVENT', event)
+      //   context.document.incrementalModify((doc) => {
+      //     const file = doc.state.files.find((file) => file.path === context.file.path)
+      //     if (!file) return doc
           
-  //         return doc
-  //       })
-  //     })
+      //     return doc
+      //   })
+      // })
 
-  //     const foo = partition(self, (event) => event.type === 'FILE.PAUSE')
-  //     const bar = partition(self, (event) => event.type === 'FILE.RESUME')
+      const pause$ =
+        from(self)
+          .pipe(
+            filter((event) => event.type === 'FILE.PAUSE'),
+            tap(() => {
+              context.document.incrementalModify((doc) => {
+                const file = doc.state.files.find((file) => file.path === context.file.path)
+                if (!file) return doc
+                file.status = 'paused'
+                return doc
+              })
+            })
+          )
 
-  //     return merge(
-  //       foo,
-  //       bar
-  //     )
-  //     // return context.document.$.pipe()
-  //   })
-  // },
+      const resume$ =
+        from(self)
+          .pipe(
+            filter((event) => event.type === 'FILE.RESUME'),
+            tap((event) => {
+              context.document.incrementalModify((doc) => {
+                const file = doc.state.files.find((file) => file.path === context.file.path)
+                if (!file) return doc
+                // file.status = 'downloading'
+                return doc
+              })
+            })
+          )
+
+      return (
+        merge(
+          pause$,
+          resume$
+        )
+      )
+    })
+  },
   states: {
     checkingFile: {
       invoke: {
@@ -86,6 +119,10 @@ export const fileMachine = createMachine({
               const document = ctx.input.document as RxDocument<TorrentDocument>
               console.log('downloadFile observable', ctx)
               
+              if (ctx.input.file.selected === false) {
+                return observer.complete()
+              }
+
               const offsetStart =
                 ctx
                   .input
@@ -104,6 +141,7 @@ export const fileMachine = createMachine({
                 const throttledResponse = throttleStream(res.body!, 1_000_000)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
+                console.log('TOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO', getIoWorkerPort())
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
                   'openWriteStream',
                   {
@@ -113,9 +151,9 @@ export const fileMachine = createMachine({
                   }
                 )
 
-                setInterval(() => {
-                  console.log('doc', document.getLatest().state.files[0]?.downloadedRanges)
-                }, 1000)
+                // setInterval(() => {
+                //   console.log('doc', document.getLatest().state.files[0])
+                // }, 1000)
 
                 const read = async () => {
                   if (cancelled) {
@@ -129,7 +167,7 @@ export const fileMachine = createMachine({
                     observer.complete()
                     return
                   }
-                  console.log('pull', value)
+                  // console.log('pull', value)
                   // await write(value)
                   // document.incrementalModify((doc) => {
                   //   const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
@@ -185,6 +223,16 @@ export const fileMachine = createMachine({
       }
     },
     paused: {
+      invoke: {
+        id: 'pauseFile',
+        src:
+          fromPromise(({ context }) =>
+            context.document.incrementalModify((doc) => {
+              doc.state.status = 'paused'
+              return doc
+            })
+          )
+      },
       on: {
         'FILE.RESUME': {
           target: 'downloading',
@@ -205,4 +253,3 @@ export const fileMachine = createMachine({
 })
 
 export type FileMachine = typeof fileMachine
-

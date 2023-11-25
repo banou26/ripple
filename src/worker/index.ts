@@ -3,6 +3,7 @@ import { makeCallListener, registerListener } from 'osra'
 console.log('IO worker')
 
 globalThis.addEventListener('message', (ev) => {
+  if (ev.data.type === 'ping') return
   console.log('ev', ev)
 })
 
@@ -11,13 +12,14 @@ const torrentFolderHandle = await opfsRoot.getDirectoryHandle('torrents', { crea
 
 const { resolvers } = registerListener({
   resolvers: {
+    ping: makeCallListener(async () => {
+      return 'pong'
+    }),
     openWriteStream: makeCallListener(async ({ filePath, offset = 0, size }: { filePath: string, offset: number, size: number }) => {
-      console.log('openWriteStream', filePath, offset, size)
       const folderHande = await torrentFolderHandle.getDirectoryHandle(filePath.split('/').slice(1, -1).join('/'), { create: true })
       const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
-      // const syncAccessHandle = await fileHandle.createSyncAccessHandle()
-      const writable = await fileHandle.createWritable({ keepExistingData: true })
+      const writable = await fileHandle.createSyncAccessHandle()
 
       if (size !== file.size) await writable.truncate(size)
       if (offset) await writable.seek(offset)

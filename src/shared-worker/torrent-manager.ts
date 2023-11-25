@@ -3,6 +3,7 @@ import { createMachine, createActor, assign, fromPromise } from 'xstate'
 
 import { TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
+import { torrent } from '@fkn/lib'
 
 const getTorrentDocuments = () => torrentCollection.find().exec()
 
@@ -168,8 +169,11 @@ export const torrentManagerMachine = createMachine({
         'PAUSE': {
           actions: assign({
             torrents: ({ context, event }) => {
-              console.log('EVENT', event)
-              context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+              console.log('EVENT', event, context)
+              context
+                .torrents
+                .filter(torrent => torrent.getSnapshot().value !== 'finished')
+                .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
               return context.torrents
             }
           }),
@@ -182,15 +186,21 @@ export const torrentManagerMachine = createMachine({
         id: 'getTorrentDocuments',
         input: ({ context }) => context,
         src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
-          input.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+          input
+            .torrents
+            .filter(torrent => torrent.getSnapshot().value !== 'finished')
+            .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
         }),
       },
       on: {
         'RESUME': {
           actions: assign({
             torrents: ({ context, event }) => {
-              console.log('EVENT', event)
-              context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
+              console.log('EVENT', event, context)
+              context
+                .torrents
+                .filter(torrent => torrent.getSnapshot().value !== 'finished')
+                .forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
               return context.torrents
             }
           }),
