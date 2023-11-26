@@ -133,6 +133,7 @@ export const fileMachine = createMachine({
               console.log('downloadFile offsetStart', offsetStart)
 
               let cancelled = false
+              let _close: () => void
               torrent({
                 magnet: document.state.magnet,
                 path: ctx.input.file.path,
@@ -141,7 +142,6 @@ export const fileMachine = createMachine({
                 const throttledResponse = throttleStream(res.body!, 1_000_000)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
-                console.log('TOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO', getIoWorkerPort())
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
                   'openWriteStream',
                   {
@@ -150,6 +150,8 @@ export const fileMachine = createMachine({
                     size: ctx.input.file.length
                   }
                 )
+
+                _close = close
 
                 // setInterval(() => {
                 //   console.log('doc', document.getLatest().state.files[0])
@@ -202,6 +204,7 @@ export const fileMachine = createMachine({
               return () => {
                 console.log('download file cancelled')
                 cancelled = true
+                _close()
               }
             })
           ),
@@ -225,9 +228,10 @@ export const fileMachine = createMachine({
     paused: {
       invoke: {
         id: 'pauseFile',
+        input: ({ context }) => context,
         src:
-          fromPromise(({ context }) =>
-            context.document.incrementalModify((doc) => {
+          fromPromise(({ input }) =>
+            input.document.incrementalModify((doc) => {
               doc.state.status = 'paused'
               return doc
             })
@@ -247,7 +251,13 @@ export const fileMachine = createMachine({
       }
     },
     finished: {
-      
+      invoke: {
+        id: 'finishedFile',
+        src:
+          fromPromise(async ({ context }) => {
+            console.log('TORRENT FILE FINISHED', context)
+          })
+      },
     }
   }
 })

@@ -13,12 +13,12 @@ export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: M
     torrentManager.send({ type: 'WORKER.DISCONNECTED' })
   }
   ioWorkerPort = workerPort
+  // todo: fix this race condition properly
   await new Promise((resolve, reject) => {
     const interval = setInterval(() => {
       call(workerPort, { key: 'torrent-manager' })('ping')
         .then(res => {
           clearInterval(interval)
-          console.log('ping', res)
           resolve(undefined)
         })
     }, 100)
@@ -26,7 +26,6 @@ export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: M
     call(workerPort, { key: 'torrent-manager' })('ping')
       .then(res => {
         clearInterval(interval)
-        console.log('ping', res)
         resolve(undefined)
       })
 

@@ -119,7 +119,7 @@ export const torrentMachine = createMachine({
       }
     },
     finished: {
-      
+      entry: () => console.log('finished')
     }
   }
 })

@@ -1,5 +1,6 @@
 import type { ActorRefFrom } from 'xstate'
-import { createMachine, createActor, assign, fromPromise } from 'xstate'
+import { from, switchMap, tap } from 'rxjs'
+import { createMachine, createActor, assign, fromPromise, fromObservable } from 'xstate'
 
 import { TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
@@ -173,7 +174,7 @@ export const torrentManagerMachine = createMachine({
               context
                 .torrents
                 .filter(torrent => torrent.getSnapshot().value !== 'finished')
-                .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+                .forEach(torrent => console.log('torrent state', torrent.getSnapshot().value) || torrent.send({ type: 'TORRENT.PAUSE' }))
               return context.torrents
             }
           }),
@@ -188,10 +189,29 @@ export const torrentManagerMachine = createMachine({
         src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
           input
             .torrents
-            .filter(torrent => torrent.getSnapshot().value !== 'finished')
+            .filter(torrent => console.log('TORRENT STATE', torrent.getSnapshot().value) || torrent.getSnapshot().value !== 'finished')
             .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
         }),
       },
+      // invoke: {
+      //   id: 'checkFile',
+      //   input: ({ context }) => context,
+      //   src:
+      //     fromObservable((ctx) => {
+      //       console.log('checkFile context', ctx)
+      //       return (
+      //         from(getSettingsDocument())
+      //           .pipe(
+      //             switchMap((settingsDocument) => settingsDocument?.$),
+      //             tap((settingsDocument) => console.log('settingsDocument', settingsDocument))
+      //           )
+      //       )
+      //     }),
+      //   onSnapshot: {
+      //     target: '.idle',
+      //     guard: ({ event }) => console.log('File checkingFile onSnapshot', event) || event.snapshot.output?.paused
+      //   }
+      // },
       on: {
         'RESUME': {
           actions: assign({
@@ -204,8 +224,8 @@ export const torrentManagerMachine = createMachine({
               return context.torrents
             }
           }),
-          target: 'paused'
-        },
+          target: 'idle'
+        }
       }
     }
   }
@@ -219,6 +239,7 @@ const manager =
 
 getSettingsDocument().then(settingsDocument => {
   settingsDocument?.$.subscribe(settings => {
+    console.log('settings doc updated', settings)
     if (settings?.paused) {
       manager.send({ type: 'PAUSE' })
     } else {
