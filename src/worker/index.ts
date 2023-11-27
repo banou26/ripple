@@ -10,6 +10,15 @@ globalThis.addEventListener('message', (ev) => {
 const opfsRoot = await navigator.storage.getDirectory()
 const torrentFolderHandle = await opfsRoot.getDirectoryHandle('torrents', { create: true })
 
+const getFileHandleSyncAccessHandle = async (fileHandle: FileSystemFileHandle, tryCount = 0) =>
+  fileHandle
+    .createSyncAccessHandle()
+    .catch(async err => {
+      if (tryCount > 20) throw err
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return getFileHandleSyncAccessHandle(fileHandle, tryCount + 1)
+    })
+
 const { resolvers } = registerListener({
   resolvers: {
     ping: makeCallListener(async () => {
@@ -20,7 +29,8 @@ const { resolvers } = registerListener({
       const folderHande = await torrentFolderHandle.getDirectoryHandle(filePath.split('/').slice(1, -1).join('/'), { create: true })
       const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
-      const writable = await fileHandle.createSyncAccessHandle()
+      console.log('file', file, fileHandle)
+      const writable = await getFileHandleSyncAccessHandle(fileHandle)
 
       if (size !== file.size) await writable.truncate(size)
 

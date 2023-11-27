@@ -173,6 +173,23 @@ export const torrentSchema = {
                     }
                   }
                 }
+              },
+              bytesPerSecond: {
+                type: 'number'
+              },
+              streamBandwithLogs: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    timestamp: {
+                      type: 'number'
+                    },
+                    byteLength: {
+                      type: 'number'
+                    }
+                  }
+                }
               }
             }
           }

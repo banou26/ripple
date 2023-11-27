@@ -13,6 +13,8 @@ import { getIoWorkerPort } from './io-worker'
 import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
 
+const BYTES_PER_SECOND_TIME_RANGE = 10_000
+
 export const fileMachine = createMachine({
   initial: 'checkingFile',
   context: (
@@ -21,7 +23,20 @@ export const fileMachine = createMachine({
   ) => ({
     parent: input.parent as unknown as ActorRefFrom<TorrentMachine>,
     document: input.document,
-    file: input.file as NonNullable<TorrentDocument['state']['files']>[number]
+    file: input.file as NonNullable<TorrentDocument['state']['files']>[number],
+    downloadedRanges: input.file.downloadedRanges ?? [],
+    downloaded: input.file.downloaded ?? 0,
+    progress: input.file.progress ?? 0,
+    selected: input.file.selected ?? false,
+    priority: input.file.priority ?? 0,
+    length: input.file.length ?? 0,
+    offset: input.file.offset ?? 0,
+    path: input.file.path ?? '',
+    name: input.file.name ?? '',
+    index: input.file.index ?? 0,
+    status: input.file.status ?? 'checking',
+    streamBandwithLogs: input.file.streamBandwithLogs ?? [],
+    bytesPerSecond: input.file.bytesPerSecond ?? 0
   }),
   on: {
     'FILE.PAUSE': {
@@ -75,28 +90,9 @@ export const fileMachine = createMachine({
   states: {
     checkingFile: {
       entry: sendParent({ type: 'FILE.CHECKING_FILE' }),
-      invoke: {
-        input: ({ context }) => context,
-        src:
-          fromObservable((ctx) => {
-            console.log('checkFile context', ctx)
-            return (
-              ctx
-                .input
-                .document
-                .get$(`state`)
-                .pipe(
-                  map((state) => state.files.find((file, index) => index === ctx.input.file.index)),
-                  filter((file) => file !== undefined),
-                  first(),
-                  tap((v) => console.log('tap', v))
-                )
-            )
-          }),
-        onSnapshot: {
-          target: 'downloading',
-          guard: ({ event }) => console.log('File checkingFile onSnapshot', event) || event.snapshot.context?.selected === true
-        }
+      always: {
+        target: 'downloading',
+        guard: ({ context }) => context?.selected === true
       }
     },
     downloading: {
@@ -131,14 +127,21 @@ export const fileMachine = createMachine({
                 return
               }
 
+              let streamBandwithLogs = [...ctx.input.streamBandwithLogs]
+              let downloadedRanges = [...ctx.input.file.downloadedRanges]
+
               let cancelled = false
-              let _close: () => void
+              let _resolve, _reject
+              let closePromise = new Promise<() => Promise<void> | undefined>((resolve, reject) => {
+                _resolve = resolve
+                _reject = reject
+              })
               torrent({
                 magnet: document.state.magnet,
                 path: ctx.input.file.path,
                 offset: offsetStart
               }).then(async (res: Response) => {
-                const throttledResponse = throttleStream(res.body!, 10_000_000)
+                const throttledResponse = throttleStream(res.body!, 1_000_000)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
@@ -150,11 +153,7 @@ export const fileMachine = createMachine({
                   }
                 )
 
-                _close = close
-
-                setInterval(() => {
-                  console.log('doc', document.getLatest().state.files[0])
-                }, 1000)
+                _resolve(close)
 
                 const read = async () => {
                   if (cancelled) {
@@ -169,39 +168,54 @@ export const fileMachine = createMachine({
                     return
                   }
                   const bufferLength = value.byteLength
-                  // console.log('pull', value)
                   await write(value.buffer)
-                  document.incrementalModify((doc) => {
-                    const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
-                    if (!file) return doc
-                    // get current downloadRange and update it, create one if it doesn't exist
-                    const downloadRange =
-                      file
-                        .downloadedRanges
-                        ?.find((range) => range.start <= offsetStart && range.end >= offsetStart)
-                    if (downloadRange) {
-                      downloadRange.end = downloadRange.end + bufferLength
-                    } else {
-                      file.downloadedRanges.push({
-                        start: offsetStart,
-                        end: offsetStart + bufferLength
-                      })
+
+                  const downloadRange =
+                    downloadedRanges
+                      ?.find((range) => range.start <= offsetStart && range.end >= offsetStart)
+                  if (downloadRange) {
+                    downloadRange.end = downloadRange.end + bufferLength
+                  } else {
+                    downloadedRanges = [
+                      ...downloadedRanges,
+                      { start: offsetStart, end: offsetStart + bufferLength }
+                    ]
+                  }
+
+                  downloadedRanges = mergeRanges(downloadedRanges)
+
+                  streamBandwithLogs = [
+                    ...streamBandwithLogs,
+                    { timestamp: Date.now(), byteLength: bufferLength }
+                  ]
+
+                  const bytesPerSecondList =
+                    streamBandwithLogs
+                      .filter((log) => log.timestamp > (Date.now() - BYTES_PER_SECOND_TIME_RANGE))
+                      .sort((a, b) => a.timestamp - b.timestamp)
+
+                  const downloaded = downloadedRanges.reduce((acc, range) => acc + (range.end - range.start), 0)
+
+                  const bytesPerSecond =
+                    bytesPerSecondList.reduce((acc, log) => acc + log.byteLength, 0)
+                    / BYTES_PER_SECOND_TIME_RANGE
+
+                  observer.next({
+                    type: 'FILE.DOWNLOADING_UPDATE',
+                    value: {
+                      downloadedRanges,
+                      downloaded,
+                      progress: downloaded / ctx.input.file.length,
+                      status: 'downloading',
+                      streamBandwithLogs: [...streamBandwithLogs],
+                      bytesPerSecond
                     }
-
-                    console.log('downloadRange', file.downloadedRanges.at(-1))
-
-                    // merge downloadedRanges
-                    file.downloadedRanges = mergeRanges(file.downloadedRanges)
-                    file.downloaded = file.downloadedRanges.reduce((acc, range) => acc + (range.end - range.start), 0)
-                    doc.state.progress = getTorrentProgress(doc.state)
-                    file.status = 'downloading'
-
-                    return doc
                   })
                   if (!cancelled) read()
                 }
                 read()
               }).catch((err) => {
+                _resolve(undefined)
                 console.log('downloadFile err', err)
                 observer.error(err)
               })
@@ -209,10 +223,21 @@ export const fileMachine = createMachine({
               return () => {
                 console.log('download file cancelled')
                 cancelled = true
-                _close()
+                closePromise.then((close) => close?.())
               }
             })
           ),
+        onSnapshot: {
+          guard: ({ event }) => event.snapshot.context?.type === 'FILE.DOWNLOADING_UPDATE',
+          actions: assign(({ event }) => ({
+            downloadedRanges: event.snapshot.context.value.downloadedRanges,
+            downloaded: event.snapshot.context.value.downloaded,
+            progress: event.snapshot.context.value.progress,
+            status: event.snapshot.context.value.status,
+            streamBandwithLogs: event.snapshot.context.value.streamBandwithLogs,
+            bytesPerSecond: event.snapshot.context.value.bytesPerSecond
+          }))
+        },
         onDone: {
           target: 'finished'
         }

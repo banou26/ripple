@@ -264,16 +264,25 @@ const manager =
   createActor(torrentManagerMachine)
     .start()
 
+// getTorrentDocuments()
+//   .then((torrentDocuments) => {
+
+//   })
+
+torrentCollection.find().$.subscribe((torrentDocuments) => {
+  console.log('torrentDocuments', torrentDocuments)
+})
+
 manager.subscribe((state) => {
   console.log(
     'manager state',
-    [
-      ...(
-        state
-          .context
-          .torrents
-          .map((actor) => actor)
-      ),
+    ...[
+      // ...(
+      //   state
+      //     .context
+      //     .torrents
+      //     .map((actor) => actor.getSnapshot().context)
+      // ),
       ...(
         state
         .context
@@ -283,12 +292,13 @@ manager.subscribe((state) => {
             .getSnapshot()
             .context
             .files
-            .map((actor) => actor)
+            .map((actor) => ({...actor.getSnapshot().context}))
         )
       )
     ]
   )
 })
+
 
 // setTimeout(() => {
 //   console.log('manager', manager.getSnapshot())
