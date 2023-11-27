@@ -6,8 +6,18 @@ import { createMachine, assign, fromObservable } from 'xstate'
 
 import { TorrentDocument } from '../database'
 import { fileMachine } from './file'
+import { from, withLatestFrom } from 'rxjs'
 
+export const getTorrentProgress = (torrentState: TorrentDocument['state']) => {
+  const selectedFiles = torrentState.files?.filter(file => file.selected) ?? []
+  const totalLength = selectedFiles.reduce((acc, file) => acc + file.length, 0)
+  const downloadedLength = selectedFiles.reduce((acc, file) => acc + file.downloaded, 0)
+  return downloadedLength / totalLength
+}
 
+export const getTorrentStatus = () => {
+
+}
 
 export const torrentMachine = createMachine({
   id: 'torrent',
@@ -86,10 +96,52 @@ export const torrentMachine = createMachine({
             )
           })
         }
-      })
+      }),
+      invoke: {
+        id: 'checking files status watch',
+        input: ({ context }) => context,
+        src:
+          fromObservable(({ input, ...rest }) => {
+            console.log('TORRENT CHECKINGFILES', input, rest)
+
+            return from([])
+            // return (
+            //   withLatestFrom(input.torrents.map(torrent => torrent.$))
+            //     .pipe(
+            //       mergeMap((settingsDocument) => settingsDocument?.$),
+            //       filter((settingsDocument) => settingsDocument?.paused),
+            //       first(),
+            //     )
+            // )
+          }),
+        // onDone: {
+        //   target: 'paused'
+        // }
+      },
     },
     downloading: {
       entry: () => console.log('downloading'),
+      invoke: {
+        id: 'downloading status watch',
+        input: ({ context }) => context,
+        src:
+          fromObservable(({ input, ...rest }) => {
+            console.log('TORRENT DOWNLOADING', input, rest)
+
+            return from([])
+            // return (
+            //   withLatestFrom(input.torrents.map(torrent => torrent.$))
+            //     .pipe(
+            //       mergeMap((settingsDocument) => settingsDocument?.$),
+            //       filter((settingsDocument) => settingsDocument?.paused),
+            //       first(),
+            //     )
+            // )
+          }),
+        // onDone: {
+        //   target: 'paused'
+        // }
+      },
       on: {
         'FILES.FINISHED': 'finished',
         'TORRENT.PAUSE': {
@@ -119,7 +171,28 @@ export const torrentMachine = createMachine({
       }
     },
     finished: {
-      entry: () => console.log('finished')
+      entry: () => console.log('finished'),
+      invoke: {
+        id: 'finished status watch',
+        input: ({ context }) => context,
+        src:
+          fromObservable(({ input, ...rest }) => {
+            console.log('TORRENT FINISHED', input, rest)
+
+            return from([])
+            // return (
+            //   withLatestFrom(input.torrents.map(torrent => torrent.$))
+            //     .pipe(
+            //       mergeMap((settingsDocument) => settingsDocument?.$),
+            //       filter((settingsDocument) => settingsDocument?.paused),
+            //       first(),
+            //     )
+            // )
+          }),
+        // onDone: {
+        //   target: 'paused'
+        // }
+      },
     }
   }
 })

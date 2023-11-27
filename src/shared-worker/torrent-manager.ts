@@ -1,8 +1,8 @@
 import type { ActorRefFrom } from 'xstate'
-import { from, switchMap, tap } from 'rxjs'
+import { filter, first, from, mergeMap, switchMap, tap } from 'rxjs'
 import { createMachine, createActor, assign, fromPromise, fromObservable } from 'xstate'
 
-import { TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
+import { SettingsDocument, TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
 import { torrent } from '@fkn/lib'
 
@@ -104,6 +104,29 @@ export const torrentManagerMachine = createMachine({
       }
     },
     idle: {
+      invoke: {
+        id: 'idle status watch',
+        input: ({ context }) => context,
+        src:
+          fromObservable(({ input }) => {
+            input
+              .torrents
+              .filter(torrent => torrent.getSnapshot().value !== 'finished')
+              .forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
+
+            return (
+              from(getSettingsDocument())
+                .pipe(
+                  mergeMap((settingsDocument) => settingsDocument?.$),
+                  filter((settingsDocument) => settingsDocument?.paused),
+                  first(),
+                )
+            )
+          }),
+        onDone: {
+          target: 'paused'
+        }
+      },
       on: {
         'TORRENT.ADD': {
           actions: assign({
@@ -174,7 +197,7 @@ export const torrentManagerMachine = createMachine({
               context
                 .torrents
                 .filter(torrent => torrent.getSnapshot().value !== 'finished')
-                .forEach(torrent => console.log('torrent state', torrent.getSnapshot().value) || torrent.send({ type: 'TORRENT.PAUSE' }))
+                .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
               return context.torrents
             }
           }),
@@ -183,35 +206,39 @@ export const torrentManagerMachine = createMachine({
       }
     },
     paused: {
-      invoke: {
-        id: 'getTorrentDocuments',
-        input: ({ context }) => context,
-        src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
-          input
-            .torrents
-            .filter(torrent => console.log('TORRENT STATE', torrent.getSnapshot().value) || torrent.getSnapshot().value !== 'finished')
-            .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
-        }),
-      },
       // invoke: {
-      //   id: 'checkFile',
+      //   id: 'getTorrentDocuments',
       //   input: ({ context }) => context,
-      //   src:
-      //     fromObservable((ctx) => {
-      //       console.log('checkFile context', ctx)
-      //       return (
-      //         from(getSettingsDocument())
-      //           .pipe(
-      //             switchMap((settingsDocument) => settingsDocument?.$),
-      //             tap((settingsDocument) => console.log('settingsDocument', settingsDocument))
-      //           )
-      //       )
-      //     }),
-      //   onSnapshot: {
-      //     target: '.idle',
-      //     guard: ({ event }) => console.log('File checkingFile onSnapshot', event) || event.snapshot.output?.paused
-      //   }
+      //   src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
+      //     input
+      //       .torrents
+      //       .filter(torrent => console.log('TORRENT STATE', torrent.getSnapshot().value) || torrent.getSnapshot().value !== 'finished')
+      //       .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+      //   }),
       // },
+      invoke: {
+        id: 'paused status watch',
+        input: ({ context }) => context,
+        src:
+          fromObservable(({ context, input }) => {
+            input
+              .torrents
+              .filter(torrent => torrent.getSnapshot().value !== 'finished')
+              .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
+
+            return (
+              from(getSettingsDocument())
+                .pipe(
+                  mergeMap((settingsDocument) => settingsDocument?.$),
+                  filter((settingsDocument) => !settingsDocument?.paused),
+                  first()
+                )
+            )
+          }),
+        onDone: {
+          target: 'idle'
+        }
+      },
       on: {
         'RESUME': {
           actions: assign({
@@ -237,17 +264,6 @@ const manager =
   createActor(torrentManagerMachine)
     .start()
 
-getSettingsDocument().then(settingsDocument => {
-  settingsDocument?.$.subscribe(settings => {
-    console.log('settings doc updated', settings)
-    if (settings?.paused) {
-      manager.send({ type: 'PAUSE' })
-    } else {
-      manager.send({ type: 'RESUME' })
-    }
-  })
-})
-
 setTimeout(() => {
   console.log('manager', manager.getSnapshot())
   console.log(
@@ -268,7 +284,7 @@ setTimeout(() => {
         .entries(manager.getSnapshot().children)
         .flatMap(([key, actor]) =>
           Object
-            .entries(actor.getSnapshot().children)
+            .entries(actor.getSnapshot().children ?? {})
             .map(([key, actor]) => [
               key,
               actor.getSnapshot()
@@ -276,6 +292,6 @@ setTimeout(() => {
         )
     )
   )
-}, 500)
+}, 1000)
 
 export default manager

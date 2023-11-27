@@ -256,6 +256,20 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     // torrent.remove()
   }
 
+  // const selectedFiles = torrent.state.files?.filter(file => file.selected) ?? []
+
+  // const progress =
+  //   selectedFiles.length
+  //   / (
+  //     selectedFiles.reduce(
+  //       (acc, file) =>
+  //         acc + file.downloadedRanges.reduce((acc, range) => acc + (file.length / range.end - range.start), 0),
+  //       0
+  //     )
+  //   )
+
+  // console.log('progress', selectedFiles, progress)
+
   return (
     <div key={torrent.infoHash} className="item">
       <div className="main">
@@ -268,6 +282,9 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
       <div className="info">
         <div className="progress-title">
           <span className="status">
+            {/* {
+              torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
+            } */}
             {
               torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
             }
@@ -364,8 +381,8 @@ export const TorrentList = ({ ...rest }) => {
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
   const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)
-  // console.log('downloadingTorrents', downloadingTorrents)
-  // console.log('completedTorrents', completedTorrents)
+  console.log('downloadingTorrents', downloadingTorrents)
+  console.log('completedTorrents', completedTorrents)
 
   const togglePauseAll = async () => {
     await settings?.incrementalModify(doc => {

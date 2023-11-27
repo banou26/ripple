@@ -16,20 +16,21 @@ const { resolvers } = registerListener({
       return 'pong'
     }),
     openWriteStream: makeCallListener(async ({ filePath, offset = 0, size }: { filePath: string, offset: number, size: number }) => {
+      let _offset = offset
       const folderHande = await torrentFolderHandle.getDirectoryHandle(filePath.split('/').slice(1, -1).join('/'), { create: true })
       const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
       const writable = await fileHandle.createSyncAccessHandle()
 
       if (size !== file.size) await writable.truncate(size)
-      if (offset) await writable.seek(offset)
-      
+
       return {
         seek: async (offset: number) => {
-          await writable.seek(offset)
+          _offset = offset
         },
         write: async (buffer: ArrayBuffer) => {
-          await writable.write({ type: 'write', data: buffer })
+          await writable.write(buffer, { at: _offset })
+          _offset += buffer.byteLength
         },
         close: async () => {
           await writable.close()

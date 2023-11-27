@@ -1,6 +1,6 @@
 import type { ActorRefFrom } from 'xstate'
 
-import type { TorrentMachine } from './torrent'
+import { getTorrentProgress, type TorrentMachine } from './torrent'
 import type { Resolvers } from '../worker'
 import type { TorrentDocument } from '../database'
 
@@ -123,14 +123,23 @@ export const fileMachine = createMachine({
                 return observer.complete()
               }
 
-              const offsetStart =
+              const lastRange =
                 ctx
                   .input
                   .file
                   .downloadedRanges
                   .sort((a, b) => a.start - b.start)
-                  .at(0)?.end || 0
+                  .at(0)
+
+              const offsetStart = lastRange?.end || 0
               console.log('downloadFile offsetStart', offsetStart)
+
+
+              console.log('AAAAAAAAAAAAAAAA', lastRange, ctx.input.file)
+              if (offsetStart === ctx.input.file.length) {
+                observer.complete()
+                return
+              }
 
               let cancelled = false
               let _close: () => void
@@ -139,7 +148,7 @@ export const fileMachine = createMachine({
                 path: ctx.input.file.path,
                 offset: offsetStart
               }).then(async (res: Response) => {
-                const throttledResponse = throttleStream(res.body!, 1_000_000)
+                const throttledResponse = throttleStream(res.body!, 10_000_000)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
@@ -153,9 +162,9 @@ export const fileMachine = createMachine({
 
                 _close = close
 
-                // setInterval(() => {
-                //   console.log('doc', document.getLatest().state.files[0])
-                // }, 1000)
+                setInterval(() => {
+                  console.log('doc', document.getLatest().state.files[0])
+                }, 1000)
 
                 const read = async () => {
                   if (cancelled) {
@@ -169,30 +178,36 @@ export const fileMachine = createMachine({
                     observer.complete()
                     return
                   }
-                  // console.log('pull', value)
-                  // await write(value)
-                  // document.incrementalModify((doc) => {
-                  //   const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
-                  //   if (!file) return doc
-                  //   // get current downloadRange and update it, create one if it doesn't exist
-                  //   const downloadRange =
-                  //     file
-                  //       .downloadedRanges
-                  //       ?.find((range) => range.start <= offsetStart && range.end >= offsetStart)
-                  //   if (downloadRange) {
-                  //     downloadRange.end = downloadRange.end + value.byteLength
-                  //   } else {
-                  //     file.downloadedRanges.push({
-                  //       start: offsetStart,
-                  //       end: offsetStart + value.byteLength
-                  //     })
-                  //   }
+                  const bufferLength = value.byteLength
+                  console.log('pull', value)
+                  await write(value.buffer)
+                  document.incrementalModify((doc) => {
+                    const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
+                    if (!file) return doc
+                    // get current downloadRange and update it, create one if it doesn't exist
+                    const downloadRange =
+                      file
+                        .downloadedRanges
+                        ?.find((range) => range.start <= offsetStart && range.end >= offsetStart)
+                    if (downloadRange) {
+                      downloadRange.end = downloadRange.end + bufferLength
+                    } else {
+                      file.downloadedRanges.push({
+                        start: offsetStart,
+                        end: offsetStart + bufferLength
+                      })
+                    }
 
-                  //   // merge downloadedRanges
-                  //   file.downloadedRanges = mergeRanges(file.downloadedRanges)
+                    console.log('downloadRange', file.downloadedRanges.at(-1))
 
-                  //   return doc
-                  // })
+                    // merge downloadedRanges
+                    file.downloadedRanges = mergeRanges(file.downloadedRanges)
+                    file.downloaded = file.downloadedRanges.reduce((acc, range) => acc + (range.end - range.start), 0)
+                    doc.state.progress = getTorrentProgress(doc.state)
+                    file.status = 'downloading'
+
+                    return doc
+                  })
                   if (!cancelled) read()
                 }
                 read()
@@ -253,9 +268,20 @@ export const fileMachine = createMachine({
     finished: {
       invoke: {
         id: 'finishedFile',
+        input: ({ context }) => context,
         src:
-          fromPromise(async ({ context }) => {
-            console.log('TORRENT FILE FINISHED', context)
+          fromPromise(async ({ input }) => {
+            const document = input.document as RxDocument<TorrentDocument>
+            console.log('TORRENT FILE FINISHED', input)
+            await document.incrementalModify((doc) => {
+              const file = doc.state.files.find((file) => file.path === input.file.path)
+              if (!file) return doc
+              file.downloaded = file.length
+              file.progress = 1
+              file.status = 'finished'
+              doc.state.progress = getTorrentProgress(doc.state)
+              return doc
+            })
           })
       },
     }
