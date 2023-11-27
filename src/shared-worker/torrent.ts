@@ -20,7 +20,6 @@ export const getTorrentStatus = () => {
 }
 
 export const torrentMachine = createMachine({
-  id: 'torrent',
   initial: 'downloadingMetadata',
   context: <T extends ActorRefFrom<typeof torrentManagerMachine>>({ input }: { input: { parent: T, document: TorrentDocument } }) => console.log('torrent context', input) || ({
     parent: input.parent as unknown as ActorRefFrom<typeof torrentManagerMachine>,
@@ -66,7 +65,6 @@ export const torrentMachine = createMachine({
   states: {
     downloadingMetadata: {
       invoke: {
-        id: 'getTorrentMetadata',
         input: ({ context }) => context,
         src: fromObservable((ctx) => {
           console.log('document', ctx.input.document)
@@ -91,14 +89,14 @@ export const torrentMachine = createMachine({
                   parent: context.parent,
                   document: context.document,
                   file
-                }
+                },
+                syncSnapshot: true
               }
             )
           })
         }
       }),
       invoke: {
-        id: 'checking files status watch',
         input: ({ context }) => context,
         src:
           fromObservable(({ input, ...rest }) => {
@@ -122,7 +120,6 @@ export const torrentMachine = createMachine({
     downloading: {
       entry: () => console.log('downloading'),
       invoke: {
-        id: 'downloading status watch',
         input: ({ context }) => context,
         src:
           fromObservable(({ input, ...rest }) => {

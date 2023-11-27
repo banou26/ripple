@@ -89,7 +89,8 @@ export const torrentManagerMachine = createMachine({
                 input: {
                   parent: self,
                   document: torrent
-                }
+                },
+                syncSnapshot: true
               }
             )
           })
@@ -105,7 +106,6 @@ export const torrentManagerMachine = createMachine({
     },
     idle: {
       invoke: {
-        id: 'idle status watch',
         input: ({ context }) => context,
         src:
           fromObservable(({ input }) => {
@@ -264,34 +264,60 @@ const manager =
   createActor(torrentManagerMachine)
     .start()
 
-setTimeout(() => {
-  console.log('manager', manager.getSnapshot())
+manager.subscribe((state) => {
   console.log(
-    'torrents',
-    Object.fromEntries(
-      Object
-        .entries(manager.getSnapshot().children)
-        .map(([key, actor]) => [
-          key,
-          actor.getSnapshot()
-        ])
-    )
-  )
-  console.log(
-    'torrentsFiles',
-    Object.fromEntries(
-      Object
-        .entries(manager.getSnapshot().children)
-        .flatMap(([key, actor]) =>
-          Object
-            .entries(actor.getSnapshot().children ?? {})
-            .map(([key, actor]) => [
-              key,
-              actor.getSnapshot()
-            ])
+    'manager state',
+    [
+      ...(
+        state
+          .context
+          .torrents
+          .map((actor) => actor)
+      ),
+      ...(
+        state
+        .context
+        .torrents
+        .flatMap((actor) =>
+          actor
+            .getSnapshot()
+            .context
+            .files
+            .map((actor) => actor)
         )
-    )
+      )
+    ]
   )
-}, 1000)
+})
+
+// setTimeout(() => {
+//   console.log('manager', manager.getSnapshot())
+//   console.log(
+//     'torrents',
+//     Object.fromEntries(
+//       Object
+//         .entries(manager.getSnapshot().children)
+//         .map(([key, actor]) => [
+//           key,
+//           actor.getSnapshot()
+//         ])
+//     )
+//   )
+//   console.log(
+//     'torrentsFiles',
+//     Object.fromEntries(
+//       Object
+//         .entries(manager.getSnapshot().children)
+//         .flatMap(([key, actor]) =>
+//           Object
+//             .entries(actor.getSnapshot().children ?? {})
+//             .map(([key, actor]) => [
+//               key,
+//               actor.getSnapshot()
+//             ])
+//         )
+//     )
+//   )
+// }, 1000)
 
 export default manager

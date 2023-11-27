@@ -4,7 +4,7 @@ import { getTorrentProgress, type TorrentMachine } from './torrent'
 import type { Resolvers } from '../worker'
 import type { TorrentDocument } from '../database'
 
-import { assign, createMachine, fromObservable, fromPromise } from 'xstate'
+import { assign, createMachine, fromObservable, fromPromise, sendParent } from 'xstate'
 import { call } from 'osra'
 import { Observable, filter, first, from, map, merge, partition, tap } from 'rxjs'
 import { torrent } from '@fkn/lib'
@@ -14,7 +14,6 @@ import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
 
 export const fileMachine = createMachine({
-  id: 'torrentFile',
   initial: 'checkingFile',
   context: (
     { input }:
@@ -32,60 +31,51 @@ export const fileMachine = createMachine({
       target: '.downloading'
     }
   },
-  invoke: {
-    id: 'syncDBState',
-    src: fromObservable(({ context, self, ...rest }) => {
+  // invoke: [
+  //   {
+  //     id: 'syncDBState',
+  //     src: fromObservable(({ context, self, ...rest }) => {
+  //       const pause$ =
+  //         from(self)
+  //           .pipe(
+  //             filter((event) => event.type === 'FILE.PAUSE'),
+  //             tap(() => {
+  //               context.document.incrementalModify((doc) => {
+  //                 const file = doc.state.files.find((file) => file.path === context.file.path)
+  //                 if (!file) return doc
+  //                 file.status = 'paused'
+  //                 return doc
+  //               })
+  //             })
+  //           )
 
-      // self.subscribe((event) => {
-      //   console.log('FILE EVENT', event)
-      //   context.document.incrementalModify((doc) => {
-      //     const file = doc.state.files.find((file) => file.path === context.file.path)
-      //     if (!file) return doc
-          
-      //     return doc
-      //   })
-      // })
+  //       const resume$ =
+  //         from(self)
+  //           .pipe(
+  //             filter((event) => event.type === 'FILE.RESUME'),
+  //             tap((event) => {
+  //               context.document.incrementalModify((doc) => {
+  //                 const file = doc.state.files.find((file) => file.path === context.file.path)
+  //                 if (!file) return doc
+  //                 // file.status = 'downloading'
+  //                 return doc
+  //               })
+  //             })
+  //           )
 
-      const pause$ =
-        from(self)
-          .pipe(
-            filter((event) => event.type === 'FILE.PAUSE'),
-            tap(() => {
-              context.document.incrementalModify((doc) => {
-                const file = doc.state.files.find((file) => file.path === context.file.path)
-                if (!file) return doc
-                file.status = 'paused'
-                return doc
-              })
-            })
-          )
-
-      const resume$ =
-        from(self)
-          .pipe(
-            filter((event) => event.type === 'FILE.RESUME'),
-            tap((event) => {
-              context.document.incrementalModify((doc) => {
-                const file = doc.state.files.find((file) => file.path === context.file.path)
-                if (!file) return doc
-                // file.status = 'downloading'
-                return doc
-              })
-            })
-          )
-
-      return (
-        merge(
-          pause$,
-          resume$
-        )
-      )
-    })
-  },
+  //       return (
+  //         merge(
+  //           pause$,
+  //           resume$
+  //         )
+  //       )
+  //     })
+  //   }
+  // ],
   states: {
     checkingFile: {
+      entry: sendParent({ type: 'FILE.CHECKING_FILE' }),
       invoke: {
-        id: 'checkFile',
         input: ({ context }) => context,
         src:
           fromObservable((ctx) => {
@@ -110,8 +100,8 @@ export const fileMachine = createMachine({
       }
     },
     downloading: {
+      entry: sendParent({ type: 'FILE.DOWNLOADING' }),
       invoke: {
-        id: 'downloadFile',
         input: ({ context }) => context,
         src:
           fromObservable((ctx) =>
@@ -179,7 +169,7 @@ export const fileMachine = createMachine({
                     return
                   }
                   const bufferLength = value.byteLength
-                  console.log('pull', value)
+                  // console.log('pull', value)
                   await write(value.buffer)
                   document.incrementalModify((doc) => {
                     const file = doc.state.files.find((file) => file.path === ctx.input.file.path)
@@ -241,8 +231,8 @@ export const fileMachine = createMachine({
       }
     },
     paused: {
+      entry: sendParent({ type: 'FILE.PAUSED' }),
       invoke: {
-        id: 'pauseFile',
         input: ({ context }) => context,
         src:
           fromPromise(({ input }) =>
@@ -266,8 +256,8 @@ export const fileMachine = createMachine({
       }
     },
     finished: {
+      entry: sendParent({ type: 'FILE.FINISHED' }),
       invoke: {
-        id: 'finishedFile',
         input: ({ context }) => context,
         src:
           fromPromise(async ({ input }) => {
