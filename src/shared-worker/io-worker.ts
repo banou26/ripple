@@ -1,6 +1,8 @@
 import { call, makeCallListener } from 'osra'
 
 import torrentManager from './torrent-manager'
+import ParseTorrent from 'parse-torrent'
+import { deserializeTorrentFile } from '../database/utils'
 
 let ioWorkerPort: MessagePort
 
@@ -39,7 +41,19 @@ export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: M
 })
 
 export const resolvers = {
-  newLeader
+  newLeader,
+  addTorrent:
+    makeCallListener(async ({ infoHash, magnet, torrentFile }: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }) => {
+      console.log('addTorrent', magnet)
+      torrentManager.send({
+        type: 'TORRENT.ADD',
+        input: {
+          infoHash,
+          magnet,
+          torrentFile: torrentFile && deserializeTorrentFile(torrentFile)
+        }
+      })
+    })
 }
 
 export type Resolvers = typeof resolvers

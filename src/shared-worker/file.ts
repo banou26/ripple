@@ -19,9 +19,8 @@ export const fileMachine = createMachine({
   initial: 'checkingFile',
   context: (
     { input }:
-    { input: { parent: ActorRefFrom<TorrentMachine>, document: RxDocument<TorrentDocument>, file: NonNullable<RxDocument<TorrentDocument>['state']['files']>[number] } }
+    { input: { document: RxDocument<TorrentDocument>, file: NonNullable<RxDocument<TorrentDocument>['state']['files']>[number] } }
   ) => ({
-    parent: input.parent as unknown as ActorRefFrom<TorrentMachine>,
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number],
     downloadedRanges: input.file.downloadedRanges ?? [],
@@ -128,7 +127,7 @@ export const fileMachine = createMachine({
               }
 
               let streamBandwithLogs = [...ctx.input.streamBandwithLogs]
-              let downloadedRanges = [...ctx.input.file.downloadedRanges]
+              let downloadedRanges = [...ctx.input.file.downloadedRanges.map((range) => ({ ...range }))]
 
               let cancelled = false
               let _resolve, _reject

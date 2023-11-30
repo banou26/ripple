@@ -241,6 +241,11 @@ export type TorrentDocument = {
         start: number
         end: number
       }[]
+      bytesPerSecond: number
+      streamBandwithLogs: {
+          timestamp: number
+          byteLength: number
+      }[]
     }[]
   }
 }

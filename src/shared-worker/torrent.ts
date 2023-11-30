@@ -2,11 +2,14 @@ import type { ActorRefFrom } from 'xstate'
 
 import type { torrentManagerMachine } from './torrent-manager'
 
-import { createMachine, assign, fromObservable } from 'xstate'
+import { createMachine, assign, fromObservable, fromPromise } from 'xstate'
+import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
-import { TorrentDocument } from '../database'
+import { TorrentDocument, database } from '../database'
 import { fileMachine } from './file'
 import { from, withLatestFrom } from 'rxjs'
+import { deserializeTorrentDocument, deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from '../database/utils'
+import { RxDocument } from 'rxdb'
 
 export const getTorrentProgress = (torrentState: TorrentDocument['state']) => {
   const selectedFiles = torrentState.files?.filter(file => file.selected) ?? []
@@ -19,22 +22,120 @@ export const getTorrentStatus = () => {
 
 }
 
+
+// always: [{
+//   actions: [
+//     // assign(({ context, event, self }) => console.log('idle always actions assign', event, context, self) || {
+//     //   lastEvent: event
+//     // })
+//   ],
+//   // guard: ({ context, event }) => context.lastEvent !== event
+// }] as const,
+
 export const torrentMachine = createMachine({
-  initial: 'downloadingMetadata',
-  context: <T extends ActorRefFrom<typeof torrentManagerMachine>>({ input }: { input: { parent: T, document: TorrentDocument } }) => console.log('torrent context', input) || ({
-    parent: input.parent as unknown as ActorRefFrom<typeof torrentManagerMachine>,
+  initial: 'init',
+  context: (
+    { input }:
+    {
+      input: {
+        infoHash: string,
+        magnet: string,
+        torrentFile: ParseTorrent.Instance | undefined,
+        document: TorrentDocument
+        dbDocument?: RxDocument<TorrentDocument>
+      }
+    }
+  ) => ({
+    infoHash: input.infoHash,
+    magnet: input.magnet,
+    torrentFile: input.torrentFile,
+    
+    lastEvent: null as unknown,
     document: input.document,
+    dbDocument: input.dbDocument,
     files: [] as ActorRefFrom<typeof torrentMachine>[]
   }),
-  // invoke: {
-  //   id: 'getTorrentMetadata',
-  //   src: fromObservable(({ context, self }) => {
+  types: {
+    events: {} as
+    | { type: 'INIT.DOCUMENT', output: TorrentDocument }
+    | { type: 'TORRENT.ADD', input: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }, output: TorrentDocument }
+    | { type: 'TORRENT.PAUSE' }
+    | { type: 'TORRENT.RESUME' }
+    | { type: 'FILE.CHECKING' }
+    | { type: 'FILE.FINISHED' }
+    | { type: 'FILE.SELECT' }
+    | { type: 'FILE.UNSELECT' }
+  },
+  // always: [{
+  //   actions: [
+  //     ({ context }) => {
+  //       const files = context.files.map(file => file.getSnapshot().context)
+  //       console.log('doc', context.document, 'files', files)
 
-  //     return context.document.$.pipe(
+  //       const doc = {
+  //         ...context.document,
+  //         state: {
+  //           ...context.document.state,
+  //           torrentFile:
+  //             context.document.state.torrentFile
+  //             && deserializeTorrentFile(context.document.state.torrentFile)
+  //         }
+  //       }
 
-  //     )
-  //   })
-  // },
+  //       const { infoHash, ...newDocument } = serializeTorrentDocument({
+  //         state: {
+  //           name: doc.state.name,
+  //           status: doc.state.status,
+  //           progress: doc.state.progress,
+  //           size: doc.state.size,
+  //           peers: doc.state.peers,
+  //           proxy: doc.state.proxy,
+  //           p2p: doc.state.p2p,
+  //           addedAt: doc.state.addedAt,
+  //           remainingTime: doc.state.remainingTime,
+  //           peersCount: doc.state.peersCount,
+  //           seedersCount: doc.state.seedersCount,
+  //           leechersCount: doc.state.leechersCount,
+  //           downloaded: doc.state.downloaded,
+  //           uploaded: doc.state.uploaded,
+  //           downloadSpeed: doc.state.downloadSpeed,
+  //           uploadSpeed: doc.state.uploadSpeed,
+  //           ratio: doc.state.ratio,
+  //           files: doc.state.files.map(file => ({
+  //             name: file.name,
+  //             path: file.path,
+  //             offset: file.offset,
+  //             length: file.length,
+  //             downloaded: file.downloaded,
+  //             progress: file.progress,
+  //             selected: file.selected,
+  //             priority: file.priority,
+  //             downloadedRanges: file.downloadedRanges.map(range => ({
+  //               start: range.start,
+  //               end: range.end
+  //             }))
+  //           })),
+  //           magnet: doc.state.magnet,
+  //           torrentFile: doc.state.torrentFile
+  //         },
+  //         options: doc.options && {
+  //           paused: doc.options.paused
+  //         }
+  //       })
+
+  //       context.document.incrementalUpdate({
+  //         $set: {
+  //           ...newDocument
+  //         }
+  //       })
+
+  //     },
+  //     assign(({ event }) => ({
+  //       lastEvent: event
+  //     }))
+  //   ],
+  //   guard: ({ context, event }) => context.lastEvent !== event
+  // }] as const,
   on: {
     'FILE.CHECKING': '.checkingFiles',
     'FILE.FINISHED': {
@@ -63,6 +164,70 @@ export const torrentMachine = createMachine({
     }
   },
   states: {
+    init: {
+      // entry: assign({
+      //   files: ({ spawn, context }) => {
+      //     context.files.forEach(file => file.stop())
+      //     return context.document.state.files.map(file => {
+      //       return spawn(
+      //         fileMachine,
+      //         {
+      //           id: `torrent-${context.document.infoHash}-${file.path}`,
+      //           input: {
+      //             parent: context.parent,
+      //             document: context.document,
+      //             file
+      //           },
+      //           syncSnapshot: true
+      //         }
+      //       )
+      //     })
+      //   }
+      // }),
+      invoke: {
+        input: ({ context, event }) => ({ context, data: event }),
+        src:
+          fromPromise(async ({ input: _input }) => {
+            const { context, data: { input } } = _input
+            console.log('init invoke', input, context, _input)
+            if (context.dbDocument) {
+              return context.dbDocument
+            }
+
+            const document = await database.torrents.findOne(input.infoHash).exec()
+            if (document) {
+              return document
+            }
+
+            const torrentDoc =
+              serializeTorrentDocument({
+                infoHash: input.infoHash,
+                state: {
+                  magnet:
+                    input.magnet
+                      ? input.magnet
+                      : toMagnetURI(input.torrentFile!),
+                  torrentFile: input.torrentFile
+                }
+              })
+            return database.torrents.insert(torrentDoc)
+          }),
+        onDone: {
+          actions: 'INIT.DOCUMENT'
+        }
+      },
+      target: 'checkingFiles',
+      on: {
+        'INIT.DOCUMENT': {
+          actions: assign({
+            document: ({ event }) => event.output
+          })
+        }
+      }
+    },
+    checkingFiles: {
+      target: 'downloadingMetadata',
+    },
     downloadingMetadata: {
       invoke: {
         input: ({ context }) => context,
@@ -71,51 +236,10 @@ export const torrentMachine = createMachine({
           return ctx.input.document.$
         }),
         onSnapshot: {
-          target: 'checkingFiles',
+          target: 'downloading',
           guard: ({ event }) => event.snapshot.context?.state?.torrentFile !== undefined
         }
       }
-    },
-    checkingFiles: {
-      entry: assign({
-        files: ({ spawn, context }) => {
-          context.files.forEach(file => file.stop())
-          return context.document.state.files.map(file => {
-            return spawn(
-              fileMachine,
-              {
-                id: `torrent-${context.document.infoHash}-${file.path}`,
-                input: {
-                  parent: context.parent,
-                  document: context.document,
-                  file
-                },
-                syncSnapshot: true
-              }
-            )
-          })
-        }
-      }),
-      invoke: {
-        input: ({ context }) => context,
-        src:
-          fromObservable(({ input, ...rest }) => {
-            console.log('TORRENT CHECKINGFILES', input, rest)
-
-            return from([])
-            // return (
-            //   withLatestFrom(input.torrents.map(torrent => torrent.$))
-            //     .pipe(
-            //       mergeMap((settingsDocument) => settingsDocument?.$),
-            //       filter((settingsDocument) => settingsDocument?.paused),
-            //       first(),
-            //     )
-            // )
-          }),
-        // onDone: {
-        //   target: 'paused'
-        // }
-      },
     },
     downloading: {
       entry: () => console.log('downloading'),

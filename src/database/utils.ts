@@ -35,39 +35,51 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
   infoHashBuffer: new Uint8Array(Buffer.from(torrentFile.infoHashBuffer, 'base64'))
 })
 
-export const serializeTorrentDocument = (torrentDocument: Partial<TorrentDocument>): TorrentDocument => ({
-  ...torrentDocument,
-  options: {
-    paused: false,
-    ...torrentDocument.options
-  },
-  state: {
-    name: torrentDocument.state?.torrentFile?.name || '',
-    status: torrentDocument.state?.torrentFile ? 'downloading' : 'downloading_metadata',
-    progress: 0,
-    size: torrentDocument.state?.torrentFile?.length || 0,
-    peers: [],
-    proxy: false,
-    p2p: false,
-    addedAt: Date.now(),
-    remainingTime: 0,
-    peersCount: 0,
-    seedersCount: 0,
-    leechersCount: 0,
-    downloaded: 0,
-    uploaded: 0,
-    downloadSpeed: 0,
-    uploadSpeed: 0,
-    ratio: 0,
-    files: torrentDocument.state?.torrentFile?.files?.map((file, index) => ({
-      ...file,
+export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['state']>): TorrentDocument['state'] => ({
+  name: state.torrentFile?.name || '',
+  status: state.status ?? 'checkingFiles',
+  progress: state.progress ?? 0,
+  size: state.torrentFile?.length || 0,
+  peers: [],
+  // proxy: state.proxy ?? false,
+  // p2p: state.p2p ?? false,
+  addedAt: state.addedAt ?? Date.now(),
+  remainingTime: state.remainingTime ?? 0,
+  peersCount: state.peersCount ?? 0,
+  seedersCount: state.seedersCount ?? 0,
+  leechersCount: state.leechersCount ?? 0,
+  downloaded: state.downloaded ?? 0,
+  uploaded: state.uploaded ?? 0,
+  downloadSpeed: state.downloadSpeed ?? 0,
+  uploadSpeed: state.uploadSpeed ?? 0,
+  ratio: state.ratio ?? 0,
+  files: state.files ?? (
+    state.torrentFile?.files?.map((file, index) => ({
       index,
+      status: 'checking',
+      name: file.name,
+      path: file.path,
+      offset: file.offset,
+      length: file.length,
+      downloaded: 0,
+      progress: 0,
       selected: true,
       priority: 1,
-      downloadedRanges: []
-    })) ?? [],
-    ...torrentDocument.state
-  }
+      downloadedRanges: [],
+      downloadedRanegs: [],
+      bytesPerSecond: 0,
+      streamBandwithLogs: []
+    }))
+  ),
+  torrentFile: state.torrentFile
+})
+
+export const serializeTorrentDocument = (torrentDocument: Pick<TorrentDocument, 'infoHash'> & Partial<TorrentDocument>): TorrentDocument => ({
+  infoHash: torrentDocument.infoHash,
+  options: {
+    paused: torrentDocument.options?.paused ?? false
+  },
+  state: serializeTorrentDocumentState(torrentDocument.state ?? {})
 })
 
 export const deserializeTorrentDocument = (torrentDocument: TorrentDocument): TorrentDocument => ({

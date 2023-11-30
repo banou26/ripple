@@ -1,74 +1,96 @@
 import type { ActorRefFrom } from 'xstate'
 import { filter, first, from, mergeMap, switchMap, tap } from 'rxjs'
 import { createMachine, createActor, assign, fromPromise, fromObservable } from 'xstate'
+import ParseTorrent from 'parse-torrent'
 
 import { SettingsDocument, TorrentDocument, getSettingsDocument, torrentCollection } from '../database'
 import { torrentMachine } from './torrent'
-import { torrent } from '@fkn/lib'
+import { RxDocument } from 'rxdb'
 
 const getTorrentDocuments = () => torrentCollection.find().exec()
 
 export const torrentManagerMachine = createMachine({
   id: 'torrentManager',
-  initial: 'waitingForDocuments',
+  initial: 'init',
   context: {
-    torrentDocuments: [] as TorrentDocument[],
+    settingsDbDocument: undefined as RxDocument<SettingsDocument> | undefined,
     torrents: [] as ActorRefFrom<typeof torrentMachine>[],
     workerReady: false
   },
   types: {
-    events: {} as {
-      TORRENT: {
-        ADD: {
-          output: TorrentDocument
-        },
-        REMOVE: {
-          output: TorrentDocument
-        },
-        PAUSE: {
-          output: TorrentDocument
-        },
-        RESUME: {
-          output: TorrentDocument
-        },
-        'REMOVE-AND-DELETE-FILES': {
-          output: TorrentDocument
-        },
-        'REMOVE-AND-KEEP-FILES': {
-          output: TorrentDocument
-        }
-      },
-      WORKER: {
-        READY: {},
-        DISCONNECTED: {}
-      }
-    }
+    events: {} as
+    | { type: 'TORRENT.ADD', input: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }, output: TorrentDocument }
+    | { type: 'TORRENT.REMOVE', output: TorrentDocument }
+    | { type: 'TORRENT.PAUSE', output: TorrentDocument }
+    | { type: 'TORRENT.RESUME', output: TorrentDocument }
+    | { type: 'TORRENT.REMOVE-AND-DELETE-FILES', output: TorrentDocument }
+    | { type: 'TORRENT.REMOVE-AND-KEEP-FILES', output: TorrentDocument }
+    | { type: 'WORKER.READY' }
+    | { type: 'WORKER.DISCONNECTED' }
+    | { type: 'PAUSE' }
+    | { type: 'RESUME' }
   },
   on: {
     'WORKER.DISCONNECTED': {
-      actions: assign({
-        workerReady: false
-      })
+      actions: assign({ workerReady: false })
     },
     'WORKER.READY': {
-      actions: assign({
-        workerReady: true
-      })
+      actions: assign({ workerReady: true })
     },
   },
   states: {
-    waitingForDocuments: {
+    init: {
       invoke: {
-        id: 'getTorrentDocuments',
-        src: fromPromise(getTorrentDocuments),
-        onDone: {
-          target: 'waitingForWorker',
+        src: fromPromise(async () => {
+          const [settingsDbDocument, torrentDbDocuments] = await Promise.all([
+            getSettingsDocument(),
+            getTorrentDocuments()
+          ])
+
+          return {
+            settingsDbDocument,
+            torrentDbDocuments
+          }
+        }),
+        onDone:             {
+          target: 'waitingForDocuments',
           actions: assign({
-            torrentDocuments: ({ event }) => event.output
+            settingsDbDocument: ({ event }) => event.output.settingsDbDocument,
+            torrents: ({ spawn, event }) => {
+              return (event.output.torrentDbDocuments as RxDocument<TorrentDocument>[]).map(torrentDbDoc => {
+                return spawn(
+                  torrentMachine,
+                  {
+                    id: `torrent-${torrentDbDoc.infoHash}`,
+                    input: {
+                      infoHash: torrentDbDoc.infoHash,
+                      magnet: torrentDbDoc.state.magnet,
+                      torrentFile: torrentDbDoc.state.torrentFile,
+                      document: torrentDbDoc,
+                      dbDocument: torrentDbDoc
+                    },
+                    syncSnapshot: true
+                  }
+                )
+              })
+            }
           })
-        },
-        onError: {}
+        }
       }
+    },
+    waitingForDocuments: {
+      target: 'waitingForWorker'
+      // invoke: {
+      //   id: 'getTorrentDocuments',
+      //   src: fromPromise(getTorrentDocuments),
+      //   onDone: {
+      //     target: 'waitingForWorker',
+      //     actions: assign({
+      //       torrentDocuments: ({ event }) => event.output
+      //     })
+      //   },
+      //   onError: {}
+      // }
     },
     waitingForWorker: {
       entry: assign({
@@ -130,16 +152,14 @@ export const torrentManagerMachine = createMachine({
       on: {
         'TORRENT.ADD': {
           actions: assign({
-            torrents: ({ spawn, context, event, self }) => [
+            torrents: ({ spawn, context, event }) => [
               ...context.torrents,
               spawn(
                 torrentMachine,
                 {
-                  id: `torrent-${event.output.infoHash}`,
-                  input: {
-                    parent: self,
-                    document: event.output
-                  }
+                  id: `torrent-${event.input.infoHash}`,
+                  input: event.input,
+                  syncSnapshot: true
                 }
               )
             ]
@@ -263,11 +283,6 @@ export type TorrentManagerMachine = typeof torrentManagerMachine
 const manager =
   createActor(torrentManagerMachine)
     .start()
-
-// getTorrentDocuments()
-//   .then((torrentDocuments) => {
-
-//   })
 
 torrentCollection.find().$.subscribe((torrentDocuments) => {
   console.log('torrentDocuments', torrentDocuments)

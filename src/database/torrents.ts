@@ -4,6 +4,7 @@ import { database } from './database'
 import { TorrentDocument, torrentSchema } from './schema'
 import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from './utils'
 import parseTorrent, { Instance, toMagnetURI } from 'parse-torrent'
+import { call } from 'osra'
 
 const { torrents } = await database.addCollections({
   torrents: {
@@ -33,21 +34,19 @@ torrentCollection.postCreate((torrentData, rxDocument) => {
 })
 
 export const addTorrent = async (options: { magnet: string } | { torrentFile: Instance }) => {
+  const  { default: sharedWorker } = await import('../shared-worker')
   const { magnet, torrentFile } = {
     magnet: 'magnet' in options ? options.magnet : undefined,
     torrentFile: 'torrentFile' in options ? options.torrentFile : undefined
   }
   const infoHash = torrentFile?.infoHash ?? parseTorrent(magnet!).infoHash
-  const torrentDoc =
-    serializeTorrentDocument({
+
+  await call(sharedWorker.port, { key: 'shared-worker-fkn-api' })(
+    'addTorrent',
+    {
       infoHash,
-      state: {
-        magnet:
-          magnet
-          ? magnet
-          : toMagnetURI(torrentFile!),
-        torrentFile
-      }
-    })
-  await database.torrents.insert(torrentDoc)
+      magnet,
+      torrentFile: torrentFile && serializeTorrentFile(torrentFile)
+    }
+  )
 }
