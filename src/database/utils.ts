@@ -36,6 +36,9 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
 })
 
 export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['state']>): TorrentDocument['state'] => ({
+  magnet: state.magnet,
+  path: state.path,
+  pieces: state.pieces,
   name: state.torrentFile?.name || '',
   status: state.status ?? 'checkingFiles',
   progress: state.progress ?? 0,

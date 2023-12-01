@@ -38,9 +38,9 @@ export const torrentMachine = createMachine({
     { input }:
     {
       input: {
-        infoHash: string,
-        magnet: string,
-        torrentFile: ParseTorrent.Instance | undefined,
+        infoHash: string
+        magnet: string
+        torrentFile?: ParseTorrent.Instance
         document: TorrentDocument
         dbDocument?: RxDocument<TorrentDocument>
       }
@@ -59,7 +59,6 @@ export const torrentMachine = createMachine({
   }),
   types: {
     events: {} as
-    | { type: 'INIT.DOCUMENT', output: TorrentDocument }
     | { type: 'TORRENT.ADD', input: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }, output: TorrentDocument }
     | { type: 'TORRENT.PAUSE' }
     | { type: 'TORRENT.RESUME' }
@@ -185,25 +184,6 @@ export const torrentMachine = createMachine({
   },
   states: {
     init: {
-      // entry: assign({
-      //   files: ({ spawn, context }) => {
-      //     context.files.forEach(file => file.stop())
-      //     return context.document.state.files.map(file => {
-      //       return spawn(
-      //         fileMachine,
-      //         {
-      //           id: `torrent-${context.document.infoHash}-${file.path}`,
-      //           input: {
-      //             parent: context.parent,
-      //             document: context.document,
-      //             file
-      //           },
-      //           syncSnapshot: true
-      //         }
-      //       )
-      //     })
-      //   }
-      // }),
       invoke: {
         input: ({ context, event }) => ({ context, data: event }),
         src:
@@ -230,22 +210,46 @@ export const torrentMachine = createMachine({
                   torrentFile: input.torrentFile
                 }
               })
-            return database.torrents.insert(torrentDoc)
+
+            const dbDoc = await database.torrents.insert(torrentDoc)
+
+            console.log('INIT INVOKE DBDOC', dbDoc)
+
+            return dbDoc
           }),
         onDone: {
-          actions: 'INIT.DOCUMENT'
-        }
-      },
-      target: 'checkingFiles',
-      on: {
-        'INIT.DOCUMENT': {
-          actions: assign({
-            document: ({ event }) => event.output
-          })
+          target: 'checkingFiles',
+
+          actions: [
+            assign({
+              document: ({ event }) => console.log('INIT DOC CALLED', event) || event.output,
+              files: ({ spawn, context, event }) =>
+                event
+                  .output
+                  .state
+                  .files
+                  .filter(file => file.selected)
+                  .map(file => {
+                    return spawn(
+                      fileMachine,
+                      {
+                        id: `torrent-${event.output.infoHash}-${file.path}`,
+                        input: {
+                          parent: context.parent,
+                          document: event.output,
+                          file
+                        },
+                        syncSnapshot: true
+                      }
+                    )
+                  })
+            })
+          ]
         }
       }
     },
     checkingFiles: {
+      entry: () => console.log('checkingFiles'),
       target: 'downloadingMetadata',
     },
     downloadingMetadata: {

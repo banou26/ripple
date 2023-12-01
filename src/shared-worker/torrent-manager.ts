@@ -66,7 +66,7 @@ export const torrentManagerMachine = createMachine({
                       infoHash: torrentDbDoc.infoHash,
                       magnet: torrentDbDoc.state.magnet,
                       torrentFile: torrentDbDoc.state.torrentFile,
-                      document: torrentDbDoc,
+                      document: torrentDbDoc.toJSON(),
                       dbDocument: torrentDbDoc
                     },
                     syncSnapshot: true
@@ -294,7 +294,7 @@ manager.subscribe((state) => {
         state
           .context
           .torrents
-          .map((actor) => actor.getSnapshot().context)
+          .map((actor) => ({ value: actor.getSnapshot().value, ...actor.getSnapshot().context }))
       ),
       ...(
         state
@@ -305,7 +305,7 @@ manager.subscribe((state) => {
             .getSnapshot()
             .context
             .files
-            .map((actor) => ({...actor.getSnapshot().context}))
+            .map((actor) => ({ ...actor.getSnapshot().context }))
         )
       )
     ]

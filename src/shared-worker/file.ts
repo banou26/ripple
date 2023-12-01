@@ -245,59 +245,37 @@ export const fileMachine = createMachine({
         'FILE.PAUSE': {
           target: 'paused',
           actions: assign({
-            file: ({ context, event }) => {
-              console.log('FILE downloading->FILE.PAUSE EVENT', event)
-              // context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
-              return context.file
-            }
+            status: 'paused'
           })
         }
       }
     },
     paused: {
-      entry: sendParent({ type: 'FILE.PAUSED' }),
-      invoke: {
-        input: ({ context }) => context,
-        src:
-          fromPromise(({ input }) =>
-            input.document.incrementalModify((doc) => {
-              doc.state.status = 'paused'
-              return doc
-            })
-          )
-      },
+      entry: [
+        sendParent({ type: 'FILE.PAUSED' }),
+        assign({
+          status: 'paused'
+        })
+      ],
       on: {
         'FILE.RESUME': {
           target: 'downloading',
           actions: assign({
-            file: ({ context, event }) => {
-              console.log('FILE downloading->FILE.RESUME EVENT', event)
-              // context.torrents.forEach(torrent => torrent.send({ type: 'TORRENT.RESUME' }))
-              return context.file
-            }
+            status: 'downloading'
           })
         }
       }
     },
     finished: {
-      entry: sendParent({ type: 'FILE.FINISHED' }),
-      invoke: {
-        input: ({ context }) => context,
-        src:
-          fromPromise(async ({ input }) => {
-            const document = input.document as RxDocument<TorrentDocument>
-            console.log('TORRENT FILE FINISHED', input)
-            await document.incrementalModify((doc) => {
-              const file = doc.state.files.find((file) => file.path === input.file.path)
-              if (!file) return doc
-              file.downloaded = file.length
-              file.progress = 1
-              file.status = 'finished'
-              doc.state.progress = getTorrentProgress(doc.state)
-              return doc
-            })
-          })
-      },
+      entry: [
+        sendParent({ type: 'FILE.FINISHED' }),
+        assign({
+          status: 'finished',
+          downloaded: ({ context }) => context.length,
+          progress: 1,
+          downloadedRanges: ({ context }) => [{ start: 0, end: context.length }]
+        })
+      ]
     }
   }
 })
