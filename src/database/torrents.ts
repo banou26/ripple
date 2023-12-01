@@ -50,3 +50,14 @@ export const addTorrent = async (options: { magnet: string } | { torrentFile: In
     }
   )
 }
+
+export const removeTorrent = async (options: { infoHash: string, removeFiles: boolean }) => {
+  const  { default: sharedWorker } = await import('../shared-worker')
+  await call(sharedWorker.port, { key: 'shared-worker-fkn-api' })(
+    'removeTorrent',
+    {
+      infoHash: options.infoHash,
+      removeFiles: options.removeFiles
+    }
+  )
+}

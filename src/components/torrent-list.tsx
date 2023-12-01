@@ -1,4 +1,4 @@
-import { useSettingsDocument, type TorrentDocument } from '../database'
+import { useSettingsDocument, type TorrentDocument, removeTorrent } from '../database'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'
@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
 import { Tooltip } from './tooltip'
+import { useForm } from 'react-hook-form'
 
 
 const style = css`
@@ -246,15 +247,13 @@ const getFirstGoogleImageResult = async (name: string) => {
 const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
 
+  const { register, watch } = useForm()
+
   useEffect(() => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
   }, [])
 
   const remainingTimeString = new Date(torrent.state.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
-
-  const removeTorrent = () => {
-    // torrent.remove()
-  }
 
   // const selectedFiles = torrent.state.files?.filter(file => file.selected) ?? []
 
@@ -269,6 +268,12 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   //   )
 
   // console.log('progress', selectedFiles, progress)
+
+  const remove = () =>
+    removeTorrent({
+      infoHash: torrent.infoHash,
+      removeFiles: watch('removeFiles')
+    })
 
   return (
     <div key={torrent.infoHash} className="item">
@@ -368,6 +373,15 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         <Link to={`/watch/${torrent.infoHash}`} className="play">
           <button>play</button>
         </Link>
+        <div>
+          <label>
+            Remove files
+            <input type="checkbox" {...register('removeFiles')} />
+          </label>
+          <button onClick={remove}>
+            remove
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -377,7 +391,7 @@ export const TorrentList = ({ ...rest }) => {
   const settings = useSettingsDocument()
   console.log('settings', settings)
   const collection = useRxCollection<TorrentDocument>('torrents')
-  const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['downloading', 'paused'] } } }).sort({ 'state.addedAt': 'asc' })
+  const downloadingTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['checkingFiles', 'downloading', 'paused'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: downloadingTorrents } = useRxQuery(downloadingTorrentQuery)
   const completedTorrentQuery = collection?.find({ selector: { 'state.status': { $in: ['finished', 'seeding'] } } }).sort({ 'state.addedAt': 'asc' })
   const { result: completedTorrents } = useRxQuery(completedTorrentQuery)

@@ -20,11 +20,11 @@ export const torrentManagerMachine = createMachine({
   types: {
     events: {} as
     | { type: 'TORRENT.ADD', input: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }, output: TorrentDocument }
-    | { type: 'TORRENT.REMOVE', output: TorrentDocument }
     | { type: 'TORRENT.PAUSE', output: TorrentDocument }
     | { type: 'TORRENT.RESUME', output: TorrentDocument }
     | { type: 'TORRENT.REMOVE-AND-DELETE-FILES', output: TorrentDocument }
     | { type: 'TORRENT.REMOVE-AND-KEEP-FILES', output: TorrentDocument }
+    | { type: 'TORRENT.REMOVED', output: TorrentDocument }
     | { type: 'WORKER.READY' }
     | { type: 'WORKER.DISCONNECTED' }
     | { type: 'PAUSE' }
@@ -52,7 +52,7 @@ export const torrentManagerMachine = createMachine({
             torrentDbDocuments
           }
         }),
-        onDone:             {
+        onDone: {
           target: 'waitingForDocuments',
           actions: assign({
             settingsDbDocument: ({ event }) => event.output.settingsDbDocument,
@@ -79,7 +79,10 @@ export const torrentManagerMachine = createMachine({
       }
     },
     waitingForDocuments: {
-      target: 'waitingForWorker'
+      always: {
+        target: 'idle',
+        guard: ({ context }) => console.log('waitingForWorker always guard', context.workerReady) || context.workerReady
+      },
       // invoke: {
       //   id: 'getTorrentDocuments',
       //   src: fromPromise(getTorrentDocuments),
@@ -92,40 +95,41 @@ export const torrentManagerMachine = createMachine({
       //   onError: {}
       // }
     },
-    waitingForWorker: {
-      entry: assign({
-        torrents: ({ context }) => {
-          context.torrents.forEach(torrent => torrent.stop())
-          return []
-        }
-      }),
-      exit: assign({
-        torrents: ({ spawn, context, self }) => {
-          console.log('waitingForWorker EXIT')
-          context.torrents.forEach(torrent => torrent.stop())
-          return context.torrentDocuments.map(torrent => {
-            return spawn(
-              torrentMachine,
-              {
-                id: `torrent-${torrent.infoHash}`,
-                input: {
-                  parent: self,
-                  document: torrent
-                },
-                syncSnapshot: true
-              }
-            )
-          })
-        }
-      }),
-      always: {
-        target: 'idle',
-        guard: ({ context }) => console.log('waitingForWorker always guard', context.workerReady) || context.workerReady
-      },
-      on: {
-        'WORKER.READY': 'idle'
-      }
-    },
+    // waitingForWorker: {
+    //   entry: assign({
+    //     torrents: ({ context }) => {
+    //       console.log('waitingForWorker ENTRY', context)
+    //       context.torrents.forEach(torrent => torrent.stop())
+    //       return []
+    //     }
+    //   }),
+    //   exit: assign({
+    //     torrents: ({ spawn, context, self }) => {
+    //       console.log('waitingForWorker EXIT')
+    //       context.torrents.forEach(torrent => torrent.stop())
+    //       return context.torrentDocuments.map(torrent => {
+    //         return spawn(
+    //           torrentMachine,
+    //           {
+    //             id: `torrent-${torrent.infoHash}`,
+    //             input: {
+    //               parent: self,
+    //               document: torrent
+    //             },
+    //             syncSnapshot: true
+    //           }
+    //         )
+    //       })
+    //     }
+    //   }),
+    //   always: {
+    //     target: 'idle',
+    //     guard: ({ context }) => console.log('waitingForWorker always guard', context.workerReady) || context.workerReady
+    //   },
+    //   on: {
+    //     'WORKER.READY': 'idle'
+    //   }
+    // },
     idle: {
       invoke: {
         input: ({ context }) => context,
@@ -165,15 +169,6 @@ export const torrentManagerMachine = createMachine({
             ]
           })
         },
-        'TORRENT.REMOVE': {
-          actions: assign({
-            torrents: ({ context, event }) => {
-              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
-              torrent?.stop()
-              return context.torrents.filter(torrent => torrent.id !== `torrent-${event.output.infoHash}`)
-            }
-          })
-        },
         'TORRENT.PAUSE': {
           actions: assign({
             torrents: ({ context, event }) => {
@@ -193,21 +188,24 @@ export const torrentManagerMachine = createMachine({
           })
         },
         'TORRENT.REMOVE-AND-DELETE-FILES': {
-          actions: assign({
-            torrents: ({ context, event }) => {
-              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
-              torrent?.send({ type: 'TORRENT.REMOVE-AND-DELETE-FILES' })
-              return context.torrents
-            }
-          })
+          actions: ({ context, event }) => {
+            const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.input.infoHash}`)
+            torrent?.send({ type: 'TORRENT.REMOVE-AND-DELETE-FILES' })
+          }
         },
         'TORRENT.REMOVE-AND-KEEP-FILES': {
+          actions: ({ context, event }) => {
+            const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.input.infoHash}`)
+            torrent?.send({ type: 'TORRENT.REMOVE-AND-KEEP-FILES' })
+          }
+
+        },
+        'TORRENT.REMOVED': {
           actions: assign({
-            torrents: ({ context, event }) => {
-              const torrent = context.torrents.find(torrent => torrent.id === `torrent-${event.output.infoHash}`)
-              torrent?.send({ type: 'TORRENT.REMOVE-AND-KEEP-FILES' })
-              return context.torrents
-            }
+            torrents: ({ context, event }) =>
+              context
+                .torrents
+                .filter(torrent => torrent.id !== `torrent-${event.input.infoHash}`)
           })
         },
         'PAUSE': {
@@ -292,12 +290,12 @@ manager.subscribe((state) => {
   console.log(
     'manager state',
     ...[
-      // ...(
-      //   state
-      //     .context
-      //     .torrents
-      //     .map((actor) => actor.getSnapshot().context)
-      // ),
+      ...(
+        state
+          .context
+          .torrents
+          .map((actor) => actor.getSnapshot().context)
+      ),
       ...(
         state
         .context

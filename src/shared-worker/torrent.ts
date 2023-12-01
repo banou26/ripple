@@ -2,7 +2,7 @@ import type { ActorRefFrom } from 'xstate'
 
 import type { torrentManagerMachine } from './torrent-manager'
 
-import { createMachine, assign, fromObservable, fromPromise } from 'xstate'
+import { createMachine, assign, fromObservable, fromPromise, sendParent } from 'xstate'
 import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
 import { TorrentDocument, database } from '../database'
@@ -50,6 +50,8 @@ export const torrentMachine = createMachine({
     magnet: input.magnet,
     torrentFile: input.torrentFile,
     
+    shouldRemoveFiles: false,
+
     lastEvent: null as unknown,
     document: input.document,
     dbDocument: input.dbDocument,
@@ -61,6 +63,8 @@ export const torrentMachine = createMachine({
     | { type: 'TORRENT.ADD', input: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }, output: TorrentDocument }
     | { type: 'TORRENT.PAUSE' }
     | { type: 'TORRENT.RESUME' }
+    | { type: 'TORRENT.REMOVE-AND-DELETE-FILES', output: TorrentDocument }
+    | { type: 'TORRENT.REMOVE-AND-KEEP-FILES', output: TorrentDocument }
     | { type: 'FILE.CHECKING' }
     | { type: 'FILE.FINISHED' }
     | { type: 'FILE.SELECT' }
@@ -161,6 +165,22 @@ export const torrentMachine = createMachine({
           return context.files
         }
       })
+    },
+    'TORRENT.REMOVE-AND-DELETE-FILES': {
+      actions: [
+        assign({
+          shouldRemoveFiles: () => true
+        })
+      ],
+      target: '.removing'
+    },
+    'TORRENT.REMOVE-AND-KEEP-FILES': {
+      actions: [
+        assign({
+          shouldRemoveFiles: () => false
+        })
+      ],
+      target: '.removing'
     }
   },
   states: {
@@ -314,6 +334,32 @@ export const torrentMachine = createMachine({
         //   target: 'paused'
         // }
       },
+    },
+    removing: {
+      invoke: {
+        input: ({ context }) => ({ context }),
+        src: fromPromise(async ({ input }) => {
+          console.log('removing invoke', input.context)
+          if (input.context.dbDocument) {
+            await input.context.dbDocument.remove()
+          }
+          if (input.context.shouldRemoveFiles) {
+            const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
+            await directory.removeEntry(input.context.infoHash, { recursive: true })
+          }
+          return input.context.document
+        }),
+        onDone: {
+          actions: [
+            sendParent(({ context }) => ({
+              type: 'TORRENT.REMOVED',
+              input: {
+                infoHash: context.infoHash,
+              }
+            }))
+          ]
+        }
+      }
     }
   }
 })

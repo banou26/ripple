@@ -53,6 +53,15 @@ export const resolvers = {
           torrentFile: torrentFile && deserializeTorrentFile(torrentFile)
         }
       })
+    }),
+  removeTorrent:
+    makeCallListener(async ({ infoHash, removeFiles }: { infoHash: string, removeFiles: boolean }) => {
+      console.log('removeTorrent', infoHash)
+      
+      torrentManager.send({
+        type: removeFiles ? 'TORRENT.REMOVE-AND-DELETE-FILES' : 'TORRENT.REMOVE-AND-KEEP-FILES',
+        input: { infoHash }
+      })
     })
 }
 
