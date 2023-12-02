@@ -19,7 +19,7 @@ export const fileMachine = createMachine({
   initial: 'checkingFile',
   context: (
     { input }:
-    { input: { document: RxDocument<TorrentDocument>, file: NonNullable<RxDocument<TorrentDocument>['state']['files']>[number] } }
+    { input: { document: TorrentDocument, file: NonNullable<TorrentDocument['state']['files']>[number] } }
   ) => ({
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number],

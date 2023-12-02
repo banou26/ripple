@@ -69,76 +69,102 @@ export const torrentMachine = createMachine({
     | { type: 'FILE.SELECT' }
     | { type: 'FILE.UNSELECT' }
   },
-  // always: [{
-  //   actions: [
-  //     ({ context }) => {
-  //       const files = context.files.map(file => file.getSnapshot().context)
-  //       console.log('doc', context.document, 'files', files)
+  always: [{
+    actions: [
+      async ({ context }) => {
+        // console.log('context', context)
+        const files = context.files.map(file => file.getSnapshot().context)
+        // console.log('doc', context.document, 'files', files)
 
-  //       const doc = {
-  //         ...context.document,
-  //         state: {
-  //           ...context.document.state,
-  //           torrentFile:
-  //             context.document.state.torrentFile
-  //             && deserializeTorrentFile(context.document.state.torrentFile)
-  //         }
-  //       }
+        if (!context.document || !context.dbDocument) return
 
-  //       const { infoHash, ...newDocument } = serializeTorrentDocument({
-  //         state: {
-  //           name: doc.state.name,
-  //           status: doc.state.status,
-  //           progress: doc.state.progress,
-  //           size: doc.state.size,
-  //           peers: doc.state.peers,
-  //           proxy: doc.state.proxy,
-  //           p2p: doc.state.p2p,
-  //           addedAt: doc.state.addedAt,
-  //           remainingTime: doc.state.remainingTime,
-  //           peersCount: doc.state.peersCount,
-  //           seedersCount: doc.state.seedersCount,
-  //           leechersCount: doc.state.leechersCount,
-  //           downloaded: doc.state.downloaded,
-  //           uploaded: doc.state.uploaded,
-  //           downloadSpeed: doc.state.downloadSpeed,
-  //           uploadSpeed: doc.state.uploadSpeed,
-  //           ratio: doc.state.ratio,
-  //           files: doc.state.files.map(file => ({
-  //             name: file.name,
-  //             path: file.path,
-  //             offset: file.offset,
-  //             length: file.length,
-  //             downloaded: file.downloaded,
-  //             progress: file.progress,
-  //             selected: file.selected,
-  //             priority: file.priority,
-  //             downloadedRanges: file.downloadedRanges.map(range => ({
-  //               start: range.start,
-  //               end: range.end
-  //             }))
-  //           })),
-  //           magnet: doc.state.magnet,
-  //           torrentFile: doc.state.torrentFile
-  //         },
-  //         options: doc.options && {
-  //           paused: doc.options.paused
-  //         }
-  //       })
+        const doc = {
+          ...context.document,
+          state: {
+            ...context.document.state,
+            torrentFile:
+              context.document.state.torrentFile
+              && deserializeTorrentFile(context.document.state.torrentFile)
+          }
+        }
 
-  //       context.document.incrementalUpdate({
-  //         $set: {
-  //           ...newDocument
-  //         }
-  //       })
+        const { infoHash, ...newDocument } = serializeTorrentDocument({
+          state: {
+            name: doc.state.name,
+            status: doc.state.status,
+            progress:
+              files
+                .filter(file => file.selected)
+                .reduce((acc, file) => acc + file.progress, 0)
+              / (
+                files
+                  .filter(file => file.selected)
+                  .length
+              ),
+            size: doc.state.size,
+            peers: doc.state.peers,
+            proxy: doc.state.proxy,
+            p2p: doc.state.p2p,
+            addedAt: doc.state.addedAt,
+            remainingTime: doc.state.remainingTime,
+            peersCount: doc.state.peersCount,
+            seedersCount: doc.state.seedersCount,
+            leechersCount: doc.state.leechersCount,
+            downloaded: files.reduce((acc, file) => acc + file.downloaded, 0),
+            uploaded: files.reduce((acc, file) => acc + file.uploaded, 0),
+            downloadSpeed: files.reduce((acc, file) => acc + file.downloadSpeed, 0),
+            uploadSpeed: files.reduce((acc, file) => acc + file.uploadSpeed, 0),
+            ratio: doc.state.ratio,
+            files: files.map(file => ({
+              name: file.name,
+              path: file.path,
+              offset: file.offset,
+              length: file.length,
+              downloaded: file.downloaded,
+              progress: file.progress,
+              selected: file.selected,
+              priority: file.priority,
+              downloadedRanges: file.downloadedRanges.map(range => ({
+                start: range.start,
+                end: range.end
+              })),
+              bytesPerSecond: file.bytesPerSecond,
+              streamBandwithLogs: file.streamBandwithLogs.map(log => ({
+                byteLength: log.byteLength,
+                timestamp: log.timestamp
+              }))
+            })),
+            magnet: doc.state.magnet,
+            torrentFile: serializeTorrentFile(doc.state.torrentFile)
+          },
+          options: doc.options && {
+            paused: doc.options.paused
+          }
+        })
 
-  //     },
-  //     assign(({ event }) => ({
-  //       lastEvent: event
-  //     }))
-  //   ],
-  //   guard: ({ context, event }) => context.lastEvent !== event
-  // }] as const,
+        console.log('UPDATING DOC', context, newDocument)
+
+        console.log(
+          'AAAAAA',
+          await context.dbDocument.incrementalModify((doc) => {
+            doc.state = newDocument.state
+            doc.options = newDocument.options
+            return doc
+          })
+        )
+
+        // await context.dbDocument.incrementalUpdate({
+        //   $set: {
+        //     ...newDocument
+        //   }
+        // })
+      },
+      assign(({ event }) => ({
+        lastEvent: event
+      }))
+    ],
+    guard: ({ context, event }) => context.lastEvent !== event
+  }] as const,
   on: {
     'FILE.CHECKING': '.checkingFiles',
     'FILE.FINISHED': {
@@ -150,7 +176,6 @@ export const torrentMachine = createMachine({
     'TORRENT.PAUSE': {
       actions: assign({
         files: ({ context, event }) => {
-          console.log('TORRENT# on PAUSE EVENT', event)
           context.files.forEach(file => file.send({ type: 'FILE.PAUSE' }))
           return context.files
         }
@@ -159,7 +184,6 @@ export const torrentMachine = createMachine({
     'TORRENT.RESUME': {
       actions: assign({
         files: ({ context, event }) => {
-          console.log('TORRENT# on RESUME EVENT', event)
           context.files.forEach(file => file.send({ type: 'FILE.RESUME' }))
           return context.files
         }
@@ -189,7 +213,6 @@ export const torrentMachine = createMachine({
         src:
           fromPromise(async ({ input: _input }) => {
             const { context, data: { input } } = _input
-            console.log('init invoke', input, context, _input)
             if (context.dbDocument) {
               return context.dbDocument
             }
@@ -213,8 +236,6 @@ export const torrentMachine = createMachine({
 
             const dbDoc = await database.torrents.insert(torrentDoc)
 
-            console.log('INIT INVOKE DBDOC', dbDoc)
-
             return dbDoc
           }),
         onDone: {
@@ -222,7 +243,8 @@ export const torrentMachine = createMachine({
 
           actions: [
             assign({
-              document: ({ event }) => console.log('INIT DOC CALLED', event) || event.output,
+              document: ({ event }) => event.output.toJSON(),
+              dbDocument: ({ event }) => event.output,
               files: ({ spawn, context, event }) =>
                 event
                   .output
@@ -235,8 +257,7 @@ export const torrentMachine = createMachine({
                       {
                         id: `torrent-${event.output.infoHash}-${file.path}`,
                         input: {
-                          parent: context.parent,
-                          document: event.output,
+                          document: event.output.toJSON(),
                           file
                         },
                         syncSnapshot: true

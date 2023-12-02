@@ -17,7 +17,10 @@ export const getHumanReadableByteString = (bytes, compact?: boolean) => {
         notation: 'standard',
         style: 'unit',
         unitDisplay: 'short',
-        maximumSignificantDigits: 2
+        maximumFractionDigits:
+          i >= 3
+            ? 2
+            : 1
       }
     )
     .format(bytes / Math.pow(k, i))

@@ -90,7 +90,6 @@ export const StatisticsHeader = ({ ...rest }) => {
 
   const resetOPFS = async () => {
     const directory = await navigator.storage.getDirectory()
-    console.log('directory', directory)
     const iterator = directory.entries()
     const nextEntry = async () => {
       const { done, value } = await iterator.next()
