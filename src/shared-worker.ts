@@ -28,14 +28,12 @@ sharedWorker.port.addEventListener('error', (err) => {
 sharedWorker.port.start()
 
 leaderElector.awaitLeadership().then(() => {
-  console.log('leader')
   const worker = new Worker(WorkerURL, { type: 'module' })
 
   const messageChannel = new MessageChannel()
   const { port1, port2 } = messageChannel
 
   port1.addEventListener('message', (event) => {
-    console.log('MSG PROXY TO IO WORKER', event.data)
     // proxyMessage({ key: 'shared-worker-fkn-api', target: worker }, event)
     const { type, data, port } = event.data
     const transferables = getTransferableObjects(data)

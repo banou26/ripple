@@ -11,9 +11,7 @@ let ioWorkerPort: MessagePort
 export const getIoWorkerPort = () => ioWorkerPort
 
 export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: MessagePort }) => {
-  console.log('newLeader', workerPort)
   if (ioWorkerPort) {
-    console.log('torrentManager WORKER.DISCONNECTED')
     torrentManager.send({ type: 'WORKER.DISCONNECTED' })
   }
   ioWorkerPort = workerPort
@@ -38,7 +36,6 @@ export const newLeader = makeCallListener(async ({ workerPort }: { workerPort: M
       reject()
     }, 1000)
   })
-  console.log('torrentManager WORKER.READY')
   torrentManager.send({ type: 'WORKER.READY' })
 })
 
@@ -46,7 +43,6 @@ export const resolvers = {
   newLeader,
   addTorrent:
     makeCallListener(async ({ infoHash, magnet, torrentFile }: { infoHash: string, magnet: string, torrentFile: ParseTorrent.Instance | undefined }) => {
-      console.log('addTorrent', magnet)
       torrentManager.send({
         type: 'TORRENT.ADD',
         input: {
@@ -58,8 +54,6 @@ export const resolvers = {
     }),
   removeTorrent:
     makeCallListener(async ({ infoHash, removeFiles }: { infoHash: string, removeFiles: boolean }) => {
-      console.log('removeTorrent', infoHash)
-      
       torrentManager.send({
         type: removeFiles ? 'TORRENT.REMOVE-AND-DELETE-FILES' : 'TORRENT.REMOVE-AND-KEEP-FILES',
         input: { infoHash }

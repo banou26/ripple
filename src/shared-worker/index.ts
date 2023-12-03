@@ -8,7 +8,6 @@ let _port: MessagePort
 globalThis.addEventListener('connect', async (ev) => {
   const { resolvers } = await import('./io-worker')
 
-  console.log('SHAREDWORKER connect', ev)
   const { ports: [port] } = ev
   
   registerListener({
@@ -18,12 +17,10 @@ globalThis.addEventListener('connect', async (ev) => {
   })
 
   port.start()
-  console.log('SHAREDWORKER port', port)
 
   if (!_port) {
     call<SharedWorkerFknApiResolvers>(port, { key: 'shared-worker-fkn-port' })('getApiTargetPort')
       .then(port => {
-        console.log('SET API TARGET PORT', port)
         setApiTarget(port)
         _port = port
       })

@@ -142,16 +142,6 @@ export const torrentMachine = createMachine({
           }
         })
 
-        console.log('UPDATING DOC', context, newDocument)
-
-        console.log(
-          'AAAAAA',
-          await context.dbDocument.incrementalModify((doc) => {
-            doc.state = newDocument.state
-            doc.options = newDocument.options
-            return doc
-          })
-        )
 
         // await context.dbDocument.incrementalUpdate({
         //   $set: {
@@ -270,14 +260,12 @@ export const torrentMachine = createMachine({
       }
     },
     checkingFiles: {
-      entry: () => console.log('checkingFiles'),
       target: 'downloadingMetadata',
     },
     downloadingMetadata: {
       invoke: {
         input: ({ context }) => context,
         src: fromObservable((ctx) => {
-          console.log('document', ctx.input.document)
           return ctx.input.document.$
         }),
         onSnapshot: {
@@ -287,13 +275,10 @@ export const torrentMachine = createMachine({
       }
     },
     downloading: {
-      entry: () => console.log('downloading'),
       invoke: {
         input: ({ context }) => context,
         src:
           fromObservable(({ input, ...rest }) => {
-            console.log('TORRENT DOWNLOADING', input, rest)
-
             return from([])
             // return (
             //   withLatestFrom(input.torrents.map(torrent => torrent.$))
@@ -314,7 +299,6 @@ export const torrentMachine = createMachine({
           target: 'paused',
           actions: assign({
             files: ({ context, event }) => {
-              console.log('TORRENT# downloading->TORRENT.PAUSE EVENT', event)
               context.files.forEach(file => file.send({ type: 'FILE.PAUSE' }))
               return context.files
             }
@@ -328,7 +312,6 @@ export const torrentMachine = createMachine({
           target: 'downloading',
           actions: assign({
             files: ({ context, event }) => {
-              console.log('TORRENT# paused->TORRENT.RESUME EVENT', event)
               context.files.forEach(file => file.send({ type: 'FILE.RESUME' }))
               return context.files
             }
@@ -343,7 +326,6 @@ export const torrentMachine = createMachine({
         input: ({ context }) => context,
         src:
           fromObservable(({ input, ...rest }) => {
-            console.log('TORRENT FINISHED', input, rest)
 
             return from([])
             // return (
@@ -364,7 +346,6 @@ export const torrentMachine = createMachine({
       invoke: {
         input: ({ context }) => ({ context }),
         src: fromPromise(async ({ input }) => {
-          console.log('removing invoke', input.context)
           if (input.context.dbDocument) {
             await input.context.dbDocument.remove()
           }

@@ -1,12 +1,5 @@
 import { makeCallListener, registerListener } from 'osra'
 
-console.log('IO worker')
-
-globalThis.addEventListener('message', (ev) => {
-  if (ev.data.type === 'ping') return
-  console.log('ev', ev)
-})
-
 const opfsRoot = await navigator.storage.getDirectory()
 const torrentFolderHandle = await opfsRoot.getDirectoryHandle('torrents', { create: true })
 
@@ -29,7 +22,6 @@ const { resolvers } = registerListener({
       const folderHande = await torrentFolderHandle.getDirectoryHandle(filePath.split('/').slice(1, -1).join('/'), { create: true })
       const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
-      console.log('file', file, fileHandle)
       const writable = await getFileHandleSyncAccessHandle(fileHandle)
 
       if (size !== file.size) await writable.truncate(size)

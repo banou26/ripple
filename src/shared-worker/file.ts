@@ -1,12 +1,9 @@
-import type { ActorRefFrom } from 'xstate'
-
-import { getTorrentProgress, type TorrentMachine } from './torrent'
 import type { Resolvers } from '../worker'
 import type { TorrentDocument } from '../database'
 
-import { assign, createMachine, fromObservable, fromPromise, sendParent } from 'xstate'
+import { assign, createMachine, fromObservable, sendParent } from 'xstate'
 import { call } from 'osra'
-import { Observable, filter, first, from, map, merge, partition, tap } from 'rxjs'
+import { Observable } from 'rxjs'
 import { torrent } from '@fkn/lib'
 
 import { getIoWorkerPort } from './io-worker'
@@ -102,8 +99,7 @@ export const fileMachine = createMachine({
           fromObservable((ctx) =>
             new Observable(observer => {
               const document = ctx.input.document as RxDocument<TorrentDocument>
-              console.log('downloadFile observable', ctx)
-              
+
               if (ctx.input.file.selected === false) {
                 return observer.complete()
               }
@@ -117,10 +113,7 @@ export const fileMachine = createMachine({
                   .at(0)
 
               const offsetStart = lastRange?.end || 0
-              console.log('downloadFile offsetStart', offsetStart)
 
-
-              console.log('AAAAAAAAAAAAAAAA', lastRange, ctx.input.file)
               if (offsetStart === ctx.input.file.length) {
                 observer.complete()
                 return
@@ -220,7 +213,6 @@ export const fileMachine = createMachine({
               })
 
               return () => {
-                console.log('download file cancelled')
                 cancelled = true
                 closePromise.then((close) => close?.())
               }

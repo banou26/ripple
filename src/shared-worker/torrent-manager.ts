@@ -81,7 +81,7 @@ export const torrentManagerMachine = createMachine({
     waitingForDocuments: {
       always: {
         target: 'idle',
-        guard: ({ context }) => console.log('waitingForWorker always guard', context.workerReady) || context.workerReady
+        guard: ({ context }) => context.workerReady
       },
       // invoke: {
       //   id: 'getTorrentDocuments',
@@ -210,8 +210,7 @@ export const torrentManagerMachine = createMachine({
         },
         'PAUSE': {
           actions: assign({
-            torrents: ({ context, event }) => {
-              console.log('EVENT', event, context)
+            torrents: ({ context }) => {
               context
                 .torrents
                 .filter(torrent => torrent.getSnapshot().value !== 'finished')
@@ -224,21 +223,11 @@ export const torrentManagerMachine = createMachine({
       }
     },
     paused: {
-      // invoke: {
-      //   id: 'getTorrentDocuments',
-      //   input: ({ context }) => context,
-      //   src: fromPromise(async ({ input }: { input: { torrents: ActorRefFrom<typeof torrentMachine>[] } }) => {
-      //     input
-      //       .torrents
-      //       .filter(torrent => console.log('TORRENT STATE', torrent.getSnapshot().value) || torrent.getSnapshot().value !== 'finished')
-      //       .forEach(torrent => torrent.send({ type: 'TORRENT.PAUSE' }))
-      //   }),
-      // },
       invoke: {
         id: 'paused status watch',
         input: ({ context }) => context,
         src:
-          fromObservable(({ context, input }) => {
+          fromObservable(({ input }) => {
             input
               .torrents
               .filter(torrent => torrent.getSnapshot().value !== 'finished')
@@ -260,8 +249,7 @@ export const torrentManagerMachine = createMachine({
       on: {
         'RESUME': {
           actions: assign({
-            torrents: ({ context, event }) => {
-              console.log('EVENT', event, context)
+            torrents: ({ context }) => {
               context
                 .torrents
                 .filter(torrent => torrent.getSnapshot().value !== 'finished')
@@ -282,35 +270,35 @@ const manager =
   createActor(torrentManagerMachine)
     .start()
 
-torrentCollection.find().$.subscribe((torrentDocuments) => {
-  console.log('torrentDocuments', torrentDocuments)
-})
+// torrentCollection.find().$.subscribe((torrentDocuments) => {
+//   console.log('torrentDocuments', torrentDocuments)
+// })
 
-manager.subscribe((state) => {
-  console.log(
-    'manager state',
-    ...[
-      ...(
-        state
-          .context
-          .torrents
-          .map((actor) => ({ value: actor.getSnapshot().value, ...actor.getSnapshot().context }))
-      ),
-      ...(
-        state
-        .context
-        .torrents
-        .flatMap((actor) =>
-          actor
-            .getSnapshot()
-            .context
-            .files
-            .map((actor) => ({ ...actor.getSnapshot().context }))
-        )
-      )
-    ]
-  )
-})
+// manager.subscribe((state) => {
+//   console.log(
+//     'manager state',
+//     ...[
+//       ...(
+//         state
+//           .context
+//           .torrents
+//           .map((actor) => ({ value: actor.getSnapshot().value, ...actor.getSnapshot().context }))
+//       ),
+//       ...(
+//         state
+//         .context
+//         .torrents
+//         .flatMap((actor) =>
+//           actor
+//             .getSnapshot()
+//             .context
+//             .files
+//             .map((actor) => ({ ...actor.getSnapshot().context }))
+//         )
+//       )
+//     ]
+//   )
+// })
 
 
 // setTimeout(() => {
