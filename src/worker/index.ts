@@ -46,6 +46,17 @@ const { resolvers } = registerListener({
           await writable.close()
         }
       }
+    }),
+    readTorrentFile: makeCallListener(async ({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) => {
+      console.log('readTorrentFile', infoHash, filePath, offset, size)
+      const folderHandle = await torrentFolderHandle.getDirectoryHandle(infoHash)
+      const fileHandle = await folderHandle.getFileHandle(filePath)
+      const file = await fileHandle.getFile()
+      const accessHandle  = await fileHandle.createSyncAccessHandle()
+      const buffer = new DataView(new ArrayBuffer(size))
+      accessHandle.read(buffer, { at: offset })
+      console.log('READ BUFFER', buffer.buffer)
+      return buffer.buffer
     })
   },
   target: globalThis as unknown as Worker,

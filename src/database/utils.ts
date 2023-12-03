@@ -28,7 +28,7 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
       ...file,
       path: file.path.map(path => new Uint8Array(Buffer.from(path, 'base64')))
     })),
-    name: new Uint8Array(Buffer.from(torrentFile.info.name, 'base64')),
+    name: Buffer.from(torrentFile.info.name, 'base64').toString('utf-8'),
     pieces: new Uint8Array(Buffer.from(torrentFile.info.pieces, 'base64'))
   },
   infoBuffer: new Uint8Array(Buffer.from(torrentFile.infoBuffer, 'base64')),

@@ -370,7 +370,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         </div>
       </div>
       <div className="actions">
-        <Link to={`/watch/${torrent.infoHash}`} className="play">
+        <Link to={`/watch/${torrent.infoHash}/0`} className="play">
           <button>play</button>
         </Link>
         <div>

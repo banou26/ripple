@@ -6,12 +6,12 @@ export enum Route {
 
 const Routes = {
   [Route.HOME]: () => '/',
-  [Route.WATCH]: ({ infoHash }: { infoHash: string }) => `/watch/${infoHash}`
+  [Route.WATCH]: ({ infoHash, fileIndex }: { infoHash: string, fileIndex?: number }) => `/watch/${infoHash}/${fileIndex}`
 }
 
 const RouterRoutes = {
   [Route.HOME]: '/',
-  [Route.WATCH]: '/watch/:infoHash'
+  [Route.WATCH]: '/watch/:infoHash/:fileIndex?'
 }
 
 export const getRouterRoutePath =

@@ -22,7 +22,7 @@ const router = createBrowserRouter([
     element: wrapElement(<Home/>)
   },
   {
-    path: '/watch/:infoHash',
+    path: getRouterRoutePath(Route.WATCH),
     element: wrapElement(<Watch/>)
   },
   {

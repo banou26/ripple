@@ -62,7 +62,10 @@ export const resolvers = {
         type: removeFiles ? 'TORRENT.REMOVE-AND-DELETE-FILES' : 'TORRENT.REMOVE-AND-KEEP-FILES',
         input: { infoHash }
       })
-    })
+    }),
+  readTorrentFile: makeCallListener(async ({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) => {
+    return call(ioWorkerPort, { key: 'io-worker' })('readTorrentFile', { infoHash, filePath, offset, size })
+  })
 }
 
 export type Resolvers = typeof resolvers
