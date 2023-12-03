@@ -64,7 +64,7 @@ export const removeTorrent = async (options: { infoHash: string, removeFiles: bo
 
 export const readTorrentFile = async (options: { infoHash: string, filePath: string, offset: number, size: number }) => {
   const  { default: sharedWorker } = await import('../shared-worker')
-  const { data } = await call(sharedWorker.port, { key: 'shared-worker-fkn-api' })(
+  return call(sharedWorker.port, { key: 'shared-worker-fkn-api' })(
     'readTorrentFile',
     {
       infoHash: options.infoHash,
@@ -73,5 +73,4 @@ export const readTorrentFile = async (options: { infoHash: string, filePath: str
       size: options.size
     }
   )
-  return data
 }

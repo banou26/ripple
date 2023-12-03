@@ -83,8 +83,6 @@ const Player = () => {
   const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
   const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
   const file = torrentDoc?.state?.files?.[fileIndex]
-  console.log('torrentDoc', torrentDoc)
-  console.log('file', file)
 
   useEffect(() => {
     if (!file) return
@@ -105,15 +103,11 @@ const Player = () => {
 
   const onFetch = async (offset: number, end: number) => {
     const matchingRanges = getFileMatchingDownloadedRange(file, offset, end)
-    console.log('matchingRanges', matchingRanges)
 
     if (matchingRanges?.length) {
-      const res = await readTorrentFile({ infoHash, filePath: file.path, offset, size: end - offset })
-      console.log('res', res)
-      await new Promise((resolve) => setTimeout(resolve, 10000))
-      return res
+      const res = await readTorrentFile({ infoHash, filePath: file.path, offset, size: end - offset + 1 })
+      return new Response(res)
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 10000))
       await new Promise((resolve) => {
         const subscription = torrentDoc?.$.subscribe((doc) => {
           const file = doc?.state?.files?.[fileIndex]

@@ -1,3 +1,5 @@
+import type { Resolvers as IoWorkerResolvers } from '../worker'
+
 import { call, makeCallListener } from 'osra'
 
 import torrentManager from './torrent-manager'
@@ -63,9 +65,9 @@ export const resolvers = {
         input: { infoHash }
       })
     }),
-  readTorrentFile: makeCallListener(async ({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) => {
-    return call(ioWorkerPort, { key: 'io-worker' })('readTorrentFile', { infoHash, filePath, offset, size })
-  })
+  readTorrentFile: makeCallListener(({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) =>
+    call<IoWorkerResolvers>(getIoWorkerPort(), { key: 'io-worker' })('readTorrentFile', { infoHash, filePath, offset, size })
+  )
 }
 
 export type Resolvers = typeof resolvers
