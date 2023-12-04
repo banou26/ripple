@@ -13,6 +13,7 @@ import { getRoutePath, Route } from './path'
 import { ArrowLeft, Home } from 'react-feather'
 import { Link } from 'react-router-dom'
 import { torrent } from '@fkn/lib'
+import { Subscription } from 'rxjs'
 
 const playerStyle = css`
 height: 100%;
@@ -121,8 +122,11 @@ const Player = () => {
         })
         return new Response(await res.arrayBuffer())
       }
+
       await new Promise((resolve) => {
-        const subscription = torrentDoc?.$.subscribe((doc) => {
+        let subscription: Subscription | undefined
+        subscription = torrentDoc?.$.subscribe(async (doc) => {
+          if (!subscription) await new Promise((resolve) => setTimeout(resolve, 10))
           const file = doc?.state?.files?.[fileIndex]
           if (getFileMatchingDownloadedRange(file, offset, end)?.length) {
             resolve(undefined)
