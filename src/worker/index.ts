@@ -12,6 +12,8 @@ const getFileHandleSyncAccessHandle = async (fileHandle: FileSystemFileHandle, t
       return getFileHandleSyncAccessHandle(fileHandle, tryCount + 1)
     })
 
+const writeFileAccessHandles = new Map<string, FileSystemFileHandle>()
+
 const { resolvers } = registerListener({
   resolvers: {
     ping: makeCallListener(async () => {
@@ -23,6 +25,7 @@ const { resolvers } = registerListener({
       const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
       const writable = await getFileHandleSyncAccessHandle(fileHandle)
+      writeFileAccessHandles.set(filePath, writable)
 
       if (size !== file.size) await writable.truncate(size)
 
@@ -35,6 +38,7 @@ const { resolvers } = registerListener({
           _offset += buffer.byteLength
         },
         close: async () => {
+          writeFileAccessHandles.delete(filePath)
           await writable.close()
         }
       }
@@ -42,10 +46,11 @@ const { resolvers } = registerListener({
     readTorrentFile: makeCallListener(async ({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) => {
       const folderHandle = await torrentFolderHandle.getDirectoryHandle(infoHash)
       const fileHandle = await folderHandle.getFileHandle(filePath)
-      const accessHandle  = await fileHandle.createSyncAccessHandle()
+      const foundWriteFileAccessHandle = writeFileAccessHandles.get(`torrents/${infoHash}/${filePath}`)
+      const accessHandle = foundWriteFileAccessHandle ?? await getFileHandleSyncAccessHandle(fileHandle)
       const buffer = new ArrayBuffer(size)
       await accessHandle.read(buffer, { at: offset })
-      await accessHandle.close()
+      if (!foundWriteFileAccessHandle) await accessHandle.close()
       return buffer
     })
   },

@@ -12,6 +12,7 @@ import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { getRoutePath, Route } from './path'
 import { ArrowLeft, Home } from 'react-feather'
 import { Link } from 'react-router-dom'
+import { torrent } from '@fkn/lib'
 
 const playerStyle = css`
 height: 100%;
@@ -111,6 +112,15 @@ const Player = () => {
       const res = await readTorrentFile({ infoHash, filePath: file.path, offset, size: end - offset + 1 })
       return new Response(res)
     } else {
+      if (offset >= file?.length - 1_000_000) {
+        const res = await torrent({
+          magnet: torrentDoc.state.magnet,
+          path: file.path,
+          offset,
+          end: file?.length
+        })
+        return new Response(await res.arrayBuffer())
+      }
       await new Promise((resolve) => {
         const subscription = torrentDoc?.$.subscribe((doc) => {
           const file = doc?.state?.files?.[fileIndex]
