@@ -88,8 +88,7 @@ const style = css`
           height: 10rem;
           width: 20rem;
           background-color: #0f0f0f;
-          background-size: cover;
-          background-position: center;
+          object-fit: cover;
         }
 
         .content {
@@ -278,7 +277,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   return (
     <div key={torrent.infoHash} className="item">
       <div className="main">
-        <div className="preview" style={{ backgroundImage: `url(${imgUrl})` }} />
+        <img className="preview" src={imgUrl} referrerPolicy='no-referrer'/>
         <div className="content">
           <div className="name" title={torrent.state.name}>{torrent.state.name}</div>
           <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
