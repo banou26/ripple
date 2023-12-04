@@ -9,6 +9,9 @@ import FKNMediaPlayer from '@banou/media-player'
 
 import { useParams } from 'react-router'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
+import { getRoutePath, Route } from './path'
+import { ArrowLeft, Home } from 'react-feather'
+import { Link } from 'react-router-dom'
 
 const playerStyle = css`
 height: 100%;
@@ -122,6 +125,15 @@ const Player = () => {
     }
   }
 
+  const customOverlay = useMemo(() => (
+    <div className="player-overlay">
+      <Link to={getRoutePath(Route.HOME)} className="home">
+        <Home/>
+        <span>Back</span>
+      </Link>
+    </div>
+  ), [])
+
   return (
     <div css={playerStyle}>
       <FKNMediaPlayer
@@ -131,6 +143,7 @@ const Player = () => {
         libavWorkerUrl={libavWorkerUrl}
         libassWorkerUrl={jassubWorkerUrl}
         wasmUrl={new URL('/build/jassub-worker-modern.wasm', new URL(window.location.toString()).origin).toString()}
+        customOverlay={customOverlay}
       />
     </div>
   )
