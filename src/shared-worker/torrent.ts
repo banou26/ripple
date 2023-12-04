@@ -72,9 +72,7 @@ export const torrentMachine = createMachine({
   always: [{
     actions: [
       async ({ context }) => {
-        // console.log('context', context)
         const files = context.files.map(file => file.getSnapshot().context)
-        // console.log('doc', context.document, 'files', files)
 
         if (!context.document || !context.dbDocument) return
 
@@ -142,12 +140,11 @@ export const torrentMachine = createMachine({
           }
         })
 
-
-        // await context.dbDocument.incrementalUpdate({
-        //   $set: {
-        //     ...newDocument
-        //   }
-        // })
+        await context.dbDocument.incrementalUpdate({
+          $set: {
+            ...newDocument
+          }
+        })
       },
       assign(({ event }) => ({
         lastEvent: event
