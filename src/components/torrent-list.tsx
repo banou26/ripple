@@ -5,12 +5,10 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, CheckSquare, MinusSquare, Square, Users, UserCheck, Pause, Play } from 'react-feather'
+import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, Users, UserCheck, Pause, Play } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
-import { Tooltip } from './tooltip'
-import { useForm } from 'react-hook-form'
 
 
 const style = css`
@@ -246,8 +244,6 @@ const getFirstGoogleImageResult = async (name: string) => {
 const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
 
-  const { register, watch } = useForm()
-
   useEffect(() => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
   }, [])
@@ -271,7 +267,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const remove = () =>
     removeTorrent({
       infoHash: torrent.infoHash,
-      removeFiles: watch('removeFiles')
+      removeFiles: true
     })
 
   return (
@@ -373,10 +369,6 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
           <button>play</button>
         </Link>
         <div>
-          <label>
-            Remove files
-            <input type="checkbox" {...register('removeFiles')} />
-          </label>
           <button onClick={remove}>
             remove
           </button>
