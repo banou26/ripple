@@ -71,10 +71,15 @@ export const torrentMachine = createMachine({
   },
   always: [{
     actions: [
-      async ({ context }) => {
+      async ({ context, event }) => {
         const files = context.files.map(file => file.getSnapshot().context)
 
-        if (!context.document || !context.dbDocument) return
+        if (
+          !context.document || !context.dbDocument ||
+          event.type === 'TORRENT.REMOVE-AND-KEEP-FILES' || event.type === 'TORRENT.REMOVE-AND-DELETE-FILES'
+        ) {
+          return
+        }
 
         const doc = {
           ...context.document,
@@ -344,7 +349,7 @@ export const torrentMachine = createMachine({
         input: ({ context }) => ({ context }),
         src: fromPromise(async ({ input }) => {
           if (input.context.dbDocument) {
-            await input.context.dbDocument.remove()
+            await (await input.context.dbDocument.getLatest()).remove()
           }
           if (input.context.shouldRemoveFiles) {
             const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
