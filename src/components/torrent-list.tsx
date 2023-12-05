@@ -5,10 +5,11 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, Users, UserCheck, Pause, Play, X } from 'react-feather'
+import { Download, Upload, ArrowDownCircle, Pause, Play, X } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
+import { addTorrentFile } from '../utils/add-torrent'
 
 
 const style = css`
@@ -51,6 +52,30 @@ const style = css`
       gap: .25rem;
       padding: .5rem .1rem;
       padding-bottom: 1rem;
+    }
+    
+    .select-file {
+      max-width: 40rem;
+      margin: auto;
+      padding: 1rem;
+      overflow: hidden;
+
+      border-bottom-color: rgb(48, 52, 54);
+      background-color: rgb(35, 38, 40);
+      /* border-bottom: 1px solid #fff;
+      background-color: #2f2f2f; */
+      border-radius: .5rem;
+      border: .25rem solid rgb(48, 52, 54);
+      border-style: dashed;
+      margin-top: 2rem;
+
+      display: flex;
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #aaa;
+      text-align: center;
+
+      cursor: pointer;
     }
 
     .item {
@@ -418,6 +443,15 @@ export const TorrentList = ({ ...rest }) => {
     })
   }
 
+
+  const onSelectFileClick = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.onchange = () => addTorrentFile([...input.files ?? []])
+    input.click()
+  }
+
   return (
     <div css={style} {...rest}>
       <div className="category">
@@ -433,22 +467,6 @@ export const TorrentList = ({ ...rest }) => {
             }
           </span>
         </div>
-        {
-          !downloadingTorrents?.length && (
-            <div className="items">
-              <div className="item">
-                <div className="main">
-                  <div className="content">
-                    <div className="name">No Torrents</div>
-                    <div>
-                      Drop or Paste files or magnets to start downloading
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        }
         <div className="items">
           {
             downloadingTorrents?.map(torrent => (
@@ -458,6 +476,9 @@ export const TorrentList = ({ ...rest }) => {
               />
             ))
           }
+          <div className="select-file" onClick={onSelectFileClick}>
+            Click here, Drop or Paste a torrent files or magnets to start downloading
+          </div>
         </div>
       </div>
       <div className="category">
