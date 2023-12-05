@@ -2,7 +2,7 @@ import type { ActorRefFrom } from 'xstate'
 
 import type { torrentManagerMachine } from './torrent-manager'
 
-import { createMachine, assign, fromObservable, fromPromise, sendParent } from 'xstate'
+import { createMachine, assign, fromObservable, fromPromise, sendParent, not, stateIn, and, or } from 'xstate'
 import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
 import { TorrentDocument, database } from '../database'
@@ -226,9 +226,7 @@ export const torrentMachine = createMachine({
                 }
               })
 
-            const dbDoc = await database.torrents.insert(torrentDoc)
-
-            return dbDoc
+            return database.torrents.insert(torrentDoc)
           }),
         onDone: {
           target: 'checkingFiles',
@@ -237,7 +235,7 @@ export const torrentMachine = createMachine({
             assign({
               document: ({ event }) => event.output.toJSON(),
               dbDocument: ({ event }) => event.output,
-              files: ({ spawn, context, event }) =>
+              files: ({ spawn, event }) =>
                 event
                   .output
                   .state
@@ -262,7 +260,29 @@ export const torrentMachine = createMachine({
       }
     },
     checkingFiles: {
-      target: 'downloadingMetadata',
+      onDone: [
+        {
+          target: 'downloadingMetadata',
+          guard: ({ context }) => !context.torrentFile,
+        },
+        {
+          guard: or([
+            ({ context }) => context.document.state.stats === 'finished',
+            ({ context }) =>
+              context.torrent &&
+              (context.files as ActorRefFrom<typeof torrentMachine>[])
+                .every(file => file.getSnapshot().value === 'finished')
+          ]),
+          target: 'finished'
+        },
+        {
+          target: 'downloading',
+          guard: or([
+            ({ context }) => context.document.state.stats === 'downloading',
+            ({ context }) => context.torrentFile
+          ])
+        }
+      ]
     },
     downloadingMetadata: {
       invoke: {
@@ -321,29 +341,7 @@ export const torrentMachine = createMachine({
         }
       }
     },
-    finished: {
-      entry: () => console.log('finished'),
-      invoke: {
-        id: 'finished status watch',
-        input: ({ context }) => context,
-        src:
-          fromObservable(({ input, ...rest }) => {
-
-            return from([])
-            // return (
-            //   withLatestFrom(input.torrents.map(torrent => torrent.$))
-            //     .pipe(
-            //       mergeMap((settingsDocument) => settingsDocument?.$),
-            //       filter((settingsDocument) => settingsDocument?.paused),
-            //       first(),
-            //     )
-            // )
-          }),
-        // onDone: {
-        //   target: 'paused'
-        // }
-      },
-    },
+    finished: {},
     removing: {
       invoke: {
         input: ({ context }) => ({ context }),
