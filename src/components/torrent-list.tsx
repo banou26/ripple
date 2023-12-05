@@ -5,7 +5,7 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, Users, UserCheck, Pause, Play } from 'react-feather'
+import { Download, Upload, Divide, ArrowDownCircle, ArrowUpCircle, Users, UserCheck, Pause, Play, X } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -225,6 +225,40 @@ const style = css`
           }
         }
       }
+      .actions {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+
+        button {
+          padding: 1.5rem 1.5rem;
+          border-radius: 0.5rem;
+          border: none;
+          background-color: rgb(24, 26, 27);
+          cursor: pointer;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: .25rem;
+
+          font-weight: bold;
+          color: #aaa;
+
+          svg {
+            width: 1.5rem;
+            height: 1.5rem;
+            stroke-width: 3;
+          }
+
+          &.active {
+            background-color: #2f2f2f;
+            color: #fff;
+          }
+        }
+      }
     }
   }
 `
@@ -288,9 +322,6 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
             <>
               <div className="progress-title">
                 <span className="status">
-                  {/* {
-                    torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
-                  } */}
                   {
                     torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
                   }
@@ -345,11 +376,13 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
       </div>
       <div className="actions">
         <Link to={`/watch/${torrent.infoHash}/0`} className="play">
-          <button>play</button>
+          <button>
+            <Play size={20}/>
+          </button>
         </Link>
         <div>
           <button onClick={remove}>
-            remove
+            <X size={20}/>
           </button>
         </div>
       </div>
@@ -359,7 +392,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 
 export const TorrentList = ({ ...rest }) => {
   const settings = useSettingsDocument()
-  console.log('settings', settings)
+  // console.log('settings', settings)
   const collection = useRxCollection<TorrentDocument>('torrents')
   const allTorrentsQuery = collection?.find({})
   const { result: allTorrents } = useRxQuery(allTorrentsQuery)
@@ -375,8 +408,8 @@ export const TorrentList = ({ ...rest }) => {
     allTorrents?.filter(torrent =>
       torrent.state.status === 'finished'
     )
-  console.log('downloadingTorrents', downloadingTorrents)
-  console.log('completedTorrents', completedTorrents)
+  // console.log('downloadingTorrents', downloadingTorrents)
+  // console.log('completedTorrents', completedTorrents)
 
   const togglePauseAll = async () => {
     await settings?.incrementalModify(doc => {
