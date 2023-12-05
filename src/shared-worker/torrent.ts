@@ -115,7 +115,7 @@ export const torrentMachine = createMachine({
             leechersCount: doc.state.leechersCount,
             downloaded: files.reduce((acc, file) => acc + file.downloaded, 0),
             uploaded: files.reduce((acc, file) => acc + file.uploaded, 0),
-            downloadSpeed: files.reduce((acc, file) => acc + file.downloadSpeed, 0),
+            downloadSpeed: files.reduce((acc, file) => acc + file.bytesPerSecond, 0),
             uploadSpeed: files.reduce((acc, file) => acc + file.uploadSpeed, 0),
             ratio: doc.state.ratio,
             files: files.map(file => ({

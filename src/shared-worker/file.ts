@@ -191,6 +191,7 @@ export const fileMachine = createMachine({
                   const bytesPerSecond =
                     bytesPerSecondList.reduce((acc, log) => acc + log.byteLength, 0)
                     / BYTES_PER_SECOND_TIME_RANGE
+                    * 1000
 
                   observer.next({
                     type: 'FILE.DOWNLOADING_UPDATE',

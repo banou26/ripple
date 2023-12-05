@@ -5,6 +5,7 @@ export const getBytesFromBiByteString = (s: string) => {
 }
 
 export const getHumanReadableByteString = (bytes, compact?: boolean) => {
+  if (isNaN(bytes)) return 'NaN'
   if (bytes === 0 || bytes < 1) return `0 ${compact ? 'B' : 'bytes'}`
   const k = 1000
   const i = Math.floor(Math.log(bytes) / Math.log(k))

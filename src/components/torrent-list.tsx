@@ -384,11 +384,6 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
                     <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
                   </span>
                   <span>
-                    <Upload size={22}/>
-                    <span className="highlight">{getHumanReadableByteString(torrent.state.uploaded ?? 0)}</span>
-                    <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-                  </span>
-                  <span>
                     <Download size={22}/>
                     <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
                     <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
