@@ -260,29 +260,32 @@ export const torrentMachine = createMachine({
       }
     },
     checkingFiles: {
-      onDone: [
-        {
-          target: 'downloadingMetadata',
-          guard: ({ context }) => !context.torrentFile,
-        },
-        {
-          guard: or([
-            ({ context }) => context.document.state.stats === 'finished',
-            ({ context }) =>
-              context.torrent &&
-              (context.files as ActorRefFrom<typeof torrentMachine>[])
-                .every(file => file.getSnapshot().value === 'finished')
-          ]),
-          target: 'finished'
-        },
-        {
-          target: 'downloading',
-          guard: or([
-            ({ context }) => context.document.state.stats === 'downloading',
-            ({ context }) => context.torrentFile
-          ])
-        }
-      ]
+      invoke: {
+        src: fromPromise(async () => {}),
+        onDone: [
+          {
+            target: 'downloadingMetadata',
+            guard: ({ context }) => !context.torrentFile,
+          },
+          {
+            guard: or([
+              ({ context }) => context.document.state.stats === 'finished',
+              ({ context }) =>
+                context.torrent &&
+                (context.files as ActorRefFrom<typeof torrentMachine>[])
+                  .every(file => file.getSnapshot().value === 'finished')
+            ]),
+            target: 'finished'
+          },
+          {
+            target: 'downloading',
+            guard: or([
+              ({ context }) => context.document.state.status === 'downloading',
+              ({ context }) => context.torrentFile
+            ])
+          }
+        ]
+      }
     },
     downloadingMetadata: {
       invoke: {
