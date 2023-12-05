@@ -71,7 +71,7 @@ export const torrentMachine = createMachine({
   },
   always: [{
     actions: [
-      async ({ context, event }) => {
+      async ({ context, event, self }) => {
         const files = context.files.map(file => file.getSnapshot().context)
 
         if (
@@ -94,7 +94,7 @@ export const torrentMachine = createMachine({
         const { infoHash, ...newDocument } = serializeTorrentDocument({
           state: {
             name: doc.state.name,
-            status: doc.state.status,
+            status: self.getSnapshot().value,
             progress:
               files
                 .filter(file => file.selected)
@@ -162,7 +162,7 @@ export const torrentMachine = createMachine({
     'FILE.FINISHED': {
       guard: ({ context }) =>
         (context.files as ActorRefFrom<typeof torrentMachine>[])
-          .every(file => file.getSnapshot().value === 'ready'),
+          .every(file => file.getSnapshot().value === 'finished'),
       target: '.finished'
     },
     'TORRENT.PAUSE': {
