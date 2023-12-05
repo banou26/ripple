@@ -54,7 +54,11 @@ const style = css`
     }
 
     .item {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 35rem) minmax(max-content, 10rem);
+      grid-template-areas: "main info actions";
+
+
       width: 100%;
       height: 12rem;
       border-bottom-color: rgb(48, 52, 54);
@@ -80,13 +84,12 @@ const style = css`
         display: flex;
         padding: 1rem;
         gap: 2rem;
-        max-width: 75%;
 
         .preview {
           height: 10rem;
           width: 20rem;
           background-color: #0f0f0f;
-          object-fit: cover;
+          object-fit: contain;
         }
 
         .content {
@@ -152,7 +155,7 @@ const style = css`
         padding: 2rem;
         gap: .5rem;
 
-        width: 100rem;
+        width: 100%;
 
         font-weight: bold;
         color: #aaa;
@@ -280,89 +283,65 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         </div>
       </div>
       <div className="info">
-        <div className="progress-title">
-          <span className="status">
-            {/* {
-              torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
-            } */}
-            {
-              torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
-            }
-            {
-              torrent.state.status === 'finished' && 'Finished'
-            }
-            {
-              torrent.state.status === 'seeding' && 'Seeding'
-            }
-            {
-              torrent.state.status === 'paused' && 'Paused'
-            }
-          </span>
-          <span className="remaining">
-            {
-              torrent.state.status === 'downloading' && (
-                <>
-                  <span className="highlight">
-                    {remainingTimeString}
-                  </span>
-                  &nbsp;
-                  <span>remaining</span>
-                </>
-              )
-            }
-          </span>
-        </div>
-        <div className="progress-bar">
-          <div className="inner" style={{ width: `${torrent.state.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
-        </div>
-        <div className="torrent-info">
-          <div className="peers">
-            {
-              torrent.options.p2p && !torrent.options.proxy && (
-                <>
-                  <span><UserCheck size={20}/> {torrent.state.peers.length}</span>
-                  <span><Users size={20}/> {torrent.state.peers.length}</span>
+        {
+          torrent.state.status === 'downloading' && (
+            <>
+              <div className="progress-title">
+                <span className="status">
+                  {/* {
+                    torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
+                  } */}
+                  {
+                    torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
+                  }
+                  {
+                    torrent.state.status === 'finished' && 'Finished'
+                  }
+                  {
+                    torrent.state.status === 'seeding' && 'Seeding'
+                  }
+                  {
+                    torrent.state.status === 'paused' && 'Paused'
+                  }
+                </span>
+                <span className="remaining">
+                  {
+                    torrent.state.status === 'downloading' && (
+                      <>
+                        <span className="highlight">
+                          {remainingTimeString}
+                        </span>
+                        &nbsp;
+                        <span>remaining</span>
+                      </>
+                    )
+                  }
+                </span>
+              </div>
+              <div className="progress-bar">
+                <div className="inner" style={{ width: `${torrent.state.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
+              </div>
+              <div className="torrent-info">
+                <div className="stats">
                   <span>
-                    <Divide size={22}/>
-                    <span>{torrent.state.ratio?.toFixed(2)}</span>
+                    <ArrowDownCircle size={20}/>
+                    <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
                   </span>
-                </>
-              )
-            }
-          </div>
-          <div className="stats">
-            {
-              torrent.options.p2p && !torrent.options.proxy && (
-                <span>
-                  <ArrowUpCircle size={20}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.state.uploadSpeed ?? 0)}/s</span>
-                </span>
-              )
-            }
-            {
-              torrent.state.status === 'downloading' && (
-                <span>
-                  <ArrowDownCircle size={20}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
-                </span>
-              )
-            }
-            {
-              torrent.options.p2p && !torrent.options.proxy && (
-                <span>
-                  <Upload size={22}/>
-                  <span className="highlight">{getHumanReadableByteString(torrent.state.uploaded ?? 0)}</span>
-                  <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-                </span>
-              )
-            }
-            <span>
-              <Download size={22}/>
-              <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
-              <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-            </span>
-          </div>
-        </div>
+                  <span>
+                    <Upload size={22}/>
+                    <span className="highlight">{getHumanReadableByteString(torrent.state.uploaded ?? 0)}</span>
+                    <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
+                  </span>
+                  <span>
+                    <Download size={22}/>
+                    <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
+                    <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
+                  </span>
+                </div>
+              </div>
+            </>
+          )
+        }
       </div>
       <div className="actions">
         <Link to={`/watch/${torrent.infoHash}/0`} className="play">
