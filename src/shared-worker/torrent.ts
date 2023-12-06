@@ -91,6 +91,11 @@ export const torrentMachine = createMachine({
           }
         }
 
+        const totalLength = files.reduce((acc, file) => acc + file.length, 0)
+        const downloaded = files.reduce((acc, file) => acc + file.downloaded, 0)
+        const downloadSpeed = files.reduce((acc, file) => acc + file.downloadSpeed, 0)
+        const remainingTime = (totalLength - downloaded) / downloadSpeed
+
         const { infoHash, ...newDocument } = serializeTorrentDocument({
           state: {
             name: doc.state.name,
@@ -109,13 +114,13 @@ export const torrentMachine = createMachine({
             proxy: doc.state.proxy,
             p2p: doc.state.p2p,
             addedAt: doc.state.addedAt,
-            remainingTime: doc.state.remainingTime,
+            remainingTime,
             peersCount: doc.state.peersCount,
             seedersCount: doc.state.seedersCount,
             leechersCount: doc.state.leechersCount,
-            downloaded: files.reduce((acc, file) => acc + file.downloaded, 0),
+            downloaded,
             uploaded: files.reduce((acc, file) => acc + file.uploaded, 0),
-            downloadSpeed: files.reduce((acc, file) => acc + file.downloadSpeed, 0),
+            downloadSpeed,
             uploadSpeed: files.reduce((acc, file) => acc + file.uploadSpeed, 0),
             ratio: doc.state.ratio,
             files: files.map(file => ({

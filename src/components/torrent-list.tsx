@@ -307,6 +307,8 @@ const getFirstGoogleImageResult = async (name: string) => {
   return results[0].image
 }
 
+const rtf = new Intl.RelativeTimeFormat('en', { style: 'short' });
+
 const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
 
@@ -314,21 +316,10 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
   }, [])
 
-  const remainingTimeString = new Date(torrent.state.remainingTime)?.toTimeString?.().split(' ')[0]?.replaceAll('00:', '') ?? '00:00'
-
-  // const selectedFiles = torrent.state.files?.filter(file => file.selected) ?? []
-
-  // const progress =
-  //   selectedFiles.length
-  //   / (
-  //     selectedFiles.reduce(
-  //       (acc, file) =>
-  //         acc + file.downloadedRanges.reduce((acc, range) => acc + (file.length / range.end - range.start), 0),
-  //       0
-  //     )
-  //   )
-
-  // console.log('progress', selectedFiles, progress)
+  const remainingTimeString =
+    isNaN(torrent.state.remainingTime) || !isFinite(torrent.state.remainingTime)
+      ? ''
+      : rtf.format(torrent.state.remainingTime ?? 0, 'seconds') 
 
   const remove = () =>
     removeTorrent({
