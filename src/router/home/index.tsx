@@ -1,6 +1,6 @@
 import { css } from '@emotion/react'
 
-import StatisticsHeader from '../../components/statistics-header'
+import Header from '../../components/header'
 import TorrentList from '../../components/torrent-list'
 
 const style = css`
@@ -22,7 +22,7 @@ const style = css`
 export const Home = () => {
   return (
     <div css={style}>
-      <StatisticsHeader className="header"/>
+      <Header className="header"/>
       <TorrentList className="torrent-list"/>
     </div>
   )

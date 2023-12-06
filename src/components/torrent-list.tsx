@@ -476,7 +476,7 @@ export const TorrentList = ({ ...rest }) => {
             ))
           }
           <div className="select-file" onClick={onSelectFileClick}>
-            Click here, Drop or Paste a torrent files or magnets to start downloading
+            Click here, drop or paste torrent files or magnets to start downloading
           </div>
         </div>
       </div>

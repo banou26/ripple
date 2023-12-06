@@ -127,8 +127,11 @@ export const StatisticsHeader = ({ ...rest }) => {
             }
           }}
         />
-      <button onClick={resetIdb}>reset IDB</button>
-      <button onClick={resetOPFS}>reset OPFS</button>
+        <button onClick={resetIdb}>reset IDB</button>
+        <button onClick={resetOPFS}>reset OPFS</button>
+      </div>
+      <div>
+        
       </div>
     </div>
   )
