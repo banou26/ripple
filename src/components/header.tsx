@@ -1,10 +1,20 @@
+import { type TorrentDocument } from '../database'
+
 import { css } from '@emotion/react'
 import { Line } from 'react-chartjs-2'
+
+import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 
 const style = css`
 
   .chart-wrapper {
     height: 100%;
+    width: 100%;
+
+    canvas {
+      height: 100%;
+      width: 100%;
+    }
   }
 
 `
@@ -45,6 +55,7 @@ const config = {
   type: 'line',
   data: data,
   options: {
+    maintainAspectRatio: false,
     responsive: true,
     plugins: {
       title: {
@@ -81,11 +92,38 @@ const config = {
 // Should have 1 line for every second, and 120 lines total
 // mixed chart with custom tooltip example: https://stackoverflow.com/a/46343907
 export const StatisticsHeader = ({ ...rest }) => {
+  const collection = useRxCollection<TorrentDocument>('torrents')
+  const allTorrentsQuery = collection?.find({})
+  const { result: allTorrents } = useRxQuery(allTorrentsQuery)
+
+  console.log('header allTorrents', allTorrents)
+
+  const dataPoints =
+    allTorrents
+      ?.map(torrent => torrent.state.streamBandwithLogs)
+      .flat()
+      .map((log) => ({
+        x: Math.floor(log.timestamp / 1000),
+        y: log.byteLength
+      }))
+      .reduce((acc, curr) => {
+        const index = acc.findIndex((log) => log.x === curr.x)
+        if (index === -1) {
+          acc.push(curr)
+        } else {
+          acc[index].y += curr.y
+        }
+        return acc
+      }, [])
+      .sort((a, b) => a.x - b.x)
+      .map(log => log.y)
+      .slice(-20) // only keep the last 120 seconds
+
+  console.log('dataPoints', dataPoints)
 
   // delete all IDB instances
   const resetIdb = () => {
     indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
-    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
   }
 
   const resetOPFS = async () => {
@@ -102,6 +140,30 @@ export const StatisticsHeader = ({ ...rest }) => {
     nextEntry()
   }
 
+  const data = {
+    labels: dataPoints.map((_, index) => index),
+    datasets: [
+      {
+        label: 'Cubic interpolation (monotone)',
+        data: dataPoints,
+        borderColor: '#eb4034',
+        fill: false,
+        cubicInterpolationMode: 'monotone',
+        tension: 0.4
+      }, {
+        label: 'Cubic interpolation',
+        data: dataPoints,
+        borderColor: '#34eb40',
+        fill: false,
+        tension: 0.4
+      }, {
+        label: 'Linear interpolation (default)',
+        data: dataPoints,
+        borderColor: '#4034eb',
+        fill: false
+      }
+    ]
+  }
 
   return (
     <div css={style} {...rest}>
@@ -127,11 +189,10 @@ export const StatisticsHeader = ({ ...rest }) => {
             }
           }}
         />
-        <button onClick={resetIdb}>reset IDB</button>
-        <button onClick={resetOPFS}>reset OPFS</button>
       </div>
       <div>
-        
+        <button onClick={resetIdb}>reset IDB</button>
+        <button onClick={resetOPFS}>reset OPFS</button>
       </div>
     </div>
   )

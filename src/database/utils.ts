@@ -70,10 +70,11 @@ export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['st
       priority: 1,
       downloadedRanges: [],
       downloadedRanegs: [],
-      bytesPerSecond: 0,
+      downloadSpeed: 0,
       streamBandwithLogs: []
     }))
   ),
+  streamBandwithLogs: state.streamBandwithLogs ?? [],
   torrentFile: state.torrentFile
 })
 

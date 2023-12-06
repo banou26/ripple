@@ -1,4 +1,4 @@
-export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) => {
+export const fetchWithThrottle = async (url: string, maxdownloadSpeed: number) => {
   const response = await fetch(url)
   if (!response.body) throw new Error('no body')
   const reader = response.body.getReader()
@@ -22,7 +22,7 @@ export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) 
         const bytesRead = value.length
 
         // Calculate how much time to wait in order to maintain the desired bandwidth
-        const waitTime = (bytesRead / maxBytesPerSecond * 1000) - duration
+        const waitTime = (bytesRead / maxdownloadSpeed * 1000) - duration
         if (waitTime > 0) {
           await new Promise(resolve => setTimeout(resolve, waitTime))
         }
@@ -40,7 +40,7 @@ export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) 
   })
 }
 
-// export const throttleStream = (stream: ReadableStream<Uint8Array>, maxBytesPerSecond: number) => {
+// export const throttleStream = (stream: ReadableStream<Uint8Array>, maxdownloadSpeed: number) => {
 //   const reader = stream.getReader()
 //   const controller = new AbortController()
 //   return new ReadableStream({
@@ -61,7 +61,7 @@ export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) 
 //         const bytesRead = value.length
 
 //         // Calculate how much time to wait in order to maintain the desired bandwidth
-//         const waitTime = (bytesRead / maxBytesPerSecond * 1000) - duration
+//         const waitTime = (bytesRead / maxdownloadSpeed * 1000) - duration
 //         if (waitTime > 0) {
 //           await new Promise(resolve => setTimeout(resolve, waitTime))
 //         }
@@ -73,7 +73,7 @@ export const fetchWithThrottle = async (url: string, maxBytesPerSecond: number) 
 //   })
 // }
 
-export const throttleStream = (stream: ReadableStream<Uint8Array>, maxBytesPerSecond: number) =>
+export const throttleStream = (stream: ReadableStream<Uint8Array>, maxdownloadSpeed: number) =>
   new ReadableStream<Uint8Array>({
     start() {
       this.reader = stream.getReader()
@@ -94,7 +94,7 @@ export const throttleStream = (stream: ReadableStream<Uint8Array>, maxBytesPerSe
       const bytesRead = value.length
 
       // Calculate how much time to wait in order to maintain the desired bandwidth
-      const waitTime = (bytesRead / maxBytesPerSecond * 1000) - duration
+      const waitTime = (bytesRead / maxdownloadSpeed * 1000) - duration
       if (waitTime > 0) {
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }

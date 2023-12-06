@@ -115,7 +115,7 @@ export const torrentMachine = createMachine({
             leechersCount: doc.state.leechersCount,
             downloaded: files.reduce((acc, file) => acc + file.downloaded, 0),
             uploaded: files.reduce((acc, file) => acc + file.uploaded, 0),
-            downloadSpeed: files.reduce((acc, file) => acc + file.bytesPerSecond, 0),
+            downloadSpeed: files.reduce((acc, file) => acc + file.downloadSpeed, 0),
             uploadSpeed: files.reduce((acc, file) => acc + file.uploadSpeed, 0),
             ratio: doc.state.ratio,
             files: files.map(file => ({
@@ -131,12 +131,16 @@ export const torrentMachine = createMachine({
                 start: range.start,
                 end: range.end
               })),
-              bytesPerSecond: file.bytesPerSecond,
+              downloadSpeed: file.downloadSpeed,
               streamBandwithLogs: file.streamBandwithLogs.map(log => ({
                 byteLength: log.byteLength,
                 timestamp: log.timestamp
               }))
             })),
+            streamBandwithLogs:
+              files
+                .reduce((acc, file) => acc.concat(file.streamBandwithLogs), [])
+                .sort((a, b) => a.timestamp - b.timestamp),
             magnet: doc.state.magnet,
             torrentFile: serializeTorrentFile(doc.state.torrentFile)
           },

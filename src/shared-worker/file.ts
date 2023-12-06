@@ -32,7 +32,7 @@ export const fileMachine = createMachine({
     index: input.file.index ?? 0,
     status: input.file.status ?? 'checking',
     streamBandwithLogs: input.file.streamBandwithLogs ?? [],
-    bytesPerSecond: input.file.bytesPerSecond ?? 0
+    downloadSpeed: input.file.downloadSpeed ?? 0
   }),
   on: {
     'FILE.PAUSE': {
@@ -133,7 +133,7 @@ export const fileMachine = createMachine({
                 path: ctx.input.file.path,
                 offset: offsetStart
               }).then(async (res: Response) => {
-                const throttledResponse = throttleStream(res.body!, 1_000_000)
+                const throttledResponse = res.body // throttleStream(res.body!, 1_000_000)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
@@ -181,15 +181,15 @@ export const fileMachine = createMachine({
                     { timestamp: Date.now(), byteLength: bufferLength }
                   ]
 
-                  const bytesPerSecondList =
+                  const downloadSpeedList =
                     streamBandwithLogs
                       .filter((log) => log.timestamp > (Date.now() - BYTES_PER_SECOND_TIME_RANGE))
                       .sort((a, b) => a.timestamp - b.timestamp)
 
                   const downloaded = downloadedRanges.reduce((acc, range) => acc + (range.end - range.start), 0)
 
-                  const bytesPerSecond =
-                    bytesPerSecondList.reduce((acc, log) => acc + log.byteLength, 0)
+                  const downloadSpeed =
+                    downloadSpeedList.reduce((acc, log) => acc + log.byteLength, 0)
                     / BYTES_PER_SECOND_TIME_RANGE
                     * 1000
 
@@ -201,7 +201,7 @@ export const fileMachine = createMachine({
                       progress: downloaded / ctx.input.file.length,
                       status: 'downloading',
                       streamBandwithLogs: [...streamBandwithLogs],
-                      bytesPerSecond
+                      downloadSpeed
                     }
                   })
                   if (!cancelled) read()
@@ -227,7 +227,7 @@ export const fileMachine = createMachine({
             progress: event.snapshot.context.value.progress,
             status: event.snapshot.context.value.status,
             streamBandwithLogs: event.snapshot.context.value.streamBandwithLogs,
-            bytesPerSecond: event.snapshot.context.value.bytesPerSecond
+            downloadSpeed: event.snapshot.context.value.downloadSpeed
           }))
         },
         onDone: {

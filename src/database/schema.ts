@@ -174,7 +174,7 @@ export const torrentSchema = {
                   }
                 }
               },
-              bytesPerSecond: {
+              downloadSpeed: {
                 type: 'number'
               },
               streamBandwithLogs: {
@@ -190,6 +190,20 @@ export const torrentSchema = {
                     }
                   }
                 }
+              }
+            }
+          }
+        },
+        streamBandwithLogs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              timestamp: {
+                type: 'number'
+              },
+              byteLength: {
+                type: 'number'
               }
             }
           }
@@ -241,11 +255,15 @@ export type TorrentDocument = {
         start: number
         end: number
       }[]
-      bytesPerSecond: number
+      downloadSpeed: number
       streamBandwithLogs: {
           timestamp: number
           byteLength: number
       }[]
+    }[]
+    streamBandwithLogs: {
+      timestamp: number
+      byteLength: number
     }[]
   }
 }
