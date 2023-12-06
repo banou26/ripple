@@ -1,9 +1,11 @@
 import { type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
+import { ChartConfiguration } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
+import { getHumanReadableByteString } from '../utils/bytes'
 
 const style = css`
 
@@ -19,48 +21,18 @@ const style = css`
 
 `
 
-
-const DATA_COUNT = 11;
-const labels = [];
-for (let i = 0; i < DATA_COUNT; ++i) {
-  labels.push(i.toString());
-}
-const datapoints = [0, 20, 20, 60, 60, 120, 180, 120, 125, 105, 110, 170];
-const data = {
-  labels: labels,
-  datasets: [
-    {
-      label: 'Cubic interpolation (monotone)',
-      data: datapoints,
-      borderColor: '#eb4034',
-      fill: false,
-      cubicInterpolationMode: 'monotone',
-      tension: 0.4
-    }, {
-      label: 'Cubic interpolation',
-      data: datapoints,
-      borderColor: '#34eb40',
-      fill: false,
-      tension: 0.4
-    }, {
-      label: 'Linear interpolation (default)',
-      data: datapoints,
-      borderColor: '#4034eb',
-      fill: false
-    }
-  ]
-}
-
-const config = {
+const config: ChartConfiguration = {
   type: 'line',
-  data: data,
   options: {
     maintainAspectRatio: false,
     responsive: true,
+    animation: {
+      duration: 0
+    },
     plugins: {
       title: {
         display: false,
-        text: 'Chart.js Line Chart - Cubic interpolation mode'
+        text: 'Download statistics'
       },
       legend: {
         display: false
@@ -98,7 +70,7 @@ export const StatisticsHeader = ({ ...rest }) => {
 
   console.log('header allTorrents', allTorrents)
 
-  const dataPoints =
+  const allDataPoints =
     allTorrents
       ?.map(torrent => torrent.state.streamBandwithLogs)
       .flat()
@@ -116,8 +88,18 @@ export const StatisticsHeader = ({ ...rest }) => {
         return acc
       }, [])
       .sort((a, b) => a.x - b.x)
-      .map(log => log.y)
-      .slice(-20) // only keep the last 120 seconds
+    ?? []
+
+
+  const latestDataPoints =
+    allDataPoints
+      .filter((log) => log.x > allDataPoints.at(-1).x - 120)
+      .slice(-20)
+      .slice(0, -1)
+
+  console.log('latestDataPoints', latestDataPoints)
+
+  const dataPoints = [...new Array(20 - latestDataPoints.length).fill(undefined), ...latestDataPoints]
 
   console.log('dataPoints', dataPoints)
 
@@ -141,24 +123,26 @@ export const StatisticsHeader = ({ ...rest }) => {
   }
 
   const data = {
-    labels: dataPoints.map((_, index) => index),
+    labels: dataPoints.map((log) => log && new Date(log.x).toLocaleTimeString()),
     datasets: [
+      // {
+      //   label: 'Cubic interpolation (monotone)',
+      //   data: dataPoints.map((log) => log?.y),
+      //   borderColor: '#eb4034',
+      //   fill: false,
+      //   cubicInterpolationMode: 'monotone',
+      //   tension: 0.4
+      // },
+      // {
+      //   label: 'Cubic interpolation',
+      //   data: dataPoints.map((log) => log?.y),
+      //   borderColor: '#34eb40',
+      //   fill: false,
+      //   tension: 0.4
+      // },
       {
-        label: 'Cubic interpolation (monotone)',
-        data: dataPoints,
-        borderColor: '#eb4034',
-        fill: false,
-        cubicInterpolationMode: 'monotone',
-        tension: 0.4
-      }, {
-        label: 'Cubic interpolation',
-        data: dataPoints,
-        borderColor: '#34eb40',
-        fill: false,
-        tension: 0.4
-      }, {
-        label: 'Linear interpolation (default)',
-        data: dataPoints,
+        label: 'Network',
+        data: dataPoints.map((log) => log?.y),
         borderColor: '#4034eb',
         fill: false
       }
@@ -179,6 +163,9 @@ export const StatisticsHeader = ({ ...rest }) => {
                 displayColors: false,
                 animation: {
                   duration: 0
+                },
+                callbacks: {
+                  label: (context) => `${context.dataset.label} ${getHumanReadableByteString(context.parsed.y)}/s`
                 }
               }
             },
