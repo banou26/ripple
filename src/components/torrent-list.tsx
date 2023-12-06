@@ -92,6 +92,10 @@ const style = css`
       background-color: #2f2f2f; */
       border: 1px solid rgb(48, 52, 54);
 
+      &.finished {
+        grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 0rem) minmax(max-content, 10rem);
+      }
+
       .highlight {
         color: #fff;
       }
@@ -112,7 +116,7 @@ const style = css`
 
         .preview {
           height: 10rem;
-          width: 20rem;
+          width: calc(10rem * calc(16 / 9));
           background-color: #0f0f0f;
           object-fit: contain;
         }
@@ -333,7 +337,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     })
 
   return (
-    <div key={torrent.infoHash} className="item">
+    <div key={torrent.infoHash} className={`item ${torrent.state.status}`}>
       <div className="main">
         <img className="preview" src={imgUrl} referrerPolicy='no-referrer'/>
         <div className="content">
