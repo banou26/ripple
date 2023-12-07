@@ -10,9 +10,9 @@ export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => 
     ...torrentFile.info,
     files: torrentFile.info.files && torrentFile.info.files.map((file) => ({
       ...file,
-      path: file.path.map(path => Buffer.from(path).toString('base64'))
+      path: file.path.map(path => Buffer.from(path).toString('utf-8'))
     })),
-    name: Buffer.from(torrentFile.name).toString('base64'),
+    name: Buffer.from(torrentFile.name).toString('utf-8'),
     pieces: Buffer.from(torrentFile.info.pieces).toString('base64')
   },
   infoBuffer: Buffer.from(torrentFile.infoBuffer).toString('base64'),
@@ -26,9 +26,9 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
     ...torrentFile.info,
     files: torrentFile.info.files && torrentFile.info.files.map((file) => ({
       ...file,
-      path: file.path.map(path => new Uint8Array(Buffer.from(path, 'base64')))
+      path: file.path
     })),
-    name: Buffer.from(torrentFile.info.name, 'base64').toString('utf-8'),
+    name: torrentFile.info.name,
     pieces: new Uint8Array(Buffer.from(torrentFile.info.pieces, 'base64'))
   },
   infoBuffer: new Uint8Array(Buffer.from(torrentFile.infoBuffer, 'base64')),
@@ -62,6 +62,7 @@ export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['st
       status: 'checking',
       name: file.name,
       path: file.path,
+      pathArray: state.torrentFile?.info?.files?.[index]?.path,
       offset: file.offset,
       length: file.length,
       downloaded: 0,

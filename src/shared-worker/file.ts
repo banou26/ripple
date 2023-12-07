@@ -28,6 +28,7 @@ export const fileMachine = createMachine({
     length: input.file.length ?? 0,
     offset: input.file.offset ?? 0,
     path: input.file.path ?? '',
+    pathArray: input.file.pathArray ?? [],
     name: input.file.name ?? '',
     index: input.file.index ?? 0,
     status: input.file.status ?? 'checking',
@@ -130,7 +131,7 @@ export const fileMachine = createMachine({
               })
               torrent({
                 magnet: document.state.magnet,
-                path: ctx.input.file.path,
+                path: ctx.input.file.pathArray.join('/'),
                 offset: offsetStart
               }).then(async (res: Response) => {
                 const throttledResponse = res.body // throttleStream(res.body!, 1_000_000)

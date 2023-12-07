@@ -142,6 +142,13 @@ export const torrentSchema = {
                 type: 'string',
                 maxLength: 255
               },
+              pathArray: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  maxLength: 255
+                }
+              },
               offset: {
                 type: 'number'
               },
@@ -245,6 +252,7 @@ export type TorrentDocument = {
     files?: {
       name: string
       path: string
+      pathArray: string[]
       offset: number
       length: number
       downloaded: number
@@ -288,7 +296,7 @@ export const settingsSchema = {
     maxConnections: {
       type: 'number'
     },
-    maxDownloadSpeed: {
+    downloadSpeedLimit: {
       type: 'number'
     }
   }
@@ -299,5 +307,5 @@ export type SettingsDocument = {
   paused: boolean
   throttle: number
   maxConnections: number
-  maxDownloadSpeed: number
+  downloadSpeedLimit: number
 }

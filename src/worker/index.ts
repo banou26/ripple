@@ -21,8 +21,16 @@ const { resolvers } = registerListener({
     }),
     openWriteStream: makeCallListener(async ({ filePath, offset = 0, size }: { filePath: string, offset: number, size: number }) => {
       let _offset = offset
-      const folderHande = await torrentFolderHandle.getDirectoryHandle(filePath.split('/').slice(1, -1).join('/'), { create: true })
-      const fileHandle = await folderHande.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
+      const folderHandle =
+        await filePath
+          .split('/')
+          .slice(0, -1)
+          .reduce(
+            async (parentHandlePromise, path) =>
+              (await parentHandlePromise).getDirectoryHandle(path, { create: true }),
+            Promise.resolve(torrentFolderHandle)
+          )
+      const fileHandle = await folderHandle.getFileHandle(filePath.split('/').slice(-1)[0], { create: true })
       const file = await fileHandle.getFile()
       const writable = await getFileHandleSyncAccessHandle(fileHandle)
       writeFileAccessHandles.set(filePath, writable)

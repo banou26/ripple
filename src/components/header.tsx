@@ -24,7 +24,8 @@ const style = css`
   }
 
   .side {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 5rem;
     gap: 1rem;
 
     .stats {
@@ -88,8 +89,7 @@ const style = css`
   }
 
   .settings-button {
-    margin-left: auto;
-    margin-right: 5rem;
+    margin: 0 auto;
   }
 
 `
@@ -188,8 +188,6 @@ export const StatisticsHeader = ({ ...rest }) => {
   const { result: allTorrents } = useRxQuery(allTorrentsQuery)
   const [peakDownloadSpeed, setPeakDownloadSpeed] = useState(0)
 
-  console.log('header allTorrents', allTorrents)
-
   const allDataPoints =
     allTorrents
       ?.map(torrent => torrent.state.streamBandwithLogs)
@@ -217,11 +215,7 @@ export const StatisticsHeader = ({ ...rest }) => {
       .slice(-20)
       .slice(0, -1)
 
-  console.log('latestDataPoints', latestDataPoints)
-
   const dataPoints = [...new Array(20 - latestDataPoints.length).fill(undefined), ...latestDataPoints]
-
-  console.log('dataPoints', dataPoints)
 
   const currentDownloadSpeed =
     allTorrents
