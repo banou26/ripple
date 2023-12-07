@@ -1,4 +1,4 @@
-import { type TorrentDocument } from '../database'
+import { torrentCollection, type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
 import { ChartConfiguration } from 'chart.js'
@@ -111,21 +111,30 @@ const modalStyle = css`
       font-size: 2rem;
       font-weight: bold;
     }
-  }
 
-  .row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-  }
+    & > .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
 
-  .label {
-    font-weight: 500;
-  }
+      &.multi {
+        grid-template-columns: 1fr;
+      }
 
-  .value {
-    text-align: right;
-    font-weight: 300;
+      .label {
+        display: flex;
+        justify-content: space-between;
+      }
+    }
+
+    .label {
+      font-weight: 500;
+    }
+
+    .value {
+      text-align: right;
+      font-weight: 300;
+    }
   }
 }
 
@@ -226,18 +235,28 @@ export const StatisticsHeader = ({ ...rest }) => {
   }, [currentDownloadSpeed])
 
   // delete all IDB instances
-  const resetIdb = () => {
+  const resetIdb = async () => {
+    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
     indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--settings')
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
+    await resetOPFS()
+    location.reload()
+  }
+
+  const deleteTorrents = async () => {
+    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
+    await resetOPFS()
   }
 
   const resetOPFS = async () => {
-    const directory = await navigator.storage.getDirectory()
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
     const iterator = directory.entries()
     const nextEntry = async () => {
       const { done, value } = await iterator.next()
       if (!value) return
-      const [filePath, handle] = value
-      await (handle as FileSystemDirectoryHandle).removeEntry(filePath, { recursive: true })
+      const [filePath] = value
+      await (directory as FileSystemDirectoryHandle).removeEntry(filePath, { recursive: true })
       if (done) return
       nextEntry()
     }
@@ -292,13 +311,15 @@ export const StatisticsHeader = ({ ...rest }) => {
             <div className="body">
               <div className="section">
                 <div className="title">Bandwidth</div>
-                <div className="row">
-                  <div className="label">Upload limit</div>
-                  <div className="value">Unlimited</div>
-                </div>
-                <div className="row">
-                  <div className="label">Download limit</div>
-                  <div className="value">Unlimited</div>
+                <div className="row multi">
+                  <label className="label">
+                    <span>Limit download speed</span>
+                    <input type="checkbox" className="value"/>
+                  </label>
+                  <label className="label">
+                    <span>Enter download speed limit in KB/s</span>
+                    <input type="text" className="value"/>
+                  </label>
                 </div>
               </div>
               <div className="section">
@@ -306,6 +327,25 @@ export const StatisticsHeader = ({ ...rest }) => {
                 <div className="row">
                   <div className="label">Maximum active downloads</div>
                   <div className="value">Unlimited</div>
+                </div>
+                <div className="row">
+                  <div className="label">Download other when watching</div>
+                  <div className="value">Unlimited</div>
+                </div>
+              </div>
+              <div className="section">
+                <div className="title">Data</div>
+                <div className="row">
+                  <div className="label">Clear all data</div>
+                  <div className="value">
+                    <button onClick={resetIdb}>RESET APP</button>
+                  </div>
+                </div>
+                <div className="row">
+                  <div className="label">Clear torrents</div>
+                  <div className="value">
+                    <button onClick={deleteTorrents}>DELETE ALL TORRENTS</button>
+                  </div>
                 </div>
               </div>
             </div>
