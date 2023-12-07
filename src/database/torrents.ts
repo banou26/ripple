@@ -10,6 +10,14 @@ const { torrents } = await database.addCollections({
   torrents: {
     schema: torrentSchema
   }
+}).catch(err => {
+  if (import.meta.env.MODE !== 'development') throw err
+  
+  const res = indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
+  res.onsuccess = () => {
+    location.reload()
+  }
+  throw err
 })
 
 const torrentCollection = torrents as unknown as RxCollection<TorrentDocument>

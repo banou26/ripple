@@ -5,11 +5,18 @@ import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { database } from './database'
 import { SettingsDocument, settingsSchema } from './schema'
 
-
 const { settings } = await database.addCollections({
   settings: {
     schema: settingsSchema
   }
+}).catch(err => {
+  if (import.meta.env.MODE !== 'development') throw err
+  
+  const res = indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
+  res.onsuccess = () => {
+    location.reload()
+  }
+  throw err
 })
 
 const settingsCollection = settings as unknown as RxCollection<SettingsDocument>
@@ -24,7 +31,7 @@ const initialSettings = {
   paused: false,
   throttle: 0,
   maxConnections: 0,
-  maxDownloadSpeed: 0
+  downloadSpeedLimit: 0
 }
 
 export const useSettingsDocument = () => {
