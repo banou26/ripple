@@ -319,7 +319,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const remainingTimeString =
     isNaN(torrent.state.remainingTime) || !isFinite(torrent.state.remainingTime)
       ? ''
-      : rtf.format(torrent.state.remainingTime ?? 0, 'seconds') 
+      : rtf.format(torrent.state.remainingTime ?? 0, 'seconds')
 
   const remove = () =>
     removeTorrent({

@@ -10,7 +10,7 @@ import { getIoWorkerPort } from './io-worker'
 import { mergeRanges, throttleStream } from './utils'
 import { RxDocument } from 'rxdb'
 
-const BYTES_PER_SECOND_TIME_RANGE = 10_000
+const BYTES_PER_SECOND_TIME_RANGE = 5_000
 
 export const fileMachine = createMachine({
   initial: 'checkingFile',

@@ -91,15 +91,20 @@ export const torrentMachine = createMachine({
           }
         }
 
+        const currentStatus = self.getSnapshot().value
+
         const totalLength = files.reduce((acc, file) => acc + file.length, 0)
         const downloaded = files.reduce((acc, file) => acc + file.downloaded, 0)
-        const downloadSpeed = files.reduce((acc, file) => acc + file.downloadSpeed, 0)
+        const downloadSpeed =
+          currentStatus === 'downloading'
+          ? files.reduce((acc, file) => acc + file.downloadSpeed, 0)
+          : 0
         const remainingTime = (totalLength - downloaded) / downloadSpeed
 
         const { infoHash, ...newDocument } = serializeTorrentDocument({
           state: {
             name: doc.state.name,
-            status: self.getSnapshot().value,
+            status: currentStatus,
             progress:
               files
                 .filter(file => file.selected)

@@ -6,18 +6,128 @@ import { Line } from 'react-chartjs-2'
 
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { getHumanReadableByteString } from '../utils/bytes'
+import Modal from './modal'
+import { useEffect, useState } from 'react'
+import { Settings } from 'react-feather'
 
 const style = css`
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 1fr;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  gap: 2.5rem;
 
   .chart-wrapper {
     height: 100%;
     width: 100%;
+  }
 
-    canvas {
-      height: 100%;
-      width: 100%;
+  .side {
+    display: flex;
+    gap: 1rem;
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 1rem;
+      padding: 1.5rem;
+
+      div {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+        font-size: 1.25rem;
+        color: #fff;
+        text-align: left;
+
+        .value {
+          font-size: 1.5rem;
+          font-weight: 600;
+        }
+
+        .label {
+          font-size: 1.25rem;
+          color: #aaa;
+          font-weight: 600;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+      }
     }
   }
+
+  button {
+    display: flex;
+    height: 4.5rem;
+    padding: 1.5rem 1.5rem;
+    border-radius: 0.5rem;
+    border: none;
+    background-color: rgb(24, 26, 27);
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+
+    font-weight: bold;
+    color: #aaa;
+
+    svg {
+      width: 1.5rem;
+      height: 1.5rem;
+      stroke-width: 3;
+    }
+
+    &.active {
+      background-color: #2f2f2f;
+      color: #fff;
+    }
+  }
+
+  .settings-button {
+    margin-left: auto;
+    margin-right: 5rem;
+  }
+
+`
+
+const modalStyle = css`
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2.5rem;
+  padding: 1.5rem;
+
+  .section {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+
+    .title {
+      font-size: 2rem;
+      font-weight: bold;
+    }
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .label {
+    font-weight: 500;
+  }
+
+  .value {
+    text-align: right;
+    font-weight: 300;
+  }
+}
 
 `
 
@@ -67,6 +177,7 @@ export const StatisticsHeader = ({ ...rest }) => {
   const collection = useRxCollection<TorrentDocument>('torrents')
   const allTorrentsQuery = collection?.find({})
   const { result: allTorrents } = useRxQuery(allTorrentsQuery)
+  const [peakDownloadSpeed, setPeakDownloadSpeed] = useState(0)
 
   console.log('header allTorrents', allTorrents)
 
@@ -102,6 +213,17 @@ export const StatisticsHeader = ({ ...rest }) => {
   const dataPoints = [...new Array(20 - latestDataPoints.length).fill(undefined), ...latestDataPoints]
 
   console.log('dataPoints', dataPoints)
+
+  const currentDownloadSpeed =
+    allTorrents
+      ?.map(torrent => torrent.state.downloadSpeed ?? 0)
+      .reduce((acc, curr) => acc + curr, 0)
+
+  useEffect(() => {
+    if (currentDownloadSpeed > peakDownloadSpeed) {
+      setPeakDownloadSpeed(currentDownloadSpeed)
+    }
+  }, [currentDownloadSpeed])
 
   // delete all IDB instances
   const resetIdb = () => {
@@ -149,8 +271,47 @@ export const StatisticsHeader = ({ ...rest }) => {
     ]
   }
 
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const onOpen = () => {
+    setIsModalOpen(true)
+  }
+
+  const onClose = () => {
+    setIsModalOpen(false)
+  }
+
   return (
     <div css={style} {...rest}>
+      <Modal open={isModalOpen} css={modalStyle} onClose={onClose}>
+        <div className="header">
+          <div className="title">Settings</div>
+        </div>
+        <div className="main">
+          <div className="content">
+            <div className="body">
+              <div className="section">
+                <div className="title">Bandwidth</div>
+                <div className="row">
+                  <div className="label">Upload limit</div>
+                  <div className="value">Unlimited</div>
+                </div>
+                <div className="row">
+                  <div className="label">Download limit</div>
+                  <div className="value">Unlimited</div>
+                </div>
+              </div>
+              <div className="section">
+                <div className="title">Queuing</div>
+                <div className="row">
+                  <div className="label">Maximum active downloads</div>
+                  <div className="value">Unlimited</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
       <div className="chart-wrapper">
         <Line
           data={data}
@@ -165,7 +326,7 @@ export const StatisticsHeader = ({ ...rest }) => {
                   duration: 0
                 },
                 callbacks: {
-                  label: (context) => `${context.dataset.label} ${getHumanReadableByteString(context.parsed.y)}/s`
+                  label: (context) => `${context.dataset.label} ${getHumanReadableByteString(context.parsed.y, true)}/s`
                 }
               }
             },
@@ -177,9 +338,30 @@ export const StatisticsHeader = ({ ...rest }) => {
           }}
         />
       </div>
-      <div>
-        <button onClick={resetIdb}>reset IDB</button>
-        <button onClick={resetOPFS}>reset OPFS</button>
+      <div className='side'>
+        <div className='stats'>
+          <div className='stat'>
+            <div className='value'>{getHumanReadableByteString(currentDownloadSpeed, true)}/s</div>
+            <div className='label'>Current</div>
+          </div>
+          <div className='stat'>
+            <div className='value'>{getHumanReadableByteString(peakDownloadSpeed, true)}/s</div>
+            <div className='label'>Peak</div>
+          </div>
+          <div className='stat'>
+            <div className='value'>0 MB</div>
+            <div className='label'>Total</div>
+          </div>
+          <div className='stat'>
+            <div className='value'>0 MB/s</div>
+            <div className='label'>Disk usage</div>
+          </div>
+        </div>
+        {/* <button onClick={resetIdb}>reset IDB</button>
+        <button onClick={resetOPFS}>reset OPFS</button> */}
+        <button className='settings-button' onClick={onOpen}>
+          <Settings/>
+        </button>
       </div>
     </div>
   )
