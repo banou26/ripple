@@ -250,6 +250,7 @@ export type TorrentDocument = {
     ratio?: number
     path?: string
     files?: {
+      index: number
       name: string
       path: string
       pathArray: string[]

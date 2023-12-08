@@ -62,7 +62,7 @@ export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['st
       status: 'checking',
       name: file.name,
       path: file.path,
-      pathArray: state.torrentFile?.info?.files?.[index]?.path,
+      pathArray: state.torrentFile?.info?.files?.[index]?.path ?? file.path.split('/'),
       offset: file.offset,
       length: file.length,
       downloaded: 0,
@@ -70,7 +70,6 @@ export const serializeTorrentDocumentState = (state: Partial<TorrentDocument['st
       selected: true,
       priority: 1,
       downloadedRanges: [],
-      downloadedRanegs: [],
       downloadSpeed: 0,
       streamBandwithLogs: []
     }))

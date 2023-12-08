@@ -28,9 +28,9 @@ export const fileMachine = createMachine({
     length: input.file.length ?? 0,
     offset: input.file.offset ?? 0,
     path: input.file.path ?? '',
-    pathArray: input.file.pathArray ?? [],
+    pathArray: input.file.pathArray,
     name: input.file.name ?? '',
-    index: input.file.index ?? 0,
+    index: input.file.index,
     status: input.file.status ?? 'checking',
     streamBandwithLogs: input.file.streamBandwithLogs ?? [],
     downloadSpeed: input.file.downloadSpeed ?? 0

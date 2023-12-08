@@ -128,9 +128,11 @@ export const torrentMachine = createMachine({
             downloadSpeed,
             uploadSpeed: files.reduce((acc, file) => acc + file.uploadSpeed, 0),
             ratio: doc.state.ratio,
-            files: files.map(file => ({
+            files: files.map((file, i) => ({
+              index: i,
               name: file.name,
               path: file.path,
+              pathArray: file.pathArray,
               offset: file.offset,
               length: file.length,
               downloaded: file.downloaded,

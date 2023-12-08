@@ -110,7 +110,9 @@ const Player = () => {
     const matchingRanges = getFileMatchingDownloadedRange(file, offset, end)
 
     if (matchingRanges?.length) {
+      console.log('file.path', file.path)
       const res = await readTorrentFile({ infoHash, filePath: file.path, offset, size: end - offset + 1 })
+      console.log('res', res)
       return new Response(res)
     } else {
       if (offset >= file?.length - 1_000_000) {

@@ -5,11 +5,12 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-import { Download, Upload, ArrowDownCircle, Pause, Play, X } from 'react-feather'
+import { Download, Upload, ArrowDownCircle, Pause, Play, X, ArrowDown, ArrowUp } from 'react-feather'
 import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
 import { addTorrentFile } from '../utils/add-torrent'
+import { playableVideoFileExtensions } from '../utils/file-type'
 
 
 const style = css`
@@ -79,22 +80,18 @@ const style = css`
     }
 
     .item {
-      display: grid;
+      /* display: grid;
       grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 35rem) minmax(max-content, 10rem);
-      grid-template-areas: "main info actions";
+      grid-template-areas: "main info actions"; */
 
 
       width: 100%;
-      height: 12rem;
       border-bottom-color: rgb(48, 52, 54);
       background-color: rgb(35, 38, 40);
       /* border-bottom: 1px solid #fff;
       background-color: #2f2f2f; */
       border: 1px solid rgb(48, 52, 54);
-
-      &.finished {
-        grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 0rem) minmax(max-content, 10rem);
-      }
+      padding: 1rem;
 
       .highlight {
         color: #fff;
@@ -108,10 +105,91 @@ const style = css`
       /* :last-child {
         border-bottom: none;
       } */
+      
+      /* &:hover {
+        background-color: rgb(48, 52, 54);
+      } */
+
+      .files {
+        display: flex;
+        flex-direction: column;
+        gap: .25rem;
+        padding: .5rem .1rem;
+        padding-bottom: 1rem;
+
+        .file {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          padding: .5rem 0;
+          border-bottom: 1px solid rgb(48, 52, 54);
+
+          .name {
+            font-size: 1.5rem;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .size {
+            color: #aaa;
+            font-weight: bold;
+          }
+
+          .play {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+
+            button {
+              padding: 1rem;
+              border-radius: 0.5rem;
+              border: none;
+              background-color: rgb(24, 26, 27);
+              cursor: pointer;
+
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: .25rem;
+
+              font-weight: bold;
+              color: #aaa;
+
+              svg {
+                width: 1.5rem;
+                height: 1.5rem;
+                stroke-width: 3;
+              }
+
+              &.active {
+                background-color: #2f2f2f;
+                color: #fff;
+              }
+            }
+          }
+        }
+      }
 
       .main {
+        display: grid;
+        grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 35rem) minmax(max-content, 10rem);
+        grid-template-areas: "main info actions";
+        height: 12rem;
+
+        &.finished {
+          grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 0rem) minmax(max-content, 10rem);
+        }
+
+        /* display: flex;
+        gap: 2rem; */
+      }
+
+      .info {
         display: flex;
-        padding: 1rem;
+        /* padding: 1rem; */
         gap: 2rem;
 
         .preview {
@@ -125,6 +203,26 @@ const style = css`
           display: flex;
           flex-direction: column;
           max-width: 75%;
+
+          .toggle-show-files {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #aaa;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+
+            svg {
+              stroke-width: 3;
+            }
+
+            &:hover {
+              color: #fff;
+            }
+          }
 
           .name {
             font-size: 2rem;
@@ -176,7 +274,7 @@ const style = css`
         }
       }
 
-      .info {
+      .download-info {
         display: flex;
         margin-left: auto;
         justify-content: center;
@@ -311,6 +409,7 @@ const rtf = new Intl.RelativeTimeFormat('en', { style: 'short' });
 
 const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
+  const [showFiles, setShowFiles] = useState(false)
 
   useEffect(() => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
@@ -327,79 +426,147 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
       removeFiles: true
     })
 
+  console.log('torrent', torrent._data.state)
+
+  const playableFiles = torrent.state.files?.filter((file) => playableVideoFileExtensions.includes(file.name.split('.').pop() ?? ''))
+  console.log('playableFiles', playableFiles)
+
+  const showMoreFiles = () => {
+    setShowFiles(true)
+  }
+
+  const showLessFiles = () => {
+    setShowFiles(false)
+  }
+
   return (
     <div key={torrent.infoHash} className={`item ${torrent.state.status}`}>
       <div className="main">
-        <img className="preview" src={imgUrl} referrerPolicy='no-referrer'/>
-        <div className="content">
-          <div className="name" title={torrent.state.name}>{torrent.state.name}</div>
-          <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
-        </div>
-      </div>
-      <div className="info">
-        {
-          torrent.state.status === 'downloading' && (
-            <>
-              <div className="progress-title">
-                <span className="status">
-                  {
-                    torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
-                  }
-                  {
-                    torrent.state.status === 'finished' && 'Finished'
-                  }
-                  {
-                    torrent.state.status === 'seeding' && 'Seeding'
-                  }
-                  {
-                    torrent.state.status === 'paused' && 'Paused'
-                  }
-                </span>
-                <span className="remaining">
-                  {
-                    torrent.state.status === 'downloading' && (
-                      <>
-                        <span className="highlight">
-                          {remainingTimeString}
-                        </span>
-                        &nbsp;
-                        <span>remaining</span>
-                      </>
+        <div className="info">
+          <img className="preview" src={imgUrl} referrerPolicy='no-referrer'/>
+          <div className="content">
+            <div className="name" title={torrent.state.name}>{torrent.state.name}</div>
+            <span className="size">{getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
+            <span className="files">
+              {
+                (torrent.state.files?.length ?? 0) > 1
+                  ? `${torrent.state.files?.length} files`
+                  : ''
+              }
+              {
+                (torrent.state.files?.length ?? 0) > 1 && (
+                  showFiles
+                    ? (
+                      <button onClick={showLessFiles} className="toggle-show-files">
+                        <span>Show less</span>
+                        <ArrowUp size={20}/>
+                      </button>
                     )
-                  }
-                </span>
-              </div>
-              <div className="progress-bar">
-                <div className="inner" style={{ width: `${torrent.state.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
-              </div>
-              <div className="torrent-info">
-                <div className="stats">
-                  <span>
-                    <ArrowDownCircle size={20}/>
-                    <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
+                    : (
+                      <button onClick={showMoreFiles} className="toggle-show-files">
+                        <span>Show more</span>
+                        <ArrowDown size={20}/>
+                      </button>
+                    )
+                )
+              }
+            </span>
+          </div>
+        </div>
+        <div className="download-info">
+          {
+            torrent.state.status === 'downloading' && (
+              <>
+                <div className="progress-title">
+                  <span className="status">
+                    {
+                      torrent.state.status === 'downloading' && `Downloading ${(torrent.state.progress * 100).toFixed(2)}%`
+                    }
+                    {
+                      torrent.state.status === 'finished' && 'Finished'
+                    }
+                    {
+                      torrent.state.status === 'seeding' && 'Seeding'
+                    }
+                    {
+                      torrent.state.status === 'paused' && 'Paused'
+                    }
                   </span>
-                  <span>
-                    <Download size={22}/>
-                    <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
-                    <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
+                  <span className="remaining">
+                    {
+                      torrent.state.status === 'downloading' && (
+                        <>
+                          <span className="highlight">
+                            {remainingTimeString}
+                          </span>
+                          &nbsp;
+                          <span>remaining</span>
+                        </>
+                      )
+                    }
                   </span>
                 </div>
-              </div>
-            </>
+                <div className="progress-bar">
+                  <div className="inner" style={{ width: `${torrent.state.progress * 100}%`, height: '100%', backgroundColor: '#fff' }} />
+                </div>
+                <div className="torrent-info">
+                  <div className="stats">
+                    <span>
+                      <ArrowDownCircle size={20}/>
+                      <span className="highlight">{getHumanReadableByteString(torrent.state.downloadSpeed ?? 0)}/s</span>
+                    </span>
+                    <span>
+                      <Download size={22}/>
+                      <span className="highlight">{getHumanReadableByteString(torrent.state.downloaded ?? 0)}</span>
+                      <span>/ {getHumanReadableByteString(torrent.state.torrentFile.length)}</span>
+                    </span>
+                  </div>
+                </div>
+              </>
+            )
+          }
+        </div>
+        <div className="actions">
+          {
+            playableFiles?.length && (
+              <Link to={`/watch/${torrent.infoHash}/${playableFiles.at(0)?.index}`} className="play">
+                <button>
+                  <Play size={20}/>
+                </button>
+              </Link>
+            )
+          }
+          <div>
+            <button onClick={remove}>
+              <X size={20}/>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div>
+        {
+          showFiles && (
+            <div className="files">
+              {
+                torrent.state.files?.map((file) => (
+                  <div key={file.name} className="file">
+                    <span className="name">{file.name}</span>
+                    <span className="size">{getHumanReadableByteString(file.length)}</span>
+                    {
+                      playableVideoFileExtensions.includes(file.name.split('.').pop() ?? '') && (
+                        <Link to={`/watch/${torrent.infoHash}/${file.index}`} className="play">
+                          <button>
+                            <Play size={20}/>
+                          </button>
+                        </Link>
+                      )
+                    }
+                  </div>
+                ))
+              }
+            </div>
           )
         }
-      </div>
-      <div className="actions">
-        <Link to={`/watch/${torrent.infoHash}/0`} className="play">
-          <button>
-            <Play size={20}/>
-          </button>
-        </Link>
-        <div>
-          <button onClick={remove}>
-            <X size={20}/>
-          </button>
-        </div>
       </div>
     </div>
   )

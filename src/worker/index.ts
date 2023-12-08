@@ -52,7 +52,15 @@ const { resolvers } = registerListener({
       }
     }),
     readTorrentFile: makeCallListener(async ({ infoHash, filePath, offset, size }: { infoHash: string, filePath: string, offset: number, size: number }) => {
-      const folderHandle = await torrentFolderHandle.getDirectoryHandle(infoHash)
+      const folderHandle =
+        await filePath
+          .split('/')
+          .slice(0, -1)
+          .reduce(
+            async (parentHandlePromise, path) =>
+              (await parentHandlePromise).getDirectoryHandle(path),
+            Promise.resolve(await torrentFolderHandle.getDirectoryHandle(infoHash))
+          )
       const fileHandle = await folderHandle.getFileHandle(filePath)
       const foundWriteFileAccessHandle = writeFileAccessHandles.get(`torrents/${infoHash}/${filePath}`)
       const accessHandle = foundWriteFileAccessHandle ?? await getFileHandleSyncAccessHandle(fileHandle)
