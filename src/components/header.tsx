@@ -96,6 +96,11 @@ const style = css`
 
 const modalStyle = css`
 
+.title {
+  font-size: 2.2rem;
+  font-weight: bold;
+}
+
 .body {
   display: grid;
   grid-template-columns: 1fr;
@@ -116,6 +121,7 @@ const modalStyle = css`
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1rem;
+      align-items: center;
 
       &.multi {
         grid-template-columns: 1fr;
@@ -124,6 +130,49 @@ const modalStyle = css`
       .label {
         display: flex;
         justify-content: space-between;
+      }
+
+      input[type="text"] {
+        height: 3rem;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: none;
+        background-color: rgb(24, 26, 27);
+        color: #aaa;
+      }
+
+      input[type="checkbox"] {
+        height: 1.5rem;
+        width: 1.5rem;
+        border-radius: 0.25rem;
+        border: none;
+        background-color: rgb(24, 26, 27);
+      }
+
+      button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: .25rem;
+        font-weight: bold;
+        color: #aaa;
+        background-color: rgb(24, 26, 27);
+        border: none;
+        border-radius: 0.5rem;
+        padding: 1rem 1.5rem;
+        cursor: pointer;
+        margin-left: auto;
+
+        svg {
+          width: 1.5rem;
+          height: 1.5rem;
+          stroke-width: 3;
+        }
+
+        &.active {
+          background-color: #2f2f2f;
+          color: #fff;
+        }
       }
     }
 
