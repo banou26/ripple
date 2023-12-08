@@ -140,7 +140,7 @@ export const fileMachine = createMachine({
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(
                   'openWriteStream',
                   {
-                    filePath: `torrents/${ctx.input.document.infoHash}/${ctx.input.file.path}`,
+                    filePath: `${ctx.input.document.infoHash}/${ctx.input.file.path}`,
                     offset: offsetStart,
                     size: ctx.input.file.length
                   }
