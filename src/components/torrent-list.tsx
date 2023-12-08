@@ -426,10 +426,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
       removeFiles: true
     })
 
-  console.log('torrent', torrent._data.state)
-
   const playableFiles = torrent.state.files?.filter((file) => playableVideoFileExtensions.includes(file.name.split('.').pop() ?? ''))
-  console.log('playableFiles', playableFiles)
 
   const showMoreFiles = () => {
     setShowFiles(true)
@@ -528,13 +525,13 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
         </div>
         <div className="actions">
           {
-            playableFiles?.length && (
+            playableFiles?.length ? (
               <Link to={`/watch/${torrent.infoHash}/${playableFiles.at(0)?.index}`} className="play">
                 <button>
                   <Play size={20}/>
                 </button>
               </Link>
-            )
+            ) : undefined
           }
           <div>
             <button onClick={remove}>

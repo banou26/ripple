@@ -1,7 +1,7 @@
 
 export const playableVideoFileExtensions = [
   // 'webm',
-  'mp4',
+  // 'mp4',
   'mkv',
   // 'avi',
   // 'mov',
