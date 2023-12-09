@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { addTorrentFile } from '../utils/add-torrent'
 import { playableVideoFileExtensions } from '../utils/file-type'
+import Modal from './modal'
 
 
 const style = css`
@@ -179,12 +180,12 @@ const style = css`
         grid-template-areas: "main info actions";
         height: 12rem;
 
-        &.finished {
-          grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 0rem) minmax(max-content, 10rem);
-        }
-
         /* display: flex;
         gap: 2rem; */
+      }
+
+      &.finished .main {
+        grid-template-columns: minmax(100rem, 4fr) minmax(min-content, 0rem) minmax(max-content, 10rem);
       }
 
       .info {
@@ -390,6 +391,94 @@ const style = css`
   }
 `
 
+const modalStyle = css`
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    border-bottom: 1px solid rgb(48, 52, 54);
+    background-color: rgb(35, 38, 40);
+
+    .title {
+      font-size: 2rem;
+      font-weight: bold;
+    }
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    padding-top: 0;
+    padding-bottom: 1rem;
+    background-color: rgb(35, 38, 40);
+
+    .content {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+
+      .body {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding-top: 1rem;
+
+        .message {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          gap: .5rem;
+          font-size: 1.7rem;
+          font-weight: bold;
+          color: #aaa;
+        }
+
+        .actions {
+          display: flex;
+          align-items: center;
+          justify-content: space-around;
+          gap: 1rem;
+
+          button {
+            padding: 1.5rem 1.5rem;
+            border-radius: 0.5rem;
+            border: none;
+            background-color: rgb(24, 26, 27);
+            cursor: pointer;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: .25rem;
+
+            width: 100%;
+
+            font-weight: bold;
+            color: #aaa;
+
+            svg {
+              width: 1.5rem;
+              height: 1.5rem;
+              stroke-width: 3;
+            }
+
+            &.active {
+              background-color: #2f2f2f;
+              color: #fff;
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
 const getDuckDuckGoToken = async (name: string) => {
   const url = `https://duckduckgo.com/?q=${encodeURIComponent(name)}&iax=images&ia=images`
   const res = await serverProxyFetch(url, {  }).then(res => res.text())
@@ -410,6 +499,7 @@ const rtf = new Intl.RelativeTimeFormat('en', { style: 'short' });
 const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
   const [imgUrl, setImgUrl] = useState<string | undefined>(undefined)
   const [showFiles, setShowFiles] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
   useEffect(() => {
     getFirstGoogleImageResult(torrent.state.name).then(setImgUrl)
@@ -436,8 +526,35 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
     setShowFiles(false)
   }
 
+  const onDeleteModalOpen = () => {
+    setIsDeleteModalOpen(true)
+  }
+
+  const onDeleteModalClose = () => {
+    setIsDeleteModalOpen(false)
+  }
+
   return (
     <div key={torrent.infoHash} className={`item ${torrent.state.status}`}>
+      <Modal open={isDeleteModalOpen} css={modalStyle} onClose={onDeleteModalClose}>
+        <div className="header">
+          <div className="title">Delete torrent ?</div>
+        </div>
+        <div className="main">
+          <div className="content">
+            <div className="body">
+              <div className="message">
+                <span>Are you sure you want to delete </span>
+                <span>{torrent.state.name}?</span>
+              </div>
+              <div className="actions">
+                <button onClick={onDeleteModalClose}>Cancel</button>
+                <button onClick={remove}>Delete torrent</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
       <div className="main">
         <div className="info">
           <img className="preview" src={imgUrl} referrerPolicy='no-referrer'/>
@@ -534,7 +651,7 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
             ) : undefined
           }
           <div>
-            <button onClick={remove}>
+            <button onClick={onDeleteModalOpen}>
               <X size={20}/>
             </button>
           </div>
