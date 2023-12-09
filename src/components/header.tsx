@@ -251,7 +251,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
     resolver: zodResolver(schema),
     defaultValues: {
       speedLimitEnabled: settings?.downloadSpeedLimitEnabled ?? false,
-      speedLimit: settings?.downloadSpeedLimit ?? 0
+      speedLimit: Math.floor(settings?.downloadSpeedLimit / 1000) ?? 0
     }
   })
 
@@ -259,7 +259,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
     if (!settings || firstInitDone) return
     reset({
       speedLimitEnabled: settings?.downloadSpeedLimitEnabled ?? false,
-      speedLimit: settings?.downloadSpeedLimit ?? 0
+      speedLimit: Math.floor(settings?.downloadSpeedLimit / 1000) ?? 0
     })
     setFirstInitDone(true)
   }, [firstInitDone, reset, settings])
