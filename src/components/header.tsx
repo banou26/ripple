@@ -313,12 +313,12 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
 
   return (
     <Modal open={isModalOpen} css={modalStyle} onClose={onClose}>
-      <form onSubmit={onSubmit}>
-        <div className="header">
-          <div className="title">Settings</div>
-        </div>
-        <div className="main">
-          <div className="content">
+      <div className="header">
+        <div className="title">Settings</div>
+      </div>
+      <div className="main">
+        <div className="content">
+          <form onSubmit={onSubmit}>
             <div className="body">
               <div className="section">
                 <div className="title">Bandwidth</div>
@@ -364,9 +364,9 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
                 </div>
               </div>
             </div>
-          </div>
+          </form>
         </div>
-      </form>
+      </div>
     </Modal>
   )
 }
