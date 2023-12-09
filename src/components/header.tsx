@@ -238,6 +238,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
   const collection = useRxCollection<SettingsDocument>('settings')
   const settingsQuery = collection?.findOne({})
   const { result: [settings] } = useRxQuery(settingsQuery)
+  const [firstInitDone, setFirstInitDone] = useState(false)
 
   console.log('settings', settings)
 
@@ -255,12 +256,13 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
   })
 
   useEffect(() => {
-    if (!settings) return
+    if (!settings || firstInitDone) return
     reset({
       speedLimitEnabled: settings?.downloadSpeedLimitEnabled ?? false,
       speedLimit: settings?.downloadSpeedLimit ?? 0
     })
-  }, [reset, settings])
+    setFirstInitDone(true)
+  }, [firstInitDone, reset, settings])
 
   // delete all IDB instances
   const resetIdb = async () => {
@@ -295,7 +297,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
     (data) => {
       settings?.incrementalModify(doc => {
         doc.downloadSpeedLimitEnabled = data.speedLimitEnabled
-        doc.downloadSpeedLimit = data.speedLimit
+        doc.downloadSpeedLimit = data.speedLimit * 1000
         return doc
       })
     },
@@ -324,7 +326,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
                 <div className="title">Bandwidth</div>
                 <div className="row multi">
                   <label className="label">
-                    <span>Limit download speed</span>
+                    <span>Limit download speed (per torrent for now)</span>
                     <input type="checkbox" className="value" {...register('speedLimitEnabled')}/>
                   </label>
                   {

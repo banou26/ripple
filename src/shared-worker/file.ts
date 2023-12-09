@@ -1,5 +1,5 @@
 import type { Resolvers } from '../worker'
-import type { TorrentDocument } from '../database'
+import type { SettingsDocument, TorrentDocument } from '../database'
 
 import { assign, createMachine, fromObservable, sendParent } from 'xstate'
 import { call } from 'osra'
@@ -16,8 +16,16 @@ export const fileMachine = createMachine({
   initial: 'checkingFile',
   context: (
     { input }:
-    { input: { document: TorrentDocument, file: NonNullable<TorrentDocument['state']['files']>[number] } }
-  ) => ({
+    {
+      input: {
+        settingsDbDocument: RxDocument<SettingsDocument>
+        document: TorrentDocument
+        file: NonNullable<TorrentDocument['state']['files']>[number]
+      }
+    }
+  ) => console.log('file settingsDbDocument', input.settingsDbDocument) || ({
+    settingsDbDocument: input.settingsDbDocument,
+
     document: input.document,
     file: input.file as NonNullable<TorrentDocument['state']['files']>[number],
     downloadedRanges: input.file.downloadedRanges ?? [],
@@ -129,12 +137,22 @@ export const fileMachine = createMachine({
                 _resolve = resolve
                 _reject = reject
               })
+
               torrent({
                 magnet: document.state.magnet,
                 path: ctx.input.file.pathArray.join('/'),
                 offset: offsetStart
               }).then(async (res: Response) => {
-                const throttledResponse = res.body // throttleStream(res.body!, 1_000_000)
+                console.log('ctx.input.settingsDbDocument', ctx.input.settingsDbDocument)
+                const settingsDocument = await (ctx.input.settingsDbDocument as RxDocument<SettingsDocument>).getLatest()
+                let downloadSpeedLimitEnabled = settingsDocument.downloadSpeedLimitEnabled
+                let downloadSpeedLimit = settingsDocument.downloadSpeedLimit
+                settingsDocument.$.subscribe((settings) => {
+                  downloadSpeedLimitEnabled = settings.downloadSpeedLimitEnabled
+                  downloadSpeedLimit = settings.downloadSpeedLimit
+                })
+
+                const throttledResponse = throttleStream(res.body!, () => downloadSpeedLimitEnabled ? downloadSpeedLimit : Number.MAX_VALUE)
                 const reader = throttledResponse.getReader() as ReadableStreamReader<Uint8Array>
                 
                 const { write, close } = await call<Resolvers>(getIoWorkerPort(), { key: 'io-worker' })(

@@ -57,12 +57,14 @@ export const torrentManagerMachine = createMachine({
           actions: assign({
             settingsDbDocument: ({ event }) => event.output.settingsDbDocument,
             torrents: ({ spawn, event }) => {
+              console.log('manager settingsDbDocument', event.output.settingsDbDocument)
               return (event.output.torrentDbDocuments as RxDocument<TorrentDocument>[]).map(torrentDbDoc => {
                 return spawn(
                   torrentMachine,
                   {
                     id: `torrent-${torrentDbDoc.infoHash}`,
                     input: {
+                      settingsDbDocument: event.output.settingsDbDocument,
                       infoHash: torrentDbDoc.infoHash,
                       magnet: torrentDbDoc.state.magnet,
                       torrentFile: torrentDbDoc.state.torrentFile,
@@ -162,7 +164,10 @@ export const torrentManagerMachine = createMachine({
                 torrentMachine,
                 {
                   id: `torrent-${event.input.infoHash}`,
-                  input: event.input,
+                  input: {
+                    settingsDbDocument: context.settingsDbDocument,
+                    ...event.input
+                  },
                   syncSnapshot: true
                 }
               )

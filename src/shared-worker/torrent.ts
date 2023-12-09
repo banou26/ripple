@@ -5,7 +5,7 @@ import type { torrentManagerMachine } from './torrent-manager'
 import { createMachine, assign, fromObservable, fromPromise, sendParent, not, stateIn, and, or } from 'xstate'
 import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
-import { TorrentDocument, database } from '../database'
+import { SettingsDocument, TorrentDocument, database } from '../database'
 import { fileMachine } from './file'
 import { from, withLatestFrom } from 'rxjs'
 import { deserializeTorrentDocument, deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from '../database/utils'
@@ -38,6 +38,7 @@ export const torrentMachine = createMachine({
     { input }:
     {
       input: {
+        settingsDbDocument: RxDocument<SettingsDocument>
         infoHash: string
         magnet: string
         torrentFile?: ParseTorrent.Instance
@@ -46,6 +47,8 @@ export const torrentMachine = createMachine({
       }
     }
   ) => ({
+    settingsDbDocument: input.settingsDbDocument,
+
     infoHash: input.infoHash,
     magnet: input.magnet,
     torrentFile: input.torrentFile,
@@ -251,7 +254,7 @@ export const torrentMachine = createMachine({
             assign({
               document: ({ event }) => event.output.toJSON(),
               dbDocument: ({ event }) => event.output,
-              files: ({ spawn, event }) =>
+              files: ({ spawn, event, context }) =>
                 event
                   .output
                   .state
@@ -263,6 +266,7 @@ export const torrentMachine = createMachine({
                       {
                         id: `torrent-${event.output.infoHash}-${file.path}`,
                         input: {
+                          settingsDbDocument: context.settingsDbDocument,
                           document: event.output.toJSON(),
                           file
                         },
