@@ -15,7 +15,7 @@ export const serializeTorrentFile = (torrentFile: Instance): TorrentDocument => 
     name: Buffer.from(torrentFile.name).toString('utf-8'),
     pieces: Buffer.from(torrentFile.info.pieces).toString('base64')
   },
-  infoBuffer: Buffer.from(torrentFile.infoBuffer).toString('base64'),
+  infoBuffer: torrentFile.infoBuffer && Buffer.from(torrentFile.infoBuffer).toString('base64'),
   infoHashBuffer: Buffer.from(torrentFile.infoHashBuffer).toString('base64')
 })
 
@@ -31,7 +31,7 @@ export const deserializeTorrentFile = (torrentFile: NonNullable<TorrentDocument[
     name: torrentFile.info.name,
     pieces: new Uint8Array(Buffer.from(torrentFile.info.pieces, 'base64'))
   },
-  infoBuffer: new Uint8Array(Buffer.from(torrentFile.infoBuffer, 'base64')),
+  infoBuffer: torrentFile.infoBuffer && new Uint8Array(Buffer.from(torrentFile.infoBuffer, 'base64')),
   infoHashBuffer: new Uint8Array(Buffer.from(torrentFile.infoHashBuffer, 'base64'))
 })
 

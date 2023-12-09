@@ -5,11 +5,13 @@ import type { torrentManagerMachine } from './torrent-manager'
 import { createMachine, assign, fromObservable, fromPromise, sendParent, not, stateIn, and, or } from 'xstate'
 import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
+import { Buffer } from 'buffer'
 import { SettingsDocument, TorrentDocument, database } from '../database'
 import { fileMachine } from './file'
 import { from, withLatestFrom } from 'rxjs'
 import { deserializeTorrentDocument, deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from '../database/utils'
 import { RxDocument } from 'rxdb'
+import { torrentFile } from '@fkn/lib'
 
 export const getTorrentProgress = (torrentState: TorrentDocument['state']) => {
   const selectedFiles = torrentState.files?.filter(file => file.selected) ?? []
@@ -232,6 +234,14 @@ export const torrentMachine = createMachine({
             if (document) {
               return document
             }
+            const torrentFileData =
+              !input.torrentFile.infoBuffer
+                ? (
+                  await (torrentFile({ magnet: input.magnet })
+                    .then(res => res.arrayBuffer())
+                    .then(res => ParseTorrent(Buffer.from(res))))
+                )
+                : undefined
 
             const torrentDoc =
               serializeTorrentDocument({
@@ -241,9 +251,13 @@ export const torrentMachine = createMachine({
                     input.magnet
                       ? input.magnet
                       : toMagnetURI(input.torrentFile!),
-                  torrentFile: input.torrentFile
+                  torrentFile:
+                    input.torrentFile.infoBuffer
+                      ? input.torrentFile
+                      : torrentFileData
                 }
               })
+
 
             return database.torrents.insert(torrentDoc)
           }),
