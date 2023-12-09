@@ -299,6 +299,9 @@ export const settingsSchema = {
     },
     downloadSpeedLimit: {
       type: 'number'
+    },
+    downloadSpeedLimitEnabled: {
+      type: 'boolean'
     }
   }
 }
@@ -309,4 +312,5 @@ export type SettingsDocument = {
   throttle: number
   maxConnections: number
   downloadSpeedLimit: number
+  downloadSpeedLimitEnabled: boolean
 }

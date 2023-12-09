@@ -1,14 +1,19 @@
-import { torrentCollection, type TorrentDocument } from '../database'
+import type { RxDocument } from 'rxdb'
+
+import { SettingsDocument, torrentCollection, type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
 import { ChartConfiguration } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import * as z from 'zod'
+import { zodResolver } from '@hookform/resolvers/zod'
 
 import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { getHumanReadableByteString } from '../utils/bytes'
 import Modal from './modal'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Settings } from 'react-feather'
+import { useForm } from 'react-hook-form'
 
 const style = css`
   display: grid;
@@ -229,6 +234,143 @@ const config: ChartConfiguration = {
   },
 }
 
+const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxDocument<TorrentDocument>[], isModalOpen: boolean, onClose: () => void }) => {
+  const collection = useRxCollection<SettingsDocument>('settings')
+  const settingsQuery = collection?.findOne({})
+  const { result: [settings] } = useRxQuery(settingsQuery)
+
+  console.log('settings', settings)
+
+  const schema = z.object({
+    speedLimitEnabled: z.boolean(),
+    speedLimit: z.number().min(0)
+  })
+  const { register, watch, reset } = useForm({
+    mode: 'onChange',
+    resolver: zodResolver(schema),
+    defaultValues: {
+      speedLimitEnabled: settings?.downloadSpeedLimitEnabled ?? false,
+      speedLimit: settings?.downloadSpeedLimit ?? 0
+    }
+  })
+
+  useEffect(() => {
+    if (!settings) return
+    reset({
+      speedLimitEnabled: settings?.downloadSpeedLimitEnabled ?? false,
+      speedLimit: settings?.downloadSpeedLimit ?? 0
+    })
+  }, [reset, settings])
+
+  // delete all IDB instances
+  const resetIdb = async () => {
+    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--settings')
+    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
+    await resetOPFS()
+    location.reload()
+  }
+
+  const deleteTorrents = async () => {
+    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
+    await resetOPFS()
+  }
+
+  const resetOPFS = async () => {
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
+    const iterator = directory.entries()
+    const nextEntry = async () => {
+      const { done, value } = await iterator.next()
+      if (!value) return
+      const [filePath] = value
+      await (directory as FileSystemDirectoryHandle).removeEntry(filePath, { recursive: true })
+      if (done) return
+      nextEntry()
+    }
+    nextEntry()
+  }
+
+  const onSubmit = useCallback(
+    (data) => {
+      settings?.incrementalModify(doc => {
+        doc.downloadSpeedLimitEnabled = data.speedLimitEnabled
+        doc.downloadSpeedLimit = data.speedLimit
+        return doc
+      })
+    },
+    [settings]
+  )
+
+  const formData = watch()
+  const strData = JSON.stringify(formData)
+
+  useEffect(
+    () => onSubmit(formData),
+    [strData]
+  )
+
+
+  return (
+    <Modal open={isModalOpen} css={modalStyle} onClose={onClose}>
+      <form onSubmit={onSubmit}>
+        <div className="header">
+          <div className="title">Settings</div>
+        </div>
+        <div className="main">
+          <div className="content">
+            <div className="body">
+              <div className="section">
+                <div className="title">Bandwidth</div>
+                <div className="row multi">
+                  <label className="label">
+                    <span>Limit download speed</span>
+                    <input type="checkbox" className="value" {...register('speedLimitEnabled')}/>
+                  </label>
+                  {
+                    formData.speedLimitEnabled && (
+                      <label className="label">
+                        <span>Enter download speed limit in KB/s</span>
+                        <input type="text" className="value" {...register('speedLimit')}/>
+                      </label>
+                    )
+                  }
+                </div>
+              </div>
+              <div className="section">
+                <div className="title">Queuing</div>
+                <div className="row">
+                  <div className="label">Maximum active downloads</div>
+                  <div className="value">Unlimited</div>
+                </div>
+                <div className="row">
+                  <div className="label">Download other when watching</div>
+                  <div className="value">Unlimited</div>
+                </div>
+              </div>
+              <div className="section">
+                <div className="title">Data</div>
+                <div className="row">
+                  <div className="label">Clear all data</div>
+                  <div className="value">
+                    <button onClick={resetIdb}>RESET APP</button>
+                  </div>
+                </div>
+                <div className="row">
+                  <div className="label">Clear torrents</div>
+                  <div className="value">
+                    <button onClick={deleteTorrents}>DELETE ALL TORRENTS</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 // Should have 1 line for every second, and 120 lines total
 // mixed chart with custom tooltip example: https://stackoverflow.com/a/46343907
 export const StatisticsHeader = ({ ...rest }) => {
@@ -277,35 +419,6 @@ export const StatisticsHeader = ({ ...rest }) => {
     }
   }, [currentDownloadSpeed])
 
-  // delete all IDB instances
-  const resetIdb = async () => {
-    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
-    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
-    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--settings')
-    indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
-    await resetOPFS()
-    location.reload()
-  }
-
-  const deleteTorrents = async () => {
-    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
-    await resetOPFS()
-  }
-
-  const resetOPFS = async () => {
-    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
-    const iterator = directory.entries()
-    const nextEntry = async () => {
-      const { done, value } = await iterator.next()
-      if (!value) return
-      const [filePath] = value
-      await (directory as FileSystemDirectoryHandle).removeEntry(filePath, { recursive: true })
-      if (done) return
-      nextEntry()
-    }
-    nextEntry()
-  }
-
   const data = {
     labels: dataPoints.map((log) => log && new Date(log.x).toLocaleTimeString()),
     datasets: [
@@ -345,56 +458,7 @@ export const StatisticsHeader = ({ ...rest }) => {
 
   return (
     <div css={style} {...rest}>
-      <Modal open={isModalOpen} css={modalStyle} onClose={onClose}>
-        <div className="header">
-          <div className="title">Settings</div>
-        </div>
-        <div className="main">
-          <div className="content">
-            <div className="body">
-              <div className="section">
-                <div className="title">Bandwidth</div>
-                <div className="row multi">
-                  <label className="label">
-                    <span>Limit download speed</span>
-                    <input type="checkbox" className="value"/>
-                  </label>
-                  <label className="label">
-                    <span>Enter download speed limit in KB/s</span>
-                    <input type="text" className="value"/>
-                  </label>
-                </div>
-              </div>
-              <div className="section">
-                <div className="title">Queuing</div>
-                <div className="row">
-                  <div className="label">Maximum active downloads</div>
-                  <div className="value">Unlimited</div>
-                </div>
-                <div className="row">
-                  <div className="label">Download other when watching</div>
-                  <div className="value">Unlimited</div>
-                </div>
-              </div>
-              <div className="section">
-                <div className="title">Data</div>
-                <div className="row">
-                  <div className="label">Clear all data</div>
-                  <div className="value">
-                    <button onClick={resetIdb}>RESET APP</button>
-                  </div>
-                </div>
-                <div className="row">
-                  <div className="label">Clear torrents</div>
-                  <div className="value">
-                    <button onClick={deleteTorrents}>DELETE ALL TORRENTS</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Modal>
+      <SettingsModal isModalOpen={isModalOpen} onClose={onClose}/>
       <div className="chart-wrapper">
         <Line
           data={data}

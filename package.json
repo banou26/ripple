@@ -20,6 +20,7 @@
     "@banou/media-player": "github:Banou26/media-player",
     "@emotion/react": "^11.11.1",
     "@fkn/lib": "file:../oz/lib",
+    "@hookform/resolvers": "^3.3.2",
     "@radix-ui/react-hover-card": "^1.0.7",
     "@vitejs/plugin-react": "^4.0.4",
     "chart.js": "^4.4.0",
@@ -40,7 +41,8 @@
     "rxdb-hooks": "^5.0.2",
     "rxjs": "^7.8.1",
     "webtorrent": "^2.1.25",
-    "xstate": "^5.0.0-beta.47"
+    "xstate": "^5.0.0-beta.47",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@rollup/plugin-inject": "^5.0.3",
