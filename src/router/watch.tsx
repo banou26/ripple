@@ -2,7 +2,7 @@ import type { RxDocument } from 'rxdb'
 
 import { readTorrentFile, type TorrentDocument } from '../database'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 
 import FKNMediaPlayer from '@banou/media-player'
@@ -78,7 +78,7 @@ const BASE_BUFFER_SIZE = 5_000_000
 const getFileMatchingDownloadedRange = (file: RxDocument<NonNullable<TorrentDocument['state']['files']>[number]>, offset: number, end: number) =>
   file
     ?.downloadedRanges
-    .filter((range) => range.start <= offset && range.end >= end)
+    .filter((range) => range.start <= offset && end <= range.end)
 
 const Watch = () => {
   const { infoHash, fileIndex } = useParams<{ infoHash: string }>()
@@ -88,6 +88,18 @@ const Watch = () => {
   const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
   const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
   const file = torrentDoc?.state?.files?.[fileIndex]
+  const fileRef = useRef(file)
+
+  useEffect(() => {
+    if (!file) return
+    
+    const sub = torrentDoc.$.subscribe((torrentDoc) => {
+      const file = torrentDoc.state.files?.[fileIndex]
+      fileRef.current = file
+    })
+
+    return () => sub.unsubscribe()
+  }, [Boolean(file)])
 
   useEffect(() => {
     if (!file) return
@@ -107,6 +119,7 @@ const Watch = () => {
   }, [])
 
   const onFetch = async (offset: number, end: number) => {
+    const file = fileRef.current
     const matchingRanges = getFileMatchingDownloadedRange(file, offset, end)
 
     if (matchingRanges?.length) {
@@ -123,18 +136,7 @@ const Watch = () => {
         return new Response(await res.arrayBuffer())
       }
 
-      await new Promise((resolve) => {
-        let subscription: Subscription | undefined
-        subscription = torrentDoc?.$.subscribe(async (doc) => {
-          if (!subscription) await new Promise((resolve) => setTimeout(resolve, 10))
-          const file = doc?.state?.files?.[fileIndex]
-          if (getFileMatchingDownloadedRange(file, offset, end)?.length) {
-            resolve(undefined)
-            subscription?.unsubscribe()
-          }
-        })
-      })
-
+      await new Promise((resolve) => setTimeout(resolve, 250))
       return onFetch(offset, end)
     }
   }
