@@ -31,8 +31,8 @@ const initialSettings = {
   paused: false,
   throttle: 0,
   maxConnections: 0,
-  downloadSpeedLimit: 0,
-  downloadSpeedLimitEnabled: false
+  downloadSpeedLimit: 10_000_000, // 20 MB/s
+  downloadSpeedLimitEnabled: true
 }
 
 export const useSettingsDocument = () => {
