@@ -57,7 +57,6 @@ export const torrentManagerMachine = createMachine({
           actions: assign({
             settingsDbDocument: ({ event }) => event.output.settingsDbDocument,
             torrents: ({ spawn, event }) => {
-              console.log('manager settingsDbDocument', event.output.settingsDbDocument)
               return (event.output.torrentDbDocuments as RxDocument<TorrentDocument>[]).map(torrentDbDoc => {
                 return spawn(
                   torrentMachine,
@@ -158,7 +157,7 @@ export const torrentManagerMachine = createMachine({
       on: {
         'TORRENT.ADD': {
           actions: assign({
-            torrents: ({ spawn, context, event }) => console.log('torrent managert add') || [
+            torrents: ({ spawn, context, event }) => [
               ...context.torrents,
               spawn(
                 torrentMachine,

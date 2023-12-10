@@ -171,16 +171,20 @@ export const fileMachine = createMachine({
                   if (cancelled) {
                     await reader.cancel()
                     await close()
-                    return
+                    return observer.error(err)
                   }
                   const { done, value } = await reader.read()
                   if (done) {
                     await close()
-                    observer.complete()
-                    return
+                    return observer.complete()
                   }
                   const bufferLength = value.byteLength
-                  await write(value.buffer)
+                  
+                  try {
+                    await write(value.buffer)
+                  } catch (err) {
+                    return observer.error(err)
+                  }
 
                   const downloadRange =
                     downloadedRanges
