@@ -4,6 +4,7 @@ import { createBrowserRouter } from 'react-router-dom'
 
 import Home from './home'
 import Watch from './watch'
+import Embed from './embed'
 import { getRouterRoutePath, Route } from './path'
 import DropZone from '../components/drop-zone'
 
@@ -23,7 +24,11 @@ const router = createBrowserRouter([
   },
   {
     path: getRouterRoutePath(Route.WATCH),
-    element: wrapElement(<Watch/>)
+    element: <Watch/>
+  },
+  {
+    path: getRouterRoutePath(Route.EMBED),
+    element: <Embed/>
   },
   {
     path: '/*',

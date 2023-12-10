@@ -80,7 +80,7 @@ const getFileMatchingDownloadedRange = (file: RxDocument<NonNullable<TorrentDocu
     ?.downloadedRanges
     .filter((range) => range.start <= offset && range.end >= end)
 
-const Player = () => {
+const Watch = () => {
   const { infoHash, fileIndex } = useParams<{ infoHash: string }>()
   const [size, setSize] = useState<number>()
 
@@ -163,4 +163,4 @@ const Player = () => {
   )
 }
 
-export default Player
+export default Watch

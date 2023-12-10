@@ -240,8 +240,6 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
   const { result: [settings] } = useRxQuery(settingsQuery)
   const [firstInitDone, setFirstInitDone] = useState(false)
 
-  console.log('settings', settings)
-
   const schema = z.object({
     speedLimitEnabled: z.boolean(),
     speedLimit: z.number().min(0)
