@@ -364,7 +364,16 @@ export const torrentMachine = createMachine({
         input: ({ context, self }) => ({ context, self }),
         src: fromPromise(async ({ input }) => {
           if (input.context.dbDocument) {
-            await (await input.context.dbDocument.getLatest()).remove()
+            // Needed as sometimes rxdb throws with `using previous revision` error
+            const tryDeleteDocument = async () => {
+              try {
+                await (await (input.context.dbDocument as RxDocument<TorrentDocument>).getLatest()).remove()
+              } catch (err) {
+                await new Promise((resolve) => setTimeout(resolve, 100))
+                await tryDeleteDocument()
+              }
+            }
+            tryDeleteDocument()
           }
 
           // todo: find better way to stopChild multiple actors than using the internal _actorScope property
