@@ -48,7 +48,6 @@ export const addTorrent = async (options: { magnet: string } | { torrentFile: In
     torrentFile: 'torrentFile' in options ? options.torrentFile : undefined
   }
   const infoHash = torrentFile?.infoHash ?? parseTorrent(magnet!).infoHash
-
   await call(sharedWorker.port, { key: 'shared-worker-fkn-api' })(
     'addTorrent',
     {

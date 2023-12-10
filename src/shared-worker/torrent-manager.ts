@@ -1,5 +1,5 @@
 import type { ActorRefFrom } from 'xstate'
-import { filter, first, from, mergeMap, switchMap, tap } from 'rxjs'
+import { Observable, filter, first, from, mergeMap, switchMap, tap } from 'rxjs'
 import { createMachine, createActor, assign, fromPromise, fromObservable } from 'xstate'
 import ParseTorrent from 'parse-torrent'
 
@@ -158,7 +158,7 @@ export const torrentManagerMachine = createMachine({
       on: {
         'TORRENT.ADD': {
           actions: assign({
-            torrents: ({ spawn, context, event }) => [
+            torrents: ({ spawn, context, event }) => console.log('torrent managert add') || [
               ...context.torrents,
               spawn(
                 torrentMachine,
@@ -274,66 +274,5 @@ export type TorrentManagerMachine = typeof torrentManagerMachine
 const manager =
   createActor(torrentManagerMachine)
     .start()
-
-// torrentCollection.find().$.subscribe((torrentDocuments) => {
-//   console.log('torrentDocuments', torrentDocuments)
-// })
-
-// manager.subscribe((state) => {
-//   console.log(
-//     'manager state',
-//     ...[
-//       ...(
-//         state
-//           .context
-//           .torrents
-//           .map((actor) => ({ value: actor.getSnapshot().value, ...actor.getSnapshot().context }))
-//       ),
-//       ...(
-//         state
-//         .context
-//         .torrents
-//         .flatMap((actor) =>
-//           actor
-//             .getSnapshot()
-//             .context
-//             .files
-//             .map((actor) => ({ ...actor.getSnapshot().context }))
-//         )
-//       )
-//     ]
-//   )
-// })
-
-
-// setTimeout(() => {
-//   console.log('manager', manager.getSnapshot())
-//   console.log(
-//     'torrents',
-//     Object.fromEntries(
-//       Object
-//         .entries(manager.getSnapshot().children)
-//         .map(([key, actor]) => [
-//           key,
-//           actor.getSnapshot()
-//         ])
-//     )
-//   )
-//   console.log(
-//     'torrentsFiles',
-//     Object.fromEntries(
-//       Object
-//         .entries(manager.getSnapshot().children)
-//         .flatMap(([key, actor]) =>
-//           Object
-//             .entries(actor.getSnapshot().children ?? {})
-//             .map(([key, actor]) => [
-//               key,
-//               actor.getSnapshot()
-//             ])
-//         )
-//     )
-//   )
-// }, 1000)
 
 export default manager

@@ -23,7 +23,7 @@ export const fileMachine = createMachine({
         file: NonNullable<TorrentDocument['state']['files']>[number]
       }
     }
-  ) => console.log('file settingsDbDocument', input.settingsDbDocument) || ({
+  ) => ({
     settingsDbDocument: input.settingsDbDocument,
 
     document: input.document,
@@ -103,10 +103,11 @@ export const fileMachine = createMachine({
     downloading: {
       entry: sendParent({ type: 'FILE.DOWNLOADING' }),
       invoke: {
-        input: ({ context }) => context,
+        input: (args) => args,
         src:
-          fromObservable((ctx) =>
+          fromObservable((args) =>
             new Observable(observer => {
+              const ctx = { input: args.input.context }
               const document = ctx.input.document as RxDocument<TorrentDocument>
 
               if (ctx.input.file.selected === false) {
@@ -143,7 +144,6 @@ export const fileMachine = createMachine({
                 path: ctx.input.file.pathArray.join('/'),
                 offset: offsetStart
               }).then(async (res: Response) => {
-                console.log('ctx.input.settingsDbDocument', ctx.input.settingsDbDocument)
                 const settingsDocument = await (ctx.input.settingsDbDocument as RxDocument<SettingsDocument>).getLatest()
                 let downloadSpeedLimitEnabled = settingsDocument.downloadSpeedLimitEnabled
                 let downloadSpeedLimit = settingsDocument.downloadSpeedLimit
@@ -167,6 +167,7 @@ export const fileMachine = createMachine({
                 _resolve(close)
 
                 const read = async () => {
+                  if (args.self.getSnapshot().status !== 'active') return
                   if (cancelled) {
                     await reader.cancel()
                     await close()

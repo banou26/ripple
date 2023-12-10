@@ -266,7 +266,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
 
   // delete all IDB instances
   const resetIdb = async () => {
-    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
+    if (allTorrents) await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
     indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
     indexedDB.deleteDatabase('rxdb-dexie-ripple--0--settings')
     indexedDB.deleteDatabase('rxdb-dexie-ripple--0--torrents')
@@ -275,7 +275,7 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
   }
 
   const deleteTorrents = async () => {
-    await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
+    if (allTorrents) await torrentCollection.bulkRemove(allTorrents.map(torrent => torrent.infoHash))
     await resetOPFS()
   }
 

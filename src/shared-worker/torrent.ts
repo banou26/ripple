@@ -1,15 +1,13 @@
 import type { ActorRefFrom } from 'xstate'
 
-import type { torrentManagerMachine } from './torrent-manager'
-
-import { createMachine, assign, fromObservable, fromPromise, sendParent, not, stateIn, and, or } from 'xstate'
+import { createMachine, assign, fromObservable, fromPromise, sendParent, or } from 'xstate'
 import ParseTorrent, { toMagnetURI } from 'parse-torrent'
 
 import { Buffer } from 'buffer'
 import { SettingsDocument, TorrentDocument, database } from '../database'
 import { fileMachine } from './file'
-import { from, withLatestFrom } from 'rxjs'
-import { deserializeTorrentDocument, deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from '../database/utils'
+import { from } from 'rxjs'
+import { deserializeTorrentFile, serializeTorrentDocument, serializeTorrentFile } from '../database/utils'
 import { RxDocument } from 'rxdb'
 import { torrentFile } from '@fkn/lib'
 
@@ -19,20 +17,6 @@ export const getTorrentProgress = (torrentState: TorrentDocument['state']) => {
   const downloadedLength = selectedFiles.reduce((acc, file) => acc + file.downloaded, 0)
   return downloadedLength / totalLength
 }
-
-export const getTorrentStatus = () => {
-
-}
-
-
-// always: [{
-//   actions: [
-//     // assign(({ context, event, self }) => console.log('idle always actions assign', event, context, self) || {
-//     //   lastEvent: event
-//     // })
-//   ],
-//   // guard: ({ context, event }) => context.lastEvent !== event
-// }] as const,
 
 export const torrentMachine = createMachine({
   initial: 'init',
@@ -188,7 +172,7 @@ export const torrentMachine = createMachine({
     },
     'TORRENT.PAUSE': {
       actions: assign({
-        files: ({ context, event }) => {
+        files: ({ context }) => {
           context.files.forEach(file => file.send({ type: 'FILE.PAUSE' }))
           return context.files
         }
@@ -196,7 +180,7 @@ export const torrentMachine = createMachine({
     },
     'TORRENT.RESUME': {
       actions: assign({
-        files: ({ context, event }) => {
+        files: ({ context }) => {
           context.files.forEach(file => file.send({ type: 'FILE.RESUME' }))
           return context.files
         }
@@ -235,29 +219,25 @@ export const torrentMachine = createMachine({
               return document
             }
             const torrentFileData =
-              !input.torrentFile.infoBuffer
+              !input.torrentFile?.infoBuffer
                 ? (
                   await (torrentFile({ magnet: input.magnet })
                     .then(res => res.arrayBuffer())
                     .then(res => ParseTorrent(Buffer.from(res))))
                 )
-                : undefined
+                : input.torrentFile
 
             const torrentDoc =
               serializeTorrentDocument({
-                infoHash: input.infoHash,
+                infoHash: torrentFileData.infoHash,
                 state: {
                   magnet:
                     input.magnet
                       ? input.magnet
                       : toMagnetURI(input.torrentFile!),
-                  torrentFile:
-                    input.torrentFile.infoBuffer
-                      ? input.torrentFile
-                      : torrentFileData
+                  torrentFile: torrentFileData
                 }
               })
-
 
             return database.torrents.insert(torrentDoc)
           }),
@@ -381,19 +361,27 @@ export const torrentMachine = createMachine({
     finished: {},
     removing: {
       invoke: {
-        input: ({ context }) => ({ context }),
+        input: ({ context, self }) => ({ context, self }),
         src: fromPromise(async ({ input }) => {
           if (input.context.dbDocument) {
             await (await input.context.dbDocument.getLatest()).remove()
           }
-          if (input.context.shouldRemoveFiles) {
-            const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
-            await directory.removeEntry(input.context.infoHash, { recursive: true })
-          }
+
+          // todo: find better way to stopChild multiple actors than using the internal _actorScope property
+          input.context.files.forEach(file => input.self._actorScope.stopChild(file))
+
+          const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('torrents')
+          await directory.removeEntry(input.context.infoHash, { recursive: true })
+
           return input.context.document
         }),
         onDone: {
           actions: [
+            assign({
+              document: () => undefined,
+              dbDocument: () => undefined,
+              files: []
+            }),
             sendParent(({ context }) => ({
               type: 'TORRENT.REMOVED',
               input: {
