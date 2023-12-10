@@ -37,7 +37,7 @@
     "react-hook-form": "^7.48.2",
     "react-router": "^6.16.0",
     "react-router-dom": "^6.16.0",
-    "rxdb": "^14.17.1",
+    "rxdb": "^15.0.0-beta.42",
     "rxdb-hooks": "^5.0.2",
     "rxjs": "^7.8.1",
     "webtorrent": "^2.1.25",
