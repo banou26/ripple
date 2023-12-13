@@ -10,7 +10,9 @@
   "scripts": {
     "_dev": "vite --port 5678",
     "dev": "vite --port 4560",
-    "build": "vite build && npm run copy-media-player",
+    "build": "vite build && npm run copy-libav && npm run copy-libass",
+    "copy-libav": "shx cp node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/libav-wasm/build/libav.wasm build/libav.wasm",
+    "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "copy-media-player": "copyfiles -u 4 ./node_modules/@banou/media-player/build/* build/tmp && shx rm build/tmp/index.js && shx mv build/tmp/* build && shx rm -rf build/tmp",
@@ -22,7 +24,7 @@
     "remove-build-deps": "shx rm -rf node_modules/@banou/media-player"
   },
   "dependencies": {
-    "@banou/media-player": "github:Banou26/media-player",
+    "@banou/media-player": "^0.0.0",
     "@emotion/react": "^11.11.1",
     "@fkn/lib": "file:../oz/lib",
     "@hookform/resolvers": "^3.3.2",
