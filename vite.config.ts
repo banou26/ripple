@@ -8,7 +8,7 @@ import polyfills from './vite-plugin-node-stdlib-browser.cjs'
 export default defineConfig((env) => ({
   build: {
     target: 'esnext',
-    outDir: 'dist',
+    outDir: 'build',
     lib: {
       entry: ['src/index.tsx', 'src/shared-worker/index.ts', 'src/worker/index.ts'],
       formats: ['es']
@@ -36,7 +36,12 @@ export default defineConfig((env) => ({
       jsxImportSource: '@emotion/react'
     }),
     polyfills()
-  ]
+  ],
+  server: {
+    fs: {
+      allow: ['..']
+    }
+  }
 }))
 
 
