@@ -1,11 +1,14 @@
 {
-  "name": "ripple",
+  "name": "@banou/ripple",
   "version": "0.0.0",
   "type": "module",
   "main": "build/index.js",
   "keywords": [
     "fkn",
     "fkn-type:app"
+  ],
+  "files": [
+    "build"
   ],
   "scripts": {
     "_dev": "vite --port 5678",
