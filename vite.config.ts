@@ -7,6 +7,8 @@ import polyfills from './vite-plugin-node-stdlib-browser.cjs'
 // https://vitejs.dev/config/
 export default defineConfig((env) => ({
   build: {
+    minify: env.mode !== 'development',
+    emptyOutDir: false,
     target: 'esnext',
     outDir: 'build',
     lib: {
@@ -14,6 +16,9 @@ export default defineConfig((env) => ({
       formats: ['es']
     },
     rollupOptions: {
+      output: {
+        format: 'es'
+      },
       input: {
         index: 'src/index.tsx',
         'shared-worker': 'src/shared-worker/index.ts',
@@ -28,7 +33,9 @@ export default defineConfig((env) => ({
       ]
     }
   },
-  define: env.mode === 'development' ? {} : {
+  define: env.mode === 'development' ? {
+    'process.env.NODE_ENV': JSON.stringify('development')
+  } : {
     'process.env.NODE_ENV': JSON.stringify('production')
   },
   plugins: [

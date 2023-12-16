@@ -107,13 +107,13 @@ const Watch = () => {
   }, [file])
 
   const jassubWorkerUrl = useMemo(() => {
-    const workerUrl = new URL('/jassub-worker.js', new URL(window.location.toString()).origin).toString()
+    const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
     const blob = new Blob([`importScripts(${JSON.stringify(workerUrl)})`], { type: 'application/javascript' })
     return URL.createObjectURL(blob)
   }, [])
 
   const libavWorkerUrl = useMemo(() => {
-    const workerUrl = new URL('/libav-worker.js', new URL(window.location.toString()).origin).toString()
+    const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/libav-worker.js`, new URL(window.location.toString()).origin).toString()
     const blob = new Blob([`importScripts(${JSON.stringify(workerUrl)})`], { type: 'application/javascript' })
     return URL.createObjectURL(blob)
   }, [])
@@ -155,10 +155,10 @@ const Watch = () => {
       <FKNMediaPlayer
         size={size}
         fetch={(offset, end) => onFetch(offset, end)}
-        publicPath={new URL('/', new URL(window.location.toString()).origin).toString()}
+        publicPath={new URL(import.meta.env.DEV ? '/build/' : '/', new URL(window.location.toString()).origin).toString()}
         libavWorkerUrl={libavWorkerUrl}
         libassWorkerUrl={jassubWorkerUrl}
-        wasmUrl={new URL('/jassub-worker-modern.wasm', new URL(window.location.toString()).origin).toString()}
+        wasmUrl={new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, new URL(window.location.toString()).origin).toString()}
         customOverlay={customOverlay}
       />
     </div>
