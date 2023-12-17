@@ -11,8 +11,9 @@
     "build"
   ],
   "scripts": {
-    "__dev": "vite --port 5678",
-    "dev": "shx rm -rf ./build && shx mkdir ./build && npm run copy-libav && npm run copy-libass && concurrently \"vite --port 4560\" \"vite build --mode development --watch\"",
+    "___dev": "vite --port 5678",
+    "dev": "vite --port 4560",
+    "__dev": "shx rm -rf ./build && shx mkdir ./build && npm run copy-libav && npm run copy-libass && concurrently \"vite --port 4560\" \"vite build --mode development --watch\"",
     "_dev": "shx rm -rf ./build && shx mkdir ./build && npm run copy-libav && npm run copy-html && npm run copy-libass && concurrently \"serve -s -C -p 4560 build\" \"vite build --mode development --watch\"",
     "serve": "serve -s -C -p 4560 build",
     "build": "vite build && npm run copy-libav && npm run copy-libass && npm run copy-html",

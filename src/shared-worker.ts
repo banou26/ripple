@@ -2,10 +2,12 @@ import { call, makeCallListener, registerListener, getTransferableObjects } from
 
 import { getApiTarget, getApiTargetPort } from '@fkn/lib'
 
+import SharedWorkerURL from './shared-worker/index?worker&url'
+import WorkerURL from './worker/index?worker&url'
 import { leaderElector } from './database'
 
 export type Resolvers = typeof resolvers
-const sharedWorker = new SharedWorker(`${import.meta.env.DEV ? '/build' : ''}/shared-worker.js`, { type: 'module' })
+const sharedWorker = new SharedWorker(SharedWorkerURL, { type: 'module' })
 
 // todo: THIS HELPS WITH A RACE CONDITION BUT THIS SHOULD BE FIXED
 await getApiTarget()
@@ -25,7 +27,7 @@ sharedWorker.port.addEventListener('error', (err) => {
 sharedWorker.port.start()
 
 leaderElector.awaitLeadership().then(() => {
-  const worker = new Worker(`${import.meta.env.DEV ? '/build' : ''}/worker.js`, { type: 'module' })
+  const worker = new Worker(WorkerURL , { type: 'module' })
 
   const messageChannel = new MessageChannel()
   const { port1, port2 } = messageChannel
