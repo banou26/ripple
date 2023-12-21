@@ -1,10 +1,9 @@
-import { useSettingsDocument, type TorrentDocument, removeTorrent } from '../database'
+import { useSettingsDocument, type TorrentDocument, removeTorrent, torrentCollection } from '../database'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
-import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { Download, Upload, ArrowDownCircle, Pause, Play, X, ArrowDown, ArrowUp } from 'react-feather'
 import { Link } from 'react-router-dom'
 
@@ -688,10 +687,16 @@ const TorrentItem = ({ torrent }: { torrent: RxDocument<TorrentDocument> }) => {
 
 export const TorrentList = ({ ...rest }) => {
   const settings = useSettingsDocument()
-  // console.log('settings', settings)
-  const collection = useRxCollection<TorrentDocument>('torrents')
-  const allTorrentsQuery = collection?.find({})
-  const { result: allTorrents } = useRxQuery(allTorrentsQuery)
+  const [allTorrents, setAllTorrents] = useState<RxDocument<TorrentDocument>[]>([])
+  useEffect(() => {
+    const subscription =
+      torrentCollection
+        ?.find({})
+        .$
+        .subscribe((result) => setAllTorrents(result))
+    return () => subscription?.unsubscribe()
+  }, [])
+
   const downloadingTorrents =
     allTorrents?.filter(torrent =>
       torrent.state.status === 'init' ||

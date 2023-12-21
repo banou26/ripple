@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { redirect, useNavigate, useParams } from 'react-router'
 import { useSearchParams } from 'react-router-dom'
-import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import ParseTorrent from 'parse-torrent'
 
 import { getRoutePath, Route } from './path'
 import { playableVideoFileExtensions } from '../utils/file-type'
+import { RxDocument } from 'rxdb'
 
 const style = css`
 height: 100%;
@@ -35,12 +35,19 @@ const Embed = () => {
       .then(res => setTorrentInstance(res))
   }, [magnet])
 
-  const collection = useRxCollection<TorrentDocument>('torrents')
-  console.log('collection', collection)
-  const torrentDocQuery = collection?.findOne({ selector: { infoHash: torrentInstance?.infoHash } })
-  console.log('torrentDocQuery', torrentDocQuery)
-  const { result: [torrentDoc], isFetching } = useRxQuery(torrentDocQuery)
-  console.log('torrentDoc', torrentDoc)
+  const [torrentDoc, setTorrent] = useState<RxDocument<TorrentDocument>>()
+  const [isFetching, setIsFetching] = useState(true)
+  useEffect(() => {
+    const subscription =
+      torrentCollection
+        ?.findOne({ selector: { infoHash: torrentInstance?.infoHash } })
+        .$
+        .subscribe((result) => {
+          setTorrent(result ?? undefined)
+          setIsFetching(false)
+        })
+    return () => subscription?.unsubscribe()
+  }, [])
 
   useEffect(() => {
     console.log('aaa', !magnet, !torrentInstance, isFetching, torrentDoc)

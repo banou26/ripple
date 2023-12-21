@@ -1,6 +1,6 @@
 import type { RxDocument } from 'rxdb'
 
-import { readTorrentFile, type TorrentDocument } from '../database'
+import { readTorrentFile, torrentCollection, type TorrentDocument } from '../database'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
@@ -8,7 +8,6 @@ import { css } from '@emotion/react'
 import FKNMediaPlayer from '@banou/media-player'
 
 import { useParams } from 'react-router'
-import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { getRoutePath, Route } from './path'
 import { ArrowLeft, Home } from 'react-feather'
 import { Link } from 'react-router-dom'
@@ -84,9 +83,16 @@ const Watch = () => {
   const { infoHash, fileIndex } = useParams<{ infoHash: string }>()
   const [size, setSize] = useState<number>()
 
-  const collection = useRxCollection<TorrentDocument>('torrents')
-  const torrentDocQuery = collection?.findOne({ selector: { infoHash } })
-  const { result: [torrentDoc] } = useRxQuery(torrentDocQuery)
+  const [torrentDoc, setTorrent] = useState<RxDocument<TorrentDocument>>()
+  useEffect(() => {
+    const subscription =
+      torrentCollection
+        ?.findOne({ selector: { infoHash } })
+        .$
+        .subscribe((result) => setTorrent(result ?? undefined))
+    return () => subscription?.unsubscribe()
+  }, [])
+
   const file = torrentDoc?.state?.files?.[fileIndex]
   const fileRef = useRef(file)
 

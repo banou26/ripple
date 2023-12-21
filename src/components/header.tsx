@@ -1,6 +1,6 @@
 import type { RxDocument } from 'rxdb'
 
-import { SettingsDocument, torrentCollection, type TorrentDocument } from '../database'
+import { settingsCollection, SettingsDocument, torrentCollection, useSettingsDocument, type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
 import { ChartConfiguration } from 'chart.js'
@@ -8,7 +8,6 @@ import { Line } from 'react-chartjs-2'
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 
-import { useRxCollection, useRxQuery } from 'rxdb-hooks'
 import { getHumanReadableByteString } from '../utils/bytes'
 import Modal from './modal'
 import { useCallback, useEffect, useState } from 'react'
@@ -235,9 +234,7 @@ const config: ChartConfiguration = {
 }
 
 const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxDocument<TorrentDocument>[], isModalOpen: boolean, onClose: () => void }) => {
-  const collection = useRxCollection<SettingsDocument>('settings')
-  const settingsQuery = collection?.findOne({})
-  const { result: [settings] } = useRxQuery(settingsQuery)
+  const settings = useSettingsDocument()
   const [firstInitDone, setFirstInitDone] = useState(false)
 
   const schema = z.object({
@@ -374,9 +371,14 @@ const SettingsModal = ({ allTorrents, isModalOpen, onClose }: { allTorrents: RxD
 // Should have 1 line for every second, and 120 lines total
 // mixed chart with custom tooltip example: https://stackoverflow.com/a/46343907
 export const StatisticsHeader = ({ ...rest }) => {
-  const collection = useRxCollection<TorrentDocument>('torrents')
-  const allTorrentsQuery = collection?.find({})
-  const { result: allTorrents } = useRxQuery(allTorrentsQuery)
+  const [allTorrents, setAllTorrents] = useState<RxDocument<TorrentDocument>[]>([])
+  useEffect(() => {
+    const subscription = torrentCollection.find().$.subscribe((docs) => {
+      setAllTorrents(docs)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
   const [peakDownloadSpeed, setPeakDownloadSpeed] = useState(0)
 
   const allDataPoints =

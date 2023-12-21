@@ -1,13 +1,13 @@
 import type { RxCollection } from 'rxdb'
 
-import { useRxCollection, useRxQuery } from 'rxdb-hooks'
-
 import { database } from './database'
 import { SettingsDocument, settingsSchema } from './schema'
+import { useEffect, useState } from 'react'
 
 const { settings } = await database.addCollections({
   settings: {
-    schema: settingsSchema
+    schema: settingsSchema,
+
   }
 }).catch(err => {
   if (import.meta.env.MODE !== 'development') throw err
@@ -32,14 +32,22 @@ const initialSettings = {
   throttle: 0,
   maxConnections: 0,
   downloadSpeedLimit: 10_000_000, // 20 MB/s
-  downloadSpeedLimitEnabled: true
+  downloadSpeedLimitEnabled: true,
+  saveFolderHandle: undefined
 }
 
 export const useSettingsDocument = () => {
-  const collection = useRxCollection<SettingsDocument>('settings')
-  const downloadingTorrentQuery = collection?.find({ selector: { id: 'settings' } })
-  const { result: settingsDocument } = useRxQuery(downloadingTorrentQuery)
-  return settingsDocument[0]
+  const [settings, setSettings] = useState<SettingsDocument>()
+  useEffect(() => {
+    const subscription =
+      settingsCollection
+        .findOne({})
+        .$
+        .subscribe((doc) => setSettings(doc ?? undefined))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return settings
 }
 
 export const getSettingsDocument = async () => (await settingsCollection.findOne().exec())
