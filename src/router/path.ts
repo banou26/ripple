@@ -2,7 +2,9 @@
 export enum Route {
   HOME = 'HOME',
   WATCH = 'WATCH',
-  EMBED = 'EMBED'
+  EMBED = 'EMBED',
+  FILE_HANDLER = 'FILE_HANDLER',
+  PROTOCOL_HANDLER = 'PROTOCOL_HANDLER'
 }
 
 const Routes = {
@@ -14,7 +16,9 @@ const Routes = {
 const RouterRoutes = {
   [Route.HOME]: '/',
   [Route.WATCH]: '/watch/:infoHash/:fileIndex?',
-  [Route.EMBED]: '/embed'
+  [Route.EMBED]: '/embed',
+  [Route.FILE_HANDLER]: '/file-handler',
+  [Route.PROTOCOL_HANDLER]: '/protocol-handler'
 }
 
 export const getRouterRoutePath =

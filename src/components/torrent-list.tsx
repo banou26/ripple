@@ -753,7 +753,10 @@ export const TorrentList = ({ ...rest }) => {
         </div>
       </div>
       <div className="category">
-        <div className="title">Completed</div>
+        <div className="title">
+          <span>Completed</span>
+          <span>Save files in folder</span>
+        </div>
         <div className="items">
           {
             completedTorrents?.map(torrent => (

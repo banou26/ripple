@@ -1,0 +1,65 @@
+{
+  "short_name": "Ripple",
+  "name": "Ripple - A torrent web app",
+  "description": "A torrent app on the web",
+  "icons": [
+    {
+      "src": "./assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "id": "/?source=pwa",
+  "start_url": "/?source=pwa",
+  "background_color": "#3367D6",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#3367D6",
+  "shortcuts": [
+    {
+      "name": "Pause all torrents",
+      "short_name": "Pause all",
+      "description": "Pause all currently downloading torrents",
+      "url": "/?source=pwa&pauseAll=true"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "magnet",
+      "url": "/protocol-handler?magnet=%s"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/file-handler",
+      "accept": {
+        "application/x-bittorrent": [".torrent"],
+        "x-scheme-handler/magnet": ["magnet:?xt=urn:btih:"]
+      },
+      "icons": [
+        {
+          "src": "csv-icon.png",
+          "sizes": "256x256",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+        "files": [
+            {
+                "name": "file",
+                "accept": [
+                    "application/vnd.ripple+json",
+                    "application/json",
+                    ".ripple"
+                ]
+            }
+        ]
+    }
+  }
+}
