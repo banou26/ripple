@@ -302,6 +302,9 @@ export const settingsSchema = {
     },
     downloadSpeedLimitEnabled: {
       type: 'boolean'
+    },
+    saveFolderEnabled: {
+      type: 'boolean'
     }
   }
 }
@@ -313,4 +316,5 @@ export type SettingsDocument = {
   maxConnections: number
   downloadSpeedLimit: number
   downloadSpeedLimitEnabled: boolean
+  saveFolderEnabled: boolean
 }

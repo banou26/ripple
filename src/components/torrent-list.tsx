@@ -1,4 +1,4 @@
-import { useSettingsDocument, type TorrentDocument, removeTorrent, torrentCollection } from '../database'
+import { useSettingsDocument, type TorrentDocument, removeTorrent, torrentCollection, supportsFSA, setSaveFolderHandle } from '../database'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'
@@ -11,7 +11,6 @@ import { getHumanReadableByteString } from '../utils/bytes'
 import { addTorrentFile } from '../utils/add-torrent'
 import { playableVideoFileExtensions } from '../utils/file-type'
 import Modal from './modal'
-
 
 const style = css`
   display: flex;
@@ -44,6 +43,40 @@ const style = css`
         display: flex;
         align-items: center;
         gap: .5rem;
+      }
+
+      .fsa-action {
+        margin-left: 2rem;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+
+        button {
+          padding: .5rem;
+          border-radius: 0.5rem;
+          border: none;
+          background-color: rgb(24, 26, 27);
+          cursor: pointer;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: .25rem;
+
+          font-weight: bold;
+          color: #aaa;
+
+          svg {
+            width: 1.5rem;
+            height: 1.5rem;
+            stroke-width: 3;
+          }
+
+          &.active {
+            background-color: #2f2f2f;
+            color: #fff;
+          }
+        }
       }
     }
 
@@ -728,6 +761,16 @@ export const TorrentList = ({ ...rest }) => {
     input.click()
   }
 
+  const onSelectSaveFolderClick = async () => {
+    const handle = await showDirectoryPicker()
+    console.log('handle', handle)
+    await setSaveFolderHandle(handle)
+    await settings?.incrementalModify(doc => {
+      doc.saveFolderEnabled = true
+      return doc
+    })
+  }
+
   return (
     <div css={style} {...rest}>
       <div className="category">
@@ -760,7 +803,15 @@ export const TorrentList = ({ ...rest }) => {
       <div className="category">
         <div className="title">
           <span>Completed</span>
-          <span>Save files in folder</span>
+          {
+            supportsFSA
+              ? (
+                <span className="fsa-action">
+                  <button onClick={onSelectSaveFolderClick}>Save files in folder</button>
+                </span>
+              )
+              : undefined
+          }
         </div>
         <div className="items">
           {

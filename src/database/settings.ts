@@ -1,17 +1,16 @@
-import type { RxCollection } from 'rxdb'
+import type { RxCollection, RxDocument } from 'rxdb'
 
 import { database } from './database'
 import { SettingsDocument, settingsSchema } from './schema'
 import { useEffect, useState } from 'react'
+import { get, set } from 'idb-keyval'
 
 const { settings } = await database.addCollections({
   settings: {
-    schema: settingsSchema,
-
+    schema: settingsSchema
   }
 }).catch(err => {
   if (import.meta.env.MODE !== 'development') throw err
-  
   const res = indexedDB.deleteDatabase('rxdb-dexie-ripple--0--_rxdb_internal')
   res.onsuccess = () => {
     location.reload()
@@ -31,13 +30,13 @@ const initialSettings = {
   paused: false,
   throttle: 0,
   maxConnections: 0,
-  downloadSpeedLimit: 10_000_000, // 20 MB/s
+  downloadSpeedLimit: 10_000_000, // 10 MB/s
   downloadSpeedLimitEnabled: true,
-  saveFolderHandle: undefined
+  saveFolderEnabled: false
 }
 
 export const useSettingsDocument = () => {
-  const [settings, setSettings] = useState<SettingsDocument>()
+  const [settings, setSettings] = useState<RxDocument<SettingsDocument>>()
   useEffect(() => {
     const subscription =
       settingsCollection
@@ -50,7 +49,11 @@ export const useSettingsDocument = () => {
   return settings
 }
 
-export const getSettingsDocument = async () => (await settingsCollection.findOne().exec())
+export const getSettingsDocument = async () => (await settingsCollection.findOne({}).exec())
+
+export const setSaveFolderHandle = (handle: FileSystemDirectoryHandle) => set('saveFolderHandle', handle)
+export const getSaveFolderHandle = () => get<FileSystemDirectoryHandle>('saveFolderHandle')
+export const supportsFSA = 'showSaveFilePicker' in window
 
 getSettingsDocument().then(settingsDocument => {
   if (settingsDocument) return
