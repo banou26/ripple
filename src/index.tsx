@@ -1,8 +1,12 @@
 /// <reference types="@emotion/react/types/css-prop" />
-import './database'
-import './torrent'
-import './shared-worker'
-import 'chart.js/auto'
+if (location.pathname !== '/embed') {
+  await Promise.all([
+    import('./database'),
+    import('./torrent'),
+    import('./shared-worker'),
+    import('chart.js/auto')
+  ])
+}
 
 import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'

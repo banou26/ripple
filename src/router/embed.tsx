@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Buffer } from 'buffer'
+
+import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
-
-import FKNMediaPlayer from '@banou/media-player'
-
-import { torrent, torrentFile } from '@fkn/lib'
-import { useParams } from 'react-router'
 import { useSearchParams } from 'react-router-dom'
 import ParseTorrent from 'parse-torrent'
-import { Buffer } from 'buffer'
+
+import FKNMediaPlayer from '@banou/media-player'
+import { torrent, torrentFile } from '@fkn/lib'
 
 const playerStyle = css`
 height: 100%;
@@ -73,6 +72,7 @@ const BASE_BUFFER_SIZE = 5_000_000
 export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, size: number }) =>
   new ReadableStream<Uint8Array>({
     start() {
+      this.cancelled = false
       // @ts-expect-error
       this.reader = stream.getReader()
     },
@@ -110,6 +110,7 @@ export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, s
           return accumulate({ buffer, currentSize: newSize })
         }
         const { buffer, done } = await accumulate()
+        if (this.cancelled) return
         if (buffer?.byteLength) controller.enqueue(buffer)
         if (done) controller.close()
       } catch (err) {
@@ -119,22 +120,7 @@ export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, s
     cancel() {
       // @ts-expect-error
       this.reader.cancel()
-    }
-  })
-
-const iteratorToStream = (iterator: AsyncIterableIterator<Uint8Array>) =>
-  new ReadableStream<Uint8Array>({
-    type: 'bytes',
-    async pull (controller) {
-      const { value, done } = await iterator.next()
-      if (done) {
-        controller.close()
-      } else {
-        controller.enqueue(value)
-      }
-    },
-    cancel () {
-      iterator.return?.()
+      this.cancelled = true
     }
   })
 
@@ -156,6 +142,15 @@ const Player = () => {
   }, [streamReader])
 
   const onFetch = async (offset: number, end?: number, force?: boolean) => {
+    if (offset >= file!.length - 1_000_000) {
+      const res = await torrent({
+        magnet: magnet!,
+        path: file!.path,
+        offset,
+        end: file?.length
+      })
+      return new Response(await res.arrayBuffer())
+    }
     if (force || end !== undefined && ((end - offset) + 1) !== BASE_BUFFER_SIZE) {
       return torrent({
         magnet: magnet!,
