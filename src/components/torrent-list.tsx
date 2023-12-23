@@ -803,7 +803,7 @@ export const TorrentList = ({ ...rest }) => {
       <div className="category">
         <div className="title">
           <span>Completed</span>
-          {
+          {/* {
             supportsFSA
               ? (
                 <span className="fsa-action">
@@ -811,7 +811,7 @@ export const TorrentList = ({ ...rest }) => {
                 </span>
               )
               : undefined
-          }
+          } */}
         </div>
         <div className="items">
           {
