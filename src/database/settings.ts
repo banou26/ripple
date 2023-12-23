@@ -53,7 +53,7 @@ export const getSettingsDocument = async () => (await settingsCollection.findOne
 
 export const setSaveFolderHandle = (handle: FileSystemDirectoryHandle) => set('saveFolderHandle', handle)
 export const getSaveFolderHandle = () => get<FileSystemDirectoryHandle>('saveFolderHandle')
-export const supportsFSA = 'showSaveFilePicker' in window
+export const supportsFSA = 'showSaveFilePicker' in globalThis
 
 getSettingsDocument().then(settingsDocument => {
   if (settingsDocument) return
