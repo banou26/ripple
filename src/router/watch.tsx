@@ -142,7 +142,7 @@ const Watch = () => {
         return new Response(await res.arrayBuffer())
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      // await new Promise((resolve) => setTimeout(resolve, 250))
       return onFetch(offset, end)
     }
   }
