@@ -2,6 +2,8 @@ import { css } from '@emotion/react'
 import { RouterProvider } from 'react-router'
 import { createBrowserRouter } from 'react-router-dom'
 
+import Home from './home'
+import Watch from './watch'
 import Embed from './embed'
 import FileHandler from './file-handler'
 import ProtocolHandler from './protocol-handler'
@@ -20,21 +22,11 @@ const router = createBrowserRouter([
   {
 
     path: getRouterRoutePath(Route.HOME),
-    lazy: async () => {
-      const { Home } = await import('./home')
-      return {
-        element: wrapElement(<Home/>)
-      }
-    }
+    element: wrapElement(<Home/>)
   },
   {
     path: getRouterRoutePath(Route.WATCH),
-    lazy: async () => {
-      const { Watch } = await import('./watch')
-      return {
-        element: wrapElement(<Watch/>)
-      }
-    }
+    element: <Watch/>
   },
   {
     path: getRouterRoutePath(Route.EMBED),
