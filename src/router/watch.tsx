@@ -1,6 +1,7 @@
 import type { RxDocument } from 'rxdb'
 
-import { readTorrentFile, torrentCollection, type TorrentDocument } from '../database'
+import { torrentCollection, type TorrentDocument } from '../database'
+import { readTorrentFile } from '../database/actions'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'

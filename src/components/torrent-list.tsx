@@ -1,4 +1,5 @@
-import { useSettingsDocument, type TorrentDocument, removeTorrent, torrentCollection, supportsFSA, setSaveFolderHandle } from '../database'
+import { useSettingsDocument, type TorrentDocument, torrentCollection, supportsFSA, setSaveFolderHandle } from '../database'
+import { removeTorrent } from '../database/actions'
 
 import { serverProxyFetch } from '@fkn/lib'
 import { css } from '@emotion/react'

@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import parseTorrent, { Instance } from 'parse-torrent'
 
-import { addTorrent } from '../database'
+import { addTorrent } from '../database/actions'
 
 export const addTorrentFile = async (acceptedFiles: File[]) => {
   const parsedTorrents = await Promise.all(
