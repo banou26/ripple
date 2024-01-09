@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import preact from '@preact/preset-vite'
+
 import polyfills from './vite-plugin-node-stdlib-browser.cjs'
 
 export default defineConfig((env) => ({
@@ -26,9 +28,17 @@ export default defineConfig((env) => ({
     'process.env.NODE_ENV': JSON.stringify(env.mode)
   },
   plugins: [
-    react({
-      jsxImportSource: '@emotion/react'
-    }),
-    polyfills(),
+    env.mode === 'development'
+      ? (
+        react({
+          jsxImportSource: '@emotion/react'
+        })
+      )
+      : (
+        preact({
+          jsxImportSource: '@emotion/react'
+        })
+      ),
+    polyfills()
   ]
 }))
