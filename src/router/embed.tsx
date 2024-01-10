@@ -1,12 +1,19 @@
 import { Buffer } from 'buffer'
 
 import { useEffect, useMemo, useState } from 'react'
-import { css } from '@emotion/react'
+import { css, Global } from '@emotion/react'
+import { Route as WRoute } from 'wouter'
 import { useSearch } from 'wouter/use-location'
 import ParseTorrent from 'parse-torrent'
 
 import FKNMediaPlayer from '@banou/media-player'
 import { torrent, torrentFile } from '@fkn/lib'
+
+import { createRoot } from 'react-dom/client'
+import { Switch } from 'wouter'
+import { getRouterRoutePath, Route } from './path'
+
+import globalStyle from '../global-style'
 
 const playerStyle = css`
 height: 100%;
@@ -234,4 +241,16 @@ const Player = () => {
   )
 }
 
-export default Player
+const rootElem = document.body.appendChild(document.createElement('div'))
+rootElem.classList.add('mount')
+const root = createRoot(rootElem)
+
+root.render(
+  <>
+    <Global styles={globalStyle}/>
+    <Switch>
+      <WRoute path={getRouterRoutePath(Route.EMBED)} component={() => <Player/>}/>
+      <WRoute component={() => <Player/>}/>
+    </Switch>
+  </>
+)

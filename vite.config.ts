@@ -15,6 +15,7 @@ export default defineConfig((env) => ({
     },
     rollupOptions: {
       input: {
+        embed: 'embed.html',
         index: 'src/index.tsx',
         'shared-worker': 'src/shared-worker/index.ts',
         'worker': 'src/worker/index.ts'
@@ -35,7 +36,7 @@ export default defineConfig((env) => ({
         })
       )
       : (
-        preact({
+        react({
           jsxImportSource: '@emotion/react'
         })
       ),

@@ -17,8 +17,8 @@
     "_dev": "shx rm -rf ./build && shx mkdir ./build && npm run copy-libav && npm run copy-html && npm run copy-libass && concurrently \"serve -s -C -p 4560 build\" \"vite build --mode development --watch\"",
     "serve": "serve -s -C -p 4560 build",
     "build": "shx rm -rf build/ && vite build && npm run copy-libav && npm run copy-libass && npm run copy-html",
-    "copy-libav": "shx cp node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/libav-wasm/build/libav.wasm build/libav.wasm",
-    "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm",
+    "copy-libav": "shx cp node_modules/@banou/media-player/node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/@banou/media-player/node_modules/libav-wasm/build/libav.wasm build/libav.wasm",
+    "copy-libass": "shx cp node_modules/@banou/media-player/node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/@banou/media-player/node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "copy-html": "shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets",
@@ -31,7 +31,7 @@
     "remove-build-deps": "shx rm -rf node_modules/@banou/media-player"
   },
   "dependencies": {
-    "@banou/media-player": "^0.0.1",
+    "@banou/media-player": "file:../fkn-media-player",
     "@emotion/react": "^11.11.1",
     "@fkn/lib": "^0.0.2",
     "@hookform/resolvers": "^3.3.2",
