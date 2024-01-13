@@ -2,6 +2,7 @@
 import './database'
 import './torrent'
 import './shared-worker'
+import 'chart.js/auto'
 
 import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'

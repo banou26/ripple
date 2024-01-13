@@ -1,8 +1,8 @@
 import { redirect } from 'react-router'
-import { useSearch } from 'wouter/use-location'
+import { useSearchParams } from 'react-router-dom'
 
 const FileHandler = () => {
-  const searchParams = new URLSearchParams(useSearch())
+  const [params] = useSearchParams()
   const magnet = params.get('magnet')
   redirect('/')
   return null

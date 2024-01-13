@@ -6,7 +6,7 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 import { RxDocument } from 'rxdb'
 import { Download, Upload, ArrowDownCircle, Pause, Play, X, ArrowDown, ArrowUp } from 'react-feather'
-import { Link } from 'wouter'
+import { Link } from 'react-router-dom'
 
 import { getHumanReadableByteString } from '../utils/bytes'
 import { addTorrentFile } from '../utils/add-torrent'

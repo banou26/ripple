@@ -1,5 +1,6 @@
 import { css } from '@emotion/react'
-import { Switch, Route as WRoute } from 'wouter'
+import { RouterProvider } from 'react-router'
+import { createBrowserRouter } from 'react-router-dom'
 
 import Home from './home'
 import Watch from './watch'
@@ -9,25 +10,40 @@ import ProtocolHandler from './protocol-handler'
 import { getRouterRoutePath, Route } from './path'
 import DropZone from '../components/drop-zone'
 
-const contentStyle = css`
-  padding-top: 6rem;
+const style = css`
 `
 
 const wrapElement = (children: React.ReactNode) =>
   <DropZone>
-    <div css={contentStyle}>
-      {children}
-    </div>
+    {children}
   </DropZone>
 
-const RouterRoot = () =>(
-  <Switch>
-    <WRoute path={getRouterRoutePath(Route.HOME)} component={() => wrapElement(<Home/>)}/>
-    <WRoute path={getRouterRoutePath(Route.WATCH)} component={() => <Watch/>}/>
-    <WRoute path={getRouterRoutePath(Route.EMBED)} component={() => wrapElement(<Embed/>)}/>
-    <WRoute path={getRouterRoutePath(Route.FILE_HANDLER)} component={() => <FileHandler/>}/>
-    <WRoute path={getRouterRoutePath(Route.PROTOCOL_HANDLER)} component={() => wrapElement(<ProtocolHandler/>)}/>
-    <WRoute component={() => wrapElement(<div>404 No page found</div>)}/>
-  </Switch>
-)
-export default RouterRoot
+const router = createBrowserRouter([
+  {
+
+    path: getRouterRoutePath(Route.HOME),
+    element: wrapElement(<Home/>)
+  },
+  {
+    path: getRouterRoutePath(Route.WATCH),
+    element: <Watch/>
+  },
+  {
+    path: getRouterRoutePath(Route.EMBED),
+    element: <Embed/>
+  },
+  {
+    path: getRouterRoutePath(Route.FILE_HANDLER),
+    element: wrapElement(<FileHandler/>)
+  },  {
+    path: getRouterRoutePath(Route.PROTOCOL_HANDLER),
+    element: wrapElement(<ProtocolHandler/>)
+  },
+  {
+    path: '/*',
+    element: wrapElement(<div>404 No page found</div>)
+  }
+])
+
+export const RouterMount = () => <RouterProvider router={router}/>
+export default RouterMount

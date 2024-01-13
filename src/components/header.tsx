@@ -3,16 +3,16 @@ import type { RxDocument } from 'rxdb'
 import { settingsCollection, SettingsDocument, torrentCollection, useSettingsDocument, type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
+import { ChartConfiguration } from 'chart.js'
+import { Line } from 'react-chartjs-2'
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import 'uplot/dist/uPlot.min.css'
 
 import { getHumanReadableByteString } from '../utils/bytes'
 import Modal from './modal'
 import { useCallback, useEffect, useState } from 'react'
 import { Settings } from 'react-feather'
 import { useForm } from 'react-hook-form'
-import UplotReact from 'uplot-react'
 
 const style = css`
   display: grid;
@@ -25,11 +25,6 @@ const style = css`
   .chart-wrapper {
     height: 100%;
     width: 100%;
-    z-index: 999;
-
-    .uplot {
-      color: white;
-    }
   }
 
   .side {
@@ -426,6 +421,33 @@ export const StatisticsHeader = ({ ...rest }) => {
     }
   }, [currentDownloadSpeed])
 
+  const data = {
+    labels: dataPoints.map((log) => log && new Date(log.x).toLocaleTimeString()),
+    datasets: [
+      // {
+      //   label: 'Cubic interpolation (monotone)',
+      //   data: dataPoints.map((log) => log?.y),
+      //   borderColor: '#eb4034',
+      //   fill: false,
+      //   cubicInterpolationMode: 'monotone',
+      //   tension: 0.4
+      // },
+      // {
+      //   label: 'Cubic interpolation',
+      //   data: dataPoints.map((log) => log?.y),
+      //   borderColor: '#34eb40',
+      //   fill: false,
+      //   tension: 0.4
+      // },
+      {
+        label: 'Network',
+        data: dataPoints.map((log) => log?.y),
+        borderColor: '#4034eb',
+        fill: false
+      }
+    ]
+  }
+
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   const onOpen = () => {
@@ -436,75 +458,34 @@ export const StatisticsHeader = ({ ...rest }) => {
     setIsModalOpen(false)
   }
 
-  const data = [
-    dataPoints.map((log) => log?.x).filter(Boolean),
-    dataPoints.map((log) => log?.y / 1_000_000).filter(Boolean)
-  ]
-
-  const [options, setOptions] = useState<uPlot.Options>(() => ({
-    width: 1800,
-    height: 120,
-    cursor: {
-      show: false
-    },
-    legend: {
-      show: false
-    },
-    select: {
-      show: false,
-      height: 0,
-      left: 0,
-      top: 0,
-      width: 0
-    },
-    scales: {
-      mb: {
-        range: (u, dataMin, dataMax) => [0, dataMax]
-      }
-    },
-    series: [
-      {
-        value: (u, v, sidx, didx) => {
-          if (didx == null) {
-            let d = u.data[sidx];
-            v = d[d.length - 1];
-          }
-
-          return v;
-        }
-      },
-      {
-        label: "Download speed",
-        scale: "mb",
-        stroke: "#4034eb",
-        value: (u, v, sidx, didx) =>
-          didx
-            ? `${v} MB/s`
-            : `${u.data[1]?.at(-1)} MB/s`
-      }
-    ],
-    axes: [
-      { show: false },
-      { show: false, scale: "mb" },
-    ]
-  }))
-
-  const [target, setTarget] = useState<HTMLDivElement>()
-
   return (
     <div css={style} {...rest}>
       <SettingsModal isModalOpen={isModalOpen} onClose={onClose}/>
       <div className="chart-wrapper">
-        <div ref={ref => ref && setTarget(ref)}></div>
-        {
-          target && (
-            <UplotReact
-              options={options}
-              data={data}
-              target={target}
-            />
-          )
-        }
+        <Line
+          data={data}
+          options={{
+            ...config.options,
+            plugins: {
+              ...config.options.plugins,
+              tooltip: {
+                backgroundColor: '#4f4f4f',
+                displayColors: false,
+                animation: {
+                  duration: 0
+                },
+                callbacks: {
+                  label: (context) => `${context.dataset.label} ${getHumanReadableByteString(context.parsed.y, true)}/s`
+                }
+              }
+            },
+            interaction: {
+              mode: 'index',
+              axis: 'x',
+              intersect: false
+            }
+          }}
+        />
       </div>
       <div className='side'>
         <div className='stats'>

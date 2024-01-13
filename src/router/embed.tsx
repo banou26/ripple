@@ -2,7 +2,7 @@ import { Buffer } from 'buffer'
 
 import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
-import { useSearch } from 'wouter/use-location'
+import { useSearchParams } from 'react-router-dom'
 import ParseTorrent from 'parse-torrent'
 
 import FKNMediaPlayer from '@banou/media-player'
@@ -125,7 +125,7 @@ export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, s
   })
 
 const Player = () => {
-  const searchParams = new URLSearchParams(useSearch())
+  const [searchParams] = useSearchParams()
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => _magnet && atob(_magnet), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
