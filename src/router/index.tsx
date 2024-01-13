@@ -24,6 +24,7 @@ const RouterRoot = () =>(
   <Switch>
     <WRoute path={getRouterRoutePath(Route.HOME)} component={() => wrapElement(<Home/>)}/>
     <WRoute path={getRouterRoutePath(Route.WATCH)} component={() => <Watch/>}/>
+    <WRoute path={getRouterRoutePath(Route.EMBED)} component={() => wrapElement(<Embed/>)}/>
     <WRoute path={getRouterRoutePath(Route.FILE_HANDLER)} component={() => <FileHandler/>}/>
     <WRoute path={getRouterRoutePath(Route.PROTOCOL_HANDLER)} component={() => wrapElement(<ProtocolHandler/>)}/>
     <WRoute component={() => wrapElement(<div>404 No page found</div>)}/>
