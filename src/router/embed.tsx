@@ -67,6 +67,7 @@ div canvas {
 `
 
 const BASE_BUFFER_SIZE = 2_500_000
+const BACKPRESSURE_STREAM_ENABLED = !navigator.userAgent.includes("Firefox")
 
 const Player = () => {
   const [searchParams] = useSearchParams()
@@ -82,7 +83,7 @@ const Player = () => {
       magnet: magnet!,
       path: file!.path,
       offset,
-      end
+      end: end ?? (BACKPRESSURE_STREAM_ENABLED ? Math.min(offset + BASE_BUFFER_SIZE, size!) : undefined),
     })
 
   useEffect(() => {
