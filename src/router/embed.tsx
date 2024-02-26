@@ -66,63 +66,7 @@ div canvas {
 }
 `
 
-const BACKPRESSURE_STREAM_ENABLED = !navigator.userAgent.includes("Firefox")
-const BASE_BUFFER_SIZE = 5_000_000
-
-export const bufferStream = ({ stream, size: SIZE }: { stream: ReadableStream, size: number }) =>
-  new ReadableStream<Uint8Array>({
-    start() {
-      this.cancelled = false
-      // @ts-expect-error
-      this.reader = stream.getReader()
-    },
-    async pull(controller) {
-      try {
-        // @ts-expect-error
-        const { leftOverData }: { leftOverData: Uint8Array | undefined } = this
-
-        const accumulate = async ({ buffer = new Uint8Array(SIZE), currentSize = 0 } = {}): Promise<{ buffer?: Uint8Array, currentSize?: number, done: boolean }> => {
-          // @ts-expect-error
-          const { value: newBuffer, done } = await this.reader.read()
-
-          if (currentSize === 0 && leftOverData) {
-            buffer.set(leftOverData)
-            currentSize += leftOverData.byteLength
-            // @ts-expect-error
-            this.leftOverData = undefined
-          }
-    
-          if (done) {
-            return { buffer: buffer.slice(0, currentSize), currentSize, done }
-          }
-    
-          let newSize
-          const slicedBuffer = newBuffer.slice(0, SIZE - currentSize)
-          newSize = currentSize + slicedBuffer.byteLength
-          buffer.set(slicedBuffer, currentSize)
-    
-          if (newSize === SIZE) {
-            // @ts-expect-error
-            this.leftOverData = newBuffer.slice(SIZE - currentSize)
-            return { buffer, currentSize: newSize, done: false }
-          }
-          
-          return accumulate({ buffer, currentSize: newSize })
-        }
-        const { buffer, done } = await accumulate()
-        if (this.cancelled) return
-        if (buffer?.byteLength) controller.enqueue(buffer)
-        if (done) controller.close()
-      } catch (err) {
-        console.error(err)
-      }
-    },
-    cancel() {
-      // @ts-expect-error
-      this.reader.cancel()
-      this.cancelled = true
-    }
-  })
+const BASE_BUFFER_SIZE = 2_500_000
 
 const Player = () => {
   const [searchParams] = useSearchParams()
@@ -133,62 +77,13 @@ const Player = () => {
   const [file, setFile] = useState<Exclude<ParseTorrent.Instance['files'], undefined>[number]>()
   const [size, setSize] = useState<number>()
 
-  const [currentStreamOffset, setCurrentStreamOffset] = useState<number>(0)
-  const [streamReader, setStreamReader] = useState<ReadableStreamDefaultReader<Uint8Array>>()
-
-  useEffect(() => {
-    if (!streamReader) return
-    return () => void streamReader.cancel()
-  }, [streamReader])
-
-  const onFetch = async (offset: number, end?: number, force?: boolean) => {
-    if (offset >= file!.length - 1_000_000) {
-      const res = await torrent({
-        magnet: magnet!,
-        path: file!.path,
-        offset,
-        end: file?.length
-      })
-      return new Response(await res.arrayBuffer())
-    }
-    if (force || end !== undefined && ((end - offset) + 1) !== BASE_BUFFER_SIZE) {
-      return torrent({
-        magnet: magnet!,
-        path: file!.path,
-        offset,
-        end
-      })
-    }
-    const _streamReader =
-      !streamReader || currentStreamOffset !== offset
-        ? await setupStream(offset)
-        : streamReader
-
-    if (!_streamReader) throw new Error('Stream reader not ready')
-    return new Response(
-      await _streamReader
-        .read()
-        .then(({ value }) => {
-          if (value) {
-            setCurrentStreamOffset(offset => offset + value.byteLength)
-          }
-          return value
-        })
-    )
-  }
-
-  const setupStream = async (offset: number) => {
-    if (streamReader) {
-      streamReader.cancel()
-    }
-    const streamResponse = await onFetch(offset, undefined, true)
-    if (!streamResponse.body) throw new Error('no body')
-    const stream = bufferStream({ stream: streamResponse.body, size: BASE_BUFFER_SIZE })
-    const reader = stream.getReader()
-    setStreamReader(reader)
-    setCurrentStreamOffset(offset)
-    return reader
-  }
+  const onFetch = async (offset: number, end?: number) =>
+    torrent({
+      magnet: magnet!,
+      path: file!.path,
+      offset,
+      end
+    })
 
   useEffect(() => {
     if (!magnet) return
@@ -204,7 +99,6 @@ const Player = () => {
 
   useEffect(() => {
     if (!file) return
-    if (BACKPRESSURE_STREAM_ENABLED) setupStream(0)
     setSize(file.length)
   }, [file])
 
@@ -224,6 +118,7 @@ const Player = () => {
     <div css={playerStyle}>
       <FKNMediaPlayer
         size={size}
+        baseBufferSize={BASE_BUFFER_SIZE}
         fetch={(offset, end) => onFetch(offset, end)}
         publicPath={new URL(import.meta.env.DEV ? '/build/' : '/', new URL(window.location.toString()).origin).toString()}
         libavWorkerUrl={libavWorkerUrl}
