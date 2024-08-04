@@ -8,13 +8,12 @@ export default defineConfig((env) => ({
     target: 'esnext',
     emptyOutDir: false,
     lib: {
-      entry: ['src/index.tsx', 'src/shared-worker/index.ts', 'src/worker/index.ts'],
+      entry: ['src/index.tsx', 'src/worker/index.ts'],
       formats: ['es']
     },
     rollupOptions: {
       input: {
         index: 'src/index.tsx',
-        'shared-worker': 'src/shared-worker/index.ts',
         'worker': 'src/worker/index.ts'
       }
     }
