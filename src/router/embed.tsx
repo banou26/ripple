@@ -1,5 +1,3 @@
-import { Buffer } from 'buffer'
-
 import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
@@ -7,12 +5,9 @@ import ParseTorrent from 'parse-torrent'
 import { Readable } from 'stream'
 
 import FKNMediaPlayer from '@banou/media-player'
-import { torrent, torrentFile } from '@fkn/lib'
 
 import type WebTorrentType from 'webtorrent'
 import _WebTorrent from 'webtorrent/dist/webtorrent.min.js'
-
-import TorrentFile from '../../torrent.torrent?url'
 
 const WebTorrent = _WebTorrent as typeof WebTorrentType
 
@@ -96,17 +91,15 @@ const Player = () => {
 
   useEffect(() => {
     if (!magnet) return
-    console.log('magnet', magnet)
     const torrent = client.add(magnet, {  }, (torrent) => {
       const file = torrent.files[fileIndex]
       if (!file) throw new Error(`No file found with index ${fileIndex}`)
-      console.log('torrent', torrent)
       setInterval(() => {
-        console.log('progress', torrent.downloadSpeed, torrent.uploadSpeed, torrent.progress, torrent.numPeers)
-      }, 1000)
+        console.log(`progress ${torrent.progress * 100}% | DOWN ${torrent.downloadSpeed} | UP ${torrent.uploadSpeed} | PEERS ${torrent.numPeers}`)
+      }, 10_000)
     })
     torrent.on('ready', () => {
-      console.log('ready')
+      console.log('torrent ready', torrent)
       const file = torrent.files?.[fileIndex]
       if (!file) throw new Error(`No file found with index ${fileIndex}`)
       setFile(file)

@@ -53,7 +53,7 @@
     "react-router-dom": "^6.16.0",
     "rxdb": "^14.17.1",
     "rxjs": "^7.8.1",
-    "webtorrent": "file:../webtorrent/webtorrent",
+    "webtorrent": "github:banou26/webtorrent",
     "xstate": "^5.0.0-beta.47",
     "zod": "^3.22.4"
   },
