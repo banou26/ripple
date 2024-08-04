@@ -1,12 +1,15 @@
-import { Buffer } from 'buffer'
-
 import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import ParseTorrent from 'parse-torrent'
+import { Readable } from 'stream'
 
 import FKNMediaPlayer from '@banou/media-player'
-import { torrent, torrentFile } from '@fkn/lib'
+
+import type WebTorrentType from 'webtorrent'
+import _WebTorrent from 'webtorrent/dist/webtorrent.min.js'
+
+const WebTorrent = _WebTorrent as typeof WebTorrentType
 
 const playerStyle = css`
 height: 100%;
@@ -66,8 +69,9 @@ div canvas {
 }
 `
 
+const client = new WebTorrent({ utp: false })
+
 const BASE_BUFFER_SIZE = 2_500_000
-const BACKPRESSURE_STREAM_ENABLED = !navigator.userAgent.includes("Firefox")
 
 const Player = () => {
   const [searchParams] = useSearchParams()
@@ -77,25 +81,30 @@ const Player = () => {
 
   const [file, setFile] = useState<Exclude<ParseTorrent.Instance['files'], undefined>[number]>()
   const [size, setSize] = useState<number>()
+  const [webtorrentInstance, setWebtorrentInstance] = useState<WebTorrentType.Torrent>()
 
-  const onFetch = async (offset: number, end?: number) =>
-    torrent({
-      magnet: magnet!,
-      path: file!.path,
-      offset,
-      end: end ?? (BACKPRESSURE_STREAM_ENABLED ? Math.min(offset + BASE_BUFFER_SIZE, size!) : undefined),
-    })
+  const onFetch = (offset: number, end?: number) =>
+    webtorrentInstance
+      ?.files
+      ?.[fileIndex]
+      ?.createReadStream({ start: offset, end: end ?? size! })
 
   useEffect(() => {
     if (!magnet) return
-    torrentFile({ magnet })
-      .then(async (torrentFile) => {
-        const buffer = await torrentFile.arrayBuffer()
-        const torrentInstance = (await ParseTorrent(Buffer.from(buffer))) as ParseTorrent.Instance
-        const file = torrentInstance.files?.[fileIndex]
-        if (!file) throw new Error(`No file found with index ${fileIndex}`)
-        setFile(file)
-      })
+    const torrent = client.add(magnet, {  }, (torrent) => {
+      const file = torrent.files[fileIndex]
+      if (!file) throw new Error(`No file found with index ${fileIndex}`)
+      setInterval(() => {
+        console.log(`progress ${torrent.progress * 100}% | DOWN ${torrent.downloadSpeed} | UP ${torrent.uploadSpeed} | PEERS ${torrent.numPeers}`)
+      }, 10_000)
+    })
+    torrent.on('ready', () => {
+      console.log('torrent ready', torrent)
+      const file = torrent.files?.[fileIndex]
+      if (!file) throw new Error(`No file found with index ${fileIndex}`)
+      setFile(file)
+      setWebtorrentInstance(torrent)
+    })
   }, [magnet, fileIndex])
 
   useEffect(() => {
@@ -117,17 +126,40 @@ const Player = () => {
 
   return (
     <div css={playerStyle}>
-      <FKNMediaPlayer
-        size={size}
-        baseBufferSize={BASE_BUFFER_SIZE}
-        fetch={(offset, end) => onFetch(offset, end)}
-        publicPath={new URL(import.meta.env.DEV ? '/build/' : '/', new URL(window.location.toString()).origin).toString()}
-        libavWorkerUrl={libavWorkerUrl}
-        libassWorkerUrl={jassubWorkerUrl}
-        wasmUrl={new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, new URL(window.location.toString()).origin).toString()}
-      />
+      {
+        <FKNMediaPlayer
+          size={
+            webtorrentInstance?.files?.[fileIndex]
+              ? size
+              : undefined
+          }
+          baseBufferSize={BASE_BUFFER_SIZE}
+          fetch={async (offset, end) => new Response(nodeToWebReadable(onFetch(offset, end)))}
+          publicPath={new URL(import.meta.env.DEV ? '/build/' : '/', new URL(window.location.toString()).origin).toString()}
+          libavWorkerUrl={libavWorkerUrl}
+          libassWorkerUrl={jassubWorkerUrl}
+          wasmUrl={new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, new URL(window.location.toString()).origin).toString()}
+        />
+      }
     </div>
   )
+}
+
+const nodeToWebReadable = (stream: Readable) => {
+  const iterator = stream[Symbol.asyncIterator]()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await iterator.next()
+      if (done) {
+        controller.close()
+        return
+      }
+      controller.enqueue(value)
+    },
+    cancel() {
+      stream.destroy()
+    }
+  })
 }
 
 export default Player

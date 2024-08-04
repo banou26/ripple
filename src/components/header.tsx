@@ -1,6 +1,6 @@
 import type { RxDocument } from 'rxdb'
 
-import { settingsCollection, SettingsDocument, torrentCollection, useSettingsDocument, type TorrentDocument } from '../database'
+// import { settingsCollection, SettingsDocument, torrentCollection, useSettingsDocument, type TorrentDocument } from '../database'
 
 import { css } from '@emotion/react'
 import { ChartConfiguration } from 'chart.js'
