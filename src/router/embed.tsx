@@ -158,6 +158,7 @@ const nodeToWebReadable = (stream: Readable) => {
     },
     cancel() {
       stream.destroy()
+      iterator.return?.()
     }
   })
 }
