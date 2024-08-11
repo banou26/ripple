@@ -69,7 +69,7 @@ div canvas {
 }
 `
 
-const client = new WebTorrent({ utp: false })
+const client = new WebTorrent({ utp: false, downloadLimit: 25_000_000 })
 
 const BASE_BUFFER_SIZE = 2_500_000
 
