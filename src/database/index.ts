@@ -1,5 +1,5 @@
 // import './rxdb'
 // export * from './database'
-// export * from './torrents'
+export * from './torrents'
 // export * from './settings'
 // export * from './schema'

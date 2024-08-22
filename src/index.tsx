@@ -68,7 +68,9 @@ const root = createRoot(rootElem)
 
 root.render(
   <>
-    <Global styles={style}/>
-    <Mount/>
+    {/* <RealmProvider> */}
+      <Global styles={style}/>
+      <Mount/>
+    {/* </RealmProvider> */}
   </>
 )
