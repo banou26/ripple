@@ -141,12 +141,13 @@ type TorrentFileEmbeddedLRURankItem = {
 const opfsRoot = navigator.storage.getDirectory()
 const _torrentFolder = opfsRoot
 
-const getTorrentsEmbeddedLRURank = async () => {
+const clearEmbeddedTorrentsOffLRURank = async () => {
   const torrentFolder = await _torrentFolder
   const torrentCollection = await _torrentCollection
-  const embeddedTorrents = await torrentCollection.find({ selector: { embedded: true } }).exec()
+  const torrentDocuments = await torrentCollection.find({}).exec()
   const embeddedTorrentFiles =
-    embeddedTorrents
+    torrentDocuments
+      .filter(torrent => torrent.embedded)
       .flatMap(torrent =>
         torrent.state.files.map((torrentFileRankItem, index) => ({
           torrentDocument: torrent,
@@ -219,6 +220,22 @@ const getTorrentsEmbeddedLRURank = async () => {
 
   for (const torrentFileRankItem of sortedEmbeddedTorrentFiles) {
     cache.set(torrentFileRankItem.infoHash, torrentFileRankItem)
+  }
+
+  const allOPFSFolders = await torrentFolder.entries()
+  for await (const [folderName, folderHandle] of allOPFSFolders) {
+    if (folderHandle.kind !== 'directory') continue
+    const opfsFolderName = folderHandle.name
+    if (
+      torrentDocuments.some(torrent =>
+        torrent.state.files.some(file =>
+          `${file.name} - ${torrent.infoHash.slice(0, 8)}` === opfsFolderName
+        )
+      )
+    ) {
+      continue
+    }
+    await torrentFolder.removeEntry(opfsFolderName, { recursive: true })
   }
 
   return [...cache.values()]
@@ -295,7 +312,7 @@ export const addTorrent = async (
       }
     )
 
-    await getTorrentsEmbeddedLRURank()
+    await clearEmbeddedTorrentsOffLRURank()
 
     if (selectedFile) {
       selectedFile.select()
