@@ -1,4 +1,4 @@
-import type { RxCollection } from 'rxdb'
+import type { RxCollection, RxDocument } from 'rxdb'
 import type { Torrent, TorrentFile, TorrentOptions } from 'webtorrent'
 
 import { Buffer } from 'buffer' 
@@ -24,6 +24,17 @@ export type TorrentDocument = {
       index: number
       length: number
       downloadedAt: number | undefined
+      accessedAt: number
+      name: string
+      piecesInfo: {
+        index: number
+        start: number
+        end: number
+        startPieceIndex: number
+        endPieceIndex: number
+        isStartPieceMultiFile: boolean
+        isEndPieceMultiFile: boolean
+      }
     }[]
   }
 }
@@ -71,6 +82,38 @@ export const torrentCollection =
                       },
                       downloadedAt: {
                         type: 'number'
+                      },
+                      accessedAt: {
+                        type: 'number'
+                      },
+                      name: {
+                        type: 'string'
+                      },
+                      piecesInfo: {
+                        type: 'object',
+                        properties: {
+                          index: {
+                            type: 'number'
+                          },
+                          start: {
+                            type: 'number'
+                          },
+                          end: {
+                            type: 'number'
+                          },
+                          startPieceIndex: {
+                            type: 'number'
+                          },
+                          endPieceIndex: {
+                            type: 'number'
+                          },
+                          isStartPieceMultiFile: {
+                            type: 'boolean'
+                          },
+                          isEndPieceMultiFile: {
+                            type: 'boolean'
+                          },
+                        }
                       }
                     }
                   }
@@ -86,42 +129,99 @@ export const torrentCollection =
 
 const _torrentCollection = torrentCollection
 
-type TorrentFileCacheItem = { infoHash: string, fileIndex: number, downloadedAt?: number }
+type TorrentFileEmbeddedLRURankItem = {
+  torrentDocument: RxDocument<TorrentDocument>
+  infoHash: string
+  fileIndex: number
+  length: number
+  downloadedAt: number
+  accessedAt: number
+}
 
-const getTorrentsLRUCache = async () => {
+const opfsRoot = navigator.storage.getDirectory()
+const _torrentFolder = opfsRoot
+
+const getTorrentsEmbeddedLRURank = async () => {
+  const torrentFolder = await _torrentFolder
   const torrentCollection = await _torrentCollection
   const embeddedTorrents = await torrentCollection.find({ selector: { embedded: true } }).exec()
   const embeddedTorrentFiles =
     embeddedTorrents
       .flatMap(torrent =>
-        torrent.state.files.map((torrentFileCacheItem, index) => ({
+        torrent.state.files.map((torrentFileRankItem, index) => ({
+          torrentDocument: torrent,
           infoHash: torrent.infoHash,
           fileIndex: index,
-          downloadedAt: torrentFileCacheItem.downloadedAt
-        }) as TorrentFileCacheItem)
+          downloadedAt: torrentFileRankItem.downloadedAt,
+          accessedAt: torrentFileRankItem.accessedAt,
+          length: torrentFileRankItem.length
+        }) as TorrentFileEmbeddedLRURankItem)
       )
   const sortedEmbeddedTorrentFiles =
     embeddedTorrentFiles
-      .filter((torrentFileCacheItem): torrentFileCacheItem is TorrentFileCacheItem & { downloadedAt: number } =>
-        torrentFileCacheItem.downloadedAt !== undefined
+      .filter((torrentFileRankItem): torrentFileRankItem is TorrentFileEmbeddedLRURankItem & { accessedAt: number } =>
+        torrentFileRankItem.accessedAt !== undefined
       )
-      .sort((a, b) => a.downloadedAt - b.downloadedAt)
-
-  const sortedEmbeddedTorrentFilesPieces =
-    await Promise.all(
-      sortedEmbeddedTorrentFiles.map(async torrentFileCacheItem => ({
-        ...torrentFileCacheItem,
-        piecesInfo: getTorrentFilePieces(await client.get(torrentFileCacheItem.infoHash), torrentFileCacheItem.fileIndex)
-      }))
-    )
-
-  console.log(sortedEmbeddedTorrentFilesPieces)
+      .sort((a, b) => a.accessedAt - b.accessedAt)
 
   const storageEstimate = await navigator.storage.estimate()
-  const cache = new LRUCache<string, TorrentFile>({
-    maxSize: storageEstimate.quota!,
-    sizeCalculation: (torrentFile) => torrentFile.length
+  const cache = new LRUCache<string, TorrentFileEmbeddedLRURankItem>({
+    maxSize: Math.max(storageEstimate.quota!, 25_000_000),
+    sizeCalculation: (torrentFile) => torrentFile.length,
+    dispose: async (torrentFile) => {
+      const torrentFileState = torrentFile.torrentDocument.state.files[torrentFile.fileIndex]
+      if (!torrentFileState) throw new Error('torrentFileState not found')
+      const torrent = await client.get(torrentFile.infoHash)
+      const torrentFileInstance = torrent?.files.find((_, index) => index === torrentFile.fileIndex)
+      if (torrentFileInstance) {
+        torrentFileInstance.deselect()
+      }
+      // todo: handle torrent batches
+      const fileFolderName = `${torrentFileState.name} - ${torrentFile.infoHash.slice(0, 8)}`
+      const opfsFolder = await torrentFolder.getDirectoryHandle(fileFolderName)
+      const piecesArray =
+        new Array(torrentFileState.piecesInfo.endPieceIndex - torrentFileState.piecesInfo.startPieceIndex)
+          .fill(undefined)
+          .map((_, index) => index + torrentFileState.piecesInfo.startPieceIndex)
+      await Promise.all(
+        piecesArray.map(async (pieceIndex, index) => {
+          if (
+            torrentFileState.piecesInfo.isStartPieceMultiFile
+            && index - torrentFileState.piecesInfo.startPieceIndex === pieceIndex
+          ) {
+            return
+          }
+          await opfsFolder.removeEntry(pieceIndex.toString())
+        })
+      )
+
+      const isUniqueFileDownloaded =
+        torrentFile.torrentDocument.state.files.length > 1
+          ? (
+            torrentFile
+              .torrentDocument
+              .state
+              .files
+              .some(file =>
+                file !== torrentFileState
+                && file.downloadedAt !== undefined
+              )
+          )
+          : true
+      if (isUniqueFileDownloaded) {
+        await torrentFolder.removeEntry(fileFolderName, { recursive: true })
+        if (torrent) {
+          torrent.destroy()
+        }
+      }
+    }
   })
+
+  for (const torrentFileRankItem of sortedEmbeddedTorrentFiles) {
+    cache.set(torrentFileRankItem.infoHash, torrentFileRankItem)
+  }
+
+  return [...cache.values()]
 }
 
 export const parseTorrentInput = (options: { torrentFile: Uint8Array } | { magnet: string }): ParseTorrent.Instance =>
@@ -147,7 +247,7 @@ export const addTorrent = async (
       ? Buffer.from(foundTorrent.state.torrentFile, 'base64')
       : parsedTorrent as ParseTorrent.Instance
 
-  const torrent = client.add(input, wtOptions ?? {}, callback)
+  const torrent = client.add(input, { ...wtOptions }, callback)
 
   if (options.embedded) {
     torrent.files.forEach((file) => file.deselect())
@@ -156,45 +256,51 @@ export const addTorrent = async (
     options.fileIndex
       ? torrent.files[options.fileIndex]
       : undefined
-  if (selectedFile) {
-    selectedFile.select()
-  }
 
-  torrent.on(
-    'ready',
-    async () => {
-      getTorrentsLRUCache()
-      await torrentCollection.upsert(
-        {
-          infoHash,
-          embedded:
-            options.embedded
-            ?? foundTorrent?.embedded
-            ?? false,
-          state: {
-            ...foundTorrent?.state,
-            magnet: foundTorrent?.state.magnet ?? torrent.magnetURI,
-            torrentFile: Buffer.from(torrent.torrentFile).toString('base64'),
-            addedAt: foundTorrent?.state.addedAt ?? Date.now(),
-            files: torrent.files.map((file, index) => ({
+  torrent.on('metadata', async () => {
+    await torrentCollection.upsert(
+      {
+        infoHash,
+        embedded:
+          options.embedded
+          ?? foundTorrent?.embedded
+          ?? false,
+        state: {
+          ...foundTorrent?.state,
+          magnet: foundTorrent?.state.magnet ?? torrent.magnetURI,
+          torrentFile: Buffer.from(torrent.torrentFile).toString('base64'),
+          addedAt: foundTorrent?.state.addedAt ?? Date.now(),
+          files: await Promise.all(
+            torrent.files.map(async (file, index) => ({
               index,
               length: file.length,
               downloadedAt:
-                options.fileIndex === index
-                  ? Date.now()
-                  : (
-                    foundTorrent
-                      ?.state
-                      .files
-                      ?.[index]
-                      ?.downloadedAt
-                  )
+                foundTorrent
+                  ?.state
+                  .files
+                  ?.[index]
+                  ?.downloadedAt
+                ?? (
+                  options.fileIndex === index
+                    ? Date.now()
+                    // means the file wasn't downloaded
+                    : undefined
+                ),
+              name: file.name,
+              accessedAt: Date.now(),
+              piecesInfo: await getTorrentFilePieces(torrent, index)
             }))
-          }
+          )
         }
-      )
+      }
+    )
+
+    await getTorrentsEmbeddedLRURank()
+
+    if (selectedFile) {
+      selectedFile.select()
     }
-  )
+  })
 
   return torrent
 }

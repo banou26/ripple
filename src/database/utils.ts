@@ -16,25 +16,37 @@ export const getTorrentFilePieces = (torrent: Torrent, fileIndex: number) => {
 
   const filePieceRanges =
     filesByteRanges.reduce(
-      (piecesRanges, fileByteRange) => [
-        ...piecesRanges,
-        {
-          ...fileByteRange,
-          startPieceIndex: Math.round(fileByteRange.start / torrent.pieceLength),
-          isStartPieceMultiFile: !Number.isInteger(fileByteRange.start / torrent.pieceLength),
-          endPieceIndex:
-            Math.round(fileByteRange.end / torrent.pieceLength) >= torrent.pieces.length - 1
-              ? torrent.pieces.length - 1
-              : Math.round(fileByteRange.end / torrent.pieceLength),
-          isEndPieceMultiFile:
-            !Number.isInteger(
-              Math.round(fileByteRange.end / torrent.pieceLength) >= torrent.pieces.length - 1
+      (piecesRanges, fileByteRange) => {
+        const piecesCount = Math.ceil(fileByteRange.end / torrent.pieceLength)
+        
+        return [
+          ...piecesRanges,
+          {
+            ...fileByteRange,
+            startPieceIndex: Math.round(fileByteRange.start / torrent.pieceLength),
+            isStartPieceMultiFile: !Number.isInteger(fileByteRange.start / torrent.pieceLength),
+            endPieceIndex:
+              piecesCount >= torrent.pieces.length - 1
                 ? torrent.pieces.length - 1
-                : Math.round(fileByteRange.end / torrent.pieceLength)
-            )
-        }
-      ],
-      [] as { index: number, start: number, end: number, startPieceIndex: number, endPieceIndex: number }[]
+                : piecesCount,
+            isEndPieceMultiFile:
+              !Number.isInteger(
+                piecesCount >= torrent.pieces.length - 1
+                  ? torrent.pieces.length - 1
+                  : piecesCount
+              )
+          }
+        ]
+      },
+      [] as {
+        index: number
+        start: number
+        end: number
+        startPieceIndex: number
+        endPieceIndex: number
+        isStartPieceMultiFile: boolean
+        isEndPieceMultiFile: boolean
+      }[]
     )
 
   return filePieceRanges[fileIndex]!
