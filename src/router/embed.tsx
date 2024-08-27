@@ -1,15 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
-import ParseTorrent from 'parse-torrent'
-import { Readable } from 'stream'
 
 import FKNMediaPlayer from '@banou/media-player'
 
-import type WebTorrentType from 'webtorrent'
-import _WebTorrent from 'webtorrent/dist/webtorrent.min.js'
-
-const WebTorrent = _WebTorrent as typeof WebTorrentType
+import { nodeToWebReadable } from '../utils/stream'
+import { useTorrent } from '../database'
 
 const playerStyle = css`
 height: 100%;
@@ -69,8 +65,6 @@ div canvas {
 }
 `
 
-const client = new WebTorrent({ utp: false, downloadLimit: 25_000_000 })
-
 const BASE_BUFFER_SIZE = 2_500_000
 
 const Player = () => {
@@ -78,39 +72,14 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => _magnet && atob(_magnet), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
+  const webtorrentInstance = useTorrent({ embedded: true, fileIndex, magnet, disabled: !magnet })
 
-  const [file, setFile] = useState<Exclude<ParseTorrent.Instance['files'], undefined>[number]>()
-  const [size, setSize] = useState<number>()
-  const [webtorrentInstance, setWebtorrentInstance] = useState<WebTorrentType.Torrent>()
+  const selectedFile = webtorrentInstance?.files?.[fileIndex]
+  const fileSize = selectedFile?.length
 
   const onFetch = (offset: number, end?: number) =>
-    webtorrentInstance
-      ?.files
-      ?.[fileIndex]
-      ?.createReadStream({ start: offset, end: end ?? size! })
-
-  useEffect(() => {
-    if (!magnet) return
-    const torrent = client.add(magnet, {  }, (torrent) => {
-      const file = torrent.files[fileIndex]
-      if (!file) throw new Error(`No file found with index ${fileIndex}`)
-      setInterval(() => {
-        console.log(`progress ${torrent.progress * 100}% | DOWN ${torrent.downloadSpeed} | UP ${torrent.uploadSpeed} | PEERS ${torrent.numPeers}`)
-      }, 10_000)
-    })
-    torrent.on('ready', () => {
-      console.log('torrent ready', torrent)
-      const file = torrent.files?.[fileIndex]
-      if (!file) throw new Error(`No file found with index ${fileIndex}`)
-      setFile(file)
-      setWebtorrentInstance(torrent)
-    })
-  }, [magnet, fileIndex])
-
-  useEffect(() => {
-    if (!file) return
-    setSize(file.length)
-  }, [file])
+    selectedFile
+      ?.createReadStream({ start: offset, end: end ?? fileSize! })
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -126,41 +95,30 @@ const Player = () => {
 
   return (
     <div css={playerStyle}>
-      {
-        <FKNMediaPlayer
-          size={
-            webtorrentInstance?.files?.[fileIndex]
-              ? size
-              : undefined
-          }
-          baseBufferSize={BASE_BUFFER_SIZE}
-          fetch={async (offset, end) => new Response(nodeToWebReadable(onFetch(offset, end)))}
-          publicPath={new URL(import.meta.env.DEV ? '/build/' : '/', new URL(window.location.toString()).origin).toString()}
-          libavWorkerUrl={libavWorkerUrl}
-          libassWorkerUrl={jassubWorkerUrl}
-          wasmUrl={new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, new URL(window.location.toString()).origin).toString()}
-        />
-      }
+      <FKNMediaPlayer
+        size={fileSize}
+        baseBufferSize={BASE_BUFFER_SIZE}
+        fetch={
+          async (offset, end) =>
+            new Response(nodeToWebReadable(onFetch(offset, end)!))
+        }
+        publicPath={
+          new URL(
+            import.meta.env.DEV ? '/build/' : '/',
+            new URL(window.location.toString()).origin
+          ).toString()
+        }
+        libavWorkerUrl={libavWorkerUrl}
+        libassWorkerUrl={jassubWorkerUrl}
+        wasmUrl={
+          new URL(
+            `${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`,
+            new URL(window.location.toString()).origin
+          ).toString()
+        }
+      />
     </div>
   )
-}
-
-const nodeToWebReadable = (stream: Readable) => {
-  const iterator = stream[Symbol.asyncIterator]()
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      const { done, value } = await iterator.next()
-      if (done) {
-        controller.close()
-        return
-      }
-      controller.enqueue(value)
-    },
-    cancel() {
-      stream.destroy()
-      iterator.return?.()
-    }
-  })
 }
 
 export default Player
