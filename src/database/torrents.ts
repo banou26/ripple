@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { database } from './rxdb'
 import { client } from '../webtorrent'
 import { getTorrentFilePieces } from './utils'
+import { deleteDB } from 'idb'
 
 export type TorrentDocument = {
   infoHash: string
@@ -41,7 +42,7 @@ export type TorrentDocument = {
 
 export type TorrentCollection = RxCollection<TorrentDocument>
 
-export const torrentCollection =
+const tryAddCollection = () =>
   database
     .addCollections({
       torrents: {
@@ -125,7 +126,23 @@ export const torrentCollection =
         }
       }
     })
+    .catch(async err => {
+      console.warn('RXDB DB creation errored, clearing IDB instances')
+      console.error(err)
+      const rxDBs =
+        (await indexedDB.databases())
+          .filter(dbInfo => dbInfo.name?.startsWith('rxdb-'))
+
+      await Promise.all(
+        rxDBs.map(rxDB => deleteDB(rxDB.name!))
+      )
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      return tryAddCollection()
+    })
     .then(({ torrents }) => torrents as unknown as Promise<TorrentCollection>)
+
+export const torrentCollection = tryAddCollection()
+  
 
 const _torrentCollection = torrentCollection
 

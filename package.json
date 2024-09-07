@@ -39,6 +39,7 @@
     "@vitejs/plugin-react": "^4.0.4",
     "chart.js": "^4.4.0",
     "dexie": "^4.0.0-alpha.4",
+    "idb": "^8.0.0",
     "idb-keyval": "^6.2.1",
     "lru-cache": "^11.0.0",
     "osra": "^0.0.12",
