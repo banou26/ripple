@@ -184,7 +184,7 @@ const clearEmbeddedTorrentsOffLRURank = async () => {
 
   const storageEstimate = await navigator.storage.estimate()
   const cache = new LRUCache<string, TorrentFileEmbeddedLRURankItem>({
-    maxSize: Math.max(storageEstimate.quota!, 25_000_000),
+    maxSize: Math.min(storageEstimate.quota! - 10_000_000, 25_000_000_000),
     sizeCalculation: (torrentFile) => torrentFile.length,
     dispose: async (torrentFile) => {
       const torrentFileState = torrentFile.torrentDocument.state.files[torrentFile.fileIndex]
