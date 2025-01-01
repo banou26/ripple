@@ -33,7 +33,7 @@
   "dependencies": {
     "@banou/media-player": "^0.3.0",
     "@emotion/react": "^11.11.1",
-    "@fkn/lib": "^0.1.0",
+    "@fkn/lib": "^0.2.1",
     "@hookform/resolvers": "^3.3.2",
     "@radix-ui/react-hover-card": "^1.0.7",
     "@vitejs/plugin-react": "^4.0.4",
