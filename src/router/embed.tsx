@@ -2,10 +2,11 @@ import { useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 
-import FKNMediaPlayer from '@banou/media-player'
+import MediaPlayer from '@banou/media-player'
 
 import { nodeToWebReadable } from '../utils/stream'
 import { useTorrent } from '../database'
+import { toBufferedStream, toStreamChunkSize } from '../utils'
 
 const playerStyle = css`
 height: 100%;
@@ -65,7 +66,7 @@ div canvas {
 }
 `
 
-const BASE_BUFFER_SIZE = 2_500_000
+const BASE_BUFFER_SIZE = 5_000_000
 
 const Player = () => {
   const [searchParams] = useSearchParams()
@@ -77,9 +78,9 @@ const Player = () => {
   const selectedFile = webtorrentInstance?.files?.[fileIndex]
   const fileSize = selectedFile?.length
 
-  const onFetch = (offset: number, end?: number) =>
+  const onFetch = (offset: number, size?: number) =>
     selectedFile
-      ?.createReadStream({ start: offset, end: end ?? fileSize! })
+      ?.createReadStream({ start: offset, end: size ? (offset + size) : fileSize! })
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -93,29 +94,70 @@ const Player = () => {
     return URL.createObjectURL(blob)
   }, [])
 
+  const publicPath = useMemo(
+    () =>
+      new URL(
+        import.meta.env.DEV ? '/build/' : '/',
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const jassubModernWasmUrl = useMemo(
+    () =>
+      new URL(
+        `${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`,
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const jassubWasmUrl = useMemo(
+    () =>
+      new URL(
+        `${import.meta.env.DEV ? '/build' : ''}/jassub-worker.wasm`,
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const fetchData = async (offset: number, _size?: number) => {
+    const size = _size ?? BASE_BUFFER_SIZE
+    console.log('fetchData', offset, size)
+    const response = new Response(nodeToWebReadable(onFetch(offset, size)!))
+
+    const buffer =
+      await new Response(
+        await toStreamChunkSize(size)(
+          response.body!
+        ).pipeThrough(
+          new TransformStream({
+            transform(chunk, controller) {
+              const typedArray = new Uint8Array(chunk.byteLength)
+              typedArray.set(new Uint8Array(chunk))
+              controller.enqueue(typedArray)
+              controller.terminate()
+            }
+          })
+        )
+      ).arrayBuffer()
+
+    console.log('buffer', buffer)
+
+    return new Response(buffer)
+  }
   return (
     <div css={playerStyle}>
-      <FKNMediaPlayer
+      <MediaPlayer
+        title={selectedFile?.name}
+        bufferSize={BASE_BUFFER_SIZE}
+        fetchData={fetchData}
         size={fileSize}
-        baseBufferSize={BASE_BUFFER_SIZE}
-        fetch={
-          async (offset, end) =>
-            new Response(nodeToWebReadable(onFetch(offset, end)!))
-        }
-        publicPath={
-          new URL(
-            import.meta.env.DEV ? '/build/' : '/',
-            new URL(window.location.toString()).origin
-          ).toString()
-        }
+        publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
-        libassWorkerUrl={jassubWorkerUrl}
-        wasmUrl={
-          new URL(
-            `${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`,
-            new URL(window.location.toString()).origin
-          ).toString()
-        }
+        jassubWasmUrl={jassubWasmUrl}
+        jassubWorkerUrl={jassubWorkerUrl}
+        jassubModernWasmUrl={jassubModernWasmUrl}
       />
     </div>
   )
