@@ -73,7 +73,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
     "jassub": "^1.7.18",
-    "libav-wasm": "^0.5.2",
+    "libav-wasm": "^0.5.3",
     "node-stdlib-browser": "^1.2.0",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "serve": "^14.2.1",

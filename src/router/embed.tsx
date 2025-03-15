@@ -68,7 +68,7 @@ div canvas {
 }
 `
 
-const BASE_BUFFER_SIZE = 5_000_000
+const BASE_BUFFER_SIZE = 2_500_000
 
 const Player = () => {
   const [searchParams] = useSearchParams()
@@ -79,8 +79,6 @@ const Player = () => {
 
   const selectedFile = webtorrentInstance?.files?.[fileIndex]
   const fileSize = selectedFile?.length
-
-  const onFetch = (offset: number, end: number) => selectedFile?.createReadStream({ start: offset, end })
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -121,9 +119,11 @@ const Player = () => {
     []
   )
 
-  const fetchData = async (offset: number, _size?: number) => {
-    const size = _size ?? BASE_BUFFER_SIZE
-    return new Response(nodeToWebReadable(onFetch(offset, offset + size + 1)!))
+  const read = (offset: number, size: number) => {
+    if (!selectedFile) throw new Error('selectedFile is undefined')
+    const readable = selectedFile.createReadStream({ start: offset, end: offset + size - 1 })
+    const readableStream = nodeToWebReadable(readable)
+    return new Response(readableStream).arrayBuffer()
   }
 
   const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
@@ -144,15 +144,12 @@ const Player = () => {
     return () => clearInterval(interval)
   }, [webtorrentInstance])
 
-  console.log('webtorrentInstance', webtorrentInstance)
-  console.log('downloadedRanges', downloadedRanges)
-
   return (
     <div css={playerStyle}>
       <MediaPlayer
         title={selectedFile?.name}
         bufferSize={BASE_BUFFER_SIZE}
-        fetchData={fetchData}
+        read={read}
         size={fileSize}
         downloadedRanges={downloadedRanges}
         publicPath={publicPath}
