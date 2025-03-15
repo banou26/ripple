@@ -1,4 +1,6 @@
-import { useMemo } from 'react'
+import type { DownloadedRange } from '@banou/media-player/src/utils/context'
+
+import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -6,6 +8,7 @@ import MediaPlayer from '@banou/media-player'
 
 import { nodeToWebReadable } from '../utils/stream'
 import { useTorrent } from '../database'
+import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
 
 const playerStyle = css`
 height: 100%;
@@ -123,6 +126,27 @@ const Player = () => {
     return new Response(nodeToWebReadable(onFetch(offset, offset + size + 1)!))
   }
 
+  const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
+  
+  useEffect(() => {
+    if (!webtorrentInstance) return
+    const updateRanges = () => {
+      setDownloadedRanges(
+        getBytesRangesFromBitfield(
+          webtorrentInstance.bitfield, 
+          webtorrentInstance.pieceLength, 
+          webtorrentInstance.length
+        )
+      )
+    }
+    const interval = setInterval(() => updateRanges(), 1000)
+    updateRanges()
+    return () => clearInterval(interval)
+  }, [webtorrentInstance])
+
+  console.log('webtorrentInstance', webtorrentInstance)
+  console.log('downloadedRanges', downloadedRanges)
+
   return (
     <div css={playerStyle}>
       <MediaPlayer
@@ -130,6 +154,7 @@ const Player = () => {
         bufferSize={BASE_BUFFER_SIZE}
         fetchData={fetchData}
         size={fileSize}
+        downloadedRanges={downloadedRanges}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWasmUrl={jassubWasmUrl}
