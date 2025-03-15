@@ -8,14 +8,8 @@ export default defineConfig((env) => ({
     target: 'esnext',
     emptyOutDir: false,
     lib: {
-      entry: ['src/index.tsx', 'src/worker/index.ts'],
+      entry: ['src/index.tsx'],
       formats: ['es']
-    },
-    rollupOptions: {
-      input: {
-        index: 'src/index.tsx',
-        'worker': 'src/worker/index.ts'
-      }
     }
   },
   worker: {

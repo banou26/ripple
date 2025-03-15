@@ -1,11 +1,14 @@
-import { useMemo } from 'react'
+import type { DownloadedRange } from '@banou/media-player/src/utils/context'
+
+import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 
-import FKNMediaPlayer from '@banou/media-player'
+import MediaPlayer from '@banou/media-player'
 
 import { nodeToWebReadable } from '../utils/stream'
 import { useTorrent } from '../database'
+import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
 
 const playerStyle = css`
 height: 100%;
@@ -77,10 +80,6 @@ const Player = () => {
   const selectedFile = webtorrentInstance?.files?.[fileIndex]
   const fileSize = selectedFile?.length
 
-  const onFetch = (offset: number, end?: number) =>
-    selectedFile
-      ?.createReadStream({ start: offset, end: end ?? fileSize! })
-
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
     const blob = new Blob([`importScripts(${JSON.stringify(workerUrl)})`], { type: 'application/javascript' })
@@ -93,29 +92,71 @@ const Player = () => {
     return URL.createObjectURL(blob)
   }, [])
 
+  const publicPath = useMemo(
+    () =>
+      new URL(
+        import.meta.env.DEV ? '/build/' : '/',
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const jassubModernWasmUrl = useMemo(
+    () =>
+      new URL(
+        `${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`,
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const jassubWasmUrl = useMemo(
+    () =>
+      new URL(
+        `${import.meta.env.DEV ? '/build' : ''}/jassub-worker.wasm`,
+        new URL(window.location.toString()).origin
+      ).toString(),
+    []
+  )
+
+  const read = (offset: number, size: number) => {
+    if (!selectedFile) throw new Error('selectedFile is undefined')
+    const readable = selectedFile.createReadStream({ start: offset, end: offset + size - 1 })
+    const readableStream = nodeToWebReadable(readable)
+    return new Response(readableStream).arrayBuffer()
+  }
+
+  const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
+  
+  useEffect(() => {
+    if (!webtorrentInstance) return
+    const updateRanges = () => {
+      setDownloadedRanges(
+        getBytesRangesFromBitfield(
+          webtorrentInstance.bitfield, 
+          webtorrentInstance.pieceLength, 
+          webtorrentInstance.length
+        )
+      )
+    }
+    const interval = setInterval(() => updateRanges(), 1000)
+    updateRanges()
+    return () => clearInterval(interval)
+  }, [webtorrentInstance])
+
   return (
     <div css={playerStyle}>
-      <FKNMediaPlayer
+      <MediaPlayer
+        title={selectedFile?.name}
+        bufferSize={BASE_BUFFER_SIZE}
+        read={read}
         size={fileSize}
-        baseBufferSize={BASE_BUFFER_SIZE}
-        fetch={
-          async (offset, end) =>
-            new Response(nodeToWebReadable(onFetch(offset, end)!))
-        }
-        publicPath={
-          new URL(
-            import.meta.env.DEV ? '/build/' : '/',
-            new URL(window.location.toString()).origin
-          ).toString()
-        }
+        downloadedRanges={downloadedRanges}
+        publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
-        libassWorkerUrl={jassubWorkerUrl}
-        wasmUrl={
-          new URL(
-            `${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`,
-            new URL(window.location.toString()).origin
-          ).toString()
-        }
+        jassubWasmUrl={jassubWasmUrl}
+        jassubWorkerUrl={jassubWorkerUrl}
+        jassubModernWasmUrl={jassubModernWasmUrl}
       />
     </div>
   )
