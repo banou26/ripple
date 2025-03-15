@@ -6,7 +6,6 @@ import MediaPlayer from '@banou/media-player'
 
 import { nodeToWebReadable } from '../utils/stream'
 import { useTorrent } from '../database'
-import { toBufferedStream, toStreamChunkSize } from '../utils'
 
 const playerStyle = css`
 height: 100%;
@@ -78,9 +77,7 @@ const Player = () => {
   const selectedFile = webtorrentInstance?.files?.[fileIndex]
   const fileSize = selectedFile?.length
 
-  const onFetch = (offset: number, size?: number) =>
-    selectedFile
-      ?.createReadStream({ start: offset, end: size ? (offset + size) : fileSize! })
+  const onFetch = (offset: number, end: number) => selectedFile?.createReadStream({ start: offset, end })
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -123,29 +120,9 @@ const Player = () => {
 
   const fetchData = async (offset: number, _size?: number) => {
     const size = _size ?? BASE_BUFFER_SIZE
-    console.log('fetchData', offset, size)
-    const response = new Response(nodeToWebReadable(onFetch(offset, size)!))
-
-    const buffer =
-      await new Response(
-        await toStreamChunkSize(size)(
-          response.body!
-        ).pipeThrough(
-          new TransformStream({
-            transform(chunk, controller) {
-              const typedArray = new Uint8Array(chunk.byteLength)
-              typedArray.set(new Uint8Array(chunk))
-              controller.enqueue(typedArray)
-              controller.terminate()
-            }
-          })
-        )
-      ).arrayBuffer()
-
-    console.log('buffer', buffer)
-
-    return new Response(buffer)
+    return new Response(nodeToWebReadable(onFetch(offset, offset + size + 1)!))
   }
+
   return (
     <div css={playerStyle}>
       <MediaPlayer
