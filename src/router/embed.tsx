@@ -144,6 +144,12 @@ const Player = () => {
     return () => clearInterval(interval)
   }, [webtorrentInstance])
 
+  useEffect(() => {
+    if (!selectedFile || !fileSize) return
+    selectedFile.createReadStream({ start: 0, end: fileSize })
+    selectedFile?.select()
+  }, [selectedFile, fileSize])
+
   return (
     <div css={playerStyle}>
       <MediaPlayer
