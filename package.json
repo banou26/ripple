@@ -54,7 +54,7 @@
     "react-router-dom": "^6.16.0",
     "rxdb": "^14.17.1",
     "rxjs": "^7.8.2",
-    "webtorrent": "github:banou26/webtorrent",
+    "webtorrent": "npm:@banou/webtorrent@^2.5.19",
     "xstate": "^5.19.2",
     "zod": "^3.24.2"
   },
