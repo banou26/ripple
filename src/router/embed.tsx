@@ -158,6 +158,7 @@ const Player = () => {
         read={read}
         size={fileSize}
         downloadedRanges={downloadedRanges}
+        autoplay={true}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWasmUrl={jassubWasmUrl}
