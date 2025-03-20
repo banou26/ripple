@@ -342,7 +342,7 @@ export const addTorrent = async (
 export const useTorrent = (
   options:
     ({ torrentFile?: Uint8Array } | { magnet?: string })
-    & { embedded?: boolean, fileIndex?: number, disabled: boolean }
+    & { waitForReady?: boolean, embedded?: boolean, fileIndex?: number, disabled: boolean, wtOptions?: TorrentOptions }
 ) => {
   const [torrent, setTorrent] = useState<Torrent>()
 
@@ -351,14 +351,19 @@ export const useTorrent = (
     addTorrent(
       'torrentFile' in options ? { ...options, torrentFile: options.torrentFile! }
       : 'magnet' in options ? { ...options, magnet: options.magnet! }
-      : undefined as never
+      : undefined as never,
+      options?.wtOptions
     )
-      .then(torrent =>
-        torrent.on(
-          'ready',
-          () => setTorrent(torrent)
-        )
-      )
+      .then(torrent => {
+        if (options.waitForReady || options.waitForReady === undefined) {
+          torrent.on(
+            'ready',
+            () => setTorrent(torrent)
+          )
+        } else {
+          setTorrent(torrent)
+        }
+      })
       
   }, [options.disabled])
 

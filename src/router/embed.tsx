@@ -88,10 +88,10 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => _magnet && atob(_magnet), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const webtorrentInstance = useTorrent({ embedded: true, fileIndex, magnet, disabled: !magnet })
+  const webtorrentInstance = useTorrent({ waitForReady: false, embedded: true, fileIndex, magnet, disabled: !magnet })
 
   const selectedFile = webtorrentInstance?.files?.[fileIndex]
-  const fileSize = selectedFile?.length
+  const fileSize = webtorrentInstance?.ready ? selectedFile?.length : undefined
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -159,9 +159,13 @@ const Player = () => {
 
   useEffect(() => {
     if (!selectedFile || !fileSize) return
-    selectedFile.createReadStream({ start: 0, end: fileSize })
-    selectedFile?.select()
-  }, [selectedFile, fileSize])
+    if (selectedFile.select) {
+      selectedFile.select()
+    }
+    if (selectedFile.createReadStream) {
+      selectedFile.createReadStream({ start: 0, end: fileSize })
+    }
+  }, [selectedFile?.createReadStream, selectedFile?.select, fileSize])
 
   const [mediaInformationData, setMediaInformationData] = useState<{peers: number, downloadSpeed: number, uploadSpeed: number } | undefined>()
   const mediaInformation = useMemo(() => {
@@ -189,6 +193,52 @@ const Player = () => {
     return () => clearInterval(interval)
   }, [webtorrentInstance])
 
+  const [loadingInformationData, setLoadingInformationData] = useState<{ hasMetadata: Boolean, ready: boolean, downloaded: number } | undefined>()
+
+  const loadingInformation = useMemo(() => {
+    if (!loadingInformationData) return undefined
+
+    if (!loadingInformationData.hasMetadata) {
+      return (
+        <div>
+          Loading metadata
+        </div>
+      )
+    }
+
+    return (
+      <div>
+        {
+          !loadingInformationData.ready
+            ? (
+              <div>
+                Checking downloaded data {getHumanReadableByteString(loadingInformationData.downloaded)}
+              </div>
+            )
+            : (
+              <div>
+                Downloaded {getHumanReadableByteString(loadingInformationData.downloaded)}
+              </div>
+            )
+        }
+      </div>
+    )
+  }, [loadingInformationData])
+
+  useEffect(() => {
+    if (!webtorrentInstance) return
+    const updateLoadingInformation = () => {
+      setLoadingInformationData({
+        hasMetadata: Boolean(webtorrentInstance.metadata),
+        ready: webtorrentInstance.ready,
+        downloaded: webtorrentInstance.downloaded
+      })
+    }
+    const interval = setInterval(() => updateLoadingInformation(), 100)
+    updateLoadingInformation()
+    return () => clearInterval(interval)
+  }, [webtorrentInstance])
+
   return (
     <div css={playerStyle}>
       <MediaPlayer
@@ -198,6 +248,7 @@ const Player = () => {
         size={fileSize}
         downloadedRanges={downloadedRanges}
         autoplay={true}
+        loadingInformation={loadingInformation}
         mediaInformation={mediaInformation}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
