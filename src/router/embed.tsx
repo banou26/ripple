@@ -9,6 +9,7 @@ import MediaPlayer from '@banou/media-player'
 import { nodeToWebReadable } from '../utils/stream'
 import { useTorrent } from '../database'
 import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
+import { getHumanReadableByteString } from '../utils/bytes'
 
 const playerStyle = css`
 height: 100%;
@@ -64,6 +65,18 @@ div canvas {
 .hide {
   .player-overlay {
     display: none;
+  }
+}
+
+.media-information {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: white;
+  margin: 1rem;
+
+  & > div {
+    margin: 0 1rem;
   }
 }
 `
@@ -150,6 +163,32 @@ const Player = () => {
     selectedFile?.select()
   }, [selectedFile, fileSize])
 
+  const [mediaInformationData, setMediaInformationData] = useState<{peers: number, downloadSpeed: number, uploadSpeed: number } | undefined>()
+  const mediaInformation = useMemo(() => {
+    if (!mediaInformationData) return undefined
+    return (
+      <div className='media-information'>
+        <div>peers: {mediaInformationData.peers}</div>
+        <div>DOWN {getHumanReadableByteString(mediaInformationData.downloadSpeed)} /s</div> |
+        <div>UP {getHumanReadableByteString(mediaInformationData.uploadSpeed)} /s</div>
+      </div>
+    )
+  }, [mediaInformationData])
+
+  useEffect(() => {
+    if (!webtorrentInstance) return
+    const updateMediaInformation = () => {
+      setMediaInformationData({
+        peers: webtorrentInstance.numPeers,
+        downloadSpeed: webtorrentInstance.downloadSpeed,
+        uploadSpeed: webtorrentInstance.uploadSpeed
+      })
+    }
+    const interval = setInterval(() => updateMediaInformation(), 1000)
+    updateMediaInformation()
+    return () => clearInterval(interval)
+  }, [webtorrentInstance])
+
   return (
     <div css={playerStyle}>
       <MediaPlayer
@@ -159,6 +198,7 @@ const Player = () => {
         size={fileSize}
         downloadedRanges={downloadedRanges}
         autoplay={true}
+        mediaInformation={mediaInformation}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWasmUrl={jassubWasmUrl}
