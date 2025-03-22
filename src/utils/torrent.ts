@@ -4,11 +4,17 @@ import _WebTorrent from 'webtorrent/dist/webtorrent.min.js'
 
 import ParseTorrent from 'parse-torrent'
 import { createContext, useCallback, useEffect, useState } from 'react'
+import { get, set } from 'idb-keyval'
 
 const WebTorrent = _WebTorrent as typeof WebTorrentType
 
 export type WebTorrent = WebTorrentType.Instance
 export const WebTorrentContext = createContext<WebTorrent | undefined>(undefined)
+
+type SavedTorrentFileInfo = {
+  infoHash: string
+  torrentFile: ArrayBuffer
+}
 
 export const createWebtorrent = (config?: WebTorrentType.Options) => new WebTorrent({ utp: false, ...config })
 
@@ -103,12 +109,19 @@ export const useTorrent = (
       if (!options.webtorrent) return
       const parsedTorrent = await parseTorrentInput(options)
       if (!parsedTorrent) return
-      const torrent = options.webtorrent.add(parsedTorrent, { ...options.wtOptions, deselect: true })
+      const savedTorrentFile = await get<SavedTorrentFileInfo>('torrent-file')
+      const torrentFileOrMagnet =
+        'torrentFile' in options && options.torrentFile ? parsedTorrent
+        : parsedTorrent.infoHash === savedTorrentFile?.infoHash ? await parseTorrentInput({ torrentFile: new Uint8Array(savedTorrentFile.torrentFile) })
+        : parsedTorrent
+      if (!torrentFileOrMagnet) return
+      const torrent = options.webtorrent.add(torrentFileOrMagnet, { ...options.wtOptions, deselect: true })
       console.log('torrent', torrent)
 
       torrent.on('error', err => console.error(err))
   
       torrent.on('metadata', () => {
+        set('torrent-file', { infoHash: torrent.infoHash, torrentFile: torrent.torrentFile.buffer } satisfies SavedTorrentFileInfo)
         if (options.readyOn !== 'metadata') return
         setTorrent(torrent)
       })
