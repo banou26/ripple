@@ -143,20 +143,22 @@ const Player = () => {
   const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
   
   useEffect(() => {
-    if (!torrent) return
+    if (!torrent || !selectedFile) return
     const updateRanges = () => {
       setDownloadedRanges(
         getBytesRangesFromBitfield(
           torrent.bitfield, 
           torrent.pieceLength, 
-          torrent.length
+          torrent.length,
+          selectedFile.offset,
+          selectedFile.length
         )
       )
     }
     const interval = setInterval(() => updateRanges(), 1000)
     updateRanges()
     return () => clearInterval(interval)
-  }, [torrent])
+  }, [torrent, selectedFile])
 
   const [mediaInformationData, setMediaInformationData] = useState<{peers: number, downloadSpeed: number, uploadSpeed: number } | undefined>()
   const mediaInformation = useMemo(() => {

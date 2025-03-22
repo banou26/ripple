@@ -95,7 +95,7 @@ export const useTorrent = (
         torrent.select(selectedFile._startPiece, selectedFile._endPiece, 1)
       }
     },
-    [torrent]
+    [torrent, options.fileIndex]
   )
 
   useEffect(() => {
