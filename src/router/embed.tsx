@@ -1,15 +1,15 @@
 import type { DownloadedRange } from '@banou/media-player/src/utils/context'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 
 import MediaPlayer from '@banou/media-player'
 
 import { nodeToWebReadable } from '../utils/stream'
-import { useTorrent } from '../database'
 import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { useTorrent, WebTorrentContext } from '../utils/torrent'
 
 const playerStyle = css`
 height: 100%;
@@ -88,10 +88,11 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => _magnet && atob(_magnet), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const webtorrentInstance = useTorrent({ waitForReady: false, embedded: true, fileIndex, magnet, disabled: !magnet })
+  const webtorrent = useContext(WebTorrentContext)
+  const torrent = useTorrent({ webtorrent, fileIndex, magnet })
 
-  const selectedFile = webtorrentInstance?.files?.[fileIndex]
-  const fileSize = webtorrentInstance?.ready ? selectedFile?.length : undefined
+  const selectedFile = torrent?.files?.[fileIndex]
+  const fileSize = torrent?.ready ? selectedFile?.length : undefined
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -142,30 +143,20 @@ const Player = () => {
   const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
   
   useEffect(() => {
-    if (!webtorrentInstance) return
+    if (!torrent) return
     const updateRanges = () => {
       setDownloadedRanges(
         getBytesRangesFromBitfield(
-          webtorrentInstance.bitfield, 
-          webtorrentInstance.pieceLength, 
-          webtorrentInstance.length
+          torrent.bitfield, 
+          torrent.pieceLength, 
+          torrent.length
         )
       )
     }
     const interval = setInterval(() => updateRanges(), 1000)
     updateRanges()
     return () => clearInterval(interval)
-  }, [webtorrentInstance])
-
-  useEffect(() => {
-    if (!selectedFile || !fileSize) return
-    if (selectedFile.select) {
-      selectedFile.select()
-    }
-    if (selectedFile.createReadStream) {
-      selectedFile.createReadStream({ start: 0, end: fileSize })
-    }
-  }, [selectedFile?.createReadStream, selectedFile?.select, fileSize])
+  }, [torrent])
 
   const [mediaInformationData, setMediaInformationData] = useState<{peers: number, downloadSpeed: number, uploadSpeed: number } | undefined>()
   const mediaInformation = useMemo(() => {
@@ -180,18 +171,18 @@ const Player = () => {
   }, [mediaInformationData])
 
   useEffect(() => {
-    if (!webtorrentInstance) return
+    if (!torrent) return
     const updateMediaInformation = () => {
       setMediaInformationData({
-        peers: webtorrentInstance.numPeers,
-        downloadSpeed: webtorrentInstance.downloadSpeed,
-        uploadSpeed: webtorrentInstance.uploadSpeed
+        peers: torrent.numPeers,
+        downloadSpeed: torrent.downloadSpeed,
+        uploadSpeed: torrent.uploadSpeed
       })
     }
     const interval = setInterval(() => updateMediaInformation(), 1000)
     updateMediaInformation()
     return () => clearInterval(interval)
-  }, [webtorrentInstance])
+  }, [torrent])
 
   const [loadingInformationData, setLoadingInformationData] = useState<{ hasMetadata: Boolean, ready: boolean, downloaded: number } | undefined>()
 
@@ -212,7 +203,7 @@ const Player = () => {
           !loadingInformationData.ready
             ? (
               <div>
-                Checking downloaded data {getHumanReadableByteString(loadingInformationData.downloaded)}
+                Checking downloaded data, verified: {getHumanReadableByteString(loadingInformationData.downloaded)}
               </div>
             )
             : (
@@ -226,18 +217,18 @@ const Player = () => {
   }, [loadingInformationData])
 
   useEffect(() => {
-    if (!webtorrentInstance) return
+    if (!torrent) return
     const updateLoadingInformation = () => {
       setLoadingInformationData({
-        hasMetadata: Boolean(webtorrentInstance.metadata),
-        ready: webtorrentInstance.ready,
-        downloaded: webtorrentInstance.downloaded
+        hasMetadata: Boolean(torrent.metadata),
+        ready: torrent.ready,
+        downloaded: torrent.downloaded
       })
     }
     const interval = setInterval(() => updateLoadingInformation(), 100)
     updateLoadingInformation()
     return () => clearInterval(interval)
-  }, [webtorrentInstance])
+  }, [torrent])
 
   return (
     <div css={playerStyle}>
