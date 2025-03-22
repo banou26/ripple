@@ -7,9 +7,10 @@ import { createContext, useCallback, useEffect, useState } from 'react'
 
 const WebTorrent = _WebTorrent as typeof WebTorrentType
 
-export const webtorrent = new WebTorrent({ utp: false })
-export type WebTorrent = typeof webtorrent
-export const WebTorrentContext = createContext(webtorrent)
+export type WebTorrent = WebTorrentType.Instance
+export const WebTorrentContext = createContext<WebTorrent | undefined>(undefined)
+
+export const createWebtorrent = (config?: WebTorrentType.Options) => new WebTorrent({ utp: false, ...config })
 
 export const getTorrentFilePieces = (torrent: Torrent, fileIndex: number) => {
   const filesByteRanges =
@@ -72,7 +73,7 @@ export const useTorrent = (
   options:
     Parameters<typeof parseTorrentInput>[0]
     & {
-      webtorrent: WebTorrent
+      webtorrent?: WebTorrent
       fileIndex?: number
       wtOptions?: TorrentOptions
       readyOn?: 'ready' | 'metadata'
@@ -99,10 +100,11 @@ export const useTorrent = (
 
   useEffect(() => {
     (async () => {
+      if (!options.webtorrent) return
       const parsedTorrent = await parseTorrentInput(options)
       if (!parsedTorrent) return
-      // @ts-expect-error
-      const torrent = webtorrent.add(parsedTorrent, { ...options.wtOptions, deselect: true })
+      const torrent = options.webtorrent.add(parsedTorrent, { ...options.wtOptions, deselect: true })
+      console.log('torrent', torrent)
 
       torrent.on('error', err => console.error(err))
   
