@@ -189,7 +189,13 @@ const Player = () => {
   const [loadingInformationData, setLoadingInformationData] = useState<{ hasMetadata: Boolean, ready: boolean, downloaded: number } | undefined>()
 
   const loadingInformation = useMemo(() => {
-    if (!loadingInformationData) return undefined
+    if (!loadingInformationData) {
+      return (
+        <div>
+          Cleaning up & preparing for the torrent
+        </div>
+      )
+    }
 
     if (!loadingInformationData.hasMetadata) {
       return (

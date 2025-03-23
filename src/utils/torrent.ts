@@ -13,7 +13,8 @@ export const WebTorrentContext = createContext<WebTorrent | undefined>(undefined
 
 type SavedTorrentFileInfo = {
   infoHash: string
-  torrentFile: ArrayBuffer
+  torrentFile: ArrayBuffer,
+  fileIndex: number
 }
 
 export const createWebtorrent = (config?: WebTorrentType.Options) => new WebTorrent({ utp: false, ...config })
@@ -115,13 +116,26 @@ export const useTorrent = (
         : parsedTorrent.infoHash === savedTorrentFile?.infoHash ? await parseTorrentInput({ torrentFile: new Uint8Array(savedTorrentFile.torrentFile) })
         : parsedTorrent
       if (!torrentFileOrMagnet) return
+
+      const topLevelDirectory = await navigator.storage.getDirectory()
+      if (parsedTorrent.infoHash !== savedTorrentFile?.infoHash || savedTorrentFile.fileIndex !== (options.fileIndex ?? 0)) {
+        const allOPFSFoldersAsyncIterator = await topLevelDirectory.entries()
+        for await (const [, entry] of allOPFSFoldersAsyncIterator) {
+          // @ts-expect-error
+          await entry.remove({ recursive: true })
+        }
+      }
+
       const torrent = options.webtorrent.add(torrentFileOrMagnet, { ...options.wtOptions, deselect: true })
-      console.log('torrent', torrent)
 
       torrent.on('error', err => console.error(err))
   
       torrent.on('metadata', () => {
-        set('torrent-file', { infoHash: torrent.infoHash, torrentFile: torrent.torrentFile.buffer } satisfies SavedTorrentFileInfo)
+        set('torrent-file', {
+          infoHash: torrent.infoHash,
+          torrentFile: torrent.torrentFile.buffer as ArrayBuffer,
+          fileIndex: options.fileIndex ?? 0
+        } satisfies SavedTorrentFileInfo)
         if (options.readyOn !== 'metadata') return
         setTorrent(torrent)
       })
