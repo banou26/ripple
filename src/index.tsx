@@ -1,6 +1,3 @@
-/// <reference types="@emotion/react/types/css-prop" />
-import 'chart.js/auto'
-
 import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'
 
@@ -58,16 +55,13 @@ const style = css`
   }
 `
 
-
 const rootElem = document.body.appendChild(document.createElement('div'))
 rootElem.classList.add('mount')
 const root = createRoot(rootElem)
 
 root.render(
   <>
-    {/* <RealmProvider> */}
-      <Global styles={style}/>
-      <Mount/>
-    {/* </RealmProvider> */}
+    <Global styles={style}/>
+    <Mount/>
   </>
 )
