@@ -31,7 +31,7 @@
     "remove-build-deps": "shx rm -rf node_modules/@banou/media-player"
   },
   "dependencies": {
-    "@banou/media-player": "^0.5.0",
+    "@banou/media-player": "^0.5.1",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.2.1",
     "@hookform/resolvers": "^4.1.3",
