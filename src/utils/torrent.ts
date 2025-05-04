@@ -95,7 +95,7 @@ export const useTorrent = (
         options.fileIndex !== undefined
           ? torrent.files[options.fileIndex]
           : undefined
-      if (selectedFile) {
+      if (selectedFile && 'select' in selectedFile) {
         // @ts-expect-error
         selectedFile.select(1)
         // @ts-expect-error
