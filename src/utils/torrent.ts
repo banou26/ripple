@@ -121,8 +121,7 @@ export const useTorrent = (
       if (parsedTorrent.infoHash !== savedTorrentFile?.infoHash || savedTorrentFile.fileIndex !== (options.fileIndex ?? 0)) {
         const allOPFSFoldersAsyncIterator = await topLevelDirectory.entries()
         for await (const [, entry] of allOPFSFoldersAsyncIterator) {
-          // @ts-expect-error
-          await entry.remove({ recursive: true })
+          topLevelDirectory.removeEntry(entry.name, { recursive: true })
         }
       }
 
