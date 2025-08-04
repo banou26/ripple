@@ -10,7 +10,7 @@ export const getHumanReadableByteString = (bytes, compact?: boolean) => {
   const k = 1000
   const i = Math.floor(Math.log(bytes) / Math.log(k))
 
-  const result =
+  let result =
     new Intl.NumberFormat(
       'en-US',
       {
@@ -25,6 +25,10 @@ export const getHumanReadableByteString = (bytes, compact?: boolean) => {
       }
     )
     .format(bytes / Math.pow(k, i))
+
+  if (result.includes(' byte')) {
+    result = result.replace(' byte', ' B')
+  }
 
   if (compact) return i > 1000 ? `${Number(result.replaceAll('byte', '')) / 1000}kB` : result
 

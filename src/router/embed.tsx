@@ -3,6 +3,7 @@ import type { DownloadedRange } from '@banou/media-player/src/utils/context'
 import { useContext, useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
+import { ArrowDown, ArrowUp, User } from 'react-feather'
 
 import MediaPlayer from '@banou/media-player'
 
@@ -10,6 +11,7 @@ import { nodeToWebReadable } from '../utils/stream'
 import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { useTorrent, WebTorrentContext } from '../utils/torrent'
+import { TooltipDisplay } from '../components/tooltip-display'
 
 const playerStyle = css`
 height: 100%;
@@ -70,13 +72,34 @@ div canvas {
 
 .media-information {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  color: white;
-  margin: 1rem;
+  justify-content: space-between;
 
-  & > div {
-    margin: 0 1rem;
+  gap: 12px;
+
+  padding: 8px 12px;
+
+  font-weight: 400;
+  font-size: 1.2rem;
+  line-height: 1.7rem;
+  @media (min-width: 960px) {
+    font-size: 1.4rem;
+    line-height: 2rem;
+  }
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+
+  margin-right: 8px;
+  @media (min-width: 768px) {
+    margin-right: 12px;
+  }
+  @media (min-width: 2560px) {
+    margin-right: 16px;
+  }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 }
 `
@@ -165,9 +188,49 @@ const Player = () => {
     if (!mediaInformationData) return undefined
     return (
       <div className='media-information'>
-        <div>peers: {mediaInformationData.peers}</div>
-        <div>DOWN {getHumanReadableByteString(mediaInformationData.downloadSpeed)} /s</div> |
-        <div>UP {getHumanReadableByteString(mediaInformationData.uploadSpeed)} /s</div>
+        <TooltipDisplay
+          id='peers'
+          text={
+            <div className='item'>
+              <User />
+              <span>{mediaInformationData.peers}</span>
+            </div>
+          }
+          toolTipText={
+            <span>
+              Peers: {mediaInformationData.peers} <br />
+              Number of computers<br />connected to you
+            </span>
+          }
+        />
+        <TooltipDisplay
+          id='download-speed'
+          text={
+            <div className='item'>
+              <ArrowDown />
+              <span>{getHumanReadableByteString(mediaInformationData.downloadSpeed, true)}/s</span>
+            </div>
+          }
+          toolTipText={
+            <span>
+              Download speed: {getHumanReadableByteString(mediaInformationData.downloadSpeed)}/s
+            </span>
+          }
+        />
+        <TooltipDisplay
+          id='upload-speed'
+          text={
+            <div className='item'>
+              <ArrowUp />
+              <span>{getHumanReadableByteString(mediaInformationData.uploadSpeed, true)}/s</span>
+            </div>
+          }
+          toolTipText={
+            <span>
+              Upload speed: {getHumanReadableByteString(mediaInformationData.uploadSpeed)}/s
+            </span>
+          }
+        />
       </div>
     )
   }, [mediaInformationData])
