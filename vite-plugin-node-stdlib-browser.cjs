@@ -11,6 +11,21 @@ import {
 
 const require = createRequire(import.meta.url)
 
+// Vite's optimizeDeps scanner marks every node_modules path it encounters as
+// external. esbuild then rejects "injected path cannot be marked as external"
+// for the shim. This plugin runs first and short-circuits the shim's resolution
+// with `external: false`, so the scanner never gets a chance to externalize it.
+const shimPath = require.resolve('node-stdlib-browser/helpers/esbuild/shim')
+const keepShimInternalPlugin = {
+  name: 'keep-stdlib-browser-shim-internal',
+  setup(build) {
+    build.onResolve(
+      { filter: /node-stdlib-browser[\\/]helpers[\\/]esbuild[\\/]shim/ },
+      () => ({ path: shimPath, external: false })
+    )
+  }
+}
+
 const plugin = () => ({
   name: 'vite-plugin-node-stdlib-browser',
   config: () => ({
@@ -20,13 +35,18 @@ const plugin = () => ({
     optimizeDeps: {
       include: ['buffer', 'process'],
       esbuildOptions: {
-        inject: [require.resolve('node-stdlib-browser/helpers/esbuild/shim')],
+        inject: [shimPath],
         define: {
           global: 'global',
           process: 'process',
           Buffer: 'Buffer'
         },
-        plugins: [esbuildPlugin(stdLibBrowser)]
+        // Pre-bundled deps (e.g. webtorrent's webtorrent.min.js) carry
+        // //# sourceMappingURL=… comments. esbuild's scanner follows them
+        // and errors out with "No loader is configured for .map files"
+        // unless we tell it to treat them as empty.
+        loader: { '.map': 'empty' },
+        plugins: [keepShimInternalPlugin, esbuildPlugin(stdLibBrowser)]
       }
     },
     plugins: [

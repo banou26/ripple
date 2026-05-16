@@ -32,8 +32,9 @@
   },
   "dependencies": {
     "@banou/media-player": "^0.6.2",
+    "@banou/webtorrent": "github:banou26/webtorrent",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.2.1",
+    "@fkn/lib": "^0.3.7",
     "@hookform/resolvers": "^4.1.3",
     "@radix-ui/react-hover-card": "^1.1.6",
     "chart.js": "^4.4.8",
@@ -41,7 +42,7 @@
     "idb": "^8.0.2",
     "idb-keyval": "^6.2.1",
     "lru-cache": "^11.0.2",
-    "osra": "^0.1.2",
+    "osra": "^0.4.1",
     "parse-torrent": "^11.0.14",
     "queue-utils": "^0.0.0",
     "react": "^19.0.0",
@@ -55,9 +56,12 @@
     "react-tooltip": "^5.28.0",
     "rxdb": "^14.17.1",
     "rxjs": "^7.8.2",
-    "webtorrent": "npm:@banou/webtorrent@^2.5.19",
+    "webtorrent": "github:banou26/webtorrent",
     "xstate": "^5.19.2",
     "zod": "^3.24.2"
+  },
+  "overrides": {
+    "napi-build-utils": "^2"
   },
   "devDependencies": {
     "@rollup/plugin-inject": "^5.0.3",
