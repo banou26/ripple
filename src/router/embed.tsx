@@ -1,16 +1,15 @@
 import type { DownloadedRange } from '@banou/media-player/src/utils/context'
 
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
 
 import MediaPlayer from '@banou/media-player'
 
-import { nodeToWebReadable } from '../utils/stream'
 import { getBytesRangesFromBitfield } from '../utils/downloaded-ranges'
 import { getHumanReadableByteString } from '../utils/bytes'
-import { useTorrent, WebTorrentContext } from '../utils/torrent'
+import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
 
 const playerStyle = css`
@@ -109,13 +108,12 @@ const BASE_BUFFER_SIZE = 2_500_000
 const Player = () => {
   const [searchParams] = useSearchParams()
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
-  const magnet = useMemo(() => _magnet && atob(_magnet), [_magnet])
+  const magnet = useMemo(() => _magnet ? atob(_magnet) : undefined, [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const webtorrent = useContext(WebTorrentContext)
-  const torrent = useTorrent({ webtorrent, fileIndex, magnet })
+  const { snapshot, read } = usePlayerTorrent(magnet, fileIndex)
 
-  const selectedFile = torrent?.files?.[fileIndex]
-  const fileSize = torrent?.ready ? selectedFile?.length : undefined
+  const selectedFile = snapshot?.files?.files[fileIndex]
+  const fileSize = selectedFile?.size
 
   const jassubWorkerUrl = useMemo(() => {
     const workerUrl = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, new URL(window.location.toString()).origin).toString()
@@ -156,32 +154,23 @@ const Player = () => {
     []
   )
 
-  const read = (offset: number, size: number) => {
-    if (!selectedFile) throw new Error('selectedFile is undefined')
-    const readable = selectedFile.createReadStream({ start: offset, end: offset + size - 1 })
-    const readableStream = nodeToWebReadable(readable)
-    return new Response(readableStream).arrayBuffer()
-  }
-
   const [downloadedRanges, setDownloadedRanges] = useState<DownloadedRange[]>([])
-  
+
+  // The worker pushes a fresh snapshot (incl. the have-bitfield) every 500ms, so
+  // this re-derives the file's downloaded ranges on each update — no polling.
   useEffect(() => {
-    if (!torrent || !selectedFile) return
-    const updateRanges = () => {
-      setDownloadedRanges(
-        getBytesRangesFromBitfield(
-          torrent.bitfield, 
-          torrent.pieceLength, 
-          torrent.length,
-          selectedFile.offset,
-          selectedFile.length
-        )
+    const bf = snapshot?.bitfield
+    if (!bf || !selectedFile) return
+    setDownloadedRanges(
+      getBytesRangesFromBitfield(
+        bf.pieces,
+        bf.pieceLength,
+        bf.length,
+        selectedFile.offset,
+        selectedFile.size
       )
-    }
-    const interval = setInterval(() => updateRanges(), 1000)
-    updateRanges()
-    return () => clearInterval(interval)
-  }, [torrent, selectedFile])
+    )
+  }, [snapshot?.bitfield, selectedFile])
 
   const [mediaInformationData, setMediaInformationData] = useState<{peers: number, downloadSpeed: number, uploadSpeed: number } | undefined>()
   const mediaInformation = useMemo(() => {
@@ -236,18 +225,13 @@ const Player = () => {
   }, [mediaInformationData])
 
   useEffect(() => {
-    if (!torrent) return
-    const updateMediaInformation = () => {
-      setMediaInformationData({
-        peers: torrent.numPeers,
-        downloadSpeed: torrent.downloadSpeed,
-        uploadSpeed: torrent.uploadSpeed
-      })
-    }
-    const interval = setInterval(() => updateMediaInformation(), 1000)
-    updateMediaInformation()
-    return () => clearInterval(interval)
-  }, [torrent])
+    const st = snapshot?.status
+    setMediaInformationData({
+      peers: st?.numPeers ?? 0,
+      downloadSpeed: st?.downloadRate ?? 0,
+      uploadSpeed: st?.uploadRate ?? 0,
+    })
+  }, [snapshot?.status])
 
   const [loadingInformationData, setLoadingInformationData] = useState<{ hasMetadata: Boolean, ready: boolean, downloaded: number } | undefined>()
 
@@ -288,23 +272,19 @@ const Player = () => {
   }, [loadingInformationData])
 
   useEffect(() => {
-    if (!torrent) return
-    const updateLoadingInformation = () => {
-      setLoadingInformationData({
-        hasMetadata: Boolean(torrent.metadata),
-        ready: torrent.ready,
-        downloaded: torrent.downloaded
-      })
-    }
-    const interval = setInterval(() => updateLoadingInformation(), 100)
-    updateLoadingInformation()
-    return () => clearInterval(interval)
-  }, [torrent])
+    // files() is non-null only once metadata + storage are ready ⇒ streamable.
+    const hasMetadata = Boolean(snapshot?.files)
+    setLoadingInformationData({
+      hasMetadata,
+      ready: hasMetadata,
+      downloaded: snapshot?.status?.totalDone ?? 0,
+    })
+  }, [snapshot?.files, snapshot?.status])
 
   return (
     <div css={playerStyle}>
       <MediaPlayer
-        title={selectedFile?.name}
+        title={selectedFile?.path.split('/').pop()}
         bufferSize={BASE_BUFFER_SIZE}
         read={read}
         size={fileSize}
