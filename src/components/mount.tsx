@@ -1,7 +1,6 @@
 import { css } from '@emotion/react'
 
 import Router from '../router'
-import { createWebtorrent, WebTorrentContext } from '../utils/torrent'
 import { useActiveWindow } from '../utils/active-window-effect'
 
 const style = css`
@@ -18,10 +17,9 @@ const style = css`
 `
 
 const Mount = () => {
-  const { isActive, value, activate } = useActiveWindow({
-    onActive: () => createWebtorrent(),
-    onInactive: (webtorrent) => webtorrent?.destroy()
-  })
+  // Single-tab guard only — the torrent engine now lives in the libtorrent-wasm
+  // worker (per-route), so there's no app-wide client to create/tear down here.
+  const { isActive, activate } = useActiveWindow({})
 
   if (!isActive) {
     return (
@@ -35,11 +33,7 @@ const Mount = () => {
     )
   }
 
-  return (
-    <WebTorrentContext.Provider value={value}>
-      <Router/>
-    </WebTorrentContext.Provider>
-  )
+  return <Router/>
 }
 
 
