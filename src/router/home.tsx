@@ -17,7 +17,7 @@ import {
   DetailPanel,
   SettingsScreen,
 } from '../ui/screens'
-import { MOCK_TORRENTS } from '../ui/mock-data'
+import { useTorrents } from '../torrent/use-torrents'
 import { useTweaks, applyTweaks } from '../ui/use-tweaks'
 
 const TWEAK_DEFAULTS: Tweaks = {
@@ -99,32 +99,13 @@ const Home = () => {
   const [sortBy, setSortBy] = useState('added')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
-  const [torrents, setTorrents] = useState<Torrent[]>(MOCK_TORRENTS)
+  // Live torrents from the libtorrent-wasm worker (real peers over WebVPN).
+  const { torrents, addMagnet } = useTorrents()
 
   // Apply theme/accent/density to <html>
   useEffect(() => {
     applyTweaks(tweak)
   }, [tweak.theme, tweak.density, tweak.accent])
-
-  // Live tick — gently animate progress + speeds on active torrents
-  useEffect(() => {
-    const i = setInterval(() => {
-      setTorrents((prev) => prev.map((t) => {
-        if (t.state !== 'downloading') return t
-        const incr = Math.min(0.001 + Math.random() * 0.0015, 1 - t.progress)
-        const newProg = Math.min(1, t.progress + incr)
-        const jitter = (n: number) => Math.max(0, n * (0.85 + Math.random() * 0.3))
-        return {
-          ...t,
-          progress: newProg,
-          down: jitter(t.down),
-          up: jitter(t.up),
-          downloaded: Math.min(t.size, t.downloaded + incr * t.size),
-        }
-      }))
-    }, 1100)
-    return () => clearInterval(i)
-  }, [])
 
   // Keyboard: ⌘/Ctrl+N opens add, / focuses search, Esc closes detail/modal
   useEffect(() => {
@@ -196,15 +177,9 @@ const Home = () => {
 
   const selected = torrents.find((t) => t.id === selectedId)
 
-  const onToggle = (id: string) => {
-    setTorrents((prev) => prev.map((t) => {
-      if (t.id !== id) return t
-      const next = t.state === 'paused' || t.state === 'queued'
-        ? (t.progress >= 1 ? 'seeding' : 'downloading')
-        : 'paused'
-      return { ...t, state: next, down: next === 'downloading' ? t.down || 1500 : 0, up: next === 'paused' ? 0 : t.up }
-    }))
-  }
+  // Pause/resume isn't exported by the engine yet (libtorrent has it; not wired).
+  // No-op for now so the controls don't fight the live worker state.
+  const onToggle = (_id: string) => {}
 
   const titleFor = (v: string) => v === 'active' ? 'Transfers' : v === 'library' ? 'Library' : 'Settings'
   const subtitleFor = (v: string) => v === 'active' ? `${counts.downloading} downloading · ${counts.seeding} seeding`
@@ -265,7 +240,7 @@ const Home = () => {
       <AddTorrentModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onAdd={() => setAddOpen(false)} />
+        onAdd={(kind, value) => { if (kind === 'magnet' && value) addMagnet(value); setAddOpen(false) }} />
     </div>
   )
 }
