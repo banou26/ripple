@@ -2,7 +2,14 @@ import '../ui/ripple.css'
 
 import type { Torrent, Tweaks } from '../ui/types'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+
+const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
+// v1 (btih) or v2 (btmh) info-hash from a magnet, for dedup detection.
+const magnetInfoHash = (s: string): string | null => {
+  const m = s.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
+  return m ? m[1]!.toLowerCase() : null
+}
 
 import {
   Sidebar,
@@ -100,8 +107,57 @@ const Home = () => {
   const [sortBy, setSortBy] = useState('added')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
   // Live torrents from the libtorrent-wasm worker (real peers over WebVPN).
   const { torrents, addMagnet, clientRef } = useTorrents()
+
+  // Read torrents from a ref inside stable callbacks so the global paste
+  // listener doesn't re-subscribe on every 500ms state tick.
+  const torrentsRef = useRef(torrents)
+  torrentsRef.current = torrents
+  const toastTimer = useRef<number | undefined>(undefined)
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(null), 2600)
+  }, [])
+
+  // Validate, add, and confirm a magnet. Returns false if it wasn't a magnet.
+  const commitMagnet = useCallback((raw: string): boolean => {
+    const text = raw.trim()
+    if (!isMagnet(text)) return false
+    const ih = magnetInfoHash(text)
+    const dup = !!ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)
+    addMagnet(text)
+    showToast(dup ? 'Already in your transfers' : 'Magnet added')
+    return true
+  }, [addMagnet, showToast])
+
+  // Explicit "Paste magnet" button: pull the clipboard and add if it's a magnet.
+  // Falls back to opening the modal when the clipboard read is blocked.
+  const pasteMagnet = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (commitMagnet(text)) return
+      showToast('No magnet link on your clipboard')
+    } catch {
+      setAddOpen(true)
+    }
+  }, [commitMagnet, showToast])
+
+  // Global paste: Cmd/Ctrl+V anywhere outside a text field instantly adds a
+  // magnet. The paste event carries the clipboard text with no permission
+  // prompt (unlike navigator.clipboard.readText).
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      const text = e.clipboardData?.getData('text') ?? ''
+      if (isMagnet(text)) { e.preventDefault(); setAddOpen(false); commitMagnet(text) }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [commitMagnet])
 
   // Apply theme/accent/density to <html>
   useEffect(() => {
@@ -221,7 +277,7 @@ const Home = () => {
             {view === 'settings' ? (
               <SettingsScreen tweak={tweak} setTweak={setTweak} />
             ) : filtered.length === 0 ? (
-              <EmptyState onAdd={() => setAddOpen(true)} />
+              <EmptyState onAdd={() => setAddOpen(true)} onPasteMagnet={pasteMagnet} />
             ) : tweak.layout === 'hero' && view === 'active' && filter === 'all' ? (
               <HeroActiveView
                 list={filtered}
@@ -251,7 +307,20 @@ const Home = () => {
       <AddTorrentModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onAdd={(kind, value) => { if (kind === 'magnet' && value) addMagnet(value); setAddOpen(false) }} />
+        onAdd={(kind, value) => { if (kind === 'magnet' && value) commitMagnet(value); setAddOpen(false) }} />
+
+      {toast && (
+        <div role="status" className="toast" style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', alignItems: 'center', gap: 8, zIndex: 200,
+          background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 500,
+          boxShadow: '0 10px 34px rgba(0,0,0,0.4)',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)' }} />
+          {toast}
+        </div>
+      )}
     </div>
   )
 }

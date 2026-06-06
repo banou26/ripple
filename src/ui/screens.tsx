@@ -410,9 +410,9 @@ export const HeroEmpty = ({ onAdd }: HeroEmptyProps) => (
   </div>
 )
 
-type EmptyStateProps = { onAdd: () => void }
+type EmptyStateProps = { onAdd: () => void, onPasteMagnet?: () => void }
 
-export const EmptyState = ({ onAdd }: EmptyStateProps) => (
+export const EmptyState = ({ onAdd, onPasteMagnet }: EmptyStateProps) => (
   <div className="list-empty">
     <div>
       <div className="empty-illo">
@@ -430,7 +430,7 @@ export const EmptyState = ({ onAdd }: EmptyStateProps) => (
         <button className="btn btn-primary" onClick={onAdd}>
           <Icon.Plus className="icon" /> Add transfer
         </button>
-        <button className="btn">
+        <button className="btn" onClick={onPasteMagnet}>
           <Icon.Magnet className="icon" /> Paste magnet
         </button>
       </div>

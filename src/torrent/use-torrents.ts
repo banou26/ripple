@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Torrent, TorrentState } from '../ui/types'
 import { createTorrentClient } from './client'
@@ -80,9 +80,6 @@ export const useTorrents = (): UseTorrents => {
     const off = client.onState((snaps) => setTorrents(snaps.map(snapshotToTorrent)))
     return () => { off(); client.destroy(); clientRef.current = null }
   }, [])
-  return {
-    torrents,
-    addMagnet: (magnet) => clientRef.current?.addMagnet(magnet),
-    clientRef,
-  }
+  const addMagnet = useCallback((magnet: string) => clientRef.current?.addMagnet(magnet), [])
+  return { torrents, addMagnet, clientRef }
 }
