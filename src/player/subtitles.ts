@@ -1,0 +1,164 @@
+import type { ParsedASS, ParsedASSStyles } from 'ass-compiler'
+import type { ASS_Event } from 'jassub'
+import type { Attachment, SubtitleFragment } from 'libav-wasm/build/worker'
+
+import JASSUB from 'jassub'
+import { parse, stringify } from 'ass-compiler'
+
+export type SubtitleStream = { streamIndex: number, title: string, language: string }
+
+type SubtitleHeaderPart = { type: 'header', streamIndex: number, content: string, eventsContent: string, parsed: ParsedASS }
+type SubtitleDialoguePart = { type: 'dialogue', streamIndex: number, index: number, assEvent: ASS_Event }
+
+export type SubtitleRendererOptions = {
+  video: HTMLVideoElement
+  canvas: HTMLCanvasElement
+  publicPath: string
+  workerUrl: string
+  wasmUrl: string
+  defaultFontUrl: string
+}
+
+const convertTimestamp = (ms: number) => new Date(ms).toISOString().slice(11, 22)
+
+const appendParsedStyle = (jassub: JASSUB, style: ParsedASSStyles['style'][number]) =>
+  jassub.createStyle({
+    ...style,
+    treat_fontname_as_pattern: 0,
+    Blur: 0,
+    Justify: 0,
+    FontName: style.Fontname,
+    FontSize: Number(style.Fontsize),
+    PrimaryColour: Number(style.PrimaryColour),
+    SecondaryColour: Number(style.SecondaryColour),
+    OutlineColour: Number(style.OutlineColour),
+    BackColour: Number(style.BackColour),
+    Bold: Number(style.Bold),
+    Italic: Number(style.Italic),
+    Underline: Number(style.Underline),
+    StrikeOut: Number(style.StrikeOut),
+    ScaleX: Number(style.ScaleX),
+    ScaleY: Number(style.ScaleY),
+    Spacing: Number(style.Spacing),
+    Angle: Number(style.Angle),
+    BorderStyle: Number(style.BorderStyle),
+    Outline: Number(style.Outline),
+    Shadow: Number(style.Shadow),
+    Alignment: Number(style.Alignment),
+    MarginL: Number(style.MarginL),
+    MarginR: Number(style.MarginR),
+    MarginV: Number(style.MarginV),
+    Encoding: Number(style.Encoding),
+  } as Parameters<JASSUB['createStyle']>[0])
+
+const toHeaderPart = (fragment: SubtitleFragment & { type: 'header' }): SubtitleHeaderPart => {
+  const eventsContent = fragment.content.match(/\r\n\[Events\]\r\nFormat: (.*)/)?.[0]
+  if (!eventsContent) throw new Error('subtitle header has no Events format')
+  return { type: 'header', streamIndex: fragment.streamIndex, content: fragment.content, eventsContent, parsed: parse(fragment.content) }
+}
+
+const toDialoguePart = (header: SubtitleHeaderPart, fragment: SubtitleFragment & { type: 'dialogue' }): SubtitleDialoguePart => {
+  const [dialogueIndexString, layer] = fragment.content.split(',')
+  const dialogueIndex = Number(dialogueIndexString)
+  const start = convertTimestamp(fragment.start)
+  const end = convertTimestamp(fragment.end)
+  const rest = fragment.content.replace(`${dialogueIndex},${layer},`, '')
+  const dialogueContent = `Dialogue: ${layer},${start},${end},${rest}`
+  const event = parse(`${header.eventsContent}\r\n${dialogueContent}`).events.dialogue[0]
+  if (!event) throw new Error('dialogue event is undefined')
+  return {
+    type: 'dialogue',
+    streamIndex: fragment.streamIndex,
+    index: dialogueIndex,
+    assEvent: {
+      ...event,
+      Effect: event.Effect ?? '',
+      Text: event.Text.raw,
+      Duration: (event.End - event.Start) * 1000,
+      Start: event.Start * 1000,
+      End: event.End * 1000,
+      ReadOrder: dialogueIndex,
+      _index: dialogueIndex,
+    } as ASS_Event,
+  }
+}
+
+// Drives jassub from the remuxer's subtitle fragments. Lazily boots jassub on
+// the first header, auto-selects the first stream, and de-dupes dialogue events.
+export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
+  const { video, canvas, publicPath, workerUrl, wasmUrl, defaultFontUrl } = options
+  let jassub: JASSUB | undefined
+  let attachments: [string, Uint8Array][] = []
+  const headers = new Map<number, SubtitleHeaderPart>()
+  const streams: SubtitleStream[] = []
+  const appended = new Set<string>()
+  let selected: number | undefined
+  let onStreams: ((streams: SubtitleStream[]) => void) | undefined
+
+  const tick = setInterval(() => {
+    jassub?.setCurrentTime(video.paused, video.currentTime, video.playbackRate)
+  }, 100)
+
+  const bootJassub = (header: SubtitleHeaderPart) => {
+    const parsed = parse(header.content)
+    const subContent = stringify({ ...parsed, info: { ...parsed.info, ScaledBorderAndShadow: 'no', LayoutResX: '', LayoutResY: '' } })
+    jassub = new JASSUB({
+      onDemandRender: false,
+      video,
+      canvas,
+      subContent,
+      workerUrl,
+      modernWasmUrl: wasmUrl,
+      fonts: attachments.map(([, data]) => data),
+      availableFonts: { ...Object.fromEntries(attachments), 'liberation sans': defaultFontUrl },
+    })
+    for (const style of header.parsed.styles.style) appendParsedStyle(jassub, style)
+  }
+
+  const pushAttachments = (incoming: Attachment[]) => {
+    attachments = [...attachments, ...incoming.map((a) => [a.filename, new Uint8Array(a.data)] as [string, Uint8Array])]
+  }
+
+  const pushFragments = (fragments: SubtitleFragment[]) => {
+    for (const fragment of fragments) {
+      if (fragment.type === 'header') {
+        if (headers.has(fragment.streamIndex)) continue
+        const header = toHeaderPart(fragment)
+        headers.set(fragment.streamIndex, header)
+        streams.push({ streamIndex: fragment.streamIndex, title: fragment.title, language: fragment.language })
+        onStreams?.([...streams])
+        if (selected === undefined) selected = fragment.streamIndex
+        if (!jassub) bootJassub(header)
+      } else {
+        const header = headers.get(fragment.streamIndex)
+        if (!header) continue
+        const key = `${fragment.streamIndex}:${fragment.content.split(',')[0]}`
+        if (appended.has(key) || selected !== fragment.streamIndex) continue
+        jassub?.createEvent(toDialoguePart(header, fragment).assEvent)
+        appended.add(key)
+      }
+    }
+  }
+
+  const selectStream = (streamIndex: number) => {
+    if (streamIndex === selected || !jassub) return
+    selected = streamIndex
+    appended.clear()
+    jassub.freeTrack()
+    const header = headers.get(streamIndex)
+    if (!header) return
+    const parsed = parse(header.content)
+    jassub.setTrack(stringify({ ...parsed, info: { ...parsed.info, ScaledBorderAndShadow: 'no', LayoutResX: '', LayoutResY: '' } }))
+    for (const style of header.parsed.styles.style) appendParsedStyle(jassub, style)
+    jassub.setCurrentTime(video.paused, video.currentTime, video.playbackRate)
+  }
+
+  return {
+    pushAttachments,
+    pushFragments,
+    selectStream,
+    getStreams: () => [...streams],
+    setOnStreams: (cb: (streams: SubtitleStream[]) => void) => { onStreams = cb },
+    destroy: () => { clearInterval(tick); jassub?.destroy(); jassub = undefined },
+  }
+}

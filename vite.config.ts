@@ -20,8 +20,24 @@ export default defineConfig((env) => ({
       allow: ['..']
     }
   },
+  resolve: {
+    // ripple imports the SYMLINKED libtorrent-wasm, which carries its own
+    // node_modules/@fkn/lib + osra. Without dedupe vite loads two @fkn/lib /
+    // osra instances; the worker's dgram then talks to a different @fkn/lib
+    // than relayWorker bridges → every socket call hangs. Force one instance.
+    dedupe: ['@fkn/lib', 'osra', '@webvpn/net', '@webvpn/dgram'],
+  },
+  optimizeDeps: {
+    include: ['@webvpn/net', '@webvpn/dgram', '@fkn/lib'],
+  },
   worker: {
-    format: 'es'
+    format: 'es',
+    // Only the node-stdlib polyfills in the worker — NOT @vitejs/plugin-react.
+    // React Fast Refresh injects `import.meta.hot` component-registration code
+    // into every module it processes, including the worker's @webvpn/@fkn/lib
+    // graph, which corrupts the osra relay connection (the worker's socket
+    // calls then never reach the iframe). The app's worker uses no React plugin.
+    plugins: () => [polyfills()],
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(env.mode)

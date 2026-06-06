@@ -34,7 +34,12 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const client = clientRef.current
     const handle = handleRef.current
     if (!client || handle == null) throw new Error('torrent not ready')
-    const u8 = await client.read(handle, fileIndex, offset, size)
+    // Clamp to the file boundary — the remuxer reads a full buffer near EOF,
+    // but the torrent would otherwise await pieces past the file that never land.
+    const fileSize = snapshot?.files?.files[fileIndex]?.size
+    const clamped = fileSize != null ? Math.max(0, Math.min(size, fileSize - offset)) : size
+    if (clamped === 0) return new ArrayBuffer(0)
+    const u8 = await client.read(handle, fileIndex, offset, clamped)
     const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
       ? u8.buffer
       : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)

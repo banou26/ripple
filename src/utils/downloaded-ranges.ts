@@ -1,4 +1,4 @@
-import { DownloadedRange } from '@banou/media-player/src/utils/context'
+export type DownloadedRange = { startByteOffset: number, endByteOffset: number }
 
 /**
  * Converts a WebTorrent bitfield to downloaded byte ranges for a specific file.

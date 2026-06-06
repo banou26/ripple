@@ -1,5 +1,3 @@
-import '../ui/ripple.css'
-
 import type { Torrent, Tweaks } from '../ui/types'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'

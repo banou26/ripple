@@ -11,6 +11,14 @@ if (!root.process) {
   root.process = {
     env: { NODE_DEBUG: '' },
     version: '',
+    browser: true,
+    platform: 'browser',
     nextTick: (fn: any, ...args: any[]) => queueMicrotask(() => fn(...args)),
+    emit: () => false,
+    on: () => root.process,
+    once: () => root.process,
+    off: () => root.process,
+    removeListener: () => root.process,
+    cwd: () => '/',
   }
 }

@@ -1,6 +1,9 @@
+import './torrent/node-shims'
+
 import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'
 
+import rippleCss from './ui/ripple.css?inline'
 import Mount from './components/mount'
 
 const style = css`
@@ -61,6 +64,7 @@ const root = createRoot(rootElem)
 
 root.render(
   <>
+    <Global styles={rippleCss}/>
     <Global styles={style}/>
     <Mount/>
   </>
