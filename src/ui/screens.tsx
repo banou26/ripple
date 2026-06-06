@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { Icon, Logo } from './icons'
 import { Cover, Sparkline, PeerFlag } from './cover'
 import { fmtBytes, fmtSpeed, genSparkline } from './format'
+import { watchHref, hasPlayableFile, pickVideoFile } from './watch'
 import type { Torrent, TorrentFile, TorrentPeer, Tweaks } from './types'
 
 type ProtoMixProps = { utp: number, tcp: number }
@@ -241,6 +242,11 @@ export const TorrentRow = ({ t, selected, onSelect, onToggle, showAdv }: Torrent
           <button className="btn btn-ghost btn-icon" onClick={() => onToggle(t.id)} title={t.state === 'paused' ? 'Resume' : 'Pause'}>
             {t.state === 'paused' || t.state === 'queued' ? <Icon.Play /> : <Icon.Pause />}
           </button>
+          {hasPlayableFile(t) && (
+            <a className="btn btn-ghost btn-icon" href={watchHref(t)!} title="Watch">
+              <Icon.Play />
+            </a>
+          )}
           <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} title="More">
             <Icon.More />
           </button>
@@ -368,9 +374,14 @@ export const HeroCard = ({ t, onSelect, onToggle, queuedCount }: HeroCardProps) 
           <button className="hero-action" onClick={() => onToggle(t.id)}>
             <Icon.Pause className="icon" /> Pause
           </button>
-          <button className="hero-action" data-primary="true" onClick={() => onSelect(t.id)}>
+          <button className="hero-action" onClick={() => onSelect(t.id)}>
             Details
           </button>
+          {hasPlayableFile(t) && (
+            <a className="hero-action" data-primary="true" href={watchHref(t)!}>
+              <Icon.Play className="icon" /> Watch
+            </a>
+          )}
         </div>
         <div className="hero-spark">
           <HeroSpark id={t.id} down={t.down} up={t.up} />
@@ -474,7 +485,7 @@ export const AddTorrentModal = ({ open, onClose, onAdd }: AddTorrentModalProps) 
 
         <div className="modal-foot">
           <div className="hint">
-            Transfers run in your browser via WebRTC bridges. UTP &amp; TCP peers supported.
+            Transfers run in your browser, tunnelling real peer connections over WebVPN. µTP &amp; TCP peers supported.
           </div>
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={() => onAdd('magnet', magnet)} disabled={!magnet && false}>
@@ -488,11 +499,29 @@ export const AddTorrentModal = ({ open, onClose, onAdd }: AddTorrentModalProps) 
 
 type DetailTab = 'overview' | 'files' | 'peers'
 
-type DetailPanelProps = { t: Torrent | null | undefined, onClose: () => void }
+type DetailPanelProps = {
+  t: Torrent | null | undefined
+  onClose: () => void
+  onSave?: (fileIndex: number, onProgress: (fraction: number) => void) => Promise<void>
+}
 
-export const DetailPanel = ({ t, onClose }: DetailPanelProps) => {
+export const DetailPanel = ({ t, onClose, onSave }: DetailPanelProps) => {
   const [tab, setTab] = useState<DetailTab>('overview')
+  // fileIndex -> save progress (0..1); -1 marks an error flash.
+  const [saving, setSaving] = useState<Record<number, number>>({})
+  const doSave = async (fileIndex: number) => {
+    if (!onSave || saving[fileIndex] != null) return
+    setSaving((s) => ({ ...s, [fileIndex]: 0 }))
+    try {
+      await onSave(fileIndex, (f) => setSaving((s) => ({ ...s, [fileIndex]: f })))
+      setSaving((s) => { const n = { ...s }; delete n[fileIndex]; return n })
+    } catch {
+      setSaving((s) => ({ ...s, [fileIndex]: -1 }))
+      setTimeout(() => setSaving((s) => { const n = { ...s }; delete n[fileIndex]; return n }), 2500)
+    }
+  }
   if (!t) return null
+  const complete = t.state === 'done' || t.state === 'seeding' || t.progress >= 1
   const sparkD = genSparkline(parseInt(t.id.replace(/\D/g, ''), 10) || 1, 50)
   const sparkU = genSparkline((parseInt(t.id.replace(/\D/g, ''), 10) || 1) * 7, 50).map((x) => x * 0.4)
   return (
@@ -516,6 +545,25 @@ export const DetailPanel = ({ t, onClose }: DetailPanelProps) => {
           <span>·</span>
           <span>added {t.added}</span>
         </div>
+        {(hasPlayableFile(t) || (complete && onSave && t.files?.length)) && (
+          <div className="detail-actions" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            {hasPlayableFile(t) && (
+              <a className="btn btn-primary" href={watchHref(t)!} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon.Play /> Watch
+              </a>
+            )}
+            {complete && onSave && t.files?.length ? (() => {
+              const idx = pickVideoFile(t.files)
+              const prog = saving[idx]
+              return (
+                <button className="btn btn-ghost" onClick={() => doSave(idx)} disabled={prog != null && prog >= 0}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon.Download /> {prog == null ? 'Save to disk' : prog < 0 ? 'Failed' : 'Saving ' + Math.round(prog * 100) + '%'}
+                </button>
+              )
+            })() : null}
+          </div>
+        )}
       </div>
 
       <div className="detail-tabs">
@@ -582,18 +630,28 @@ export const DetailPanel = ({ t, onClose }: DetailPanelProps) => {
 
         {tab === 'files' && (
           <div className="file-tree">
-            <div className="peers-head" style={{ gridTemplateColumns: '18px minmax(0,1fr) 60px 44px' }}>
-              <span></span><span>Name</span><span style={{ textAlign: 'right' }}>Size</span><span style={{ textAlign: 'right' }}>%</span>
+            <div className="peers-head" style={{ gridTemplateColumns: '18px minmax(0,1fr) 60px 44px 32px' }}>
+              <span></span><span>Name</span><span style={{ textAlign: 'right' }}>Size</span><span style={{ textAlign: 'right' }}>%</span><span></span>
             </div>
-            {(t.files || [{ name: t.name, size: t.size, progress: t.progress }] as TorrentFile[]).map((f, i) => (
-              <div key={i} className={'file-row' + (f.progress >= 1 ? ' complete' : '')}>
-                <Icon.File className="file-icon" />
-                <div className="file-name">{f.name}</div>
-                <div className="file-size">{fmtBytes(f.size)}</div>
-                <div className="file-pct">{Math.round(f.progress * 100)}%</div>
-                <div className="mini-bar"><i style={{ width: f.progress * 100 + '%' }} /></div>
-              </div>
-            ))}
+            {(t.files || [{ name: t.name, size: t.size, progress: t.progress }] as TorrentFile[]).map((f, i) => {
+              const prog = saving[i]
+              return (
+                <div key={i} className={'file-row' + (f.progress >= 1 ? ' complete' : '')} style={{ gridTemplateColumns: '18px minmax(0,1fr) 60px 44px 32px' }}>
+                  <Icon.File className="file-icon" />
+                  <div className="file-name">{f.name}</div>
+                  <div className="file-size">{fmtBytes(f.size)}</div>
+                  <div className="file-pct">{Math.round(f.progress * 100)}%</div>
+                  {complete && onSave ? (
+                    <button className="btn btn-ghost btn-icon" title={prog == null ? 'Save to disk' : prog < 0 ? 'Save failed' : 'Saving…'}
+                      onClick={() => doSave(i)} disabled={prog != null && prog >= 0}
+                      style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
+                      {prog == null ? <Icon.Download /> : prog < 0 ? '!' : Math.round(prog * 100) + '%'}
+                    </button>
+                  ) : <span />}
+                  <div className="mini-bar"><i style={{ width: f.progress * 100 + '%' }} /></div>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -717,7 +775,7 @@ export const SettingsScreen = ({ tweak, setTweak }: SettingsScreenProps) => {
 
       <div className="settings-section">
         <div className="settings-title">Connection</div>
-        <p className="settings-desc">Ripple connects to peers over both µTP (UDP-based) and TCP. WebRTC bridges relay traffic when direct connections aren’t possible from the browser.</p>
+        <p className="settings-desc">Ripple connects to peers over both µTP (UDP-based) and TCP, tunnelled out of the browser over WebVPN (WebTransport) — real BitTorrent peers, not WebRTC-only.</p>
         <div className="setting-row">
           <div className="setting-grow">
             <div className="setting-label">Peer protocols</div>

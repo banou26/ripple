@@ -5,11 +5,12 @@
 export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error'
 
 export type TorrentPeers = { total: number, utp: number, tcp: number }
-export type TorrentFile = { name: string, size: number, progress: number }
+export type TorrentFile = { name: string, size: number, progress: number, bytes?: number }
 export type TorrentPeer = { ip: string, country: string, proto: 'U' | 'T', progress: number, down: number, up: number }
 
 export type Torrent = {
   id: string
+  magnet?: string
   name: string
   size: number          // MB
   downloaded: number    // MB

@@ -63,6 +63,12 @@ export const Icon = {
       <path d="M8 3v10M4 9l4 4 4-4" />
     </svg>
   ),
+  Download: (p: IconProps) => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M8 2v7.5M5 7l3 3 3-3" />
+      <path d="M2.8 11.5v1.2c0 .4.3.8.8.8h8.8c.5 0 .8-.4.8-.8v-1.2" />
+    </svg>
+  ),
   ArrowUp: (p: IconProps) => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
       <path d="M8 13V3M4 7l4-4 4 4" />

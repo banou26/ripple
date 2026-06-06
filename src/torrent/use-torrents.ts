@@ -43,6 +43,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
   const numPeers = st?.numPeers ?? 0
   return {
     id: String(s.handle),
+    magnet: s.magnet,
     name,
     size: totalBytes / BYTES_PER_MB,
     downloaded: (st?.totalDone ?? 0) / BYTES_PER_MB,
@@ -58,7 +59,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
     added: 'now',
     tracker: magnetParam(s.magnet, 'tr') ?? '—',
     flag: '',
-    files: s.files?.files.map((f) => ({ name: f.path, size: f.size / BYTES_PER_MB, progress })),
+    files: s.files?.files.map((f) => ({ name: f.path, size: f.size / BYTES_PER_MB, bytes: f.size, progress })),
   }
 }
 

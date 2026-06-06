@@ -18,6 +18,7 @@ import {
   SettingsScreen,
 } from '../ui/screens'
 import { useTorrents } from '../torrent/use-torrents'
+import { saveTorrentFileToDisk } from '../torrent/save-file'
 import { useTweaks, applyTweaks } from '../ui/use-tweaks'
 
 const TWEAK_DEFAULTS: Tweaks = {
@@ -100,7 +101,7 @@ const Home = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   // Live torrents from the libtorrent-wasm worker (real peers over WebVPN).
-  const { torrents, addMagnet } = useTorrents()
+  const { torrents, addMagnet, clientRef } = useTorrents()
 
   // Apply theme/accent/density to <html>
   useEffect(() => {
@@ -177,6 +178,16 @@ const Home = () => {
 
   const selected = torrents.find((t) => t.id === selectedId)
 
+  // Export a finished file out of OPFS to the user's disk (streamed via the
+  // worker's read()). Bound to the currently-selected torrent.
+  const onSaveFile = async (fileIndex: number, onProgress: (f: number) => void) => {
+    const client = clientRef.current
+    const file = selected?.files?.[fileIndex]
+    if (!client || !selected || !file) return
+    const bytes = file.bytes ?? Math.round(file.size * 1024 * 1024)
+    await saveTorrentFileToDisk(client, Number(selected.id), fileIndex, file.name, bytes, onProgress)
+  }
+
   // Pause/resume isn't exported by the engine yet (libtorrent has it; not wired).
   // No-op for now so the controls don't fight the live worker state.
   const onToggle = (_id: string) => {}
@@ -232,7 +243,7 @@ const Home = () => {
             )}
           </div>
           {selected && view !== 'settings' && (
-            <DetailPanel t={selected} onClose={() => setSelectedId(null)} />
+            <DetailPanel t={selected} onClose={() => setSelectedId(null)} onSave={onSaveFile} />
           )}
         </div>
       </div>
