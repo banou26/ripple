@@ -48,7 +48,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
     size: totalBytes / BYTES_PER_MB,
     downloaded: (st?.totalDone ?? 0) / BYTES_PER_MB,
     progress,
-    state: st ? (STATE[st.state] ?? 'downloading') : (s.files ? 'queued' : 'downloading'),
+    state: st ? (st.paused ? 'paused' : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading'),
     down: (st?.downloadRate ?? 0) / 1024,
     up: (st?.uploadRate ?? 0) / 1024,
     // No µTP/TCP split surfaced by the engine yet — report all as connected.
@@ -66,6 +66,9 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
 export type UseTorrents = {
   torrents: Torrent[]
   addMagnet: (magnet: string) => void
+  pause: (handle: number) => void
+  resume: (handle: number) => void
+  remove: (handle: number, deleteFiles?: boolean) => void
   clientRef: { current: TorrentClient | null }
 }
 
@@ -81,5 +84,8 @@ export const useTorrents = (): UseTorrents => {
     return () => { off(); client.destroy(); clientRef.current = null }
   }, [])
   const addMagnet = useCallback((magnet: string) => clientRef.current?.addMagnet(magnet), [])
-  return { torrents, addMagnet, clientRef }
+  const pause = useCallback((handle: number) => clientRef.current?.pause(handle), [])
+  const resume = useCallback((handle: number) => clientRef.current?.resume(handle), [])
+  const remove = useCallback((handle: number, deleteFiles?: boolean) => clientRef.current?.remove(handle, deleteFiles), [])
+  return { torrents, addMagnet, pause, resume, remove, clientRef }
 }

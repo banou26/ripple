@@ -173,9 +173,17 @@ type TorrentRowProps = {
   onSelect: (id: string) => void
   onToggle: (id: string) => void
   showAdv: boolean
+  onRemove?: (id: string) => void
+  onSave?: (t: Torrent) => Promise<void>
 }
 
-export const TorrentRow = ({ t, selected, onSelect, onToggle, showAdv }: TorrentRowProps) => {
+export const TorrentRow = ({ t, selected, onSelect, onToggle, showAdv, onRemove, onSave }: TorrentRowProps) => {
+  const [saving, setSaving] = useState(false)
+  const doSave = async () => {
+    if (!onSave || saving) return
+    setSaving(true)
+    try { await onSave(t) } catch {} finally { setSaving(false) }
+  }
   const stateLabel = {
     downloading: 'Downloading', seeding: 'Seeding',
     paused: 'Paused', queued: 'Queued', done: 'Complete', error: 'Error',
@@ -247,9 +255,17 @@ export const TorrentRow = ({ t, selected, onSelect, onToggle, showAdv }: Torrent
               <Icon.Play />
             </a>
           )}
-          <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} title="More">
-            <Icon.More />
-          </button>
+          {t.progress >= 1 && onSave && (
+            <button className="btn btn-ghost btn-icon" onClick={doSave} disabled={saving}
+              title={saving ? 'Saving…' : 'Save to disk'} style={{ fontSize: 10 }}>
+              {saving ? '…' : <Icon.Download />}
+            </button>
+          )}
+          {onRemove && (
+            <button className="btn btn-ghost btn-icon" onClick={() => onRemove(t.id)} title="Remove from list">
+              <Icon.Trash />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -318,9 +334,19 @@ type HeroCardProps = {
   onSelect: (id: string) => void
   onToggle: (id: string) => void
   queuedCount: number
+  onRemove?: (id: string) => void
+  onSave?: (t: Torrent) => Promise<void>
 }
 
-export const HeroCard = ({ t, onSelect, onToggle, queuedCount }: HeroCardProps) => (
+export const HeroCard = ({ t, onSelect, onToggle, queuedCount, onRemove, onSave }: HeroCardProps) => {
+  const [saving, setSaving] = useState(false)
+  const doSave = async () => {
+    if (!onSave || saving) return
+    setSaving(true)
+    try { await onSave(t) } catch {} finally { setSaving(false) }
+  }
+  const paused = t.state === 'paused' || t.state === 'queued'
+  return (
   <article className="hero" onClick={() => onSelect(t.id)} style={{ cursor: 'pointer' }}>
     {/* Soft blurred halo of the cover behind the card */}
     <div className="hero-bg">
@@ -372,11 +398,21 @@ export const HeroCard = ({ t, onSelect, onToggle, queuedCount }: HeroCardProps) 
         </div>
         <div className="hero-actions" onClick={(e) => e.stopPropagation()}>
           <button className="hero-action" onClick={() => onToggle(t.id)}>
-            <Icon.Pause className="icon" /> Pause
+            {paused ? <><Icon.Play className="icon" /> Resume</> : <><Icon.Pause className="icon" /> Pause</>}
           </button>
           <button className="hero-action" onClick={() => onSelect(t.id)}>
             Details
           </button>
+          {t.progress >= 1 && onSave && (
+            <button className="hero-action" onClick={doSave} disabled={saving}>
+              <Icon.Download className="icon" /> {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
+          {onRemove && (
+            <button className="hero-action" onClick={() => onRemove(t.id)} title="Remove from list">
+              <Icon.Trash className="icon" />
+            </button>
+          )}
           {hasPlayableFile(t) && (
             <a className="hero-action" data-primary="true" href={watchHref(t)!}>
               <Icon.Play className="icon" /> Watch
@@ -389,7 +425,8 @@ export const HeroCard = ({ t, onSelect, onToggle, queuedCount }: HeroCardProps) 
       </div>
     </div>
   </article>
-)
+  )
+}
 
 type HeroEmptyProps = { onAdd: () => void }
 
@@ -503,9 +540,11 @@ type DetailPanelProps = {
   t: Torrent | null | undefined
   onClose: () => void
   onSave?: (fileIndex: number, onProgress: (fraction: number) => void) => Promise<void>
+  onToggle?: (id: string) => void
+  onRemove?: (id: string, deleteFiles: boolean) => void
 }
 
-export const DetailPanel = ({ t, onClose, onSave }: DetailPanelProps) => {
+export const DetailPanel = ({ t, onClose, onSave, onToggle, onRemove }: DetailPanelProps) => {
   const [tab, setTab] = useState<DetailTab>('overview')
   // fileIndex -> save progress (0..1); -1 marks an error flash.
   const [saving, setSaving] = useState<Record<number, number>>({})
@@ -545,25 +584,39 @@ export const DetailPanel = ({ t, onClose, onSave }: DetailPanelProps) => {
           <span>·</span>
           <span>added {t.added}</span>
         </div>
-        {(hasPlayableFile(t) || (complete && onSave && t.files?.length)) && (
-          <div className="detail-actions" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            {hasPlayableFile(t) && (
-              <a className="btn btn-primary" href={watchHref(t)!} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Icon.Play /> Watch
-              </a>
-            )}
-            {complete && onSave && t.files?.length ? (() => {
-              const idx = pickVideoFile(t.files)
-              const prog = saving[idx]
-              return (
-                <button className="btn btn-ghost" onClick={() => doSave(idx)} disabled={prog != null && prog >= 0}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Icon.Download /> {prog == null ? 'Save to disk' : prog < 0 ? 'Failed' : 'Saving ' + Math.round(prog * 100) + '%'}
-                </button>
-              )
-            })() : null}
-          </div>
-        )}
+        <div className="detail-actions" style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          {hasPlayableFile(t) && (
+            <a className="btn btn-primary" href={watchHref(t)!} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon.Play /> Watch
+            </a>
+          )}
+          {onToggle && (
+            <button className="btn btn-ghost" onClick={() => onToggle(t.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {t.state === 'paused' || t.state === 'queued' ? <><Icon.Play /> Resume</> : <><Icon.Pause /> Stop</>}
+            </button>
+          )}
+          {complete && onSave && t.files?.length ? (() => {
+            const idx = pickVideoFile(t.files)
+            const prog = saving[idx]
+            return (
+              <button className="btn btn-ghost" onClick={() => doSave(idx)} disabled={prog != null && prog >= 0}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon.Download /> {prog == null ? 'Save to disk' : prog < 0 ? 'Failed' : 'Saving ' + Math.round(prog * 100) + '%'}
+              </button>
+            )
+          })() : null}
+          {onRemove && (
+            <button className="btn btn-ghost" onClick={() => onRemove(t.id, false)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon.Trash /> Remove
+            </button>
+          )}
+          {onRemove && (
+            <button className="btn btn-ghost" onClick={() => onRemove(t.id, true)} title="Remove and delete the downloaded files from this device"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--bad, #e5484d)' }}>
+              <Icon.Trash /> Delete data
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="detail-tabs">

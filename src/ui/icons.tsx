@@ -69,6 +69,11 @@ export const Icon = {
       <path d="M2.8 11.5v1.2c0 .4.3.8.8.8h8.8c.5 0 .8-.4.8-.8v-1.2" />
     </svg>
   ),
+  Trash: (p: IconProps) => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M3 4.5h10M6.5 4.5V3.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M5 4.5l.5 8c0 .5.4.9.9.9h3.2c.5 0 .9-.4.9-.9l.5-8" />
+    </svg>
+  ),
   ArrowUp: (p: IconProps) => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
       <path d="M8 13V3M4 7l4-4 4 4" />

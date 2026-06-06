@@ -26,6 +26,7 @@ import {
 } from '../ui/screens'
 import { useTorrents } from '../torrent/use-torrents'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
+import { pickVideoFile } from '../ui/watch'
 import { useTweaks, applyTweaks } from '../ui/use-tweaks'
 
 const TWEAK_DEFAULTS: Tweaks = {
@@ -45,9 +46,11 @@ type HeroActiveViewProps = {
   onToggle: (id: string) => void
   showAdv: boolean
   onAdd: () => void
+  onRemove: (id: string) => void
+  onSave: (t: Torrent) => Promise<void>
 }
 
-const HeroActiveView = ({ list, selectedId, onSelect, onToggle, showAdv, onAdd }: HeroActiveViewProps) => {
+const HeroActiveView = ({ list, selectedId, onSelect, onToggle, showAdv, onAdd, onRemove, onSave }: HeroActiveViewProps) => {
   const downloading = list.filter((t) => t.state === 'downloading').sort((a, b) => b.down - a.down)
   const hero = downloading[0] || null
   const heroId = hero?.id
@@ -60,13 +63,14 @@ const HeroActiveView = ({ list, selectedId, onSelect, onToggle, showAdv, onAdd }
     <TorrentRow key={t.id} t={t}
       selected={selectedId === t.id}
       onSelect={onSelect} onToggle={onToggle}
+      onRemove={onRemove} onSave={onSave}
       showAdv={showAdv} />
   ))
 
   return (
     <div className="list">
       {hero ? (
-        <HeroCard t={hero} onSelect={onSelect} onToggle={onToggle} queuedCount={queued.length} />
+        <HeroCard t={hero} onSelect={onSelect} onToggle={onToggle} onRemove={onRemove} onSave={onSave} queuedCount={queued.length} />
       ) : (
         <HeroEmpty onAdd={onAdd} />
       )}
@@ -109,7 +113,7 @@ const Home = () => {
   const [addOpen, setAddOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   // Live torrents from the libtorrent-wasm worker (real peers over WebVPN).
-  const { torrents, addMagnet, clientRef } = useTorrents()
+  const { torrents, addMagnet, pause, resume, remove, clientRef } = useTorrents()
 
   // Read torrents from a ref inside stable callbacks so the global paste
   // listener doesn't re-subscribe on every 500ms state tick.
@@ -244,9 +248,30 @@ const Home = () => {
     await saveTorrentFileToDisk(client, Number(selected.id), fileIndex, file.name, bytes, onProgress)
   }
 
-  // Pause/resume isn't exported by the engine yet (libtorrent has it; not wired).
-  // No-op for now so the controls don't fight the live worker state.
-  const onToggle = (_id: string) => {}
+  // Pause halts download + seeding (resumable). Toggle on the torrent's state.
+  const onToggle = (id: string) => {
+    const t = torrents.find((x) => x.id === id)
+    if (!t) return
+    if (t.state === 'paused' || t.state === 'queued') resume(Number(id))
+    else pause(Number(id))
+  }
+
+  // Remove from the client (stops seeding). deleteFiles also wipes the OPFS data.
+  const onRemove = (id: string, deleteFiles = false) => {
+    remove(Number(id), deleteFiles)
+    if (selectedId === id) setSelectedId(null)
+  }
+
+  // Save the torrent's primary file to disk straight from a list/hero row.
+  const onSaveRow = async (t: Torrent) => {
+    const client = clientRef.current
+    if (!client || !t.files?.length) return
+    const idx = pickVideoFile(t.files)
+    const file = t.files[idx]
+    if (!file) return
+    const bytes = file.bytes ?? Math.round(file.size * 1024 * 1024)
+    await saveTorrentFileToDisk(client, Number(t.id), idx, file.name, bytes)
+  }
 
   const titleFor = (v: string) => v === 'active' ? 'Transfers' : v === 'library' ? 'Library' : 'Settings'
   const subtitleFor = (v: string) => v === 'active' ? `${counts.downloading} downloading · ${counts.seeding} seeding`
@@ -285,7 +310,9 @@ const Home = () => {
                 onSelect={setSelectedId}
                 onToggle={onToggle}
                 showAdv={tweak.showAdv}
-                onAdd={() => setAddOpen(true)} />
+                onAdd={() => setAddOpen(true)}
+                onRemove={onRemove}
+                onSave={onSaveRow} />
             ) : (
               <div className="list">
                 {filtered.map((t) => (
@@ -293,13 +320,15 @@ const Home = () => {
                     selected={selectedId === t.id}
                     onSelect={setSelectedId}
                     onToggle={onToggle}
+                    onRemove={onRemove}
+                    onSave={onSaveRow}
                     showAdv={tweak.showAdv} />
                 ))}
               </div>
             )}
           </div>
           {selected && view !== 'settings' && (
-            <DetailPanel t={selected} onClose={() => setSelectedId(null)} onSave={onSaveFile} />
+            <DetailPanel t={selected} onClose={() => setSelectedId(null)} onSave={onSaveFile} onToggle={onToggle} onRemove={onRemove} />
           )}
         </div>
       </div>

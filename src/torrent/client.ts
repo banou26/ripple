@@ -9,7 +9,9 @@ export type TorrentClient = {
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
   addMagnet: (magnet: string, savePath?: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number) => Promise<Uint8Array>
-  remove: (handle: number) => void
+  pause: (handle: number) => void
+  resume: (handle: number) => void
+  remove: (handle: number, deleteFiles?: boolean) => void
   setSequential: (handle: number, on: boolean) => void
   prioritizeRange: (handle: number, fileIndex: number, offset: number, len: number) => void
   destroy: () => void
@@ -48,7 +50,9 @@ export const createTorrentClient = (): TorrentClient => {
         reads.set(id, { resolve, reject })
         worker.postMessage({ type: 'read', id, handle, fileIndex, offset, len })
       }),
-    remove: (handle) => worker.postMessage({ type: 'remove', handle }),
+    pause: (handle) => worker.postMessage({ type: 'pause', handle }),
+    resume: (handle) => worker.postMessage({ type: 'resume', handle }),
+    remove: (handle, deleteFiles = false) => worker.postMessage({ type: 'remove', handle, deleteFiles }),
     setSequential: (handle, on) => worker.postMessage({ type: 'set-sequential', handle, on }),
     prioritizeRange: (handle, fileIndex, offset, len) => worker.postMessage({ type: 'prioritize-range', handle, fileIndex, offset, len }),
     destroy: () => worker.terminate(),
