@@ -31,15 +31,15 @@
     "remove-build-deps": "shx rm -rf node_modules/@banou/media-player"
   },
   "dependencies": {
-    "@banou/webtorrent": "github:banou26/webtorrent",
+    "@banou/webtorrent": "file:../webtorrent",
     "@emotion/react": "^11.14.0",
-    "@videojs/react": "^10.0.0-beta.22",
-    "ass-compiler": "^0.1.15",
     "@fkn/lib": "file:../fkn/web/lib",
     "@hookform/resolvers": "^4.1.3",
     "@radix-ui/react-hover-card": "^1.1.6",
+    "@videojs/react": "^10.0.0-beta.22",
     "@webvpn/dgram": "^0.3.7",
     "@webvpn/net": "^0.3.7",
+    "ass-compiler": "^0.1.15",
     "chart.js": "^4.4.8",
     "dexie": "^4.0.11",
     "idb": "^8.0.2",
