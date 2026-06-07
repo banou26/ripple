@@ -4,6 +4,8 @@ import type { TorrentSnapshot } from './worker'
 
 export type { TorrentSnapshot }
 
+export type TorrentBackend = 'libtorrent' | 'webtorrent'
+
 export type TorrentClient = {
   ready: Promise<void>
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
@@ -17,12 +19,16 @@ export type TorrentClient = {
   destroy: () => void
 }
 
-export const createTorrentClient = (): TorrentClient => {
-  const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): TorrentClient => {
+  const worker = backend === 'webtorrent'
+    ? new Worker(new URL('./webtorrent-worker.ts', import.meta.url), { type: 'module' })
+    : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
   // Bridge the worker's @webvpn/{net,dgram} socket calls to the main-thread
   // @fkn/lib broker iframe (→ WebVPN). This and our own listener coexist:
   // relayWorker handles the osra socket envelopes, we handle our typed messages.
   relayWorker(worker)
+
+  worker.addEventListener('error', (e) => console.warn('[torrent worker] load/runtime error:', e.message, e.filename + ':' + e.lineno))
 
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void }>()

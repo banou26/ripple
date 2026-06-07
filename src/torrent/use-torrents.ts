@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Torrent, TorrentState } from '../ui/types'
 import { createTorrentClient } from './client'
 import type { TorrentClient, TorrentSnapshot } from './client'
+import { getBackend } from './backend'
 
 const BYTES_PER_MB = 1024 * 1024
 
@@ -78,7 +79,7 @@ export const useTorrents = (): UseTorrents => {
   const clientRef = useRef<TorrentClient | null>(null)
   const [torrents, setTorrents] = useState<Torrent[]>([])
   useEffect(() => {
-    const client = createTorrentClient()
+    const client = createTorrentClient(getBackend())
     clientRef.current = client
     const off = client.onState((snaps) => setTorrents(snaps.map(snapshotToTorrent)))
     return () => { off(); client.destroy(); clientRef.current = null }

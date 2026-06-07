@@ -30,7 +30,10 @@ const plugin = () => ({
   name: 'vite-plugin-node-stdlib-browser',
   config: () => ({
     resolve: {
-      alias: stdLibBrowser
+      // Drop net/dgram so they fall through to vite.config's alias →
+      // @webvpn/net/@webvpn/dgram (real peers), not the null stub WebTorrent
+      // would otherwise import.
+      alias: (() => { const { net, dgram, ...rest } = stdLibBrowser; return rest })()
     },
     optimizeDeps: {
       include: ['buffer', 'process'],

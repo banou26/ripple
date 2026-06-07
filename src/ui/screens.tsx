@@ -6,6 +6,7 @@ import { Icon, Logo } from './icons'
 import { Cover, Sparkline, PeerFlag } from './cover'
 import { fmtBytes, fmtSpeed, genSparkline } from './format'
 import { watchHref, hasPlayableFile, pickVideoFile } from './watch'
+import { getBackend, setBackend } from '../torrent/backend'
 import type { Torrent, TorrentFile, TorrentPeer, Tweaks } from './types'
 
 type ProtoMixProps = { utp: number, tcp: number }
@@ -746,8 +747,30 @@ export const SettingsScreen = ({ tweak, setTweak }: SettingsScreenProps) => {
     { value: 'moss', label: 'Moss' },
     { value: 'violet', label: 'Violet' },
   ]
+  const backend = getBackend()
   return (
     <div className="settings">
+      <div className="settings-section">
+        <div className="settings-title">Engine</div>
+        <p className="settings-desc">The BitTorrent engine Ripple downloads with. <strong>libtorrent-wasm</strong> is the native C++ engine; <strong>WebTorrent</strong> is the JS engine. Both tunnel real peers over WebVPN and store each torrent as a single file on disk. Switching restarts the app.</p>
+        <div className="setting-row">
+          <div className="setting-grow">
+            <div className="setting-label">Torrent engine</div>
+            <div className="setting-hint">Each engine keeps its own storage, so a switch re-verifies (or re-downloads) your transfers.</div>
+          </div>
+          <div className="setting-control">
+            <div className="filters" style={{ padding: 0, border: 'none' }}>
+              {([['libtorrent', 'libtorrent'], ['webtorrent', 'WebTorrent']] as const).map(([v, l]) => (
+                <button key={v} className="filter-pill" data-active={backend === v}
+                  onClick={() => { if (backend !== v) setBackend(v) }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="settings-section">
         <div className="settings-title">Appearance</div>
         <p className="settings-desc">Tune how Ripple looks and lays out your transfers. Changes apply instantly and persist on this device.</p>
