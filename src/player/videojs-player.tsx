@@ -48,14 +48,14 @@ const playerStyle = css`
 // The video.js skin sizes its controls in rem; ripple's global
 // html{font-size:62.5%} would render them at ⅝ scale, so restore a 16px
 // root while the full-page player is mounted. The video is object-fit, so
-// font-size doesn't affect it — only the skin's rem-based chrome.
+// font-size doesn't affect it - only the skin's rem-based chrome.
 const playerRoot = css`
   html {
     font-size: 100%;
   }
 `
 
-// Pushes the real <video> element into the video.js store — a plain
+// Pushes the real <video> element into the video.js store - a plain
 // HTMLVideoElement already satisfies the structural Media contract.
 const MediaAttach = ({ video }: { video: HTMLVideoElement | null }) => {
   const setMedia = useMediaAttach()

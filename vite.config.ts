@@ -20,7 +20,7 @@ export default defineConfig((env) => ({
   },
   server: {
     fs: {
-      // Serve the sibling local file: deps in dev — libtorrent-wasm/build (the
+      // Serve the sibling local file: deps in dev - libtorrent-wasm/build (the
       // .wasm the emscripten glue fetches) and fkn/web/lib. Without this vite's
       // /@fs/ returns the SPA fallback HTML for the .wasm → "expected magic word".
       allow: ['..']
@@ -48,7 +48,7 @@ export default defineConfig((env) => ({
   },
   worker: {
     format: 'es',
-    // Only the node-stdlib polyfills in the worker — NOT @vitejs/plugin-react.
+    // Only the node-stdlib polyfills in the worker - NOT @vitejs/plugin-react.
     // React Fast Refresh injects `import.meta.hot` component-registration code
     // into every module it processes, including the worker's @webvpn/@fkn/lib
     // graph, which corrupts the osra relay connection (the worker's socket

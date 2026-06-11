@@ -70,7 +70,7 @@ const Player = () => {
     [origin]
   )
 
-  // jassub's prebuilt worker is a classic script — wrap it via importScripts.
+  // jassub's prebuilt worker is a classic script - wrap it via importScripts.
   const jassubWorkerUrl = useMemo(() => {
     const url = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, origin).toString()
     return URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(url)})`], { type: 'application/javascript' }))

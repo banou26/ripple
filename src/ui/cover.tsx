@@ -1,4 +1,4 @@
-// Ripple — generative cover art, sparkline chart + peer flag chip.
+// Ripple - generative cover art, sparkline chart + peer flag chip.
 // Ported byte-faithfully from the design prototype.
 
 import { nameHash } from './format'
@@ -6,7 +6,7 @@ import type { TorrentState } from './types'
 
 type CoverProps = { name: string, size?: number, state?: TorrentState }
 
-// Generative cover art — abstract concentric "ripple" tile per torrent.
+// Generative cover art - abstract concentric "ripple" tile per torrent.
 // Hue derived from the name; deterministic.
 export const Cover = ({ name, size = 40, state }: CoverProps) => {
   const h = nameHash(name)
@@ -100,5 +100,5 @@ export const Sparkline = ({ down, up }: SparklineProps) => {
 
 type PeerFlagProps = { code: string }
 
-// Country flag stub — uses 2-letter code in mono inside a chip
+// Country flag stub - uses 2-letter code in mono inside a chip
 export const PeerFlag = ({ code }: PeerFlagProps) => <span className="peer-flag">{code}</span>

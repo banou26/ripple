@@ -1,4 +1,4 @@
-// Ripple — screens & complex components
+// Ripple - screens & complex components
 
 import { useState, useEffect } from 'react'
 
@@ -285,7 +285,7 @@ export const SectionHeader = ({ label, count }: SectionHeaderProps) => (
 
 type HeroSparkProps = { id: string, down: number, up: number }
 
-// Live speed graph for the hero card — rolling 60-sample buffer that ticks
+// Live speed graph for the hero card - rolling 60-sample buffer that ticks
 // every second, driven by the torrent's current down speed (plus jitter).
 export const HeroSpark = ({ id, down, up }: HeroSparkProps) => {
   const [series, setSeries] = useState<{ d: number[], u: number[] }>(() => {
@@ -851,7 +851,7 @@ export const SettingsScreen = ({ tweak, setTweak }: SettingsScreenProps) => {
 
       <div className="settings-section">
         <div className="settings-title">Connection</div>
-        <p className="settings-desc">Ripple connects to peers over both µTP (UDP-based) and TCP, tunnelled out of the browser over WebVPN (WebTransport) — real BitTorrent peers, not WebRTC-only.</p>
+        <p className="settings-desc">Ripple connects to peers over both µTP (UDP-based) and TCP, tunnelled out of the browser over WebVPN (WebTransport): real BitTorrent peers, not WebRTC-only.</p>
         <div className="setting-row">
           <div className="setting-grow">
             <div className="setting-label">Peer protocols</div>
@@ -904,7 +904,7 @@ export const SettingsScreen = ({ tweak, setTweak }: SettingsScreenProps) => {
             <div className="setting-label">Download limit</div>
             <div className="setting-hint">Unlimited.</div>
           </div>
-          <div className="setting-control" style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>—</div>
+          <div className="setting-control" style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>-</div>
         </div>
         <div className="setting-row">
           <div className="setting-grow">
@@ -917,7 +917,7 @@ export const SettingsScreen = ({ tweak, setTweak }: SettingsScreenProps) => {
 
       <div className="settings-section">
         <div className="settings-title">About</div>
-        <p className="settings-desc">Ripple — a browser-native BitTorrent client. v0.4.2 · build 2026-05-17</p>
+        <p className="settings-desc">Ripple: a browser-native BitTorrent client. v0.4.2 · build 2026-05-17</p>
       </div>
     </div>
   )

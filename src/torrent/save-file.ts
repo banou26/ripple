@@ -1,7 +1,7 @@
 // Export a finished file out of OPFS to the user's real disk. Reads through the
 // worker's Session.read() (the worker owns the OPFS SyncAccessHandle, so this
 // never races the seeding write lock) and streams it straight to a file the user
-// picks — no full-file buffering on the showSaveFilePicker path.
+// picks - no full-file buffering on the showSaveFilePicker path.
 
 import type { TorrentClient } from './client'
 

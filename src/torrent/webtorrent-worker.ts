@@ -1,12 +1,12 @@
 // WebTorrent backend running in a Web Worker. We consume the fork's PREBUILT
-// bundle (dist/webtorrent.min.js) — self-contained, with @webvpn/{net,dgram} →
+// bundle (dist/webtorrent.min.js) - self-contained, with @webvpn/{net,dgram} →
 // @fkn/lib baked in (rebuilt against the local @fkn/lib so the relayWorker
 // handshake matches). Speaks the SAME postMessage protocol + emits the SAME
 // TorrentSnapshot as the libtorrent worker, so client.ts is backend-agnostic.
 // Storage is a single OPFS file per torrent (OPFSSingleFileStore), not per piece.
 //
 // IMPORTANT: do NOT shim `window` here. WebTorrent's window accesses are guarded,
-// but @fkn/lib decides worker-relay-vs-iframe by `window` on every socket — a
+// but @fkn/lib decides worker-relay-vs-iframe by `window` on every socket - a
 // shim flips it onto the (impossible-in-a-worker) iframe path and no peer
 // sockets ever open.
 
@@ -169,7 +169,7 @@ const readRange = async (h: number, fileIndex: number, offset: number, len: numb
 
 const init = async () => {
   try {
-    // @ts-ignore — the prebuilt fork bundle ships no types.
+    // @ts-ignore - the prebuilt fork bundle ships no types.
     WebTorrent = (await import('@banou/webtorrent/dist/webtorrent.min.js')).default
     // Disable the Node-only subsystems (their deps are stubbed in-browser):
     // DHT, local service discovery, NAT traversal, µTP.

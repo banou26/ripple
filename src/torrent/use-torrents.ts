@@ -24,9 +24,9 @@ const STATE: Record<number, TorrentState> = {
 }
 
 const fmtEta = (status: TorrentSnapshot['status']): string => {
-  if (!status || status.state === 5 || status.state === 4) return '—'
+  if (!status || status.state === 5 || status.state === 4) return '-'
   const remain = status.totalWanted - status.totalDone
-  if (remain <= 0) return '—'
+  if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return 'queued'
   const s = Math.round(remain / status.downloadRate)
   if (s < 60) return s + 's'
@@ -52,13 +52,13 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
     state: st ? (st.paused ? 'paused' : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading'),
     down: (st?.downloadRate ?? 0) / 1024,
     up: (st?.uploadRate ?? 0) / 1024,
-    // No µTP/TCP split surfaced by the engine yet — report all as connected.
+    // No µTP/TCP split surfaced by the engine yet - report all as connected.
     peers: { total: numPeers, utp: 0, tcp: numPeers },
     seeds: st?.numSeeds ?? 0,
     eta: fmtEta(st),
     ratio: 0,
     added: 'now',
-    tracker: magnetParam(s.magnet, 'tr') ?? '—',
+    tracker: magnetParam(s.magnet, 'tr') ?? '-',
     flag: '',
     files: s.files?.files.map((f) => ({ name: f.path, size: f.size / BYTES_PER_MB, bytes: f.size, progress })),
   }

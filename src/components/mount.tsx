@@ -17,7 +17,7 @@ const style = css`
 `
 
 const Mount = () => {
-  // Single-tab guard only — the torrent engine now lives in the libtorrent-wasm
+  // Single-tab guard only - the torrent engine now lives in the libtorrent-wasm
   // worker (per-route), so there's no app-wide client to create/tear down here.
   const { isActive, activate } = useActiveWindow({})
 

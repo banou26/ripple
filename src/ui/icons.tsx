@@ -1,4 +1,4 @@
-// Ripple — icon set + logo, ported byte-faithfully from the design prototype.
+// Ripple - icon set + logo, ported byte-faithfully from the design prototype.
 
 import type { SVGProps } from 'react'
 

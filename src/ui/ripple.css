@@ -1,9 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
 
-/* ── Ripple — design tokens & base ────────────────────────────────────── */
+/* ── Ripple - design tokens & base ────────────────────────────────────── */
 
 :root {
-  /* Light theme (default) — subtle cool off-whites + water-blue accent */
+  /* Light theme (default) - subtle cool off-whites + water-blue accent */
   --bg: oklch(0.985 0.004 230);
   --bg-elev: oklch(1 0 0);
   --surface: oklch(0.975 0.005 230);

@@ -7,7 +7,7 @@ import { getBackend } from './backend'
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
   // Reads a byte range of the selected file straight from the Session (which
-  // prioritizes + awaits the covering pieces on demand — ideal for seeking).
+  // prioritizes + awaits the covering pieces on demand - ideal for seeking).
   read: (offset: number, size: number) => Promise<ArrayBuffer>
 }
 
@@ -35,7 +35,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const client = clientRef.current
     const handle = handleRef.current
     if (!client || handle == null) throw new Error('torrent not ready')
-    // Clamp to the file boundary — the remuxer reads a full buffer near EOF,
+    // Clamp to the file boundary - the remuxer reads a full buffer near EOF,
     // but the torrent would otherwise await pieces past the file that never land.
     const fileSize = snapshot?.files?.files[fileIndex]?.size
     const clamped = fileSize != null ? Math.max(0, Math.min(size, fileSize - offset)) : size

@@ -1,14 +1,14 @@
 // Format + deterministic-generative helpers for the Ripple UI.
 
 export const fmtBytes = (mb: number | null | undefined): string => {
-  if (mb == null) return '—'
+  if (mb == null) return '-'
   if (mb >= 1024) return (mb / 1024).toFixed(mb >= 10240 ? 1 : 2) + ' GB'
   if (mb >= 1) return mb.toFixed(mb >= 100 ? 0 : 1) + ' MB'
   return (mb * 1024).toFixed(0) + ' KB'
 }
 
 export const fmtSpeed = (kbs: number): string => {
-  if (!kbs) return '—'
+  if (!kbs) return '-'
   if (kbs >= 1024) return (kbs / 1024).toFixed(1) + ' MB/s'
   return kbs.toFixed(0) + ' KB/s'
 }
