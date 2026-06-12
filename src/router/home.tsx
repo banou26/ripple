@@ -75,7 +75,10 @@ const style = css`
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: #16131c;
+  background:
+    radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%),
+    radial-gradient(900px 420px at -10% 110%, #221a31 0%, transparent 55%),
+    #16131c;
   color: #f4f2f8;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
@@ -86,7 +89,11 @@ const style = css`
   button {
     font-family: inherit;
     cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+
+    &:active {
+      transform: scale(0.98);
+    }
   }
 
   header {
@@ -95,12 +102,13 @@ const style = css`
     align-items: center;
     flex-wrap: wrap;
     gap: 10px 16px;
-    padding: 10px 16px;
-    background: #1e1a28;
-    border-bottom: 1px solid #2c2737;
+    padding: 12px 18px;
+    background: rgba(30, 26, 40, 0.6);
+    border-bottom: 1px solid rgba(44, 39, 55, 0.9);
+    backdrop-filter: blur(12px) saturate(1.2);
 
     .wordmark {
-      font-size: 1.25rem;
+      font-size: 1.35rem;
       font-weight: 900;
       letter-spacing: 0.06em;
       background: linear-gradient(90deg, #fbbf24, #f97316);
@@ -118,14 +126,14 @@ const style = css`
       input {
         flex: 1;
         min-width: 0;
-        background: #16131c;
+        background: rgba(22, 19, 28, 0.8);
         border: 1px solid #2c2737;
-        border-radius: 8px;
-        padding: 8px 12px;
+        border-radius: 999px;
+        padding: 8px 16px;
         color: #f4f2f8;
         font-size: 0.9rem;
         outline: none;
-        transition: border-color 120ms ease;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
 
         &::placeholder {
           color: #8b8499;
@@ -133,13 +141,14 @@ const style = css`
 
         &:focus {
           border-color: #f97316;
+          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
         }
       }
 
       button {
         flex: none;
-        border-radius: 8px;
-        padding: 8px 16px;
+        border-radius: 999px;
+        padding: 8px 18px;
         font-size: 0.85rem;
         font-weight: 700;
 
@@ -147,6 +156,16 @@ const style = css`
           border: none;
           background: #fff;
           color: #16131c;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+
+          &:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+          }
+
+          &:active {
+            transform: scale(0.98);
+          }
         }
 
         &.ghost {
@@ -156,10 +175,21 @@ const style = css`
 
           &:hover {
             background: #241e30;
+            border-color: rgba(249, 115, 22, 0.45);
           }
         }
       }
     }
+  }
+
+  .surface {
+    background: rgba(30, 26, 40, 0.66);
+    border: 1px solid rgba(44, 39, 55, 0.9);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 14px -4px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px) saturate(1.2);
   }
 
   .stats {
@@ -169,9 +199,7 @@ const style = css`
     gap: 24px;
     margin: 14px 16px 0;
     padding: 14px 18px;
-    background: #1e1a28;
-    border: 1px solid #2c2737;
-    border-radius: 10px;
+    border-radius: 14px;
 
     .readouts {
       flex: none;
@@ -242,15 +270,12 @@ const style = css`
         stroke-width: 1.2;
         vector-effect: non-scaling-stroke;
       }
-
-      polygon {
-        fill: rgba(249, 115, 22, 0.14);
-      }
     }
   }
 
   main {
     flex: 1;
+    overflow-x: hidden;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -260,17 +285,20 @@ const style = css`
 
   .torrent {
     flex: none;
-    background: #1e1a28;
-    border: 1px solid #2c2737;
-    border-radius: 10px;
-    padding: 12px 14px;
+    border-radius: 14px;
+    padding: 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 9px;
-    transition: border-color 120ms ease;
+    gap: 10px;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 
     &:hover {
-      border-color: #3a3447;
+      border-color: rgba(249, 115, 22, 0.35);
+      transform: translateY(-1px);
+      box-shadow:
+        0 0 0 1px rgba(249, 115, 22, 0.12),
+        0 8px 20px -6px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
     .title {
@@ -281,6 +309,7 @@ const style = css`
       strong {
         flex: 1;
         font-size: 0.95rem;
+        font-weight: 600;
         overflow-wrap: anywhere;
       }
 
@@ -294,31 +323,53 @@ const style = css`
 
     .badge {
       flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      padding: 3px 8px;
-      border-radius: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
       background: #2c2737;
+      border: 1px solid transparent;
       color: #a39db3;
 
-      &.downloading { color: #fbbf24; background: #fbbf2419; }
-      &.seeding { color: #2dd4bf; background: #2dd4bf19; }
-      &.done { color: #c084fc; background: #c084fc19; }
-      &.error { color: #ef4444; background: #ef444419; }
+      &::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.7;
+      }
+
+      &.downloading {
+        color: #fbbf24;
+        background: #fbbf2414;
+        border-color: #fbbf2430;
+
+        &::before {
+          animation: pulse 1.6s ease-in-out infinite;
+        }
+      }
+      &.seeding { color: #2dd4bf; background: #2dd4bf14; border-color: #2dd4bf30; }
+      &.done { color: #c084fc; background: #c084fc14; border-color: #c084fc30; }
+      &.error { color: #ef4444; background: #ef444414; border-color: #ef444430; }
     }
 
     .bar {
-      height: 5px;
+      height: 6px;
       border-radius: 999px;
-      background: #2c2737;
+      background: rgba(44, 39, 55, 0.9);
       overflow: hidden;
 
       .fill {
         height: 100%;
         border-radius: 999px;
         background: linear-gradient(90deg, #fbbf24, #f97316);
+        box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
         transition: width 400ms ease;
       }
     }
@@ -347,8 +398,8 @@ const style = css`
       gap: 6px;
 
       a, button {
-        border-radius: 7px;
-        padding: 6px 12px;
+        border-radius: 999px;
+        padding: 6px 14px;
         font-size: 0.8rem;
         font-weight: 700;
       }
@@ -357,6 +408,13 @@ const style = css`
         border: none;
         background: #fff;
         color: #16131c;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        transition: transform 120ms ease, box-shadow 120ms ease;
+
+        &:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+        }
       }
 
       button {
@@ -366,6 +424,7 @@ const style = css`
 
         &:hover {
           background: #241e30;
+          border-color: rgba(249, 115, 22, 0.35);
         }
 
         &:disabled {
@@ -381,6 +440,11 @@ const style = css`
         color: #a39db3;
         font-size: 0.8rem;
         user-select: none;
+        transition: color 120ms ease;
+
+        &:hover {
+          color: #c9c4d4;
+        }
       }
 
       .file {
@@ -388,7 +452,7 @@ const style = css`
         align-items: center;
         gap: 12px;
         padding: 7px 0;
-        border-top: 1px solid #2c2737;
+        border-top: 1px solid rgba(44, 39, 55, 0.9);
         font-size: 0.8rem;
 
         &:first-of-type {
@@ -411,14 +475,15 @@ const style = css`
         button {
           flex: none;
           border: 1px solid #3a3447;
-          border-radius: 7px;
+          border-radius: 999px;
           background: none;
           color: #f4f2f8;
-          padding: 4px 10px;
+          padding: 4px 12px;
           font-size: 0.75rem;
 
           &:hover {
             background: #241e30;
+            border-color: rgba(249, 115, 22, 0.35);
           }
 
           &:disabled {
@@ -431,18 +496,47 @@ const style = css`
   }
 
   .empty {
+    position: relative;
     margin: auto;
     text-align: center;
     color: #8b8499;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     line-height: 1.7;
     padding: 24px;
 
+    &::before, &::after {
+      content: '';
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(70px);
+      pointer-events: none;
+    }
+
+    &::before {
+      width: 280px;
+      height: 280px;
+      top: -80px;
+      left: -60px;
+      background: #f59e0b;
+      opacity: 0.14;
+    }
+
+    &::after {
+      width: 320px;
+      height: 320px;
+      bottom: -100px;
+      right: -80px;
+      background: #7c3aed;
+      opacity: 0.16;
+    }
+
     h1 {
-      margin: 0 0 10px;
-      font-size: 1.5rem;
+      margin: 0 0 12px;
+      font-size: clamp(1.7rem, 4.5vw, 2.6rem);
       font-weight: 900;
       letter-spacing: -0.01em;
+      line-height: 1.15;
+      color: #f4f2f8;
 
       em {
         font-style: normal;
@@ -452,6 +546,45 @@ const style = css`
         color: transparent;
       }
     }
+
+    .hints {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+
+      span {
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid #2c2737;
+        background: rgba(30, 26, 40, 0.66);
+        font-size: 0.78rem;
+        color: #a39db3;
+      }
+    }
+  }
+
+  .drop {
+    position: fixed;
+    inset: 12px;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    border: 2px dashed rgba(249, 115, 22, 0.55);
+    border-radius: 18px;
+    background: rgba(249, 115, 22, 0.06);
+    color: #fbbf24;
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  &[data-drag] .drop {
+    opacity: 1;
   }
 
   footer {
@@ -461,13 +594,15 @@ const style = css`
     flex-wrap: wrap;
     gap: 6px 18px;
     padding: 8px 16px;
-    background: #1e1a28;
-    border-top: 1px solid #2c2737;
+    background: rgba(30, 26, 40, 0.6);
+    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    backdrop-filter: blur(12px) saturate(1.2);
     font-size: 0.78rem;
     color: #8b8499;
 
     a {
       color: #8b8499;
+      transition: color 120ms ease;
 
       &:hover {
         color: #c9c4d4;
@@ -493,11 +628,16 @@ const style = css`
 
       button {
         font-size: 0.75rem;
-        padding: 4px 10px;
-        border-radius: 7px;
+        padding: 4px 12px;
+        border-radius: 999px;
         border: 1px solid #2c2737;
         background: none;
         color: #8b8499;
+
+        &:hover {
+          color: #c9c4d4;
+          border-color: #3a3447;
+        }
 
         &.on {
           color: #f4f2f8;
@@ -512,13 +652,33 @@ const style = css`
     bottom: 52px;
     left: 50%;
     transform: translateX(-50%);
-    background: #1e1a28;
-    border: 1px solid #2c2737;
-    border-radius: 8px;
-    padding: 10px 18px;
+    background: rgba(30, 26, 40, 0.85);
+    border: 1px solid rgba(58, 52, 71, 0.9);
+    border-radius: 12px;
+    padding: 11px 20px;
     font-size: 0.85rem;
-    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
-    z-index: 10;
+    backdrop-filter: blur(12px) saturate(1.2);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.04),
+      0 10px 34px rgba(0, 0, 0, 0.45);
+    z-index: 30;
+    animation: slide-up 200ms ease-out;
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 0.25; }
   }
 
   @media (max-width: 700px) {
@@ -567,7 +727,13 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
   if (!points) return null
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-      <polygon points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
+      <defs>
+        <linearGradient id="speed-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#f97316" stopOpacity="0.3"/>
+          <stop offset="100%" stopColor="#f97316" stopOpacity="0.02"/>
+        </linearGradient>
+      </defs>
+      <polygon fill="url(#speed-fill)" points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
       <polyline points={points}/>
     </svg>
   )
@@ -588,7 +754,7 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onRemove }: RowProps) => {
   const mainIndex = pickVideoFile(t.files)
   const mainSaving = saving[savingKey(t.id, mainIndex)]
   return (
-    <div className="torrent">
+    <div className="torrent surface">
       <div className="title">
         <strong>{t.name}</strong>
         <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
@@ -688,16 +854,31 @@ const Home = () => {
   }, [commitMagnet])
 
   // Drop a .torrent file (or a dragged magnet link) anywhere on the page.
+  // dragenter/dragleave fire per element, so a depth counter keeps the
+  // overlay from flickering while the drag crosses children.
+  const [dragging, setDragging] = useState(false)
   useEffect(() => {
+    let depth = 0
+    const onDragEnter = () => { if (++depth === 1) setDragging(true) }
+    const onDragLeave = () => { if (--depth <= 0) { depth = 0; setDragging(false) } }
     const onDragOver = (e: DragEvent) => e.preventDefault()
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
+      depth = 0
+      setDragging(false)
       if (e.dataTransfer?.files?.length) addTorrentFiles(e.dataTransfer.files)
       else commitMagnet(e.dataTransfer?.getData('text') ?? '')
     }
+    window.addEventListener('dragenter', onDragEnter)
+    window.addEventListener('dragleave', onDragLeave)
     window.addEventListener('dragover', onDragOver)
     window.addEventListener('drop', onDrop)
-    return () => { window.removeEventListener('dragover', onDragOver); window.removeEventListener('drop', onDrop) }
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
+    }
   }, [addTorrentFiles, commitMagnet])
 
   const onToggle = (t: Torrent) =>
@@ -763,7 +944,8 @@ const Home = () => {
   }
 
   return (
-    <div css={style}>
+    <div css={style} data-drag={dragging || undefined}>
+      <div className="drop">Drop to add</div>
       <header>
         <span className="wordmark">Ripple</span>
         <form
@@ -796,7 +978,7 @@ const Home = () => {
       </header>
 
       {torrents.length > 0 && (
-        <section className="stats">
+        <section className="stats surface">
           <div className="readouts">
             <div className="stat big">
               <label>Download</label>
@@ -824,10 +1006,14 @@ const Home = () => {
         {torrents.length === 0
           ? (
             <div className="empty">
-              <h1>Download. Stream. <em>In your browser.</em></h1>
+              <h1>Download. Stream.<br/><em>In your browser.</em></h1>
               Ripple is a torrent client that runs entirely in your browser.<br/>
-              Paste a magnet link, drop a .torrent file anywhere on this page,<br/>
-              watch the video while it downloads, then save it to your disk.
+              Watch the video while it downloads, then save it to your disk.
+              <div className="hints">
+                <span>Paste a magnet link</span>
+                <span>Drop a .torrent anywhere</span>
+                <span>Press Ctrl+V to add instantly</span>
+              </div>
             </div>
           )
           : torrents.map((t) => (
