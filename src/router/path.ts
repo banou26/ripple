@@ -1,16 +1,22 @@
 export enum Route {
   HOME = 'HOME',
-  EMBED = 'EMBED'
+  EMBED = 'EMBED',
+  LEGAL = 'LEGAL',
+  PRIVACY = 'PRIVACY'
 }
 
 const Routes = {
   [Route.HOME]: () => '/',
-  [Route.EMBED]: (options: { magnet: string, fileIndex?: string } | { torrentFile: string, fileIndex?: string }) => `/embed?${new URLSearchParams(options).toString()}`
+  [Route.EMBED]: (options: { magnet: string, fileIndex?: string } | { torrentFile: string, fileIndex?: string }) => `/embed?${new URLSearchParams(options).toString()}`,
+  [Route.LEGAL]: () => '/legal',
+  [Route.PRIVACY]: () => '/privacy'
 } as const
 
 const RouterRoutes = {
   [Route.HOME]: '/',
-  [Route.EMBED]: '/embed'
+  [Route.EMBED]: '/embed',
+  [Route.LEGAL]: '/legal',
+  [Route.PRIVACY]: '/privacy'
 } as const
 
 export const getRouterRoutePath = (route: Route) => RouterRoutes[route]

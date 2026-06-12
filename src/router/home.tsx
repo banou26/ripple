@@ -580,6 +580,8 @@ const Home = () => {
 
         <footer>
           <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
+          <Link to="/legal">Legal</Link>
+          <Link to="/privacy">Privacy</Link>
           <div className="engine">
             <span>Engine</span>
             <button
