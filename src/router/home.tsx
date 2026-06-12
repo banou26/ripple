@@ -6,7 +6,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useTorrents } from '../torrent/use-torrents'
+import { useFolder } from '../torrent/use-folder'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
+import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getBackend, setBackend } from '../torrent/backend'
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -312,6 +314,60 @@ const style = css`
         }
       }
     }
+
+    .files {
+      summary {
+        cursor: pointer;
+        color: #a39db3;
+        font-size: 0.85rem;
+        user-select: none;
+      }
+
+      .file {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-top: 1px solid #2c2737;
+        font-size: 0.85rem;
+
+        &:first-of-type {
+          margin-top: 10px;
+        }
+
+        .name {
+          flex: 1;
+          min-width: 0;
+          overflow-wrap: anywhere;
+          color: #b6b0c4;
+        }
+
+        .size {
+          flex: none;
+          color: #8b8499;
+        }
+
+        button {
+          flex: none;
+          border: 1px solid #3a3447;
+          border-radius: 999px;
+          background: none;
+          color: #f4f2f8;
+          padding: 5px 12px;
+          font-size: 0.8rem;
+          cursor: pointer;
+
+          &:hover {
+            background: #221d2e;
+          }
+
+          &:disabled {
+            opacity: 0.6;
+            cursor: default;
+          }
+        }
+      }
+    }
   }
 
   .empty {
@@ -342,8 +398,15 @@ const style = css`
       }
     }
 
-    .engine {
+    .controls {
       margin-left: auto;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 20px;
+    }
+
+    .folder, .engine {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -386,16 +449,20 @@ const style = css`
   }
 `
 
+const savingKey = (id: string, fileIndex: number) => `${id}:${fileIndex}`
+
 type CardProps = {
   t: Torrent
-  saving?: number
+  saving: Record<string, number>
   onToggle: (t: Torrent) => void
-  onSave: (t: Torrent) => void
+  onSave: (t: Torrent, fileIndex: number) => void
   onRemove: (t: Torrent) => void
 }
 
 const TorrentCard = ({ t, saving, onToggle, onSave, onRemove }: CardProps) => {
   const href = watchHref(t)
+  const mainIndex = pickVideoFile(t.files)
+  const mainSaving = saving[savingKey(t.id, mainIndex)]
   return (
     <div className="torrent">
       <div className="title">
@@ -415,13 +482,30 @@ const TorrentCard = ({ t, saving, onToggle, onSave, onRemove }: CardProps) => {
       <div className="actions">
         {href && <Link className="primary" to={href}>Watch</Link>}
         {!!t.files?.length && (
-          <button onClick={() => onSave(t)} disabled={saving != null}>
-            {saving != null ? `Saving ${Math.round(saving * 100)}%` : 'Save to disk'}
+          <button onClick={() => onSave(t, mainIndex)} disabled={mainSaving != null}>
+            {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : 'Save to disk'}
           </button>
         )}
         <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
         <button onClick={() => onRemove(t)}>Remove</button>
       </div>
+      {(t.files?.length ?? 0) > 1 && (
+        <details className="files">
+          <summary>{t.files!.length} files</summary>
+          {t.files!.map((f, i) => {
+            const s = saving[savingKey(t.id, i)]
+            return (
+              <div className="file" key={i}>
+                <span className="name">{f.name}</span>
+                <span className="size">{getHumanReadableByteString(f.size, true)}</span>
+                <button onClick={() => onSave(t, i)} disabled={s != null}>
+                  {s != null ? `${Math.round(s * 100)}%` : 'Save'}
+                </button>
+              </div>
+            )
+          })}
+        </details>
+      )}
     </div>
   )
 }
@@ -495,19 +579,37 @@ const Home = () => {
   // Removing also wipes the OPFS data - there's no UI to reclaim it otherwise.
   const onRemove = (t: Torrent) => remove(Number(t.id), true)
 
-  // Streams the torrent's main file out of OPFS to the user's disk. Called
-  // synchronously from the click so showSaveFilePicker keeps the user gesture.
-  const onSave = (t: Torrent) => {
+  // Streams one file out of OPFS to the user's disk. Called synchronously
+  // from the click so showSaveFilePicker keeps the user gesture.
+  const onSave = (t: Torrent, fileIndex: number) => {
     const client = clientRef.current
-    if (!client || !t.files?.length) return
-    const idx = pickVideoFile(t.files)
-    const file = t.files[idx]
-    if (!file) return
-    setSaving((s) => ({ ...s, [t.id]: 0 }))
-    saveTorrentFileToDisk(client, Number(t.id), idx, file.name, file.size, (f) => setSaving((s) => ({ ...s, [t.id]: f })))
+    const file = t.files?.[fileIndex]
+    if (!client || !file) return
+    const key = savingKey(t.id, fileIndex)
+    setSaving((s) => ({ ...s, [key]: 0 }))
+    saveTorrentFileToDisk(client, Number(t.id), fileIndex, file.name, file.size, (f) => setSaving((s) => ({ ...s, [key]: f })))
       .catch(() => {})
-      .finally(() => setSaving((s) => { const { [t.id]: _, ...rest } = s; return rest }))
+      .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
+
+  const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
+
+  // Auto-copy finished torrents into the chosen folder. The synced set only
+  // dedups this session; the sync itself skips files already on disk.
+  const syncedRef = useRef(new Set<string>())
+  useEffect(() => { syncedRef.current.clear() }, [folder])
+  useEffect(() => {
+    const client = clientRef.current
+    if (!client || !folder || !permitted) return
+    for (const t of torrents) {
+      if (t.state !== 'done' && t.state !== 'seeding') continue
+      if (!t.files?.length || syncedRef.current.has(t.id)) continue
+      syncedRef.current.add(t.id)
+      syncTorrentToDirectory(client, t, folder)
+        .then((written) => { if (written) showToast(`${t.name} saved to ${folder.name}`) })
+        .catch(() => showToast(`Saving ${t.name} to ${folder.name} failed`))
+    }
+  }, [torrents, folder, permitted, clientRef, showToast])
 
   const backend = getBackend()
   const [confirmEngine, setConfirmEngine] = useState<TorrentBackend | null>(null)
@@ -584,7 +686,7 @@ const Home = () => {
               <TorrentCard
                 key={t.id}
                 t={t}
-                saving={saving[t.id]}
+                saving={saving}
                 onToggle={onToggle}
                 onSave={onSave}
                 onRemove={onRemove}
@@ -596,32 +698,49 @@ const Home = () => {
           <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
           <Link to="/legal">Legal</Link>
           <Link to="/privacy">Privacy</Link>
-          <div className="engine">
-            {confirmEngine
-              ? (
-                <>
-                  <span className="warn">Switching engines resets the downloaded files</span>
-                  <button className="on" onClick={() => setBackend(confirmEngine)}>Switch</button>
-                  <button onClick={() => setConfirmEngine(null)}>Cancel</button>
-                </>
-              )
-              : (
-                <>
-                  <span>Engine</span>
-                  <button
-                    className={backend === 'libtorrent' ? 'on' : ''}
-                    onClick={() => switchEngine('libtorrent')}
-                  >
-                    libtorrent
-                  </button>
-                  <button
-                    className={backend === 'webtorrent' ? 'on' : ''}
-                    onClick={() => switchEngine('webtorrent')}
-                  >
-                    WebTorrent
-                  </button>
-                </>
-              )}
+          <div className="controls">
+            {folderSupported && (
+              <div className="folder">
+                <span>Auto-save</span>
+                {!folder
+                  ? <button onClick={pickFolder}>Choose folder</button>
+                  : permitted
+                    ? (
+                      <>
+                        <button className="on" onClick={pickFolder}>{folder.name}</button>
+                        <button onClick={clearFolder}>Stop</button>
+                      </>
+                    )
+                    : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
+              </div>
+            )}
+            <div className="engine">
+              {confirmEngine
+                ? (
+                  <>
+                    <span className="warn">Switching engines resets the downloaded files</span>
+                    <button className="on" onClick={() => setBackend(confirmEngine)}>Switch</button>
+                    <button onClick={() => setConfirmEngine(null)}>Cancel</button>
+                  </>
+                )
+                : (
+                  <>
+                    <span>Engine</span>
+                    <button
+                      className={backend === 'libtorrent' ? 'on' : ''}
+                      onClick={() => switchEngine('libtorrent')}
+                    >
+                      libtorrent
+                    </button>
+                    <button
+                      className={backend === 'webtorrent' ? 'on' : ''}
+                      onClick={() => switchEngine('webtorrent')}
+                    >
+                      WebTorrent
+                    </button>
+                  </>
+                )}
+            </div>
           </div>
         </footer>
       </div>

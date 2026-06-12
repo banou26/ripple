@@ -23,7 +23,7 @@
   "dependencies": {
     "@banou/webtorrent": "file:../webtorrent",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.3.11",
+    "@fkn/lib": "file:../fkn/web/lib",
     "@videojs/react": "^10.0.0-beta.22",
     "@webvpn/dgram": "^0.3.7",
     "@webvpn/net": "^0.3.7",
