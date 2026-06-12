@@ -9,7 +9,7 @@ import { VideoSkin } from '@videojs/react/video'
 import skinCss from '@videojs/react/video/skin.css?inline'
 
 import { startPlayback } from './playback'
-import type { PlaybackController } from './playback'
+import type { AudioStream, PlaybackController } from './playback'
 import type { SubtitleStream } from './subtitles'
 
 const player = createPlayer({ features: videoFeatures, displayName: 'RipplePlayer' })
@@ -78,13 +78,16 @@ export type VideoJsPlayerProps = {
   defaultFontUrl: string
   autoplay?: boolean
   overlay?: ReactNode
+  audioStreamIndex?: number
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
+  onAudioStreams?: (streams: AudioStream[], selected: number) => void
   onController?: (controller: PlaybackController | null) => void
 }
 
 export const VideoJsPlayer = ({
   read, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl,
-  defaultFontUrl, autoplay = true, overlay, onSubtitleStreams, onController,
+  defaultFontUrl, autoplay = true, overlay, audioStreamIndex,
+  onSubtitleStreams, onAudioStreams, onController,
 }: VideoJsPlayerProps) => {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
@@ -92,8 +95,12 @@ export const VideoJsPlayer = ({
   readRef.current = read
   const onSubtitleStreamsRef = useRef(onSubtitleStreams)
   onSubtitleStreamsRef.current = onSubtitleStreams
+  const onAudioStreamsRef = useRef(onAudioStreams)
+  onAudioStreamsRef.current = onAudioStreams
   const onControllerRef = useRef(onController)
   onControllerRef.current = onController
+  // Changing the audio track restarts the whole pipeline; carry the position over.
+  const resumeTimeRef = useRef(0)
 
   useEffect(() => {
     if (!video || !canvas || !size) return
@@ -111,8 +118,17 @@ export const VideoJsPlayer = ({
           jassubWorkerUrl,
           jassubWasmUrl,
           defaultFontUrl,
-          onReady: () => { if (autoplay && !cancelled) video.play().catch(() => {}) },
+          audioStreamIndex,
+          onReady: () => {
+            if (cancelled) return
+            if (resumeTimeRef.current > 0) {
+              video.currentTime = resumeTimeRef.current
+              resumeTimeRef.current = 0
+            }
+            if (autoplay) video.play().catch(() => {})
+          },
           onSubtitleStreams: (streams) => onSubtitleStreamsRef.current?.(streams),
+          onAudioStreams: (streams, selected) => onAudioStreamsRef.current?.(streams, selected),
         })
         if (cancelled) ctrl.destroy()
         else {
@@ -123,8 +139,13 @@ export const VideoJsPlayer = ({
         console.error('playback failed', error)
       }
     })()
-    return () => { cancelled = true; controller?.destroy(); onControllerRef.current?.(null) }
-  }, [video, canvas, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl, defaultFontUrl])
+    return () => {
+      cancelled = true
+      resumeTimeRef.current = video.currentTime
+      controller?.destroy()
+      onControllerRef.current?.(null)
+    }
+  }, [video, canvas, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl, defaultFontUrl, audioStreamIndex])
 
   return (
     <div css={playerStyle}>

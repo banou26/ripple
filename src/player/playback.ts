@@ -1,8 +1,12 @@
+import type { AudioStream } from 'libav-wasm/build/worker'
+
 import { makeRemuxer } from 'libav-wasm'
 
 import { getTimeRanges, updateSourceBuffer } from './source-buffer'
 import { createSubtitleRenderer } from './subtitles'
 import type { SubtitleStream } from './subtitles'
+
+export type { AudioStream }
 
 export type PlaybackOptions = {
   videoElement: HTMLVideoElement
@@ -15,9 +19,11 @@ export type PlaybackOptions = {
   jassubWasmUrl: string
   defaultFontUrl: string
   bufferSize?: number
+  audioStreamIndex?: number
   onReady?: () => void
   onError?: (error: unknown) => void
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
+  onAudioStreams?: (streams: AudioStream[], selected: number) => void
 }
 
 export type PlaybackController = {
@@ -35,7 +41,7 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
   const {
     videoElement, canvasElement, read, length, publicPath, libavWorkerUrl,
     jassubWorkerUrl, jassubWasmUrl, defaultFontUrl, bufferSize = 2_500_000,
-    onReady, onError, onSubtitleStreams,
+    audioStreamIndex, onReady, onError, onSubtitleStreams, onAudioStreams,
   } = options
 
   // ES-module worker: the emscripten glue uses import.meta.url, invalid in a
@@ -46,10 +52,17 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
     workerOptions: { type: 'module' },
     bufferSize,
     length,
+    audioStreamIndex,
     read,
   })
 
   const metadata = await remuxer.init()
+
+  const audioStreams = metadata.audioStreams ?? []
+  const selectedAudio = audioStreams.some((s) => s.streamIndex === audioStreamIndex)
+    ? audioStreamIndex!
+    : audioStreams[0]?.streamIndex ?? -1
+  onAudioStreams?.(audioStreams, selectedAudio)
 
   const subtitles = createSubtitleRenderer({
     video: videoElement,
