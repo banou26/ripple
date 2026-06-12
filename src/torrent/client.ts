@@ -16,6 +16,7 @@ export type TorrentClient = {
   resume: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   setSequential: (handle: number, on: boolean) => void
+  prioritizeFile: (handle: number, fileIndex: number) => void
   prioritizeRange: (handle: number, fileIndex: number, offset: number, len: number) => void
   destroy: () => void
 }
@@ -27,7 +28,11 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
   // Bridge the worker's @webvpn/{net,dgram} socket calls to the main-thread
   // @fkn/lib broker iframe (→ WebVPN). This and our own listener coexist:
   // relayWorker handles the osra socket envelopes, we handle our typed messages.
-  relayWorker(worker)
+  // The abort on destroy is load-bearing: a leaked relay listener keeps
+  // forwarding broker messages to the dead worker, transferring (and thereby
+  // neutering) MessagePorts meant for the next client's worker.
+  const relayAbort = new AbortController()
+  relayWorker(worker, { unregisterSignal: relayAbort.signal })
 
   worker.addEventListener('error', (e) => console.warn('[torrent worker] load/runtime error:', e.message, e.filename + ':' + e.lineno))
 
@@ -36,6 +41,9 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
   let readId = 0
   let resolveReady!: () => void
   const ready = new Promise<void>((r) => { resolveReady = r })
+  // The worker drops commands until its session exists; queue them behind ready
+  // so an add right after page load isn't silently lost.
+  const send = (msg: any, transfer?: Transferable[]) => { ready.then(() => worker.postMessage(msg, transfer ?? [])) }
 
   worker.addEventListener('message', (e) => {
     const m = e.data
@@ -50,19 +58,20 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
   return {
     ready,
     onState: (cb) => { stateCbs.add(cb); return () => { stateCbs.delete(cb) } },
-    addMagnet: (magnet, savePath) => worker.postMessage({ type: 'add-magnet', magnet, savePath }),
-    addTorrentFile: (bytes, savePath) => worker.postMessage({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
+    addMagnet: (magnet, savePath) => send({ type: 'add-magnet', magnet, savePath }),
+    addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
     read: (handle, fileIndex, offset, len) =>
       new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId
         reads.set(id, { resolve, reject })
-        worker.postMessage({ type: 'read', id, handle, fileIndex, offset, len })
+        send({ type: 'read', id, handle, fileIndex, offset, len })
       }),
-    pause: (handle) => worker.postMessage({ type: 'pause', handle }),
-    resume: (handle) => worker.postMessage({ type: 'resume', handle }),
-    remove: (handle, deleteFiles = false) => worker.postMessage({ type: 'remove', handle, deleteFiles }),
-    setSequential: (handle, on) => worker.postMessage({ type: 'set-sequential', handle, on }),
-    prioritizeRange: (handle, fileIndex, offset, len) => worker.postMessage({ type: 'prioritize-range', handle, fileIndex, offset, len }),
-    destroy: () => worker.terminate(),
+    pause: (handle) => send({ type: 'pause', handle }),
+    resume: (handle) => send({ type: 'resume', handle }),
+    remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
+    setSequential: (handle, on) => send({ type: 'set-sequential', handle, on }),
+    prioritizeFile: (handle, fileIndex) => send({ type: 'prioritize-file', handle, fileIndex }),
+    prioritizeRange: (handle, fileIndex, offset, len) => send({ type: 'prioritize-range', handle, fileIndex, offset, len }),
+    destroy: () => { relayAbort.abort(); worker.terminate() },
   }
 }
