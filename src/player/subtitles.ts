@@ -100,6 +100,8 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
     jassub?.setCurrentTime(video.paused, video.currentTime, video.playbackRate)
   }, 100)
 
+  const onRateChange = () => jassub?.setRate(video.playbackRate)
+
   const bootJassub = (header: SubtitleHeaderPart) => {
     const parsed = parse(header.content)
     const subContent = stringify({ ...parsed, info: { ...parsed.info, ScaledBorderAndShadow: 'no', LayoutResX: '', LayoutResY: '' } })
@@ -113,6 +115,11 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
       fonts: attachments.map(([, data]) => data),
       availableFonts: { ...Object.fromEntries(attachments), 'liberation sans': defaultFontUrl },
     })
+    // jassub 1.8.x binds setRate directly as the ratechange listener, so the
+    // Event itself becomes the rate and the worker postMessage clone rejects
+    // it; swap in a listener that passes the actual playbackRate.
+    video.removeEventListener('ratechange', (jassub as any)._boundSetRate)
+    video.addEventListener('ratechange', onRateChange)
     for (const style of header.parsed.styles.style) appendParsedStyle(jassub, style)
   }
 
@@ -164,6 +171,6 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
     selectStream,
     getStreams: () => [...streams],
     setOnStreams: (cb: (streams: SubtitleStream[]) => void) => { onStreams = cb },
-    destroy: () => { clearInterval(tick); jassub?.destroy(); jassub = undefined },
+    destroy: () => { clearInterval(tick); video.removeEventListener('ratechange', onRateChange); jassub?.destroy(); jassub = undefined },
   }
 }
