@@ -1,8 +1,8 @@
 import type { TorrentSnapshot } from './worker'
 
-// Merged downloaded regions of one file, as [from, to] fractions of the file
-// size, derived from the piece bitfield (MSB-first in both engines).
-export const downloadedFractions = (
+// Merged downloaded regions of one file, as [from, to] byte offsets within the
+// file, derived from the piece bitfield (MSB-first in both engines).
+export const downloadedByteRanges = (
   snapshot: TorrentSnapshot | null,
   fileIndex: number,
 ): [number, number][] => {
@@ -23,8 +23,18 @@ export const downloadedFractions = (
     if (start === -1) continue
     const from = Math.max(start * pieceLength - file.offset, 0)
     const to = Math.min(p * pieceLength - file.offset, file.size)
-    ranges.push([from / file.size, to / file.size])
+    ranges.push([from, to])
     start = -1
   }
   return ranges
+}
+
+// Same regions as fractions of the file size, for the seekbar overlay.
+export const downloadedFractions = (
+  snapshot: TorrentSnapshot | null,
+  fileIndex: number,
+): [number, number][] => {
+  const file = snapshot?.files?.files[fileIndex]
+  if (!file || file.size <= 0) return []
+  return downloadedByteRanges(snapshot, fileIndex).map(([from, to]) => [from / file.size, to / file.size])
 }

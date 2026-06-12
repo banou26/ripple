@@ -196,7 +196,7 @@ self.addEventListener('message', async (e: MessageEvent) => {
       }
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
-      anchorSequential(m.handle, m.fileIndex, m.offset)
+      if (m.prioritize !== false) anchorSequential(m.handle, m.fileIndex, m.offset)
       const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
       post({ type: 'read-result', id: m.id, data }, [data.buffer])
     } else if (m.type === 'remove') {

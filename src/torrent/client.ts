@@ -11,7 +11,7 @@ export type TorrentClient = {
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
   addMagnet: (magnet: string, savePath?: string) => void
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
-  read: (handle: number, fileIndex: number, offset: number, len: number) => Promise<Uint8Array>
+  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean) => Promise<Uint8Array>
   pause: (handle: number) => void
   resume: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
@@ -60,11 +60,11 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
     onState: (cb) => { stateCbs.add(cb); return () => { stateCbs.delete(cb) } },
     addMagnet: (magnet, savePath) => send({ type: 'add-magnet', magnet, savePath }),
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
-    read: (handle, fileIndex, offset, len) =>
+    read: (handle, fileIndex, offset, len, prioritize = true) =>
       new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId
         reads.set(id, { resolve, reject })
-        send({ type: 'read', id, handle, fileIndex, offset, len })
+        send({ type: 'read', id, handle, fileIndex, offset, len, prioritize })
       }),
     pause: (handle) => send({ type: 'pause', handle }),
     resume: (handle) => send({ type: 'resume', handle }),

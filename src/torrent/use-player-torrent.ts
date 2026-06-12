@@ -9,6 +9,9 @@ export type PlayerTorrent = {
   // Reads a byte range of the selected file straight from the Session (which
   // prioritizes + awaits the covering pieces on demand - ideal for seeking).
   read: (offset: number, size: number) => Promise<ArrayBuffer>
+  // Same read but without touching piece priorities - for background consumers
+  // (thumbnail generation) that must not fight the playback download order.
+  readQuiet: (offset: number, size: number) => Promise<ArrayBuffer>
   // Re-points download priority at a byte offset of the watched file (seeks).
   prioritizeFrom: (offset: number) => void
 }
@@ -40,7 +43,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     return () => { off(); client.destroy(); clientRef.current = null; handleRef.current = null }
   }, [magnet, fileIndex])
 
-  const read = async (offset: number, size: number): Promise<ArrayBuffer> => {
+  const readAt = async (offset: number, size: number, prioritize: boolean): Promise<ArrayBuffer> => {
     const client = clientRef.current
     const handle = handleRef.current
     if (!client || handle == null) throw new Error('torrent not ready')
@@ -49,12 +52,15 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const fileSize = snapshot?.files?.files[fileIndex]?.size
     const clamped = fileSize != null ? Math.max(0, Math.min(size, fileSize - offset)) : size
     if (clamped === 0) return new ArrayBuffer(0)
-    const u8 = await client.read(handle, fileIndex, offset, clamped)
+    const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize)
     const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
       ? u8.buffer
       : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
     return buf as ArrayBuffer
   }
+
+  const read = (offset: number, size: number) => readAt(offset, size, true)
+  const readQuiet = (offset: number, size: number) => readAt(offset, size, false)
 
   const prioritizeFrom = (offset: number) => {
     const client = clientRef.current
@@ -62,5 +68,5 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     if (client && handle != null) client.prioritizeFile(handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, read, prioritizeFrom }
+  return { snapshot, read, readQuiet, prioritizeFrom }
 }
