@@ -10,6 +10,7 @@ export type TorrentClient = {
   ready: Promise<void>
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
   addMagnet: (magnet: string, savePath?: string) => void
+  addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number) => Promise<Uint8Array>
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -50,6 +51,7 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
     ready,
     onState: (cb) => { stateCbs.add(cb); return () => { stateCbs.delete(cb) } },
     addMagnet: (magnet, savePath) => worker.postMessage({ type: 'add-magnet', magnet, savePath }),
+    addTorrentFile: (bytes, savePath) => worker.postMessage({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
     read: (handle, fileIndex, offset, len) =>
       new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId

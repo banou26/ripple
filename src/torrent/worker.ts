@@ -13,7 +13,7 @@ import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
 
-const OWN = new Set(['add-magnet', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -25,6 +25,7 @@ export type TorrentSnapshot = {
 
 const LIST_KEY = 'ripple:torrents'
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
+const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number }
 
 const infoHashOf = (magnet: string): string | null => {
@@ -64,6 +65,7 @@ const upsertList = async (entry: Persisted) => {
 const removeFromList = async (ih: string) => {
   await set(LIST_KEY, (await loadList()).filter((e) => e.infoHash !== ih))
   await del(resumeKey(ih)).catch(() => {})
+  await del(torrentKey(ih)).catch(() => {})
 }
 
 const track = (h: number, magnet: string, ih: string | null, savePath: string) => {
@@ -96,9 +98,12 @@ const init = async () => {
     for (const e of await loadList()) {
       const savePath = e.savePath || '/dl'
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
+      const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
       const h = resume && resume.byteLength
         ? session.addTorrentWithResume(resume, savePath)
-        : session.addMagnet(e.magnet, savePath)
+        : bytes && bytes.byteLength
+          ? session.addTorrentFile(bytes, savePath)
+          : session.addMagnet(e.magnet, savePath)
       track(h, e.magnet, e.infoHash, savePath)
     }
   } catch (err) { console.error('[worker] restore failed', err) }
@@ -142,6 +147,23 @@ self.addEventListener('message', async (e: MessageEvent) => {
       track(h, m.magnet, ih, savePath)
       if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
       post({ type: 'added', handle: h, magnet: m.magnet })
+    } else if (m.type === 'add-torrent-file') {
+      const savePath = m.savePath || '/dl'
+      const bytes = m.bytes as Uint8Array
+      const h = session.addTorrentFile(bytes, savePath)
+      track(h, '', null, savePath)
+      // infohash lands with the add alert (popped by the 500ms loop) - poll for it.
+      let ih: string | null = null
+      for (let i = 0; i < 40 && !(ih = session.infohash(h)); i++) await new Promise((r) => setTimeout(r, 250))
+      // The synthesized magnet is the torrent's identity everywhere (list, /embed
+      // URL, player match); the raw .torrent bytes stay the restore source.
+      const magnet = ih ? 'magnet:?xt=urn:btih:' + ih : ''
+      track(h, magnet, ih, savePath)
+      if (ih) {
+        await set(torrentKey(ih), bytes)
+        await upsertList({ infoHash: ih, magnet, savePath, addedAt: Date.now() })
+      }
+      post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
       const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
       post({ type: 'read-result', id: m.id, data }, [data.buffer])

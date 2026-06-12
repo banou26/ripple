@@ -67,6 +67,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
 export type UseTorrents = {
   torrents: Torrent[]
   addMagnet: (magnet: string) => void
+  addTorrentFile: (bytes: Uint8Array) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
@@ -85,8 +86,9 @@ export const useTorrents = (): UseTorrents => {
     return () => { off(); client.destroy(); clientRef.current = null }
   }, [])
   const addMagnet = useCallback((magnet: string) => clientRef.current?.addMagnet(magnet), [])
+  const addTorrentFile = useCallback((bytes: Uint8Array) => clientRef.current?.addTorrentFile(bytes), [])
   const pause = useCallback((handle: number) => clientRef.current?.pause(handle), [])
   const resume = useCallback((handle: number) => clientRef.current?.resume(handle), [])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => clientRef.current?.remove(handle, deleteFiles), [])
-  return { torrents, addMagnet, pause, resume, remove, clientRef }
+  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, clientRef }
 }

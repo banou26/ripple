@@ -22,7 +22,7 @@ let WebTorrent: any = null
 import { OPFSSingleFileStore } from './opfs-single-file-store'
 import type { TorrentSnapshot } from './worker'
 
-const OWN = new Set(['add-magnet', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
 
 // wss for WebRTC peers + http trackers; the magnet's own tr= trackers (incl. udp,
 // which @webvpn/dgram tunnels) are merged in by WebTorrent on top of these.
@@ -33,7 +33,9 @@ const TRACKERS = [
 ].map(atob)
 
 const LIST_KEY = 'ripple:torrents'
-const metaKey = (ih: string) => 'ripple:wt-meta:' + ih
+// Raw .torrent bytes, shared with the libtorrent worker so metadata survives
+// switching engines.
+const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number }
 
 const infoHashOf = (magnet: string): string | null => {
@@ -68,7 +70,7 @@ const upsertList = async (entry: Persisted) => {
 }
 const removeFromList = async (ih: string) => {
   await set(LIST_KEY, (await loadList()).filter((e) => e.infoHash !== ih))
-  await del(metaKey(ih)).catch(() => {})
+  await del(torrentKey(ih)).catch(() => {})
 }
 
 const countBits = (buf: Uint8Array): number => {
@@ -119,11 +121,11 @@ const snapshotOne = (h: number): TorrentSnapshot => {
 const snapshot = (): TorrentSnapshot[] => handles.map(snapshotOne)
 
 const wireTorrent = (h: number, t: any) => {
-  const ih = infoHashByHandle.get(h)
   const cacheMeta = () => {
-    if (metaSaved.has(h) || !t.torrentFile) return
+    const ih = infoHashByHandle.get(h) ?? t.infoHash?.toLowerCase()
+    if (metaSaved.has(h) || !t.torrentFile || !ih) return
     metaSaved.add(h)
-    if (ih) set(metaKey(ih), new Uint8Array(t.torrentFile)).catch(() => {})
+    set(torrentKey(ih), new Uint8Array(t.torrentFile)).catch(() => {})
   }
   t.on('metadata', cacheMeta)
   t.on('ready', cacheMeta)
@@ -182,7 +184,7 @@ const init = async () => {
   try {
     for (const e of await loadList()) {
       // Resume offline if we cached the .torrent metadata; else re-fetch via magnet.
-      const meta = (await get(metaKey(e.infoHash))) as Uint8Array | undefined
+      const meta = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
       addTorrent(meta && meta.byteLength ? meta : e.magnet, e.magnet, e.infoHash)
     }
   } catch (err) { console.error('[wt worker] restore failed', String((err as any)?.stack ?? err)) }
@@ -201,6 +203,24 @@ self.addEventListener('message', async (e: MessageEvent) => {
       const h = addTorrent(m.magnet, m.magnet, ih)
       if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath: m.savePath || '/dl', addedAt: Date.now() })
       post({ type: 'added', handle: h, magnet: m.magnet })
+    } else if (m.type === 'add-torrent-file') {
+      const bytes = m.bytes as Uint8Array
+      const h = addTorrent(bytes, '', null)
+      const t = torrentByHandle.get(h)
+      // Synthesized magnet = the same identity string the libtorrent worker
+      // produces for this torrent (list, /embed URL, player match).
+      const finalize = async () => {
+        const ih = t.infoHash?.toLowerCase()
+        if (!ih || magnetByHandle.get(h)) return
+        const magnet = 'magnet:?xt=urn:btih:' + ih
+        infoHashByHandle.set(h, ih)
+        magnetByHandle.set(h, magnet)
+        await set(torrentKey(ih), bytes)
+        await upsertList({ infoHash: ih, magnet, savePath: m.savePath || '/dl', addedAt: Date.now() })
+      }
+      if (t.infoHash) await finalize()
+      else t.once('metadata', finalize)
+      post({ type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' })
     } else if (m.type === 'read') {
       const data = await readRange(m.handle, m.fileIndex, m.offset, m.len)
       post({ type: 'read-result', id: m.id, data }, [data.buffer])
