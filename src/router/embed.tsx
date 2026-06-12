@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import type { PlaybackController } from '../player/playback'
+import type { SubtitleStream } from '../player/subtitles'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
+import { Menu } from '@videojs/react'
+import { CaptionsOnIcon, CheckIcon } from '@videojs/react/icons'
 
 import { getHumanReadableByteString } from '../utils/bytes'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
@@ -22,6 +27,7 @@ const playerStyle = css`
   }
 
   .media-information {
+    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -51,12 +57,59 @@ const playerStyle = css`
   }
 `
 
+type SubtitleMenuProps = {
+  streams: SubtitleStream[]
+  value: number
+  onSelect: (streamIndex: number) => void
+}
+
+const SubtitleMenu = ({ streams, value, onSelect }: SubtitleMenuProps) => {
+  const options = [
+    ...streams.map((s) => ({ value: String(s.streamIndex), label: s.title || s.language || `Track ${s.streamIndex}` })),
+    { value: '-1', label: 'Off' },
+  ]
+  return (
+    <Menu.Root side="bottom" align="end">
+      <Menu.Trigger className="media-button media-button--subtle media-button--icon" aria-label="Subtitles">
+        <CaptionsOnIcon className="media-icon"/>
+      </Menu.Trigger>
+      <Menu.Content className="media-surface media-popover media-menu">
+        <Menu.RadioGroup
+          className="media-menu__group"
+          label="Subtitles"
+          value={String(value)}
+          onValueChange={(v) => onSelect(Number(v))}
+        >
+          {options.map((option) => (
+            <Menu.RadioItem key={option.value} className="media-menu__item" value={option.value}>
+              <span>{option.label}</span>
+              <Menu.ItemIndicator checked={option.value === String(value)} forceMount className="media-menu__indicator">
+                <CheckIcon className="media-icon"/>
+              </Menu.ItemIndicator>
+            </Menu.RadioItem>
+          ))}
+        </Menu.RadioGroup>
+      </Menu.Content>
+    </Menu.Root>
+  )
+}
+
 const Player = () => {
   const [searchParams] = useSearchParams()
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
   const { snapshot, read } = usePlayerTorrent(magnet, fileIndex)
+
+  const controllerRef = useRef<PlaybackController | null>(null)
+  const [subtitleStreams, setSubtitleStreams] = useState<SubtitleStream[]>([])
+  // undefined = the renderer's auto-pick (first stream); -1 = off.
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number | undefined>(undefined)
+  const subtitleValue = selectedSubtitle ?? subtitleStreams[0]?.streamIndex ?? -1
+  const onSelectSubtitle = (streamIndex: number) => {
+    setSelectedSubtitle(streamIndex)
+    controllerRef.current?.selectSubtitleStream(streamIndex)
+  }
 
   const selectedFile = snapshot?.files?.files[fileIndex]
   const fileSize = selectedFile?.size
@@ -115,6 +168,9 @@ const Player = () => {
           text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
           toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
         />
+        {subtitleStreams.length > 0 && (
+          <SubtitleMenu streams={subtitleStreams} value={subtitleValue} onSelect={onSelectSubtitle}/>
+        )}
       </div>
     </div>
   )
@@ -131,6 +187,8 @@ const Player = () => {
         defaultFontUrl={defaultFontUrl}
         autoplay={true}
         overlay={overlay}
+        onSubtitleStreams={setSubtitleStreams}
+        onController={(controller) => { controllerRef.current = controller }}
       />
     </div>
   )

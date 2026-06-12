@@ -85,13 +85,14 @@ const toDialoguePart = (header: SubtitleHeaderPart, fragment: SubtitleFragment &
 
 // Drives jassub from the remuxer's subtitle fragments. Lazily boots jassub on
 // the first header, auto-selects the first stream, and de-dupes dialogue events.
+// All streams' dialogues are kept so switching can replay the buffered window.
 export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
   const { video, canvas, publicPath, workerUrl, wasmUrl, defaultFontUrl } = options
   let jassub: JASSUB | undefined
   let attachments: [string, Uint8Array][] = []
   const headers = new Map<number, SubtitleHeaderPart>()
   const streams: SubtitleStream[] = []
-  const appended = new Set<string>()
+  const dialogues = new Map<number, Map<number, SubtitleDialoguePart>>()
   let selected: number | undefined
   let onStreams: ((streams: SubtitleStream[]) => void) | undefined
 
@@ -132,24 +133,28 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
       } else {
         const header = headers.get(fragment.streamIndex)
         if (!header) continue
-        const key = `${fragment.streamIndex}:${fragment.content.split(',')[0]}`
-        if (appended.has(key) || selected !== fragment.streamIndex) continue
-        jassub?.createEvent(toDialoguePart(header, fragment).assEvent)
-        appended.add(key)
+        let byIndex = dialogues.get(fragment.streamIndex)
+        if (!byIndex) { byIndex = new Map(); dialogues.set(fragment.streamIndex, byIndex) }
+        const part = toDialoguePart(header, fragment)
+        if (byIndex.has(part.index)) continue
+        byIndex.set(part.index, part)
+        if (selected === fragment.streamIndex) jassub?.createEvent(part.assEvent)
       }
     }
   }
 
+  // -1 turns subtitles off. Switching replays the stored dialogues of the new
+  // stream so the already-buffered window isn't blank until the next seek.
   const selectStream = (streamIndex: number) => {
     if (streamIndex === selected || !jassub) return
     selected = streamIndex
-    appended.clear()
     jassub.freeTrack()
     const header = headers.get(streamIndex)
     if (!header) return
     const parsed = parse(header.content)
     jassub.setTrack(stringify({ ...parsed, info: { ...parsed.info, ScaledBorderAndShadow: 'no', LayoutResX: '', LayoutResY: '' } }))
     for (const style of header.parsed.styles.style) appendParsedStyle(jassub, style)
+    for (const part of dialogues.get(streamIndex)?.values() ?? []) jassub.createEvent(part.assEvent)
     jassub.setCurrentTime(video.paused, video.currentTime, video.playbackRate)
   }
 

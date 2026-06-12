@@ -9,6 +9,7 @@ import { VideoSkin } from '@videojs/react/video'
 import skinCss from '@videojs/react/video/skin.css?inline'
 
 import { startPlayback } from './playback'
+import type { PlaybackController } from './playback'
 import type { SubtitleStream } from './subtitles'
 
 const player = createPlayer({ features: videoFeatures, displayName: 'RipplePlayer' })
@@ -78,20 +79,25 @@ export type VideoJsPlayerProps = {
   autoplay?: boolean
   overlay?: ReactNode
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
+  onController?: (controller: PlaybackController | null) => void
 }
 
 export const VideoJsPlayer = ({
   read, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl,
-  defaultFontUrl, autoplay = true, overlay, onSubtitleStreams,
+  defaultFontUrl, autoplay = true, overlay, onSubtitleStreams, onController,
 }: VideoJsPlayerProps) => {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
   const readRef = useRef(read)
   readRef.current = read
+  const onSubtitleStreamsRef = useRef(onSubtitleStreams)
+  onSubtitleStreamsRef.current = onSubtitleStreams
+  const onControllerRef = useRef(onController)
+  onControllerRef.current = onController
 
   useEffect(() => {
     if (!video || !canvas || !size) return
-    let controller: { destroy: () => void } | undefined
+    let controller: PlaybackController | undefined
     let cancelled = false
     ;(async () => {
       try {
@@ -106,15 +112,18 @@ export const VideoJsPlayer = ({
           jassubWasmUrl,
           defaultFontUrl,
           onReady: () => { if (autoplay && !cancelled) video.play().catch(() => {}) },
-          onSubtitleStreams,
+          onSubtitleStreams: (streams) => onSubtitleStreamsRef.current?.(streams),
         })
         if (cancelled) ctrl.destroy()
-        else controller = ctrl
+        else {
+          controller = ctrl
+          onControllerRef.current?.(ctrl)
+        }
       } catch (error) {
         console.error('playback failed', error)
       }
     })()
-    return () => { cancelled = true; controller?.destroy() }
+    return () => { cancelled = true; controller?.destroy(); onControllerRef.current?.(null) }
   }, [video, canvas, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl, defaultFontUrl])
 
   return (
