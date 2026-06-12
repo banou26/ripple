@@ -95,7 +95,7 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const { snapshot, read } = usePlayerTorrent(magnet, fileIndex)
+  const { snapshot, read, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
   const controllerRef = useRef<PlaybackController | null>(null)
   const [subtitleStreams, setSubtitleStreams] = useState<SubtitleStream[]>([])
@@ -209,6 +209,7 @@ const Player = () => {
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}
+        onSeek={(fraction) => { if (fileSize) prioritizeFrom(fraction * fileSize) }}
         audioStreamIndex={selectedAudio}
         onSubtitleStreams={setSubtitleStreams}
         onAudioStreams={(streams, selected) => { setAudioStreams(streams); setEffectiveAudio(selected) }}

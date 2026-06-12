@@ -212,7 +212,9 @@ self.addEventListener('message', async (e: MessageEvent) => {
     } else if (m.type === 'set-sequential') {
       session.setSequential(m.handle, m.on)
     } else if (m.type === 'prioritize-file') {
-      prioritizeFile(m.handle, m.fileIndex)
+      // The offset is the player's linear time->byte estimate; the next read's
+      // anchorSequential re-corrects it with the remuxer's true byte position.
+      prioritizeFile(m.handle, m.fileIndex, m.fromOffset ?? 0)
     } else if (m.type === 'prioritize-range') {
       session.prioritizeRange(m.handle, m.fileIndex, m.offset, m.len)
     }

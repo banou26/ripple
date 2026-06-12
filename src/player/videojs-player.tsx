@@ -99,6 +99,7 @@ export type VideoJsPlayerProps = {
   // seekbar in place of the MSE-derived buffer bar.
   downloadedRanges?: [number, number][]
   audioStreamIndex?: number
+  onSeek?: (fraction: number) => void
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
   onAudioStreams?: (streams: AudioStream[], selected: number) => void
   onController?: (controller: PlaybackController | null) => void
@@ -107,13 +108,15 @@ export type VideoJsPlayerProps = {
 export const VideoJsPlayer = ({
   read, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl,
   defaultFontUrl, autoplay = true, overlay, downloadedRanges, audioStreamIndex,
-  onSubtitleStreams, onAudioStreams, onController,
+  onSeek, onSubtitleStreams, onAudioStreams, onController,
 }: VideoJsPlayerProps) => {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const readRef = useRef(read)
   readRef.current = read
+  const onSeekRef = useRef(onSeek)
+  onSeekRef.current = onSeek
   const onSubtitleStreamsRef = useRef(onSubtitleStreams)
   onSubtitleStreamsRef.current = onSubtitleStreams
   const onAudioStreamsRef = useRef(onAudioStreams)
@@ -169,6 +172,7 @@ export const VideoJsPlayer = ({
             }
             if (autoplay) video.play().catch(() => {})
           },
+          onSeek: (fraction) => onSeekRef.current?.(fraction),
           onSubtitleStreams: (streams) => onSubtitleStreamsRef.current?.(streams),
           onAudioStreams: (streams, selected) => onAudioStreamsRef.current?.(streams, selected),
         })

@@ -9,6 +9,8 @@ export type PlayerTorrent = {
   // Reads a byte range of the selected file straight from the Session (which
   // prioritizes + awaits the covering pieces on demand - ideal for seeking).
   read: (offset: number, size: number) => Promise<ArrayBuffer>
+  // Re-points download priority at a byte offset of the watched file (seeks).
+  prioritizeFrom: (offset: number) => void
 }
 
 // Drives one torrent for the /embed player: adds the magnet, tracks its live
@@ -54,5 +56,11 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     return buf as ArrayBuffer
   }
 
-  return { snapshot, read }
+  const prioritizeFrom = (offset: number) => {
+    const client = clientRef.current
+    const handle = handleRef.current
+    if (client && handle != null) client.prioritizeFile(handle, fileIndex, Math.max(0, Math.floor(offset)))
+  }
+
+  return { snapshot, read, prioritizeFrom }
 }

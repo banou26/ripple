@@ -22,6 +22,9 @@ export type PlaybackOptions = {
   audioStreamIndex?: number
   onReady?: () => void
   onError?: (error: unknown) => void
+  // Fires on every seek with the target as a fraction of the duration, before
+  // the remuxer starts reading there - lets the torrent layer re-prioritize.
+  onSeek?: (fraction: number) => void
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
   onAudioStreams?: (streams: AudioStream[], selected: number) => void
 }
@@ -41,7 +44,7 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
   const {
     videoElement, canvasElement, read, length, publicPath, libavWorkerUrl,
     jassubWorkerUrl, jassubWasmUrl, defaultFontUrl, bufferSize = 2_500_000,
-    audioStreamIndex, onReady, onError, onSubtitleStreams, onAudioStreams,
+    audioStreamIndex, onReady, onError, onSeek, onSubtitleStreams, onAudioStreams,
   } = options
 
   // ES-module worker: the emscripten glue uses import.meta.url, invalid in a
@@ -131,6 +134,8 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
   const onSeeking = async () => {
     finished = false
     seeking = true
+    const duration = metadata.info.input.duration || videoElement.duration
+    if (duration > 0) onSeek?.(Math.min(Math.max(videoElement.currentTime / duration, 0), 1))
     try {
       const { data, pts, subtitles: fragments } = await remuxer.seek(videoElement.currentTime)
       if (fragments?.length) subtitles.pushFragments(fragments)

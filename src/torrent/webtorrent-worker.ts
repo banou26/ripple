@@ -237,7 +237,17 @@ self.addEventListener('message', async (e: MessageEvent) => {
     } else if (m.type === 'prioritize-file') {
       // The whole torrent is selected at priority 0 (sequential strategy);
       // lifting the watched file to 1 makes its pieces fill first, in order.
-      torrentByHandle.get(m.handle)?.files?.[m.fileIndex]?.select(1)
+      // A seek adds a higher-priority selection from the seek point onward.
+      const t = torrentByHandle.get(m.handle)
+      const file = t?.files?.[m.fileIndex]
+      if (t && file) {
+        if (!m.fromOffset) file.select(1)
+        else {
+          const p0 = Math.floor((file.offset + Math.min(m.fromOffset, file.length - 1)) / t.pieceLength)
+          const p1 = Math.floor((file.offset + file.length - 1) / t.pieceLength)
+          t.select(p0, p1, 2)
+        }
+      }
     }
     // set-sequential / prioritize-range: WebTorrent's strategy is already
     // sequential and createReadStream prioritizes the covering pieces, so

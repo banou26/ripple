@@ -16,7 +16,7 @@ export type TorrentClient = {
   resume: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   setSequential: (handle: number, on: boolean) => void
-  prioritizeFile: (handle: number, fileIndex: number) => void
+  prioritizeFile: (handle: number, fileIndex: number, fromOffset?: number) => void
   prioritizeRange: (handle: number, fileIndex: number, offset: number, len: number) => void
   destroy: () => void
 }
@@ -70,7 +70,7 @@ export const createTorrentClient = (backend: TorrentBackend = 'libtorrent'): Tor
     resume: (handle) => send({ type: 'resume', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     setSequential: (handle, on) => send({ type: 'set-sequential', handle, on }),
-    prioritizeFile: (handle, fileIndex) => send({ type: 'prioritize-file', handle, fileIndex }),
+    prioritizeFile: (handle, fileIndex, fromOffset = 0) => send({ type: 'prioritize-file', handle, fileIndex, fromOffset }),
     prioritizeRange: (handle, fileIndex, offset, len) => send({ type: 'prioritize-range', handle, fileIndex, offset, len }),
     destroy: () => { relayAbort.abort(); worker.terminate() },
   }
