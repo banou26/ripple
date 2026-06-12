@@ -1,9 +1,3 @@
-
-export const getBytesFromBiByteString = (s: string) => {
-  const [_number, [_unit]] = s.split(' ')
-  return Number(_number) * (2 ** ('bkmgt'.indexOf(_unit.toLowerCase()) * 10))
-}
-
 export const getHumanReadableByteString = (bytes, compact?: boolean) => {
   if (isNaN(bytes)) return 'NaN'
   if (bytes === 0 || bytes < 1) return `0 ${compact ? 'B' : 'bytes'}`
