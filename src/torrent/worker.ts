@@ -104,6 +104,17 @@ const prioritizeFile = (h: number, fileIndex: number, fromOffset = 0) => {
   session.prioritizePieces(h, prios)
 }
 
+const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => {
+  const files = session?.files(h)
+  const file = files?.files[fileIndex]
+  const bf = session?.bitfield(h)
+  if (!files || !file || !bf) return false
+  const p0 = Math.floor((file.offset + offset) / files.pieceLength)
+  const p1 = Math.floor((file.offset + Math.min(offset + len, file.size) - 1) / files.pieceLength)
+  for (let p = p0; p <= p1; p++) if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) return false
+  return true
+}
+
 // A read far from the previous one is a seek: re-anchor piece priorities so
 // sequential filling continues from the playhead instead of the file start.
 const ANCHOR_JUMP = 16_777_216
@@ -197,6 +208,12 @@ self.addEventListener('message', async (e: MessageEvent) => {
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
       if (m.prioritize !== false) anchorSequential(m.handle, m.fileIndex, m.offset)
+      // Quiet readers must never block on (or wait for) missing pieces; fail
+      // fast so a background queue can retry once the data lands.
+      else if (!hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
+        post({ type: 'read-error', id: m.id, error: 'not downloaded' })
+        return
+      }
       const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
       post({ type: 'read-result', id: m.id, data }, [data.buffer])
     } else if (m.type === 'remove') {
