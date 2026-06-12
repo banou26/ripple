@@ -22,7 +22,7 @@ let WebTorrent: any = null
 import { OPFSSingleFileStore } from './opfs-single-file-store'
 import type { TorrentSnapshot } from './worker'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume'])
 
 // wss for WebRTC peers + http trackers; the magnet's own tr= trackers (incl. udp,
 // which @webvpn/dgram tunnels) are merged in by WebTorrent on top of these.
@@ -234,9 +234,14 @@ self.addEventListener('message', async (e: MessageEvent) => {
       torrentByHandle.get(m.handle)?.pause()
     } else if (m.type === 'resume') {
       torrentByHandle.get(m.handle)?.resume()
+    } else if (m.type === 'prioritize-file') {
+      // The whole torrent is selected at priority 0 (sequential strategy);
+      // lifting the watched file to 1 makes its pieces fill first, in order.
+      torrentByHandle.get(m.handle)?.files?.[m.fileIndex]?.select(1)
     }
-    // set-sequential / prioritize-range: WebTorrent's createReadStream already
-    // prioritizes the covering pieces, so these are no-ops here.
+    // set-sequential / prioritize-range: WebTorrent's strategy is already
+    // sequential and createReadStream prioritizes the covering pieces, so
+    // these are no-ops here.
   } catch (err: any) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })
     else post({ type: 'error', message: String(err?.stack ?? err) })

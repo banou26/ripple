@@ -13,7 +13,7 @@ import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-range', 'pause', 'resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -77,12 +77,43 @@ const track = (h: number, magnet: string, ih: string | null, savePath: string) =
 const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
+  for (const k of lastReadOffset.keys()) if (k.startsWith(h + ':')) lastReadOffset.delete(k)
 }
 
 const persistResume = async (h: number) => {
   const ih = infoHashByHandle.get(h)
   if (!ih || !session) return
   try { await set(resumeKey(ih), await session.saveResumeData(h)) } catch {}
+}
+
+const filePieceRange = (h: number, fileIndex: number) => {
+  const files = session?.files(h)
+  const file = files?.files[fileIndex]
+  if (!files || !file || file.size <= 0) return null
+  const p0 = Math.floor(file.offset / files.pieceLength)
+  const p1 = Math.floor((file.offset + file.size - 1) / files.pieceLength)
+  return { file, pieceLength: files.pieceLength, p0, p1 }
+}
+
+const prioritizeFile = (h: number, fileIndex: number, fromOffset = 0) => {
+  const r = filePieceRange(h, fileIndex)
+  if (!session || !r) return
+  const pAt = Math.floor((r.file.offset + Math.min(fromOffset, r.file.size - 1)) / r.pieceLength)
+  const prios = new Uint8Array(r.p1 + 1).fill(4)
+  for (let p = r.p0; p <= r.p1; p++) prios[p] = p >= pAt ? 7 : 1
+  session.prioritizePieces(h, prios)
+}
+
+// A read far from the previous one is a seek: re-anchor piece priorities so
+// sequential filling continues from the playhead instead of the file start.
+const ANCHOR_JUMP = 16_777_216
+const lastReadOffset = new Map<string, number>()
+const anchorSequential = (h: number, fileIndex: number, offset: number) => {
+  const key = h + ':' + fileIndex
+  const last = lastReadOffset.get(key)
+  lastReadOffset.set(key, offset)
+  if (last !== undefined && Math.abs(offset - last) < ANCHOR_JUMP) return
+  prioritizeFile(h, fileIndex, offset)
 }
 
 const init = async () => {
@@ -165,6 +196,7 @@ self.addEventListener('message', async (e: MessageEvent) => {
       }
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
+      anchorSequential(m.handle, m.fileIndex, m.offset)
       const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
       post({ type: 'read-result', id: m.id, data }, [data.buffer])
     } else if (m.type === 'remove') {
@@ -179,6 +211,8 @@ self.addEventListener('message', async (e: MessageEvent) => {
       session.resumeTorrent(m.handle)
     } else if (m.type === 'set-sequential') {
       session.setSequential(m.handle, m.on)
+    } else if (m.type === 'prioritize-file') {
+      prioritizeFile(m.handle, m.fileIndex)
     } else if (m.type === 'prioritize-range') {
       session.prioritizeRange(m.handle, m.fileIndex, m.offset, m.len)
     }

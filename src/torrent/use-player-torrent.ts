@@ -23,13 +23,20 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const client = createTorrentClient(getBackend())
     clientRef.current = client
     client.ready.then(() => client.addMagnet(magnet))
+    let sequentialSet = false
     const off = client.onState((snaps) => {
       const snap = snaps.find((s) => s.magnet === magnet) ?? snaps[0] ?? null
       if (snap) handleRef.current = snap.handle
+      // Watching = stream in order: sequential mode + the watched file first.
+      if (snap?.files && !sequentialSet) {
+        sequentialSet = true
+        client.setSequential(snap.handle, true)
+        client.prioritizeFile(snap.handle, fileIndex)
+      }
       setSnapshot(snap)
     })
     return () => { off(); client.destroy(); clientRef.current = null; handleRef.current = null }
-  }, [magnet])
+  }, [magnet, fileIndex])
 
   const read = async (offset: number, size: number): Promise<ArrayBuffer> => {
     const client = clientRef.current
