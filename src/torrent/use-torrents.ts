@@ -1,11 +1,10 @@
+import type { Torrent, TorrentState } from './types'
+import type { TorrentClient, TorrentSnapshot } from './client'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { Torrent, TorrentState } from '../ui/types'
 import { createTorrentClient } from './client'
-import type { TorrentClient, TorrentSnapshot } from './client'
 import { getBackend } from './backend'
-
-const BYTES_PER_MB = 1024 * 1024
 
 const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
@@ -34,33 +33,25 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
   return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
 }
 
-// Map the worker's Session snapshot to the UI Torrent shape. The Session works
-// in bytes / bytes-per-sec; the UI works in MB / KB-per-sec (per the design).
+// Map the worker's Session snapshot to the UI Torrent shape (bytes / bytes-per-sec).
 export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
   const st = s.status
-  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path ?? 'Fetching metadata…'
-  const totalBytes = s.files?.totalSize ?? s.bitfield?.length ?? 0
+  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
   const progress = st?.progress ?? 0
-  const numPeers = st?.numPeers ?? 0
   return {
     id: String(s.handle),
     magnet: s.magnet,
     name,
-    size: totalBytes / BYTES_PER_MB,
-    downloaded: (st?.totalDone ?? 0) / BYTES_PER_MB,
+    size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
+    downloaded: st?.totalDone ?? 0,
     progress,
     state: st ? (st.paused ? 'paused' : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading'),
-    down: (st?.downloadRate ?? 0) / 1024,
-    up: (st?.uploadRate ?? 0) / 1024,
-    // No µTP/TCP split surfaced by the engine yet - report all as connected.
-    peers: { total: numPeers, utp: 0, tcp: numPeers },
+    down: st?.downloadRate ?? 0,
+    up: st?.uploadRate ?? 0,
+    peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
     eta: fmtEta(st),
-    ratio: 0,
-    added: 'now',
-    tracker: magnetParam(s.magnet, 'tr') ?? '-',
-    flag: '',
-    files: s.files?.files.map((f) => ({ name: f.path, size: f.size / BYTES_PER_MB, bytes: f.size, progress })),
+    files: s.files?.files.map((f) => ({ name: f.path, size: f.size, progress })),
   }
 }
 

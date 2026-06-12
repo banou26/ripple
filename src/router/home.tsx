@@ -1,353 +1,604 @@
-import type { Torrent, Tweaks } from '../ui/types'
+import type { Torrent } from '../torrent/types'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { css } from '@emotion/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+
+import { useTorrents } from '../torrent/use-torrents'
+import { saveTorrentFileToDisk } from '../torrent/save-file'
+import { pickVideoFile, watchHref } from '../torrent/watch'
+import { getBackend, setBackend } from '../torrent/backend'
+import { getHumanReadableByteString } from '../utils/bytes'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
-// v1 (btih) or v2 (btmh) info-hash from a magnet, for dedup detection.
 const magnetInfoHash = (s: string): string | null => {
   const m = s.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
   return m ? m[1]!.toLowerCase() : null
 }
 
-import {
-  Sidebar,
-  TopBar,
-  FilterBar,
-  TorrentRow,
-  SectionHeader,
-  HeroCard,
-  HeroEmpty,
-  EmptyState,
-  AddTorrentModal,
-  DetailPanel,
-  SettingsScreen,
-} from '../ui/screens'
-import { useTorrents } from '../torrent/use-torrents'
-import { saveTorrentFileToDisk } from '../torrent/save-file'
-import { pickVideoFile } from '../ui/watch'
-import { useTweaks, applyTweaks } from '../ui/use-tweaks'
-
-const TWEAK_DEFAULTS: Tweaks = {
-  theme: 'dark',
-  accent: 'water',
-  density: 'regular',
-  layout: 'hero',
-  showAdv: false,
-  utp: true,
-  tcp: true,
+const STATE_LABEL: Record<Torrent['state'], string> = {
+  downloading: 'Downloading',
+  seeding: 'Seeding',
+  paused: 'Paused',
+  queued: 'Queued',
+  done: 'Done',
+  error: 'Error',
 }
 
-type HeroActiveViewProps = {
-  list: Torrent[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  onToggle: (id: string) => void
-  showAdv: boolean
-  onAdd: () => void
-  onRemove: (id: string) => void
-  onSave: (t: Torrent) => Promise<void>
+const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
+
+const style = css`
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh;
+  background: radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%), #16131c;
+  color: #f4f2f8;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  a {
+    text-decoration: none;
+  }
+
+  .shell {
+    position: relative;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 24px 24px 64px;
+  }
+
+  .glow {
+    position: absolute;
+    width: 440px;
+    height: 440px;
+    border-radius: 50%;
+    filter: blur(95px);
+    pointer-events: none;
+  }
+
+  .glow.amber {
+    background: #f59e0b;
+    opacity: 0.22;
+    top: -120px;
+    left: -140px;
+  }
+
+  .glow.plum {
+    background: #7c3aed;
+    opacity: 0.25;
+    top: 60px;
+    right: -180px;
+  }
+
+  .glow.teal {
+    background: #14b8a6;
+    opacity: 0.13;
+    top: 560px;
+    left: 30%;
+  }
+
+  header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    .wordmark {
+      font-size: 1.5rem;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      background: linear-gradient(90deg, #fbbf24, #f97316);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+    }
+
+    nav a {
+      color: #c9c4d4;
+      font-size: 0.95rem;
+      font-weight: 500;
+
+      &:hover {
+        color: #f4f2f8;
+      }
+    }
+  }
+
+  .hero {
+    position: relative;
+    text-align: center;
+    padding: 64px 0 40px;
+
+    h1 {
+      margin: 0 auto 18px;
+      font-size: clamp(1.8rem, 5vw, 3rem);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+
+      em {
+        font-style: normal;
+        background: linear-gradient(90deg, #fbbf24, #f97316, #c084fc);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+      }
+    }
+
+    > p {
+      margin: 0 auto;
+      max-width: 560px;
+      font-size: 1.05rem;
+      line-height: 1.65;
+      color: #b6b0c4;
+    }
+  }
+
+  .add {
+    position: relative;
+    display: flex;
+    gap: 10px;
+    max-width: 640px;
+    margin: 0 auto;
+
+    input {
+      flex: 1;
+      min-width: 0;
+      background: #1e1a28;
+      border: 1px solid #2c2737;
+      border-radius: 999px;
+      padding: 12px 20px;
+      color: #f4f2f8;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 120ms ease;
+
+      &::placeholder {
+        color: #8b8499;
+      }
+
+      &:focus {
+        border-color: #f97316;
+      }
+    }
+
+    button {
+      border-radius: 999px;
+      padding: 12px 22px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease;
+
+      &.primary {
+        border: none;
+        background: #fff;
+        color: #16131c;
+
+        &:hover {
+          transform: translateY(-1px);
+        }
+      }
+
+      &.ghost {
+        border: 1px solid #3a3447;
+        background: none;
+        color: #f4f2f8;
+
+        &:hover {
+          background: #221d2e;
+        }
+      }
+    }
+  }
+
+  .drop-hint {
+    margin: 12px 0 0;
+    text-align: center;
+    color: #8b8499;
+    font-size: 0.85rem;
+  }
+
+  .torrents {
+    position: relative;
+    margin-top: 44px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .torrent {
+    background: #1e1a28;
+    border: 1px solid #2c2737;
+    border-radius: 16px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: border-color 120ms ease;
+
+    &:hover {
+      border-color: #3a3447;
+    }
+
+    .title {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+
+      strong {
+        font-size: 1rem;
+        overflow-wrap: anywhere;
+      }
+    }
+
+    .badge {
+      flex: none;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #2c2737;
+      color: #a39db3;
+
+      &.downloading { color: #fbbf24; background: #fbbf2419; }
+      &.seeding { color: #2dd4bf; background: #2dd4bf19; }
+      &.done { color: #c084fc; background: #c084fc19; }
+      &.error { color: #ef4444; background: #ef444419; }
+    }
+
+    .bar {
+      height: 6px;
+      border-radius: 999px;
+      background: #2c2737;
+      overflow: hidden;
+
+      .fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #fbbf24, #f97316);
+        transition: width 400ms ease;
+      }
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      color: #a39db3;
+      font-size: 0.85rem;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+
+      a, button {
+        border-radius: 999px;
+        padding: 8px 16px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 120ms ease, background 120ms ease;
+      }
+
+      .primary {
+        border: none;
+        background: #fff;
+        color: #16131c;
+
+        &:hover {
+          transform: translateY(-1px);
+        }
+      }
+
+      button {
+        border: 1px solid #3a3447;
+        background: none;
+        color: #f4f2f8;
+
+        &:hover {
+          background: #221d2e;
+        }
+
+        &:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+      }
+    }
+  }
+
+  .empty {
+    border: 1px dashed #2c2737;
+    border-radius: 16px;
+    padding: 40px 24px;
+    text-align: center;
+    color: #8b8499;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
+  footer {
+    position: relative;
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid #2c2737;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    font-size: 0.9rem;
+
+    a {
+      color: #8b8499;
+
+      &:hover {
+        color: #c9c4d4;
+      }
+    }
+
+    .engine {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #8b8499;
+      font-size: 0.85rem;
+
+      button {
+        font-size: 0.8rem;
+        padding: 5px 12px;
+        border-radius: 999px;
+        border: 1px solid #2c2737;
+        background: none;
+        color: #8b8499;
+        cursor: pointer;
+
+        &.on {
+          color: #f4f2f8;
+          border-color: #f97316;
+        }
+      }
+    }
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e1a28;
+    border: 1px solid #2c2737;
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+  }
+`
+
+type CardProps = {
+  t: Torrent
+  saving?: number
+  onToggle: (t: Torrent) => void
+  onSave: (t: Torrent) => void
+  onRemove: (t: Torrent) => void
 }
 
-const HeroActiveView = ({ list, selectedId, onSelect, onToggle, showAdv, onAdd, onRemove, onSave }: HeroActiveViewProps) => {
-  const downloading = list.filter((t) => t.state === 'downloading').sort((a, b) => b.down - a.down)
-  const hero = downloading[0] || null
-  const heroId = hero?.id
-  const queued = list.filter((t) => (t.state === 'downloading' && t.id !== heroId) || t.state === 'queued')
-  const seeding = list.filter((t) => t.state === 'seeding')
-  const paused = list.filter((t) => t.state === 'paused')
-  const completed = list.filter((t) => t.state === 'done')
-
-  const renderRows = (arr: Torrent[]) => arr.map((t) => (
-    <TorrentRow key={t.id} t={t}
-      selected={selectedId === t.id}
-      onSelect={onSelect} onToggle={onToggle}
-      onRemove={onRemove} onSave={onSave}
-      showAdv={showAdv} />
-  ))
-
+const TorrentCard = ({ t, saving, onToggle, onSave, onRemove }: CardProps) => {
+  const href = watchHref(t)
   return (
-    <div className="list">
-      {hero ? (
-        <HeroCard t={hero} onSelect={onSelect} onToggle={onToggle} onRemove={onRemove} onSave={onSave} queuedCount={queued.length} />
-      ) : (
-        <HeroEmpty onAdd={onAdd} />
-      )}
-
-      {queued.length > 0 && (
-        <>
-          <SectionHeader label="Up next" count={queued.length} />
-          {renderRows(queued)}
-        </>
-      )}
-      {seeding.length > 0 && (
-        <>
-          <SectionHeader label="Seeding" count={seeding.length} />
-          {renderRows(seeding)}
-        </>
-      )}
-      {paused.length > 0 && (
-        <>
-          <SectionHeader label="Paused" count={paused.length} />
-          {renderRows(paused)}
-        </>
-      )}
-      {completed.length > 0 && (
-        <>
-          <SectionHeader label="Complete" count={completed.length} />
-          {renderRows(completed)}
-        </>
-      )}
+    <div className="torrent">
+      <div className="title">
+        <strong>{t.name}</strong>
+        <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+      </div>
+      <div className="bar">
+        <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
+      </div>
+      <div className="meta">
+        <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
+        <span>↓ {speed(t.down)}</span>
+        <span>↑ {speed(t.up)}</span>
+        <span>{t.peers} peers</span>
+        {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+      </div>
+      <div className="actions">
+        {href && <Link className="primary" to={href}>Watch</Link>}
+        {!!t.files?.length && (
+          <button onClick={() => onSave(t)} disabled={saving != null}>
+            {saving != null ? `Saving ${Math.round(saving * 100)}%` : 'Save to disk'}
+          </button>
+        )}
+        <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
+        <button onClick={() => onRemove(t)}>Remove</button>
+      </div>
     </div>
   )
 }
 
 const Home = () => {
-  const [tweak, setTweak] = useTweaks(TWEAK_DEFAULTS)
-  const [view, setView] = useState<'active' | 'library' | 'settings'>('active')
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [sortBy, setSortBy] = useState('added')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
+  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, clientRef } = useTorrents()
+  const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
-  // Live torrents from the libtorrent-wasm worker (real peers over WebVPN).
-  const { torrents, addMagnet, pause, resume, remove, clientRef } = useTorrents()
+  const [saving, setSaving] = useState<Record<string, number>>({})
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const toastTimer = useRef<number | undefined>(undefined)
 
-  // Read torrents from a ref inside stable callbacks so the global paste
-  // listener doesn't re-subscribe on every 500ms state tick.
+  // Read torrents from a ref inside stable callbacks so the global paste/drop
+  // listeners don't re-subscribe on every 500ms state tick.
   const torrentsRef = useRef(torrents)
   torrentsRef.current = torrents
-  const toastTimer = useRef<number | undefined>(undefined)
+
   const showToast = useCallback((msg: string) => {
     setToast(msg)
     clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
 
-  // Validate, add, and confirm a magnet. Returns false if it wasn't a magnet.
   const commitMagnet = useCallback((raw: string): boolean => {
     const text = raw.trim()
     if (!isMagnet(text)) return false
     const ih = magnetInfoHash(text)
     const dup = !!ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)
     addMagnet(text)
-    showToast(dup ? 'Already in your transfers' : 'Magnet added')
+    showToast(dup ? 'Already in your list' : 'Magnet added')
     return true
   }, [addMagnet, showToast])
 
-  // Explicit "Paste magnet" button: pull the clipboard and add if it's a magnet.
-  // Falls back to opening the modal when the clipboard read is blocked.
-  const pasteMagnet = useCallback(async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (commitMagnet(text)) return
-      showToast('No magnet link on your clipboard')
-    } catch {
-      setAddOpen(true)
+  const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
+    for (const file of [...files]) {
+      if (!/\.torrent$/i.test(file.name)) continue
+      addTorrentFile(new Uint8Array(await file.arrayBuffer()))
+      showToast(`${file.name} added`)
     }
-  }, [commitMagnet, showToast])
+  }, [addTorrentFile, showToast])
 
-  // Global paste: Cmd/Ctrl+V anywhere outside a text field instantly adds a
-  // magnet. The paste event carries the clipboard text with no permission
-  // prompt (unlike navigator.clipboard.readText).
+  // Global paste: Ctrl/Cmd+V anywhere outside a text field instantly adds a
+  // magnet (the paste event carries the text with no permission prompt).
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
-      if (isMagnet(text)) { e.preventDefault(); setAddOpen(false); commitMagnet(text) }
+      if (isMagnet(text)) { e.preventDefault(); commitMagnet(text) }
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
   }, [commitMagnet])
 
-  // Apply theme/accent/density to <html>
+  // Drop a .torrent file (or a dragged magnet link) anywhere on the page.
   useEffect(() => {
-    applyTweaks(tweak)
-  }, [tweak.theme, tweak.density, tweak.accent])
-
-  // Keyboard: ⌘/Ctrl+N opens add, / focuses search, Esc closes detail/modal
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (addOpen && e.key === 'Escape') return setAddOpen(false)
-      if (selectedId && e.key === 'Escape') return setSelectedId(null)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setAddOpen(true) }
-      if (e.key === '/' && (e.target as HTMLElement).tagName !== 'INPUT') {
-        e.preventDefault()
-        document.querySelector<HTMLInputElement>('.search input')?.focus()
-      }
+    const onDragOver = (e: DragEvent) => e.preventDefault()
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault()
+      if (e.dataTransfer?.files?.length) addTorrentFiles(e.dataTransfer.files)
+      else commitMagnet(e.dataTransfer?.getData('text') ?? '')
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [addOpen, selectedId])
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
+    return () => { window.removeEventListener('dragover', onDragOver); window.removeEventListener('drop', onDrop) }
+  }, [addTorrentFiles, commitMagnet])
 
-  // Filtered/sorted list
-  const filtered = useMemo(() => {
-    let list = torrents.slice()
-    if (view === 'library') {
-      list = list.filter((t) => t.state === 'done' || t.state === 'seeding')
-    } else if (view === 'active') {
-      // active screen shows all states
-    }
-    if (filter !== 'all') {
-      const map: Record<string, string[]> = { downloading: ['downloading'], seeding: ['seeding'], paused: ['paused', 'queued'], done: ['done'] }
-      list = list.filter((t) => map[filter]?.includes(t.state))
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter((t) => t.name.toLowerCase().includes(q))
-    }
-    const sorts: Record<string, (a: Torrent, b: Torrent) => number> = {
-      added: (a, b) => 0,
-      name: (a, b) => a.name.localeCompare(b.name),
-      progress: (a, b) => b.progress - a.progress,
-      speed: (a, b) => (b.down + b.up) - (a.down + a.up),
-      size: (a, b) => b.size - a.size,
-    }
-    list.sort(sorts[sortBy] || sorts.added)
-    return list
-  }, [torrents, view, filter, search, sortBy])
+  const onToggle = (t: Torrent) =>
+    t.state === 'paused' ? resume(Number(t.id)) : pause(Number(t.id))
 
-  const counts = useMemo(() => {
-    const c = { all: 0, downloading: 0, seeding: 0, paused: 0, done: 0 }
-    torrents.forEach((t) => {
-      c.all++
-      if (t.state === 'downloading') c.downloading++
-      else if (t.state === 'seeding') c.seeding++
-      else if (t.state === 'paused' || t.state === 'queued') c.paused++
-      else if (t.state === 'done') c.done++
-    })
-    return c
-  }, [torrents])
+  // Removing also wipes the OPFS data - there's no UI to reclaim it otherwise.
+  const onRemove = (t: Torrent) => remove(Number(t.id), true)
 
-  const sideCounts = {
-    active: counts.downloading + counts.seeding + counts.paused,
-    library: counts.done + counts.seeding,
-  }
-
-  const totals = useMemo(() => {
-    const t = { down: 0, up: 0, utp: 0, tcp: 0 }
-    torrents.forEach((x) => {
-      t.down += x.down; t.up += x.up
-      t.utp += x.peers.utp; t.tcp += x.peers.tcp
-    })
-    return t
-  }, [torrents])
-
-  const selected = torrents.find((t) => t.id === selectedId)
-
-  // Export a finished file out of OPFS to the user's disk (streamed via the
-  // worker's read()). Bound to the currently-selected torrent.
-  const onSaveFile = async (fileIndex: number, onProgress: (f: number) => void) => {
-    const client = clientRef.current
-    const file = selected?.files?.[fileIndex]
-    if (!client || !selected || !file) return
-    const bytes = file.bytes ?? Math.round(file.size * 1024 * 1024)
-    await saveTorrentFileToDisk(client, Number(selected.id), fileIndex, file.name, bytes, onProgress)
-  }
-
-  // Pause halts download + seeding (resumable). Toggle on the torrent's state.
-  const onToggle = (id: string) => {
-    const t = torrents.find((x) => x.id === id)
-    if (!t) return
-    if (t.state === 'paused' || t.state === 'queued') resume(Number(id))
-    else pause(Number(id))
-  }
-
-  // Remove from the client (stops seeding). deleteFiles also wipes the OPFS data.
-  const onRemove = (id: string, deleteFiles = false) => {
-    remove(Number(id), deleteFiles)
-    if (selectedId === id) setSelectedId(null)
-  }
-
-  // Save the torrent's primary file to disk straight from a list/hero row.
-  const onSaveRow = async (t: Torrent) => {
+  // Streams the torrent's main file out of OPFS to the user's disk. Called
+  // synchronously from the click so showSaveFilePicker keeps the user gesture.
+  const onSave = (t: Torrent) => {
     const client = clientRef.current
     if (!client || !t.files?.length) return
     const idx = pickVideoFile(t.files)
     const file = t.files[idx]
     if (!file) return
-    const bytes = file.bytes ?? Math.round(file.size * 1024 * 1024)
-    await saveTorrentFileToDisk(client, Number(t.id), idx, file.name, bytes)
+    setSaving((s) => ({ ...s, [t.id]: 0 }))
+    saveTorrentFileToDisk(client, Number(t.id), idx, file.name, file.size, (f) => setSaving((s) => ({ ...s, [t.id]: f })))
+      .catch(() => {})
+      .finally(() => setSaving((s) => { const { [t.id]: _, ...rest } = s; return rest }))
   }
 
-  const titleFor = (v: string) => v === 'active' ? 'Transfers' : v === 'library' ? 'Library' : 'Settings'
-  const subtitleFor = (v: string) => v === 'active' ? `${counts.downloading} downloading · ${counts.seeding} seeding`
-    : v === 'library' ? `${counts.done + counts.seeding} items`
-    : null
+  const backend = getBackend()
 
   return (
-    <div className="app">
-      <Sidebar view={view} setView={setView}
-        counts={sideCounts} totals={totals} />
+    <div css={style}>
+      <div className="glow amber"/>
+      <div className="glow plum"/>
+      <div className="glow teal"/>
+      <div className="shell">
+        <header>
+          <span className="wordmark">Ripple</span>
+          <nav>
+            <a href="https://fkn.app" target="_blank" rel="noreferrer">FKN</a>
+          </nav>
+        </header>
 
-      <div className="main">
-        <TopBar title={titleFor(view)} subtitle={subtitleFor(view)}
-          search={search} setSearch={setSearch}
-          onAdd={() => setAddOpen(true)} />
+        <section className="hero">
+          <h1>Download. Stream.<br/><em>In your browser.</em></h1>
+          <p>
+            Ripple is a torrent client that runs entirely in your browser.
+            Paste a magnet link or drop a .torrent file, watch the video while
+            it downloads, then save it to your disk.
+          </p>
+        </section>
 
-        {view !== 'settings' && (
-          <FilterBar
-            filter={filter} setFilter={setFilter}
-            sortBy={sortBy} setSortBy={setSortBy}
-            counts={counts}
-            showAdv={tweak.showAdv}
-            setShowAdv={(v: boolean) => setTweak('showAdv', v)} />
-        )}
+        <form
+          className="add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (commitMagnet(input)) setInput('')
+            else if (input.trim()) showToast('Not a magnet link')
+          }}
+        >
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Paste a magnet link"
+            spellCheck={false}
+          />
+          <button className="primary" type="submit">Add</button>
+          <button className="ghost" type="button" onClick={() => fileInputRef.current?.click()}>.torrent</button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".torrent,application/x-bittorrent"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              if (e.currentTarget.files?.length) addTorrentFiles(e.currentTarget.files)
+              e.currentTarget.value = ''
+            }}
+          />
+        </form>
+        <p className="drop-hint">or drop a .torrent file anywhere on this page</p>
 
-        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
-            {view === 'settings' ? (
-              <SettingsScreen tweak={tweak} setTweak={setTweak} />
-            ) : filtered.length === 0 ? (
-              <EmptyState onAdd={() => setAddOpen(true)} onPasteMagnet={pasteMagnet} />
-            ) : tweak.layout === 'hero' && view === 'active' && filter === 'all' ? (
-              <HeroActiveView
-                list={filtered}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onToggle={onToggle}
-                showAdv={tweak.showAdv}
-                onAdd={() => setAddOpen(true)}
-                onRemove={onRemove}
-                onSave={onSaveRow} />
-            ) : (
-              <div className="list">
-                {filtered.map((t) => (
-                  <TorrentRow key={t.id} t={t}
-                    selected={selectedId === t.id}
-                    onSelect={setSelectedId}
-                    onToggle={onToggle}
-                    onRemove={onRemove}
-                    onSave={onSaveRow}
-                    showAdv={tweak.showAdv} />
-                ))}
+        <section className="torrents">
+          {torrents.length === 0
+            ? (
+              <div className="empty">
+                Nothing here yet.<br/>
+                Add a torrent above and it will download, stream and seed right here.
               </div>
-            )}
+            )
+            : torrents.map((t) => (
+              <TorrentCard
+                key={t.id}
+                t={t}
+                saving={saving[t.id]}
+                onToggle={onToggle}
+                onSave={onSave}
+                onRemove={onRemove}
+              />
+            ))}
+        </section>
+
+        <footer>
+          <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
+          <div className="engine">
+            <span>Engine</span>
+            <button
+              className={backend === 'libtorrent' ? 'on' : ''}
+              onClick={() => backend !== 'libtorrent' && setBackend('libtorrent')}
+            >
+              libtorrent
+            </button>
+            <button
+              className={backend === 'webtorrent' ? 'on' : ''}
+              onClick={() => backend !== 'webtorrent' && setBackend('webtorrent')}
+            >
+              WebTorrent
+            </button>
           </div>
-          {selected && view !== 'settings' && (
-            <DetailPanel t={selected} onClose={() => setSelectedId(null)} onSave={onSaveFile} onToggle={onToggle} onRemove={onRemove} />
-          )}
-        </div>
+        </footer>
       </div>
 
-      <AddTorrentModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onAdd={(kind, value) => { if (kind === 'magnet' && value) commitMagnet(value); setAddOpen(false) }} />
-
-      {toast && (
-        <div role="status" className="toast" style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          display: 'flex', alignItems: 'center', gap: 8, zIndex: 200,
-          background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 500,
-          boxShadow: '0 10px 34px rgba(0,0,0,0.4)',
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)' }} />
-          {toast}
-        </div>
-      )}
+      {toast && <div role="status" className="toast">{toast}</div>}
     </div>
   )
 }
