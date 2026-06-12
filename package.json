@@ -21,7 +21,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@banou/webtorrent": "file:../webtorrent",
+    "@banou/webtorrent": "github:Banou26/webtorrent#1c690e52392017c11726ff3d594ecb9ac8706374",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.3.12",
     "@videojs/react": "^10.0.0-beta.22",
@@ -29,7 +29,8 @@
     "@webvpn/net": "^0.3.7",
     "ass-compiler": "^0.1.15",
     "idb-keyval": "^6.2.1",
-    "libtorrent-wasm": "file:../libtorrent-wasm",
+    "libav-wasm": "^0.8.0",
+    "libtorrent-wasm": "^0.1.0",
     "osra": "^0.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -55,7 +56,6 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
     "jassub": "^1.7.18",
-    "libav-wasm": "file:../libav-wasm",
     "node-stdlib-browser": "^1.2.0",
     "serve": "^14.2.1",
     "shx": "^0.3.4",
