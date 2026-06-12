@@ -10,9 +10,10 @@ import { Menu } from '@videojs/react'
 import { CaptionsOnIcon, CheckIcon, VolumeHighIcon } from '@videojs/react/icons'
 
 import { getHumanReadableByteString } from '../utils/bytes'
-import { downloadedFractions } from '../torrent/downloaded-ranges'
+import { downloadedByteRanges, downloadedFractions } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
+import { useSeekThumbnails } from '../player/thumbnails'
 import { VideoJsPlayer } from '../player/videojs-player'
 
 const playerStyle = css`
@@ -68,10 +69,12 @@ type TrackMenuProps = {
   options: { value: string, label: string }[]
   value: string
   onSelect: (value: string) => void
+  side?: 'top' | 'bottom'
+  align?: 'start' | 'center' | 'end'
 }
 
-const TrackMenu = ({ label, icon, options, value, onSelect }: TrackMenuProps) => (
-  <Menu.Root side="bottom" align="end">
+const TrackMenu = ({ label, icon, options, value, onSelect, side = 'bottom', align = 'end' }: TrackMenuProps) => (
+  <Menu.Root side={side} align={align}>
     <Menu.Trigger className="media-button media-button--subtle media-button--icon" aria-label={label}>
       {icon}
     </Menu.Trigger>
@@ -95,7 +98,7 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const { snapshot, read, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  const { snapshot, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
   const controllerRef = useRef<PlaybackController | null>(null)
   const [subtitleStreams, setSubtitleStreams] = useState<SubtitleStream[]>([])
@@ -147,6 +150,19 @@ const Player = () => {
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
   const downloadedRanges = useMemo(() => downloadedFractions(snapshot, fileIndex), [snapshot, fileIndex])
+  const downloadedBytes = useMemo(() => downloadedByteRanges(snapshot, fileIndex), [snapshot, fileIndex])
+
+  // Seekbar hover previews: a second remuxer decodes keyframes once their byte
+  // spans land, started only after playback init pulled the head/tail locally.
+  const [playerReady, setPlayerReady] = useState(false)
+  const thumbnails = useSeekThumbnails({
+    enabled: playerReady,
+    publicPath,
+    workerUrl: libavWorkerUrl,
+    length: fileSize,
+    read: readQuiet,
+    ranges: downloadedBytes,
+  })
 
   const overlay = (
     <div className="ripple-overlay-content">
@@ -180,21 +196,26 @@ const Player = () => {
             onSelect={(v) => setSelectedAudio(Number(v))}
           />
         )}
-        {subtitleStreams.length > 0 && (
-          <TrackMenu
-            label="Subtitles"
-            icon={<CaptionsOnIcon className="media-icon"/>}
-            options={[
-              ...subtitleStreams.map((s) => ({ value: String(s.streamIndex), label: trackLabel(s) })),
-              { value: '-1', label: 'Off' },
-            ]}
-            value={String(subtitleValue)}
-            onSelect={(v) => onSelectSubtitle(Number(v))}
-          />
-        )}
       </div>
     </div>
   )
+
+  const subtitleMenu = subtitleStreams.length > 0
+    ? (
+      <TrackMenu
+        label="Subtitles"
+        icon={<CaptionsOnIcon className="media-icon"/>}
+        options={[
+          ...subtitleStreams.map((s) => ({ value: String(s.streamIndex), label: trackLabel(s) })),
+          { value: '-1', label: 'Off' },
+        ]}
+        value={String(subtitleValue)}
+        onSelect={(v) => onSelectSubtitle(Number(v))}
+        side="top"
+        align="center"
+      />
+    )
+    : null
 
   return (
     <div css={playerStyle}>
@@ -208,6 +229,8 @@ const Player = () => {
         defaultFontUrl={defaultFontUrl}
         autoplay={true}
         overlay={overlay}
+        menu={subtitleMenu}
+        thumbnails={thumbnails}
         downloadedRanges={downloadedRanges}
         onSeek={(fraction) => { if (fileSize) prioritizeFrom(fraction * fileSize) }}
         audioStreamIndex={selectedAudio}
@@ -215,6 +238,7 @@ const Player = () => {
         onAudioStreams={(streams, selected) => { setAudioStreams(streams); setEffectiveAudio(selected) }}
         onController={(controller) => {
           controllerRef.current = controller
+          if (controller) setPlayerReady(true)
           // An audio switch rebuilds the pipeline; re-apply the subtitle choice.
           if (controller && selectedSubtitle !== undefined) controller.selectSubtitleStream(selectedSubtitle)
         }}
