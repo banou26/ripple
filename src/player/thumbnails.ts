@@ -17,6 +17,10 @@ const WIDTH = 320
 // up to bufferSize bytes past the slot span; require that margin downloaded.
 const READAHEAD = 1_000_000
 const MAX_ATTEMPTS = 3
+// A keyframe decode can hang without ever settling (decoder never emits, no
+// error path); time it out so the queue keeps moving - the next call aborts
+// the stuck one inside libav.
+const KEYFRAME_TIMEOUT = 10_000
 
 // Second remuxer dedicated to seekbar previews: one keyframe per INTERVAL
 // seconds, decoded to a downscaled webp once its byte span is downloaded.
@@ -49,6 +53,10 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     })
   }
   for (const [i, slot] of slots.entries()) slot.endTime = slots[i + 1]?.timestamp ?? duration
+  // Reading the very last keyframe runs the demuxer into EOF, which crashes
+  // the current libav build; the closing-credits thumb is not worth it.
+  if (slots.length > 1 && (slots.at(-1)!.timestamp > duration - INTERVAL * 2)) slots.pop()
+  console.warn('[thumbs] ready:', slots.length, 'slots over', Math.round(duration), 's')
 
   let thumbnails: ThumbnailImage[] = []
   let destroyed = false
@@ -66,12 +74,16 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     })))
   }
 
+  let generated = 0
   const generate = (slot: Slot) => {
     slot.done = true
     queue = queue
       .then(async () => {
         if (destroyed) return
-        const png = await remuxer.readKeyframe(slot.timestamp)
+        const png = await Promise.race([
+          remuxer.readKeyframe(slot.timestamp),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), KEYFRAME_TIMEOUT)),
+        ])
         const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }))
         const canvas = new OffscreenCanvas(WIDTH, Math.max(1, Math.round(bitmap.height * (WIDTH / bitmap.width))))
         canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
@@ -80,6 +92,8 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
         if (destroyed) return
         thumbnails = [...thumbnails, { url: URL.createObjectURL(blob), startTime: slot.timestamp, endTime: slot.endTime }]
           .sort((a, b) => a.startTime - b.startTime)
+        generated += 1
+        if (generated === 1 || generated % 50 === 0) console.warn('[thumbs] generated', generated, '/', slots.length)
         emit()
       })
       .catch((err) => {
