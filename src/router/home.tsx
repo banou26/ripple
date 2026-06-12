@@ -30,11 +30,13 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
 
 const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
 
+const HISTORY = 120
+
 const style = css`
-  position: relative;
-  overflow: hidden;
-  min-height: 100vh;
-  background: radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%), #16131c;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #16131c;
   color: #f4f2f8;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
@@ -42,51 +44,24 @@ const style = css`
     text-decoration: none;
   }
 
-  .shell {
-    position: relative;
-    max-width: 880px;
-    margin: 0 auto;
-    padding: 24px 24px 64px;
-  }
-
-  .glow {
-    position: absolute;
-    width: 440px;
-    height: 440px;
-    border-radius: 50%;
-    filter: blur(95px);
-    pointer-events: none;
-  }
-
-  .glow.amber {
-    background: #f59e0b;
-    opacity: 0.22;
-    top: -120px;
-    left: -140px;
-  }
-
-  .glow.plum {
-    background: #7c3aed;
-    opacity: 0.25;
-    top: 60px;
-    right: -180px;
-  }
-
-  .glow.teal {
-    background: #14b8a6;
-    opacity: 0.13;
-    top: 560px;
-    left: 30%;
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
   }
 
   header {
-    position: relative;
+    flex: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding: 10px 16px;
+    background: #1e1a28;
+    border-bottom: 1px solid #2c2737;
 
     .wordmark {
-      font-size: 1.5rem;
+      font-size: 1.25rem;
       font-weight: 900;
       letter-spacing: 0.06em;
       background: linear-gradient(90deg, #fbbf24, #f97316);
@@ -95,129 +70,143 @@ const style = css`
       color: transparent;
     }
 
-    nav a {
-      color: #c9c4d4;
-      font-size: 0.95rem;
-      font-weight: 500;
+    form {
+      flex: 1;
+      display: flex;
+      gap: 8px;
+      min-width: 240px;
 
-      &:hover {
+      input {
+        flex: 1;
+        min-width: 0;
+        background: #16131c;
+        border: 1px solid #2c2737;
+        border-radius: 8px;
+        padding: 8px 12px;
         color: #f4f2f8;
+        font-size: 0.9rem;
+        outline: none;
+        transition: border-color 120ms ease;
+
+        &::placeholder {
+          color: #8b8499;
+        }
+
+        &:focus {
+          border-color: #f97316;
+        }
+      }
+
+      button {
+        flex: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 0.85rem;
+        font-weight: 700;
+
+        &.primary {
+          border: none;
+          background: #fff;
+          color: #16131c;
+        }
+
+        &.ghost {
+          border: 1px solid #3a3447;
+          background: none;
+          color: #f4f2f8;
+
+          &:hover {
+            background: #241e30;
+          }
+        }
       }
     }
   }
 
-  .hero {
-    position: relative;
-    text-align: center;
-    padding: 64px 0 40px;
+  .stats {
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    gap: 24px;
+    margin: 14px 16px 0;
+    padding: 14px 18px;
+    background: #1e1a28;
+    border: 1px solid #2c2737;
+    border-radius: 10px;
 
-    h1 {
-      margin: 0 auto 18px;
-      font-size: clamp(1.8rem, 5vw, 3rem);
-      font-weight: 900;
-      line-height: 1.05;
-      letter-spacing: -0.01em;
-      text-transform: uppercase;
+    .readouts {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 26px;
+    }
 
-      em {
-        font-style: normal;
-        background: linear-gradient(90deg, #fbbf24, #f97316, #c084fc);
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+
+      label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #8b8499;
+      }
+
+      strong {
+        font-size: 1.05rem;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      &.big strong {
+        font-size: 1.7rem;
+        line-height: 1.1;
+        background: linear-gradient(90deg, #fbbf24, #f97316);
         background-clip: text;
         -webkit-background-clip: text;
         color: transparent;
       }
     }
 
-    > p {
-      margin: 0 auto;
-      max-width: 560px;
-      font-size: 1.05rem;
-      line-height: 1.65;
-      color: #b6b0c4;
-    }
-  }
-
-  .add {
-    position: relative;
-    display: flex;
-    gap: 10px;
-    max-width: 640px;
-    margin: 0 auto;
-
-    input {
+    svg {
       flex: 1;
-      min-width: 0;
-      background: #1e1a28;
-      border: 1px solid #2c2737;
-      border-radius: 999px;
-      padding: 12px 20px;
-      color: #f4f2f8;
-      font-size: 0.95rem;
-      outline: none;
-      transition: border-color 120ms ease;
+      min-width: 120px;
+      height: 52px;
+      align-self: center;
 
-      &::placeholder {
-        color: #8b8499;
+      polyline {
+        fill: none;
+        stroke: #f97316;
+        stroke-width: 1.2;
+        vector-effect: non-scaling-stroke;
       }
 
-      &:focus {
-        border-color: #f97316;
-      }
-    }
-
-    button {
-      border-radius: 999px;
-      padding: 12px 22px;
-      font-size: 0.9rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 120ms ease, background 120ms ease;
-
-      &.primary {
-        border: none;
-        background: #fff;
-        color: #16131c;
-
-        &:hover {
-          transform: translateY(-1px);
-        }
-      }
-
-      &.ghost {
-        border: 1px solid #3a3447;
-        background: none;
-        color: #f4f2f8;
-
-        &:hover {
-          background: #221d2e;
-        }
+      polygon {
+        fill: rgba(249, 115, 22, 0.14);
       }
     }
   }
 
-  .drop-hint {
-    margin: 12px 0 0;
-    text-align: center;
-    color: #8b8499;
-    font-size: 0.85rem;
-  }
-
-  .torrents {
-    position: relative;
-    margin-top: 44px;
+  main {
+    flex: 1;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
+    padding: 14px 16px;
   }
 
   .torrent {
+    flex: none;
     background: #1e1a28;
     border: 1px solid #2c2737;
-    border-radius: 16px;
-    padding: 18px 20px;
+    border-radius: 10px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 9px;
     transition: border-color 120ms ease;
 
     &:hover {
@@ -226,24 +215,31 @@ const style = css`
 
     .title {
       display: flex;
-      justify-content: space-between;
       align-items: baseline;
-      gap: 12px;
+      gap: 10px;
 
       strong {
-        font-size: 1rem;
+        flex: 1;
+        font-size: 0.95rem;
         overflow-wrap: anywhere;
+      }
+
+      .pct {
+        flex: none;
+        font-size: 0.85rem;
+        font-variant-numeric: tabular-nums;
+        color: #b6b0c4;
       }
     }
 
     .badge {
       flex: none;
-      font-size: 0.68rem;
+      font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      padding: 4px 9px;
-      border-radius: 999px;
+      padding: 3px 8px;
+      border-radius: 6px;
       background: #2c2737;
       color: #a39db3;
 
@@ -254,7 +250,7 @@ const style = css`
     }
 
     .bar {
-      height: 6px;
+      height: 5px;
       border-radius: 999px;
       background: #2c2737;
       overflow: hidden;
@@ -267,36 +263,40 @@ const style = css`
       }
     }
 
+    .row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+    }
+
     .meta {
+      flex: 1;
       display: flex;
       flex-wrap: wrap;
-      gap: 4px 16px;
+      gap: 3px 14px;
       color: #a39db3;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
     }
 
     .actions {
+      flex: none;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
 
       a, button {
-        border-radius: 999px;
-        padding: 8px 16px;
-        font-size: 0.85rem;
+        border-radius: 7px;
+        padding: 6px 12px;
+        font-size: 0.8rem;
         font-weight: 700;
-        cursor: pointer;
-        transition: transform 120ms ease, background 120ms ease;
       }
 
       .primary {
         border: none;
         background: #fff;
         color: #16131c;
-
-        &:hover {
-          transform: translateY(-1px);
-        }
       }
 
       button {
@@ -305,7 +305,7 @@ const style = css`
         color: #f4f2f8;
 
         &:hover {
-          background: #221d2e;
+          background: #241e30;
         }
 
         &:disabled {
@@ -319,7 +319,7 @@ const style = css`
       summary {
         cursor: pointer;
         color: #a39db3;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         user-select: none;
       }
 
@@ -327,12 +327,12 @@ const style = css`
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 8px 0;
+        padding: 7px 0;
         border-top: 1px solid #2c2737;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
 
         &:first-of-type {
-          margin-top: 10px;
+          margin-top: 8px;
         }
 
         .name {
@@ -345,20 +345,20 @@ const style = css`
         .size {
           flex: none;
           color: #8b8499;
+          font-variant-numeric: tabular-nums;
         }
 
         button {
           flex: none;
           border: 1px solid #3a3447;
-          border-radius: 999px;
+          border-radius: 7px;
           background: none;
           color: #f4f2f8;
-          padding: 5px 12px;
-          font-size: 0.8rem;
-          cursor: pointer;
+          padding: 4px 10px;
+          font-size: 0.75rem;
 
           &:hover {
-            background: #221d2e;
+            background: #241e30;
           }
 
           &:disabled {
@@ -371,24 +371,40 @@ const style = css`
   }
 
   .empty {
-    border: 1px dashed #2c2737;
-    border-radius: 16px;
-    padding: 40px 24px;
+    margin: auto;
     text-align: center;
     color: #8b8499;
-    font-size: 0.95rem;
-    line-height: 1.6;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    padding: 24px;
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.5rem;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+
+      em {
+        font-style: normal;
+        background: linear-gradient(90deg, #fbbf24, #f97316, #c084fc);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+      }
+    }
   }
 
   footer {
-    position: relative;
-    margin-top: 64px;
-    padding-top: 22px;
-    border-top: 1px solid #2c2737;
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 22px;
-    font-size: 0.9rem;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    padding: 8px 16px;
+    background: #1e1a28;
+    border-top: 1px solid #2c2737;
+    font-size: 0.78rem;
+    color: #8b8499;
 
     a {
       color: #8b8499;
@@ -403,28 +419,25 @@ const style = css`
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px 20px;
+      gap: 6px 18px;
     }
 
     .folder, .engine {
       display: flex;
       align-items: center;
-      gap: 8px;
-      color: #8b8499;
-      font-size: 0.85rem;
+      gap: 7px;
 
       .warn {
         color: #fbbf24;
       }
 
       button {
-        font-size: 0.8rem;
-        padding: 5px 12px;
-        border-radius: 999px;
+        font-size: 0.75rem;
+        padding: 4px 10px;
+        border-radius: 7px;
         border: 1px solid #2c2737;
         background: none;
         color: #8b8499;
-        cursor: pointer;
 
         &.on {
           color: #f4f2f8;
@@ -436,22 +449,73 @@ const style = css`
 
   .toast {
     position: fixed;
-    bottom: 24px;
+    bottom: 52px;
     left: 50%;
     transform: translateX(-50%);
     background: #1e1a28;
     border: 1px solid #2c2737;
-    border-radius: 999px;
+    border-radius: 8px;
     padding: 10px 18px;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
     z-index: 10;
   }
+
+  @media (max-width: 700px) {
+    header form {
+      flex-basis: 100%;
+    }
+
+    .stats {
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px 14px;
+
+      .readouts {
+        gap: 18px;
+      }
+
+      .stat strong {
+        font-size: 0.9rem;
+      }
+
+      .stat.big strong {
+        font-size: 1.25rem;
+      }
+
+      svg {
+        height: 44px;
+        flex: none;
+        width: 100%;
+      }
+    }
+
+    .torrent .actions {
+      flex-basis: 100%;
+    }
+  }
 `
+
+const SpeedGraph = ({ history }: { history: number[] }) => {
+  const w = 100
+  const h = 30
+  const max = Math.max(...history, 1)
+  const offset = HISTORY - history.length
+  const points = history
+    .map((v, i) => `${(((offset + i) / (HISTORY - 1)) * w).toFixed(2)},${(h - 1 - (v / max) * (h - 4)).toFixed(2)}`)
+    .join(' ')
+  if (!points) return null
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+      <polygon points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
+      <polyline points={points}/>
+    </svg>
+  )
+}
 
 const savingKey = (id: string, fileIndex: number) => `${id}:${fileIndex}`
 
-type CardProps = {
+type RowProps = {
   t: Torrent
   saving: Record<string, number>
   onToggle: (t: Torrent) => void
@@ -459,7 +523,7 @@ type CardProps = {
   onRemove: (t: Torrent) => void
 }
 
-const TorrentCard = ({ t, saving, onToggle, onSave, onRemove }: CardProps) => {
+const TorrentRow = ({ t, saving, onToggle, onSave, onRemove }: RowProps) => {
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
   const mainSaving = saving[savingKey(t.id, mainIndex)]
@@ -468,26 +532,29 @@ const TorrentCard = ({ t, saving, onToggle, onSave, onRemove }: CardProps) => {
       <div className="title">
         <strong>{t.name}</strong>
         <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+        <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
       </div>
       <div className="bar">
         <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
       </div>
-      <div className="meta">
-        <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
-        <span>↓ {speed(t.down)}</span>
-        <span>↑ {speed(t.up)}</span>
-        <span>{t.peers} peers</span>
-        {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
-      </div>
-      <div className="actions">
-        {href && <Link className="primary" to={href}>Watch</Link>}
-        {!!t.files?.length && (
-          <button onClick={() => onSave(t, mainIndex)} disabled={mainSaving != null}>
-            {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : 'Save to disk'}
-          </button>
-        )}
-        <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
-        <button onClick={() => onRemove(t)}>Remove</button>
+      <div className="row">
+        <div className="meta">
+          <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
+          <span>↓ {speed(t.down)}</span>
+          <span>↑ {speed(t.up)}</span>
+          <span>{t.peers} peers</span>
+          {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+        </div>
+        <div className="actions">
+          {href && <Link className="primary" to={href}>Watch</Link>}
+          {!!t.files?.length && (
+            <button onClick={() => onSave(t, mainIndex)} disabled={mainSaving != null}>
+              {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : 'Save to disk'}
+            </button>
+          )}
+          <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
+          <button onClick={() => onRemove(t)}>Remove</button>
+        </div>
       </div>
       {(t.files?.length ?? 0) > 1 && (
         <details className="files">
@@ -611,6 +678,17 @@ const Home = () => {
     }
   }, [torrents, folder, permitted, clientRef, showToast])
 
+  // Rolling window of total download speed, one sample per state tick.
+  const [history, setHistory] = useState<number[]>([])
+  useEffect(() => {
+    setHistory((prev) => [...prev.slice(-(HISTORY - 1)), torrents.reduce((n, t) => n + t.down, 0)])
+  }, [torrents])
+
+  const totalDown = torrents.reduce((n, t) => n + t.down, 0)
+  const totalUp = torrents.reduce((n, t) => n + t.up, 0)
+  const peak = Math.max(...history, 0)
+  const active = torrents.filter((t) => t.state === 'downloading').length
+
   const backend = getBackend()
   const [confirmEngine, setConfirmEngine] = useState<TorrentBackend | null>(null)
 
@@ -624,28 +702,9 @@ const Home = () => {
 
   return (
     <div css={style}>
-      <div className="glow amber"/>
-      <div className="glow plum"/>
-      <div className="glow teal"/>
-      <div className="shell">
-        <header>
-          <span className="wordmark">Ripple</span>
-          <nav>
-            <a href="https://fkn.app" target="_blank" rel="noreferrer">FKN</a>
-          </nav>
-        </header>
-
-        <section className="hero">
-          <h1>Download. Stream.<br/><em>In your browser.</em></h1>
-          <p>
-            Ripple is a torrent client that runs entirely in your browser.
-            Paste a magnet link or drop a .torrent file, watch the video while
-            it downloads, then save it to your disk.
-          </p>
-        </section>
-
+      <header>
+        <span className="wordmark">Ripple</span>
         <form
-          className="add"
           onSubmit={(e) => {
             e.preventDefault()
             if (commitMagnet(input)) setInput('')
@@ -655,7 +714,7 @@ const Home = () => {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Paste a magnet link"
+            placeholder="Add a magnet link"
             spellCheck={false}
           />
           <button className="primary" type="submit">Add</button>
@@ -672,78 +731,103 @@ const Home = () => {
             }}
           />
         </form>
-        <p className="drop-hint">or drop a .torrent file anywhere on this page</p>
+      </header>
 
-        <section className="torrents">
-          {torrents.length === 0
-            ? (
-              <div className="empty">
-                Nothing here yet.<br/>
-                Add a torrent above and it will download, stream and seed right here.
-              </div>
-            )
-            : torrents.map((t) => (
-              <TorrentCard
-                key={t.id}
-                t={t}
-                saving={saving}
-                onToggle={onToggle}
-                onSave={onSave}
-                onRemove={onRemove}
-              />
-            ))}
-        </section>
-
-        <footer>
-          <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
-          <Link to="/legal">Legal</Link>
-          <Link to="/privacy">Privacy</Link>
-          <div className="controls">
-            {folderSupported && (
-              <div className="folder">
-                <span>Auto-save</span>
-                {!folder
-                  ? <button onClick={pickFolder}>Choose folder</button>
-                  : permitted
-                    ? (
-                      <>
-                        <button className="on" onClick={pickFolder}>{folder.name}</button>
-                        <button onClick={clearFolder}>Stop</button>
-                      </>
-                    )
-                    : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
-              </div>
-            )}
-            <div className="engine">
-              {confirmEngine
-                ? (
-                  <>
-                    <span className="warn">Switching engines resets the downloaded files</span>
-                    <button className="on" onClick={() => setBackend(confirmEngine)}>Switch</button>
-                    <button onClick={() => setConfirmEngine(null)}>Cancel</button>
-                  </>
-                )
-                : (
-                  <>
-                    <span>Engine</span>
-                    <button
-                      className={backend === 'libtorrent' ? 'on' : ''}
-                      onClick={() => switchEngine('libtorrent')}
-                    >
-                      libtorrent
-                    </button>
-                    <button
-                      className={backend === 'webtorrent' ? 'on' : ''}
-                      onClick={() => switchEngine('webtorrent')}
-                    >
-                      WebTorrent
-                    </button>
-                  </>
-                )}
+      {torrents.length > 0 && (
+        <section className="stats">
+          <div className="readouts">
+            <div className="stat big">
+              <label>Download</label>
+              <strong>{speed(totalDown)}</strong>
+            </div>
+            <div className="stat">
+              <label>Upload</label>
+              <strong>{speed(totalUp)}</strong>
+            </div>
+            <div className="stat">
+              <label>Peak</label>
+              <strong>{speed(peak)}</strong>
+            </div>
+            <div className="stat">
+              <label>Active</label>
+              <strong>{active} / {torrents.length}</strong>
             </div>
           </div>
-        </footer>
-      </div>
+          <SpeedGraph history={history}/>
+        </section>
+      )}
+
+      <main>
+        {torrents.length === 0
+          ? (
+            <div className="empty">
+              <h1>Download. Stream. <em>In your browser.</em></h1>
+              Ripple is a torrent client that runs entirely in your browser.<br/>
+              Paste a magnet link, drop a .torrent file anywhere on this page,<br/>
+              watch the video while it downloads, then save it to your disk.
+            </div>
+          )
+          : torrents.map((t) => (
+            <TorrentRow
+              key={t.id}
+              t={t}
+              saving={saving}
+              onToggle={onToggle}
+              onSave={onSave}
+              onRemove={onRemove}
+            />
+          ))}
+      </main>
+
+      <footer>
+        <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
+        <Link to="/legal">Legal</Link>
+        <Link to="/privacy">Privacy</Link>
+        <div className="controls">
+          {folderSupported && (
+            <div className="folder">
+              <span>Auto-save</span>
+              {!folder
+                ? <button onClick={pickFolder}>Choose folder</button>
+                : permitted
+                  ? (
+                    <>
+                      <button className="on" onClick={pickFolder}>{folder.name}</button>
+                      <button onClick={clearFolder}>Stop</button>
+                    </>
+                  )
+                  : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
+            </div>
+          )}
+          <div className="engine">
+            {confirmEngine
+              ? (
+                <>
+                  <span className="warn">Switching engines resets the downloaded files</span>
+                  <button className="on" onClick={() => setBackend(confirmEngine)}>Switch</button>
+                  <button onClick={() => setConfirmEngine(null)}>Cancel</button>
+                </>
+              )
+              : (
+                <>
+                  <span>Engine</span>
+                  <button
+                    className={backend === 'libtorrent' ? 'on' : ''}
+                    onClick={() => switchEngine('libtorrent')}
+                  >
+                    libtorrent
+                  </button>
+                  <button
+                    className={backend === 'webtorrent' ? 'on' : ''}
+                    onClick={() => switchEngine('webtorrent')}
+                  >
+                    WebTorrent
+                  </button>
+                </>
+              )}
+          </div>
+        </div>
+      </footer>
 
       {toast && <div role="status" className="toast">{toast}</div>}
     </div>
