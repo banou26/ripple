@@ -49,6 +49,18 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
   let destroyed = false
   let queue = Promise.resolve()
 
+  // The slider matches hover time to the LAST entry with startTime <= time
+  // (endTime is ignored - the contract assumes a gapless storyboard). While
+  // coverage is sparse, hand out windows meeting at the midpoints between
+  // generated thumbnails so the hover always shows the nearest one.
+  const emit = () => {
+    onThumbnails(thumbnails.map((t, i) => ({
+      url: t.url,
+      startTime: i === 0 ? 0 : (thumbnails[i - 1]!.startTime + t.startTime) / 2,
+      endTime: thumbnails[i + 1] ? (t.startTime + thumbnails[i + 1]!.startTime) / 2 : t.endTime,
+    })))
+  }
+
   const generate = (slot: Slot) => {
     slot.done = true
     queue = queue
@@ -63,7 +75,7 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
         if (destroyed) return
         thumbnails = [...thumbnails, { url: URL.createObjectURL(blob), startTime: slot.timestamp, endTime: slot.endTime }]
           .sort((a, b) => a.startTime - b.startTime)
-        onThumbnails(thumbnails)
+        emit()
       })
       .catch(() => { slot.done = false })
   }
