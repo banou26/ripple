@@ -10,6 +10,7 @@ import { Menu } from '@videojs/react'
 import { CaptionsOnIcon, CheckIcon, VolumeHighIcon } from '@videojs/react/icons'
 
 import { getHumanReadableByteString } from '../utils/bytes'
+import { downloadedFractions } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
 import { VideoJsPlayer } from '../player/videojs-player'
@@ -145,6 +146,7 @@ const Player = () => {
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
+  const downloadedRanges = useMemo(() => downloadedFractions(snapshot, fileIndex), [snapshot, fileIndex])
 
   const overlay = (
     <div className="ripple-overlay-content">
@@ -206,6 +208,7 @@ const Player = () => {
         defaultFontUrl={defaultFontUrl}
         autoplay={true}
         overlay={overlay}
+        downloadedRanges={downloadedRanges}
         audioStreamIndex={selectedAudio}
         onSubtitleStreams={setSubtitleStreams}
         onAudioStreams={(streams, selected) => { setAudioStreams(streams); setEffectiveAudio(selected) }}

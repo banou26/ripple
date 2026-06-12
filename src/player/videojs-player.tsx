@@ -44,6 +44,23 @@ const playerStyle = css`
     pointer-events: none;
     z-index: 2;
   }
+  /* The torrent's downloaded regions replace the MSE buffer bar: playback
+     evicts the SourceBuffer to a ~80s window, so video.buffered is always a
+     sliver of what is actually seekable from disk. */
+  .media-slider__buffer {
+    display: none;
+  }
+  .ripple-downloaded {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .ripple-downloaded div {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background-color: oklch(from currentColor l c h / 0.2);
+  }
 `
 
 // The video.js skin sizes its controls in rem; ripple's global
@@ -78,6 +95,9 @@ export type VideoJsPlayerProps = {
   defaultFontUrl: string
   autoplay?: boolean
   overlay?: ReactNode
+  // Downloaded regions of the file as [from, to] fractions, drawn on the
+  // seekbar in place of the MSE-derived buffer bar.
+  downloadedRanges?: [number, number][]
   audioStreamIndex?: number
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
   onAudioStreams?: (streams: AudioStream[], selected: number) => void
@@ -86,11 +106,12 @@ export type VideoJsPlayerProps = {
 
 export const VideoJsPlayer = ({
   read, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl,
-  defaultFontUrl, autoplay = true, overlay, audioStreamIndex,
+  defaultFontUrl, autoplay = true, overlay, downloadedRanges, audioStreamIndex,
   onSubtitleStreams, onAudioStreams, onController,
 }: VideoJsPlayerProps) => {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const readRef = useRef(read)
   readRef.current = read
   const onSubtitleStreamsRef = useRef(onSubtitleStreams)
@@ -101,6 +122,27 @@ export const VideoJsPlayer = ({
   onControllerRef.current = onController
   // Changing the audio track restarts the whole pipeline; carry the position over.
   const resumeTimeRef = useRef(0)
+
+  // The skin is rendered wholesale, so the downloaded layer is painted into
+  // its slider track by hand rather than composed as a React child.
+  useEffect(() => {
+    if (!downloadedRanges) return
+    const track = rootRef.current?.querySelector('.media-slider__track')
+    if (!track) return
+    let layer = track.querySelector<HTMLElement>('.ripple-downloaded')
+    if (!layer) {
+      layer = document.createElement('div')
+      layer.className = 'ripple-downloaded'
+      track.prepend(layer)
+    }
+    while (layer.childElementCount > downloadedRanges.length) layer.lastElementChild!.remove()
+    while (layer.childElementCount < downloadedRanges.length) layer.appendChild(document.createElement('div'))
+    downloadedRanges.forEach(([from, to], i) => {
+      const seg = layer.children[i] as HTMLElement
+      seg.style.left = `${from * 100}%`
+      seg.style.width = `${(to - from) * 100}%`
+    })
+  }, [downloadedRanges, video])
 
   useEffect(() => {
     if (!video || !canvas || !size) return
@@ -148,7 +190,7 @@ export const VideoJsPlayer = ({
   }, [video, canvas, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl, defaultFontUrl, audioStreamIndex])
 
   return (
-    <div css={playerStyle}>
+    <div css={playerStyle} ref={rootRef}>
       <Global styles={skinCss} />
       <Global styles={playerRoot} />
       <player.Provider>
