@@ -5,8 +5,11 @@ import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { QuotaStatus } from '../torrent/use-quota'
+
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
+import { useQuota } from '../torrent/use-quota'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
@@ -29,6 +32,42 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
 }
 
 const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
+
+const rate = (bitsPerSecond: number): string => {
+  const mbps = bitsPerSecond / 1_000_000
+  if (mbps >= 1000) return `${+(mbps / 1000).toFixed(1)} Gbps`
+  if (mbps >= 10) return `${Math.round(mbps)} Mbps`
+  if (mbps >= 1) return `${+mbps.toFixed(1)} Mbps`
+  return `${Math.round(bitsPerSecond / 1000)} kbps`
+}
+
+// FKN cloud-egress quota readout: torrent traffic relays through FKN, so over the daily free-tier
+// volume the transfer is throttled. Premium lifts it; the extension/desktop paths aren't metered.
+const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
+  if (quota.premium) {
+    return (
+      <div className="stat quota">
+        <label>FKN quota</label>
+        <strong className="ok">Premium</strong>
+      </div>
+    )
+  }
+  if (quota.throttled) {
+    return (
+      <div className="stat quota throttled">
+        <label>FKN quota</label>
+        <strong>Throttled · {rate(quota.bitsPerSecond)}</strong>
+        <a href="https://fkn.app/account" target="_blank" rel="noreferrer">Get full speed</a>
+      </div>
+    )
+  }
+  return (
+    <div className="stat quota">
+      <label>FKN quota</label>
+      <strong>{getHumanReadableByteString(quota.remainingBytes, true)} left</strong>
+    </div>
+  )
+}
 
 const HISTORY = 120
 
@@ -167,6 +206,27 @@ const style = css`
         background-clip: text;
         -webkit-background-clip: text;
         color: transparent;
+      }
+
+      &.quota strong.ok {
+        color: #7dd3a0;
+      }
+
+      &.quota.throttled strong {
+        color: #fbbf24;
+      }
+
+      &.quota a {
+        font-size: 0.62rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #fbbf24;
+        text-decoration: none;
+      }
+
+      &.quota a:hover {
+        text-decoration: underline;
       }
     }
 
@@ -689,6 +749,8 @@ const Home = () => {
   const peak = Math.max(...history, 0)
   const active = torrents.filter((t) => t.state === 'downloading').length
 
+  const quota = useQuota(torrents.length > 0)
+
   const backend = getBackend()
   const [confirmEngine, setConfirmEngine] = useState<TorrentBackend | null>(null)
 
@@ -752,6 +814,7 @@ const Home = () => {
               <label>Active</label>
               <strong>{active} / {torrents.length}</strong>
             </div>
+            {quota && <QuotaStat quota={quota}/>}
           </div>
           <SpeedGraph history={history}/>
         </section>
