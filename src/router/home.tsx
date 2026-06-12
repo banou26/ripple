@@ -1,5 +1,4 @@
 import type { Torrent } from '../torrent/types'
-import type { TorrentBackend } from '../torrent/backend'
 
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -13,7 +12,6 @@ import { useQuota } from '../torrent/use-quota'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
-import { getBackend, setBackend } from '../torrent/backend'
 import { getHumanReadableByteString } from '../utils/bytes'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
@@ -617,14 +615,10 @@ const style = css`
       gap: 6px 18px;
     }
 
-    .folder, .engine {
+    .folder {
       display: flex;
       align-items: center;
       gap: 7px;
-
-      .warn {
-        color: #fbbf24;
-      }
 
       button {
         font-size: 0.75rem;
@@ -932,17 +926,6 @@ const Home = () => {
 
   const quota = useQuota(torrents.length > 0)
 
-  const backend = getBackend()
-  const [confirmEngine, setConfirmEngine] = useState<TorrentBackend | null>(null)
-
-  // Each engine has its own storage layout, so the other engine's downloads
-  // start over; warn unless the list is empty.
-  const switchEngine = (engine: TorrentBackend) => {
-    if (engine === backend) return
-    if (torrents.length) setConfirmEngine(engine)
-    else setBackend(engine)
-  }
-
   return (
     <div css={style} data-drag={dragging || undefined}>
       <div className="drop">Drop to add</div>
@@ -1048,33 +1031,6 @@ const Home = () => {
                   : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
             </div>
           )}
-          <div className="engine">
-            {confirmEngine
-              ? (
-                <>
-                  <span className="warn">Switching engines resets the downloaded files</span>
-                  <button className="on" onClick={() => setBackend(confirmEngine)}>Switch</button>
-                  <button onClick={() => setConfirmEngine(null)}>Cancel</button>
-                </>
-              )
-              : (
-                <>
-                  <span>Engine</span>
-                  <button
-                    className={backend === 'libtorrent' ? 'on' : ''}
-                    onClick={() => switchEngine('libtorrent')}
-                  >
-                    libtorrent
-                  </button>
-                  <button
-                    className={backend === 'webtorrent' ? 'on' : ''}
-                    onClick={() => switchEngine('webtorrent')}
-                  >
-                    WebTorrent
-                  </button>
-                </>
-              )}
-          </div>
         </div>
       </footer>
 

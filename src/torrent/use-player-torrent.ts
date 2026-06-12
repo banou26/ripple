@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
 import type { TorrentClient, TorrentSnapshot } from './client'
-import { getBackend } from './backend'
 
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
@@ -25,7 +24,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
 
   useEffect(() => {
     if (!magnet) return
-    const client = createTorrentClient(getBackend())
+    const client = createTorrentClient()
     clientRef.current = client
     client.ready.then(() => client.addMagnet(magnet))
     let sequentialSet = false

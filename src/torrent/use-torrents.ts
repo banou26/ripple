@@ -4,7 +4,6 @@ import type { TorrentClient, TorrentSnapshot } from './client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
-import { getBackend } from './backend'
 
 const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
@@ -87,7 +86,7 @@ export const useTorrents = (): UseTorrents => {
   const clientRef = useRef<TorrentClient | null>(null)
   const [torrents, setTorrents] = useState<Torrent[]>([])
   useEffect(() => {
-    const client = createTorrentClient(getBackend())
+    const client = createTorrentClient()
     clientRef.current = client
     // Workers restore the persisted list before 'ready', so the first state
     // snapshot is authoritative: empty + never-seeded = brand-new user. The

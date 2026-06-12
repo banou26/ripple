@@ -1,12 +1,6 @@
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import polyfills from './vite-plugin-node-stdlib-browser.cjs'
-
-// WebTorrent's entry imports named symbols from its "browser exclude" deps;
-// vite's __vite-browser-external stub has no named exports, so point them at a
-// local no-op stub that does.
-const wtExcluded = fileURLToPath(new URL('./src/torrent/webtorrent-excluded.ts', import.meta.url))
 
 export default defineConfig((env) => ({
   build: {
@@ -32,16 +26,6 @@ export default defineConfig((env) => ({
     // osra instances; the worker's dgram then talks to a different @fkn/lib
     // than relayWorker bridges → every socket call hangs. Force one instance.
     dedupe: ['@fkn/lib', 'osra', '@webvpn/net', '@webvpn/dgram'],
-    alias: {
-      'bittorrent-dht': wtExcluded,
-      'load-ip-set': wtExcluded,
-      '@silentbot1/nat-api': wtExcluded,
-      'ut_pex': wtExcluded,
-      // WebTorrent's `import net from 'net'` must hit @webvpn (real peers over
-      // WebVPN), not node-stdlib-browser's null `net`/`dgram` stub.
-      'net': '@webvpn/net',
-      'dgram': '@webvpn/dgram',
-    },
   },
   optimizeDeps: {
     include: ['@webvpn/net', '@webvpn/dgram', '@fkn/lib'],
