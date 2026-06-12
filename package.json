@@ -23,7 +23,7 @@
   "dependencies": {
     "@banou/webtorrent": "github:Banou26/webtorrent#1c690e52392017c11726ff3d594ecb9ac8706374",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.3.12",
+    "@fkn/lib": "^0.4.0",
     "@videojs/react": "^10.0.0-beta.22",
     "@webvpn/dgram": "^0.3.7",
     "@webvpn/net": "^0.3.7",
@@ -31,7 +31,7 @@
     "idb-keyval": "^6.2.1",
     "libav-wasm": "^0.8.0",
     "libtorrent-wasm": "^0.1.0",
-    "osra": "^0.4.5",
+    "osra": "^0.5.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-feather": "^2.0.10",
