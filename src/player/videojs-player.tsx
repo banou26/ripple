@@ -51,6 +51,12 @@ const playerStyle = css`
   .media-slider__buffer {
     display: none;
   }
+  /* No preview window where no thumbnail has been generated yet (gap entries
+     carry an empty url). */
+  .media-slider__preview:has(.media-preview__thumbnail img:not([src])),
+  .media-slider__preview:has(.media-preview__thumbnail img[src='']) {
+    display: none;
+  }
   .ripple-downloaded {
     position: absolute;
     inset: 0;

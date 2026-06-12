@@ -63,15 +63,25 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
   let queue = Promise.resolve()
 
   // The slider matches hover time to the LAST entry with startTime <= time
-  // (endTime is ignored - the contract assumes a gapless storyboard). While
-  // coverage is sparse, hand out windows meeting at the midpoints between
-  // generated thumbnails so the hover always shows the nearest one.
+  // (endTime is ignored - the contract assumes a gapless storyboard), so
+  // not-yet-generated stretches are covered by empty-url sentinels: a gap
+  // hover would otherwise show whichever thumbnail came before it. The skin
+  // CSS hides the whole preview window while the sentinel is active.
   const emit = () => {
-    onThumbnails(thumbnails.map((t, i) => ({
-      url: t.url,
-      startTime: i === 0 ? 0 : (thumbnails[i - 1]!.startTime + t.startTime) / 2,
-      endTime: thumbnails[i + 1] ? (t.startTime + thumbnails[i + 1]!.startTime) / 2 : t.endTime,
-    })))
+    const display: ThumbnailImage[] = []
+    for (const [i, t] of thumbnails.entries()) {
+      if (t.startTime - (display.at(-1)?.endTime ?? 0) > 0.01) {
+        display.push({ url: '', startTime: display.at(-1)?.endTime ?? 0, endTime: t.startTime })
+      }
+      display.push(t)
+      const next = thumbnails[i + 1]
+      if (next && next.startTime - t.endTime > 0.01) {
+        display.push({ url: '', startTime: t.endTime, endTime: next.startTime })
+      }
+    }
+    const tailEnd = display.at(-1)?.endTime ?? 0
+    if (duration - tailEnd > 0.01) display.push({ url: '', startTime: tailEnd, endTime: duration })
+    onThumbnails(display)
   }
 
   let generated = 0
@@ -102,6 +112,8 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
         if (!destroyed) console.warn('[thumbs] keyframe', slot.timestamp.toFixed(1) + 's', 'attempt', slot.attempts, String(err).slice(0, 140))
       })
   }
+
+  emit()
 
   return {
     // Byte ranges of the file known to be fully downloaded; generates every
