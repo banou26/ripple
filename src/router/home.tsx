@@ -31,12 +31,11 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
 
 const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
 
-const rate = (bitsPerSecond: number): string => {
-  const mbps = bitsPerSecond / 1_000_000
-  if (mbps >= 1000) return `${+(mbps / 1000).toFixed(1)} Gbps`
-  if (mbps >= 10) return `${Math.round(mbps)} Mbps`
-  if (mbps >= 1) return `${+mbps.toFixed(1)} Mbps`
-  return `${Math.round(bitsPerSecond / 1000)} kbps`
+const rate = (bytesPerSecond: number): string => {
+  const mbs = bytesPerSecond / 1_000_000
+  if (mbs >= 1000) return `${Math.round(mbs / 1000)} GB/s`
+  if (mbs >= 1) return `${Math.round(mbs)} MB/s`
+  return `${Math.round(bytesPerSecond / 1000)} KB/s`
 }
 
 // FKN cloud-egress quota readout: torrent traffic relays through FKN, so over the daily free-tier
@@ -54,7 +53,7 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
     return (
       <div className="stat quota throttled">
         <label>FKN quota</label>
-        <strong>Throttled · {rate(quota.bitsPerSecond)}</strong>
+        <strong>Throttled · {rate(quota.bytesPerSecond)}</strong>
         <a href="https://fkn.app/account" target="_blank" rel="noreferrer">Get full speed</a>
       </div>
     )
