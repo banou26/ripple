@@ -67,25 +67,22 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   )
 }
 
-// FKN account readout in the header: shows who is connected and whether they are premium, with a connect
-// affordance when signed out and a disconnect when signed in. Connecting opens a secure fkn.app window.
+// FKN account readout in the header: who is connected and whether they are premium, with a disconnect. When
+// signed out the fkn.app broker renders the Connect button itself, so we only reserve its slot in the layout.
 const AccountWidget = () => {
-  const { info, ready, login, logout } = useAccount()
+  const { info, ready, logout } = useAccount()
   const [busy, setBusy] = useState(false)
 
-  const run = (action: () => Promise<void>) => async () => {
+  const onDisconnect = async () => {
     setBusy(true)
-    try { await action() } finally { setBusy(false) }
+    try { await logout() } finally { setBusy(false) }
   }
 
-  // stay hidden until the first read resolves, so a connected user never flashes "Connect" first
+  // stay empty until the first read resolves, so a connected user never flashes the signed-out slot first
   if (!ready) return null
 
-  if (!info) {
-    return (
-      <button className="account-connect" disabled={busy} onClick={run(login)}>Connect</button>
-    )
-  }
+  // signed out: leave room for the broker-rendered Connect button (fixed top-right) so the form doesn't run under it
+  if (!info) return <div className="account-slot" aria-hidden />
 
   return (
     <div className="account">
@@ -93,7 +90,7 @@ const AccountWidget = () => {
         <span className="name">{info.name || 'Account'}</span>
         <span className={`tier ${info.premium ? 'premium' : 'free'}`}>{info.premium ? 'Premium' : 'Free'}</span>
       </div>
-      <button className="disconnect" disabled={busy} onClick={run(logout)}>Disconnect</button>
+      <button className="disconnect" disabled={busy} onClick={onDisconnect}>Disconnect</button>
     </div>
   )
 }
@@ -267,29 +264,13 @@ const style = css`
       }
     }
 
-    .account-connect {
+    .account-slot {
       flex: none;
-      border-radius: 999px;
-      padding: 8px 18px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      border: none;
-      background: #fff;
-      color: #16131c;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
-
-      &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-      }
-
-      &:active {
-        transform: scale(0.98);
-      }
+      width: 128px;
+      height: 34px;
     }
 
-    .account button:disabled,
-    .account-connect:disabled {
+    .account button:disabled {
       opacity: 0.6;
       cursor: default;
     }
