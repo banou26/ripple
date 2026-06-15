@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 
 import type { QuotaStatus } from '../torrent/use-quota'
 
-import { connectButtonUrl } from '@fkn/lib'
+import { ConnectButton } from '@fkn/lib/react'
 
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
@@ -83,7 +83,7 @@ const AccountWidget = () => {
   // stay empty until the first read resolves, so a connected user never flashes the signed-out button first
   if (!ready) return null
 
-  if (!info) return <iframe className="connect-frame" title="Connect your FKN account" src={connectButtonUrl()} />
+  if (!info) return <ConnectButton style={{ flex: 'none', width: 140, height: 38 }} />
 
   return (
     <div className="account">
@@ -263,15 +263,6 @@ const style = css`
           border-color: rgba(249, 115, 22, 0.45);
         }
       }
-    }
-
-    .connect-frame {
-      flex: none;
-      width: 140px;
-      height: 38px;
-      border: none;
-      background: transparent;
-      color-scheme: normal;
     }
 
     .account button:disabled {
