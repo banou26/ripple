@@ -9,6 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
+import { useAccount } from '../torrent/use-account'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
@@ -62,6 +63,37 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
     <div className="stat quota">
       <label>FKN quota</label>
       <strong>{getHumanReadableByteString(quota.remainingBytes, true)} left</strong>
+    </div>
+  )
+}
+
+// FKN account readout in the header: shows who is connected and whether they are premium, with a connect
+// affordance when signed out and a disconnect when signed in. Connecting opens a secure fkn.app window.
+const AccountWidget = () => {
+  const { info, ready, login, logout } = useAccount()
+  const [busy, setBusy] = useState(false)
+
+  const run = (action: () => Promise<void>) => async () => {
+    setBusy(true)
+    try { await action() } finally { setBusy(false) }
+  }
+
+  // stay hidden until the first read resolves, so a connected user never flashes "Connect" first
+  if (!ready) return null
+
+  if (!info) {
+    return (
+      <button className="account-connect" disabled={busy} onClick={run(login)}>Connect</button>
+    )
+  }
+
+  return (
+    <div className="account">
+      <div className="who">
+        <span className="name">{info.name || 'Account'}</span>
+        <span className={`tier ${info.premium ? 'premium' : 'free'}`}>{info.premium ? 'Premium' : 'Free'}</span>
+      </div>
+      <button className="disconnect" disabled={busy} onClick={run(logout)}>Disconnect</button>
     </div>
   )
 }
@@ -176,6 +208,90 @@ const style = css`
           }
         }
       }
+    }
+
+    .account {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      .who {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 1px;
+        line-height: 1.15;
+        min-width: 0;
+      }
+
+      .name {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #f4f2f8;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tier {
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .tier.premium {
+        color: #7dd3a0;
+      }
+
+      .tier.free {
+        color: #8b8499;
+      }
+
+      .disconnect {
+        flex: none;
+        border-radius: 999px;
+        padding: 7px 14px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        border: 1px solid #3a3447;
+        background: none;
+        color: #f4f2f8;
+
+        &:hover {
+          background: #241e30;
+          border-color: rgba(249, 115, 22, 0.45);
+        }
+      }
+    }
+
+    .account-connect {
+      flex: none;
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border: none;
+      background: #fff;
+      color: #16131c;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+
+      &:active {
+        transform: scale(0.98);
+      }
+    }
+
+    .account button:disabled,
+    .account-connect:disabled {
+      opacity: 0.6;
+      cursor: default;
     }
   }
 
@@ -957,6 +1073,7 @@ const Home = () => {
             }}
           />
         </form>
+        <AccountWidget/>
       </header>
 
       {torrents.length > 0 && (
