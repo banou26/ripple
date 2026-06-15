@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom'
 
 import type { QuotaStatus } from '../torrent/use-quota'
 
+import { connectButtonUrl } from '@fkn/lib'
+
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
@@ -68,7 +70,7 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
 }
 
 // FKN account readout in the header: who is connected and whether they are premium, with a disconnect. When
-// signed out the fkn.app broker renders the Connect button itself, so we only reserve its slot in the layout.
+// signed out we embed the fkn.app Connect button (an iframe) inline - a single click opens sign-in directly.
 const AccountWidget = () => {
   const { info, ready, logout } = useAccount()
   const [busy, setBusy] = useState(false)
@@ -78,11 +80,10 @@ const AccountWidget = () => {
     try { await logout() } finally { setBusy(false) }
   }
 
-  // stay empty until the first read resolves, so a connected user never flashes the signed-out slot first
+  // stay empty until the first read resolves, so a connected user never flashes the signed-out button first
   if (!ready) return null
 
-  // signed out: leave room for the broker-rendered Connect button (fixed top-right) so the form doesn't run under it
-  if (!info) return <div className="account-slot" aria-hidden />
+  if (!info) return <iframe className="connect-frame" title="Connect your FKN account" src={connectButtonUrl()} />
 
   return (
     <div className="account">
@@ -264,10 +265,13 @@ const style = css`
       }
     }
 
-    .account-slot {
+    .connect-frame {
       flex: none;
-      width: 128px;
-      height: 34px;
+      width: 140px;
+      height: 38px;
+      border: none;
+      background: transparent;
+      color-scheme: normal;
     }
 
     .account button:disabled {

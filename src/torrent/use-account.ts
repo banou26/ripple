@@ -12,8 +12,8 @@ const readAccount = (): Promise<AccountInfo> =>
     new Promise<AccountInfo>((resolve) => setTimeout(() => resolve(null), 4_000)),
   ])
 
-// Tracks the FKN account connected to this page. The Connect button is rendered by the fkn.app broker (a
-// single click then opens the sign-in popup), so here we only opt in while mounted and refresh on change.
+// Tracks the FKN account connected to this page. The Connect button is an embeddable fkn.app iframe the
+// header renders directly (see connectButtonUrl); here we just read the state and refresh on change.
 export const useAccount = () => {
   const [info, setInfo] = useState<AccountInfo>(null)
   const [ready, setReady] = useState(false)
@@ -26,15 +26,12 @@ export const useAccount = () => {
   useEffect(() => {
     let cancelled = false
     const unsubscribe = account.onChange(() => { if (!cancelled) refresh() })
-    // opt into the broker-rendered Connect button only after the first read, so the header has reserved its
-    // slot by then and the fixed button never overlaps the form during the initial load
-    refresh().then(() => { if (!cancelled) account.showConnectButton() })
+    refresh()
     const id = window.setInterval(() => { if (!cancelled) refresh() }, 30_000)
     return () => {
       cancelled = true
       window.clearInterval(id)
       unsubscribe.then((off) => off()).catch(() => {})
-      account.hideConnectButton()
     }
   }, [refresh])
 
