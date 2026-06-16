@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 
 import type { QuotaStatus } from '../torrent/use-quota'
 
-import { ConnectButton } from '@fkn/lib/react'
+import { ConnectButton } from '@fkn/lib'
 
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
