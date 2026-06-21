@@ -4,6 +4,7 @@ import type { TorrentClient, TorrentSnapshot } from './client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
+import { cloudRestoreSettled } from './use-cloud-backup'
 
 const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
@@ -71,6 +72,9 @@ export type UseTorrents = {
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
 const DEMO_MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
+// Longest a brand-new user waits for a (possibly stalled) cloud restore before
+// the demo seeds anyway. The signed-out path settles far sooner via the gate.
+const DEMO_GRACE = 8_000
 
 const addDemo = (client: TorrentClient) =>
   fetch(DEMO_TORRENT_URL)
@@ -88,21 +92,26 @@ export const useTorrents = (): UseTorrents => {
   useEffect(() => {
     const client = createTorrentClient()
     clientRef.current = client
-    // Workers restore the persisted list before 'ready', so the first state
-    // snapshot is authoritative: empty + never-seeded = brand-new user. The
-    // flag is set once ever, so removing the demo sticks.
+    // Workers restore the persisted list before 'ready'. The demo is for a
+    // brand-new user (empty list, never seeded), but a signed-in user's library
+    // arrives asynchronously from cloud.fs - so wait for that restore to settle
+    // before judging the list empty, else the demo lands on top of it. The flag
+    // is set once ever, so removing the demo sticks.
     let checkedDemo = false
+    let latestLen = 0
     const off = client.onState((snaps) => {
-      if (!checkedDemo) {
-        checkedDemo = true
-        try {
-          if (!localStorage.getItem(DEMO_SEEDED_KEY)) {
-            localStorage.setItem(DEMO_SEEDED_KEY, '1')
-            if (!snaps.length) addDemo(client)
-          }
-        } catch { /* storage unavailable - skip the demo */ }
-      }
+      latestLen = snaps.length
       setTorrents(snaps.map(snapshotToTorrent))
+      if (checkedDemo) return
+      checkedDemo = true
+      void Promise.race([cloudRestoreSettled, new Promise<void>((r) => setTimeout(r, DEMO_GRACE))])
+        .then(() => {
+          try {
+            if (localStorage.getItem(DEMO_SEEDED_KEY)) return
+            localStorage.setItem(DEMO_SEEDED_KEY, '1')
+            if (latestLen === 0) addDemo(client)
+          } catch { /* storage unavailable - skip the demo */ }
+        })
     })
     return () => { off(); client.destroy(); clientRef.current = null }
   }, [])

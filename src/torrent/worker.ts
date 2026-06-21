@@ -13,7 +13,7 @@ import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -26,7 +26,7 @@ export type TorrentSnapshot = {
 const LIST_KEY = 'ripple:torrents'
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
-type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number }
+export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number }
 
 const infoHashOf = (magnet: string): string | null => {
   const m = magnet.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
@@ -61,11 +61,14 @@ const upsertList = async (entry: Persisted) => {
   const i = list.findIndex((e) => e.infoHash === entry.infoHash)
   if (i >= 0) list[i] = entry; else list.push(entry)
   await set(LIST_KEY, list)
+  post({ type: 'list', list })
 }
 const removeFromList = async (ih: string) => {
-  await set(LIST_KEY, (await loadList()).filter((e) => e.infoHash !== ih))
+  const list = (await loadList()).filter((e) => e.infoHash !== ih)
+  await set(LIST_KEY, list)
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
+  post({ type: 'list', list })
 }
 
 const track = (h: number, magnet: string, ih: string | null, savePath: string) => {
@@ -150,6 +153,7 @@ const init = async () => {
     }
   } catch (err) { console.error('[worker] restore failed', err) }
 
+  post({ type: 'list', list: await loadList() })
   post({ type: 'ready' })
 
   setInterval(() => {
@@ -221,6 +225,25 @@ self.addEventListener('message', async (e: MessageEvent) => {
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
+    } else if (m.type === 'import-list') {
+      // Merge a cloud-restored list into the local one: add torrents we don't
+      // already have (union by infoHash, never dropping local entries).
+      const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
+      const have = new Set((await loadList()).map((e) => e.infoHash))
+      for (const e of incoming) {
+        if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
+        const savePath = e.savePath || '/dl'
+        const h = session.addMagnet(e.magnet, savePath)
+        track(h, e.magnet, e.infoHash, savePath)
+        await upsertList({ infoHash: e.infoHash, magnet: e.magnet, savePath, addedAt: e.addedAt || Date.now() })
+        have.add(e.infoHash)
+      }
+    } else if (m.type === 'clear-list') {
+      // Drop the device-local list (used on account switch so one account's
+      // library is never carried into another's). Keeps the OPFS bytes on disk.
+      for (const h of [...handles]) { session.removeTorrent(h, false); untrack(h) }
+      await set(LIST_KEY, [])
+      post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
       session.pauseTorrent(m.handle)
       persistResume(m.handle)

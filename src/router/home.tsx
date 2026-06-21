@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { QuotaStatus } from '../torrent/use-quota'
+import type { SyncStatus } from '../torrent/use-cloud-backup'
 
 import { ConnectButton } from '@fkn/lib'
 
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
+import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
 import { saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
@@ -65,6 +67,19 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
     <div className="stat quota">
       <label>FKN quota</label>
       <strong>{getHumanReadableByteString(quota.remainingBytes, true)} left</strong>
+    </div>
+  )
+}
+
+// Cross-device library sync: the torrent list mirrors to FKN cloud storage while
+// signed in, so the same library appears on another device. Hidden when signed out.
+const SyncStat = ({ status }: { status: SyncStatus }) => {
+  if (status === 'off') return null
+  const label = status === 'syncing' ? 'Syncing…' : status === 'error' ? 'Sync failed' : 'Synced'
+  return (
+    <div className={'stat sync' + (status === 'error' ? ' error' : '')}>
+      <label>Library</label>
+      <strong className={status === 'synced' ? 'ok' : undefined}>{label}</strong>
     </div>
   )
 }
@@ -344,6 +359,14 @@ const style = css`
 
       &.quota a:hover {
         text-decoration: underline;
+      }
+
+      &.sync strong.ok {
+        color: #7dd3a0;
+      }
+
+      &.sync.error strong {
+        color: #fbbf24;
       }
     }
 
@@ -1016,6 +1039,7 @@ const Home = () => {
   const active = torrents.filter((t) => t.state === 'downloading').length
 
   const quota = useQuota(torrents.length > 0)
+  const syncStatus = useCloudBackup(clientRef)
 
   return (
     <div css={style} data-drag={dragging || undefined}>
@@ -1072,6 +1096,7 @@ const Home = () => {
               <strong>{active} / {torrents.length}</strong>
             </div>
             {quota && <QuotaStat quota={quota}/>}
+            <SyncStat status={syncStatus}/>
           </div>
           <SpeedGraph history={history}/>
         </section>
