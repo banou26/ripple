@@ -1,8 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 import { del, get, set } from 'idb-keyval'
-import { fs } from '@fkn/lib'
 
 const KEY = 'ripple:folder'
+
+type PermissionCapableHandle = FileSystemDirectoryHandle & {
+  queryPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>
+  requestPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>
+}
+
+const isSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
+
+const pickDirectory = async (): Promise<FileSystemDirectoryHandle | undefined> => {
+  if (!isSupported()) return undefined
+  const picker = (window as Window & { showDirectoryPicker?: (options: { id?: string, mode?: 'readwrite' }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker!
+  return picker({ id: 'ripple-downloads', mode: 'readwrite' }).catch((error: unknown) => {
+    if ((error as Error)?.name === 'AbortError') return undefined
+    throw error
+  })
+}
+
+const queryPermission = async (handle: FileSystemDirectoryHandle): Promise<PermissionState> => {
+  const { queryPermission } = handle as PermissionCapableHandle
+  return await queryPermission?.call(handle, { mode: 'readwrite' }) ?? 'granted'
+}
+
+const ensurePermission = async (handle: FileSystemDirectoryHandle): Promise<boolean> => {
+  if (await queryPermission(handle) === 'granted') return true
+  const { requestPermission } = handle as PermissionCapableHandle
+  return await requestPermission?.call(handle, { mode: 'readwrite' }) === 'granted'
+}
 
 export type UseFolder = {
   supported: boolean
@@ -24,12 +50,12 @@ export const useFolder = (): UseFolder => {
       const stored = await get<FileSystemDirectoryHandle>(KEY)
       if (!stored) return
       setFolder(stored)
-      setPermitted(await fs.queryDirectoryPermission(stored) === 'granted')
+      setPermitted(await queryPermission(stored) === 'granted')
     })()
   }, [])
 
   const pick = useCallback(async () => {
-    const handle = await fs.pickLocalDirectory({ id: 'ripple-downloads' })
+    const handle = await pickDirectory()
     if (!handle) return
     await set(KEY, handle)
     setFolder(handle)
@@ -38,7 +64,7 @@ export const useFolder = (): UseFolder => {
 
   const allow = useCallback(async () => {
     if (!folder) return
-    setPermitted(await fs.ensureDirectoryPermission(folder))
+    setPermitted(await ensurePermission(folder))
   }, [folder])
 
   const clear = useCallback(async () => {
@@ -47,5 +73,5 @@ export const useFolder = (): UseFolder => {
     setPermitted(false)
   }, [])
 
-  return { supported: fs.isLocalDirectorySupported(), folder, permitted, pick, allow, clear }
+  return { supported: isSupported(), folder, permitted, pick, allow, clear }
 }
