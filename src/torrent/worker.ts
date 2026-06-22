@@ -175,7 +175,12 @@ const init = async () => {
       const savePath = e.savePath || '/dl'
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
-      if (cleared && resume && resume.byteLength) { e.started = false; changed = true; continue }
+      if (cleared && resume && resume.byteLength) {
+        // The resume blob describes OPFS pieces that are gone; drop it so a reload
+        // mid-redownload can't trust a stale have-set against files that aren't there.
+        await del(resumeKey(e.infoHash)).catch(() => {})
+        e.started = false; changed = true; continue
+      }
       const h = resume && resume.byteLength
         ? session.addTorrentWithResume(resume, savePath)
         : bytes && bytes.byteLength

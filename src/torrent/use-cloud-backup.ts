@@ -52,7 +52,11 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     const writeNow = () => {
       pending = false
       window.clearTimeout(timer)
-      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(latest), { contentType: 'application/json' })
+      // Sync only the device-portable identity, never device-local state like
+      // `started` (whether this device has the files), so one device clearing its
+      // storage can't demote the entry in the shared backup.
+      const portable = latest.map((e) => ({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt }))
+      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(portable), { contentType: 'application/json' })
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
