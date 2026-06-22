@@ -8,6 +8,8 @@ export const BACKUP_PATH = 'ripple/torrents.json'
 const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
 const ACCOUNT_KEY = 'ripple:sync-account'
 const WRITE_DEBOUNCE = 3_000
+const RESTORE_RETRY = 5_000
+const MAX_RESTORE_ATTEMPTS = 4
 
 export type SyncStatus = 'off' | 'syncing' | 'synced' | 'error'
 
@@ -39,9 +41,13 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
 
     let cancelled = false
     let connected = false
+    // Stays false until the first restore settles (read a backup, or confirmed none exists). Writes are
+    // disarmed until then, so a transient read error can never push the local list over a good cloud backup.
+    let restored = false
     let pending = false
     let latest: Persisted[] = []
     let timer: number | undefined
+    let restoreTimer: number | undefined
 
     const writeNow = () => {
       pending = false
@@ -49,7 +55,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(latest), { contentType: 'application/json' })
     }
     const write = async () => {
-      if (cancelled || !connected) return
+      if (cancelled || !connected || !restored) return
       setStatus('syncing')
       try { await writeNow(); if (!cancelled) setStatus('synced') }
       catch { if (!cancelled) setStatus('error') }
@@ -57,11 +63,11 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     const schedule = () => { pending = true; window.clearTimeout(timer); timer = window.setTimeout(write, WRITE_DEBOUNCE) }
     // Fire a pending write before the page or route goes away, so the last change
     // inside the debounce window still reaches the cloud (best-effort on pagehide).
-    const flush = () => { if (pending && connected) writeNow().catch(() => {}) }
+    const flush = () => { if (pending && connected && restored) writeNow().catch(() => {}) }
 
     const offList = client.onList((list) => { latest = list; if (connected) schedule() })
 
-    const restore = async () => {
+    const restore = async (attempt = 0) => {
       let ok = false
       try { ok = await cloud.fs.available() } catch {}
       if (cancelled) return
@@ -81,19 +87,41 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       }
 
       setStatus('syncing')
+      let text: string | null = null
+      let missing = false
       try {
-        const text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
-        const list = JSON.parse(text)
+        text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
+      } catch (err) {
+        // Only a definitive "not found" means this account has no backup yet. Anything else (network,
+        // presign, 5xx) is transient - treat it as such so we never seed over a backup that does exist.
+        missing = /not found/i.test((err as { message?: string })?.message ?? '')
+      }
+      if (cancelled) return
+
+      if (text !== null) {
+        let list: unknown
+        try { list = JSON.parse(text) } catch {}
         if (Array.isArray(list)) {
           // A restorable backup - even an empty one - means a returning user, so
           // suppress the demo and never let it re-pollute an emptied library.
           try { localStorage.setItem(DEMO_SEEDED_KEY, '1') } catch {}
           if (list.length) client.importList(list)
         }
-        if (!cancelled) setStatus('synced')
-      } catch {
-        // No backup yet for this account: push the current list up as the seed.
-        if (!cancelled) { setStatus('synced'); if (latest.length) schedule() }
+        restored = true
+        setStatus('synced')
+      } else if (missing) {
+        // Genuinely no backup for this account yet: seed it with the current local list.
+        restored = true
+        setStatus('synced')
+        if (latest.length) schedule()
+      } else {
+        // Transient read failure: keep writes disarmed (restored stays false) so nothing clobbers a
+        // possibly-good backup, surface the error, and retry a few times before giving up.
+        setStatus('error')
+        if (attempt < MAX_RESTORE_ATTEMPTS) {
+          window.clearTimeout(restoreTimer)
+          restoreTimer = window.setTimeout(() => restore(attempt + 1), RESTORE_RETRY)
+        }
       }
     }
 
@@ -110,6 +138,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       window.removeEventListener('pagehide', flush)
       cancelled = true
       window.clearTimeout(timer)
+      window.clearTimeout(restoreTimer)
       offList()
       offAccount?.()
     }
