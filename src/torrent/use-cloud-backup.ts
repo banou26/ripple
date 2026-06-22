@@ -46,7 +46,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     const writeNow = () => {
       pending = false
       window.clearTimeout(timer)
-      return cloud.fs.writeFile(BACKUP_PATH, JSON.stringify(latest), { contentType: 'application/json' })
+      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(latest), { contentType: 'application/json' })
     }
     const write = async () => {
       if (cancelled || !connected) return
@@ -82,7 +82,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
 
       setStatus('syncing')
       try {
-        const text = await (await cloud.fs.readFile(BACKUP_PATH)).text()
+        const text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
         const list = JSON.parse(text)
         if (Array.isArray(list)) {
           // A restorable backup - even an empty one - means a returning user, so
