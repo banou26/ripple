@@ -133,6 +133,25 @@ const anchorSequential = (h: number, fileIndex: number, offset: number) => {
   prioritizeFile(h, fileIndex, offset)
 }
 
+// Does OPFS still hold any downloaded data under these save paths? Lets a restore
+// tell a normal resume from "the list survived but the files were cleared/evicted"
+// (e.g. the user cleared site storage). On any OPFS error assume data is present, so
+// a transient read failure never wrongly demotes torrents to "Files missing".
+const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
+  try {
+    const root = await navigator.storage.getDirectory()
+    for (const sp of new Set(savePaths)) {
+      let dir: FileSystemDirectoryHandle | null = root
+      for (const seg of sp.split('/').filter(Boolean)) {
+        dir = dir ? await dir.getDirectoryHandle(seg).catch(() => null) : null
+      }
+      if (!dir) continue
+      for await (const _ of (dir as any).keys()) return true
+    }
+    return false
+  } catch { return true }
+}
+
 const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
@@ -143,13 +162,20 @@ const init = async () => {
   // Restore the persisted list. With a saved fast-resume blob, add via resume so
   // libtorrent trusts the on-disk pieces (no recheck / no network re-download).
   try {
-    for (const e of await loadList()) {
+    const list = await loadList()
+    // If the list survived but OPFS holds no data, the files were cleared/evicted -
+    // demote torrents that had real data (a resume blob) to "Files missing" rather
+    // than silently re-downloading everything from scratch.
+    const cleared = !(await opfsHasData(list.map((e) => e.savePath || '/dl')))
+    let changed = false
+    for (const e of list) {
       // Synced-but-not-started torrents stay out of the session (rendered as
       // "Files missing" ghosts) until the user downloads them.
       if (e.started === false) continue
       const savePath = e.savePath || '/dl'
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
+      if (cleared && resume && resume.byteLength) { e.started = false; changed = true; continue }
       const h = resume && resume.byteLength
         ? session.addTorrentWithResume(resume, savePath)
         : bytes && bytes.byteLength
@@ -157,6 +183,7 @@ const init = async () => {
           : session.addMagnet(e.magnet, savePath)
       track(h, e.magnet, e.infoHash, savePath)
     }
+    if (changed) await set(LIST_KEY, list)
   } catch (err) { console.error('[worker] restore failed', err) }
 
   post({ type: 'list', list: await loadList() })
@@ -250,7 +277,12 @@ self.addEventListener('message', async (e: MessageEvent) => {
       const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
       if (e) {
         const savePath = e.savePath || '/dl'
-        const h = session.addMagnet(e.magnet, savePath)
+        // Prefer the stored .torrent bytes (kept in IndexedDB even when OPFS was
+        // cleared) for instant metadata; a cloud-synced ghost has only the magnet.
+        const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
+        const h = bytes && bytes.byteLength
+          ? session.addTorrentFile(bytes, savePath)
+          : session.addMagnet(e.magnet, savePath)
         track(h, e.magnet, e.infoHash, savePath)
         // Surface the live torrent BEFORE flipping the list entry: the live row
         // carries the same infoHash, so it dedups the ghost in the same render and

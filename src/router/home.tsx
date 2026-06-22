@@ -860,9 +860,9 @@ type RowProps = {
   onStart: (t: Torrent) => void
 }
 
-// A torrent synced from another device that isn't downloaded here: no metadata,
-// no progress - just the name, a "Files missing" badge, and a Download button that
-// starts the swarm download on demand instead of automatically.
+// A torrent whose files aren't on this device - synced from another device, or its
+// local data was cleared/evicted. No metadata, no progress: just the name, a "Files
+// missing" badge, and a Download button that fetches it on demand, not automatically.
 const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'>) => (
   <div className="torrent surface missing">
     <div className="title">
@@ -871,7 +871,7 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
     </div>
     <div className="row">
       <div className="meta">
-        <span>Synced from another device · not downloaded here</span>
+        <span>Files aren't on this device · download to fetch them</span>
       </div>
       <div className="actions">
         <button className="primary" onClick={() => onStart(t)}>Download</button>
