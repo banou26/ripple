@@ -6,8 +6,8 @@
 
 import './node-shims'
 
-import * as net from '@webvpn/net'
-import * as dgram from '@webvpn/dgram'
+import * as net from '@fkn/lib/net'
+import * as dgram from '@fkn/lib/dgram'
 import { get, set, del } from 'idb-keyval'
 import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
