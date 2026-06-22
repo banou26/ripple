@@ -1,6 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import polyfills from './vite-plugin-node-stdlib-browser.cjs'
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
+// CF Pages exposes the build's commit; fall back to local git, then 'dev'.
+const commitHash =
+  process.env.CF_PAGES_COMMIT_SHA ||
+  (() => { try { return execSync('git rev-parse HEAD').toString().trim() } catch { return 'dev' } })()
 
 export default defineConfig((env) => ({
   build: {
@@ -40,7 +48,9 @@ export default defineConfig((env) => ({
     plugins: () => [polyfills()],
   },
   define: {
-    'process.env.NODE_ENV': JSON.stringify(env.mode)
+    'process.env.NODE_ENV': JSON.stringify(env.mode),
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __COMMIT_HASH__: JSON.stringify(commitHash),
   },
   plugins: [
     react({

@@ -723,6 +723,13 @@ const style = css`
       }
     }
 
+    .build {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+      opacity: 0.85;
+    }
+
     .controls {
       margin-left: auto;
       display: flex;
@@ -1174,6 +1181,15 @@ const Home = () => {
         <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
         <Link to="/legal">Legal</Link>
         <Link to="/privacy">Privacy</Link>
+        <a
+          className="build"
+          href={`https://github.com/Banou26/ripple/commit/${__COMMIT_HASH__}`}
+          target="_blank"
+          rel="noreferrer"
+          title={`commit ${__COMMIT_HASH__}`}
+        >
+          v{__APP_VERSION__} · {__COMMIT_HASH__.slice(0, 7)}
+        </a>
         <div className="controls">
           {folderSupported && (
             <div className="folder">
