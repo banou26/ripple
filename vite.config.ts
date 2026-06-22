@@ -5,10 +5,11 @@ import { readFileSync } from 'node:fs'
 import polyfills from './vite-plugin-node-stdlib-browser.cjs'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
-// CF Pages exposes the build's commit; fall back to local git, then 'dev'.
+// CF Pages exposes the build's commit; fall back to local git, then the main branch
+// ('main' resolves on GitHub's /commit/ path to the latest commit there).
 const commitHash =
   process.env.CF_PAGES_COMMIT_SHA ||
-  (() => { try { return execSync('git rev-parse HEAD').toString().trim() } catch { return 'dev' } })()
+  (() => { try { return execSync('git rev-parse HEAD').toString().trim() } catch { return 'main' } })()
 
 export default defineConfig((env) => ({
   build: {
