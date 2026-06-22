@@ -1,7 +1,7 @@
 import type { Torrent, TorrentState } from './types'
-import type { TorrentClient, TorrentSnapshot } from './client'
+import type { Persisted, TorrentClient, TorrentSnapshot } from './client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
 import { cloudRestoreSettled } from './use-cloud-backup'
@@ -10,6 +10,11 @@ const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
   if (!m) return undefined
   try { return decodeURIComponent(m[1]!.replace(/\+/g, ' ')) } catch { return m[1] }
+}
+
+const magnetInfoHash = (magnet: string): string | undefined => {
+  const m = magnet.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
+  return m ? m[1]!.toLowerCase() : undefined
 }
 
 // libtorrent torrent_status state_t → the UI's coarse state.
@@ -41,6 +46,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
   return {
     id: String(s.handle),
     magnet: s.magnet,
+    infoHash: magnetInfoHash(s.magnet),
     name,
     size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
     downloaded: st?.totalDone ?? 0,
@@ -55,6 +61,24 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
   }
 }
 
+// A torrent synced from another device that isn't downloaded here: rendered as a
+// "Files missing" row from the persisted list alone (it has no live session handle).
+const ghostToTorrent = (e: Persisted): Torrent => ({
+  id: 'missing:' + e.infoHash,
+  magnet: e.magnet,
+  infoHash: e.infoHash,
+  name: magnetParam(e.magnet, 'dn') ?? e.infoHash.slice(0, 8),
+  size: 0,
+  downloaded: 0,
+  progress: 0,
+  state: 'missing',
+  down: 0,
+  up: 0,
+  peers: 0,
+  seeds: 0,
+  eta: '-',
+})
+
 export type UseTorrents = {
   torrents: Torrent[]
   addMagnet: (magnet: string) => void
@@ -62,6 +86,8 @@ export type UseTorrents = {
   pause: (handle: number) => void
   resume: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
+  start: (infoHash: string) => void
+  removeMissing: (infoHash: string) => void
   clientRef: { current: TorrentClient | null }
 }
 
@@ -88,20 +114,21 @@ const addDemo = (client: TorrentClient) =>
 // torrent list mapped to the UI shape, plus addMagnet.
 export const useTorrents = (): UseTorrents => {
   const clientRef = useRef<TorrentClient | null>(null)
-  const [torrents, setTorrents] = useState<Torrent[]>([])
+  const [snaps, setSnaps] = useState<TorrentSnapshot[]>([])
+  const [list, setList] = useState<Persisted[]>([])
   useEffect(() => {
     const client = createTorrentClient()
     clientRef.current = client
-    // Workers restore the persisted list before 'ready'. The demo is for a
-    // brand-new user (empty list, never seeded), but a signed-in user's library
-    // arrives asynchronously from cloud.fs - so wait for that restore to settle
-    // before judging the list empty, else the demo lands on top of it. The flag
-    // is set once ever, so removing the demo sticks.
+    // The persisted list is the full library (active + synced-not-yet-downloaded).
+    // The demo is for a brand-new user (empty library, never seeded), but a signed-in
+    // user's library arrives asynchronously from cloud.fs - so wait for that restore to
+    // settle before judging the library empty, else the demo lands on top of it. Judge
+    // by the persisted list, not the live session, so a synced ghost library counts.
     let checkedDemo = false
-    let latestLen = 0
-    const off = client.onState((snaps) => {
-      latestLen = snaps.length
-      setTorrents(snaps.map(snapshotToTorrent))
+    const libraryCount = { current: 0 }
+    const offList = client.onList((l) => { libraryCount.current = l.length; setList(l) })
+    const offState = client.onState((s) => {
+      setSnaps(s)
       if (checkedDemo) return
       checkedDemo = true
       void Promise.race([cloudRestoreSettled, new Promise<void>((r) => setTimeout(r, DEMO_GRACE))])
@@ -109,16 +136,31 @@ export const useTorrents = (): UseTorrents => {
           try {
             if (localStorage.getItem(DEMO_SEEDED_KEY)) return
             localStorage.setItem(DEMO_SEEDED_KEY, '1')
-            if (latestLen === 0) addDemo(client)
+            if (libraryCount.current === 0) addDemo(client)
           } catch { /* storage unavailable - skip the demo */ }
         })
     })
-    return () => { off(); client.destroy(); clientRef.current = null }
+    return () => { offList(); offState(); client.destroy(); clientRef.current = null }
   }, [])
+
+  // Live session torrents plus "Files missing" ghosts for synced entries not yet
+  // started here (deduped against anything already live by infoHash).
+  const torrents = useMemo(() => {
+    const live = snaps.map(snapshotToTorrent)
+    const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
+    const ghosts = list
+      .filter((e) => e.started === false && !liveHashes.has(e.infoHash))
+      .sort((a, b) => a.addedAt - b.addedAt)
+      .map(ghostToTorrent)
+    return [...live, ...ghosts]
+  }, [snaps, list])
+
   const addMagnet = useCallback((magnet: string) => clientRef.current?.addMagnet(magnet), [])
   const addTorrentFile = useCallback((bytes: Uint8Array) => clientRef.current?.addTorrentFile(bytes), [])
   const pause = useCallback((handle: number) => clientRef.current?.pause(handle), [])
   const resume = useCallback((handle: number) => clientRef.current?.resume(handle), [])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => clientRef.current?.remove(handle, deleteFiles), [])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, clientRef }
+  const start = useCallback((infoHash: string) => clientRef.current?.start(infoHash), [])
+  const removeMissing = useCallback((infoHash: string) => clientRef.current?.removeMissing(infoHash), [])
+  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, clientRef }
 }

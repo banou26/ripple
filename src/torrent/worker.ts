@@ -13,7 +13,7 @@ import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -26,7 +26,10 @@ export type TorrentSnapshot = {
 const LIST_KEY = 'ripple:torrents'
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
-export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number }
+// started === false marks a torrent synced from another device that this device
+// hasn't downloaded yet: it lives in the list but is NOT added to the session (no
+// swarm, no download) until the user starts it. Absent/true = active here.
+export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number, started?: boolean }
 
 const infoHashOf = (magnet: string): string | null => {
   const m = magnet.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
@@ -141,6 +144,9 @@ const init = async () => {
   // libtorrent trusts the on-disk pieces (no recheck / no network re-download).
   try {
     for (const e of await loadList()) {
+      // Synced-but-not-started torrents stay out of the session (rendered as
+      // "Files missing" ghosts) until the user downloads them.
+      if (e.started === false) continue
       const savePath = e.savePath || '/dl'
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
@@ -226,17 +232,41 @@ self.addEventListener('message', async (e: MessageEvent) => {
       untrack(m.handle)
       if (ih) await removeFromList(ih)
     } else if (m.type === 'import-list') {
-      // Merge a cloud-restored list into the local one: add torrents we don't
-      // already have (union by infoHash, never dropping local entries).
+      // Merge a cloud-restored list into the local one (union by infoHash, never
+      // dropping local entries). Synced torrents are recorded as started:false -
+      // NOT added to the session - so a device that didn't download them shows
+      // "Files missing" instead of instantly re-downloading from the swarm.
       const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
       const have = new Set((await loadList()).map((e) => e.infoHash))
       for (const e of incoming) {
         if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
         const savePath = e.savePath || '/dl'
+        await upsertList({ infoHash: e.infoHash, magnet: e.magnet, savePath, addedAt: e.addedAt || Date.now(), started: false })
+        have.add(e.infoHash)
+      }
+    } else if (m.type === 'start') {
+      // The user asked to download a synced "Files missing" torrent: add it to the
+      // session now and mark it started so it survives reloads as an active torrent.
+      const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
+      if (e) {
+        const savePath = e.savePath || '/dl'
         const h = session.addMagnet(e.magnet, savePath)
         track(h, e.magnet, e.infoHash, savePath)
-        await upsertList({ infoHash: e.infoHash, magnet: e.magnet, savePath, addedAt: e.addedAt || Date.now() })
-        have.add(e.infoHash)
+        // Surface the live torrent BEFORE flipping the list entry: the live row
+        // carries the same infoHash, so it dedups the ghost in the same render and
+        // the row swaps in place instead of blinking out until the next tick.
+        post({ type: 'state', torrents: snapshot() })
+        await upsertList({ ...e, started: true })
+      }
+    } else if (m.type === 'remove-missing') {
+      // Usually a pure ghost with no session handle, so just drop the list entry.
+      // But if it was started moments earlier (Download then Remove in the same
+      // beat), tear the live torrent down too, else it keeps downloading with no
+      // persisted entry and is lost on the next reload.
+      if (typeof m.infoHash === 'string') {
+        const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
+        if (h !== undefined) { session.removeTorrent(h, true); untrack(h) }
+        await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
       // Drop the device-local list (used on account switch so one account's

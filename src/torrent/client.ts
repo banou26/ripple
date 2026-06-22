@@ -12,6 +12,10 @@ export type TorrentClient = {
   clearList: () => void
   addMagnet: (magnet: string, savePath?: string) => void
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
+  // Start downloading a synced "Files missing" torrent (keyed by infoHash, since
+  // it has no session handle yet); removeMissing drops one without a handle.
+  start: (infoHash: string) => void
+  removeMissing: (infoHash: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean) => Promise<Uint8Array>
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -64,6 +68,8 @@ export const createTorrentClient = (): TorrentClient => {
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, savePath) => send({ type: 'add-magnet', magnet, savePath }),
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
+    start: (infoHash) => send({ type: 'start', infoHash }),
+    removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
     read: (handle, fileIndex, offset, len, prioritize = true) =>
       new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId

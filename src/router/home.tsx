@@ -32,6 +32,7 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
   queued: 'Queued',
   done: 'Done',
   error: 'Error',
+  missing: 'Files missing',
 }
 
 const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
@@ -469,6 +470,7 @@ const style = css`
       &.seeding { color: #2dd4bf; background: #2dd4bf14; border-color: #2dd4bf30; }
       &.done { color: #c084fc; background: #c084fc14; border-color: #c084fc30; }
       &.error { color: #ef4444; background: #ef444414; border-color: #ef444430; }
+      &.missing { color: #8b8499; background: #8b849914; border-color: #8b849930; }
     }
 
     .bar {
@@ -855,9 +857,32 @@ type RowProps = {
   onToggle: (t: Torrent) => void
   onSave: (t: Torrent, fileIndex: number) => void
   onRemove: (t: Torrent) => void
+  onStart: (t: Torrent) => void
 }
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onRemove }: RowProps) => {
+// A torrent synced from another device that isn't downloaded here: no metadata,
+// no progress - just the name, a "Files missing" badge, and a Download button that
+// starts the swarm download on demand instead of automatically.
+const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'>) => (
+  <div className="torrent surface missing">
+    <div className="title">
+      <strong>{t.name}</strong>
+      <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+    </div>
+    <div className="row">
+      <div className="meta">
+        <span>Synced from another device · not downloaded here</span>
+      </div>
+      <div className="actions">
+        <button className="primary" onClick={() => onStart(t)}>Download</button>
+        <button onClick={() => onRemove(t)}>Remove</button>
+      </div>
+    </div>
+  </div>
+)
+
+const TorrentRow = ({ t, saving, onToggle, onSave, onRemove, onStart }: RowProps) => {
+  if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
   const mainSaving = saving[savingKey(t.id, mainIndex)]
@@ -912,7 +937,7 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onRemove }: RowProps) => {
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, clientRef } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, clientRef } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -934,9 +959,15 @@ const Home = () => {
     const text = raw.trim()
     if (!isMagnet(text)) return false
     const ih = magnetInfoHash(text)
-    const dup = !!ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)
+    // Already in the list - don't re-add. Re-adding would join the swarm and start
+    // downloading; a synced "Files missing" torrent must only start from its explicit
+    // Download button, never from a paste/drop/submit of the same magnet.
+    if (ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)) {
+      showToast('Already in your list')
+      return true
+    }
     addMagnet(text)
-    showToast(dup ? 'Already in your list' : 'Magnet added')
+    showToast('Magnet added')
     return true
   }, [addMagnet, showToast])
 
@@ -992,8 +1023,15 @@ const Home = () => {
   const onToggle = (t: Torrent) =>
     t.state === 'paused' ? resume(Number(t.id)) : pause(Number(t.id))
 
+  // A synced "Files missing" torrent has no session handle - start/remove it by
+  // infoHash. Starting adds it to the swarm; removing just drops the list entry.
+  const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
+
   // Removing also wipes the OPFS data - there's no UI to reclaim it otherwise.
-  const onRemove = (t: Torrent) => remove(Number(t.id), true)
+  const onRemove = (t: Torrent) => {
+    if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
+    else remove(Number(t.id), true)
+  }
 
   // Streams one file out of OPFS to the user's disk. Called synchronously
   // from the click so showSaveFilePicker keeps the user gesture.
@@ -1038,7 +1076,10 @@ const Home = () => {
   const peak = Math.max(...history, 0)
   const active = torrents.filter((t) => t.state === 'downloading').length
 
-  const quota = useQuota(torrents.length > 0)
+  // Quota tracks FKN egress, so only poll while something is actually in the session;
+  // a ghost-only ("Files missing") library transfers nothing until a Download is clicked.
+  const hasLive = torrents.some((t) => t.state !== 'missing')
+  const quota = useQuota(hasLive)
   const syncStatus = useCloudBackup(clientRef)
 
   return (
@@ -1124,6 +1165,7 @@ const Home = () => {
               onToggle={onToggle}
               onSave={onSave}
               onRemove={onRemove}
+              onStart={onStart}
             />
           ))}
       </main>
