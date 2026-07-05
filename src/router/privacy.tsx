@@ -3,19 +3,29 @@ import LegalDoc from '../components/legal-doc'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 12 June 2026</div>
+    <div className="updated">Last updated 5 July 2026</div>
 
     <p>
-      Ripple needs no account, runs no analytics, and keeps nothing about you on a server.
-      There is no Ripple server.
+      Ripple needs no account and runs no analytics. Used without an account, it keeps
+      everything on your device and stores nothing about you on any server.
     </p>
 
-    <h2>What Ripple stores</h2>
+    <h2>What Ripple stores on your device</h2>
     <p>
-      Your torrent list and all downloaded data live entirely in your browser&rsquo;s
-      storage (OPFS and IndexedDB) on your device. Removing a torrent in Ripple also
-      deletes its downloaded data. Nothing you add, download, or watch is reported or
-      uploaded anywhere by Ripple itself.
+      Your torrent list and all downloaded data live in your browser&rsquo;s storage
+      (OPFS and IndexedDB) on your device. Removing a torrent in Ripple also deletes its
+      downloaded data. The files you download are never uploaded or reported anywhere by
+      Ripple itself.
+    </p>
+
+    <h2>Torrent list sync when signed in</h2>
+    <p>
+      If you connect an FKN account, Ripple stores your torrent list (magnet links, save
+      paths, and when you added each torrent; never the downloaded files themselves) in
+      that account&rsquo;s FKN cloud storage, encrypted in transit, so your library
+      follows you across devices. Without an account connected, nothing is synced and
+      everything stays local. Disconnecting the account stops the sync, and removing
+      torrents while signed in also removes them from the synced list.
     </p>
 
     <h2>The relay and your IP address</h2>
@@ -33,8 +43,9 @@ const Privacy = () => (
     <h2>Your control</h2>
     <p>
       Removing a torrent deletes its data from your device. Clearing this site&rsquo;s data
-      in your browser removes everything Ripple has ever stored. Ripple itself has no
-      account to delete; if you use an FKN account for premium, it is managed at{' '}
+      in your browser removes everything Ripple has stored on your device. Ripple itself
+      has no account to delete; if you use an FKN account for premium or sync, the account
+      and its synced torrent list are managed at{' '}
       <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>.
     </p>
 
