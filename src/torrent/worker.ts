@@ -1,17 +1,15 @@
-// libtorrent-wasm Session running in a Web Worker, with @webvpn/{net,dgram} as
-// the transport (relayed to the main-thread @fkn/lib iframe via relayWorker).
-// Owns persistence: the torrent list + per-torrent fast-resume blobs live in
-// IndexedDB so the list survives reloads and libtorrent resumes from OPFS
-// instead of re-downloading.
+// libtorrent-wasm Session in a Web Worker over @fkn/lib/{net,dgram}; owns persistence (list + fast-resume in IndexedDB, data in OPFS)
 
 import './node-shims'
 
 import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
-import { get, set, del } from 'idb-keyval'
+import { get, set, del, update } from 'idb-keyval'
 import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
+
+import { magnetInfoHash } from './magnet'
 
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start'])
 
@@ -30,11 +28,6 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // hasn't downloaded yet: it lives in the list but is NOT added to the session (no
 // swarm, no download) until the user starts it. Absent/true = active here.
 export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number, started?: boolean }
-
-const infoHashOf = (magnet: string): string | null => {
-  const m = magnet.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
-  return m ? m[1]!.toLowerCase() : null
-}
 
 let session: Session | null = null
 const handles: number[] = []
@@ -58,17 +51,21 @@ const snapshot = (): TorrentSnapshot[] =>
   })
 
 // ---- persistence ----------------------------------------------------------
+// update() keeps each read-modify-write in one IDB transaction, so interleaved async handlers can't drop entries
 const loadList = async (): Promise<Persisted[]> => (await get(LIST_KEY)) ?? []
 const upsertList = async (entry: Persisted) => {
-  const list = await loadList()
-  const i = list.findIndex((e) => e.infoHash === entry.infoHash)
-  if (i >= 0) list[i] = entry; else list.push(entry)
-  await set(LIST_KEY, list)
+  let list: Persisted[] = []
+  await update<Persisted[]>(LIST_KEY, (prev) => {
+    list = prev ?? []
+    const i = list.findIndex((e) => e.infoHash === entry.infoHash)
+    if (i >= 0) list[i] = entry; else list.push(entry)
+    return list
+  })
   post({ type: 'list', list })
 }
 const removeFromList = async (ih: string) => {
-  const list = (await loadList()).filter((e) => e.infoHash !== ih)
-  await set(LIST_KEY, list)
+  let list: Persisted[] = []
+  await update<Persisted[]>(LIST_KEY, (prev) => (list = (prev ?? []).filter((e) => e.infoHash !== ih)))
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
   post({ type: 'list', list })
@@ -226,11 +223,17 @@ self.addEventListener('message', async (e: MessageEvent) => {
   try {
     if (m.type === 'add-magnet') {
       const savePath = m.savePath || '/dl'
-      const h = session.addMagnet(m.magnet, savePath)
-      const ih = infoHashOf(m.magnet)
-      track(h, m.magnet, ih, savePath)
-      if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
-      post({ type: 'added', handle: h, magnet: m.magnet })
+      const ih = magnetInfoHash(m.magnet)
+      // /embed re-adds a magnet the init restore already holds; reuse the live handle instead of a duplicate add
+      const existing = ih ? handles.find((h) => infoHashByHandle.get(h) === ih) : undefined
+      if (existing !== undefined) {
+        post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
+      } else {
+        const h = session.addMagnet(m.magnet, savePath)
+        track(h, m.magnet, ih, savePath)
+        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
+        post({ type: 'added', handle: h, magnet: m.magnet })
+      }
     } else if (m.type === 'add-torrent-file') {
       const savePath = m.savePath || '/dl'
       const bytes = m.bytes as Uint8Array
@@ -264,52 +267,54 @@ self.addEventListener('message', async (e: MessageEvent) => {
       untrack(m.handle)
       if (ih) await removeFromList(ih)
     } else if (m.type === 'import-list') {
-      // Merge a cloud-restored list into the local one (union by infoHash, never
-      // dropping local entries). Synced torrents are recorded as started:false -
-      // NOT added to the session - so a device that didn't download them shows
-      // "Files missing" instead of instantly re-downloading from the swarm.
+      // Union by infoHash; cloud-synced entries land as started:false ghosts, never auto-downloaded
       const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
-      const have = new Set((await loadList()).map((e) => e.infoHash))
-      for (const e of incoming) {
-        if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
-        const savePath = e.savePath || '/dl'
-        await upsertList({ infoHash: e.infoHash, magnet: e.magnet, savePath, addedAt: e.addedAt || Date.now(), started: false })
-        have.add(e.infoHash)
-      }
+      let list: Persisted[] = []
+      let changed = false
+      await update<Persisted[]>(LIST_KEY, (prev) => {
+        list = prev ?? []
+        const have = new Set(list.map((e) => e.infoHash))
+        for (const e of incoming) {
+          if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
+          list.push({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || '/dl', addedAt: e.addedAt || Date.now(), started: false })
+          have.add(e.infoHash)
+          changed = true
+        }
+        return list
+      })
+      if (changed) post({ type: 'list', list })
     } else if (m.type === 'start') {
       // The user asked to download a synced "Files missing" torrent: add it to the
       // session now and mark it started so it survives reloads as an active torrent.
       const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
       if (e) {
         const savePath = e.savePath || '/dl'
-        // Prefer the stored .torrent bytes (kept in IndexedDB even when OPFS was
-        // cleared) for instant metadata; a cloud-synced ghost has only the magnet.
+        // Stored .torrent bytes give instant metadata; a cloud-synced ghost has only the magnet
         const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
         track(h, e.magnet, e.infoHash, savePath)
-        // Surface the live torrent BEFORE flipping the list entry: the live row
-        // carries the same infoHash, so it dedups the ghost in the same render and
-        // the row swaps in place instead of blinking out until the next tick.
+        // Post state before flipping the entry so the live row dedups the ghost in the same render
         post({ type: 'state', torrents: snapshot() })
         await upsertList({ ...e, started: true })
       }
     } else if (m.type === 'remove-missing') {
-      // Usually a pure ghost with no session handle, so just drop the list entry.
-      // But if it was started moments earlier (Download then Remove in the same
-      // beat), tear the live torrent down too, else it keeps downloading with no
-      // persisted entry and is lost on the next reload.
+      // A ghost started moments earlier still has a live handle; tear it down too or it keeps downloading with no persisted entry
       if (typeof m.infoHash === 'string') {
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
         if (h !== undefined) { session.removeTorrent(h, true); untrack(h) }
         await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
-      // Drop the device-local list (used on account switch so one account's
-      // library is never carried into another's). Keeps the OPFS bytes on disk.
+      // Account switch: drop the device-local list and its resume/torrent blobs; OPFS bytes stay on disk
       for (const h of [...handles]) { session.removeTorrent(h, false); untrack(h) }
-      await set(LIST_KEY, [])
+      let dropped: Persisted[] = []
+      await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
+      for (const e of dropped) {
+        await del(resumeKey(e.infoHash)).catch(() => {})
+        await del(torrentKey(e.infoHash)).catch(() => {})
+      }
       post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
       session.pauseTorrent(m.handle)

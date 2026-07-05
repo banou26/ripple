@@ -41,8 +41,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
 
     let cancelled = false
     let connected = false
-    // Stays false until the first restore settles (read a backup, or confirmed none exists). Writes are
-    // disarmed until then, so a transient read error can never push the local list over a good cloud backup.
+    // Writes stay disarmed until the current restore settles, so a transient read error or an account switch can never clobber a good cloud backup
     let restored = false
     let pending = false
     let latest: Persisted[] = []
@@ -72,6 +71,9 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     const offList = client.onList((list) => { latest = list; if (connected) schedule() })
 
     const restore = async (attempt = 0) => {
+      restored = false
+      pending = false
+      window.clearTimeout(timer)
       let ok = false
       try { ok = await cloud.fs.available() } catch {}
       if (cancelled) return
@@ -96,8 +98,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       try {
         text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
       } catch (err) {
-        // Only a definitive "not found" means this account has no backup yet. Anything else (network,
-        // presign, 5xx) is transient - treat it as such so we never seed over a backup that does exist.
+        // Only a definitive "not found" means no backup yet; anything else is transient and must never seed over an existing backup
         missing = /not found/i.test((err as { message?: string })?.message ?? '')
       }
       if (cancelled) return
