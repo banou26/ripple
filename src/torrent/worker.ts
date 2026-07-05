@@ -153,7 +153,7 @@ const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
 
-  session = await createSession({ net, dgram, storage: new OPFSStorage() })
+  session = await createSession({ net, dgram, storage: new OPFSStorage(), utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
   // Restore the persisted list. With a saved fast-resume blob, add via resume so
