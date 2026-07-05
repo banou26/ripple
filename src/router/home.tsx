@@ -9,6 +9,7 @@ import type { SyncStatus } from '../torrent/use-cloud-backup'
 
 import { ConnectButton } from '@fkn/lib'
 
+import { magnetInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
@@ -20,10 +21,6 @@ import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
-const magnetInfoHash = (s: string): string | null => {
-  const m = s.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
-  return m ? m[1]!.toLowerCase() : null
-}
 
 const STATE_LABEL: Record<Torrent['state'], string> = {
   downloading: 'Downloading',

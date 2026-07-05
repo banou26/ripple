@@ -4,17 +4,13 @@ import type { Persisted, TorrentClient, TorrentSnapshot } from './client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
+import { magnetInfoHash } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
 
 const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
   if (!m) return undefined
   try { return decodeURIComponent(m[1]!.replace(/\+/g, ' ')) } catch { return m[1] }
-}
-
-const magnetInfoHash = (magnet: string): string | undefined => {
-  const m = magnet.match(/xt=urn:bt[im]h:([0-9a-z]+)/i)
-  return m ? m[1]!.toLowerCase() : undefined
 }
 
 // libtorrent torrent_status state_t → the UI's coarse state.
@@ -46,7 +42,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
   return {
     id: String(s.handle),
     magnet: s.magnet,
-    infoHash: magnetInfoHash(s.magnet),
+    infoHash: magnetInfoHash(s.magnet) ?? undefined,
     name,
     size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
     downloaded: st?.totalDone ?? 0,
@@ -91,15 +87,11 @@ export type UseTorrents = {
   clientRef: { current: TorrentClient | null }
 }
 
-// Public-domain demo (Blender Foundation) with an HTTP webseed, seeded once
-// into a brand-new user's list. The bundled .torrent gives instant metadata
-// (a bare magnet would need a live swarm peer for it), so the webseed alone
-// carries the download even with zero peers.
+// Public-domain Blender demo: the bundled .torrent gives instant metadata and its webseed carries the download with zero peers
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
 const DEMO_MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
-// Longest a brand-new user waits for a (possibly stalled) cloud restore before
-// the demo seeds anyway. The signed-out path settles far sooner via the gate.
+// Longest a new user waits on a stalled cloud restore before the demo seeds anyway
 const DEMO_GRACE = 8_000
 
 const addDemo = (client: TorrentClient) =>
@@ -119,11 +111,7 @@ export const useTorrents = (): UseTorrents => {
   useEffect(() => {
     const client = createTorrentClient()
     clientRef.current = client
-    // The persisted list is the full library (active + synced-not-yet-downloaded).
-    // The demo is for a brand-new user (empty library, never seeded), but a signed-in
-    // user's library arrives asynchronously from cloud.fs - so wait for that restore to
-    // settle before judging the library empty, else the demo lands on top of it. Judge
-    // by the persisted list, not the live session, so a synced ghost library counts.
+    // Demo seeding waits for the cloud restore to settle and judges the persisted list, so a restored library is never buried under the demo
     let checkedDemo = false
     const libraryCount = { current: 0 }
     const offList = client.onList((l) => { libraryCount.current = l.length; setList(l) })
