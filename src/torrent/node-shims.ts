@@ -1,7 +1,4 @@
-// Imported FIRST (before @webvpn/{net,dgram}) so the global/process shims exist
-// before readable-stream - pulled in transitively by @webvpn - dereferences
-// `process` at module-eval time. process.nextTick MUST forward trailing args
-// (readable-stream calls process.nextTick(resume_, stream, state)).
+// Imported first so the process shim exists before @fkn/lib/{net,dgram}'s readable-stream dereferences it; nextTick must forward trailing args
 
 const root: any = typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self : (typeof window !== 'undefined' ? window : {}))

@@ -62,11 +62,7 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
   let destroyed = false
   let queue = Promise.resolve()
 
-  // The slider matches hover time to the LAST entry with startTime <= time
-  // (endTime is ignored - the contract assumes a gapless storyboard), so
-  // not-yet-generated stretches are covered by empty-url sentinels: a gap
-  // hover would otherwise show whichever thumbnail came before it. The skin
-  // CSS hides the whole preview window while the sentinel is active.
+  // The slider assumes a gapless storyboard (last startTime <= time wins), so not-yet-generated stretches get empty-url sentinels the skin hides
   const emit = () => {
     const display: ThumbnailImage[] = []
     for (const [i, t] of thumbnails.entries()) {

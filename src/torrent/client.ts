@@ -28,12 +28,7 @@ export type TorrentClient = {
 
 export const createTorrentClient = (): TorrentClient => {
   const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-  // Bridge the worker's @webvpn/{net,dgram} socket calls to the main-thread
-  // @fkn/lib broker iframe (→ WebVPN). This and our own listener coexist:
-  // relayWorker handles the osra socket envelopes, we handle our typed messages.
-  // The abort on destroy is load-bearing: a leaked relay listener keeps
-  // forwarding broker messages to the dead worker, transferring (and thereby
-  // neutering) MessagePorts meant for the next client's worker.
+  // Bridges the worker's @fkn/lib/{net,dgram} sockets to the broker iframe; the abort on destroy is load-bearing (a leaked relay neuters MessagePorts meant for the next worker)
   const relayAbort = new AbortController()
   relayWorker(worker, { unregisterSignal: relayAbort.signal })
 
