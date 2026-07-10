@@ -13,7 +13,6 @@
     "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
     "jsx": "preserve",
-    "jsxImportSource": "@emotion/react",
-    "baseUrl": ".",
+    "jsxImportSource": "@emotion/react"
   }
 }
