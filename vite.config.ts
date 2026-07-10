@@ -1,33 +1,59 @@
-import { defineConfig } from 'vite'
+import { defineConfig, lazyPlugins } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import polyfills from './vite-plugin-node-stdlib-browser.cjs'
+import polyfills from './vite-plugin-node-stdlib-browser.mjs'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
 // CF Pages exposes the build's commit; fall back to local git, then the main branch
 // ('main' resolves on GitHub's /commit/ path to the latest commit there).
 const commitHash =
   process.env.CF_PAGES_COMMIT_SHA ||
-  (() => { try { return execSync('git rev-parse HEAD').toString().trim() } catch { return 'main' } })()
+  (() => {
+    try {
+      return execSync('git rev-parse HEAD').toString().trim()
+    } catch {
+      return 'main'
+    }
+  })()
 
 export default defineConfig((env) => ({
+  fmt: { semi: false, singleQuote: true },
+  lint: {
+    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    rules: {
+      'vite-plus/prefer-vite-plus-imports': 'error',
+      'no-var': 'error',
+      'prefer-const': 'error',
+    },
+    options: { typeAware: true, typeCheck: true },
+    overrides: [
+      {
+        files: ['tests/**', '**/*.spec.ts', '**/*.test.ts', 'examples/**'],
+        rules: {
+          'no-floating-promises': 'off',
+          'no-unused-vars': 'off',
+          'no-unused-expressions': 'off',
+        },
+      },
+    ],
+  },
   build: {
     outDir: 'build',
     target: 'esnext',
     emptyOutDir: false,
     lib: {
       entry: ['src/index.tsx'],
-      formats: ['es']
-    }
+      formats: ['es'],
+    },
   },
   server: {
     fs: {
       // Serve the sibling local file: deps in dev - libtorrent-wasm/build (the
       // .wasm the emscripten glue fetches) and fkn/web/lib. Without this vite's
       // /@fs/ returns the SPA fallback HTML for the .wasm → "expected magic word".
-      allow: ['..']
-    }
+      allow: ['..'],
+    },
   },
   resolve: {
     // The symlinked libtorrent-wasm carries its own @fkn/lib + osra; without dedupe the worker's dgram talks to a different @fkn/lib than relayWorker bridges
@@ -46,10 +72,10 @@ export default defineConfig((env) => ({
     __APP_VERSION__: JSON.stringify(pkg.version),
     __COMMIT_HASH__: JSON.stringify(commitHash),
   },
-  plugins: [
+  plugins: lazyPlugins(() => [
     react({
-      jsxImportSource: '@emotion/react'
+      jsxImportSource: '@emotion/react',
     }),
     polyfills(),
-  ]
+  ]),
 }))

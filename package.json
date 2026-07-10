@@ -11,14 +11,14 @@
     "build"
   ],
   "scripts": {
-    "dev": "vite --port 4560",
+    "dev": "vp dev --port 4560",
     "serve": "serve -s -C -p 4560 build",
-    "build": "shx rm -rf build/ && vite build && npm run copy-libav && npm run copy-libass && npm run copy-html",
+    "build": "shx rm -rf build/ && vp build && npm run copy-libav && npm run copy-libass && npm run copy-html",
     "copy-libav": "shx cp node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/libav-wasm/build/libav.wasm build/libav.wasm",
     "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker.wasm build/jassub-worker.wasm && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm && shx cp node_modules/jassub/dist/default.woff2 build/default.woff2",
     "copy-html": "shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vp preview"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -37,7 +37,8 @@
     "react-tooltip": "^5.28.0"
   },
   "overrides": {
-    "napi-build-utils": "^2"
+    "napi-build-utils": "^2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.4"
   },
   "devDependencies": {
     "@rollup/plugin-inject": "^5.0.3",
@@ -47,7 +48,7 @@
     "@types/wicg-file-system-access": "^2023.10.1",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.3",
     "copyfiles": "^2.4.1",
     "eslint": "^8.45.0",
     "eslint-plugin-react-hooks": "^4.6.0",
@@ -57,6 +58,14 @@
     "serve": "^14.2.1",
     "shx": "^0.3.4",
     "typescript": "^5.2.2",
-    "vite": "^6.2.1"
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.4",
+    "vite-plus": "0.2.4"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "12.0.1",
+      "onFail": "download"
+    }
   }
 }
