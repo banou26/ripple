@@ -7,10 +7,8 @@ import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
-import type { StorageBackend } from 'libtorrent-wasm/types'
 import { OPFSStorage } from 'libtorrent-wasm/opfs'
 
-import { IndexedDBStorage } from './indexeddb-storage'
 import { magnetInfoHash } from './magnet'
 
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start'])
@@ -26,7 +24,6 @@ export type TorrentSnapshot = {
 const LIST_KEY = 'ripple:torrents'
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
-const storageKey = (ih: string) => 'ripple:storage:' + ih
 // started === false marks a torrent synced from another device that this device
 // hasn't downloaded yet: it lives in the list but is NOT added to the session (no
 // swarm, no download) until the user starts it. Absent/true = active here.
@@ -37,11 +34,7 @@ const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
 const infoHashByHandle = new Map<number, string>()
 const savePathByHandle = new Map<number, string>()
-const generationByHandle = new Map<number, number>()
-let nextGeneration = 0
 const resumeSaved = new Set<number>()
-let storageKind: 'opfs' | 'idb' = 'opfs'
-let flushStorage = async () => {}
 
 const post = (msg: any, transfer?: Transferable[]) => (self as any).postMessage(msg, transfer ?? [])
 
@@ -75,7 +68,6 @@ const removeFromList = async (ih: string) => {
   await update<Persisted[]>(LIST_KEY, (prev) => (list = (prev ?? []).filter((e) => e.infoHash !== ih)))
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
-  await del(storageKey(ih)).catch(() => {})
   post({ type: 'list', list })
 }
 
@@ -84,40 +76,17 @@ const track = (h: number, magnet: string, ih: string | null, savePath: string) =
   magnetByHandle.set(h, magnet)
   if (ih) infoHashByHandle.set(h, ih)
   savePathByHandle.set(h, savePath)
-  generationByHandle.set(h, ++nextGeneration)
 }
 const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
-  magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); generationByHandle.delete(h); resumeSaved.delete(h)
+  magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   for (const k of lastReadOffset.keys()) if (k.startsWith(h + ':')) lastReadOffset.delete(k)
 }
 
 const persistResume = async (h: number) => {
   const ih = infoHashByHandle.get(h)
-  const generation = generationByHandle.get(h)
-  if (!ih || generation === undefined || !session) return
-  try {
-    const resume = await session.saveResumeData(h)
-    await flushStorage()
-    if (generationByHandle.get(h) !== generation || infoHashByHandle.get(h) !== ih) return
-    await set(resumeKey(ih), resume)
-  } catch {}
-}
-
-const deleteAlternateStorage = async (h: number) => {
-  if (!session) return
-  const torrentFiles = session.files(h)
-  if (!torrentFiles) return
-  const savePath = savePathByHandle.get(h) ?? '/dl'
-  const files = torrentFiles.files.map(({ path, size }) => ({ path, size }))
-  const id = -1
-  try {
-    const storage = storageKind === 'opfs' ? new IndexedDBStorage() : new OPFSStorage()
-    if (storage instanceof IndexedDBStorage) await storage.ready()
-    await storage.onNewStorage(id, savePath, files)
-    await storage.deleteFiles(id, 0)
-    await storage.onRemoveStorage(id)
-  } catch {}
+  if (!ih || !session) return
+  try { await set(resumeKey(ih), await session.saveResumeData(h)) } catch {}
 }
 
 const filePieceRange = (h: number, fileIndex: number) => {
@@ -180,23 +149,25 @@ const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
   } catch { return true }
 }
 
-const createStorage = async (): Promise<{ backend: StorageBackend, kind: 'opfs' | 'idb' }> => {
+// OPFS with a SyncAccessHandle is the only storage backend. Some contexts refuse
+// it (Firefox private windows throw SecurityError from getDirectory(); others
+// reject createSyncAccessHandle), which otherwise surfaces as a silent WASI EIO
+// that pauses every torrent. Probe up front so the UI can say Ripple needs a
+// normal (non-incognito) window instead of failing silently.
+const opfsAvailable = async (): Promise<boolean> => {
   let root: FileSystemDirectoryHandle | undefined
-  let probeName: string | undefined
+  let probe: string | undefined
   try {
     root = await navigator.storage.getDirectory()
-    probeName = `.ripple-probe-${crypto.randomUUID()}`
-    const file = await root.getFileHandle(probeName, { create: true })
+    probe = `.ripple-probe-${crypto.randomUUID()}`
+    const file = await root.getFileHandle(probe, { create: true })
     const access = await (file as any).createSyncAccessHandle() as FileSystemSyncAccessHandle
     access.close()
-    await root.removeEntry(probeName).catch(() => {})
-    return { backend: new OPFSStorage(), kind: 'opfs' }
-  } catch (error) {
-    if (root && probeName) await root.removeEntry(probeName).catch(() => {})
-    const backend = new IndexedDBStorage()
-    await backend.ready()
-    console.warn('[worker] OPFS unavailable, using IndexedDB torrent storage', error)
-    return { backend, kind: 'idb' }
+    await root.removeEntry(probe).catch(() => {})
+    return true
+  } catch {
+    if (root && probe) await root.removeEntry(probe).catch(() => {})
+    return false
   }
 }
 
@@ -204,13 +175,12 @@ const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
 
-  const storage = await createStorage()
-  storageKind = storage.kind
-  if (storage.backend instanceof IndexedDBStorage) {
-    const indexedDBStorage = storage.backend
-    flushStorage = () => indexedDBStorage.flush()
+  if (!(await opfsAvailable())) {
+    post({ type: 'storage-unavailable' })
+    return
   }
-  session = await createSession({ net, dgram, storage: storage.backend, utpReceiveBufferBytes: 4_194_304 })
+
+  session = await createSession({ net, dgram, storage: new OPFSStorage(), utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
   // Restore the persisted list. With a saved fast-resume blob, add via resume so
@@ -220,21 +190,14 @@ const init = async () => {
     // If the list survived but OPFS holds no data, the files were cleared/evicted -
     // demote torrents that had real data (a resume blob) to "Files missing" rather
     // than silently re-downloading everything from scratch.
-    const cleared = storage.kind === 'opfs' && !(await opfsHasData(list.map((e) => e.savePath || '/dl')))
+    const cleared = !(await opfsHasData(list.map((e) => e.savePath || '/dl')))
     let changed = false
     for (const e of list) {
       // Synced-but-not-started torrents stay out of the session (rendered as
       // "Files missing" ghosts) until the user downloads them.
       if (e.started === false) continue
       const savePath = e.savePath || '/dl'
-      const storedKind = (await get(storageKey(e.infoHash))) as 'opfs' | 'idb' | undefined
-      const backendChanged = (storedKind ?? 'opfs') !== storage.kind
-      if (backendChanged) {
-        await del(resumeKey(e.infoHash)).catch(() => {})
-        await set(storageKey(e.infoHash), storage.kind)
-        changed = true
-      }
-      const resume = backendChanged ? undefined : (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
+      const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
       if (cleared && resume && resume.byteLength) {
         // The resume blob describes OPFS pieces that are gone; drop it so a reload
@@ -295,10 +258,7 @@ self.addEventListener('message', async (e: MessageEvent) => {
       } else {
         const h = session.addMagnet(m.magnet, savePath)
         track(h, m.magnet, ih, savePath)
-        if (ih) {
-          await set(storageKey(ih), storageKind)
-          await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
-        }
+        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
         post({ type: 'added', handle: h, magnet: m.magnet })
       }
     } else if (m.type === 'add-torrent-file') {
@@ -314,7 +274,6 @@ self.addEventListener('message', async (e: MessageEvent) => {
       const magnet = ih ? 'magnet:?xt=urn:btih:' + ih : ''
       track(h, magnet, ih, savePath)
       if (ih) {
-        await set(storageKey(ih), storageKind)
         await set(torrentKey(ih), bytes)
         await upsertList({ infoHash: ih, magnet, savePath, addedAt: Date.now() })
       }
@@ -331,7 +290,6 @@ self.addEventListener('message', async (e: MessageEvent) => {
       post({ type: 'read-result', id: m.id, data }, [data.buffer])
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
-      if (m.deleteFiles) await deleteAlternateStorage(m.handle)
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
@@ -364,7 +322,6 @@ self.addEventListener('message', async (e: MessageEvent) => {
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
         track(h, e.magnet, e.infoHash, savePath)
-        await set(storageKey(e.infoHash), storageKind)
         // Post state before flipping the entry so the live row dedups the ghost in the same render
         post({ type: 'state', torrents: snapshot() })
         await upsertList({ ...e, started: true })
@@ -384,7 +341,6 @@ self.addEventListener('message', async (e: MessageEvent) => {
       for (const e of dropped) {
         await del(resumeKey(e.infoHash)).catch(() => {})
         await del(torrentKey(e.infoHash)).catch(() => {})
-        await del(storageKey(e.infoHash)).catch(() => {})
       }
       post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
