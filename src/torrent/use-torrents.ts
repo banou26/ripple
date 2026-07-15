@@ -84,6 +84,8 @@ export type UseTorrents = {
   remove: (handle: number, deleteFiles?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
+  // True once the worker reports it cannot open OPFS (private/incognito window).
+  storageUnavailable: boolean
   clientRef: { current: TorrentClient | null }
 }
 
@@ -108,9 +110,11 @@ export const useTorrents = (): UseTorrents => {
   const clientRef = useRef<TorrentClient | null>(null)
   const [snaps, setSnaps] = useState<TorrentSnapshot[]>([])
   const [list, setList] = useState<Persisted[]>([])
+  const [storageUnavailable, setStorageUnavailable] = useState(false)
   useEffect(() => {
     const client = createTorrentClient()
     clientRef.current = client
+    const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     // Demo seeding waits for the cloud restore to settle and judges the persisted list, so a restored library is never buried under the demo
     let checkedDemo = false
     const libraryCount = { current: 0 }
@@ -128,7 +132,7 @@ export const useTorrents = (): UseTorrents => {
           } catch { /* storage unavailable - skip the demo */ }
         })
     })
-    return () => { offList(); offState(); client.destroy(); clientRef.current = null }
+    return () => { offUnavailable(); offList(); offState(); client.destroy(); clientRef.current = null }
   }, [])
 
   // Live session torrents plus "Files missing" ghosts for synced entries not yet
@@ -150,5 +154,5 @@ export const useTorrents = (): UseTorrents => {
   const remove = useCallback((handle: number, deleteFiles?: boolean) => clientRef.current?.remove(handle, deleteFiles), [])
   const start = useCallback((infoHash: string) => clientRef.current?.start(infoHash), [])
   const removeMissing = useCallback((infoHash: string) => clientRef.current?.removeMissing(infoHash), [])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, clientRef }
+  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, storageUnavailable, clientRef }
 }

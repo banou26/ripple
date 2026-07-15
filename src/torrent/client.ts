@@ -8,6 +8,9 @@ export type TorrentClient = {
   ready: Promise<void>
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
   onList: (cb: (list: Persisted[]) => void) => () => void
+  // Fires when the worker cannot open OPFS (e.g. a private/incognito window); the
+  // session is never created, so the UI should tell the user rather than hang.
+  onStorageUnavailable: (cb: () => void) => () => void
   importList: (list: Persisted[]) => void
   clearList: () => void
   addMagnet: (magnet: string, savePath?: string) => void
@@ -36,6 +39,7 @@ export const createTorrentClient = (): TorrentClient => {
 
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
   const listCbs = new Set<(l: Persisted[]) => void>()
+  const storageUnavailableCbs = new Set<() => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void }>()
   let readId = 0
   let resolveReady!: () => void
@@ -48,6 +52,7 @@ export const createTorrentClient = (): TorrentClient => {
     const m = e.data
     if (!m || typeof m !== 'object') return
     if (m.type === 'ready') resolveReady()
+    else if (m.type === 'storage-unavailable') storageUnavailableCbs.forEach((cb) => cb())
     else if (m.type === 'state') stateCbs.forEach((cb) => cb(m.torrents))
     else if (m.type === 'list') listCbs.forEach((cb) => cb(m.list))
     else if (m.type === 'read-result') { reads.get(m.id)?.resolve(m.data); reads.delete(m.id) }
@@ -59,6 +64,7 @@ export const createTorrentClient = (): TorrentClient => {
     ready,
     onState: (cb) => { stateCbs.add(cb); return () => { stateCbs.delete(cb) } },
     onList: (cb) => { listCbs.add(cb); return () => { listCbs.delete(cb) } },
+    onStorageUnavailable: (cb) => { storageUnavailableCbs.add(cb); return () => { storageUnavailableCbs.delete(cb) } },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, savePath) => send({ type: 'add-magnet', magnet, savePath }),

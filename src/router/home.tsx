@@ -294,6 +294,20 @@ const style = css`
     backdrop-filter: blur(12px) saturate(1.2);
   }
 
+  .storage-warning {
+    flex: none;
+    margin: 14px 16px 0;
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(249, 115, 22, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    strong { color: #fbbf24; font-size: 0.95rem; }
+    span { color: #8b8499; font-size: 0.85rem; line-height: 1.6; }
+  }
+
   .stats {
     flex: none;
     display: flex;
@@ -941,7 +955,7 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onRemove, onStart }: RowProps
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, clientRef } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, storageUnavailable, clientRef } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -1103,9 +1117,10 @@ const Home = () => {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Add a magnet link"
             spellCheck={false}
+            disabled={storageUnavailable}
           />
-          <button className="primary" type="submit">Add</button>
-          <button className="ghost" type="button" onClick={() => fileInputRef.current?.click()}>.torrent</button>
+          <button className="primary" type="submit" disabled={storageUnavailable}>Add</button>
+          <button className="ghost" type="button" onClick={() => fileInputRef.current?.click()} disabled={storageUnavailable}>.torrent</button>
           <input
             ref={fileInputRef}
             type="file"
@@ -1120,6 +1135,17 @@ const Home = () => {
         </form>
         <AccountWidget/>
       </header>
+
+      {storageUnavailable && (
+        <div className="storage-warning surface" role="alert">
+          <strong>Ripple can't run in this window</strong>
+          <span>
+            Downloads are stored in your browser's private file system (OPFS), which isn't
+            available in private/incognito windows or when site storage is blocked. Open Ripple
+            in a normal window to download and stream.
+          </span>
+        </div>
+      )}
 
       {torrents.length > 0 && (
         <section className="stats surface">

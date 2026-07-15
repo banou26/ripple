@@ -149,9 +149,36 @@ const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
   } catch { return true }
 }
 
+// OPFS with a SyncAccessHandle is the only storage backend. Some contexts refuse
+// it (Firefox private windows throw SecurityError from getDirectory(); others
+// reject createSyncAccessHandle), which otherwise surfaces as a silent WASI EIO
+// that pauses every torrent. Probe up front so the UI can say Ripple needs a
+// normal (non-incognito) window instead of failing silently.
+const opfsAvailable = async (): Promise<boolean> => {
+  let root: FileSystemDirectoryHandle | undefined
+  let probe: string | undefined
+  try {
+    root = await navigator.storage.getDirectory()
+    probe = `.ripple-probe-${crypto.randomUUID()}`
+    const file = await root.getFileHandle(probe, { create: true })
+    const access = await (file as any).createSyncAccessHandle() as FileSystemSyncAccessHandle
+    access.close()
+    await root.removeEntry(probe).catch(() => {})
+    return true
+  } catch {
+    if (root && probe) await root.removeEntry(probe).catch(() => {})
+    return false
+  }
+}
+
 const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
+
+  if (!(await opfsAvailable())) {
+    post({ type: 'storage-unavailable' })
+    return
+  }
 
   session = await createSession({ net, dgram, storage: new OPFSStorage(), utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
