@@ -4,6 +4,8 @@
 // picks - no full-file buffering on the showSaveFilePicker path.
 
 import type { TorrentClient } from './client'
+import type { TorrentFile } from './types'
+import { writeZip } from './zip'
 
 const CHUNK = 8 * 1024 * 1024
 
@@ -44,6 +46,35 @@ const openSink = async (baseName: string): Promise<Sink> => {
     write: async (c) => { parts.push(c.slice()) },
     close: async () => triggerAnchorDownload(new Blob(parts as BlobPart[]), baseName),
     abort: async () => {},
+  }
+}
+
+// Zip every file of a multifile torrent into a single download, preserving the
+// torrent's relative paths. STORE only, so it streams at read speed with no
+// compression buffering; sizes come straight from the torrent metadata.
+export const saveTorrentAsZipToDisk = async (
+  client: TorrentClient,
+  handle: number,
+  torrentName: string,
+  files: TorrentFile[],
+  onProgress?: (fraction: number) => void,
+): Promise<void> => {
+  const baseName = (torrentName.replace(/[/\\]/g, '_') || 'torrent') + '.zip'
+  const sink = await openSink(baseName)
+  try {
+    await writeZip(
+      files.map((f, index) => ({
+        path: f.name,
+        size: f.size,
+        read: (offset: number, len: number) => client.read(handle, index, offset, len),
+      })),
+      sink.write,
+      onProgress,
+    )
+    await sink.close()
+  } catch (e) {
+    await sink.abort()
+    throw e
   }
 }
 
