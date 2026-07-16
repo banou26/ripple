@@ -15,7 +15,7 @@ import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
-import { saveTorrentFileToDisk } from '../torrent/save-file'
+import { saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -867,6 +867,7 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
   )
 }
 
+// fileIndex -1 tracks a whole-torrent zip save (never collides with a real file).
 const savingKey = (id: string, fileIndex: number) => `${id}:${fileIndex}`
 
 type RowProps = {
@@ -874,6 +875,7 @@ type RowProps = {
   saving: Record<string, number>
   onToggle: (t: Torrent) => void
   onSave: (t: Torrent, fileIndex: number) => void
+  onSaveZip: (t: Torrent) => void
   onRemove: (t: Torrent) => void
   onStart: (t: Torrent) => void
 }
@@ -899,11 +901,13 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
   </div>
 )
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onRemove, onStart }: RowProps) => {
+const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart }: RowProps) => {
   if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
-  const mainSaving = saving[savingKey(t.id, mainIndex)]
+  // Multifile torrents save as one zip of everything; single-file saves the file.
+  const multi = (t.files?.length ?? 0) > 1
+  const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
   return (
     <div className="torrent surface">
       <div className="title">
@@ -925,8 +929,8 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onRemove, onStart }: RowProps
         <div className="actions">
           {href && <Link className="primary" to={href}>Watch</Link>}
           {!!t.files?.length && (
-            <button onClick={() => onSave(t, mainIndex)} disabled={mainSaving != null}>
-              {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : 'Save to disk'}
+            <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
+              {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
             </button>
           )}
           <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
@@ -1064,6 +1068,17 @@ const Home = () => {
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
+  // Streams every file of a multifile torrent into one zip on the user's disk.
+  const onSaveZip = (t: Torrent) => {
+    const client = clientRef.current
+    if (!client || !t.files?.length) return
+    const key = savingKey(t.id, -1)
+    setSaving((s) => ({ ...s, [key]: 0 }))
+    saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files, (f) => setSaving((s) => ({ ...s, [key]: f })))
+      .catch(() => {})
+      .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
+  }
+
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
 
   // Auto-copy finished torrents into the chosen folder. The synced set only
@@ -1194,6 +1209,7 @@ const Home = () => {
               saving={saving}
               onToggle={onToggle}
               onSave={onSave}
+              onSaveZip={onSaveZip}
               onRemove={onRemove}
               onStart={onStart}
             />
