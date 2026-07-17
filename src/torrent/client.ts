@@ -1,8 +1,11 @@
+import type { Persisted, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+
 import { relayWorker } from '@fkn/lib'
 
-import type { Persisted, TorrentSnapshot } from './worker'
+import { createRecentRateTracker } from './recent-rate'
 
-export type { Persisted, TorrentSnapshot }
+export type { Persisted }
+export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
 
 export type TorrentClient = {
   ready: Promise<void>
@@ -41,20 +44,38 @@ export const createTorrentClient = (): TorrentClient => {
   const listCbs = new Set<(l: Persisted[]) => void>()
   const storageUnavailableCbs = new Set<() => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void }>()
+  const recentRate = createRecentRateTracker()
   let readId = 0
   let resolveReady!: () => void
   const ready = new Promise<void>((r) => { resolveReady = r })
   // The worker drops commands until its session exists; queue them behind ready
   // so an add right after page load isn't silently lost.
-  const send = (msg: any, transfer?: Transferable[]) => { ready.then(() => worker.postMessage(msg, transfer ?? [])) }
+  const send = (msg: any, transfer?: Transferable[]) => { void ready.then(() => worker.postMessage(msg, transfer ?? [])) }
 
   worker.addEventListener('message', (e) => {
     const m = e.data
     if (!m || typeof m !== 'object') return
     if (m.type === 'ready') resolveReady()
     else if (m.type === 'storage-unavailable') storageUnavailableCbs.forEach((cb) => cb())
-    else if (m.type === 'state') stateCbs.forEach((cb) => cb(m.torrents))
-    else if (m.type === 'list') listCbs.forEach((cb) => cb(m.list))
+    else if (m.type === 'state') {
+      const handles = new Set<number>()
+      const at = performance.now()
+      const torrents = (m.torrents as WorkerTorrentSnapshot[]).map((torrent): TorrentSnapshot => {
+        handles.add(torrent.handle)
+        const stopped = torrent.status?.paused || torrent.status?.state === 4 || torrent.status?.state === 5
+        if (stopped) recentRate.reset(torrent.handle)
+        return {
+          ...torrent,
+          displayDownloadRate: stopped
+            ? 0
+            : torrent.status
+              ? recentRate.sample(torrent.handle, torrent.status.totalDone, at) ?? torrent.status.downloadRate
+              : 0,
+        }
+      })
+      recentRate.retain(handles)
+      stateCbs.forEach((cb) => cb(torrents))
+    } else if (m.type === 'list') listCbs.forEach((cb) => cb(m.list))
     else if (m.type === 'read-result') { reads.get(m.id)?.resolve(m.data); reads.delete(m.id) }
     else if (m.type === 'read-error') { reads.get(m.id)?.reject(new Error(m.error)); reads.delete(m.id) }
     else if (m.type === 'error' || m.type === 'worker-error') console.warn('[torrent worker]', m.message ?? m.args)

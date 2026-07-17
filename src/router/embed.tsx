@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { AudioStream, PlaybackController } from '../player/playback'
 import type { SubtitleStream } from '../player/subtitles'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
@@ -141,11 +141,12 @@ const Player = () => {
 
   const defaultFontUrl = useMemo(() => new URL(`${publicPath}default.woff2`).toString(), [publicPath])
 
-  const [info, setInfo] = useState({ peers: 0, downloadSpeed: 0, uploadSpeed: 0 })
-  useEffect(() => {
-    const st = snapshot?.status
-    setInfo({ peers: st?.numPeers ?? 0, downloadSpeed: st?.downloadRate ?? 0, uploadSpeed: st?.uploadRate ?? 0 })
-  }, [snapshot?.status])
+  const st = snapshot?.status
+  const info = {
+    peers: st?.numPeers ?? 0,
+    downloadSpeed: snapshot?.displayDownloadRate ?? 0,
+    uploadSpeed: st?.uploadRate ?? 0,
+  }
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0

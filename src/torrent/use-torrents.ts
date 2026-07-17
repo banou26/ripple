@@ -4,6 +4,7 @@ import type { Persisted, TorrentClient, TorrentSnapshot } from './client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createTorrentClient } from './client'
+import { DEMO_SEEDED_KEY } from './constants'
 import { magnetInfoHash } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
 
@@ -48,7 +49,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
     downloaded: st?.totalDone ?? 0,
     progress,
     state: st ? (st.paused ? 'paused' : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading'),
-    down: st?.downloadRate ?? 0,
+    down: s.displayDownloadRate,
     up: st?.uploadRate ?? 0,
     peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
@@ -92,7 +93,6 @@ export type UseTorrents = {
 // Public-domain Blender demo: the bundled .torrent gives instant metadata and its webseed carries the download with zero peers
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
 const DEMO_MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
-const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
 // Longest a new user waits on a stalled cloud restore before the demo seeds anyway
 const DEMO_GRACE = 8_000
 
