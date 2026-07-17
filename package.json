@@ -18,7 +18,9 @@
     "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker.wasm build/jassub-worker.wasm && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm && shx cp node_modules/jassub/dist/default.woff2 build/default.woff2",
     "copy-html": "shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vp preview"
+    "preview": "vp preview",
+    "bench:install": "playwright install chromium firefox",
+    "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -41,6 +43,7 @@
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "1.58.0",
     "@rollup/plugin-inject": "^5.0.3",
     "@types/node": "^25.9.3",
     "@types/react": "^18.2.15",

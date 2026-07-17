@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { account, cloud } from '@fkn/lib'
 
+import { DEMO_SEEDED_KEY } from './constants'
+
 export const BACKUP_PATH = 'ripple/torrents.json'
-const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
 const ACCOUNT_KEY = 'ripple:sync-account'
 const WRITE_DEBOUNCE = 3_000
 const RESTORE_RETRY = 5_000
