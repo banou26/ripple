@@ -19,6 +19,7 @@ import { saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-f
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { isAppInstalled, setupHandlers } from '../utils/pwa'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
@@ -218,6 +219,22 @@ const style = css`
             border-color: rgba(249, 115, 22, 0.45);
           }
         }
+      }
+    }
+
+    .setup {
+      flex: none;
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border: 1px solid #3a3447;
+      background: none;
+      color: #f4f2f8;
+
+      &:hover {
+        background: #241e30;
+        border-color: rgba(249, 115, 22, 0.45);
       }
     }
 
@@ -977,6 +994,17 @@ const Home = () => {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
 
+  // Offer handler setup only while running in a browser tab; an installed window
+  // already has the .torrent and magnet handlers active from the manifest.
+  const [showSetup] = useState(() => !isAppInstalled())
+  const onSetupHandlers = useCallback(async () => {
+    const outcome = await setupHandlers()
+    if (outcome === 'installed') showToast('Ripple installed. Torrent files and magnet links open here now.')
+    else if (outcome === 'magnet-registered') showToast('Confirm the prompt to route magnet links to Ripple.')
+    else if (outcome === 'already-installed') showToast('Ripple is already set up on this device.')
+    else showToast('Use your browser menu to install Ripple as an app.')
+  }, [showToast])
+
   const commitMagnet = useCallback((raw: string): boolean => {
     const text = raw.trim()
     if (!isMagnet(text)) return false
@@ -1177,6 +1205,11 @@ const Home = () => {
             }}
           />
         </form>
+        {showSetup && (
+          <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
+            Open torrents with Ripple
+          </button>
+        )}
         <AccountWidget/>
       </header>
 
