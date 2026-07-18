@@ -1042,6 +1042,35 @@ const Home = () => {
     }
   }, [addTorrentFiles, commitMagnet])
 
+  // PWA launch handling: when the OS opens a .torrent with the installed app, or a
+  // magnet: link is routed here through the protocol handler, deliver it into the
+  // same add flow as the file picker and paste box. The launchQueue holds params
+  // until this consumer registers, so a late mount still receives them.
+  useEffect(() => {
+    const addFromLaunchUrl = (rawUrl: string | undefined) => {
+      if (!rawUrl) return
+      try {
+        const magnet = new URL(rawUrl, window.location.origin).searchParams.get('magnet')
+        if (magnet) commitMagnet(magnet)
+      } catch { /* ignore a malformed launch URL */ }
+    }
+
+    // Protocol-handler launches arrive as /?magnet=... in the address bar.
+    addFromLaunchUrl(window.location.href)
+
+    const queue = window.launchQueue
+    if (!queue) return
+    try {
+      queue.setConsumer(async (params: LaunchParams) => {
+        addFromLaunchUrl(params.targetURL)
+        if (params.files?.length) {
+          const files = await Promise.all(params.files.map((handle) => handle.getFile()))
+          await addTorrentFiles(files)
+        }
+      })
+    } catch { /* a consumer was already set on a prior mount */ }
+  }, [addTorrentFiles, commitMagnet])
+
   const onToggle = (t: Torrent) =>
     t.state === 'paused' ? resume(Number(t.id)) : pause(Number(t.id))
 

@@ -4,9 +4,16 @@
   "description": "Download and stream torrents in your browser",
   "icons": [
     {
+      "src": "./assets/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
       "src": "./assets/logo.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "sizes": "554x561",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "id": "/?source=pwa",
@@ -14,5 +21,30 @@
   "background_color": "#16131c",
   "display": "standalone",
   "scope": "/",
-  "theme_color": "#16131c"
+  "theme_color": "#16131c",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/x-bittorrent": [".torrent"]
+      },
+      "icons": [
+        {
+          "src": "./assets/logo.png",
+          "sizes": "554x561",
+          "type": "image/png"
+        }
+      ],
+      "launch_type": "single-client"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "magnet",
+      "url": "/?magnet=%s"
+    }
+  ]
 }
