@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { SyncStatus } from '../torrent/use-cloud-backup'
 
-import { ConnectButton } from '@fkn/lib'
+import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'

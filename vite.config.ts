@@ -60,7 +60,7 @@ export default defineConfig((env) => ({
     dedupe: ['@fkn/lib', 'osra'],
   },
   optimizeDeps: {
-    include: ['@fkn/lib'],
+    include: ['@fkn/lib', '@fkn/lib/react'],
   },
   worker: {
     format: 'es',
