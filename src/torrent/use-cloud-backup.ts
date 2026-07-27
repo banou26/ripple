@@ -20,6 +20,24 @@ export type SyncStatus = 'off' | 'syncing' | 'synced' | 'error'
 let settle: () => void
 export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = resolve })
 
+// Cloud storage is end to end encrypted, so a read can fail in ways that are neither
+// "no backup yet" nor a passing glitch. The broker reports each with a reserved marker
+// that survives the osra boundary (custom props are stripped, the message and `code`
+// are not), and each needs a different answer:
+//
+//   locked      the scope's key is not loaded in the broker right now. Recoverable, but
+//               only by a real click inside the broker's own frame, so we ask it to
+//               offer its unlock card and then retry.
+//   unreadable  the stored bytes can never be decrypted here: either they predate
+//               client-side sealing, or they are sealed under a key epoch that was
+//               reset. Retrying cannot help, so treat it as having no usable backup
+//               and re-seed from the local list rather than wedging on 'error'.
+const isLocked = (err: unknown): boolean => (err as { code?: string })?.code === 'FKN_E2E_LOCKED'
+const isUnreadable = (err: unknown): boolean => {
+  const message = (err as { message?: string })?.message ?? ''
+  return message.startsWith('fkn:e2e-integrity') || message.startsWith('fkn:e2e-stale-epoch')
+}
+
 // The connected account's display name, or null - bounded so a stalled broker
 // never blocks the restore (and the demo gate) indefinitely.
 const accountName = (): Promise<string | null> =>
@@ -62,7 +80,22 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       if (cancelled || !connected || !restored) return
       setStatus('syncing')
       try { await writeNow(); if (!cancelled) setStatus('synced') }
-      catch { if (!cancelled) setStatus('error') }
+      catch (err) {
+        if (cancelled) return
+        // The scope can lock after the restore settled: a key epoch reset, or the broker
+        // frame losing the key. Offer the card once and retry the write, so sync recovers
+        // without waiting for a remount. One retry only, so a persistent lock cannot loop.
+        if (isLocked(err)) {
+          let unlocked = false
+          try { unlocked = await cloud.fs.unlock() } catch {}
+          if (cancelled) return
+          if (unlocked) {
+            try { await writeNow(); if (!cancelled) setStatus('synced'); return } catch {}
+            if (cancelled) return
+          }
+        }
+        setStatus('error')
+      }
     }
     const schedule = () => { pending = true; window.clearTimeout(timer); timer = window.setTimeout(write, WRITE_DEBOUNCE) }
     // Fire a pending write before the page or route goes away, so the last change
@@ -96,13 +129,30 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       setStatus('syncing')
       let text: string | null = null
       let missing = false
+      let locked = false
       try {
         text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
       } catch (err) {
-        // Only a definitive "not found" means no backup yet; anything else is transient and must never seed over an existing backup
-        missing = /not found/i.test((err as { message?: string })?.message ?? '')
+        // A definitive "not found" means there is no backup, and unreadable bytes mean there
+        // is no usable one; both are safe to seed over. Locked gets its own recovery below.
+        // Anything else is transient and must never seed over a backup that may still be good.
+        missing = /not found/i.test((err as { message?: string })?.message ?? '') || isUnreadable(err)
+        locked = isLocked(err)
       }
       if (cancelled) return
+
+      if (locked) {
+        // Offer the broker's unlock card once per pass. It needs a real click inside the
+        // broker's own frame, so this is the only way back from a locked scope. Dismissed
+        // or unavailable resolves false and settles on 'error' without re-prompting; a
+        // later account change or remount starts a fresh pass.
+        let unlocked = false
+        try { unlocked = await cloud.fs.unlock() } catch {}
+        if (cancelled) return
+        if (unlocked && attempt < MAX_RESTORE_ATTEMPTS) return restore(attempt + 1)
+        setStatus('error')
+        return
+      }
 
       if (text !== null) {
         let list: unknown
@@ -116,7 +166,9 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
         restored = true
         setStatus('synced')
       } else if (missing) {
-        // Genuinely no backup for this account yet: seed it with the current local list.
+        // No backup for this account, or one that can never be decrypted here: seed it with
+        // the current local list. Re-seeding replaces an unreadable object, which is the only
+        // way sync recovers, since nothing can read those bytes back.
         restored = true
         setStatus('synced')
         if (latest.length) schedule()
