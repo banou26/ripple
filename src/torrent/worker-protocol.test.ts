@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import clientSource from './client.ts?raw'
+import protocolSource from './engine-protocol.ts?raw'
 import workerSource from './worker.ts?raw'
 
 const own = (): string[] => {
@@ -49,5 +50,37 @@ describe('the worker message allowlist', () => {
     expect(own().length).toBeGreaterThan(10)
     expect(sent().length).toBeGreaterThan(10)
     expect(handled().length).toBeGreaterThan(10)
+  })
+})
+
+// BROADCAST_TYPES decides which worker messages ever reach a tab that is borrowing the
+// engine from another one. Same failure as OWN, one layer up: add a message type, wire it
+// into the client, forget this list, and it works perfectly in the tab that owns the engine
+// and does nothing at all in every other tab. No error, no log.
+describe('the follower broadcast allowlist', () => {
+  const broadcast = (): string[] => {
+    const match = protocolSource.match(/BROADCAST_TYPES = new Set\(\[([\s\S]*?)\]\)/)
+    expect(match, 'BROADCAST_TYPES moved or changed shape').toBeTruthy()
+    return [...match![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!)
+  }
+
+  // Every message type the client reacts to, which is the set a follower needs to receive.
+  const clientHandles = (): string[] =>
+    [...new Set([...clientSource.matchAll(/m\.type === '([^']+)'/g)].map((m) => m[1]!))]
+
+  // A read reply belongs to the one tab that asked, so it goes to that tab's own channel
+  // rather than to everyone. ENGINE_RESET is synthesised by the transport, never sent by a
+  // worker, so it is referenced by constant rather than by literal.
+  const PRIVATE = ['read-result', 'read-error']
+
+  it('carries every message type the client reacts to', () => {
+    const allowed = broadcast()
+    const missing = clientHandles().filter((type) => !allowed.includes(type) && !PRIVATE.includes(type))
+    expect(missing, 'these would silently never arrive in a borrowing tab').toEqual([])
+  })
+
+  it('found the list, so a rename cannot make this vacuous', () => {
+    expect(broadcast().length).toBeGreaterThan(5)
+    expect(clientHandles().length).toBeGreaterThan(5)
   })
 })

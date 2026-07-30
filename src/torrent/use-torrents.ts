@@ -143,6 +143,9 @@ export const useTorrents = (): UseTorrents => {
   useEffect(() => {
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
+    // A handover means the message belonged to an engine that no longer exists, and the tab
+    // it belonged to is the one that had to act on it.
+    const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false) })
     // Demo seeding waits for the cloud restore to settle and judges the persisted list, so a restored library is never buried under the demo
     let checkedDemo = false
     const libraryCount = { current: 0 }
@@ -150,6 +153,12 @@ export const useTorrents = (): UseTorrents => {
     const offState = client.onState((s) => {
       setSnaps(s)
       if (checkedDemo) return
+      // Seeding is a write to the shared library plus a flag in shared localStorage, so it
+      // belongs to the tab that owns the engine. A borrowing tab must not do it: the cloud
+      // restore it waits on only runs in the owner, so this would fall through to the grace
+      // timeout with an empty count and drop the demo on top of a restored library, setting
+      // the flag that was supposed to prevent exactly that.
+      if (!client.owns()) return
       checkedDemo = true
       void Promise.race([cloudRestoreSettled, new Promise<void>((r) => setTimeout(r, DEMO_GRACE))])
         .then(() => {
@@ -162,7 +171,7 @@ export const useTorrents = (): UseTorrents => {
     })
     // The engine is shared across routes and outlives this component, so leaving the
     // library page only drops the subscriptions. It keeps downloading.
-    return () => { offUnavailable(); offWorkerError(); offList(); offState() }
+    return () => { offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
   // Live session torrents plus "Files missing" ghosts for synced entries not yet

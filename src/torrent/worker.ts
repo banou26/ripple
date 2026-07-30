@@ -603,7 +603,14 @@ self.addEventListener('message', (e: MessageEvent) => {
   const m = e.data
   if (!m || typeof m !== 'object' || typeof m.type !== 'string' || !OWN.has(m.type)) return
   const live = session
-  if (!live) { post({ type: 'error', message: 'worker not initialized' }); return }
+  if (!live) {
+    // A read has a caller waiting on it, and a bare error is only logged, so answering that
+    // way left it to time out after two full minutes. Everything else is fire and forget and
+    // will be re-sent by whoever cares.
+    if (m.type === 'read') post({ type: 'read-error', id: m.id, error: 'the engine is still starting' })
+    else post({ type: 'error', message: 'worker not initialized' })
+    return
+  }
   if (UNQUEUED.has(m.type)) { void handleMessage(live, m); return }
   commands = commands.then(() => handleMessage(live, m))
 })

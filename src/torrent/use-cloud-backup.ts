@@ -68,8 +68,15 @@ const accountName = (): Promise<string | null> =>
 export const useCloudBackup = (): SyncStatus => {
   const client = getTorrentClient()
   const [status, setStatus] = useState<SyncStatus>('off')
+  // Only the tab hosting the engine syncs. Every open tab sees the same list and the same
+  // account, so running this in all of them would have each one restore the backup and then
+  // race the others to write it back, with the debounce making the loser's copy the one that
+  // lands. One writer, and it is the tab that owns the library.
+  const [owned, setOwned] = useState(false)
+  useEffect(() => client.onOwnership(setOwned), [client])
 
   useEffect(() => {
+    if (!owned) return
     let cancelled = false
     let connected = false
     // Writes stay disarmed until the current restore settles, so a transient read error or an account switch can never clobber a good cloud backup
@@ -268,7 +275,7 @@ export const useCloudBackup = (): SyncStatus => {
       offList()
       offAccount?.()
     }
-  }, [client])
+  }, [client, owned])
 
   return status
 }

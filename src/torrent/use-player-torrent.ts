@@ -45,6 +45,10 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     // happily play the wrong file.
     const infoHash = magnetInfoHash(magnet)
     let sequentialSet = false
+    // A handover builds a fresh session that knows nothing about this tab's streaming order,
+    // and the latch below would otherwise never re-arm, leaving playback pulling pieces
+    // rarest-first for the rest of the route. The handle is re-read from state either way.
+    const offReset = client.onEngineReset(() => { sequentialSet = false; handleRef.current = null })
     const off = client.onState((snaps) => {
       const snap = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
@@ -60,6 +64,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     })
     return () => {
       off()
+      offReset()
       offUnavailable()
       offWorkerError()
       // Leaving the player stops streaming in order; the shared session goes back to

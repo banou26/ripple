@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import Router from '../router'
 import { destroyTorrentClient } from '../torrent/client'
+import { hasWebLocks } from '../torrent/engine-protocol'
 import { useActiveWindow } from '../utils/active-window-effect'
 
 const style = css`
@@ -18,9 +19,11 @@ const style = css`
   }
 `
 
-const Mount = () => {
-  // Single-tab guard. The engine itself is a document-wide singleton created on demand by
-  // the routes, so all this has to do is hand it back when another tab takes over.
+// Without Web Locks there is nothing to arbitrate the engine with, so the old rule stands:
+// exactly one tab may run, and the rest offer to take over. A libtorrent session holds an
+// exclusive OPFS lock on every file it writes, so a second one running over the same library
+// corrupts both.
+const SingleTabMount = () => {
   const { claim, activate } = useActiveWindow({})
 
   // Terminating the worker is what releases its exclusive OPFS locks, so the tab that
@@ -47,5 +50,8 @@ const Mount = () => {
   return <Router/>
 }
 
+// Web Locks decides which tab hosts the engine and the rest borrow it, so every tab is a
+// usable one and there is nothing to prompt about.
+const Mount = () => (hasWebLocks() ? <Router/> : <SingleTabMount/>)
 
 export default Mount
