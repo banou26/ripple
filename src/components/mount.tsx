@@ -1,6 +1,8 @@
 import { css } from '@emotion/react'
+import { useEffect } from 'react'
 
 import Router from '../router'
+import { destroyTorrentClient } from '../torrent/client'
 import { useActiveWindow } from '../utils/active-window-effect'
 
 const style = css`
@@ -17,11 +19,20 @@ const style = css`
 `
 
 const Mount = () => {
-  // Single-tab guard only - the torrent engine now lives in the libtorrent-wasm
-  // worker (per-route), so there's no app-wide client to create/tear down here.
-  const { isActive, activate } = useActiveWindow({})
+  // Single-tab guard. The engine itself is a document-wide singleton created on demand by
+  // the routes, so all this has to do is hand it back when another tab takes over.
+  const { claim, activate } = useActiveWindow({})
 
-  if (!isActive) {
+  // Terminating the worker is what releases its exclusive OPFS locks, so the tab that
+  // just claimed the library can actually open the files.
+  useEffect(() => { if (claim === 'inactive') destroyTorrentClient() }, [claim])
+
+  // Nothing during the probe: the answer arrives within a frame or two, and painting the
+  // takeover prompt first made "it will stop the other tab" the app's opening statement
+  // on every single load.
+  if (claim === 'probing') return null
+
+  if (claim === 'inactive') {
     return (
       <div css={style}>
         <div>Only one page can be active at a time.</div>

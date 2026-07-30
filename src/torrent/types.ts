@@ -1,5 +1,6 @@
-// 'missing' = synced from another device, not downloaded on this one (no local files).
-export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing'
+// 'missing'  = synced from another device, not downloaded on this one (no local files).
+// 'retrying' = stopped by an error, or connected to nothing, with a retry scheduled.
+export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing' | 'retrying'
 
 export type TorrentFile = {
   name: string
@@ -22,4 +23,11 @@ export type Torrent = {
   seeds: number
   eta: string
   files?: TorrentFile[]
+  // Present while state === 'retrying': why it stopped and how long until the next try.
+  retry?: {
+    reason: 'stopped' | 'stalled'
+    attempt: number
+    retryInSeconds: number
+    message?: string
+  }
 }

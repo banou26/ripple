@@ -23,6 +23,10 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
+// Closing the file picker rejects with AbortError. That is the user changing their mind,
+// not a failure worth reporting back to them.
+const isPickerDismissal = (error: unknown): boolean => (error as { name?: string })?.name === 'AbortError'
+
 const STATE_LABEL: Record<Torrent['state'], string> = {
   downloading: 'Downloading',
   seeding: 'Seeding',
@@ -31,6 +35,23 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
   done: 'Done',
   error: 'Error',
   missing: 'Files missing',
+  retrying: 'Retrying',
+}
+
+// What a torrent in recovery says about itself. The engine's own message is used when it
+// managed to attribute one; otherwise say which of the two failures it is, since "stopped
+// by the disk" and "connected to nothing" call for very different user action.
+const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => {
+  const stalled = retry.reason === 'stalled'
+    ? (t.peers > 0 ? 'Peers stopped sending data' : 'Not connected to any peers')
+    : 'Stopped by an error'
+  const reason = retry.message ?? stalled
+  const wait = retry.retryInSeconds <= 0
+    ? 'retrying now'
+    : retry.retryInSeconds < 60
+      ? `retrying in ${retry.retryInSeconds}s`
+      : `retrying in ${Math.ceil(retry.retryInSeconds / 60)}m`
+  return `${reason} · ${wait}`
 }
 
 const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
@@ -111,6 +132,11 @@ const AccountWidget = () => {
 }
 
 const HISTORY = 120
+
+// Auto-save bookkeeping: a torrent already copied to the folder is parked on DONE, and a
+// failed copy waits SYNC_RETRY before the next attempt.
+const DONE = Number.POSITIVE_INFINITY
+const SYNC_RETRY = 30_000
 
 const style = css`
   height: 100dvh;
@@ -323,6 +349,30 @@ const style = css`
 
     strong { color: #fbbf24; font-size: 0.95rem; }
     span { color: #8b8499; font-size: 0.85rem; line-height: 1.6; }
+
+    button {
+      align-self: flex-start;
+      margin-top: 6px;
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: 1px solid #3a3447;
+      background: none;
+      color: #f4f2f8;
+
+      &:hover {
+        background: #241e30;
+        border-color: rgba(249, 115, 22, 0.35);
+      }
+    }
+
+    /* Recoverable on its own, so it reads as a notice rather than an alarm. */
+    &.offline {
+      border-color: rgba(139, 132, 153, 0.35);
+
+      strong { color: #c9c4d4; }
+    }
   }
 
   .stats {
@@ -499,6 +549,21 @@ const style = css`
       &.done { color: #c084fc; background: #c084fc14; border-color: #c084fc30; }
       &.error { color: #ef4444; background: #ef444414; border-color: #ef444430; }
       &.missing { color: #8b8499; background: #8b849914; border-color: #8b849930; }
+
+      &.retrying {
+        color: #f97316;
+        background: #f9731614;
+        border-color: #f9731630;
+
+        &::before {
+          animation: pulse 1.6s ease-in-out infinite;
+        }
+      }
+    }
+
+    .retry {
+      color: #f97316;
+      overflow-wrap: anywhere;
     }
 
     .bar {
@@ -895,6 +960,7 @@ type RowProps = {
   onSaveZip: (t: Torrent) => void
   onRemove: (t: Torrent) => void
   onStart: (t: Torrent) => void
+  onPause: (t: Torrent) => void
 }
 
 // A torrent whose files aren't on this device - synced from another device, or its
@@ -918,13 +984,16 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
   </div>
 )
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart }: RowProps) => {
+const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart, onPause }: RowProps) => {
   if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
   // Multifile torrents save as one zip of everything; single-file saves the file.
   const multi = (t.files?.length ?? 0) > 1
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
+  // Judged on progress, not state: a finished torrent that is currently retrying (say its
+  // seeding hit a disk error) still has every byte on disk and saves fine.
+  const complete = t.progress >= 1
   return (
     <div className="torrent surface">
       <div className="title">
@@ -942,15 +1011,25 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart 
           <span>↑ {speed(t.up)}</span>
           <span>{t.peers} peers</span>
           {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+          {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
         </div>
         <div className="actions">
           {href && <Link className="primary" to={href}>Watch</Link>}
-          {!!t.files?.length && (
+          {/* Saving reads through the engine, which parks until the bytes arrive, so only
+              offer it once there are bytes to read rather than wedging on a stalled torrent. */}
+          {!!t.files?.length && complete && (
             <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
               {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
             </button>
           )}
-          <button onClick={() => onToggle(t)}>{t.state === 'paused' ? 'Resume' : 'Pause'}</button>
+          {/* A torrent in recovery is already retrying on its own, so its button only
+              skips the wait; it still needs a Pause of its own, or the only way to stop a
+              torrent that keeps failing would be to delete it. Queued is libtorrent
+              holding it behind others, which Resume overrides. */}
+          <button onClick={() => onToggle(t)}>
+            {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
+          </button>
+          {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
           <button onClick={() => onRemove(t)}>Remove</button>
         </div>
       </div>
@@ -976,10 +1055,11 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart 
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, storageUnavailable, clientRef } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, remove, start, removeMissing, storageUnavailable, workerError, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
+  const [offline, setOffline] = useState(() => navigator.onLine === false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<number | undefined>(undefined)
 
@@ -993,6 +1073,20 @@ const Home = () => {
     clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
+
+  // Downloads carry on regardless (the engine retries on its own), but say so, otherwise
+  // a library sitting at zero looks broken rather than waiting.
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
+  }, [])
+
+  // A .torrent the engine could not parse, or one whose infohash never arrived. The add
+  // is optimistic, so this is the only place the failure can surface.
+  useEffect(() => client.onAddFailed(showToast), [client, showToast])
 
   // Offer handler setup only while running in a browser tab; an installed window
   // already has the .torrent and magnet handlers active from the manifest.
@@ -1085,6 +1179,15 @@ const Home = () => {
 
     // Protocol-handler launches arrive as /?magnet=... in the address bar.
     addFromLaunchUrl(window.location.href)
+    // Then take it out of the URL. It is a one-shot instruction, but it survives a
+    // reload, a tab restore and the Back button out of the player, and the dedup guard
+    // cannot help: the list is always empty this early in the mount. Left in place, a
+    // torrent the user removed comes back on the next reload and the list sync pushes
+    // that resurrection to every other device. Stripped unconditionally, so a value that
+    // failed to parse cannot replay either.
+    if (window.location.search.includes('magnet=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+    }
 
     const queue = window.launchQueue
     if (!queue) return
@@ -1099,8 +1202,17 @@ const Home = () => {
     } catch { /* a consumer was already set on a prior mount */ }
   }, [addTorrentFiles, commitMagnet])
 
+  // A torrent in recovery goes through retry, not resume: resume is for undoing a pause,
+  // and a stalled torrent is not paused, so it would do nothing at all while throwing
+  // away the schedule that was about to act.
   const onToggle = (t: Torrent) =>
-    t.state === 'paused' ? resume(Number(t.id)) : pause(Number(t.id))
+    t.state === 'retrying'
+      ? retry(Number(t.id))
+      : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id))
+
+  // Stopping a torrent that is retrying. Recorded as a real pause, so recovery drops it
+  // and it stays stopped across reloads.
+  const onPause = (t: Torrent) => pause(Number(t.id))
 
   // A synced "Files missing" torrent has no session handle - start/remove it by
   // infoHash. Starting adds it to the swarm; removing just drops the list entry.
@@ -1115,45 +1227,69 @@ const Home = () => {
   // Streams one file out of OPFS to the user's disk. Called synchronously
   // from the click so showSaveFilePicker keeps the user gesture.
   const onSave = (t: Torrent, fileIndex: number) => {
-    const client = clientRef.current
     const file = t.files?.[fileIndex]
-    if (!client || !file) return
+    if (!file) return
     const key = savingKey(t.id, fileIndex)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentFileToDisk(client, Number(t.id), fileIndex, file.name, file.size, (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch(() => {})
+      .catch((error) => { if (!isPickerDismissal(error)) showToast(`Saving ${file.name} failed`) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
   // Streams every file of a multifile torrent into one zip on the user's disk.
   const onSaveZip = (t: Torrent) => {
-    const client = clientRef.current
-    if (!client || !t.files?.length) return
+    if (!t.files?.length) return
     const key = savingKey(t.id, -1)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files, (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch(() => {})
+      .catch((error) => { if (!isPickerDismissal(error)) showToast(`Saving ${t.name} failed`) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
 
-  // Auto-copy finished torrents into the chosen folder. The synced set only
-  // dedups this session; the sync itself skips files already on disk.
-  const syncedRef = useRef(new Set<string>())
-  useEffect(() => { syncedRef.current.clear() }, [folder])
+  // Auto-copy finished torrents into the chosen folder. Each torrent is held off until a
+  // deadline rather than marked done outright: the copy can fail on a full disk, a
+  // revoked grant or a read that could not be served, and the sync is idempotent (it
+  // skips files already the right size and aborts its writable on failure), so a retry
+  // is always safe. The backoff is what makes retrying safe: this effect re-runs twice a
+  // second from the state tick, so a bare retry would hammer the disk and pin an error
+  // toast. Cleared on a folder change and on a re-grant, since both can fix the failure.
+  const syncAtRef = useRef(new Map<string, number>())
+  // In-flight copies are tracked separately from the backoff: a copy can easily run
+  // longer than the retry window, and this effect re-runs twice a second, so a deadline
+  // alone would start a second and third pass over the same files. A swap-file writable
+  // leaves the destination at its old size until close(), so the idempotence check
+  // cannot catch that either.
+  const syncingRef = useRef(new Set<string>())
+  const folderGenerationRef = useRef(0)
+  useEffect(() => { folderGenerationRef.current++; syncAtRef.current.clear() }, [folder, permitted])
   useEffect(() => {
-    const client = clientRef.current
-    if (!client || !folder || !permitted) return
+    if (!folder || !permitted) return
+    const now = Date.now()
     for (const t of torrents) {
       if (t.state !== 'done' && t.state !== 'seeding') continue
-      if (!t.files?.length || syncedRef.current.has(t.id)) continue
-      syncedRef.current.add(t.id)
+      if (!t.files?.length || syncingRef.current.has(t.id)) continue
+      const attempt = syncAtRef.current.get(t.id)
+      if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
+      syncingRef.current.add(t.id)
+      // A copy that finishes after the folder changed must not record anything: marking
+      // it done would permanently suppress the copy into the newly chosen folder.
+      const generation = folderGenerationRef.current
       syncTorrentToDirectory(client, t, folder)
-        .then((written) => { if (written) showToast(`${t.name} saved to ${folder.name}`) })
-        .catch(() => showToast(`Saving ${t.name} to ${folder.name} failed`))
+        .then((written) => {
+          if (generation !== folderGenerationRef.current) return
+          syncAtRef.current.set(t.id, DONE)
+          if (written) showToast(`${t.name} saved to ${folder.name}`)
+        })
+        .catch(() => {
+          if (generation !== folderGenerationRef.current) return
+          syncAtRef.current.set(t.id, Date.now() + SYNC_RETRY)
+          showToast(`Saving ${t.name} to ${folder.name} failed, retrying`)
+        })
+        .finally(() => syncingRef.current.delete(t.id))
     }
-  }, [torrents, folder, permitted, clientRef, showToast])
+  }, [torrents, folder, permitted, client, showToast])
 
   // Rolling window of total download speed, one sample per state tick.
   const [history, setHistory] = useState<number[]>([])
@@ -1170,7 +1306,8 @@ const Home = () => {
   // a ghost-only ("Files missing") library transfers nothing until a Download is clicked.
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
-  const syncStatus = useCloudBackup(clientRef)
+  const syncStatus = useCloudBackup()
+  const retrying = torrents.filter((t) => t.state === 'retrying').length
 
   return (
     <div css={style} data-drag={dragging || undefined}>
@@ -1224,6 +1361,33 @@ const Home = () => {
         </div>
       )}
 
+      {workerError && (
+        <div className="storage-warning surface" role="alert">
+          <strong>The download engine stopped</strong>
+          <span>
+            Nothing will download until the page is reloaded. Your library and everything already
+            downloaded are safe. ({workerError})
+          </span>
+          <button onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
+
+      {/* Nothing needs doing here: the engine keeps retrying and picks straight back up
+          when the connection returns. Say so, or a library sitting at zero reads as broken. */}
+      {offline && !storageUnavailable && !workerError && (
+        <div className="storage-warning surface offline" role="status">
+          <strong>You're offline</strong>
+          <span>Downloads carry on automatically as soon as the connection is back.</span>
+        </div>
+      )}
+
+      {!offline && retrying > 0 && !workerError && (
+        <div className="storage-warning surface offline" role="status">
+          <strong>{retrying === 1 ? 'A download hit a problem' : `${retrying} downloads hit a problem`}</strong>
+          <span>Ripple is retrying on its own. Each row shows why and when the next attempt is.</span>
+        </div>
+      )}
+
       {torrents.length > 0 && (
         <section className="stats surface">
           <div className="readouts">
@@ -1274,6 +1438,7 @@ const Home = () => {
               onSaveZip={onSaveZip}
               onRemove={onRemove}
               onStart={onStart}
+              onPause={onPause}
             />
           ))}
       </main>

@@ -7,11 +7,14 @@ import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
-import { OPFSStorage } from 'libtorrent-wasm/opfs'
+
+import type { RecoveryState } from './recovery'
 
 import { magnetInfoHash } from './magnet'
+import { createResilientStorage } from './opfs-storage'
+import { createRecoveryTracker } from './recovery'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -19,6 +22,11 @@ export type TorrentSnapshot = {
   files: TorrentFiles | null
   status: TorrentStatus | null
   bitfield: { numPieces: number, pieceLength: number, length: number, pieces: Uint8Array } | null
+  // Set while the torrent is stopped or stalled and waiting on the next retry.
+  recovery: RecoveryState | null
+  // True while the user is the reason it is paused, so the UI never offers to
+  // "recover" a torrent that is paused exactly as asked.
+  userPaused: boolean
 }
 
 const LIST_KEY = 'ripple:torrents'
@@ -27,14 +35,36 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // started === false marks a torrent synced from another device that this device
 // hasn't downloaded yet: it lives in the list but is NOT added to the session (no
 // swarm, no download) until the user starts it. Absent/true = active here.
-export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number, started?: boolean }
+// paused === true is a pause the user asked for, kept across reloads so auto-recovery
+// never restarts a torrent that is stopped on purpose. Both are device-local and are
+// deliberately left out of the cloud backup.
+export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number, started?: boolean, paused?: boolean }
 
 let session: Session | null = null
+// Whether the page has been told the engine is usable. Decides whether a late failure is
+// terminal or just one command going wrong.
+let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
 const infoHashByHandle = new Map<number, string>()
 const savePathByHandle = new Map<number, string>()
 const resumeSaved = new Set<number>()
+// Handles the user paused. Everything else that is stopped is a failure to recover from.
+const userPaused = new Set<number>()
+// Pauses a restore wants but the engine has not accepted yet, reconciled from the tick
+// loop. libtorrent only takes commands for handles it has registered, which happens the
+// first time its alerts are pumped, so a pause issued during the restore is silently
+// discarded. Only pauses are tracked: everything else is auto-managed, and libtorrent
+// starts it itself, in its own order, which is exactly what should happen.
+const wantPaused = new Set<number>()
+// Backoff for completion resume snapshots that failed to reach IndexedDB.
+const resumeRetry = new Map<number, { tries: number, at: number }>()
+const recovery = createRecoveryTracker()
+
+// The engine's -1 (empty input) and -2 (unparseable magnet or torrent file) come back
+// widened to the top of the unsigned range; real handles count up from 1. Tracking one
+// leaves a row that can never resolve, persisted and restored on every reload.
+const addFailed = (handle: number) => handle >= 0xFFFFFF00
 
 const post = (msg: any, transfer?: Transferable[]) => (self as any).postMessage(msg, transfer ?? [])
 
@@ -47,6 +77,8 @@ const snapshot = (): TorrentSnapshot[] =>
       files: session!.files(h),
       status: session!.status(h),
       bitfield: bf ? { numPieces: bf.numPieces, pieceLength: bf.pieceLength, length: bf.length, pieces: bf.pieces } : null,
+      recovery: recovery.state(h),
+      userPaused: userPaused.has(h),
     }
   })
 
@@ -59,6 +91,16 @@ const upsertList = async (entry: Persisted) => {
     list = prev ?? []
     const i = list.findIndex((e) => e.infoHash === entry.infoHash)
     if (i >= 0) list[i] = entry; else list.push(entry)
+    return list
+  })
+  post({ type: 'list', list })
+}
+const patchList = async (ih: string, patch: Partial<Persisted>) => {
+  let list: Persisted[] = []
+  await update<Persisted[]>(LIST_KEY, (prev) => {
+    list = prev ?? []
+    const i = list.findIndex((e) => e.infoHash === ih)
+    if (i >= 0) list[i] = { ...list[i]!, ...patch }
     return list
   })
   post({ type: 'list', list })
@@ -80,13 +122,39 @@ const track = (h: number, magnet: string, ih: string | null, savePath: string) =
 const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
+  userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
+  wantPaused.delete(h); resumeRetry.delete(h)
   for (const k of lastReadOffset.keys()) if (k.startsWith(h + ':')) lastReadOffset.delete(k)
 }
 
-const persistResume = async (h: number) => {
+// Reads park until the pieces they cover arrive, so a torrent that goes away or stops
+// leaves its readers waiting on data that is never coming. Fail them explicitly: every
+// caller (the player, the save-to-disk export, the folder sync) handles a rejection and
+// none of them handles a promise that simply never settles.
+const readsByHandle = new Map<number, Set<number>>()
+const failReads = (h: number, error: string) => {
+  const ids = readsByHandle.get(h)
+  if (!ids?.size) return
+  for (const id of ids) post({ type: 'read-error', id, error })
+  ids.clear()
+}
+
+// saveResumeData waits on libtorrent to post the blob and gives up after 8s, which is
+// longer than the loops that call this, so a second snapshot for the same torrent must
+// not stack on the first. Reports whether the blob actually reached IndexedDB: a caller
+// that records success from the call alone gets exactly one attempt per session.
+const resumeInFlight = new Set<number>()
+const persistResume = async (h: number): Promise<boolean> => {
   const ih = infoHashByHandle.get(h)
-  if (!ih || !session) return
-  try { await set(resumeKey(ih), await session.saveResumeData(h)) } catch {}
+  if (!ih || !session || resumeInFlight.has(h)) return false
+  resumeInFlight.add(h)
+  try {
+    await set(resumeKey(ih), await session.saveResumeData(h))
+    return true
+  } catch (err) {
+    console.error('[worker] saving resume data failed', String(err))
+    return false
+  } finally { resumeInFlight.delete(h) }
 }
 
 const filePieceRange = (h: number, fileIndex: number) => {
@@ -130,10 +198,13 @@ const anchorSequential = (h: number, fileIndex: number, offset: number) => {
   prioritizeFile(h, fileIndex, offset)
 }
 
-// Does OPFS still hold any downloaded data under these save paths? Lets a restore
-// tell a normal resume from "the list survived but the files were cleared/evicted"
-// (e.g. the user cleared site storage). On any OPFS error assume data is present, so
-// a transient read failure never wrongly demotes torrents to "Files missing".
+// Does OPFS still hold the save paths these torrents were downloading into? Lets a
+// restore tell a normal resume from "the list survived but the files were cleared/evicted"
+// (e.g. the user cleared site storage). The directory existing is the signal, not what is
+// inside it: OPFS creates the save path as soon as a torrent is added but its files only
+// on the first write, so a torrent that has metadata and no bytes yet sits in an empty
+// directory and must not read as wiped. On any OPFS error assume data is present, so a
+// transient read failure never wrongly demotes torrents to "Files missing".
 const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
   try {
     const root = await navigator.storage.getDirectory()
@@ -142,8 +213,7 @@ const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
       for (const seg of sp.split('/').filter(Boolean)) {
         dir = dir ? await dir.getDirectoryHandle(seg).catch(() => null) : null
       }
-      if (!dir) continue
-      for await (const _ of (dir as any).keys()) return true
+      if (dir) return true
     }
     return false
   } catch { return true }
@@ -171,6 +241,76 @@ const opfsAvailable = async (): Promise<boolean> => {
   }
 }
 
+// libtorrent alert type ids, forwarded verbatim by the wrapper (alert_types.hpp). Only
+// the failures worth explaining to a user are listed; the rest of the stream is noise.
+// session_error (90) is here as a reason and nothing more: this build expects one at
+// start-up (the session's init spawns a thread that cannot exist without pthreads, which
+// the wrapper catches and recovers from), so treating it as fatal would take down a
+// perfectly healthy page load.
+const ALERT_REASON: Record<number, string> = {
+  34: 'Storage move failed',
+  43: 'Disk error',
+  44: 'Torrent data did not match its info hash',
+  53: 'Saved progress was rejected',
+  64: 'Torrent error',
+  90: 'Engine error',
+}
+
+// An alert carries no torrent handle (the wrapper emits only the type and the text), so
+// a failure can only be tied to a torrent by timing: the alert and the stop it caused
+// land in the same tick or the next one. Anything older is left unattributed rather
+// than guessed at.
+const ATTRIBUTION_WINDOW = 3_000
+let lastFailure: { at: number, message: string } | null = null
+
+const noteAlerts = (alerts: { type: number, message: string }[], now: number) => {
+  for (const { type, message } of alerts) {
+    const reason = ALERT_REASON[type]
+    if (reason) lastFailure = { at: now, message: `${reason}: ${message}` }
+  }
+}
+
+// Attach whatever explanation is available to torrents that just entered recovery. Runs
+// after the health pass, so an entry created this tick still gets its reason.
+const attributeFailures = (now: number) => {
+  if (!lastFailure || now - lastFailure.at > ATTRIBUTION_WINDOW) return
+  for (const h of handles) {
+    const state = recovery.state(h)
+    // Only a torrent the engine stopped, and only one that has not retried yet, which
+    // means it stopped within the last few seconds. Without both, a torrent that has been
+    // quietly failing for ten minutes, or one that merely lost its swarm, would claim the
+    // explanation for a disk error somewhere else entirely.
+    if (state?.reason === 'stopped' && state.attempt === 0 && state.message === undefined) {
+      recovery.note(h, lastFailure.message)
+    }
+  }
+}
+
+// ---- libtorrent's own queue -----------------------------------------------
+// Every torrent is auto-managed, and libtorrent stops whatever sits past its concurrency
+// limits to make room, then starts it again itself once a slot frees. `status.paused`
+// says nothing about which of the two happened, so a paused torrent only counts as a
+// failure when the queue cannot be the explanation. These are libtorrent's defaults,
+// which the wasm build never overrides.
+const ACTIVE_DOWNLOADS = 3
+const ACTIVE_SEEDS = 5
+
+type QueueLoad = { downloading: number, seeding: number }
+
+const queueLoad = (): QueueLoad => {
+  const load = { downloading: 0, seeding: 0 }
+  for (const h of handles) {
+    const st = session?.status(h)
+    if (!st || st.paused) continue
+    if (st.state === 2 || st.state === 3) load.downloading++
+    else if (st.state === 4 || st.state === 5) load.seeding++
+  }
+  return load
+}
+
+const queueIsFull = (load: QueueLoad, state: number): boolean =>
+  state === 4 || state === 5 ? load.seeding >= ACTIVE_SEEDS : load.downloading >= ACTIVE_DOWNLOADS
+
 const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
@@ -180,7 +320,13 @@ const init = async () => {
     return
   }
 
-  session = await createSession({ net, dgram, storage: new OPFSStorage(), utpReceiveBufferBytes: 4_194_304 })
+  // Best effort: an origin that is only "best effort" can be evicted wholesale, which is
+  // the failure the restore path at the bottom of this function already has to model.
+  await navigator.storage.persist?.().catch(() => false)
+
+  const storage = createResilientStorage()
+  storage.onError((message) => { lastFailure = { at: Date.now(), message: 'Disk error: ' + message } })
+  session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
   // Restore the persisted list. With a saved fast-resume blob, add via resume so
@@ -210,26 +356,71 @@ const init = async () => {
         : bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
+      if (addFailed(h)) continue
       track(h, e.magnet, e.infoHash, savePath)
+      // A torrent the user paused comes back paused, and stays out of auto-recovery. The
+      // pause is recorded rather than applied: the engine only accepts commands for a
+      // handle it has registered, which happens when the first alert is pumped, and the
+      // loop that does that has not started yet.
+      if (e.paused) { userPaused.add(h); wantPaused.add(h) }
+      recovery.hold(h, Date.now())
     }
     if (changed) await set(LIST_KEY, list)
   } catch (err) { console.error('[worker] restore failed', err) }
 
-  post({ type: 'list', list: await loadList() })
+  // Ready first, and never behind an IndexedDB read: the session is live and usable at
+  // this point, and a blocked or corrupted list read would otherwise leave every command
+  // queued behind a promise that never settles.
   post({ type: 'ready' })
+  readyPosted = true
+  post({ type: 'list', list: await loadList().catch(() => []) })
 
   setInterval(() => {
     if (!session) return
-    session.popAlerts()
+    const now = Date.now()
+    // Pumping the alerts is also what registers handles with the engine, so a command
+    // recorded before the first pump is applied here rather than at the point it was
+    // asked for, where it would have been silently dropped.
+    noteAlerts(session.popAlerts(), now)
     for (const h of handles) session.postStatus(h)
-    post({ type: 'state', torrents: snapshot() })
-    // Snapshot resume data the first time a torrent completes, so a reload right
-    // after finishing still resumes from OPFS rather than re-downloading.
+    for (const h of wantPaused) {
+      const st = session.status(h)
+      if (!st) continue
+      if (st.paused) wantPaused.delete(h)
+      else session.pauseTorrent(h)
+    }
+
+    // Judge every torrent's health, then act on whatever is due. A stopped torrent
+    // just needs resuming; a stalled one needs a stop first, since that is what makes
+    // libtorrent announce to its trackers again instead of waiting out the interval.
+    recovery.retain(new Set(handles))
+    const load = queueLoad()
     for (const h of handles) {
       const st = session.status(h)
-      if (st && (st.state === 4 || st.state === 5) && !resumeSaved.has(h)) {
-        resumeSaved.add(h); persistResume(h)
-      }
+      recovery.observe(h, st && { ...st, queued: st.paused && queueIsFull(load, st.state) }, userPaused.has(h), now)
+    }
+    attributeFailures(now)
+    for (const { handle, reason } of recovery.due(now)) {
+      if (reason === 'stalled') session.pauseTorrent(handle)
+      session.resumeTorrent(handle)
+    }
+
+    post({ type: 'state', torrents: snapshot() })
+    // Snapshot resume data once a torrent completes, so a reload right after finishing
+    // still resumes from OPFS rather than re-downloading. Only a snapshot that actually
+    // landed counts as done, and a failed one backs off: on a full origin (which is
+    // exactly the state a just-finished torrent leaves) it would otherwise re-serialise
+    // the whole info dict twice a second for the life of the page.
+    for (const h of handles) {
+      const st = session.status(h)
+      if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.has(h) || resumeInFlight.has(h)) continue
+      const retry = resumeRetry.get(h)
+      if (retry && now < retry.at) continue
+      void persistResume(h).then((saved) => {
+        if (saved) { resumeSaved.add(h); resumeRetry.delete(h); return }
+        const tries = (resumeRetry.get(h)?.tries ?? 0) + 1
+        resumeRetry.set(h, { tries, at: Date.now() + Math.min(1_000 * 2 ** tries, 60_000) })
+      })
     }
   }, 500)
 
@@ -241,12 +432,16 @@ const init = async () => {
       if (st && st.state === 3) persistResume(h)
     }
   }, 15000)
+
+  // Connectivity is back: retry everything that is waiting out a backoff right now
+  // rather than sitting through the rest of it. The main thread forwards its own
+  // online event too, since a worker does not always get one.
+  self.addEventListener('online', () => recovery.retryNow(Date.now()))
 }
 
-self.addEventListener('message', async (e: MessageEvent) => {
-  const m = e.data
-  if (!m || typeof m !== 'object' || typeof m.type !== 'string' || !OWN.has(m.type)) return
-  if (!session) { post({ type: 'error', message: 'worker not initialized' }); return }
+// Takes the live session explicitly: the listener has already checked it exists, and the
+// handlers await, so re-reading the module binding would need a null check per statement.
+const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
       const savePath = m.savePath || '/dl'
@@ -257,7 +452,11 @@ self.addEventListener('message', async (e: MessageEvent) => {
         post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
       } else {
         const h = session.addMagnet(m.magnet, savePath)
+        if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
         track(h, m.magnet, ih, savePath)
+        // Every torrent is added stopped and started by libtorrent's own queue, so give
+        // it a moment before the health check has an opinion about it.
+        recovery.hold(h, Date.now())
         if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
         post({ type: 'added', handle: h, magnet: m.magnet })
       }
@@ -265,20 +464,38 @@ self.addEventListener('message', async (e: MessageEvent) => {
       const savePath = m.savePath || '/dl'
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
+      if (addFailed(h)) { post({ type: 'add-failed', message: 'That file is not a valid .torrent' }); return }
       track(h, '', null, savePath)
+      recovery.hold(h, Date.now())
       // infohash lands with the add alert (popped by the 500ms loop) - poll for it.
       let ih: string | null = null
       for (let i = 0; i < 40 && !(ih = session.infohash(h)); i++) await new Promise((r) => setTimeout(r, 250))
+      // A remove or an account switch during that poll already tore this handle down;
+      // re-tracking it now would resurrect a torrent with no persisted entry behind it.
+      if (!handles.includes(h)) return
+      if (!ih) {
+        session.removeTorrent(h, true)
+        untrack(h)
+        post({ type: 'add-failed', message: 'Could not read that torrent' })
+        return
+      }
       // The synthesized magnet is the torrent's identity everywhere (list, /embed
       // URL, player match); the raw .torrent bytes stay the restore source.
-      const magnet = ih ? 'magnet:?xt=urn:btih:' + ih : ''
+      const magnet = 'magnet:?xt=urn:btih:' + ih
       track(h, magnet, ih, savePath)
-      if (ih) {
-        await set(torrentKey(ih), bytes)
-        await upsertList({ infoHash: ih, magnet, savePath, addedAt: Date.now() })
-      }
+      await set(torrentKey(ih), bytes)
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt: Date.now() })
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
+      // A torrent the user paused is downloading nothing and nothing here will change
+      // that, so a read of bytes it does not have would park until the caller's own
+      // timeout. Answer immediately instead. Only a deliberate pause qualifies: libtorrent
+      // reports a torrent it parked behind others, and one that is checking its files, as
+      // paused too, and both of those do come back on their own.
+      if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
+        post({ type: 'read-error', id: m.id, error: 'torrent paused' })
+        return
+      }
       if (m.prioritize !== false) anchorSequential(m.handle, m.fileIndex, m.offset)
       // Quiet readers must never block on (or wait for) missing pieces; fail
       // fast so a background queue can retry once the data lands.
@@ -286,10 +503,18 @@ self.addEventListener('message', async (e: MessageEvent) => {
         post({ type: 'read-error', id: m.id, error: 'not downloaded' })
         return
       }
-      const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
-      post({ type: 'read-result', id: m.id, data }, [data.buffer])
+      let inFlight = readsByHandle.get(m.handle)
+      if (!inFlight) readsByHandle.set(m.handle, inFlight = new Set())
+      inFlight.add(m.id)
+      try {
+        const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
+        // failReads may have answered this id already while it was parked on pieces.
+        if (!inFlight.has(m.id)) return
+        post({ type: 'read-result', id: m.id, data }, [data.buffer])
+      } finally { inFlight.delete(m.id) }
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
+      failReads(m.handle, 'torrent removed')
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
@@ -321,21 +546,23 @@ self.addEventListener('message', async (e: MessageEvent) => {
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
+        if (addFailed(h)) { post({ type: 'add-failed', message: 'That torrent could not be read' }); return }
         track(h, e.magnet, e.infoHash, savePath)
+        recovery.hold(h, Date.now())
         // Post state before flipping the entry so the live row dedups the ghost in the same render
         post({ type: 'state', torrents: snapshot() })
-        await upsertList({ ...e, started: true })
+        await upsertList({ ...e, started: true, paused: false })
       }
     } else if (m.type === 'remove-missing') {
       // A ghost started moments earlier still has a live handle; tear it down too or it keeps downloading with no persisted entry
       if (typeof m.infoHash === 'string') {
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
-        if (h !== undefined) { session.removeTorrent(h, true); untrack(h) }
+        if (h !== undefined) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
         await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
       // Account switch: drop the device-local list and its resume/torrent blobs; OPFS bytes stay on disk
-      for (const h of [...handles]) { session.removeTorrent(h, false); untrack(h) }
+      for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, false); untrack(h) }
       let dropped: Persisted[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
       for (const e of dropped) {
@@ -344,10 +571,38 @@ self.addEventListener('message', async (e: MessageEvent) => {
       }
       post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
+      // Remember the pause was asked for, here and across reloads, so auto-recovery
+      // leaves it alone instead of reading it as a torrent that fell over.
+      userPaused.add(m.handle)
+      recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
-      persistResume(m.handle)
+      // Anything still parked on pieces is waiting on a download that just stopped.
+      failReads(m.handle, 'torrent paused')
+      void persistResume(m.handle)
+      const ih = infoHashByHandle.get(m.handle)
+      if (ih) await patchList(ih, { paused: true })
     } else if (m.type === 'resume') {
+      userPaused.delete(m.handle)
+      recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
+      // The next status update still reports it paused, so keep the health check off it
+      // until the engine has caught up rather than flashing "Retrying" over a fresh start.
+      recovery.hold(m.handle, Date.now())
+      const ih = infoHashByHandle.get(m.handle)
+      if (ih) await patchList(ih, { paused: false })
+    } else if (m.type === 'retry-now') {
+      // The page saw connectivity return. Collapse every pending backoff so the
+      // library picks straight back up instead of waiting out the schedule.
+      recovery.retryNow(Date.now())
+    } else if (m.type === 'retry') {
+      // One torrent, asked for by hand. Only the schedule moves: the next tick performs
+      // whatever action the recorded reason calls for, which is the point. A stalled
+      // torrent is not paused, so resuming it here would do nothing at all.
+      recovery.retry(m.handle, Date.now())
+    } else if (m.type === 'flush-resume') {
+      // The page is going away: snapshot every in-progress torrent so the next load
+      // resumes from what is on disk rather than rechecking or re-downloading it.
+      await Promise.all(handles.map((h) => persistResume(h)))
     } else if (m.type === 'set-sequential') {
       session.setSequential(m.handle, m.on)
     } else if (m.type === 'prioritize-file') {
@@ -361,6 +616,31 @@ self.addEventListener('message', async (e: MessageEvent) => {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })
     else post({ type: 'error', message: String(err?.stack ?? err) })
   }
+}
+
+// Command handlers read, modify and write one shared IndexedDB list across awaits, so two
+// of them interleaving can drop an entry or post a stale list. An account switch racing
+// its own import used to be able to post an empty list last, which then uploaded an empty
+// library over a good cloud backup. Run them one at a time.
+//
+// Reads stay off the queue: they are pure, they can park for as long as the pieces take,
+// and playback must never wait behind a list mutation. add-torrent-file stays off it too,
+// since its infohash poll can hold the lane for ten seconds; it guards itself instead by
+// re-checking the handle is still tracked before it commits anything.
+const UNQUEUED = new Set(['read', 'add-torrent-file'])
+let commands: Promise<void> = Promise.resolve()
+
+self.addEventListener('message', (e: MessageEvent) => {
+  const m = e.data
+  if (!m || typeof m !== 'object' || typeof m.type !== 'string' || !OWN.has(m.type)) return
+  const live = session
+  if (!live) { post({ type: 'error', message: 'worker not initialized' }); return }
+  if (UNQUEUED.has(m.type)) { void handleMessage(live, m); return }
+  commands = commands.then(() => handleMessage(live, m))
 })
 
-init().catch((e: any) => post({ type: 'error', message: String(e?.stack ?? e) }))
+// A failure before ready means no session will ever exist here, which the page has to be
+// told about: reported as a plain error it was only logged, and every command sat forever
+// on a promise that could never resolve. After ready it is one command's problem, not the
+// engine's.
+init().catch((e: any) => post({ type: readyPosted ? 'error' : 'fatal', message: String(e?.stack ?? e) }))

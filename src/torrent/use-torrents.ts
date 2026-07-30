@@ -1,9 +1,9 @@
 import type { Torrent, TorrentState } from './types'
 import type { Persisted, TorrentClient, TorrentSnapshot } from './client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { createTorrentClient } from './client'
+import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
 import { magnetInfoHash } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
@@ -36,10 +36,19 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
 }
 
 // Map the worker's Session snapshot to the UI Torrent shape (bytes / bytes-per-sec).
-export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
+export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
   const st = s.status
   const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
   const progress = st?.progress ?? 0
+  // A torrent the engine stopped, or one connected to nothing, is being retried on a
+  // backoff. Say so instead of showing it as "Paused", which reads as the user's doing
+  // and as something only the user can undo.
+  const retrying = s.recovery && !s.userPaused
+  // Stopped without being asked to, and without the engine wanting it retried, means
+  // libtorrent's own queue is holding it back until a slot frees. That is "Queued", not
+  // "Paused": nothing here stopped it and nothing here has to start it again.
+  const stopped: TorrentState = s.userPaused ? 'paused' : 'queued'
+  const base: TorrentState = st ? (st.paused ? stopped : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading')
   return {
     id: String(s.handle),
     magnet: s.magnet,
@@ -48,13 +57,21 @@ export const snapshotToTorrent = (s: TorrentSnapshot): Torrent => {
     size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
     downloaded: st?.totalDone ?? 0,
     progress,
-    state: st ? (st.paused ? 'paused' : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading'),
+    state: retrying ? 'retrying' : base,
     down: s.displayDownloadRate,
     up: st?.uploadRate ?? 0,
     peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
     eta: fmtEta(st),
     files: s.files?.files.map((f) => ({ name: f.path, size: f.size, progress })),
+    retry: s.recovery && !s.userPaused
+      ? {
+        reason: s.recovery.reason,
+        attempt: s.recovery.attempt,
+        retryInSeconds: Math.max(0, Math.round((s.recovery.retryAt - now) / 1000)),
+        message: s.recovery.message,
+      }
+      : undefined,
   }
 }
 
@@ -82,12 +99,16 @@ export type UseTorrents = {
   addTorrentFile: (bytes: Uint8Array) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
+  retry: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   // True once the worker reports it cannot open OPFS (private/incognito window).
   storageUnavailable: boolean
-  clientRef: { current: TorrentClient | null }
+  // Set when the engine died outright; nothing works until the page is reloaded. A worker
+  // that threw once and kept running is not this: it recovers on its own.
+  workerError: string | null
+  client: TorrentClient
 }
 
 // Public-domain Blender demo: the bundled .torrent gives instant metadata and its webseed carries the download with zero peers
@@ -107,14 +128,14 @@ const addDemo = (client: TorrentClient) =>
 // Drives a single libtorrent-wasm worker for the page and exposes its live
 // torrent list mapped to the UI shape, plus addMagnet.
 export const useTorrents = (): UseTorrents => {
-  const clientRef = useRef<TorrentClient | null>(null)
+  const client = getTorrentClient()
   const [snaps, setSnaps] = useState<TorrentSnapshot[]>([])
   const [list, setList] = useState<Persisted[]>([])
   const [storageUnavailable, setStorageUnavailable] = useState(false)
+  const [workerError, setWorkerError] = useState<string | null>(null)
   useEffect(() => {
-    const client = createTorrentClient()
-    clientRef.current = client
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
+    const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
     // Demo seeding waits for the cloud restore to settle and judges the persisted list, so a restored library is never buried under the demo
     let checkedDemo = false
     const libraryCount = { current: 0 }
@@ -132,13 +153,17 @@ export const useTorrents = (): UseTorrents => {
           } catch { /* storage unavailable - skip the demo */ }
         })
     })
-    return () => { offUnavailable(); offList(); offState(); client.destroy(); clientRef.current = null }
-  }, [])
+    // The engine is shared across routes and outlives this component, so leaving the
+    // library page only drops the subscriptions. It keeps downloading.
+    return () => { offUnavailable(); offWorkerError(); offList(); offState() }
+  }, [client])
 
   // Live session torrents plus "Files missing" ghosts for synced entries not yet
   // started here (deduped against anything already live by infoHash).
   const torrents = useMemo(() => {
-    const live = snaps.map(snapshotToTorrent)
+    // One clock for the whole list, so every retry countdown in a render agrees.
+    const now = Date.now()
+    const live = snaps.map((s) => snapshotToTorrent(s, now))
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
     const ghosts = list
       .filter((e) => e.started === false && !liveHashes.has(e.infoHash))
@@ -147,12 +172,13 @@ export const useTorrents = (): UseTorrents => {
     return [...live, ...ghosts]
   }, [snaps, list])
 
-  const addMagnet = useCallback((magnet: string) => clientRef.current?.addMagnet(magnet), [])
-  const addTorrentFile = useCallback((bytes: Uint8Array) => clientRef.current?.addTorrentFile(bytes), [])
-  const pause = useCallback((handle: number) => clientRef.current?.pause(handle), [])
-  const resume = useCallback((handle: number) => clientRef.current?.resume(handle), [])
-  const remove = useCallback((handle: number, deleteFiles?: boolean) => clientRef.current?.remove(handle, deleteFiles), [])
-  const start = useCallback((infoHash: string) => clientRef.current?.start(infoHash), [])
-  const removeMissing = useCallback((infoHash: string) => clientRef.current?.removeMissing(infoHash), [])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, remove, start, removeMissing, storageUnavailable, clientRef }
+  const addMagnet = useCallback((magnet: string) => client.addMagnet(magnet), [client])
+  const addTorrentFile = useCallback((bytes: Uint8Array) => client.addTorrentFile(bytes), [client])
+  const pause = useCallback((handle: number) => client.pause(handle), [client])
+  const resume = useCallback((handle: number) => client.resume(handle), [client])
+  const retry = useCallback((handle: number) => client.retry(handle), [client])
+  const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
+  const start = useCallback((infoHash: string) => client.start(infoHash), [client])
+  const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
+  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, remove, start, removeMissing, storageUnavailable, workerError, client }
 }

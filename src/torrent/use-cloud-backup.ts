@@ -1,16 +1,22 @@
-import type { Persisted, TorrentClient } from './client'
+import type { Persisted } from './client'
 
 import { useEffect, useState } from 'react'
 
 import { account, cloud } from '@fkn/lib'
 
+import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
 const ACCOUNT_KEY = 'ripple:sync-account'
 const WRITE_DEBOUNCE = 3_000
-const RESTORE_RETRY = 5_000
-const MAX_RESTORE_ATTEMPTS = 4
+// Restores retry forever on a widening backoff. Giving up used to leave writes disarmed
+// for the life of the page, so a library edited after a passing broker glitch never
+// reached the cloud again and nothing re-armed it.
+const RESTORE_BACKOFF = [5_000, 10_000, 20_000, 40_000, 60_000]
+// Nothing in the broker surface has a deadline of its own, so a suspended one would
+// otherwise park a restore pass forever with writes disarmed behind it.
+const BROKER_TIMEOUT = 10_000
 
 export type SyncStatus = 'off' | 'syncing' | 'synced' | 'error'
 
@@ -38,26 +44,32 @@ const isUnreadable = (err: unknown): boolean => {
   return message.startsWith('fkn:e2e-integrity') || message.startsWith('fkn:e2e-stale-epoch')
 }
 
+// Every broker call goes through this: the osra boundary can suspend without ever
+// settling, and a restore parked on one holds writes disarmed behind it.
+const bounded = <T>(work: Promise<T>, fallback: T, ms = BROKER_TIMEOUT): Promise<T> =>
+  Promise.race([
+    work,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('broker timed out')), ms)),
+  ]).catch((err) => {
+    if ((err as Error)?.message === 'broker timed out') return fallback
+    throw err
+  })
+
 // The connected account's display name, or null - bounded so a stalled broker
 // never blocks the restore (and the demo gate) indefinitely.
 const accountName = (): Promise<string | null> =>
-  Promise.race([
-    account.info().then((a) => a?.name ?? null),
-    new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 4_000)),
-  ]).catch(() => null)
+  bounded(account.info().then((a) => a?.name ?? null), null, 4_000).catch(() => null)
 
 // Mirrors the device-portable torrent-list index to FKN cloud storage so a
 // signed-in user's library follows them across devices. Only the small
 // Persisted[] index is synced (magnet + savePath + addedAt); the file bytes
 // re-download from the swarm. cloud.fs needs a connected account, so this is a
 // no-op when signed out - the local IndexedDB list keeps working regardless.
-export const useCloudBackup = (clientRef: { current: TorrentClient | null }): SyncStatus => {
+export const useCloudBackup = (): SyncStatus => {
+  const client = getTorrentClient()
   const [status, setStatus] = useState<SyncStatus>('off')
 
   useEffect(() => {
-    const client = clientRef.current
-    if (!client) { settle(); return }
-
     let cancelled = false
     let connected = false
     // Writes stay disarmed until the current restore settles, so a transient read error or an account switch can never clobber a good cloud backup
@@ -66,18 +78,34 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     let latest: Persisted[] = []
     let timer: number | undefined
     let restoreTimer: number | undefined
+    // A restore pass parks on broker calls that can take seconds. Meanwhile an account
+    // change, or its own retry, can start another one. Without a generation stamp the
+    // stale pass resumes against shared state and finishes the job for the wrong account:
+    // importing one library into another's, or clearing the list the new pass just filled
+    // and uploading the empty result. Only the newest pass is allowed to act.
+    let generation = 0
+    // Which account the armed writes belong to. The debounce fires up to 3s after the
+    // pass that armed it, so the write itself has to re-check, not just the restore.
+    let writesFor: string | null = null
+    // The unlock card is modal inside the broker frame; offer it once, not once a minute.
+    let promptedUnlock = false
+
+    const currentAccount = (): string | null => {
+      try { return localStorage.getItem(ACCOUNT_KEY) } catch { return null }
+    }
 
     const writeNow = () => {
       pending = false
       window.clearTimeout(timer)
       // Sync only the device-portable identity, never device-local state like
-      // `started` (whether this device has the files), so one device clearing its
-      // storage can't demote the entry in the shared backup.
+      // `started` or `paused` (whether this device has the files, and whether the user
+      // stopped it here), so one device can't reach into another's copy of the entry.
       const portable = latest.map((e) => ({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt }))
       return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(portable), { contentType: 'application/json' })
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
+      if (writesFor !== currentAccount()) return
       setStatus('syncing')
       try { await writeNow(); if (!cancelled) setStatus('synced') }
       catch (err) {
@@ -100,38 +128,53 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
     const schedule = () => { pending = true; window.clearTimeout(timer); timer = window.setTimeout(write, WRITE_DEBOUNCE) }
     // Fire a pending write before the page or route goes away, so the last change
     // inside the debounce window still reaches the cloud (best-effort on pagehide).
-    const flush = () => { if (pending && connected && restored) writeNow().catch(() => {}) }
+    const flush = () => {
+      if (pending && connected && restored && writesFor === currentAccount()) writeNow().catch(() => {})
+    }
 
     const offList = client.onList((list) => { latest = list; if (connected) schedule() })
 
+    const retryLater = (attempt: number) => {
+      window.clearTimeout(restoreTimer)
+      const delay = RESTORE_BACKOFF[Math.min(attempt, RESTORE_BACKOFF.length - 1)]!
+      restoreTimer = window.setTimeout(() => restore(attempt + 1), delay)
+    }
+
     const restore = async (attempt = 0) => {
+      const gen = ++generation
+      const stale = () => cancelled || gen !== generation
       restored = false
       pending = false
+      writesFor = null
       window.clearTimeout(timer)
-      let ok = false
-      try { ok = await cloud.fs.available() } catch {}
-      if (cancelled) return
-      connected = ok
-      if (!ok) { setStatus('off'); return }
+      window.clearTimeout(restoreTimer)
+      // null means the broker never answered, which is not the same as "signed out": a
+      // timeout used to leave sync silently off with nothing scheduled to try again.
+      let available: boolean | null = null
+      try { available = await bounded<boolean | null>(cloud.fs.available().then(Boolean), null) } catch {}
+      if (stale()) return
+      if (available === null) { setStatus('error'); retryLater(attempt); return }
+      connected = available
+      if (!connected) { setStatus('off'); return }
 
-      // If the device-local list belongs to a different account than the one now
-      // connected, wipe it first so one account's library is never uploaded into
-      // another's backup.
       const name = await accountName()
-      if (cancelled) return
-      if (name) {
-        let prev: string | null = null
-        try { prev = localStorage.getItem(ACCOUNT_KEY) } catch {}
-        if (prev && prev !== name) { client.clearList(); latest = [] }
-        try { localStorage.setItem(ACCOUNT_KEY, name) } catch {}
-      }
+      if (stale()) return
+      // account.info() resolves null on a timeout and on any broker error alike, so a
+      // null name is "we do not know who this is", not "nobody". A device that has synced
+      // before has an identity to match: without one, the local list cannot be attributed
+      // to the connected account, and merging it into that account's backup would hand
+      // one user's library to another. Import nothing, keep writes disarmed, try again.
+      if (name === null && currentAccount() !== null) { setStatus('error'); retryLater(attempt); return }
 
       setStatus('syncing')
       let text: string | null = null
       let missing = false
       let locked = false
       try {
-        text = String(await cloud.fs.promises.readFile(BACKUP_PATH, 'utf8'))
+        const read = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
+        // A timed-out read is transient, not an absent backup: fall through to the retry.
+        if (read === null) throw new Error('broker timed out')
+        text = read
       } catch (err) {
         // A definitive "not found" means there is no backup, and unreadable bytes mean there
         // is no usable one; both are safe to seed over. Locked gets its own recovery below.
@@ -139,20 +182,40 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
         missing = /not found/i.test((err as { message?: string })?.message ?? '') || isUnreadable(err)
         locked = isLocked(err)
       }
-      if (cancelled) return
+      if (stale()) return
 
       if (locked) {
-        // Offer the broker's unlock card once per pass. It needs a real click inside the
-        // broker's own frame, so this is the only way back from a locked scope. Dismissed
-        // or unavailable resolves false and settles on 'error' without re-prompting; a
-        // later account change or remount starts a fresh pass.
-        let unlocked = false
-        try { unlocked = await cloud.fs.unlock() } catch {}
-        if (cancelled) return
-        if (unlocked && attempt < MAX_RESTORE_ATTEMPTS) return restore(attempt + 1)
+        // The unlock card needs a real click inside the broker's own frame, so this is the
+        // only way back from a locked scope. Offer it once per mount and never again: the
+        // read itself is what raises the card, so a retrying read would put a dialog in
+        // front of the user every minute for the rest of the session. The backoff keeps
+        // running underneath, so a scope unlocked by other means still recovers on its own.
+        if (!promptedUnlock) {
+          promptedUnlock = true
+          try { await bounded(cloud.fs.unlock(), false) } catch {}
+          if (stale()) return
+        }
         setStatus('error')
+        retryLater(attempt)
         return
       }
+
+      // The list on this device belongs to whichever account was last synced. If that is
+      // not the one connected now, it must not be uploaded into this account's backup. Drop
+      // it only once this account's backup has actually been read, so a rename (the display
+      // name is the only identity the account surface exposes) or a passing read failure
+      // cannot destroy a library it would then have nothing to restore from.
+      const previous = currentAccount()
+      const switched = !!name && !!previous && previous !== name
+      if (switched && text === null && !missing) {
+        // Unverifiable: keep the local list, keep writes disarmed, and try again.
+        setStatus('error')
+        retryLater(attempt)
+        return
+      }
+      if (switched) { client.clearList(); latest = [] }
+      if (name) { try { localStorage.setItem(ACCOUNT_KEY, name) } catch {} }
+      writesFor = name
 
       if (text !== null) {
         let list: unknown
@@ -165,6 +228,10 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
         }
         restored = true
         setStatus('synced')
+        // The local list can be a superset of the backup (anything added while signed out),
+        // and importList posts nothing when it merges no new entry, so this is the only
+        // chance to notice. Arm a write and let the debounce collapse it with any import.
+        if (latest.length) schedule()
       } else if (missing) {
         // No backup for this account, or one that can never be decrypted here: seed it with
         // the current local list. Re-seeding replaces an unreadable object, which is the only
@@ -174,12 +241,9 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
         if (latest.length) schedule()
       } else {
         // Transient read failure: keep writes disarmed (restored stays false) so nothing clobbers a
-        // possibly-good backup, surface the error, and retry a few times before giving up.
+        // possibly-good backup, surface the error, and keep retrying on a widening backoff.
         setStatus('error')
-        if (attempt < MAX_RESTORE_ATTEMPTS) {
-          window.clearTimeout(restoreTimer)
-          restoreTimer = window.setTimeout(() => restore(attempt + 1), RESTORE_RETRY)
-        }
+        retryLater(attempt)
       }
     }
 
@@ -189,10 +253,14 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       .catch(() => {})
     restore().finally(() => settle())
 
+    // A restore that failed while the connection was down should not wait out its backoff.
+    const onOnline = () => { if (!cancelled && !restored) restore() }
+    window.addEventListener('online', onOnline)
     window.addEventListener('pagehide', flush)
 
     return () => {
       flush()
+      window.removeEventListener('online', onOnline)
       window.removeEventListener('pagehide', flush)
       cancelled = true
       window.clearTimeout(timer)
@@ -200,7 +268,7 @@ export const useCloudBackup = (clientRef: { current: TorrentClient | null }): Sy
       offList()
       offAccount?.()
     }
-  }, [clientRef])
+  }, [client])
 
   return status
 }

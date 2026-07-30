@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { AudioStream, PlaybackController } from '../player/playback'
 import type { SubtitleStream } from '../player/subtitles'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
@@ -98,7 +98,7 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const { snapshot, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  const { snapshot, engineError, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
   const controllerRef = useRef<PlaybackController | null>(null)
   const [subtitleStreams, setSubtitleStreams] = useState<SubtitleStream[]>([])
@@ -134,6 +134,11 @@ const Player = () => {
     return URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(url)})`], { type: 'application/javascript' }))
   }, [origin])
 
+  // The blob stays alive until it is revoked explicitly, so release it on unmount.
+  // It has to be created in the memo rather than an effect: the URL feeds the
+  // playback effect, and a changing identity would tear down the whole pipeline.
+  useEffect(() => () => URL.revokeObjectURL(jassubWorkerUrl), [jassubWorkerUrl])
+
   const jassubWasmUrl = useMemo(
     () => new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, origin).toString(),
     [origin]
@@ -167,10 +172,13 @@ const Player = () => {
 
   const overlay = (
     <div className="ripple-overlay-content">
+      {/* When the engine cannot serve this file at all, nothing will ever arrive. Say
+          that, rather than leaving the spinner and the metadata line running forever. */}
       <div className="loading-information">
-        {!hasMetadata
-          ? 'Loading metadata…'
-          : `Downloaded ${getHumanReadableByteString(downloaded)}`}
+        {engineError
+          ?? (!hasMetadata
+            ? 'Loading metadata…'
+            : `Downloaded ${getHumanReadableByteString(downloaded)}`)}
       </div>
       <div className="media-information">
         <TooltipDisplay

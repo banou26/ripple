@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { createTorrentClient } from './client'
-import type { TorrentClient, TorrentSnapshot } from './client'
+import { getTorrentClient } from './client'
+import type { TorrentSnapshot } from './client'
+import { magnetInfoHash } from './magnet'
 
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
+  // Why the engine cannot serve this file, if it cannot: OPFS refused (a private or
+  // incognito window) or the worker died. Either way nothing will ever arrive, so the
+  // player has to say so rather than sit on a spinner forever.
+  engineError: string | null
   // Reads a byte range of the selected file straight from the Session (which
   // prioritizes + awaits the covering pieces on demand - ideal for seeking).
   read: (offset: number, size: number) => Promise<ArrayBuffer>
@@ -18,18 +23,32 @@ export type PlayerTorrent = {
 // Drives one torrent for the /embed player: adds the magnet, tracks its live
 // snapshot, and exposes a read() bound to the handle once metadata lands.
 export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number): PlayerTorrent => {
-  const clientRef = useRef<TorrentClient | null>(null)
+  const client = getTorrentClient()
   const handleRef = useRef<number | null>(null)
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
+  const [engineError, setEngineError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!magnet) return
-    const client = createTorrentClient()
-    clientRef.current = client
-    client.ready.then(() => client.addMagnet(magnet))
+    const offUnavailable = client.onStorageUnavailable(
+      () => setEngineError('Ripple needs a normal (non-private) window to play this'),
+    )
+    const offWorkerError = client.onWorkerError(({ fatal }) => {
+      if (fatal) setEngineError('The download engine stopped. Reload the page to try again.')
+    })
+    // The engine is shared with the library, so this either finds the torrent already
+    // running or adds it; the worker dedups by infoHash either way.
+    client.addMagnet(magnet)
+    // Match on the infoHash, never on the magnet string: the library's copy of the same
+    // torrent can carry different trackers or a display name, and with one shared session
+    // the list holds every other torrent too, so falling back to "the first one" would
+    // happily play the wrong file.
+    const infoHash = magnetInfoHash(magnet)
     let sequentialSet = false
     const off = client.onState((snaps) => {
-      const snap = snaps.find((s) => s.magnet === magnet) ?? snaps[0] ?? null
+      const snap = snaps.find((s) => s.magnet === magnet)
+        ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
+        ?? null
       if (snap) handleRef.current = snap.handle
       // Watching = stream in order: sequential mode + the watched file first.
       if (snap?.files && !sequentialSet) {
@@ -39,13 +58,21 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
       }
       setSnapshot(snap)
     })
-    return () => { off(); client.destroy(); clientRef.current = null; handleRef.current = null }
-  }, [magnet, fileIndex])
+    return () => {
+      off()
+      offUnavailable()
+      offWorkerError()
+      // Leaving the player stops streaming in order; the shared session goes back to
+      // downloading rarest-first, which is what the library wants.
+      const handle = handleRef.current
+      if (sequentialSet && handle != null) client.setSequential(handle, false)
+      handleRef.current = null
+    }
+  }, [client, magnet, fileIndex])
 
   const readAt = async (offset: number, size: number, prioritize: boolean): Promise<ArrayBuffer> => {
-    const client = clientRef.current
     const handle = handleRef.current
-    if (!client || handle == null) throw new Error('torrent not ready')
+    if (handle == null) throw new Error('torrent not ready')
     // Clamp to the file boundary - the remuxer reads a full buffer near EOF,
     // but the torrent would otherwise await pieces past the file that never land.
     const fileSize = snapshot?.files?.files[fileIndex]?.size
@@ -62,10 +89,9 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
   const readQuiet = (offset: number, size: number) => readAt(offset, size, false)
 
   const prioritizeFrom = (offset: number) => {
-    const client = clientRef.current
     const handle = handleRef.current
-    if (client && handle != null) client.prioritizeFile(handle, fileIndex, Math.max(0, Math.floor(offset)))
+    if (handle != null) client.prioritizeFile(handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, read, readQuiet, prioritizeFrom }
+  return { snapshot, engineError, read, readQuiet, prioritizeFrom }
 }
