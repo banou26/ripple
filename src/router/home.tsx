@@ -153,6 +153,19 @@ const HISTORY = 120
 const DONE = Number.POSITIVE_INFINITY
 const SYNC_RETRY = 30_000
 
+// One copy of a torrent into the picked folder at a time, across every open tab. Resolves to
+// null when another tab already holds it, which is a skip rather than a success or a failure.
+// Without Web Locks there is only ever one usable tab, so there is nothing to serialise.
+const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<number | null> => {
+  const key = torrent.infoHash
+  if (!navigator.locks || !key) return copy()
+  return navigator.locks.request(
+    `ripple:folder-sync:${key}`,
+    { ifAvailable: true },
+    (lock) => (lock ? copy() : Promise.resolve(null)),
+  )
+}
+
 const style = css`
   height: 100dvh;
   display: flex;
@@ -1312,6 +1325,10 @@ const Home = () => {
   const syncingRef = useRef(new Set<string>())
   const folderGenerationRef = useRef(0)
   useEffect(() => { folderGenerationRef.current++; syncAtRef.current.clear() }, [folder, permitted])
+  // Both maps are keyed by the session handle, which names a different torrent after the
+  // engine moves to another tab. A stale DONE against a recycled handle would silently skip
+  // a copy that never happened.
+  useEffect(() => client.onEngineReset(() => { syncAtRef.current.clear(); syncingRef.current.clear() }), [client])
   useEffect(() => {
     if (!folder || !permitted) return
     const now = Date.now()
@@ -1324,9 +1341,17 @@ const Home = () => {
       // A copy that finishes after the folder changed must not record anything: marking
       // it done would permanently suppress the copy into the newly chosen folder.
       const generation = folderGenerationRef.current
-      syncTorrentToDirectory(client, t, folder)
+      // Every open tab watches the same finished torrent and the same picked folder, and the
+      // guards above are per document, so without this they would all copy at once: two
+      // createWritable() calls on one file, and whichever closes last decides what the file
+      // contains. Keyed by infoHash because the handle in `t.id` is only meaningful inside
+      // one engine session. `ifAvailable` so a tab that loses simply leaves it to the winner.
+      copyUnderLock(t, () => syncTorrentToDirectory(client, t, folder))
         .then((written) => {
           if (generation !== folderGenerationRef.current) return
+          // Another tab is already copying this one. Not done and not failed, so record
+          // neither: the size check makes the next pass a no-op once that tab finishes.
+          if (written === null) return
           syncAtRef.current.set(t.id, DONE)
           if (written) showToast(`${t.name} saved to ${folder.name}`)
         })
