@@ -9,7 +9,7 @@
 
 import type { StorageBackend } from 'libtorrent-wasm/types'
 
-import { OPFSStorage } from 'libtorrent-wasm/opfs'
+import { OPFSStorage, STORAGE_NEED_FULL_CHECK } from 'libtorrent-wasm/opfs'
 
 const RETRY_DELAYS = [50, 150, 400, 900, 1_500]
 
@@ -76,7 +76,10 @@ export const createResilientStorage = (): StorageBackend => {
     // report a disk error to the engine and stop the torrent, the exact failure this
     // module exists to prevent.
     release: (id) => storage.release(id),
-    check: (id) => storage.check(id),
+    // A rejection here does not reach the engine as "unknown", it reaches it as a disk
+    // error, and libtorrent stops the torrent over one of those. When the files cannot be
+    // read well enough to answer, verifying them is the answer that cannot lose data.
+    check: (id) => storage.check(id).catch(() => STORAGE_NEED_FULL_CHECK),
     deleteFiles: (id, flags) => { dying.add(id); return storage.deleteFiles(id, flags) },
     stop: (id) => storage.stop(id),
   }

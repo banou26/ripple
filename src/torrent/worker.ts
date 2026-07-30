@@ -533,6 +533,29 @@ const handleMessage = async (session: Session, m: any) => {
       recovery.hold(m.handle, Date.now())
       const ih = infoHashByHandle.get(m.handle)
       if (ih) await patchList(ih, { paused: false })
+    } else if (m.type === 'recheck') {
+      // The engine forgets every piece before it starts hashing, so the saved blob now
+      // describes a have-set that no longer exists. Dropping it is what stops a reload
+      // mid-check from restoring that blob and trusting it again, which is the exact
+      // failure a recheck is asked for. Clearing resumeSaved lets the finished torrent
+      // snapshot itself again afterwards rather than leaving the key deleted for good.
+      const ih = infoHashByHandle.get(m.handle)
+      if (ih) await del(resumeKey(ih)).catch(() => {})
+      resumeSaved.delete(m.handle)
+      // Every have-bit is about to be cleared, so a read parked on one would sit there
+      // until the client's own timeout rather than the check finishing.
+      failReads(m.handle, 'torrent rechecking')
+      // A check is only ever scheduled for a torrent that is neither paused nor errored,
+      // so a rechecked torrent starts again whether or not it was paused. wantPaused has
+      // to go with it: a restore-time pause that has not drained yet would be re-applied
+      // by the next tick, and pausing a torrent takes it out of the only rotation that
+      // starts checks, leaving the row on "Checking" with nothing running.
+      userPaused.delete(m.handle)
+      wantPaused.delete(m.handle)
+      recovery.forget(m.handle)
+      session.forceRecheck(m.handle)
+      recovery.hold(m.handle, Date.now())
+      if (ih) await patchList(ih, { paused: false })
     } else if (m.type === 'retry-now') {
       // The page saw connectivity return. Collapse every pending backoff so the
       // library picks straight back up instead of waiting out the schedule.

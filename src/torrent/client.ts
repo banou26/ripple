@@ -41,6 +41,9 @@ export type TorrentClient = {
   resume: (handle: number) => void
   // Skip the wait for a torrent that is already retrying on a backoff.
   retry: (handle: number) => void
+  // Verify a torrent's pieces against what is on disk, and re-download whatever does not
+  // match. Runs in the engine, reported through the usual state updates.
+  recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   setSequential: (handle: number, on: boolean) => void
   prioritizeFile: (handle: number, fileIndex: number, fromOffset?: number) => void
@@ -198,6 +201,7 @@ const createTorrentClient = (): TorrentClient => {
     pause: (handle) => send({ type: 'pause', handle }),
     resume: (handle) => send({ type: 'resume', handle }),
     retry: (handle) => send({ type: 'retry', handle }),
+    recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     setSequential: (handle, on) => send({ type: 'set-sequential', handle, on }),
     prioritizeFile: (handle, fileIndex, fromOffset = 0) => send({ type: 'prioritize-file', handle, fileIndex, fromOffset }),

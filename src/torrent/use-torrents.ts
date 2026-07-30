@@ -16,16 +16,20 @@ const magnetParam = (magnet: string, key: string): string | undefined => {
 
 // libtorrent torrent_status state_t → the UI's coarse state.
 const STATE: Record<number, TorrentState> = {
-  1: 'queued',      // checking files
+  1: 'checking',    // checking files
   2: 'downloading', // downloading metadata
   3: 'downloading',
   4: 'done',        // finished
   5: 'seeding',
-  7: 'queued',      // checking resume data
+  7: 'checking',    // checking resume data
 }
 
+// libtorrent holds a checking torrent paused for as long as the check runs, so this has to
+// be read before `paused` or a recheck would spend its whole duration labelled "Queued".
+const CHECKING = new Set([1, 7])
+
 const fmtEta = (status: TorrentSnapshot['status']): string => {
-  if (!status || status.state === 5 || status.state === 4) return '-'
+  if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
   if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return 'queued'
@@ -48,7 +52,9 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
   // libtorrent's own queue is holding it back until a slot frees. That is "Queued", not
   // "Paused": nothing here stopped it and nothing here has to start it again.
   const stopped: TorrentState = s.userPaused ? 'paused' : 'queued'
-  const base: TorrentState = st ? (st.paused ? stopped : (STATE[st.state] ?? 'downloading')) : (s.files ? 'queued' : 'downloading')
+  const base: TorrentState = st
+    ? (CHECKING.has(st.state) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
+    : (s.files ? 'queued' : 'downloading')
   return {
     id: String(s.handle),
     magnet: s.magnet,
@@ -100,6 +106,7 @@ export type UseTorrents = {
   pause: (handle: number) => void
   resume: (handle: number) => void
   retry: (handle: number) => void
+  recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
@@ -177,8 +184,9 @@ export const useTorrents = (): UseTorrents => {
   const pause = useCallback((handle: number) => client.pause(handle), [client])
   const resume = useCallback((handle: number) => client.resume(handle), [client])
   const retry = useCallback((handle: number) => client.retry(handle), [client])
+  const recheck = useCallback((handle: number) => client.recheck(handle), [client])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, remove, start, removeMissing, storageUnavailable, workerError, client }
+  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, client }
 }

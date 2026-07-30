@@ -36,6 +36,7 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
   error: 'Error',
   missing: 'Files missing',
   retrying: 'Retrying',
+  checking: 'Checking',
 }
 
 // What a torrent in recovery says about itself. The engine's own message is used when it
@@ -546,6 +547,18 @@ const style = css`
         }
       }
       &.seeding { color: #2dd4bf; background: #2dd4bf14; border-color: #2dd4bf30; }
+
+      /* Working, not waiting: the progress bar tracks the check while this runs. */
+      &.checking {
+        color: #60a5fa;
+        background: #60a5fa14;
+        border-color: #60a5fa30;
+
+        &::before {
+          animation: pulse 1.6s ease-in-out infinite;
+        }
+      }
+
       &.done { color: #c084fc; background: #c084fc14; border-color: #c084fc30; }
       &.error { color: #ef4444; background: #ef444414; border-color: #ef444430; }
       &.missing { color: #8b8499; background: #8b849914; border-color: #8b849930; }
@@ -958,6 +971,7 @@ type RowProps = {
   onToggle: (t: Torrent) => void
   onSave: (t: Torrent, fileIndex: number) => void
   onSaveZip: (t: Torrent) => void
+  onRecheck: (t: Torrent) => void
   onRemove: (t: Torrent) => void
   onStart: (t: Torrent) => void
   onPause: (t: Torrent) => void
@@ -984,7 +998,7 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
   </div>
 )
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart, onPause }: RowProps) => {
+const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause }: RowProps) => {
   if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
@@ -1026,10 +1040,17 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart,
               skips the wait; it still needs a Pause of its own, or the only way to stop a
               torrent that keeps failing would be to delete it. Queued is libtorrent
               holding it behind others, which Resume overrides. */}
-          <button onClick={() => onToggle(t)}>
-            {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
-          </button>
+          {t.state !== 'checking' && (
+            <button onClick={() => onToggle(t)}>
+              {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
+            </button>
+          )}
           {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
+          {/* Reads every byte back off the disk, so it is only offered once there is
+              something to verify, and never while a check is already running. */}
+          {!!t.files?.length && t.state !== 'checking' && (
+            <button onClick={() => onRecheck(t)}>Recheck</button>
+          )}
           <button onClick={() => onRemove(t)}>Remove</button>
         </div>
       </div>
@@ -1055,7 +1076,7 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRemove, onStart,
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, remove, start, removeMissing, storageUnavailable, workerError, client } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -1222,6 +1243,14 @@ const Home = () => {
   const onRemove = (t: Torrent) => {
     if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
+  }
+
+  // Verifies the torrent's pieces against the bytes on disk and re-downloads whatever does
+  // not match. Everything already downloaded is read back, so say what it will cost rather
+  // than leaving a torrent that suddenly stopped looking like it broke again.
+  const onRecheck = (t: Torrent) => {
+    recheck(Number(t.id))
+    showToast(`Checking ${t.name} against the files on disk`)
   }
 
   // Streams one file out of OPFS to the user's disk. Called synchronously
@@ -1436,6 +1465,7 @@ const Home = () => {
               onToggle={onToggle}
               onSave={onSave}
               onSaveZip={onSaveZip}
+              onRecheck={onRecheck}
               onRemove={onRemove}
               onStart={onStart}
               onPause={onPause}
