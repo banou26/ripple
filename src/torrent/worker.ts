@@ -265,9 +265,9 @@ const init = async () => {
     return
   }
 
-  // Best effort: an origin that is only "best effort" can be evicted wholesale, which is
-  // the failure the restore path at the bottom of this function already has to model.
-  await navigator.storage.persist?.().catch(() => false)
+  // Asking for persistent storage happens on the main thread, in use-storage-usage.ts: a
+  // worker's StorageManager has estimate, getDirectory and persisted, but no persist, so
+  // the request cannot be made from here at all.
 
   const storage = createResilientStorage()
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })

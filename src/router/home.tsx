@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { QuotaStatus } from '../torrent/use-quota'
+import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncStatus } from '../torrent/use-cloud-backup'
 
 import { ConnectButton } from '@fkn/lib/react'
@@ -13,6 +14,7 @@ import { magnetInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
+import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
 import { saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
@@ -91,6 +93,18 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
     </div>
   )
 }
+
+// Local storage readout. Deliberately says "of the N your browser allows this site" rather
+// than anything about disk: the number covers everything the origin stores, and the limit
+// is a browser-computed budget that moves on its own, not free space.
+const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) => (
+  <div className={'stat storage' + (low ? ' low' : '')}>
+    <label>Storage</label>
+    <strong>
+      {getHumanReadableByteString(storage.usedBytes, true)} / {getHumanReadableByteString(storage.limitBytes, true)}
+    </strong>
+  </div>
+)
 
 // Cross-device library sync: the torrent list mirrors to FKN cloud storage while
 // signed in, so the same library appears on another device. Hidden when signed out.
@@ -389,7 +403,8 @@ const style = css`
       flex: none;
       display: flex;
       align-items: center;
-      gap: 26px;
+      flex-wrap: wrap;
+      gap: 14px 26px;
     }
 
     .stat {
@@ -409,6 +424,10 @@ const style = css`
         font-size: 1.05rem;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
+      }
+
+      &.storage.low strong {
+        color: #fbbf24;
       }
 
       &.big strong {
@@ -1337,6 +1356,10 @@ const Home = () => {
   const quota = useQuota(hasLive)
   const syncStatus = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
+  // Re-read whenever the library changes size, so removing a torrent does not leave the
+  // old figure on screen and read as the button having done nothing.
+  const storage = useStorageUsage(torrents.length)
+  const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
   return (
     <div css={style} data-drag={dragging || undefined}>
@@ -1417,6 +1440,23 @@ const Home = () => {
         </div>
       )}
 
+      {/* role=status rather than alert: the browser's budget drifts on its own as unrelated
+          files come and go, so this can appear and clear without the user doing anything,
+          and re-interrupting a screen reader each time it crosses back is worse than the
+          warning is urgent. */}
+      {storage && lowStorage && !storageUnavailable && (
+        <div className="storage-warning surface" role="status">
+          <strong>Running out of room</strong>
+          <span>
+            Ripple has used {getHumanReadableByteString(storage.usedBytes, true)} of the
+            {' '}{getHumanReadableByteString(storage.limitBytes, true)} your browser allows this
+            site, counting everything it keeps here. Downloads stop when that runs out.
+            Removing a torrent frees its files.
+            {!storage.persisted && ' Storage here is best effort, so the browser can also clear it on its own when the device gets tight.'}
+          </span>
+        </div>
+      )}
+
       {torrents.length > 0 && (
         <section className="stats surface">
           <div className="readouts">
@@ -1436,6 +1476,7 @@ const Home = () => {
               <label>Active</label>
               <strong>{active} / {torrents.length}</strong>
             </div>
+            {storage && <StorageStat storage={storage} low={lowStorage}/>}
             {quota && <QuotaStat quota={quota}/>}
             <SyncStat status={syncStatus}/>
           </div>
