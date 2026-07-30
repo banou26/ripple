@@ -31,11 +31,14 @@ export type ObservedStatus = {
   totalDone: number
   downloadRate: number
   numPeers: number
-  // True when libtorrent's own queue could be the reason this torrent is stopped: it
-  // pauses whatever sits past active_downloads / active_seeds to make room, and starts it
-  // again itself once a slot frees. That is indistinguishable from an error in the status
-  // record, so when it is a plausible explanation the torrent is left alone.
+  // libtorrent's own queue is holding this torrent behind others: it stops whatever sits
+  // past active_downloads / active_seeds to make room, and starts it again itself once a
+  // slot frees. Reported by the engine rather than guessed at, so it is never a failure.
   queued: boolean
+  // The engine's description of the error that stopped this torrent, empty when it has
+  // none. It arrives attached to the torrent it belongs to, so no explanation is ever
+  // credited to the wrong one.
+  error: string
 }
 
 export type RecoveryAction = { handle: number, reason: RecoveryReason }
@@ -56,17 +59,6 @@ const ACTIVE_STATES = new Set([2, 3])
 // libtorrent reports as paused while they run. Judging one would restart a check that
 // is going fine, and it can take minutes on a large torrent.
 const CHECKING_STATES = new Set([1, 7])
-// How long a stop has to hold before it is believed. Whether the queue is the explanation
-// is inferred from how many torrents are running, and that set moves whenever one is
-// added, removed, paused or promoted, so a single sample can read as unexplained while
-// the engine is still settling. Costs a genuine failure three seconds before its first
-// retry, which is nothing next to a false "Stopped by an error" on a healthy torrent.
-const SETTLE_MS = 3_000
-// How long the queue may go on being the explanation. It is a real one, but it is
-// inferred rather than reported, and an errored torrent drops out of libtorrent's
-// rotation so the freed slot is immediately back-filled: the inference stays true while
-// the real problem goes unattended. Time-bound it so a masked failure is judged anyway.
-const QUEUE_GRACE_MS = 120_000
 
 type Entry = RecoveryState & {
   // Set while the torrent is running again; it is only forgotten (and the backoff
@@ -82,8 +74,6 @@ export type RecoveryTracker = {
   // command that caused it, so a torrent that was just resumed still reports itself as
   // paused, and judging that would flash "Retrying" over a torrent doing exactly as told.
   hold: (handle: number, now: number, ms?: number) => void
-  // Attach the libtorrent alert text that explains this torrent's failure.
-  note: (handle: number, message: string) => void
   // The retries that are due now. Calling this spends the attempt and reschedules.
   due: (now: number) => RecoveryAction[]
   // Connectivity came back: every waiting torrent gets retried immediately, and the
@@ -104,10 +94,6 @@ export const createRecoveryTracker = (): RecoveryTracker => {
   const progress = new Map<number, { totalDone: number, at: number }>()
   const messages = new Map<number, string>()
   const held = new Map<number, number>()
-  // When each torrent first read as stopped, and as plausibly-queued: both stops have to
-  // hold for a while before they mean anything.
-  const stoppedSince = new Map<number, number>()
-  const queuedSince = new Map<number, number>()
 
   const delayFor = (attempt: number) => RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)]!
 
@@ -116,8 +102,6 @@ export const createRecoveryTracker = (): RecoveryTracker => {
     progress.delete(handle)
     messages.delete(handle)
     held.delete(handle)
-    stoppedSince.delete(handle)
-    queuedSince.delete(handle)
   }
 
   return {
@@ -141,27 +125,19 @@ export const createRecoveryTracker = (): RecoveryTracker => {
       if (CHECKING_STATES.has(status.state)) return
 
       const entry = entries.get(handle)
+      // Recorded before the grace check so an explanation that arrives while the engine is
+      // still acting on a retry is not thrown away.
+      if (status.error) {
+        messages.set(handle, status.error)
+        if (entry) entry.message = status.error
+      }
       if (entry && now < entry.graceUntil) return
 
-      if (status.paused) {
-        // A torrent the queue parked is neither failing nor proof of health. Returning
-        // here rather than falling through to the healthy branch is the point: treating
-        // it as healthy would heal, and then forget, an entry that belongs to a real
-        // failure, and the manual retry would have nothing left to act on.
-        if (status.queued) {
-          const parked = queuedSince.get(handle) ?? now
-          queuedSince.set(handle, parked)
-          if (now - parked < QUEUE_GRACE_MS) return
-        } else {
-          queuedSince.delete(handle)
-        }
-        const stopped = stoppedSince.get(handle) ?? now
-        stoppedSince.set(handle, stopped)
-        if (now - stopped < SETTLE_MS) return
-      } else {
-        queuedSince.delete(handle)
-        stoppedSince.delete(handle)
-      }
+      // A torrent the queue parked is neither failing nor proof of health. Returning here
+      // rather than falling through to the healthy branch is the point: treating it as
+      // healthy would heal, and then forget, an entry that belongs to a real failure, and
+      // the manual retry would have nothing left to act on.
+      if (status.paused && status.queued) return
 
       const failure: RecoveryReason | null =
         status.paused
@@ -199,12 +175,6 @@ export const createRecoveryTracker = (): RecoveryTracker => {
         entry.healthySince = null
         entry.retryAt = now + delayFor(entry.attempt)
       }
-    },
-
-    note: (handle, message) => {
-      messages.set(handle, message)
-      const entry = entries.get(handle)
-      if (entry) entry.message = message
     },
 
     due: (now) => {
@@ -248,7 +218,7 @@ export const createRecoveryTracker = (): RecoveryTracker => {
     forget,
 
     retain: (handles) => {
-      for (const map of [entries, progress, messages, held, stoppedSince, queuedSince]) {
+      for (const map of [entries, progress, messages, held]) {
         for (const handle of [...map.keys()]) if (!handles.has(handle)) forget(handle)
       }
     },

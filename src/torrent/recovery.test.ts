@@ -2,29 +2,22 @@ import { describe, expect, it } from 'vitest'
 
 import { createRecoveryTracker } from './recovery'
 
-const stopped = { paused: true, state: 3, totalDone: 0, downloadRate: 0, numPeers: 0, queued: false }
-// Stopped, but by libtorrent's own queue rather than by anything going wrong.
+const stopped = { paused: true, state: 3, totalDone: 0, downloadRate: 0, numPeers: 0, queued: false, error: '' }
+// Stopped by a disk failure, which the engine reports on the torrent it happened to.
+const errored = { ...stopped, error: 'No space left on device' }
+// Stopped by libtorrent's own queue rather than by anything going wrong.
 const queued = { ...stopped, queued: true }
 const running = (totalDone: number, downloadRate = 1_000) =>
-  ({ paused: false, state: 3, totalDone, downloadRate, numPeers: 4, queued: false })
+  ({ paused: false, state: 3, totalDone, downloadRate, numPeers: 4, queued: false, error: '' })
 // Downloading in name only: no peers and nothing arriving.
 const quiet = (totalDone: number) =>
-  ({ paused: false, state: 3, totalDone, downloadRate: 0, numPeers: 0, queued: false })
-
-// A stop is only believed once it has held for SETTLE_MS, so every test that wants an
-// entry has to feed the same status twice across that window.
-const SETTLE = 3_000
-const settleStopped = (r: ReturnType<typeof createRecoveryTracker>, handle: number, at: number) => {
-  r.observe(handle, stopped, false, at)
-  r.observe(handle, stopped, false, at + SETTLE)
-  return at + SETTLE
-}
+  ({ paused: false, state: 3, totalDone, downloadRate: 0, numPeers: 0, queued: false, error: '' })
 
 describe('recovery tracker', () => {
   it('schedules the first retry 5s after a torrent is stopped, and widens from there', () => {
     const r = createRecoveryTracker()
-    let t = settleStopped(createRecoveryTracker(), 1, 0) && 1_000_000
-    t = settleStopped(r, 1, t)
+    let t = 1_000_000
+    r.observe(1, stopped, false, t)
     expect(r.state(1)).toMatchObject({ reason: 'stopped', attempt: 0 })
     expect(r.due(t)).toEqual([])
 
@@ -43,7 +36,8 @@ describe('recovery tracker', () => {
 
   it('caps the backoff and keeps retrying forever', () => {
     const r = createRecoveryTracker()
-    let t = settleStopped(r, 1, 0)
+    let t = 0
+    r.observe(1, stopped, false, t)
     const gaps: number[] = []
     for (let i = 0; i < 12; i++) {
       const before = t
@@ -62,7 +56,8 @@ describe('recovery tracker', () => {
 
   it('forgets a torrent that has run healthily for a minute, resetting the backoff', () => {
     const r = createRecoveryTracker()
-    let t = settleStopped(r, 1, 0)
+    let t = 0
+    r.observe(1, stopped, false, t)
     t = r.state(1)!.retryAt
     r.due(t)
     expect(r.state(1)!.attempt).toBe(1)
@@ -77,21 +72,23 @@ describe('recovery tracker', () => {
     r.observe(1, running(3), false, t)
 
     // Next failure starts from the shortest delay again.
-    t = settleStopped(r, 1, t)
+    r.observe(1, stopped, false, t)
     expect(r.state(1)).toMatchObject({ attempt: 0 })
     expect(r.state(1)!.retryAt - t).toBe(5_000)
   })
 
   it('keeps the attempt count when a torrent fails again before it earned a reset', () => {
     const r = createRecoveryTracker()
-    let t = settleStopped(r, 1, 0)
+    let t = 0
+    r.observe(1, stopped, false, t)
     t = r.state(1)!.retryAt
     r.due(t)
     t += 10_001
     r.observe(1, running(1), false, t)
     expect(r.state(1)).toBeNull()
     // Fails again after 5s of health, well short of the 60s it needs.
-    t = settleStopped(r, 1, t + 5_000)
+    t += 5_000
+    r.observe(1, stopped, false, t)
     expect(r.state(1)!.attempt).toBe(1)
     expect(r.state(1)!.retryAt - t).toBe(15_000)
   })
@@ -129,49 +126,57 @@ describe('recovery tracker', () => {
     const r = createRecoveryTracker()
     // A magnet fetching metadata, or a torrent every peer is choking: kicking it would
     // disconnect the peers it is waiting on.
-    const connectedButQuiet = { paused: false, state: 2, totalDone: 0, downloadRate: 0, numPeers: 6, queued: false }
+    const connectedButQuiet = { paused: false, state: 2, totalDone: 0, downloadRate: 0, numPeers: 6, queued: false, error: '' }
     for (let t = 0; t <= 600_000; t += 30_000) r.observe(1, connectedButQuiet, false, t)
     expect(r.state(1)).toBeNull()
   })
 
-  it('leaves a torrent libtorrent queued behind others alone, but not forever', () => {
+  it('leaves a torrent libtorrent queued behind others alone for as long as it is queued', () => {
     const r = createRecoveryTracker()
-    for (let t = 0; t < 120_000; t += 30_000) r.observe(1, queued, false, t)
+    // The engine reports the queue rather than Ripple inferring it, so there is no window
+    // after which the explanation has to be doubted: a ten minute wait behind a big
+    // library is a torrent working exactly as intended.
+    for (let t = 0; t <= 600_000; t += 30_000) r.observe(1, queued, false, t)
     expect(r.state(1)).toBeNull()
-    expect(r.due(119_000)).toEqual([])
-    // Being queued is inferred, not reported, and an errored torrent's freed slot is
-    // back-filled, so the excuse cannot hold forever.
-    r.observe(1, queued, false, 121_000)
-    r.observe(1, queued, false, 124_100)
-    expect(r.state(1)).toMatchObject({ reason: 'stopped', attempt: 0 })
+    expect(r.due(600_000)).toEqual([])
   })
 
   it('does not treat a queued torrent as healthy, which would drop a real failure', () => {
     const r = createRecoveryTracker()
-    const t = settleStopped(r, 1, 0)
+    r.observe(1, errored, false, 0)
     expect(r.state(1)).toMatchObject({ reason: 'stopped' })
-    // Another torrent gets promoted into the freed slot, so this one now looks queued.
-    for (let at = t; at <= t + 120_000; at += 5_000) r.observe(1, queued, false, at)
+    // Another torrent gets promoted into the freed slot, so this one now reads as queued.
+    for (let at = 0; at <= 120_000; at += 5_000) r.observe(1, queued, false, at)
     // The failure is still on the books, so the retry schedule and the reason survive.
     expect(r.state(1)).toMatchObject({ reason: 'stopped' })
   })
 
+  it('takes the explanation from the torrent the engine reported it against', () => {
+    const r = createRecoveryTracker()
+    r.observe(1, errored, false, 0)
+    // A second torrent stopped in the same tick for an unrelated reason must not inherit
+    // the first one's message, which is exactly what timing-based attribution did.
+    r.observe(2, stopped, false, 0)
+    expect(r.state(1)).toMatchObject({ reason: 'stopped', message: 'No space left on device' })
+    expect(r.state(2)!.message).toBeUndefined()
+  })
+
   it('brings a manual retry forward without losing the reason', () => {
     const r = createRecoveryTracker()
-    r.note(1, 'Disk error: out of space')
-    const t = settleStopped(r, 1, 0)
-    expect(r.state(1)).toMatchObject({ retryAt: t + 5_000, message: 'Disk error: out of space' })
+    const t = 0
+    r.observe(1, errored, false, t)
+    expect(r.state(1)).toMatchObject({ retryAt: t + 5_000, message: 'No space left on device' })
     r.due(t + 5_000)
     expect(r.state(1)!.retryAt).toBe(t + 20_000)
     r.retry(1, t + 6_000)
-    expect(r.state(1)).toMatchObject({ attempt: 0, retryAt: t + 6_000, message: 'Disk error: out of space' })
+    expect(r.state(1)).toMatchObject({ attempt: 0, retryAt: t + 6_000, message: 'No space left on device' })
     expect(r.due(t + 6_000)).toEqual([{ handle: 1, reason: 'stopped' }])
   })
 
   it('collapses every pending backoff when connectivity returns', () => {
     const r = createRecoveryTracker()
-    settleStopped(r, 1, 0)
-    settleStopped(r, 2, 0)
+    r.observe(1, stopped, false, 0)
+    r.observe(2, stopped, false, 0)
     r.due(9_000)
     expect(r.due(10_000)).toEqual([])
     r.retryNow(10_000)
@@ -185,29 +190,14 @@ describe('recovery tracker', () => {
     r.hold(1, 0)
     r.observe(1, stopped, false, 1_000)
     expect(r.state(1)).toBeNull()
-    settleStopped(r, 1, 10_001)
-    expect(r.state(1)).toMatchObject({ reason: 'stopped' })
-  })
-
-  it('waits for a stop to hold before believing it', () => {
-    const r = createRecoveryTracker()
-    // The running set moves as torrents are added and promoted, so one sample of
-    // "stopped and not queued" can just be the engine settling.
-    r.observe(1, stopped, false, 0)
-    expect(r.state(1)).toBeNull()
-    r.observe(1, stopped, false, 2_999)
-    expect(r.state(1)).toBeNull()
-    r.observe(1, running(1), false, 3_100)
-    r.observe(1, stopped, false, 3_200)
-    expect(r.state(1)).toBeNull()
-    r.observe(1, stopped, false, 6_200)
+    r.observe(1, stopped, false, 10_001)
     expect(r.state(1)).toMatchObject({ reason: 'stopped' })
   })
 
   it('drops all per-handle state for torrents that went away', () => {
     const r = createRecoveryTracker()
-    settleStopped(r, 1, 0)
-    settleStopped(r, 2, 0)
+    r.observe(1, stopped, false, 0)
+    r.observe(2, stopped, false, 0)
     r.retain(new Set([2]))
     expect(r.state(1)).toBeNull()
     expect(r.state(2)).not.toBeNull()

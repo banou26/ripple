@@ -8,7 +8,7 @@ import { get, set, del, update } from 'idb-keyval'
 import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 
-import type { RecoveryState } from './recovery'
+import type { ObservedStatus, RecoveryState } from './recovery'
 
 import { magnetInfoHash } from './magnet'
 import { createResilientStorage } from './opfs-storage'
@@ -241,75 +241,20 @@ const opfsAvailable = async (): Promise<boolean> => {
   }
 }
 
-// libtorrent alert type ids, forwarded verbatim by the wrapper (alert_types.hpp). Only
-// the failures worth explaining to a user are listed; the rest of the stream is noise.
-// session_error (90) is here as a reason and nothing more: this build expects one at
-// start-up (the session's init spawns a thread that cannot exist without pthreads, which
-// the wrapper catches and recovers from), so treating it as fatal would take down a
-// perfectly healthy page load.
-const ALERT_REASON: Record<number, string> = {
-  34: 'Storage move failed',
-  43: 'Disk error',
-  44: 'Torrent data did not match its info hash',
-  53: 'Saved progress was rejected',
-  64: 'Torrent error',
-  90: 'Engine error',
-}
-
-// An alert carries no torrent handle (the wrapper emits only the type and the text), so
-// a failure can only be tied to a torrent by timing: the alert and the stop it caused
-// land in the same tick or the next one. Anything older is left unattributed rather
-// than guessed at.
-const ATTRIBUTION_WINDOW = 3_000
-let lastFailure: { at: number, message: string } | null = null
-
-const noteAlerts = (alerts: { type: number, message: string }[], now: number) => {
-  for (const { type, message } of alerts) {
-    const reason = ALERT_REASON[type]
-    if (reason) lastFailure = { at: now, message: `${reason}: ${message}` }
-  }
-}
-
-// Attach whatever explanation is available to torrents that just entered recovery. Runs
-// after the health pass, so an entry created this tick still gets its reason.
-const attributeFailures = (now: number) => {
-  if (!lastFailure || now - lastFailure.at > ATTRIBUTION_WINDOW) return
-  for (const h of handles) {
-    const state = recovery.state(h)
-    // Only a torrent the engine stopped, and only one that has not retried yet, which
-    // means it stopped within the last few seconds. Without both, a torrent that has been
-    // quietly failing for ten minutes, or one that merely lost its swarm, would claim the
-    // explanation for a disk error somewhere else entirely.
-    if (state?.reason === 'stopped' && state.attempt === 0 && state.message === undefined) {
-      recovery.note(h, lastFailure.message)
-    }
-  }
-}
-
-// ---- libtorrent's own queue -----------------------------------------------
-// Every torrent is auto-managed, and libtorrent stops whatever sits past its concurrency
-// limits to make room, then starts it again itself once a slot frees. `status.paused`
-// says nothing about which of the two happened, so a paused torrent only counts as a
-// failure when the queue cannot be the explanation. These are libtorrent's defaults,
-// which the wasm build never overrides.
-const ACTIVE_DOWNLOADS = 3
-const ACTIVE_SEEDS = 5
-
-type QueueLoad = { downloading: number, seeding: number }
-
-const queueLoad = (): QueueLoad => {
-  const load = { downloading: 0, seeding: 0 }
-  for (const h of handles) {
-    const st = session?.status(h)
-    if (!st || st.paused) continue
-    if (st.state === 2 || st.state === 3) load.downloading++
-    else if (st.state === 4 || st.state === 5) load.seeding++
-  }
-  return load
-}
-
-const queueIsFull = (load: QueueLoad, state: number): boolean =>
-  state === 4 || state === 5 ? load.seeding >= ACTIVE_SEEDS : load.downloading >= ACTIVE_DOWNLOADS
+// Why a stopped torrent is stopped, read off the status the engine reports for it.
+// libtorrent keeps auto_managed set through an error (it drops an errored torrent from
+// the rotation without clearing the flag), and Ripple's own pause clears it, so the pair
+// separates all three cases: an error is a failure, auto-managed without one is the queue
+// holding the torrent behind others, and neither is someone having pressed pause.
+const observed = (st: TorrentStatus): ObservedStatus => ({
+  paused: st.paused,
+  state: st.state,
+  totalDone: st.totalDone,
+  downloadRate: st.downloadRate,
+  numPeers: st.numPeers,
+  queued: st.paused && st.autoManaged && !st.errorCode,
+  error: st.error,
+})
 
 const init = async () => {
   const origErr = console.error.bind(console)
@@ -325,7 +270,6 @@ const init = async () => {
   await navigator.storage.persist?.().catch(() => false)
 
   const storage = createResilientStorage()
-  storage.onError((message) => { lastFailure = { at: Date.now(), message: 'Disk error: ' + message } })
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
@@ -380,8 +324,9 @@ const init = async () => {
     const now = Date.now()
     // Pumping the alerts is also what registers handles with the engine, so a command
     // recorded before the first pump is applied here rather than at the point it was
-    // asked for, where it would have been silently dropped.
-    noteAlerts(session.popAlerts(), now)
+    // asked for, where it would have been silently dropped. The stream itself is drained
+    // and dropped: every failure worth acting on arrives attributed on the status instead.
+    session.popAlerts()
     for (const h of handles) session.postStatus(h)
     for (const h of wantPaused) {
       const st = session.status(h)
@@ -394,12 +339,10 @@ const init = async () => {
     // just needs resuming; a stalled one needs a stop first, since that is what makes
     // libtorrent announce to its trackers again instead of waiting out the interval.
     recovery.retain(new Set(handles))
-    const load = queueLoad()
     for (const h of handles) {
       const st = session.status(h)
-      recovery.observe(h, st && { ...st, queued: st.paused && queueIsFull(load, st.state) }, userPaused.has(h), now)
+      recovery.observe(h, st && observed(st), userPaused.has(h), now)
     }
-    attributeFailures(now)
     for (const { handle, reason } of recovery.due(now)) {
       if (reason === 'stalled') session.pauseTorrent(handle)
       session.resumeTorrent(handle)

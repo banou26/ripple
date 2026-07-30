@@ -19,15 +19,8 @@ const isFatal = (error: unknown) => (error as { name?: string })?.name === 'Quot
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-export type ResilientStorage = StorageBackend & {
-  // Fires once per operation that failed every retry, i.e. once per error libtorrent
-  // is about to stop a torrent over.
-  onError: (cb: (message: string) => void) => void
-}
-
-export const createResilientStorage = (): ResilientStorage => {
+export const createResilientStorage = (): StorageBackend => {
   const storage = new OPFSStorage()
-  let report: (message: string) => void = () => {}
   // Storages that are being torn down. A retry sleeps for up to three seconds and then
   // re-opens the file with create:true, which lands squarely inside a delete and either
   // makes removeEntry fail on the lock or recreates the file just after it went. Removing
@@ -55,8 +48,6 @@ export const createResilientStorage = (): ResilientStorage => {
       if (dying.has(id)) throw last
       try { return await op() } catch (error) { last = error }
     }
-    if (dying.has(id)) throw last
-    report(String((last as { message?: string })?.message ?? last))
     throw last
   }
 
@@ -88,6 +79,5 @@ export const createResilientStorage = (): ResilientStorage => {
     check: (id) => storage.check(id),
     deleteFiles: (id, flags) => { dying.add(id); return storage.deleteFiles(id, flags) },
     stop: (id) => storage.stop(id),
-    onError: (cb) => { report = cb },
   }
 }
