@@ -40,12 +40,20 @@ const registerMagnetHandler = (): boolean => {
 }
 
 const promptInstall = async (): Promise<'accepted' | 'dismissed' | 'unavailable'> => {
-  if (!deferredInstall) return 'unavailable'
   const event = deferredInstall
-  await event.prompt()
-  const { outcome } = await event.userChoice
-  if (outcome === 'accepted') deferredInstall = null
-  return outcome
+  if (!event) return 'unavailable'
+  // prompt() is single-use: the browser spends the event the moment it fires, so
+  // drop the reference before awaiting anything. Keeping a dismissed event around
+  // means the next click replays it and throws, which would leave the button inert
+  // for the rest of the session instead of retrying the magnet handler below.
+  deferredInstall = null
+  try {
+    await event.prompt()
+    const { outcome } = await event.userChoice
+    return outcome
+  } catch {
+    return 'unavailable'
+  }
 }
 
 export type SetupOutcome = 'installed' | 'magnet-registered' | 'already-installed' | 'unsupported'
