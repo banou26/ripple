@@ -20,13 +20,16 @@ const waitForUpdate = (sourceBuffer: SourceBuffer) =>
       sourceBuffer.removeEventListener('error', onError)
     }
     const onEnd = () => { cleanup(); resolve() }
-    const onError = (ev: Event) => { cleanup(); reject(ev) }
+    // The DOM hands us a bare Event with no message on it, and callers surface
+    // whatever they catch to the user, so reject with something readable and
+    // keep the event as the cause for the console.
+    const onError = (ev: Event) => { cleanup(); reject(new Error('The browser rejected a media segment', { cause: ev })) }
     sourceBuffer.addEventListener('updateend', onEnd, { once: true })
     sourceBuffer.addEventListener('abort', onEnd, { once: true })
     sourceBuffer.addEventListener('error', onError, { once: true })
   })
 
-export const updateSourceBuffer = (sourceBuffer: SourceBuffer) => {
+export const updateSourceBuffer = (sourceBuffer: SourceBuffer, mediaSource: MediaSource) => {
   let chain: Promise<unknown> = Promise.resolve()
   const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
     const run = chain.then(task, task)
@@ -50,5 +53,15 @@ export const updateSourceBuffer = (sourceBuffer: SourceBuffer) => {
   const updateTimestampOffset = (timestampOffset: number) =>
     enqueue(async () => { sourceBuffer.timestampOffset = timestampOffset })
 
-  return { appendBuffer, unbufferRange, updateTimestampOffset }
+  // Signalling the end of the stream throws while an update is in flight, so it
+  // rides the same chain as the appends and removes. It is also undone by the
+  // next remove(), which puts the MediaSource back to 'open', hence the state
+  // re-check and the swallowed throw: the caller re-arms this on every tick.
+  const endOfStream = () =>
+    enqueue(async () => {
+      if (mediaSource.readyState !== 'open' || sourceBuffer.updating) return
+      try { mediaSource.endOfStream() } catch {}
+    })
+
+  return { appendBuffer, unbufferRange, updateTimestampOffset, endOfStream }
 }

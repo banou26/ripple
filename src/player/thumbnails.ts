@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { makeRemuxer } from 'libav-wasm'
 
+import { terminateRemuxer } from './playback'
+
 export type ThumbnailImage = { url: string, startTime: number, endTime: number }
 
 export type ThumbnailGeneratorOptions = {
@@ -21,6 +23,10 @@ const MAX_ATTEMPTS = 3
 // error path); time it out so the queue keeps moving - the next call aborts
 // the stuck one inside libav.
 const KEYFRAME_TIMEOUT = 10_000
+// A torrent that is not moving fails init on every try, and each try costs a
+// wasm worker, so the retry spacing grows instead of holding at 5s forever.
+const RETRY_DELAY = 5_000
+const MAX_RETRY_DELAY = 60_000
 
 // Second remuxer dedicated to seekbar previews: one keyframe per INTERVAL
 // seconds, decoded to a downscaled webp once its byte span is downloaded.
@@ -35,98 +41,106 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     length,
     read,
   })
-  const metadata = await remuxer.init()
-  const duration = metadata.info.input.duration
+  // makeRemuxer stands a wasm worker up before init() ever runs, and both the
+  // init and the index walk below throw on a file that is not readable yet, so
+  // the worker has to leave with the failure.
+  try {
+    const metadata = await remuxer.init()
+    const duration = metadata.info.input.duration
 
-  type Slot = { timestamp: number, endTime: number, startByte: number, endByte: number, done: boolean, attempts: number }
-  const slots: Slot[] = []
-  for (const [i, index] of metadata.indexes.entries()) {
-    const last = slots.at(-1)
-    if (last && index.timestamp - last.timestamp < INTERVAL) continue
-    slots.push({
-      timestamp: index.timestamp,
-      endTime: duration,
-      startByte: index.pos,
-      endByte: Math.min((metadata.indexes[i + 1]?.pos ?? length) + READAHEAD, length),
-      done: false,
-      attempts: 0,
-    })
-  }
-  for (const [i, slot] of slots.entries()) slot.endTime = slots[i + 1]?.timestamp ?? duration
-  // Reading the very last keyframe runs the demuxer into EOF, which crashes
-  // the current libav build; the closing-credits thumb is not worth it.
-  if (slots.length > 1 && (slots.at(-1)!.timestamp > duration - INTERVAL * 2)) slots.pop()
-  console.warn('[thumbs] ready:', slots.length, 'slots over', Math.round(duration), 's')
-
-  let thumbnails: ThumbnailImage[] = []
-  let destroyed = false
-  let queue = Promise.resolve()
-
-  // The slider assumes a gapless storyboard (last startTime <= time wins), so not-yet-generated stretches get empty-url sentinels the skin hides
-  const emit = () => {
-    const display: ThumbnailImage[] = []
-    for (const [i, t] of thumbnails.entries()) {
-      if (t.startTime - (display.at(-1)?.endTime ?? 0) > 0.01) {
-        display.push({ url: '', startTime: display.at(-1)?.endTime ?? 0, endTime: t.startTime })
-      }
-      display.push(t)
-      const next = thumbnails[i + 1]
-      if (next && next.startTime - t.endTime > 0.01) {
-        display.push({ url: '', startTime: t.endTime, endTime: next.startTime })
-      }
+    type Slot = { timestamp: number, endTime: number, startByte: number, endByte: number, done: boolean, attempts: number }
+    const slots: Slot[] = []
+    for (const [i, index] of metadata.indexes.entries()) {
+      const last = slots.at(-1)
+      if (last && index.timestamp - last.timestamp < INTERVAL) continue
+      slots.push({
+        timestamp: index.timestamp,
+        endTime: duration,
+        startByte: index.pos,
+        endByte: Math.min((metadata.indexes[i + 1]?.pos ?? length) + READAHEAD, length),
+        done: false,
+        attempts: 0,
+      })
     }
-    const tailEnd = display.at(-1)?.endTime ?? 0
-    if (duration - tailEnd > 0.01) display.push({ url: '', startTime: tailEnd, endTime: duration })
-    onThumbnails(display)
-  }
+    for (const [i, slot] of slots.entries()) slot.endTime = slots[i + 1]?.timestamp ?? duration
+    // Reading the very last keyframe runs the demuxer into EOF, which crashes
+    // the current libav build; the closing-credits thumb is not worth it.
+    if (slots.length > 1 && (slots.at(-1)!.timestamp > duration - INTERVAL * 2)) slots.pop()
+    console.warn('[thumbs] ready:', slots.length, 'slots over', Math.round(duration), 's')
 
-  let generated = 0
-  const generate = (slot: Slot) => {
-    slot.done = true
-    queue = queue
-      .then(async () => {
-        if (destroyed) return
-        const png = await Promise.race([
-          remuxer.readKeyframe(slot.timestamp),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), KEYFRAME_TIMEOUT)),
-        ])
-        const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }))
-        const canvas = new OffscreenCanvas(WIDTH, Math.max(1, Math.round(bitmap.height * (WIDTH / bitmap.width))))
-        canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-        bitmap.close()
-        const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.7 })
-        if (destroyed) return
-        thumbnails = [...thumbnails, { url: URL.createObjectURL(blob), startTime: slot.timestamp, endTime: slot.endTime }]
-          .sort((a, b) => a.startTime - b.startTime)
-        generated += 1
-        if (generated === 1 || generated % 50 === 0) console.warn('[thumbs] generated', generated, '/', slots.length)
-        emit()
-      })
-      .catch((err) => {
-        slot.attempts += 1
-        slot.done = slot.attempts >= MAX_ATTEMPTS
-        if (!destroyed) console.warn('[thumbs] keyframe', slot.timestamp.toFixed(1) + 's', 'attempt', slot.attempts, String(err).slice(0, 140))
-      })
-  }
+    let thumbnails: ThumbnailImage[] = []
+    let destroyed = false
+    let queue = Promise.resolve()
 
-  emit()
-
-  return {
-    // Byte ranges of the file known to be fully downloaded; generates every
-    // not-yet-done slot whose span is covered.
-    update: (ranges: [number, number][]) => {
-      if (destroyed) return
-      for (const slot of slots) {
-        if (slot.done) continue
-        if (ranges.some(([from, to]) => from <= slot.startByte && slot.endByte <= to)) generate(slot)
+    // The slider assumes a gapless storyboard (last startTime <= time wins), so not-yet-generated stretches get empty-url sentinels the skin hides
+    const emit = () => {
+      const display: ThumbnailImage[] = []
+      for (const [i, t] of thumbnails.entries()) {
+        if (t.startTime - (display.at(-1)?.endTime ?? 0) > 0.01) {
+          display.push({ url: '', startTime: display.at(-1)?.endTime ?? 0, endTime: t.startTime })
+        }
+        display.push(t)
+        const next = thumbnails[i + 1]
+        if (next && next.startTime - t.endTime > 0.01) {
+          display.push({ url: '', startTime: t.endTime, endTime: next.startTime })
+        }
       }
-    },
-    destroy: () => {
-      destroyed = true
-      for (const t of thumbnails) URL.revokeObjectURL(t.url)
-      thumbnails = []
-      try { remuxer.destroy() } catch {}
-    },
+      const tailEnd = display.at(-1)?.endTime ?? 0
+      if (duration - tailEnd > 0.01) display.push({ url: '', startTime: tailEnd, endTime: duration })
+      onThumbnails(display)
+    }
+
+    let generated = 0
+    const generate = (slot: Slot) => {
+      slot.done = true
+      queue = queue
+        .then(async () => {
+          if (destroyed) return
+          const png = await Promise.race([
+            remuxer.readKeyframe(slot.timestamp),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), KEYFRAME_TIMEOUT)),
+          ])
+          const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }))
+          const canvas = new OffscreenCanvas(WIDTH, Math.max(1, Math.round(bitmap.height * (WIDTH / bitmap.width))))
+          canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+          bitmap.close()
+          const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.7 })
+          if (destroyed) return
+          thumbnails = [...thumbnails, { url: URL.createObjectURL(blob), startTime: slot.timestamp, endTime: slot.endTime }]
+            .sort((a, b) => a.startTime - b.startTime)
+          generated += 1
+          if (generated === 1 || generated % 50 === 0) console.warn('[thumbs] generated', generated, '/', slots.length)
+          emit()
+        })
+        .catch((err) => {
+          slot.attempts += 1
+          slot.done = slot.attempts >= MAX_ATTEMPTS
+          if (!destroyed) console.warn('[thumbs] keyframe', slot.timestamp.toFixed(1) + 's', 'attempt', slot.attempts, String(err).slice(0, 140))
+        })
+    }
+
+    emit()
+
+    return {
+      // Byte ranges of the file known to be fully downloaded; generates every
+      // not-yet-done slot whose span is covered.
+      update: (ranges: [number, number][]) => {
+        if (destroyed) return
+        for (const slot of slots) {
+          if (slot.done) continue
+          if (ranges.some(([from, to]) => from <= slot.startByte && slot.endByte <= to)) generate(slot)
+        }
+      },
+      destroy: () => {
+        destroyed = true
+        for (const t of thumbnails) URL.revokeObjectURL(t.url)
+        thumbnails = []
+        terminateRemuxer(remuxer)
+      },
+    }
+  } catch (error) {
+    terminateRemuxer(remuxer)
+    throw error
   }
 }
 
@@ -150,6 +164,7 @@ export const useSeekThumbnails = ({ enabled, publicPath, workerUrl, length, read
     let cancelled = false
     let gen: Awaited<ReturnType<typeof createThumbnailGenerator>> | null = null
     let retry: ReturnType<typeof setTimeout> | undefined
+    let delay = RETRY_DELAY
     const boot = () => {
       createThumbnailGenerator({
         publicPath,
@@ -164,8 +179,9 @@ export const useSeekThumbnails = ({ enabled, publicPath, workerUrl, length, read
         g.update(rangesRef.current)
       }, (err) => {
         if (cancelled) return
-        console.warn('[thumbs] init failed, retrying:', String(err).slice(0, 140))
-        retry = setTimeout(boot, 5_000)
+        console.warn('[thumbs] init failed, retrying in', Math.round(delay / 1000) + 's:', String(err).slice(0, 140))
+        retry = setTimeout(boot, delay)
+        delay = Math.min(delay * 2, MAX_RETRY_DELAY)
       })
     }
     boot()

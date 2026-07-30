@@ -68,6 +68,19 @@ const playerStyle = css`
     height: 100%;
     background-color: oklch(from currentColor l c h / 0.2);
   }
+  /* A pipeline failure otherwise shows as a black frame under a spinner that
+     never resolves, with nothing anywhere saying why. */
+  .ripple-error {
+    position: absolute;
+    inset: auto 0 20%;
+    z-index: 3;
+    padding: 0 2rem;
+    text-align: center;
+    color: #fff;
+    font-size: 1rem;
+    line-height: 1.5;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+  }
 `
 
 // The video.js skin sizes its controls in rem; ripple's global
@@ -79,6 +92,13 @@ const playerRoot = css`
     font-size: 100%;
   }
 `
+
+// Anything at all can end up in playbackError, and a raw DOM Event or a thrown
+// string would otherwise be painted over the video as "[object Event]".
+const errorMessage = (error: unknown) =>
+  error instanceof Error
+    ? error.message
+    : typeof error === 'string' ? error : 'Playback failed'
 
 // Pushes the real <video> element into the video.js store - a plain
 // HTMLVideoElement already satisfies the structural Media contract.
@@ -114,15 +134,21 @@ export type VideoJsPlayerProps = {
   onSubtitleStreams?: (streams: SubtitleStream[]) => void
   onAudioStreams?: (streams: AudioStream[], selected: number) => void
   onController?: (controller: PlaybackController | null) => void
+  // Anything that takes playback down: unsupported codecs, a dead remuxer, a
+  // segment the browser refuses. The player shows it too, this is for routes
+  // that want their own presentation.
+  onPlaybackError?: (error: unknown) => void
 }
 
 export const VideoJsPlayer = ({
   read, size, publicPath, libavWorkerUrl, jassubWorkerUrl, jassubWasmUrl,
   defaultFontUrl, autoplay = true, overlay, menu, thumbnails, downloadedRanges,
   audioStreamIndex, onSeek, onSubtitleStreams, onAudioStreams, onController,
+  onPlaybackError,
 }: VideoJsPlayerProps) => {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
+  const [playbackError, setPlaybackError] = useState<unknown>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const readRef = useRef(read)
   readRef.current = read
@@ -134,8 +160,19 @@ export const VideoJsPlayer = ({
   onAudioStreamsRef.current = onAudioStreams
   const onControllerRef = useRef(onController)
   onControllerRef.current = onController
+  const onPlaybackErrorRef = useRef(onPlaybackError)
+  onPlaybackErrorRef.current = onPlaybackError
   // Changing the audio track restarts the whole pipeline; carry the position over.
   const resumeTimeRef = useRef(0)
+
+  // A read that fails once and recovers on a later tick should not leave its
+  // message sitting over a video that is playing again.
+  useEffect(() => {
+    if (!video || !playbackError) return
+    const clear = () => setPlaybackError(null)
+    video.addEventListener('playing', clear)
+    return () => video.removeEventListener('playing', clear)
+  }, [video, playbackError])
 
   // The skin is rendered wholesale, so the downloaded layer is painted into
   // its slider track by hand rather than composed as a React child.
@@ -162,6 +199,13 @@ export const VideoJsPlayer = ({
     if (!video || !canvas || !size) return
     let controller: PlaybackController | undefined
     let cancelled = false
+    setPlaybackError(null)
+    const fail = (error: unknown) => {
+      if (cancelled) return
+      console.error('playback failed', error)
+      setPlaybackError(error)
+      onPlaybackErrorRef.current?.(error)
+    }
     ;(async () => {
       try {
         const ctrl = await startPlayback({
@@ -183,6 +227,8 @@ export const VideoJsPlayer = ({
             }
             if (autoplay) video.play().catch(() => {})
           },
+          onError: fail,
+          onRecovered: () => { if (!cancelled) setPlaybackError(null) },
           onSeek: (fraction) => onSeekRef.current?.(fraction),
           onSubtitleStreams: (streams) => onSubtitleStreamsRef.current?.(streams),
           onAudioStreams: (streams, selected) => onAudioStreamsRef.current?.(streams, selected),
@@ -193,7 +239,7 @@ export const VideoJsPlayer = ({
           onControllerRef.current?.(ctrl)
         }
       } catch (error) {
-        console.error('playback failed', error)
+        fail(error)
       }
     })()
     return () => {
@@ -216,6 +262,9 @@ export const VideoJsPlayer = ({
           {overlay ? <div className="ripple-overlay">{overlay}</div> : null}
         </RippleSkin>
       </player.Provider>
+      {playbackError
+        ? <div className="ripple-error">{errorMessage(playbackError)}</div>
+        : null}
     </div>
   )
 }
