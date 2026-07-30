@@ -14,7 +14,10 @@ import { magnetInfoHash } from './magnet'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
+// The worker shares its message channel with @fkn/lib's socket relay, so it answers only
+// the types it owns. A type missing here is dropped in silence, which is why
+// worker-protocol.test.ts checks this list against both the senders and the handlers.
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
 
 export type TorrentSnapshot = {
   handle: number
