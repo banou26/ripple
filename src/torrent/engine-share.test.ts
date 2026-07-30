@@ -161,10 +161,9 @@ describe('the follower transport', () => {
   })
 
   // `ready` is sent once and never again. Treating it as the only proof a leader is alive
-  // meant that once the silence window lapsed, nothing could ever mark the leader up again:
-  // the follower buffered every command from then on and its buttons quietly stopped
-  // working. Firefox misses engine ticks often enough for that window to lapse in normal
-  // use, so this is the ordinary case, not a corner.
+  // made the silence window a one-way door: once it lapsed, nothing could ever mark the
+  // leader up again, so the follower buffered every command from then on and its buttons
+  // quietly stopped working. Any hiccup long enough to lapse the window was permanent.
   it('recovers from a quiet spell on an ordinary broadcast, not just on ready', async () => {
     vi.useFakeTimers()
     try {

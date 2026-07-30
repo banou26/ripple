@@ -58,10 +58,9 @@ export const createChannelTransport = (host: TransportHost, clientId: string): T
 
   // A leader is up once it says anything that only a live session can produce. `ready` is
   // one of those, but it is sent once and never again, so treating it as the only signal
-  // meant a leader that merely went quiet past the silence window could never be marked up
-  // again: the follower buffered every command from then on and its buttons quietly stopped
-  // working. Measured on Firefox, where the engine tick misses often enough for that window
-  // to lapse during normal use.
+  // made the silence window a one-way door: a leader that merely went quiet for a moment
+  // could never be marked up again, and the follower buffered every command from then on
+  // while its buttons quietly stopped working.
   //
   // The worker's state loop returns early until the session exists, and the list is posted
   // immediately after ready, so any of these three proves what ready proves.

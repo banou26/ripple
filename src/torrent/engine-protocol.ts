@@ -85,10 +85,11 @@ export const ENGINE_RESET = 'engine-reset'
 // broadcast doubles as a heartbeat. Past this much silence a follower assumes there is no
 // leader and holds commands rather than posting them into a gap where nobody is listening.
 //
-// Sized from measurement, not from the nominal tick. Chromium holds 500ms exactly, in the
-// foreground and backgrounded alike. Firefox does not: in the foreground it lands about two
-// thirds of its ticks with gaps up to 1.8s, and while another tab has focus it can go ten
-// seconds without ticking at all. Deciding a leader is gone is cheap now that any later
-// broadcast marks it up again and releases what was held, so this errs on the short side:
-// the expensive mistake is the other one, posting a command into a gap where it is lost.
+// Ten ticks of headroom. Real browsers hold the 500ms interval closely, measured in both
+// Chromium and Firefox and unaffected by backgrounding the tab, so this is slack for a busy
+// main thread rather than for throttling. (Playwright's headless Firefox does throttle it
+// hard, which is worth knowing when a test that watches the engine looks flaky, but no real
+// browser behaves that way.) Deciding a leader is gone is cheap, since any later broadcast
+// marks it up again and releases what was held; the expensive mistake is the other one,
+// posting a command into a gap where nobody is listening and it is simply lost.
 export const LEADER_SILENCE_MS = 5_000
