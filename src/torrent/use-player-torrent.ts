@@ -25,6 +25,12 @@ export type PlayerTorrent = {
 export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number): PlayerTorrent => {
   const client = getTorrentClient()
   const handleRef = useRef<number | null>(null)
+  // One id for this open player, distinct from any other player in this tab or any other.
+  // The engine merges every viewer's claim on the shared priority map, so two tabs watching
+  // one torrent no longer overwrite each other on every seek, and one of them closing no
+  // longer drops the other back to rarest-first.
+  const viewerRef = useRef<string>(undefined as unknown as string)
+  if (!viewerRef.current) viewerRef.current = client.newViewerId()
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
   const [engineError, setEngineError] = useState<string | null>(null)
 
@@ -44,21 +50,22 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     // the list holds every other torrent too, so falling back to "the first one" would
     // happily play the wrong file.
     const infoHash = magnetInfoHash(magnet)
-    let sequentialSet = false
+    const viewer = viewerRef.current
+    let watching = false
     // A handover builds a fresh session that knows nothing about this tab's streaming order,
     // and the latch below would otherwise never re-arm, leaving playback pulling pieces
     // rarest-first for the rest of the route. The handle is re-read from state either way.
-    const offReset = client.onEngineReset(() => { sequentialSet = false; handleRef.current = null })
+    const offReset = client.onEngineReset(() => { watching = false; handleRef.current = null })
     const off = client.onState((snaps) => {
       const snap = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
       if (snap) handleRef.current = snap.handle
-      // Watching = stream in order: sequential mode + the watched file first.
-      if (snap?.files && !sequentialSet) {
-        sequentialSet = true
-        client.setSequential(snap.handle, true)
-        client.prioritizeFile(snap.handle, fileIndex)
+      // Watching = stream in order: sequential mode + the watched file first. Both now follow
+      // from the engine knowing this player exists.
+      if (snap?.files && !watching) {
+        watching = true
+        client.watch(viewer, snap.handle, fileIndex)
       }
       setSnapshot(snap)
     })
@@ -67,10 +74,10 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
       offReset()
       offUnavailable()
       offWorkerError()
-      // Leaving the player stops streaming in order; the shared session goes back to
-      // downloading rarest-first, which is what the library wants.
-      const handle = handleRef.current
-      if (sequentialSet && handle != null) client.setSequential(handle, false)
+      // Leaving the player drops this viewer's claim. The session goes back to downloading
+      // rarest-first only once nobody is left watching, so closing one of two players no
+      // longer stops the other one streaming in order.
+      client.unwatch(viewer)
       handleRef.current = null
     }
   }, [client, magnet, fileIndex])
@@ -83,7 +90,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const fileSize = snapshot?.files?.files[fileIndex]?.size
     const clamped = fileSize != null ? Math.max(0, Math.min(size, fileSize - offset)) : size
     if (clamped === 0) return new ArrayBuffer(0)
-    const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize)
+    const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current)
     const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
       ? u8.buffer
       : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
@@ -95,7 +102,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
 
   const prioritizeFrom = (offset: number) => {
     const handle = handleRef.current
-    if (handle != null) client.prioritizeFile(handle, fileIndex, Math.max(0, Math.floor(offset)))
+    if (handle != null) client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
   return { snapshot, engineError, read, readQuiet, prioritizeFrom }

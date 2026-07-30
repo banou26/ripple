@@ -62,7 +62,10 @@ export type Transport = {
   destroy: () => void
 }
 
-export type TransportFactory = (host: TransportHost) => Transport
+// `docId` names the tab, not the transport, so the id the engine sees on a follower's
+// envelopes is the same one prefixing the viewer ids that tab's players hand out. That is
+// what lets the leader clean up after a tab that closed mid-playback.
+export type TransportFactory = (host: TransportHost, docId: string) => Transport
 
 // Raw worker messages a follower needs to see. Read replies are excluded on purpose: those
 // belong to whoever asked, and go to that tab's own channel.

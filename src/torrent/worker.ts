@@ -9,15 +9,17 @@ import { createSession } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
+import type { Claim } from './piece-priority'
 
 import { magnetInfoHash } from './magnet'
+import { mergePriorities } from './piece-priority'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 
 // The worker shares its message channel with @fkn/lib's socket relay, so it answers only
 // the types it owns. A type missing here is dropped in silence, which is why
 // worker-protocol.test.ts checks this list against both the senders and the handlers.
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'set-sequential', 'prioritize-file', 'prioritize-range', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -127,7 +129,7 @@ const untrack = (h: number) => {
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
-  for (const k of lastReadOffset.keys()) if (k.startsWith(h + ':')) lastReadOffset.delete(k)
+  viewers.delete(h); sequentialOn.delete(h)
 }
 
 // Reads park until the pieces they cover arrive, so a torrent that goes away or stops
@@ -169,13 +171,63 @@ const filePieceRange = (h: number, fileIndex: number) => {
   return { file, pieceLength: files.pieceLength, p0, p1 }
 }
 
-const prioritizeFile = (h: number, fileIndex: number, fromOffset = 0) => {
-  const r = filePieceRange(h, fileIndex)
-  if (!session || !r) return
-  const pAt = Math.floor((r.file.offset + Math.min(fromOffset, r.file.size - 1)) / r.pieceLength)
-  const prios = new Uint8Array(r.p1 + 1).fill(4)
-  for (let p = r.p0; p <= r.p1; p++) prios[p] = p >= pAt ? 7 : 1
-  session.prioritizePieces(h, prios)
+// Who is watching what. A player tab registers as a viewer while it has a file open, and
+// every open tab can have one on the same torrent, on the same file or on different ones.
+//
+// This exists because the priority map is global to a torrent while the players wanting it
+// are not. Rebuilding it for one viewer used to reset the whole array, which put a second
+// tab's file back to normal priority on every seek the first one made, and turning
+// sequential mode off when one player closed did it for the other one too.
+type Viewer = { fileIndex: number, fromOffset: number }
+// handle -> viewer id -> what that viewer is watching
+const viewers = new Map<number, Map<string, Viewer>>()
+// Only tell the engine when the answer changes: this is recomputed on every seek and on
+// every long read jump.
+const sequentialOn = new Set<number>()
+
+// Priorities and sequential mode both fall out of the viewer set, so they are always applied
+// together and never disagree.
+const applyViewing = (h: number) => {
+  if (!session) return
+  const watching = viewers.get(h)
+  const wantSequential = !!watching?.size
+  if (wantSequential !== sequentialOn.has(h)) {
+    session.setSequential(h, wantSequential)
+    if (wantSequential) sequentialOn.add(h)
+    else sequentialOn.delete(h)
+  }
+
+  const bf = session.bitfield(h)
+  if (!bf) return
+  const claims: Claim[] = []
+  for (const { fileIndex, fromOffset } of watching?.values() ?? []) {
+    const r = filePieceRange(h, fileIndex)
+    if (!r) continue
+    claims.push({
+      p0: r.p0,
+      p1: r.p1,
+      pAt: Math.floor((r.file.offset + Math.min(fromOffset, r.file.size - 1)) / r.pieceLength),
+    })
+  }
+  session.prioritizePieces(h, mergePriorities(bf.numPieces, claims))
+}
+
+const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number) => {
+  let watching = viewers.get(h)
+  if (!watching) viewers.set(h, watching = new Map())
+  watching.set(viewer, { fileIndex, fromOffset })
+  applyViewing(h)
+}
+
+// A viewer is only ever registered against one torrent at a time, but sweeping every handle
+// costs nothing and means a player that moved between torrents cannot leave a claim behind.
+const unwatch = (matches: (viewer: string) => boolean) => {
+  for (const [h, watching] of viewers) {
+    let changed = false
+    for (const viewer of [...watching.keys()]) if (matches(viewer)) { watching.delete(viewer); changed = true }
+    if (!watching.size) viewers.delete(h)
+    if (changed) applyViewing(h)
+  }
 }
 
 const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => {
@@ -189,16 +241,19 @@ const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => 
   return true
 }
 
-// A read far from the previous one is a seek: re-anchor piece priorities so
-// sequential filling continues from the playhead instead of the file start.
+// A read far from the previous one is a seek: re-anchor piece priorities so sequential
+// filling continues from the playhead instead of the file start. Tracked per viewer, because
+// two tabs reading the same file sit at different offsets and would otherwise each look like
+// the other one seeking.
 const ANCHOR_JUMP = 16_777_216
-const lastReadOffset = new Map<string, number>()
-const anchorSequential = (h: number, fileIndex: number, offset: number) => {
-  const key = h + ':' + fileIndex
-  const last = lastReadOffset.get(key)
-  lastReadOffset.set(key, offset)
-  if (last !== undefined && Math.abs(offset - last) < ANCHOR_JUMP) return
-  prioritizeFile(h, fileIndex, offset)
+const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number) => {
+  if (!viewer) return
+  const current = viewers.get(h)?.get(viewer)
+  // A read from a viewer that never registered, or that registered against another file,
+  // still deserves to be honoured: it is what the player is actually asking for.
+  if (!current || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
+  if (Math.abs(offset - current.fromOffset) < ANCHOR_JUMP) return
+  watch(viewer, h, fileIndex, offset)
 }
 
 // Does OPFS still hold the save paths these torrents were downloading into? Lets a
@@ -442,7 +497,7 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'read-error', id: m.id, error: 'torrent paused' })
         return
       }
-      if (m.prioritize !== false) anchorSequential(m.handle, m.fileIndex, m.offset)
+      if (m.prioritize !== false) anchorSequential(m.viewer, m.handle, m.fileIndex, m.offset)
       // Quiet readers must never block on (or wait for) missing pieces; fail
       // fast so a background queue can retry once the data lands.
       else if (!hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
@@ -572,14 +627,16 @@ const handleMessage = async (session: Session, m: any) => {
       // The page is going away: snapshot every in-progress torrent so the next load
       // resumes from what is on disk rather than rechecking or re-downloading it.
       await Promise.all(handles.map((h) => persistResume(h)))
-    } else if (m.type === 'set-sequential') {
-      session.setSequential(m.handle, m.on)
-    } else if (m.type === 'prioritize-file') {
+    } else if (m.type === 'watch') {
       // The offset is the player's linear time->byte estimate; the next read's
       // anchorSequential re-corrects it with the remuxer's true byte position.
-      prioritizeFile(m.handle, m.fileIndex, m.fromOffset ?? 0)
-    } else if (m.type === 'prioritize-range') {
-      session.prioritizeRange(m.handle, m.fileIndex, m.offset, m.len)
+      watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
+    } else if (m.type === 'unwatch') {
+      unwatch((viewer) => viewer === m.viewer)
+    } else if (m.type === 'unwatch-owner') {
+      // A whole tab went away. Its players never got to say so themselves, and a claim left
+      // behind would hold sequential mode on and keep its file urgent for good.
+      unwatch((viewer) => viewer.startsWith(m.owner + ':'))
     }
   } catch (err: any) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })

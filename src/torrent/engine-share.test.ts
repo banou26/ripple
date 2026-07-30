@@ -100,6 +100,21 @@ describe('the leader server', () => {
     stop()
   })
 
+  // A player in a closing tab never gets to unregister itself. Its claim on the shared
+  // priority map would otherwise hold sequential mode on and keep its file at top priority
+  // for the rest of the session, for everyone.
+  it('drops a departing tab\'s viewers when it says goodbye', async () => {
+    const { client, sent } = makeClient()
+    const stop = serveFollowers(client)
+    await settle()
+
+    control_post({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'bye' } })
+    await settle()
+
+    expect(sent).toContainEqual({ type: 'unwatch-owner', owner: 'tab-b' })
+    stop()
+  })
+
   it('stays silent to a new follower until its own engine has a session', async () => {
     const { client } = makeClient(false)
     const stop = serveFollowers(client)
@@ -129,7 +144,7 @@ const control_post = (data: any) => {
 describe('the follower transport', () => {
   it('holds commands until a leader announces itself, then sends them', async () => {
     const host = makeHost()
-    const transport = createChannelTransport(host)
+    const transport = createChannelTransport(host, 'test-doc')
     const leader = track(new BroadcastChannel(CONTROL_CHANNEL))
     const fromFollower: any[] = []
     leader.addEventListener('message', ({ data }) => { if (data?.to === 'leader') fromFollower.push(data.msg) })
@@ -147,7 +162,7 @@ describe('the follower transport', () => {
 
   it('tells the client to drop everything when the generation changes', async () => {
     const host = makeHost()
-    const transport = createChannelTransport(host)
+    const transport = createChannelTransport(host, 'test-doc')
     const leader = track(new BroadcastChannel(CONTROL_CHANNEL))
 
     leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'ready' } })
@@ -163,7 +178,7 @@ describe('the follower transport', () => {
 
   it('stamps its generation on what it sends, so the leader can judge it', async () => {
     const host = makeHost()
-    const transport = createChannelTransport(host)
+    const transport = createChannelTransport(host, 'test-doc')
     const leader = track(new BroadcastChannel(CONTROL_CHANNEL))
     const envelopes: any[] = []
     leader.addEventListener('message', ({ data }) => { if (data?.to === 'leader') envelopes.push(data) })

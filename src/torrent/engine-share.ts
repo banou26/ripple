@@ -25,8 +25,7 @@ import {
 
 // ---- follower -------------------------------------------------------------
 
-export const createChannelTransport = (host: TransportHost): Transport => {
-  const clientId = newClientId()
+export const createChannelTransport = (host: TransportHost, clientId: string): Transport => {
   const control = new BroadcastChannel(CONTROL_CHANNEL)
   const replies = new BroadcastChannel(replyChannel(clientId))
   let gen: Generation | null = null
@@ -159,7 +158,15 @@ export const serveFollowers = (client: EngineClient): () => void => {
     const from = env.from
     const msg = env.msg
 
-    if (msg.type === 'bye') { drop(from); return }
+    if (msg.type === 'bye') {
+      drop(from)
+      // A player in that tab never got to unregister itself, and a claim left behind would
+      // hold sequential mode on and keep its file at top priority for the rest of the
+      // session. The viewer ids it handed out are prefixed with the id it is saying goodbye
+      // under, so the engine can find them.
+      client.sendRaw({ type: 'unwatch-owner', owner: from })
+      return
+    }
 
     if (msg.type === 'hello') {
       // A follower has no generation yet, so hello is the one message accepted without one.

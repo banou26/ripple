@@ -6,7 +6,7 @@ import { relayWorker } from '@fkn/lib'
 import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
-import { ENGINE_RESET, hasWebLocks } from './engine-protocol'
+import { ENGINE_RESET, hasWebLocks, newClientId } from './engine-protocol'
 
 export type { Persisted }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
@@ -48,7 +48,14 @@ export type TorrentClient = {
   // it has no session handle yet); removeMissing drops one without a handle.
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
-  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean) => Promise<Uint8Array>
+  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string) => Promise<Uint8Array>
+  // An id for one open player, unique across every tab. Priorities and sequential mode are
+  // per torrent but the players wanting them are not, so the engine tracks who is asking.
+  newViewerId: () => string
+  // Register this viewer on a file, or move it (a seek). The engine merges every viewer's
+  // claim rather than letting the newest one own the whole priority map.
+  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number) => void
+  unwatch: (viewer: string) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
   // Skip the wait for a torrent that is already retrying on a backoff.
@@ -57,9 +64,6 @@ export type TorrentClient = {
   // match. Runs in the engine, reported through the usual state updates.
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
-  setSequential: (handle: number, on: boolean) => void
-  prioritizeFile: (handle: number, fileIndex: number, fromOffset?: number) => void
-  prioritizeRange: (handle: number, fileIndex: number, offset: number, len: number) => void
   destroy: () => void
 }
 
@@ -115,7 +119,11 @@ const createTorrentClient = (): EngineClient => {
   const rawCbs = new Set<(msg: any) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
   const recentRate = createRecentRateTracker()
+  // Names this tab to the others, and prefixes the viewer ids its players hand out, so the
+  // engine can drop every claim belonging to a tab that went away without saying goodbye.
+  const docId = newClientId()
   let readId = 0
+  let viewerId = 0
   let resolveReady!: () => void
   // Public and one-shot: callers use it to know the engine came up at all, and an engine
   // that is later replaced does not un-happen that.
@@ -297,7 +305,7 @@ const createTorrentClient = (): EngineClient => {
       // A swap is a change of engine, not just of route to it, so everything the old one
       // said has to go with it.
       resetEngineState('the engine behind this tab was replaced')
-      transport = factory(host)
+      transport = factory(host, docId)
       owned = owns
       previous?.destroy()
       ownershipCbs.forEach((cb) => cb(owned))
@@ -308,7 +316,7 @@ const createTorrentClient = (): EngineClient => {
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
-    read: (handle, fileIndex, offset, len, prioritize = true) => {
+    read: (handle, fileIndex, offset, len, prioritize = true, viewer) => {
       if (fatal) return Promise.reject(fatal)
       return new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId
@@ -317,7 +325,9 @@ const createTorrentClient = (): EngineClient => {
           READ_TIMEOUT,
         )
         reads.set(id, { resolve, reject, timer })
-        send({ type: 'read', id, handle, fileIndex, offset, len, prioritize })
+        // The viewer rides along so a long jump re-anchors that player's own position rather
+        // than looking like whoever else is reading the same file having seeked.
+        send({ type: 'read', id, handle, fileIndex, offset, len, prioritize, viewer })
       })
     },
     pause: (handle) => send({ type: 'pause', handle }),
@@ -325,9 +335,9 @@ const createTorrentClient = (): EngineClient => {
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
-    setSequential: (handle, on) => send({ type: 'set-sequential', handle, on }),
-    prioritizeFile: (handle, fileIndex, fromOffset = 0) => send({ type: 'prioritize-file', handle, fileIndex, fromOffset }),
-    prioritizeRange: (handle, fileIndex, offset, len) => send({ type: 'prioritize-range', handle, fileIndex, offset, len }),
+    newViewerId: () => `${docId}:${++viewerId}`,
+    watch: (viewer, handle, fileIndex, fromOffset = 0) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset }),
+    unwatch: (viewer) => send({ type: 'unwatch', viewer }),
     destroy: () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('pagehide', onPageHide)
