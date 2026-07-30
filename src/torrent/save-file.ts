@@ -1,19 +1,15 @@
 // Export a finished file out of OPFS to the user's real disk. Reads through the
 // worker's Session.read() (the worker owns the OPFS SyncAccessHandle, so this
-// never races the seeding write lock) and streams it straight to a file the user
-// picks - no full-file buffering on the showSaveFilePicker path.
+// never races the seeding write lock) and streams it straight out, so the size of
+// an export is never the size of the memory it needs.
 
 import type { TorrentClient } from './client'
 import type { TorrentFile } from './types'
+import type { Sink } from './stream-download'
+import { openStreamSink } from './stream-download'
 import { writeZip } from './zip'
 
 const CHUNK = 8 * 1024 * 1024
-
-type Sink = {
-  write: (chunk: Uint8Array) => Promise<void>
-  close: () => Promise<void>
-  abort: () => Promise<void>
-}
 
 const triggerAnchorDownload = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob)
@@ -26,11 +22,17 @@ const triggerAnchorDownload = (blob: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-// Prefer the File System Access API (true streaming, no memory blow-up on big
-// files); fall back to buffering into a Blob + <a download> where it's missing.
+// Three ways to write a file out, in descending order of how well they scale:
+//
+//   showSaveFilePicker  true streaming into a file the user names. Chromium only.
+//   the service worker  true streaming, as an ordinary browser download, everywhere else.
+//   a Blob              the whole export held in memory, which a large torrent will not
+//                       survive. Only reached with no service worker at all.
+//
 // MUST be called synchronously from the click handler so the user gesture is
-// still live when showSaveFilePicker runs.
-const openSink = async (baseName: string): Promise<Sink> => {
+// still live when showSaveFilePicker runs. `size` is passed only when it is known
+// exactly, so the browser's own download UI can show a real percentage.
+const openSink = async (baseName: string, size = 0): Promise<Sink> => {
   const picker = (window as any).showSaveFilePicker as undefined | ((o: any) => Promise<any>)
   if (picker) {
     const handle = await picker({ suggestedName: baseName })
@@ -41,8 +43,11 @@ const openSink = async (baseName: string): Promise<Sink> => {
       abort: () => writable.abort?.().catch(() => {}),
     }
   }
+  const streamed = await openStreamSink(baseName, size)
+  if (streamed) return streamed
   const parts: Uint8Array[] = []
   return {
+    // Copied rather than kept: a caller may hand over a view it still owns.
     write: async (c) => { parts.push(c.slice()) },
     close: async () => triggerAnchorDownload(new Blob(parts as BlobPart[]), baseName),
     abort: async () => {},
@@ -87,7 +92,7 @@ export const saveTorrentFileToDisk = async (
   onProgress?: (fraction: number) => void,
 ): Promise<void> => {
   const baseName = filePath.split('/').pop() || 'download'
-  const sink = await openSink(baseName)
+  const sink = await openSink(baseName, fileBytes)
   try {
     for (let offset = 0; offset < fileBytes; offset += CHUNK) {
       const len = Math.min(CHUNK, fileBytes - offset)

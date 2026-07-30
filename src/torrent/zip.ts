@@ -41,13 +41,18 @@ const struct = (size: number) => {
 
 export const writeZip = async (
   entries: ZipEntry[],
+  // May take ownership of the chunk it is given, so nothing here reads one back after
+  // awaiting it.
   write: (chunk: Uint8Array) => Promise<void>,
   onProgress?: (fraction: number) => void,
 ): Promise<void> => {
   const total = entries.reduce((n, e) => n + e.size, 0) || 1
   let done = 0
   let offset = 0
-  const out = async (b: Uint8Array) => { await write(b); offset += b.length }
+  // Length first: the sink is allowed to take ownership of the chunk, and a transferred
+  // buffer leaves the view detached and reporting 0, which would freeze `offset` and point
+  // every central-directory entry at the start of the file.
+  const out = async (b: Uint8Array) => { const n = b.length; await write(b); offset += n }
 
   const d = new Date()
   const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)

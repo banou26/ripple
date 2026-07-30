@@ -23,9 +23,9 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
-// Closing the file picker rejects with AbortError. That is the user changing their mind,
-// not a failure worth reporting back to them.
-const isPickerDismissal = (error: unknown): boolean => (error as { name?: string })?.name === 'AbortError'
+// The user changed their mind, which is not a failure worth a toast. Covers both ways that
+// happens: closing the save dialog, and cancelling the download in the browser's own UI.
+const isSaveCancelled = (error: unknown): boolean => (error as { name?: string })?.name === 'AbortError'
 
 const STATE_LABEL: Record<Torrent['state'], string> = {
   downloading: 'Downloading',
@@ -1261,7 +1261,7 @@ const Home = () => {
     const key = savingKey(t.id, fileIndex)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentFileToDisk(client, Number(t.id), fileIndex, file.name, file.size, (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch((error) => { if (!isPickerDismissal(error)) showToast(`Saving ${file.name} failed`) })
+      .catch((error) => { if (!isSaveCancelled(error)) showToast(`Saving ${file.name} failed`) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
@@ -1271,7 +1271,7 @@ const Home = () => {
     const key = savingKey(t.id, -1)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files, (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch((error) => { if (!isPickerDismissal(error)) showToast(`Saving ${t.name} failed`) })
+      .catch((error) => { if (!isSaveCancelled(error)) showToast(`Saving ${t.name} failed`) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
