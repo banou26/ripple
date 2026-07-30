@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TransportHost } from './engine-protocol'
 
-import { CONTROL_CHANNEL, ENGINE_RESET } from './engine-protocol'
+import { CONTROL_CHANNEL, ENGINE_RESET, LEADER_SILENCE_MS } from './engine-protocol'
 import { createChannelTransport, serveFollowers } from './engine-share'
 
 // BroadcastChannel delivery is a task, not a microtask, so awaiting a promise is not enough.
@@ -158,6 +158,39 @@ describe('the follower transport', () => {
     expect(fromFollower.filter((m) => m.type === 'pause')).toHaveLength(1)
 
     transport.destroy()
+  })
+
+  // `ready` is sent once and never again. Treating it as the only proof a leader is alive
+  // meant that once the silence window lapsed, nothing could ever mark the leader up again:
+  // the follower buffered every command from then on and its buttons quietly stopped
+  // working. Firefox misses engine ticks often enough for that window to lapse in normal
+  // use, so this is the ordinary case, not a corner.
+  it('recovers from a quiet spell on an ordinary broadcast, not just on ready', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = makeHost()
+      const transport = createChannelTransport(host, 'test-doc')
+      const leader = track(new BroadcastChannel(CONTROL_CHANNEL))
+      const fromFollower: any[] = []
+      leader.addEventListener('message', ({ data }) => { if (data?.to === 'leader') fromFollower.push(data.msg) })
+
+      leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'ready' } })
+      await vi.advanceTimersByTimeAsync(50)
+
+      // The leader goes quiet for longer than the silence window, then comes back with the
+      // ordinary state broadcast its tick produces. No second `ready` is ever coming.
+      await vi.advanceTimersByTimeAsync(LEADER_SILENCE_MS + 1_000)
+      leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'state', torrents: [] } })
+      await vi.advanceTimersByTimeAsync(50)
+
+      transport.post({ type: 'pause', handle: 1 }, [])
+      await vi.advanceTimersByTimeAsync(50)
+
+      expect(fromFollower.filter((m) => m.type === 'pause'), 'the follower never started talking again').toHaveLength(1)
+      transport.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('tells the client to drop everything when the generation changes', async () => {

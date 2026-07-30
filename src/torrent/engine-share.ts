@@ -56,9 +56,17 @@ export const createChannelTransport = (host: TransportHost, clientId: string): T
     for (const held of pending) say(held)
   }
 
-  // A leader announces itself with the worker's own `ready`, never a synthetic one: the
-  // worker drops every command that arrives before its session exists, so announcing early
-  // would release the held commands straight into a hole.
+  // A leader is up once it says anything that only a live session can produce. `ready` is
+  // one of those, but it is sent once and never again, so treating it as the only signal
+  // meant a leader that merely went quiet past the silence window could never be marked up
+  // again: the follower buffered every command from then on and its buttons quietly stopped
+  // working. Measured on Firefox, where the engine tick misses often enough for that window
+  // to lapse during normal use.
+  //
+  // The worker's state loop returns early until the session exists, and the list is posted
+  // immediately after ready, so any of these three proves what ready proves.
+  const PROVES_READY = new Set(['ready', 'state', 'list'])
+
   const observe = (envelopeGen: Generation, msg: any) => {
     // A different engine entirely. Handles from the old one name other torrents in this one,
     // so the client has to be told before it sees a single message from it.
@@ -69,7 +77,7 @@ export const createChannelTransport = (host: TransportHost, clientId: string): T
     // Its whole job was to carry the new generation, which the change above already acted
     // on. A tab that had no engine to begin with has nothing to reset.
     if (msg?.type === ENGINE_RESET) return
-    if (msg?.type === 'ready' && !leaderUp) { leaderUp = true; flush() }
+    if (!leaderUp && PROVES_READY.has(msg?.type)) { leaderUp = true; flush() }
     host.message(msg)
   }
 
