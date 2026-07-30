@@ -21,6 +21,7 @@
     "test": "vitest run src",
     "test:e2e": "npm run build && playwright test --project=chromium tests/smoke.spec.ts tests/stream-download.spec.ts",
     "test:stream": "npm run build && playwright test tests/stream-download.spec.ts",
+    "test:resume": "npm run build && playwright test --project=chromium tests/resume-verify.spec.ts",
     "preview": "vp preview",
     "bench:install": "playwright install chromium firefox",
     "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts"
