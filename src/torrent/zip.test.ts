@@ -13,14 +13,10 @@ const entry = (path: string, size: number) => ({
     new Uint8Array(len).map((_, i) => (offset + i) % 251),
 })
 
-// Collects the archive, optionally taking ownership of every chunk the way the streaming
-// sink does. Returns the bytes plus the offsets the central directory recorded.
 const build = async (entries: ReturnType<typeof entry>[], transfer: boolean) => {
   const parts: Uint8Array[] = []
   await writeZip(entries, async (chunk) => {
     parts.push(chunk.slice())
-    // structuredClone with a transfer list detaches the caller's view exactly as
-    // postMessage does, so `chunk.length` reads 0 from here on.
     if (transfer) structuredClone(chunk.buffer, { transfer: [chunk.buffer] })
   })
   const total = parts.reduce((n, p) => n + p.length, 0)
@@ -47,9 +43,7 @@ describe('writeZip', () => {
     }
   })
 
-  // The streaming sink transfers each chunk's buffer, which detaches the view it was handed.
-  // Anything that measured a chunk after awaiting the write would read 0 from that point on,
-  // freezing the running offset and pointing every entry after the first at byte 0.
+  // The streaming sink transfers each chunk's buffer (structuredClone does the same here), which detaches the view it was handed
   it('stays correct when the sink takes ownership of each chunk', async () => {
     const plain = await build([entry('a.mkv', 4_096), entry('b/c.srt', 128)], false)
     const transferred = await build([entry('a.mkv', 4_096), entry('b/c.srt', 128)], true)

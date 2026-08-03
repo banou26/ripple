@@ -39,8 +39,7 @@ export type UseFolder = {
   clear: () => Promise<void>
 }
 
-// The persisted auto-save directory. Restored handles come back without an
-// active permission grant, so `allow` re-requests it from a user gesture.
+// restored handles come back without an active permission grant, so `allow` re-requests it from a user gesture
 export const useFolder = (): UseFolder => {
   const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null)
   const [permitted, setPermitted] = useState(false)

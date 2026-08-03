@@ -25,8 +25,6 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
-// The user changed their mind, which is not a failure worth a toast. Covers both ways that
-// happens: closing the save dialog, and cancelling the download in the browser's own UI.
 const isSaveCancelled = (error: unknown): boolean => (error as { name?: string })?.name === 'AbortError'
 
 const STATE_LABEL: Record<Torrent['state'], string> = {
@@ -41,9 +39,6 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
   checking: 'Checking',
 }
 
-// What a torrent in recovery says about itself. The engine's own message is used when it
-// managed to attribute one; otherwise say which of the two failures it is, since "stopped
-// by the disk" and "connected to nothing" call for very different user action.
 const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => {
   const stalled = retry.reason === 'stalled'
     ? (t.peers > 0 ? 'Peers stopped sending data' : 'Not connected to any peers')
@@ -66,8 +61,6 @@ const rate = (bytesPerSecond: number): string => {
   return `${Math.round(bytesPerSecond / 1000)} KB/s`
 }
 
-// FKN cloud-egress quota readout: torrent traffic relays through FKN, so over the daily free-tier
-// volume the transfer is throttled. Premium lifts it; the extension/desktop paths aren't metered.
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   if (quota.premium) {
     return (
@@ -94,9 +87,6 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   )
 }
 
-// Local storage readout. Deliberately says "of the N your browser allows this site" rather
-// than anything about disk: the number covers everything the origin stores, and the limit
-// is a browser-computed budget that moves on its own, not free space.
 const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) => (
   <div className={'stat storage' + (low ? ' low' : '')}>
     <label>Storage</label>
@@ -106,8 +96,6 @@ const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) 
   </div>
 )
 
-// Cross-device library sync: the torrent list mirrors to FKN cloud storage while
-// signed in, so the same library appears on another device. Hidden when signed out.
 const SyncStat = ({ status }: { status: SyncStatus }) => {
   if (status === 'off') return null
   const label = status === 'syncing' ? 'Syncing…' : status === 'error' ? 'Sync failed' : 'Synced'
@@ -119,8 +107,6 @@ const SyncStat = ({ status }: { status: SyncStatus }) => {
   )
 }
 
-// FKN account readout in the header: who is connected and whether they are premium, with a disconnect. When
-// signed out we embed the fkn.app Connect button (an iframe) inline - a single click opens sign-in directly.
 const AccountWidget = () => {
   const { info, ready, logout } = useAccount()
   const [busy, setBusy] = useState(false)
@@ -130,7 +116,6 @@ const AccountWidget = () => {
     try { await logout() } finally { setBusy(false) }
   }
 
-  // stay empty until the first read resolves, so a connected user never flashes the signed-out button first
   if (!ready) return null
 
   if (!info) return <ConnectButton style={{ flex: 'none', width: 140, height: 38 }} />
@@ -148,14 +133,11 @@ const AccountWidget = () => {
 
 const HISTORY = 120
 
-// Auto-save bookkeeping: a torrent already copied to the folder is parked on DONE, and a
-// failed copy waits SYNC_RETRY before the next attempt.
+// A torrent already copied to the folder is parked on DONE, and a failed copy waits SYNC_RETRY before the next attempt
 const DONE = Number.POSITIVE_INFINITY
 const SYNC_RETRY = 30_000
 
-// One copy of a torrent into the picked folder at a time, across every open tab. Resolves to
-// null when another tab already holds it, which is a skip rather than a success or a failure.
-// Without Web Locks there is only ever one usable tab, so there is nothing to serialise.
+// Resolves to null when another tab already holds it, which is a skip rather than a success or a failure
 const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<number | null> => {
   const key = torrent.infoHash
   if (!navigator.locks || !key) return copy()
@@ -1009,9 +991,6 @@ type RowProps = {
   onPause: (t: Torrent) => void
 }
 
-// A torrent whose files aren't on this device - synced from another device, or its
-// local data was cleared/evicted. No metadata, no progress: just the name, a "Files
-// missing" badge, and a Download button that fetches it on demand, not automatically.
 const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'>) => (
   <div className="torrent surface missing">
     <div className="title">
@@ -1034,11 +1013,8 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemov
   if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
-  // Multifile torrents save as one zip of everything; single-file saves the file.
   const multi = (t.files?.length ?? 0) > 1
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
-  // Judged on progress, not state: a finished torrent that is currently retrying (say its
-  // seeding hit a disk error) still has every byte on disk and saves fine.
   const complete = t.progress >= 1
   return (
     <div className="torrent surface">
@@ -1061,25 +1037,17 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemov
         </div>
         <div className="actions">
           {href && <Link className="primary" to={href}>Watch</Link>}
-          {/* Saving reads through the engine, which parks until the bytes arrive, so only
-              offer it once there are bytes to read rather than wedging on a stalled torrent. */}
           {!!t.files?.length && complete && (
             <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
               {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
             </button>
           )}
-          {/* A torrent in recovery is already retrying on its own, so its button only
-              skips the wait; it still needs a Pause of its own, or the only way to stop a
-              torrent that keeps failing would be to delete it. Queued is libtorrent
-              holding it behind others, which Resume overrides. */}
           {t.state !== 'checking' && (
             <button onClick={() => onToggle(t)}>
               {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
             </button>
           )}
           {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
-          {/* Reads every byte back off the disk, so it is only offered once there is
-              something to verify, and never while a check is already running. */}
           {!!t.files?.length && t.state !== 'checking' && (
             <button onClick={() => onRecheck(t)}>Recheck</button>
           )}
@@ -1116,8 +1084,6 @@ const Home = () => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<number | undefined>(undefined)
 
-  // Read torrents from a ref inside stable callbacks so the global paste/drop
-  // listeners don't re-subscribe on every 500ms state tick.
   const torrentsRef = useRef(torrents)
   torrentsRef.current = torrents
 
@@ -1128,8 +1094,6 @@ const Home = () => {
   }, [])
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
-  // Downloads carry on regardless (the engine retries on its own), but say so, otherwise
-  // a library sitting at zero looks broken rather than waiting.
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine)
     window.addEventListener('online', update)
@@ -1137,12 +1101,8 @@ const Home = () => {
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
   }, [])
 
-  // A .torrent the engine could not parse, or one whose infohash never arrived. The add
-  // is optimistic, so this is the only place the failure can surface.
   useEffect(() => client.onAddFailed(showToast), [client, showToast])
 
-  // Offer handler setup only while running in a browser tab; an installed window
-  // already has the .torrent and magnet handlers active from the manifest.
   const [showSetup] = useState(() => !isAppInstalled())
   const onSetupHandlers = useCallback(async () => {
     const outcome = await setupHandlers()
@@ -1156,9 +1116,7 @@ const Home = () => {
     const text = raw.trim()
     if (!isMagnet(text)) return false
     const ih = magnetInfoHash(text)
-    // Already in the list - don't re-add. Re-adding would join the swarm and start
-    // downloading; a synced "Files missing" torrent must only start from its explicit
-    // Download button, never from a paste/drop/submit of the same magnet.
+    // Re-adding would join the swarm and start downloading; a synced "Files missing" torrent must only start from its explicit Download button
     if (ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)) {
       showToast('Already in your list')
       return true
@@ -1176,8 +1134,6 @@ const Home = () => {
     }
   }, [addTorrentFile, showToast])
 
-  // Global paste: Ctrl/Cmd+V anywhere outside a text field instantly adds a
-  // magnet (the paste event carries the text with no permission prompt).
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const el = e.target as HTMLElement | null
@@ -1189,9 +1145,7 @@ const Home = () => {
     return () => window.removeEventListener('paste', onPaste)
   }, [commitMagnet])
 
-  // Drop a .torrent file (or a dragged magnet link) anywhere on the page.
-  // dragenter/dragleave fire per element, so a depth counter keeps the
-  // overlay from flickering while the drag crosses children.
+  // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
   useEffect(() => {
     let depth = 0
@@ -1217,27 +1171,18 @@ const Home = () => {
     }
   }, [addTorrentFiles, commitMagnet])
 
-  // PWA launch handling: when the OS opens a .torrent with the installed app, or a
-  // magnet: link is routed here through the protocol handler, deliver it into the
-  // same add flow as the file picker and paste box. The launchQueue holds params
-  // until this consumer registers, so a late mount still receives them.
   useEffect(() => {
     const addFromLaunchUrl = (rawUrl: string | undefined) => {
       if (!rawUrl) return
       try {
         const magnet = new URL(rawUrl, window.location.origin).searchParams.get('magnet')
         if (magnet) commitMagnet(magnet)
-      } catch { /* ignore a malformed launch URL */ }
+      } catch {}
     }
 
     // Protocol-handler launches arrive as /?magnet=... in the address bar.
     addFromLaunchUrl(window.location.href)
-    // Then take it out of the URL. It is a one-shot instruction, but it survives a
-    // reload, a tab restore and the Back button out of the player, and the dedup guard
-    // cannot help: the list is always empty this early in the mount. Left in place, a
-    // torrent the user removed comes back on the next reload and the list sync pushes
-    // that resurrection to every other device. Stripped unconditionally, so a value that
-    // failed to parse cannot replay either.
+    // Left in place, a torrent the user removed comes back on the next reload and the list sync pushes that resurrection to every other device
     if (window.location.search.includes('magnet=')) {
       window.history.replaceState(null, '', window.location.pathname + window.location.hash)
     }
@@ -1252,41 +1197,29 @@ const Home = () => {
           await addTorrentFiles(files)
         }
       })
-    } catch { /* a consumer was already set on a prior mount */ }
+    } catch {}
   }, [addTorrentFiles, commitMagnet])
 
-  // A torrent in recovery goes through retry, not resume: resume is for undoing a pause,
-  // and a stalled torrent is not paused, so it would do nothing at all while throwing
-  // away the schedule that was about to act.
   const onToggle = (t: Torrent) =>
     t.state === 'retrying'
       ? retry(Number(t.id))
       : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id))
 
-  // Stopping a torrent that is retrying. Recorded as a real pause, so recovery drops it
-  // and it stays stopped across reloads.
   const onPause = (t: Torrent) => pause(Number(t.id))
 
-  // A synced "Files missing" torrent has no session handle - start/remove it by
-  // infoHash. Starting adds it to the swarm; removing just drops the list entry.
   const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
 
-  // Removing also wipes the OPFS data - there's no UI to reclaim it otherwise.
   const onRemove = (t: Torrent) => {
     if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
   }
 
-  // Verifies the torrent's pieces against the bytes on disk and re-downloads whatever does
-  // not match. Everything already downloaded is read back, so say what it will cost rather
-  // than leaving a torrent that suddenly stopped looking like it broke again.
   const onRecheck = (t: Torrent) => {
     recheck(Number(t.id))
     showToast(`Checking ${t.name} against the files on disk`)
   }
 
-  // Streams one file out of OPFS to the user's disk. Called synchronously
-  // from the click so showSaveFilePicker keeps the user gesture.
+  // Called synchronously from the click so showSaveFilePicker keeps the user gesture
   const onSave = (t: Torrent, fileIndex: number) => {
     const file = t.files?.[fileIndex]
     if (!file) return
@@ -1297,7 +1230,6 @@ const Home = () => {
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
-  // Streams every file of a multifile torrent into one zip on the user's disk.
   const onSaveZip = (t: Torrent) => {
     if (!t.files?.length) return
     const key = savingKey(t.id, -1)
@@ -1309,25 +1241,14 @@ const Home = () => {
 
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
 
-  // Auto-copy finished torrents into the chosen folder. Each torrent is held off until a
-  // deadline rather than marked done outright: the copy can fail on a full disk, a
-  // revoked grant or a read that could not be served, and the sync is idempotent (it
-  // skips files already the right size and aborts its writable on failure), so a retry
-  // is always safe. The backoff is what makes retrying safe: this effect re-runs twice a
-  // second from the state tick, so a bare retry would hammer the disk and pin an error
-  // toast. Cleared on a folder change and on a re-grant, since both can fix the failure.
+  // The backoff is what makes retrying safe: this effect re-runs twice a second from the state tick, so a bare retry would hammer the disk
   const syncAtRef = useRef(new Map<string, number>())
-  // In-flight copies are tracked separately from the backoff: a copy can easily run
-  // longer than the retry window, and this effect re-runs twice a second, so a deadline
-  // alone would start a second and third pass over the same files. A swap-file writable
-  // leaves the destination at its old size until close(), so the idempotence check
-  // cannot catch that either.
+  // In-flight copies are tracked apart from the backoff: a copy can run longer than the retry window while this effect re-runs twice a second, and a swap-file
+  // writable leaves the destination at its old size until close(), so the size-based idempotence check cannot catch a second pass over the same files
   const syncingRef = useRef(new Set<string>())
   const folderGenerationRef = useRef(0)
   useEffect(() => { folderGenerationRef.current++; syncAtRef.current.clear() }, [folder, permitted])
-  // Both maps are keyed by the session handle, which names a different torrent after the
-  // engine moves to another tab. A stale DONE against a recycled handle would silently skip
-  // a copy that never happened.
+  // Both maps are keyed by the session handle, which names a different torrent after the engine moves to another tab
   useEffect(() => client.onEngineReset(() => { syncAtRef.current.clear(); syncingRef.current.clear() }), [client])
   useEffect(() => {
     if (!folder || !permitted) return
@@ -1338,19 +1259,10 @@ const Home = () => {
       const attempt = syncAtRef.current.get(t.id)
       if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
       syncingRef.current.add(t.id)
-      // A copy that finishes after the folder changed must not record anything: marking
-      // it done would permanently suppress the copy into the newly chosen folder.
       const generation = folderGenerationRef.current
-      // Every open tab watches the same finished torrent and the same picked folder, and the
-      // guards above are per document, so without this they would all copy at once: two
-      // createWritable() calls on one file, and whichever closes last decides what the file
-      // contains. Keyed by infoHash because the handle in `t.id` is only meaningful inside
-      // one engine session. `ifAvailable` so a tab that loses simply leaves it to the winner.
       copyUnderLock(t, () => syncTorrentToDirectory(client, t, folder))
         .then((written) => {
           if (generation !== folderGenerationRef.current) return
-          // Another tab is already copying this one. Not done and not failed, so record
-          // neither: the size check makes the next pass a no-op once that tab finishes.
           if (written === null) return
           syncAtRef.current.set(t.id, DONE)
           if (written) showToast(`${t.name} saved to ${folder.name}`)
@@ -1364,7 +1276,6 @@ const Home = () => {
     }
   }, [torrents, folder, permitted, client, showToast])
 
-  // Rolling window of total download speed, one sample per state tick.
   const [history, setHistory] = useState<number[]>([])
   useEffect(() => {
     setHistory((prev) => [...prev.slice(-(HISTORY - 1)), torrents.reduce((n, t) => n + t.down, 0)])
@@ -1375,14 +1286,10 @@ const Home = () => {
   const peak = Math.max(...history, 0)
   const active = torrents.filter((t) => t.state === 'downloading').length
 
-  // Quota tracks FKN egress, so only poll while something is actually in the session;
-  // a ghost-only ("Files missing") library transfers nothing until a Download is clicked.
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
   const syncStatus = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
-  // Re-read whenever the library changes size, so removing a torrent does not leave the
-  // old figure on screen and read as the button having done nothing.
   const storage = useStorageUsage(torrents.length)
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
@@ -1449,8 +1356,6 @@ const Home = () => {
         </div>
       )}
 
-      {/* Nothing needs doing here: the engine keeps retrying and picks straight back up
-          when the connection returns. Say so, or a library sitting at zero reads as broken. */}
       {offline && !storageUnavailable && !workerError && (
         <div className="storage-warning surface offline" role="status">
           <strong>You're offline</strong>
@@ -1465,10 +1370,7 @@ const Home = () => {
         </div>
       )}
 
-      {/* role=status rather than alert: the browser's budget drifts on its own as unrelated
-          files come and go, so this can appear and clear without the user doing anything,
-          and re-interrupting a screen reader each time it crosses back is worse than the
-          warning is urgent. */}
+      {/* role=status rather than alert: the browser's budget drifts on its own, so this can appear and clear without the user doing anything */}
       {storage && lowStorage && !storageUnavailable && (
         <div className="storage-warning surface" role="status">
           <strong>Running out of room</strong>

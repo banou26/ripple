@@ -122,21 +122,17 @@ const Player = () => {
   const origin = useMemo(() => new URL(window.location.toString()).origin, [])
   const publicPath = useMemo(() => new URL(import.meta.env.DEV ? '/build/' : '/', origin).toString(), [origin])
 
-  // libav loads as an ES module worker (its emscripten glue uses import.meta).
   const libavWorkerUrl = useMemo(
     () => new URL(`${import.meta.env.DEV ? '/build' : ''}/libav-worker.js`, origin).toString(),
     [origin]
   )
 
-  // jassub's prebuilt worker is a classic script - wrap it via importScripts.
+  // jassub's prebuilt worker is a classic script, so wrap it via importScripts; a memo, not an effect, because a changing URL identity tears the pipeline down
   const jassubWorkerUrl = useMemo(() => {
     const url = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, origin).toString()
     return URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(url)})`], { type: 'application/javascript' }))
   }, [origin])
 
-  // The blob stays alive until it is revoked explicitly, so release it on unmount.
-  // It has to be created in the memo rather than an effect: the URL feeds the
-  // playback effect, and a changing identity would tear down the whole pipeline.
   useEffect(() => () => URL.revokeObjectURL(jassubWorkerUrl), [jassubWorkerUrl])
 
   const jassubWasmUrl = useMemo(
@@ -158,8 +154,6 @@ const Player = () => {
   const downloadedRanges = useMemo(() => downloadedFractions(snapshot, fileIndex), [snapshot, fileIndex])
   const downloadedBytes = useMemo(() => downloadedByteRanges(snapshot, fileIndex), [snapshot, fileIndex])
 
-  // Seekbar hover previews: a second remuxer decodes keyframes once their byte
-  // spans land, started only after playback init pulled the head/tail locally.
   const [playerReady, setPlayerReady] = useState(false)
   const thumbnails = useSeekThumbnails({
     enabled: playerReady,
@@ -172,8 +166,7 @@ const Player = () => {
 
   const overlay = (
     <div className="ripple-overlay-content">
-      {/* When the engine cannot serve this file at all, nothing will ever arrive. Say
-          that, rather than leaving the spinner and the metadata line running forever. */}
+      {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
       <div className="loading-information">
         {engineError
           ?? (!hasMetadata
@@ -248,7 +241,6 @@ const Player = () => {
         onController={(controller) => {
           controllerRef.current = controller
           if (controller) setPlayerReady(true)
-          // An audio switch rebuilds the pipeline; re-apply the subtitle choice.
           if (controller && selectedSubtitle !== undefined) controller.selectSubtitleStream(selectedSubtitle)
         }}
       />

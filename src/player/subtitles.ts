@@ -83,9 +83,6 @@ const toDialoguePart = (header: SubtitleHeaderPart, fragment: SubtitleFragment &
   }
 }
 
-// Drives jassub from the remuxer's subtitle fragments. Lazily boots jassub on
-// the first header, auto-selects the first stream, and de-dupes dialogue events.
-// All streams' dialogues are kept so switching can replay the buffered window.
 export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
   const { video, canvas, publicPath, workerUrl, wasmUrl, defaultFontUrl } = options
   let jassub: JASSUB | undefined
@@ -115,9 +112,7 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
       fonts: attachments.map(([, data]) => data),
       availableFonts: { ...Object.fromEntries(attachments), 'liberation sans': defaultFontUrl },
     })
-    // jassub 1.8.x binds setRate directly as the ratechange listener, so the
-    // Event itself becomes the rate and the worker postMessage clone rejects
-    // it; swap in a listener that passes the actual playbackRate.
+    // jassub 1.8.x binds setRate as the ratechange listener, so the Event itself becomes the rate and the postMessage clone rejects it
     video.removeEventListener('ratechange', (jassub as any)._boundSetRate)
     video.addEventListener('ratechange', onRateChange)
     for (const style of header.parsed.styles.style) appendParsedStyle(jassub, style)
@@ -150,8 +145,7 @@ export const createSubtitleRenderer = (options: SubtitleRendererOptions) => {
     }
   }
 
-  // -1 turns subtitles off. Switching replays the stored dialogues of the new
-  // stream so the already-buffered window isn't blank until the next seek.
+  // -1 is the sentinel that turns subtitles off: it frees the track and finds no header, so nothing is set
   const selectStream = (streamIndex: number) => {
     if (streamIndex === selected || !jassub) return
     selected = streamIndex

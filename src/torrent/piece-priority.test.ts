@@ -1,6 +1,4 @@
-// The merge is the whole point of the viewer model. Before it, priorities were rebuilt for
-// whichever player asked last, so a second tab watching the same torrent had its file put
-// back to normal on every seek the first one made.
+// The priority array is global to a torrent: rebuilding it for the last player to ask put a second tab's file back to normal on every seek
 
 import { describe, expect, it } from 'vitest'
 
@@ -12,28 +10,23 @@ describe('merging viewer claims into piece priorities', () => {
   })
 
   it('puts one viewer ahead of the playhead first and behind it last', () => {
-    // File spans pieces 2..5, playhead at 4.
     expect([...mergePriorities(8, [{ p0: 2, p1: 5, pAt: 4 }])])
       .toEqual([NORMAL, NORMAL, BEHIND, BEHIND, AHEAD, AHEAD, NORMAL, NORMAL])
   })
 
-  // The regression this model exists for. Two tabs, two files, one torrent.
   it('honours a second viewer on a different file instead of resetting the first', () => {
     const merged = mergePriorities(10, [
       { p0: 0, p1: 3, pAt: 2 },
       { p0: 6, p1: 9, pAt: 8 },
     ])
     expect([...merged]).toEqual([
-      BEHIND, BEHIND, AHEAD, AHEAD, // first viewer's file
-      NORMAL, NORMAL, // between them, nobody watching
-      BEHIND, BEHIND, AHEAD, AHEAD, // second viewer's file
+      BEHIND, BEHIND, AHEAD, AHEAD,
+      NORMAL, NORMAL,
+      BEHIND, BEHIND, AHEAD, AHEAD,
     ])
   })
 
-  // Same file, two players at different points. Pieces 2 and 3 are behind the player at 4 but
-  // ahead of the one at 2, so they are urgent. Asserted in both orders on purpose: with the
-  // claims one way round, "last one wins" happens to agree with "highest wins", and a test
-  // that only checked that order would pass against the bug.
+  // Both orders on purpose: one way round, "last one wins" agrees with "highest wins" and passes against the bug
   it.each([
     ['trailing player last', [{ p0: 0, p1: 5, pAt: 4 }, { p0: 0, p1: 5, pAt: 2 }]],
     ['trailing player first', [{ p0: 0, p1: 5, pAt: 2 }, { p0: 0, p1: 5, pAt: 4 }]],
@@ -42,8 +35,6 @@ describe('merging viewer claims into piece priorities', () => {
   })
 
   it('covers the whole torrent, so a file prioritised earlier does not stay urgent', () => {
-    // A claim on an early file must still write NORMAL over the later pieces, which is what
-    // the old array (sized to the watched file) never reached.
     const merged = mergePriorities(12, [{ p0: 0, p1: 1, pAt: 0 }])
     expect(merged).toHaveLength(12)
     expect([...merged.slice(2)]).toEqual(Array(10).fill(NORMAL))

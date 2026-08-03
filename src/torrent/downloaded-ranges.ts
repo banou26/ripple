@@ -1,7 +1,6 @@
 import type { TorrentSnapshot } from './worker'
 
-// Merged downloaded regions of one file, as [from, to] byte offsets within the
-// file, derived from the piece bitfield (MSB-first in both engines).
+// derived from the piece bitfield (MSB-first in both engines)
 export const downloadedByteRanges = (
   snapshot: TorrentSnapshot | null,
   fileIndex: number,
@@ -29,7 +28,6 @@ export const downloadedByteRanges = (
   return ranges
 }
 
-// Same regions as fractions of the file size, for the seekbar overlay.
 export const downloadedFractions = (
   snapshot: TorrentSnapshot | null,
   fileIndex: number,

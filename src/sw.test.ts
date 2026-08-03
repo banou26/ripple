@@ -1,12 +1,8 @@
-// The service worker is the one piece of this app that sits in front of every request the
-// page makes, so the thing worth pinning hardest is what it does NOT do. It is loaded here
-// as text and driven directly, which also keeps it honest about being importless: the
-// Function constructor would throw on an import statement.
+// The service worker sits in front of every request, so what it does NOT do is what matters
 
 import { describe, expect, it } from 'vitest'
 
-// Imported as text rather than read off disk: node's fs is shimmed away in this project's
-// browser-targeted vitest environment, and ?raw is what the bundler itself understands.
+// Text rather than fs: node's fs is shimmed away in this browser-targeted vitest environment
 import source from './sw.js?raw'
 
 const ORIGIN = 'https://torrent.fkn.app'
@@ -31,7 +27,6 @@ const requestFor = (url: string) => {
   return { event, taken: () => response }
 }
 
-// Opens a download the way the page does and returns the port the page keeps.
 const openStream = (on: Record<string, Handler>, id: string, name: string, size = 0) => {
   const channel = new MessageChannel()
   const source: { sent: any[], postMessage: (m: any) => void } = {
@@ -51,8 +46,6 @@ describe('service worker', () => {
       `${ORIGIN}/assets/index-Bx33zPvJ.js`,
       `${ORIGIN}/libav.wasm`,
       `${ORIGIN}/watch/abc`,
-      // A path that merely mentions the prefix must not match: the check is anchored to
-      // the origin, so a query string cannot smuggle one in.
       `${ORIGIN}/legal?next=/__ripple-stream/1`,
       'https://other.example/__ripple-stream/1/x',
     ]
@@ -67,8 +60,6 @@ describe('service worker', () => {
     const on = boot()
     const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/nope/file.mkv`)
     on.fetch!(event)
-    // Falling through would serve index.html, which the browser would then save under
-    // the file's name.
     expect(taken()!.status).toBe(404)
   })
 
@@ -109,8 +100,6 @@ describe('service worker', () => {
       got.push(...value)
     }
     expect(got).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-    // The whole point of the exercise: the reader never gets ahead of the writer, so a
-    // 20 GB export costs one chunk of memory rather than 20 GB.
     expect(peak).toBe(1)
   })
 
@@ -131,8 +120,6 @@ describe('service worker', () => {
     const { source } = openStream(on, 'abc', 'movie.mkv')
     on.message!({ data: { type: 'ping', id: 'abc' }, ports: [], source })
     expect(source.sent).toEqual([{ type: 'pong', id: 'abc' }])
-    // A worker that was killed mid-download comes back with nothing registered, and the
-    // page has to hear that silence rather than wait out a transfer nothing is carrying.
     on.message!({ data: { type: 'ping', id: 'gone' }, ports: [], source })
     expect(source.sent).toHaveLength(1)
   })
@@ -143,8 +130,6 @@ describe('service worker', () => {
     port.onmessage = (event: MessageEvent) => {
       if (event.data?.type !== 'pull') return
       port.postMessage({ type: 'end' })
-      // The page owns this port, so a duplicate is always possible and must not take the
-      // fetch handler down with it.
       port.postMessage({ type: 'end' })
     }
     const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/twice/movie.mkv`)

@@ -15,23 +15,16 @@ export type ThumbnailGeneratorOptions = {
 
 const INTERVAL = 5
 const WIDTH = 320
-// avio fills its buffer from the seek position, so a keyframe read can touch
-// up to bufferSize bytes past the slot span; require that margin downloaded.
+// avio reads up to the bufferSize below past the slot span; require that margin downloaded
 const READAHEAD = 1_000_000
 const MAX_ATTEMPTS = 3
-// A keyframe decode can hang without ever settling (decoder never emits, no
-// error path); time it out so the queue keeps moving - the next call aborts
-// the stuck one inside libav.
+// a keyframe decode can hang without ever settling, with no error path
 const KEYFRAME_TIMEOUT = 10_000
-// A torrent that is not moving fails init on every try, and each try costs a
-// wasm worker, so the retry spacing grows instead of holding at 5s forever.
+// grows to MAX_RETRY_DELAY because a torrent that is not moving fails init on every try, and each try costs a wasm worker
 const RETRY_DELAY = 5_000
 const MAX_RETRY_DELAY = 60_000
 
-// Second remuxer dedicated to seekbar previews: one keyframe per INTERVAL
-// seconds, decoded to a downscaled webp once its byte span is downloaded.
-// Reads must come in through a non-prioritizing path so generation never
-// steals download order from playback.
+// `read` must be a non-prioritizing path so generation never steals download order from playback
 export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, read, onThumbnails }: ThumbnailGeneratorOptions) => {
   const remuxer = await makeRemuxer({
     publicPath,
@@ -41,9 +34,8 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     length,
     read,
   })
-  // makeRemuxer stands a wasm worker up before init() ever runs, and both the
-  // init and the index walk below throw on a file that is not readable yet, so
-  // the worker has to leave with the failure.
+  // makeRemuxer stands a wasm worker up before init() ever runs, and both init and the index walk below throw on a file that is not readable yet, so the
+  // worker has to leave with the failure
   try {
     const metadata = await remuxer.init()
     const duration = metadata.info.input.duration
@@ -63,8 +55,7 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
       })
     }
     for (const [i, slot] of slots.entries()) slot.endTime = slots[i + 1]?.timestamp ?? duration
-    // Reading the very last keyframe runs the demuxer into EOF, which crashes
-    // the current libav build; the closing-credits thumb is not worth it.
+    // reading the very last keyframe runs the demuxer into EOF, which crashes the libav build
     if (slots.length > 1 && (slots.at(-1)!.timestamp > duration - INTERVAL * 2)) slots.pop()
     console.warn('[thumbs] ready:', slots.length, 'slots over', Math.round(duration), 's')
 
@@ -72,7 +63,7 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     let destroyed = false
     let queue = Promise.resolve()
 
-    // The slider assumes a gapless storyboard (last startTime <= time wins), so not-yet-generated stretches get empty-url sentinels the skin hides
+    // the slider assumes a gapless storyboard, so gaps get empty-url sentinels the skin hides
     const emit = () => {
       const display: ThumbnailImage[] = []
       for (const [i, t] of thumbnails.entries()) {
@@ -122,8 +113,6 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     emit()
 
     return {
-      // Byte ranges of the file known to be fully downloaded; generates every
-      // not-yet-done slot whose span is covered.
       update: (ranges: [number, number][]) => {
         if (destroyed) return
         for (const slot of slots) {

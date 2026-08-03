@@ -4,8 +4,7 @@ import { getRoutePath, Route } from '../router/path'
 
 const VIDEO_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|wmv|mpg|mpeg|ogv)$/i
 
-// The file index the player should open: the largest video file, else the
-// largest file. The array index IS the engine's file index (order preserved).
+// The array index IS the engine's file index (order preserved)
 export const pickVideoFile = (files?: TorrentFile[]): number => {
   if (!files?.length) return 0
   let best = -1, bestSize = -1
@@ -18,8 +17,6 @@ export const pickVideoFile = (files?: TorrentFile[]): number => {
 export const hasPlayableFile = (t: Torrent): boolean =>
   !!t.magnet && !!t.files?.some((f) => VIDEO_RE.test(f.name))
 
-// /embed player URL: the magnet is base64'd (embed.tsx decodes with atob).
-// Returns null while there's nothing to play yet (no magnet or no metadata).
 export const watchHref = (t: Torrent): string | null => {
   if (!t.magnet || !t.files?.length) return null
   return getRoutePath(Route.EMBED, { magnet: btoa(t.magnet), fileIndex: String(pickVideoFile(t.files)) })

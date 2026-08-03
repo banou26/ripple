@@ -1,11 +1,5 @@
-// The worker answers only the message types in its OWN allowlist, because it shares a
-// message channel with @fkn/lib's socket relay. Anything the page sends that is not on that
-// list is dropped without a word: no error, no reply, no log. That is how the Recheck button
-// shipped doing nothing at all.
-//
-// Reading both files as text is deliberate. Importing the worker would pull in libtorrent
-// and OPFS, and the point is to compare the three lists that have to agree, not to run any
-// of it.
+// The worker drops anything not in its OWN allowlist without a word: no error, no reply, no
+// log. That is how the Recheck button shipped doing nothing at all.
 
 import { describe, expect, it } from 'vitest'
 
@@ -19,11 +13,9 @@ const own = (): string[] => {
   return [...match![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!)
 }
 
-// Every `m.type === '...'` inside the worker, which is what handleMessage actually answers.
 const handled = (): string[] =>
   [...new Set([...workerSource.matchAll(/m\.type === '([^']+)'/g)].map((m) => m[1]!))]
 
-// Every `send({ type: '...' })` in the client, which is what the page actually sends.
 const sent = (): string[] =>
   [...new Set([...clientSource.matchAll(/send\(\{ type: '([^']+)'/g)].map((m) => m[1]!))]
 
@@ -38,11 +30,8 @@ describe('the worker message allowlist', () => {
     expect(handled().filter((type) => !allowed.includes(type))).toEqual([])
   })
 
-  // The other direction is not a silent failure, but an entry here with no handler is dead
-  // weight that reads as supported.
   it('has no entry without a handler', () => {
     const answers = handled()
-    // read-error is compared against m.type inside a catch, not a command of its own.
     expect(own().filter((type) => !answers.includes(type))).toEqual([])
   })
 
@@ -53,10 +42,7 @@ describe('the worker message allowlist', () => {
   })
 })
 
-// BROADCAST_TYPES decides which worker messages ever reach a tab that is borrowing the
-// engine from another one. Same failure as OWN, one layer up: add a message type, wire it
-// into the client, forget this list, and it works perfectly in the tab that owns the engine
-// and does nothing at all in every other tab. No error, no log.
+// Same silent failure one layer up: a type missing here works only in the tab that owns the engine.
 describe('the follower broadcast allowlist', () => {
   const broadcast = (): string[] => {
     const match = protocolSource.match(/BROADCAST_TYPES = new Set\(\[([\s\S]*?)\]\)/)
@@ -64,13 +50,10 @@ describe('the follower broadcast allowlist', () => {
     return [...match![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!)
   }
 
-  // Every message type the client reacts to, which is the set a follower needs to receive.
   const clientHandles = (): string[] =>
     [...new Set([...clientSource.matchAll(/m\.type === '([^']+)'/g)].map((m) => m[1]!))]
 
-  // A read reply belongs to the one tab that asked, so it goes to that tab's own channel
-  // rather than to everyone. ENGINE_RESET is synthesised by the transport, never sent by a
-  // worker, so it is referenced by constant rather than by literal.
+  // a read reply belongs to the one tab that asked, so it never goes to everyone
   const PRIVATE = ['read-result', 'read-error']
 
   it('carries every message type the client reacts to', () => {

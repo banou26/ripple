@@ -41,9 +41,7 @@ root.render(
   </>
 )
 
-// Register the minimal service worker so the app is installable, which is what
-// lets the OS route .torrent files and magnet links to it. It never intercepts
-// requests, so it is inert for streaming and the worker/OPFS graph.
+// Registering a service worker is what makes the app installable, which is what lets the OS route .torrent files and magnet links to it
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})

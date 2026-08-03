@@ -19,20 +19,12 @@ const style = css`
   }
 `
 
-// Without Web Locks there is nothing to arbitrate the engine with, so the old rule stands:
-// exactly one tab may run, and the rest offer to take over. A libtorrent session holds an
-// exclusive OPFS lock on every file it writes, so a second one running over the same library
-// corrupts both.
+// Without Web Locks only one tab may run: a libtorrent session holds an exclusive OPFS lock on every file it writes, and only terminating the worker releases them
 const SingleTabMount = () => {
   const { claim, activate } = useActiveWindow({})
 
-  // Terminating the worker is what releases its exclusive OPFS locks, so the tab that
-  // just claimed the library can actually open the files.
   useEffect(() => { if (claim === 'inactive') destroyTorrentClient() }, [claim])
 
-  // Nothing during the probe: the answer arrives within a frame or two, and painting the
-  // takeover prompt first made "it will stop the other tab" the app's opening statement
-  // on every single load.
   if (claim === 'probing') return null
 
   if (claim === 'inactive') {
@@ -50,8 +42,6 @@ const SingleTabMount = () => {
   return <Router/>
 }
 
-// Web Locks decides which tab hosts the engine and the rest borrow it, so every tab is a
-// usable one and there is nothing to prompt about.
 const Mount = () => (hasWebLocks() ? <Router/> : <SingleTabMount/>)
 
 export default Mount

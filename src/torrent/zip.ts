@@ -1,8 +1,4 @@
-// Minimal streaming ZIP writer (STORE only) used to export a whole multifile
-// torrent as one download. Everything streams through in a single pass: local
-// headers carry zeroed CRC/sizes and the real values follow in a data
-// descriptor (flag bit 3), so nothing is buffered or read twice. ZIP64 records
-// kick in per entry for files >= 4 GiB and for headers past the 4 GiB offset.
+// Single pass, STORE only: CRC/sizes deferred to a data descriptor (0x0808 = bit 3 + UTF-8 names), ZIP64 at 4 GiB
 
 export type ZipEntry = {
   path: string
@@ -25,7 +21,6 @@ const crc32 = (state: number, chunk: Uint8Array): number => {
   return c
 }
 
-// Little-endian struct builder for the fixed-layout ZIP records.
 const struct = (size: number) => {
   const buf = new Uint8Array(size)
   const dv = new DataView(buf.buffer)
@@ -41,17 +36,13 @@ const struct = (size: number) => {
 
 export const writeZip = async (
   entries: ZipEntry[],
-  // May take ownership of the chunk it is given, so nothing here reads one back after
-  // awaiting it.
   write: (chunk: Uint8Array) => Promise<void>,
   onProgress?: (fraction: number) => void,
 ): Promise<void> => {
   const total = entries.reduce((n, e) => n + e.size, 0) || 1
   let done = 0
   let offset = 0
-  // Length first: the sink is allowed to take ownership of the chunk, and a transferred
-  // buffer leaves the view detached and reporting 0, which would freeze `offset` and point
-  // every central-directory entry at the start of the file.
+  // Length first: the sink may take ownership, and a transferred buffer reports 0, freezing `offset`
   const out = async (b: Uint8Array) => { const n = b.length; await write(b); offset += n }
 
   const d = new Date()
@@ -62,8 +53,6 @@ export const writeZip = async (
 
   for (const entry of entries) {
     const name = new TextEncoder().encode(entry.path.split('/').filter(Boolean).join('/'))
-    // A zip64 local header switches the data descriptor to 8-byte sizes, so the
-    // decision is per entry and known upfront (STORE: compressed == size).
     const zip64 = entry.size >= U32_MAX
     const headerOffset = offset
 
@@ -71,7 +60,7 @@ export const writeZip = async (
     const lh = struct(30 + name.length + lhExtra)
     lh.u32(0x04034B50)
     lh.u16(zip64 ? 45 : 20)          // version needed to extract
-    lh.u16(0x0808)                   // bit 3: data descriptor, bit 11: UTF-8 names
+    lh.u16(0x0808)
     lh.u16(0)                        // method: store
     lh.u16(time)
     lh.u16(date)
@@ -93,8 +82,6 @@ export const writeZip = async (
     for (let pos = 0; pos < entry.size; pos += CHUNK) {
       const len = Math.min(CHUNK, entry.size - pos)
       const chunk = await entry.read(pos, len)
-      // The offsets recorded in the central directory assume exact lengths - a
-      // short read would silently corrupt the archive, so fail loudly instead.
       if (chunk.length !== len) throw new Error(`short read: ${chunk.length}/${len} at ${pos} of ${entry.path}`)
       crc = crc32(crc, chunk)
       await out(chunk)
@@ -159,8 +146,8 @@ export const writeZip = async (
     r.u64(44)                        // size of the record past this field
     r.u16(45)
     r.u16(45)
-    r.u32(0)                         // this disk
-    r.u32(0)                         // disk with central directory
+    r.u32(0)
+    r.u32(0)
     r.u64(entries.length)
     r.u64(entries.length)
     r.u64(cdSize)

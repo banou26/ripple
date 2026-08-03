@@ -11,10 +11,8 @@ import {
 
 const require = createRequire(import.meta.url)
 
-// Vite's optimizeDeps scanner marks every node_modules path it encounters as
-// external. esbuild then rejects "injected path cannot be marked as external"
-// for the shim. This plugin runs first and short-circuits the shim's resolution
-// with `external: false`, so the scanner never gets a chance to externalize it.
+// Vite's optimizeDeps scanner externalizes node_modules paths, and esbuild then rejects "injected path cannot be marked as external"
+// Must run FIRST in optimizeDeps.esbuildOptions.plugins: it short-circuits the shim's resolution with `external: false`, so the scanner never gets a chance to externalize it
 const shimPath = require.resolve('node-stdlib-browser/helpers/esbuild/shim')
 const keepShimInternalPlugin = {
   name: 'keep-stdlib-browser-shim-internal',
@@ -30,9 +28,7 @@ const plugin = () => ({
   name: 'vite-plugin-node-stdlib-browser',
   config: () => ({
     resolve: {
-      // Drop net/dgram so they fall through to vite.config's alias →
-      // @webvpn/net/@webvpn/dgram (real peers), not the null stub WebTorrent
-      // would otherwise import.
+      // Drop net/dgram so they fall through to vite.config's alias → @webvpn/net and @webvpn/dgram, not WebTorrent's null stub
       alias: (() => { const { net, dgram, ...rest } = stdLibBrowser; return rest })()
     },
     optimizeDeps: {

@@ -1,7 +1,3 @@
-// Copies a finished torrent out of OPFS into a user-picked local directory,
-// recreating the torrent's relative paths. A file whose on-disk size already
-// matches is skipped, so re-running the sync is idempotent.
-
 import type { TorrentClient } from './client'
 import type { Torrent } from './types'
 

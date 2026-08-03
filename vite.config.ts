@@ -5,14 +5,13 @@ import { readFileSync } from 'node:fs'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
-// CF Pages exposes the build's commit; fall back to local git, then the main branch
-// ('main' resolves on GitHub's /commit/ path to the latest commit there).
 const commitHash =
   process.env.CF_PAGES_COMMIT_SHA ||
   (() => {
     try {
       return execSync('git rev-parse HEAD').toString().trim()
     } catch {
+      // 'main' resolves on GitHub's /commit/ path to the latest commit there, which is what the footer link in home.tsx builds
       return 'main'
     }
   })()
@@ -49,9 +48,7 @@ export default defineConfig((env) => ({
   },
   server: {
     fs: {
-      // Serve the sibling local file: deps in dev - libtorrent-wasm/build (the
-      // .wasm the emscripten glue fetches) and fkn/web/lib. Without this vite's
-      // /@fs/ returns the SPA fallback HTML for the .wasm → "expected magic word".
+      // Without this vite's /@fs/ returns the SPA fallback HTML for the sibling .wasm → "expected magic word"
       allow: ['..'],
     },
   },

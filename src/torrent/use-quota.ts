@@ -4,8 +4,7 @@ import { cloud } from '@fkn/lib'
 
 export type QuotaStatus = Awaited<ReturnType<typeof cloud.quota>>
 
-// Polls the FKN cloud-egress quota while `active` (a transfer is running). The broker caches the
-// result for 5s so a 15s interval is effectively free; stays null until the first read resolves.
+// the broker caches the result for 5s so a 15s interval is effectively free
 export const useQuota = (active: boolean): QuotaStatus | null => {
   const [quota, setQuota] = useState<QuotaStatus | null>(null)
   useEffect(() => {

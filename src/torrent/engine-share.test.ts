@@ -1,10 +1,5 @@
-// The cross-tab protocol, exercised over real BroadcastChannels.
-//
-// The case that matters most is the generation guard. A torrent handle is a counter inside a
-// libtorrent session, so after a handover the same integer names a different torrent. A tab
-// that still holds handles from the previous engine and sends `remove` with deleteFiles
-// would destroy another torrent's data. Nothing in the UI would report it, and cloud backup
-// would then propagate the missing entry to every other device.
+// A torrent handle is a counter inside a libtorrent session, so without the generation guard
+// a `remove` carrying a handle from a previous engine destroys another torrent's data.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,7 +16,6 @@ const makeHost = () => ({ message: vi.fn(), error: vi.fn() }) as TransportHost &
   error: ReturnType<typeof vi.fn>
 }
 
-// Enough of an EngineClient for the server to relay into.
 const makeClient = (started = true) => {
   const sent: any[] = []
   const raws: Array<(msg: any) => void> = []
@@ -39,10 +33,7 @@ const makeClient = (started = true) => {
   }
 }
 
-// Every test talks over the same channel names, and a server left running by one test would
-// answer the next test's hello with its own generation. Rather than thread a test-only
-// namespace through the production signatures, give each test its own BroadcastChannel
-// namespace by swapping the constructor, and close everything it opened afterwards.
+// every test shares the channel names, so each gets its own namespace via the constructor
 const RealBroadcastChannel = globalThis.BroadcastChannel
 let testIndex = 0
 let opened: BroadcastChannel[] = []
@@ -61,7 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.BroadcastChannel = RealBroadcastChannel
   // Node keeps the event loop alive for an open channel, so leaving one behind hangs the run.
-  for (const channel of opened) { try { channel.close() } catch { /* already closed */ } }
+  for (const channel of opened) { try { channel.close() } catch { } }
   opened = []
 })
 
@@ -70,8 +61,6 @@ const track = <T>(channel: T): T => channel
 describe('the leader server', () => {
   it('relays a command stamped with its own generation', async () => {
     const { client, sent } = makeClient()
-    // Listening first: the server announces its generation the moment it starts, and a
-    // BroadcastChannel opened afterwards would never see it.
     const control = track(new BroadcastChannel(CONTROL_CHANNEL))
     let gen: string | undefined
     control.addEventListener('message', ({ data }) => { if (data?.to === 'all') gen = data.gen })
@@ -91,8 +80,6 @@ describe('the leader server', () => {
     const stop = serveFollowers(client)
     await settle()
 
-    // The exact shape that destroys data: a tab that never noticed the handover asking to
-    // delete what it thinks is handle 7.
     control_post({ to: 'leader', from: 'tab-b', gen: 'a-dead-generation', msg: { type: 'remove', handle: 7, deleteFiles: true } })
     await settle()
 
@@ -100,9 +87,6 @@ describe('the leader server', () => {
     stop()
   })
 
-  // A player in a closing tab never gets to unregister itself. Its claim on the shared
-  // priority map would otherwise hold sequential mode on and keep its file at top priority
-  // for the rest of the session, for everyone.
   it('drops a departing tab\'s viewers when it says goodbye', async () => {
     const { client, sent } = makeClient()
     const stop = serveFollowers(client)
@@ -127,14 +111,12 @@ describe('the leader server', () => {
     control.postMessage({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'hello' } })
     await settle()
 
-    // Announcing readiness early releases the follower's held commands into a worker that
-    // drops every one of them until its session exists.
     expect(heard.filter((m) => m?.type === 'ready')).toEqual([])
     stop()
   })
 })
 
-// Posting from a throwaway channel, so the server (a different object) receives it.
+// a BroadcastChannel never receives its own posts, so post from a throwaway one
 const control_post = (data: any) => {
   const channel = new BroadcastChannel(CONTROL_CHANNEL)
   channel.postMessage(data)
@@ -160,10 +142,6 @@ describe('the follower transport', () => {
     transport.destroy()
   })
 
-  // `ready` is sent once and never again. Treating it as the only proof a leader is alive
-  // made the silence window a one-way door: once it lapsed, nothing could ever mark the
-  // leader up again, so the follower buffered every command from then on and its buttons
-  // quietly stopped working. Any hiccup long enough to lapse the window was permanent.
   it('recovers from a quiet spell on an ordinary broadcast, not just on ready', async () => {
     vi.useFakeTimers()
     try {
@@ -176,8 +154,6 @@ describe('the follower transport', () => {
       leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'ready' } })
       await vi.advanceTimersByTimeAsync(50)
 
-      // The leader goes quiet for longer than the silence window, then comes back with the
-      // ordinary state broadcast its tick produces. No second `ready` is ever coming.
       await vi.advanceTimersByTimeAsync(LEADER_SILENCE_MS + 1_000)
       leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'state', torrents: [] } })
       await vi.advanceTimersByTimeAsync(50)

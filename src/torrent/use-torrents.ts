@@ -14,18 +14,17 @@ const magnetParam = (magnet: string, key: string): string | undefined => {
   try { return decodeURIComponent(m[1]!.replace(/\+/g, ' ')) } catch { return m[1] }
 }
 
-// libtorrent torrent_status state_t → the UI's coarse state.
+// keys are libtorrent torrent_status state_t
 const STATE: Record<number, TorrentState> = {
-  1: 'checking',    // checking files
-  2: 'downloading', // downloading metadata
+  1: 'checking',
+  2: 'downloading',
   3: 'downloading',
-  4: 'done',        // finished
+  4: 'done',
   5: 'seeding',
-  7: 'checking',    // checking resume data
+  7: 'checking',
 }
 
-// libtorrent holds a checking torrent paused for as long as the check runs, so this has to
-// be read before `paused` or a recheck would spend its whole duration labelled "Queued".
+// libtorrent holds a checking torrent paused, so this MUST be read before `paused`
 const CHECKING = new Set([1, 7])
 
 const fmtEta = (status: TorrentSnapshot['status']): string => {
@@ -39,18 +38,11 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
   return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
 }
 
-// Map the worker's Session snapshot to the UI Torrent shape (bytes / bytes-per-sec).
 export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
   const st = s.status
   const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
   const progress = st?.progress ?? 0
-  // A torrent the engine stopped, or one connected to nothing, is being retried on a
-  // backoff. Say so instead of showing it as "Paused", which reads as the user's doing
-  // and as something only the user can undo.
   const retrying = s.recovery && !s.userPaused
-  // Stopped without being asked to, and without the engine wanting it retried, means
-  // libtorrent's own queue is holding it back until a slot frees. That is "Queued", not
-  // "Paused": nothing here stopped it and nothing here has to start it again.
   const stopped: TorrentState = s.userPaused ? 'paused' : 'queued'
   const base: TorrentState = st
     ? (CHECKING.has(st.state) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
@@ -81,8 +73,6 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
   }
 }
 
-// A torrent synced from another device that isn't downloaded here: rendered as a
-// "Files missing" row from the persisted list alone (it has no live session handle).
 const ghostToTorrent = (e: Persisted): Torrent => ({
   id: 'missing:' + e.infoHash,
   magnet: e.magnet,
@@ -110,18 +100,15 @@ export type UseTorrents = {
   remove: (handle: number, deleteFiles?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
-  // True once the worker reports it cannot open OPFS (private/incognito window).
   storageUnavailable: boolean
-  // Set when the engine died outright; nothing works until the page is reloaded. A worker
-  // that threw once and kept running is not this: it recovers on its own.
   workerError: string | null
   client: TorrentClient
 }
 
-// Public-domain Blender demo: the bundled .torrent gives instant metadata and its webseed carries the download with zero peers
+// the bundled Sintel .torrent gives instant metadata and its webseed carries the download with zero peers, which is why tests can rely on it with no swarm
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
 const DEMO_MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
-// Longest a new user waits on a stalled cloud restore before the demo seeds anyway
+// longest a new user waits on a stalled cloud restore before the demo seeds anyway
 const DEMO_GRACE = 8_000
 
 const addDemo = (client: TorrentClient) =>
@@ -132,8 +119,6 @@ const addDemo = (client: TorrentClient) =>
     })
     .catch(() => client.addMagnet(DEMO_MAGNET))
 
-// Drives a single libtorrent-wasm worker for the page and exposes its live
-// torrent list mapped to the UI shape, plus addMagnet.
 export const useTorrents = (): UseTorrents => {
   const client = getTorrentClient()
   const [snaps, setSnaps] = useState<TorrentSnapshot[]>([])
@@ -143,21 +128,14 @@ export const useTorrents = (): UseTorrents => {
   useEffect(() => {
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
-    // A handover means the message belonged to an engine that no longer exists, and the tab
-    // it belonged to is the one that had to act on it.
     const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false) })
-    // Demo seeding waits for the cloud restore to settle and judges the persisted list, so a restored library is never buried under the demo
     let checkedDemo = false
     const libraryCount = { current: 0 }
     const offList = client.onList((l) => { libraryCount.current = l.length; setList(l) })
     const offState = client.onState((s) => {
       setSnaps(s)
       if (checkedDemo) return
-      // Seeding is a write to the shared library plus a flag in shared localStorage, so it
-      // belongs to the tab that owns the engine. A borrowing tab must not do it: the cloud
-      // restore it waits on only runs in the owner, so this would fall through to the grace
-      // timeout with an empty count and drop the demo on top of a restored library, setting
-      // the flag that was supposed to prevent exactly that.
+      // only the engine owner may seed: the cloud restore waited on below runs there alone
       if (!client.owns()) return
       checkedDemo = true
       void Promise.race([cloudRestoreSettled, new Promise<void>((r) => setTimeout(r, DEMO_GRACE))])
@@ -166,18 +144,14 @@ export const useTorrents = (): UseTorrents => {
             if (localStorage.getItem(DEMO_SEEDED_KEY)) return
             localStorage.setItem(DEMO_SEEDED_KEY, '1')
             if (libraryCount.current === 0) addDemo(client)
-          } catch { /* storage unavailable - skip the demo */ }
+          } catch { }
         })
     })
-    // The engine is shared across routes and outlives this component, so leaving the
-    // library page only drops the subscriptions. It keeps downloading.
     return () => { offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
-  // Live session torrents plus "Files missing" ghosts for synced entries not yet
-  // started here (deduped against anything already live by infoHash).
   const torrents = useMemo(() => {
-    // One clock for the whole list, so every retry countdown in a render agrees.
+    // one clock for the whole list, so every retry countdown in a render agrees
     const now = Date.now()
     const live = snaps.map((s) => snapshotToTorrent(s, now))
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))

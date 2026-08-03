@@ -1,5 +1,4 @@
-// Serialized SourceBuffer operations. appendBuffer / remove / timestampOffset
-// must never overlap an in-flight update, so every op goes through one chain.
+// appendBuffer / remove / timestampOffset must never overlap an in-flight update, so every op goes through one chain
 
 export type TimeRange = { index: number, start: number, end: number }
 
@@ -20,9 +19,6 @@ const waitForUpdate = (sourceBuffer: SourceBuffer) =>
       sourceBuffer.removeEventListener('error', onError)
     }
     const onEnd = () => { cleanup(); resolve() }
-    // The DOM hands us a bare Event with no message on it, and callers surface
-    // whatever they catch to the user, so reject with something readable and
-    // keep the event as the cause for the console.
     const onError = (ev: Event) => { cleanup(); reject(new Error('The browser rejected a media segment', { cause: ev })) }
     sourceBuffer.addEventListener('updateend', onEnd, { once: true })
     sourceBuffer.addEventListener('abort', onEnd, { once: true })
@@ -53,10 +49,7 @@ export const updateSourceBuffer = (sourceBuffer: SourceBuffer, mediaSource: Medi
   const updateTimestampOffset = (timestampOffset: number) =>
     enqueue(async () => { sourceBuffer.timestampOffset = timestampOffset })
 
-  // Signalling the end of the stream throws while an update is in flight, so it
-  // rides the same chain as the appends and removes. It is also undone by the
-  // next remove(), which puts the MediaSource back to 'open', hence the state
-  // re-check and the swallowed throw: the caller re-arms this on every tick.
+  // endOfStream throws while an update is in flight and is undone by the next remove(), so the caller re-arms it every tick
   const endOfStream = () =>
     enqueue(async () => {
       if (mediaSource.readyState !== 'open' || sourceBuffer.updating) return
