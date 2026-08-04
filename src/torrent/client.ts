@@ -7,6 +7,7 @@ import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
 import { ENGINE_RESET, hasWebLocks, newClientId } from './engine-protocol'
+import { createGate } from './gate'
 
 export type { Persisted }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
@@ -88,10 +89,7 @@ const createTorrentClient = (): EngineClient => {
   let viewerId = 0
   let resolveReady!: () => void
   const ready = new Promise<void>((r) => { resolveReady = r })
-  let openGate!: () => void
-  let gate!: Promise<void>
-  const armGate = () => { gate = new Promise<void>((r) => { openGate = r }) }
-  armGate()
+  const gate = createGate()
   let fatal: Error | null = null
   let started = false
   let transport: Transport | null = null
@@ -117,7 +115,7 @@ const createTorrentClient = (): EngineClient => {
     if (fatal) return
     fatal = error
     resolveReady()
-    openGate()
+    gate.open()
     failReads(error)
   }
 
@@ -133,7 +131,7 @@ const createTorrentClient = (): EngineClient => {
     lastList = null
     // keyed by handle, so across a handover it would credit one torrent's bytes to another
     recentRate.retain(new Set())
-    armGate()
+    gate.arm()
     engineResetCbs.forEach((cb) => cb())
   }
 
@@ -146,10 +144,10 @@ const createTorrentClient = (): EngineClient => {
   const send = (msg: any, transfer?: Transferable[]) => {
     const attempt = () => {
       if (fatal) return
-      if (!started) { void gate.then(attempt); return }
+      if (!started) { gate.wait(attempt); return }
       transport?.post(msg, transfer ?? [])
     }
-    void gate.then(attempt)
+    gate.wait(attempt)
   }
 
   const host: TransportHost = {
@@ -163,7 +161,7 @@ const createTorrentClient = (): EngineClient => {
     message: (m) => {
       if (!m || typeof m !== 'object') return
       rawCbs.forEach((cb) => cb(m))
-      if (m.type === 'ready') { started = true; resolveReady(); openGate() }
+      if (m.type === 'ready') { started = true; resolveReady(); gate.open() }
       else if (m.type === ENGINE_RESET) {
         resetEngineState('the engine was taken over by another tab')
       } else if (m.type === 'storage-unavailable') {
@@ -226,11 +224,18 @@ const createTorrentClient = (): EngineClient => {
     sendRaw: (msg) => send(msg),
     useTransport: (factory, owns) => {
       const previous = transport
+      // Taken BEFORE the reset and before the swap: a follower queues every command until a leader
+      // speaks, and this call is what happens when THIS document becomes that leader. Dropping the
+      // backlog here loses whatever the page asked for during its own election, silently and with no
+      // error anywhere. `/embed` calls addMagnet on mount, which is inside that window, so losing it
+      // means the engine never hears about the torrent and the player waits on metadata forever.
+      const carried = previous?.pending?.() ?? []
       resetEngineState('the engine behind this tab was replaced')
       transport = factory(host, docId)
       owned = owns
       previous?.destroy()
       ownershipCbs.forEach((cb) => cb(owned))
+      for (const msg of carried) transport.post(msg, [])
     },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),

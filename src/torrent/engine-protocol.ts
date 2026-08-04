@@ -34,6 +34,16 @@ export type TransportHost = {
 export type Transport = {
   post: (msg: any, transfer: Transferable[]) => void
   destroy: () => void
+  /**
+   * Commands this transport accepted but never delivered, handed over and forgotten.
+   *
+   * A follower holds every command until a leader speaks, and the transport is then REPLACED the moment
+   * this document wins the election. Without a way to carry that backlog across the swap it is dropped
+   * in silence, which is worse than any error: `/embed` issues its `add-magnet` inside exactly that
+   * window, so the torrent is never added and the player waits on metadata for a torrent the engine has
+   * never heard of. Only a queueing transport implements this.
+   */
+  pending?: () => any[]
 }
 
 export type TransportFactory = (host: TransportHost, docId: string) => Transport

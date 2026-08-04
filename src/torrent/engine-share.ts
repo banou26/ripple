@@ -77,6 +77,13 @@ export const createChannelTransport = (host: TransportHost, clientId: string): T
       if (!leaderUp) { queued.push(msg); return }
       say(msg)
     },
+    // handed to whatever transport replaces this one, so a command held while no leader had spoken is
+    // re-issued rather than dropped. Cleared as it is taken: it must never be delivered twice.
+    pending: () => {
+      const held = queued
+      queued = []
+      return held
+    },
     destroy: () => {
       say({ type: 'bye' })
       closed = true

@@ -200,3 +200,41 @@ describe('the follower transport', () => {
     transport.destroy()
   })
 })
+
+// A command issued before any leader has spoken is HELD, and the transport is then replaced the moment
+// this document wins the election. Dropping the backlog there loses the page's own request in silence:
+// /embed calls addMagnet on mount, inside exactly that window, and the engine then never hears about
+// the torrent while the player waits on metadata forever.
+describe('a queued command survives the swap to leadership', () => {
+  it('hands its undelivered commands to whatever replaces it', async () => {
+    const host = makeHost()
+    const transport = createChannelTransport(host, 'test-doc')
+
+    // no leader has spoken, so these are held rather than sent
+    transport.post({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:abc' }, [])
+    transport.post({ type: 'watch', viewer: 'v1' }, [])
+
+    const carried = transport.pending!()
+    expect(carried.map((m) => m.type)).toEqual(['add-magnet', 'watch'])
+
+    // taken exactly once: replaying a command twice would add the torrent twice
+    expect(transport.pending!()).toEqual([])
+    transport.destroy()
+  })
+
+  it('does not hand over a command it already delivered', async () => {
+    const host = makeHost()
+    const leader = new BroadcastChannel(CONTROL_CHANNEL)
+    const transport = createChannelTransport(host, 'test-doc')
+
+    // any post-session broadcast proves a leader is up, which flushes and un-queues
+    leader.postMessage({ to: 'all', gen: 'g1', msg: { type: 'ready' } })
+    await settle()
+    transport.post({ type: 'pause', handle: 1 }, [])
+    await settle()
+
+    expect(transport.pending!()).toEqual([])
+    transport.destroy()
+    leader.close()
+  })
+})
