@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { makeRemuxer } from 'libav-wasm'
+import { makeThumbnailer } from 'libav-wasm'
 
 import { terminateRemuxer } from './playback'
 
@@ -26,19 +26,20 @@ const MAX_RETRY_DELAY = 60_000
 
 // `read` must be a non-prioritizing path so generation never steals download order from playback
 export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, read, onThumbnails }: ThumbnailGeneratorOptions) => {
-  const remuxer = await makeRemuxer({
+  // a thumbnailer, not a remuxer: readKeyframe seeks backward on the input, which an output muxer cannot
+  // follow, and this one has no muxer to damage. It also opens files whose audio the mp4 muxer refuses.
+  const remuxer = await makeThumbnailer({
     publicPath,
     workerUrl,
     workerOptions: { type: 'module' },
-    bufferSize: 1_000_000,
     length,
     read,
   })
-  // makeRemuxer stands a wasm worker up before init() ever runs, and both init and the index walk below throw on a file that is not readable yet, so the
-  // worker has to leave with the failure
+  // the wasm worker is up before init() ever runs, and both init and the index walk below throw on a file
+  // that is not readable yet, so the worker has to leave with the failure
   try {
     const metadata = await remuxer.init()
-    const duration = metadata.info.input.duration
+    const duration = metadata.duration
 
     type Slot = { timestamp: number, endTime: number, startByte: number, endByte: number, done: boolean, attempts: number }
     const slots: Slot[] = []
