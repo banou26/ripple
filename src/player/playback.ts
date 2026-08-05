@@ -109,6 +109,10 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
     if (onSubtitleStreams) subtitles.setOnStreams(onSubtitleStreams)
     if (metadata.attachments?.length) subtitles.pushAttachments(metadata.attachments)
 
+    // an unparseable video codec comes back as an empty string, and filtering it away would leave an
+    // audio-only codecs list that isTypeSupported happily accepts, turning this into an opaque
+    // appendBuffer failure much later instead of a named one here
+    if (!metadata.info.output.videoMimeType) throw new Error('The video codec in this file could not be identified')
     const codecs = [metadata.info.output.videoMimeType, metadata.info.output.audioMimeType].filter(Boolean).join(',')
     const mime = `video/mp4; codecs="${codecs}"`
     if (!MediaSource.isTypeSupported(mime)) throw new Error(`This browser cannot play the codecs in this file: ${codecs}`)
