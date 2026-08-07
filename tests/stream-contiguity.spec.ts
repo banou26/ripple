@@ -234,6 +234,10 @@ type Attempt = {
     played: number
     firstPlayAtMs: number | null
     longestFreezeMs: number
+    pausedWhileFrozen: boolean
+    wallClockPlayingMs: number
+    /** media seconds advanced per wall-clock second after the first frame; 1.0 is real-time */
+    playbackRatio: number | null
     minRunwayWhilePlaying: number | null
   }
   /** read-stalled reports from the engine: which pieces a parked read was waiting on */
@@ -261,7 +265,7 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
       .then(() => true, () => false)
     const blank = {
       judged: null, worst: null, last: null, havesAtMs: null, prefixAtMs: null, lag: null,
-      playback: { played: 0, firstPlayAtMs: null, longestFreezeMs: 0, minRunwayWhilePlaying: null },
+      playback: { played: 0, firstPlayAtMs: null, longestFreezeMs: 0, pausedWhileFrozen: false, wallClockPlayingMs: 0, playbackRatio: null, minRunwayWhilePlaying: null },
       stalls: [] as unknown[],
     }
     if (!reachedWatch) {
@@ -280,6 +284,8 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
     let frozenSinceMs: number | null = null
     let longestFreezeMs = 0
     let minRunwayWhilePlaying = Number.POSITIVE_INFINITY
+    let pausedWhileFrozen = false
+    let wallClockPlayingMs = 0
     let lastCt = -1
     while (Date.now() - startedAt < WATCH_SECONDS * 1_000) {
       const pb = await readPlayback(page)
@@ -290,12 +296,16 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
         if (pb.currentTime > lastCt + 0.02) {
           lastCt = pb.currentTime
           frozenSinceMs = null
-        } else if (!pb.paused && pb.currentTime > 0) {
-          // frozen while it believes it is playing: the reported failure
+        } else if (pb.currentTime > 0) {
+          // Not advancing, whatever the element says about paused. Gating this on !paused was a
+          // blind spot: a run that advanced 4 seconds in 94 reported a longest freeze of ZERO,
+          // because whatever stops the clock also reports paused.
           frozenSinceMs ??= atMs
           longestFreezeMs = Math.max(longestFreezeMs, atMs - frozenSinceMs)
           minRunwayWhilePlaying = Math.min(minRunwayWhilePlaying, pb.runwaySeconds)
+          if (pb.paused) pausedWhileFrozen = true
         }
+        if (firstPlayAtMs !== null) wallClockPlayingMs = atMs - firstPlayAtMs
       }
       const raw = await readSample(page)
       if (raw) {
@@ -322,6 +332,13 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
         played: Number(maxCurrentTime.toFixed(2)),
         firstPlayAtMs,
         longestFreezeMs,
+        pausedWhileFrozen,
+        wallClockPlayingMs,
+        // the single number that says whether playback kept up: media seconds advanced per second
+        // of wall clock after the first frame. 1.0 is real-time, 0 is frozen.
+        playbackRatio: wallClockPlayingMs > 0
+          ? Number((maxCurrentTime / (wallClockPlayingMs / 1000)).toFixed(3))
+          : null,
         minRunwayWhilePlaying: Number.isFinite(minRunwayWhilePlaying)
           ? Number(minRunwayWhilePlaying.toFixed(2))
           : null,
@@ -379,6 +396,8 @@ test.describe('stream contiguity', () => {
       // the verdict, measured at the media element
       played: attempts.map((a) => a.playback.played),
       longestFreezeMs: attempts.map((a) => a.playback.longestFreezeMs),
+      playbackRatio: attempts.map((a) => a.playback.playbackRatio),
+      pausedWhileFrozen: attempts.map((a) => a.playback.pausedWhileFrozen),
       minRunwayWhilePlaying: attempts.map((a) => a.playback.minRunwayWhilePlaying),
       stallReports: attempts.map((a) => a.stalls.length),
       sequentialSeen: attempts.some((a) => a.last?.sequential === true || a.judged?.sequential === true),
