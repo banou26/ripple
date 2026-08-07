@@ -23,6 +23,7 @@
     "test:stream": "npm run build && playwright test tests/stream-download.spec.ts",
     "test:multi": "npm run build && playwright test tests/multi-tab.spec.ts",
     "test:resume": "npm run build && playwright test --project=chromium tests/resume-verify.spec.ts",
+    "test:contiguity": "npm run build && playwright test --project=chromium tests/stream-contiguity.spec.ts",
     "preview": "vp preview",
     "bench:install": "playwright install chromium firefox",
     "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts"
