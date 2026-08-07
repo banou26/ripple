@@ -9,7 +9,7 @@ import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import type { ObservedStatus, RecoveryState } from './recovery'
 
 import { magnetInfoHash } from './magnet'
-import { WINDOW_PIECES, shouldReanchor } from './stream-plan'
+import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 
@@ -114,6 +114,11 @@ const untrack = (h: number) => {
 // the layout lands, unless a viewer got there first and already planned a window.
 const needsPriorityReset = new Set<number>()
 
+// one attempt is short enough that a plan that starved a read gets rewritten quickly; the product
+// stays under the caller's own 120s ceiling in client.ts
+const READ_ATTEMPT_MS = 6_000
+const READ_ATTEMPTS = 18
+
 const readsByHandle = new Map<number, Set<number>>()
 const failReads = (h: number, error: string) => {
   const ids = readsByHandle.get(h)
@@ -162,14 +167,19 @@ const applyViewing = (h: number) => {
     session.clearStreamWindow(h)
     return
   }
-  if (!session.files(h)) { pendingViewing.add(h); return }
+  const files = session.files(h)
+  if (!files) { pendingViewing.add(h); return }
   const claims = [...watching.values()].map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
   // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
   // sits at the first piece the torrent does not have, so without it the capacity beyond the
   // deadline window goes to the first file in the torrent rather than the one being watched.
+  //
+  // The window is sized from the piece length, not fixed: the band is picked in shuffled order and
+  // the in-order walk skips it, so it wants to be barely wider than one demuxer read.
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
-    windowPieces: WINDOW_PIECES,
+    windowPieces: windowPiecesFor(files.pieceLength),
+    deadlineStepMs: deadlineStepMsFor(files.pieceLength, session.status(h)?.downloadRate || 3_000_000),
   })
   if (planned) pendingViewing.delete(h)
   else pendingViewing.add(h)
@@ -202,14 +212,27 @@ const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => 
   return true
 }
 
-const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number) => {
+// which pieces of a read's range are still missing, so a stalled read can say what it is waiting on
+const missingPieces = (h: number, fileIndex: number, offset: number, len: number): number[] => {
+  const files = session?.files(h)
+  const file = files?.files[fileIndex]
+  const bf = session?.bitfield(h)
+  if (!files || !file || !bf) return []
+  const p0 = Math.floor((file.offset + offset) / files.pieceLength)
+  const p1 = Math.floor((file.offset + Math.min(offset + len, file.size) - 1) / files.pieceLength)
+  const out: number[] = []
+  for (let p = p0; p <= p1; p++) if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) out.push(p)
+  return out
+}
+
+const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
   if (!viewer) return
   const current = viewers.get(h)?.get(viewer)
   if (!current || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
   const r = filePieceRange(h, fileIndex)
   if (!r) return
   const span = { fileOffset: r.file.offset, pieceLength: r.pieceLength, p1: r.p1 }
-  if (!shouldReanchor(span, current.fromOffset, offset)) return
+  if (!shouldReanchor(span, current.fromOffset, offset, len)) return
   watch(viewer, h, fileIndex, offset)
 }
 
@@ -408,7 +431,7 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'read-error', id: m.id, error: 'torrent paused' })
         return
       }
-      if (m.prioritize !== false) anchorSequential(m.viewer, m.handle, m.fileIndex, m.offset)
+      if (m.prioritize !== false) anchorSequential(m.viewer, m.handle, m.fileIndex, m.offset, m.len)
       else if (!hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: 'not downloaded' })
         return
@@ -417,12 +440,31 @@ const handleMessage = async (session: Session, m: any) => {
       if (!inFlight) readsByHandle.set(m.handle, inFlight = new Set())
       inFlight.add(m.id)
       try {
-        // under the caller's own 120s ceiling in client.ts, so a read that is never going to land
-        // is answered with a real error instead of the client giving up on a still-parked engine
-        const data = await session.read(m.handle, m.fileIndex, m.offset, m.len, { timeoutMs: 110_000 })
-        // failReads may have answered this id already while it was parked on pieces
-        if (!inFlight.has(m.id)) return
-        post({ type: 'read-result', id: m.id, data }, [data.buffer])
+        // A read is the ONLY thing that re-plans priorities (anchorSequential is called from here
+        // and nowhere else), so a read parked on a piece the plan does not cover freezes the plan
+        // that starved it: a self-sustaining stall while the engine happily downloads elsewhere.
+        // Retry in bounded attempts and force the plan forward between them.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const data = await session.read(m.handle, m.fileIndex, m.offset, m.len, { timeoutMs: READ_ATTEMPT_MS })
+            // failReads may have answered this id already while it was parked on pieces
+            if (!inFlight.has(m.id)) return
+            post({ type: 'read-result', id: m.id, data }, [data.buffer])
+            return
+          } catch (err) {
+            if (!inFlight.has(m.id)) return
+            if (attempt + 1 >= READ_ATTEMPTS || !/did not arrive/.test(String(err))) throw err
+            post({
+              type: 'read-stalled',
+              id: m.id, handle: m.handle, fileIndex: m.fileIndex, offset: m.offset, len: m.len,
+              waitedMs: (attempt + 1) * READ_ATTEMPT_MS,
+              missing: missingPieces(m.handle, m.fileIndex, m.offset, m.len),
+              downloadRate: session.status(m.handle)?.downloadRate ?? null,
+              numPeers: session.status(m.handle)?.numPeers ?? null,
+            })
+            if (m.prioritize !== false && m.viewer) watch(m.viewer, m.handle, m.fileIndex, m.offset)
+          }
+        }
       } finally { inFlight.delete(m.id) }
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)

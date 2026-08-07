@@ -81,7 +81,10 @@ type Sample = {
 const installProbe = async (page: Page) => {
   await page.addInitScript(() => {
     const root = window as any
-    root.__rippleStream = { latest: null, watching: null, ready: false, failures: [] as string[] }
+    root.__rippleStream = {
+      latest: null, watching: null, ready: false,
+      failures: [] as string[], stalls: [] as unknown[],
+    }
     const NativeWorker = window.Worker
 
     const WrappedWorker = function (scriptURL: string | URL, options?: WorkerOptions) {
@@ -93,6 +96,19 @@ const installProbe = async (page: Page) => {
         // them would be megabytes for a torrent with many pieces
         if (message.type === 'state') root.__rippleStream.latest = message.torrents
         else if (message.type === 'ready') root.__rippleStream.ready = true
+        else if (message.type === 'read-stalled') {
+          // the engine saying which pieces a parked read is waiting on, and what it was doing
+          // meanwhile. This is what separates "engine has not delivered" from "player is stuck".
+          root.__rippleStream.stalls.push({
+            at: Math.round(performance.now()),
+            offset: message.offset,
+            waitedMs: message.waitedMs,
+            missing: (message.missing ?? []).slice(0, 8),
+            missingCount: (message.missing ?? []).length,
+            downloadRate: message.downloadRate,
+            numPeers: message.numPeers,
+          })
+        }
         else if (['storage-unavailable', 'error', 'worker-error'].includes(message.type)) {
           root.__rippleStream.failures.push(String(message.error ?? message.message ?? message.type))
         }
@@ -157,6 +173,41 @@ const readSample = (page: Page): Promise<Omit<Sample, 'atMs'> | null> => page.ev
 const failures = (page: Page): Promise<string[]> =>
   page.evaluate(() => ((window as any).__rippleStream?.failures ?? []) as string[])
 
+const stalls = (page: Page): Promise<unknown[]> =>
+  page.evaluate(() => ((window as any).__rippleStream?.stalls ?? []) as unknown[])
+
+/**
+ * What the owner actually cares about: is the video advancing, and how much contiguous playable
+ * runway sits ahead of the playhead.
+ *
+ * A run from the START of the file says nothing about this. If the playhead is at 5s, a hole at 6s
+ * and data at 20s is a stall, and prefix-from-zero scores that the same as data simply not having
+ * arrived. It also goes blind entirely after a seek.
+ *
+ * currentTime plus video.buffered is measured at the only place that decides the outcome, the media
+ * element, so it is immune to the request-pipeline depth that defeated every piece-level metric.
+ */
+const readPlayback = (page: Page) => page.evaluate(() => {
+  const video = document.querySelector('video')
+  if (!video) return null
+  const ct = video.currentTime
+  let runway = 0
+  for (let i = 0; i < video.buffered.length; i++) {
+    // the range holding the playhead, with slack for audio priming at the very start
+    if (video.buffered.start(i) <= ct + 0.25 && ct < video.buffered.end(i)) {
+      runway = video.buffered.end(i) - ct
+      break
+    }
+  }
+  return {
+    currentTime: ct,
+    runwaySeconds: runway,
+    paused: video.paused,
+    readyState: video.readyState,
+    bufferedRanges: video.buffered.length,
+  }
+})
+
 type Attempt = {
   index: number
   reachedWatch: boolean
@@ -171,6 +222,22 @@ type Attempt = {
   prefixAtMs: number | null
   /** prefixAtMs / havesAtMs. 1.0 is perfectly in order. null when never reached. */
   lag: number | null
+  /**
+   * The verdict, measured at the media element rather than at the piece map.
+   *
+   * `longestFreezeMs` is the reported failure stated directly: how long currentTime sat still while
+   * the element believed it was playing. `minRunwayWhilePlaying` says whose fault a freeze was:
+   * roughly zero means the engine never delivered the bytes, comfortably positive with a frozen
+   * clock means the player or MSE had the data and did not use it.
+   */
+  playback: {
+    played: number
+    firstPlayAtMs: number | null
+    longestFreezeMs: number
+    minRunwayWhilePlaying: number | null
+  }
+  /** read-stalled reports from the engine: which pieces a parked read was waiting on */
+  stalls: unknown[]
   failures: string[]
 }
 
@@ -192,7 +259,11 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
     const reachedWatch = await page
       .waitForFunction(() => (window as any).__rippleStream?.watching != null, undefined, { timeout: 90_000 })
       .then(() => true, () => false)
-    const blank = { judged: null, worst: null, last: null, havesAtMs: null, prefixAtMs: null, lag: null }
+    const blank = {
+      judged: null, worst: null, last: null, havesAtMs: null, prefixAtMs: null, lag: null,
+      playback: { played: 0, firstPlayAtMs: null, longestFreezeMs: 0, minRunwayWhilePlaying: null },
+      stalls: [] as unknown[],
+    }
     if (!reachedWatch) {
       return { index, reachedWatch: false, ...blank, failures: await failures(page) }
     }
@@ -203,7 +274,29 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
     let last: Sample | null = null
     let havesAtMs: number | null = null
     let prefixAtMs: number | null = null
+    // playhead tracking: the verdict
+    let maxCurrentTime = 0
+    let firstPlayAtMs: number | null = null
+    let frozenSinceMs: number | null = null
+    let longestFreezeMs = 0
+    let minRunwayWhilePlaying = Number.POSITIVE_INFINITY
+    let lastCt = -1
     while (Date.now() - startedAt < WATCH_SECONDS * 1_000) {
+      const pb = await readPlayback(page)
+      if (pb) {
+        const atMs = Date.now() - startedAt
+        if (pb.currentTime > 0 && firstPlayAtMs === null) firstPlayAtMs = atMs
+        maxCurrentTime = Math.max(maxCurrentTime, pb.currentTime)
+        if (pb.currentTime > lastCt + 0.02) {
+          lastCt = pb.currentTime
+          frozenSinceMs = null
+        } else if (!pb.paused && pb.currentTime > 0) {
+          // frozen while it believes it is playing: the reported failure
+          frozenSinceMs ??= atMs
+          longestFreezeMs = Math.max(longestFreezeMs, atMs - frozenSinceMs)
+          minRunwayWhilePlaying = Math.min(minRunwayWhilePlaying, pb.runwaySeconds)
+        }
+      }
       const raw = await readSample(page)
       if (raw) {
         const sample: Sample = { atMs: Date.now() - startedAt, ...raw }
@@ -223,7 +316,19 @@ const measureOnce = async (context: BrowserContext, index: number): Promise<Atte
       await page.waitForTimeout(POLL_MS)
     }
     const lag = havesAtMs !== null && havesAtMs > 0 && prefixAtMs !== null ? prefixAtMs / havesAtMs : null
-    return { index, reachedWatch: true, judged, worst, last, havesAtMs, prefixAtMs, lag, failures: await failures(page) }
+    return {
+      index, reachedWatch: true, judged, worst, last, havesAtMs, prefixAtMs, lag,
+      playback: {
+        played: Number(maxCurrentTime.toFixed(2)),
+        firstPlayAtMs,
+        longestFreezeMs,
+        minRunwayWhilePlaying: Number.isFinite(minRunwayWhilePlaying)
+          ? Number(minRunwayWhilePlaying.toFixed(2))
+          : null,
+      },
+      stalls: await stalls(page),
+      failures: await failures(page),
+    }
   } finally {
     await page.close()
   }
@@ -271,6 +376,11 @@ test.describe('stream contiguity', () => {
       havesAtMs: measured.map((a) => a.havesAtMs),
       prefixAtMs: measured.map((a) => a.prefixAtMs),
       completedContiguous: attempts.map((a) => (a.last ? a.last.prefix === a.last.filePieces : null)),
+      // the verdict, measured at the media element
+      played: attempts.map((a) => a.playback.played),
+      longestFreezeMs: attempts.map((a) => a.playback.longestFreezeMs),
+      minRunwayWhilePlaying: attempts.map((a) => a.playback.minRunwayWhilePlaying),
+      stallReports: attempts.map((a) => a.stalls.length),
       sequentialSeen: attempts.some((a) => a.last?.sequential === true || a.judged?.sequential === true),
       detail: attempts,
       failures: allFailures,
