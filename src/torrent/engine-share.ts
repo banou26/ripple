@@ -150,7 +150,7 @@ export const serveFollowers = (client: EngineClient): () => void => {
 
     if (msg.type === 'read') {
       client
-        .read(msg.handle, msg.fileIndex, msg.offset, msg.len, msg.prioritize)
+        .read(msg.handle, msg.fileIndex, msg.offset, msg.len, msg.prioritize, msg.viewer)
         .then((data) => reply(from, { type: 'read-result', id: msg.id, data }))
         .catch((error) => reply(from, { type: 'read-error', id: msg.id, error: String(error?.message ?? error) }))
       return
