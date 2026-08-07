@@ -3,14 +3,13 @@ import './node-shims'
 import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
-import { createSession } from 'libtorrent-wasm'
+import { createSession, PRIORITY } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
-import type { Claim } from './piece-priority'
 
 import { magnetInfoHash } from './magnet'
-import { mergePriorities } from './piece-priority'
+import { shouldReanchor, windowPieces } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 
@@ -107,8 +106,13 @@ const untrack = (h: number) => {
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
-  viewers.delete(h); sequentialOn.delete(h)
+  viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h)
 }
+
+// Piece priorities ride along inside resume data, so a torrent whose resume was saved while a file
+// was being streamed comes back with every other file still skipped. Put them back to default once
+// the layout lands, unless a viewer got there first and already planned a window.
+const needsPriorityReset = new Set<number>()
 
 const readsByHandle = new Map<number, Set<number>>()
 const failReads = (h: number, error: string) => {
@@ -144,31 +148,32 @@ const filePieceRange = (h: number, fileIndex: number) => {
 
 type Viewer = { fileIndex: number, fromOffset: number }
 const viewers = new Map<number, Map<string, Viewer>>()
-const sequentialOn = new Set<number>()
+// the layout arrives with the torrent-ready record, later than the first watch, so a plan that
+// could not be built yet is retried from the pump instead of being dropped
+const pendingViewing = new Set<number>()
 
 const applyViewing = (h: number) => {
   if (!session) return
   const watching = viewers.get(h)
-  const wantSequential = !!watching?.size
-  if (wantSequential !== sequentialOn.has(h)) {
-    session.setSequential(h, wantSequential)
-    if (wantSequential) sequentialOn.add(h)
-    else sequentialOn.delete(h)
+  if (!watching?.size) {
+    // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
+    // This is also what takes the skip mask off before it can be written into resume data.
+    pendingViewing.delete(h)
+    session.clearStreamWindow(h)
+    return
   }
-
-  const bf = session.bitfield(h)
-  if (!bf) return
-  const claims: Claim[] = []
-  for (const { fileIndex, fromOffset } of watching?.values() ?? []) {
-    const r = filePieceRange(h, fileIndex)
-    if (!r) continue
-    claims.push({
-      p0: r.p0,
-      p1: r.p1,
-      pAt: Math.floor((r.file.offset + Math.min(fromOffset, r.file.size - 1)) / r.pieceLength),
-    })
-  }
-  session.prioritizePieces(h, mergePriorities(bf.numPieces, claims))
+  const files = session.files(h)
+  if (!files) { pendingViewing.add(h); return }
+  const claims = [...watching.values()].map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
+  // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
+  // sits at the first piece the torrent does not have, so without it the capacity beyond the
+  // deadline window goes to the first file in the torrent rather than the one being watched.
+  const planned = session.setStreamWindow(h, claims, {
+    unclaimedPriority: PRIORITY.skip,
+    windowPieces: windowPieces(files.pieceLength),
+  })
+  if (planned) pendingViewing.delete(h)
+  else pendingViewing.add(h)
 }
 
 const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number) => {
@@ -198,13 +203,14 @@ const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => 
   return true
 }
 
-// a read this far from the previous one is a seek: re-anchor piece priorities on the playhead
-const ANCHOR_JUMP = 16_777_216
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number) => {
   if (!viewer) return
   const current = viewers.get(h)?.get(viewer)
   if (!current || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
-  if (Math.abs(offset - current.fromOffset) < ANCHOR_JUMP) return
+  const r = filePieceRange(h, fileIndex)
+  if (!r) return
+  const span = { fileOffset: r.file.offset, pieceLength: r.pieceLength, p1: r.p1 }
+  if (!shouldReanchor(span, current.fromOffset, offset)) return
   watch(viewer, h, fileIndex, offset)
 }
 
@@ -286,6 +292,7 @@ const init = async () => {
           : session.addMagnet(e.magnet, savePath)
       if (addFailed(h)) continue
       track(h, e.magnet, e.infoHash, savePath)
+      needsPriorityReset.add(h)
       if (e.paused) { userPaused.add(h); wantPaused.add(h) }
       recovery.hold(h, Date.now())
     }
@@ -304,6 +311,16 @@ const init = async () => {
     // the stream itself is deliberately drained and dropped, since every failure worth acting on arrives attributed on the status instead
     session.popAlerts()
     for (const h of handles) session.postStatus(h)
+
+    // both of these need the file layout, which only exists once the torrent-ready record has been
+    // decoded, so they wait here rather than being dropped at the call that wanted them
+    for (const h of [...needsPriorityReset]) {
+      if (!session.files(h)) continue
+      needsPriorityReset.delete(h)
+      if (!viewers.get(h)?.size) session.clearStreamWindow(h)
+    }
+    for (const h of [...pendingViewing]) applyViewing(h)
+
     for (const h of wantPaused) {
       const st = session.status(h)
       if (!st) continue
@@ -401,7 +418,9 @@ const handleMessage = async (session: Session, m: any) => {
       if (!inFlight) readsByHandle.set(m.handle, inFlight = new Set())
       inFlight.add(m.id)
       try {
-        const data = await session.read(m.handle, m.fileIndex, m.offset, m.len)
+        // under the caller's own 120s ceiling in client.ts, so a read that is never going to land
+        // is answered with a real error instead of the client giving up on a still-parked engine
+        const data = await session.read(m.handle, m.fileIndex, m.offset, m.len, { timeoutMs: 110_000 })
         // failReads may have answered this id already while it was parked on pieces
         if (!inFlight.has(m.id)) return
         post({ type: 'read-result', id: m.id, data }, [data.buffer])
