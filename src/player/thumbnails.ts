@@ -34,6 +34,8 @@ export const createThumbnailGenerator = async ({ publicPath, workerUrl, length, 
     workerOptions: { type: 'module' },
     length,
     read,
+    // libav transfers the buffer `read` returns; readQuiet answers straight out of the engine and keeps
+    // nothing, so there is nothing here for it to detach.
   })
   // the wasm worker is up before init() ever runs, and both init and the index walk below throw on a file
   // that is not readable yet, so the worker has to leave with the failure

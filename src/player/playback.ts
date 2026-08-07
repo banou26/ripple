@@ -75,6 +75,9 @@ export const startPlayback = async (options: PlaybackOptions): Promise<PlaybackC
     length,
     audioStreamIndex,
     read,
+    // libav transfers the buffer `read` returns, so it must be one nothing here keeps. It is: the engine
+    // transfers it out of the torrent worker, and the window store hands back a slice rather than the
+    // window it holds. Never return the stored window itself, or it detaches in place.
   })
 
   const teardown: (() => void)[] = []

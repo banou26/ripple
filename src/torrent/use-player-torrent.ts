@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
 import { magnetInfoHash } from './magnet'
+import { makeReadWindowStore } from './read-window-store'
 
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
@@ -20,9 +21,13 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
   if (!viewerRef.current) viewerRef.current = client.newViewerId()
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
   const [engineError, setEngineError] = useState<string | null>(null)
+  // playback only; the thumbnailer seeks all over the file and would evict the windows the player needs
+  const readWindows = useRef(makeReadWindowStore())
 
   useEffect(() => {
     if (!magnet) return
+    // held windows belong to one file of one torrent; nothing about them survives a change of either
+    readWindows.current.clear()
     const offUnavailable = client.onStorageUnavailable(
       () => setEngineError('Ripple needs a normal (non-private) window to play this'),
     )
@@ -34,7 +39,11 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
     let watching = false
-    const offReset = client.onEngineReset(() => { watching = false; handleRef.current = null })
+    const offReset = client.onEngineReset(() => {
+      watching = false
+      handleRef.current = null
+      readWindows.current.clear()
+    })
     const off = client.onState((snaps) => {
       const snap = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
@@ -70,7 +79,36 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     return buf as ArrayBuffer
   }
 
-  const read = (offset: number, size: number) => readAt(offset, size, true)
+  /**
+   * Playback reads, served out of the window store whenever they can be.
+   *
+   * A hit still has to tell the engine where the reader is. Nothing else advances the stream window during
+   * playback: prioritizeFrom fires only on an explicit seek, so before this the window was being carried
+   * by the reads themselves, and caching them silently would have stopped the engine following the
+   * playhead. The read length goes with it, so the move takes the same re-anchor test the read would have:
+   * without it, a hit on a demuxer index probe at the file's tail would drag the deadlined band to the end
+   * of the file and strand the header the player is about to need.
+   */
+  const read = async (offset: number, size: number) => {
+    const hit = readWindows.current.get(offset, size)
+    if (hit) {
+      const handle = handleRef.current
+      if (handle != null) {
+        client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)), size)
+      }
+      return hit
+    }
+    // Ask for exactly what was asked of us, never more. A read waits for its PIECES, and the deadlined
+    // band is sized from one READ_SIZE, so inflating this would block the player on pieces nothing marked
+    // urgent. The whole read is then kept, which is what the reads walking through it afterwards hit.
+    const buffer = await readAt(offset, size, true)
+    readWindows.current.put(offset, buffer)
+    // never hand back the buffer the store is holding, even when it is exactly the size asked for: the
+    // consumer is free to neuter what it receives, and an osra transfer() on this path would detach the
+    // window in place and leave it reporting zero bytes for the rest of the session
+    return buffer.slice(0, Math.min(size, buffer.byteLength))
+  }
+
   const readQuiet = (offset: number, size: number) => readAt(offset, size, false)
 
   const prioritizeFrom = (offset: number) => {
