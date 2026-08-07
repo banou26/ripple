@@ -30,7 +30,7 @@
     "test:browser": "vitest run --project browser"
   },
   "dependencies": {
-    "@banou/media-player": "file:../media-player",
+    "@banou/media-player": "^0.8.0",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.3",
     "ass-compiler": "^0.1.15",
