@@ -2,27 +2,35 @@
 // themselves (libtorrent-wasm's setStreamWindow); what lives here is the two numbers Ripple has to
 // choose and the rule for when a read counts as a new playhead.
 
-// How much of the file ahead of the playhead is deadlined. The bounds are there to keep the
-// time-critical set a sane size on very small or very large pieces, not to express a policy.
-export const WINDOW_BYTES = 33_554_432
-export const MIN_WINDOW_PIECES = 12
-export const MAX_WINDOW_PIECES = 128
-
-/** How many pieces at the playhead get top priority and a deadline, for a given piece size. */
-export const windowPieces = (pieceLength: number): number => {
-  if (!Number.isFinite(pieceLength) || pieceLength <= 0) return MIN_WINDOW_PIECES
-  return Math.min(MAX_WINDOW_PIECES, Math.max(MIN_WINDOW_PIECES, Math.ceil(WINDOW_BYTES / pieceLength)))
-}
+/**
+ * How many pieces at the playhead are marked top priority and given a deadline.
+ *
+ * This has to stay SMALL, and the reason is the opposite of the intuitive one. libtorrent's
+ * sequential picker has two loops. The first drains top-priority pieces in shuffled,
+ * availability-bucketed order. The second walks pieces in index order from the cursor and
+ * explicitly SKIPS top-priority ones. The second loop is the only in-order path there is, and it
+ * runs only if the first left the peer's request quota unfilled (piece_picker.cpp:2153).
+ *
+ * So a wide top-priority band starves the in-order walk and gets picked at random. It is not the
+ * window that feeds playback, it is the in-order walk; the window is only a boost for what is
+ * needed right now. Measured on a 1054-piece file: a 128-piece window held 29 pieces with a
+ * contiguous run of 1, and finished 45 seconds with 1019 of 1054 pieces but a run of only 70.
+ */
+export const WINDOW_PIECES = 12
 
 /**
- * How far a read has to land from the current plan before it counts as a seek.
+ * A read this far from the current plan counts as a seek rather than as drift.
  *
- * Derived from the window rather than fixed, because the two have to stay related: priorities are
- * only re-planned once a read lands this far away, so a step wider than the window would leave the
- * playhead past every deadline until the next jump. Half a window always overlaps.
+ * Roughly one window ahead, so the deadlined head stays near the playhead, with a floor so small
+ * pieces do not force a re-plan every fraction of a second. Each re-plan empties the time-critical
+ * set, and refilling it re-posts a cancel of every outstanding non-critical block request.
  */
-export const anchorJump = (pieceLength: number): number =>
-  Math.max(1, Math.floor((windowPieces(pieceLength) * pieceLength) / 2))
+export const MIN_ANCHOR_JUMP = 4_194_304
+
+export const anchorJump = (pieceLength: number): number => {
+  const window = Number.isFinite(pieceLength) && pieceLength > 0 ? WINDOW_PIECES * pieceLength : 0
+  return Math.max(MIN_ANCHOR_JUMP, window)
+}
 
 /** The watched file's placement inside the torrent, in pieces. */
 export type FileSpan = { fileOffset: number, pieceLength: number, p1: number }

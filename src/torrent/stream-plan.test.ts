@@ -1,33 +1,45 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MAX_WINDOW_PIECES,
-  MIN_WINDOW_PIECES,
-  WINDOW_BYTES,
+  MIN_ANCHOR_JUMP,
+  WINDOW_PIECES,
   anchorJump,
   shouldReanchor,
-  windowPieces,
 } from './stream-plan'
 
 // every piece size a real torrent plausibly uses, plus the absurd ends
 const PIECE_SIZES = [16_384, 131_072, 262_144, 524_288, 1 << 20, 2 << 20, 4 << 20, 8 << 20, 16 << 20]
 
-describe('windowPieces', () => {
-  it('always covers more than one anchor step, so the playhead never outruns the deadlines', () => {
+describe('WINDOW_PIECES', () => {
+  it('stays small enough to leave libtorrent its in-order walk', () => {
+    // a peer's request quota is filled from the top-priority loop first, and the in-order loop runs
+    // only on what is left. A window in the hundreds starves it and the file arrives shuffled.
+    expect(WINDOW_PIECES).toBeLessThanOrEqual(24)
+    expect(WINDOW_PIECES).toBeGreaterThan(0)
+  })
+
+  it('is a piece count, not a byte budget, so it does not grow on small pieces', () => {
+    // the loop-starving property depends on the COUNT of top-priority pieces, not their size
+    expect(Number.isInteger(WINDOW_PIECES)).toBe(true)
+  })
+})
+
+describe('anchorJump', () => {
+  it('never re-plans more often than the floor, whatever the piece size', () => {
     for (const pieceLength of PIECE_SIZES) {
-      expect(windowPieces(pieceLength) * pieceLength).toBeGreaterThan(anchorJump(pieceLength))
+      expect(anchorJump(pieceLength)).toBeGreaterThanOrEqual(MIN_ANCHOR_JUMP)
     }
   })
 
-  it('stays inside its bounds for absurd piece sizes', () => {
-    expect(windowPieces(1)).toBe(MAX_WINDOW_PIECES)
-    expect(windowPieces(1 << 30)).toBe(MIN_WINDOW_PIECES)
-    expect(windowPieces(0)).toBe(MIN_WINDOW_PIECES)
-    expect(windowPieces(Number.NaN)).toBe(MIN_WINDOW_PIECES)
+  it('keeps the deadlined head near the playhead on large pieces', () => {
+    // once a window is wider than the floor, the step follows the window rather than the floor
+    expect(anchorJump(8 << 20)).toBe(WINDOW_PIECES * (8 << 20))
   })
 
-  it('scales with piece size rather than with file size', () => {
-    expect(windowPieces(WINDOW_BYTES / 20)).toBe(20)
+  it('survives a missing or nonsense piece length', () => {
+    expect(anchorJump(0)).toBe(MIN_ANCHOR_JUMP)
+    expect(anchorJump(Number.NaN)).toBe(MIN_ANCHOR_JUMP)
+    expect(anchorJump(-1)).toBe(MIN_ANCHOR_JUMP)
   })
 })
 

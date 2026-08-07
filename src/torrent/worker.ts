@@ -9,7 +9,7 @@ import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import type { ObservedStatus, RecoveryState } from './recovery'
 
 import { magnetInfoHash } from './magnet'
-import { shouldReanchor, windowPieces } from './stream-plan'
+import { WINDOW_PIECES, shouldReanchor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 
@@ -162,15 +162,14 @@ const applyViewing = (h: number) => {
     session.clearStreamWindow(h)
     return
   }
-  const files = session.files(h)
-  if (!files) { pendingViewing.add(h); return }
+  if (!session.files(h)) { pendingViewing.add(h); return }
   const claims = [...watching.values()].map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
   // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
   // sits at the first piece the torrent does not have, so without it the capacity beyond the
   // deadline window goes to the first file in the torrent rather than the one being watched.
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
-    windowPieces: windowPieces(files.pieceLength),
+    windowPieces: WINDOW_PIECES,
   })
   if (planned) pendingViewing.delete(h)
   else pendingViewing.add(h)
