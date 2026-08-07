@@ -26,3 +26,5 @@ dist-ssr
 build
 playwright-report
 test-results
+.vitest-attachments/
+__screenshots__/

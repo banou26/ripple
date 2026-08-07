@@ -2,7 +2,10 @@
 // themselves (libtorrent-wasm's setStreamWindow); what lives here is the geometry Ripple has to
 // choose and the rule for when a read counts as a new playhead.
 
-/** One in-flight demuxer read. Must match bufferSize in player/playback.ts. */
+/**
+ * One in-flight demuxer read. Must match the player's `bufferSize`, which defaults to 2.5 MB in
+ * @banou/media-player and is what the window store in `use-player-torrent` also asks the engine for.
+ */
 export const READ_SIZE = 2_500_000
 
 /** Past this the in-order walk is starved regardless of how few pieces that is. */

@@ -1,20 +1,15 @@
-import type { ReactNode } from 'react'
-import type { AudioStream, PlaybackController } from '../player/playback'
-import type { SubtitleStream } from '../player/subtitles'
+import type { MediaPlayerSource } from '@banou/media-player'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
-import { Menu } from '@videojs/react'
-import { CaptionsOnIcon, CheckIcon, VolumeHighIcon } from '@videojs/react/icons'
+import { MediaPlayer } from '@banou/media-player'
 
 import { getHumanReadableByteString } from '../utils/bytes'
-import { downloadedByteRanges, downloadedFractions } from '../torrent/downloaded-ranges'
+import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
-import { useSeekThumbnails } from '../player/thumbnails'
-import { VideoJsPlayer } from '../player/videojs-player'
 
 const playerStyle = css`
   height: 100%;
@@ -60,39 +55,6 @@ const playerStyle = css`
   }
 `
 
-const trackLabel = (t: { title: string, language: string, streamIndex: number }) =>
-  t.title || t.language || `Track ${t.streamIndex}`
-
-type TrackMenuProps = {
-  label: string
-  icon: ReactNode
-  options: { value: string, label: string }[]
-  value: string
-  onSelect: (value: string) => void
-  side?: 'top' | 'bottom'
-  align?: 'start' | 'center' | 'end'
-}
-
-const TrackMenu = ({ label, icon, options, value, onSelect, side = 'bottom', align = 'end' }: TrackMenuProps) => (
-  <Menu.Root side={side} align={align}>
-    <Menu.Trigger className="media-button media-button--subtle media-button--icon" aria-label={label}>
-      {icon}
-    </Menu.Trigger>
-    <Menu.Content className="media-surface media-popover media-menu">
-      <Menu.RadioGroup className="media-menu__group" label={label} value={value} onValueChange={onSelect}>
-        {options.map((option) => (
-          <Menu.RadioItem key={option.value} className="media-menu__item" value={option.value}>
-            <span>{option.label}</span>
-            <Menu.ItemIndicator checked={option.value === value} forceMount className="media-menu__indicator">
-              <CheckIcon className="media-icon"/>
-            </Menu.ItemIndicator>
-          </Menu.RadioItem>
-        ))}
-      </Menu.RadioGroup>
-    </Menu.Content>
-  </Menu.Root>
-)
-
 const Player = () => {
   const [searchParams] = useSearchParams()
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
@@ -100,21 +62,8 @@ const Player = () => {
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
   const { snapshot, engineError, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
-  const controllerRef = useRef<PlaybackController | null>(null)
-  const [subtitleStreams, setSubtitleStreams] = useState<SubtitleStream[]>([])
-  // undefined = the renderer's auto-pick (first stream); -1 = off.
-  const [selectedSubtitle, setSelectedSubtitle] = useState<number | undefined>(undefined)
-  const subtitleValue = selectedSubtitle ?? subtitleStreams[0]?.streamIndex ?? -1
-  const onSelectSubtitle = (streamIndex: number) => {
-    setSelectedSubtitle(streamIndex)
-    controllerRef.current?.selectSubtitleStream(streamIndex)
-  }
-
-  const [audioStreams, setAudioStreams] = useState<AudioStream[]>([])
-  // undefined = the remuxer's pick (first stream); a number restarts playback on it.
-  const [selectedAudio, setSelectedAudio] = useState<number | undefined>(undefined)
-  const [effectiveAudio, setEffectiveAudio] = useState(-1)
-  const audioValue = selectedAudio ?? effectiveAudio
+  // Track menus, thumbnails and the playback controller all live in the player now, so none of the
+  // state that used to mirror them is here any more.
 
   const selectedFile = snapshot?.files?.files[fileIndex]
   const fileSize = selectedFile?.size
@@ -151,18 +100,17 @@ const Player = () => {
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
-  const downloadedRanges = useMemo(() => downloadedFractions(snapshot, fileIndex), [snapshot, fileIndex])
-  const downloadedBytes = useMemo(() => downloadedByteRanges(snapshot, fileIndex), [snapshot, fileIndex])
+  // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
+  // because a file's download percentage is not its playback percentage.
+  const downloadedRanges = useMemo(
+    () => downloadedByteRanges(snapshot, fileIndex)
+      .map(([startByteOffset, endByteOffset]) => ({ startByteOffset, endByteOffset })),
+    [snapshot, fileIndex],
+  )
 
-  const [playerReady, setPlayerReady] = useState(false)
-  const thumbnails = useSeekThumbnails({
-    enabled: playerReady,
-    publicPath,
-    workerUrl: libavWorkerUrl,
-    length: fileSize,
-    read: readQuiet,
-    ranges: downloadedBytes,
-  })
+  // Typed as the union rather than spread inline: a conditional spread widens to "maybe read, maybe
+  // size", which is neither arm, and both halves have to travel together.
+  const source: MediaPlayerSource = fileSize ? { read, size: fileSize } : {}
 
   const overlay = (
     <div className="ripple-overlay-content">
@@ -189,41 +137,15 @@ const Player = () => {
           text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
           toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
         />
-        {audioStreams.length > 1 && (
-          <TrackMenu
-            label="Audio"
-            icon={<VolumeHighIcon className="media-icon"/>}
-            options={audioStreams.map((s) => ({ value: String(s.streamIndex), label: trackLabel(s) }))}
-            value={String(audioValue)}
-            onSelect={(v) => setSelectedAudio(Number(v))}
-          />
-        )}
+        {/* audio and subtitle pickers live in the player's own settings menu now */}
       </div>
     </div>
   )
 
-  const subtitleMenu = subtitleStreams.length > 0
-    ? (
-      <TrackMenu
-        label="Subtitles"
-        icon={<CaptionsOnIcon className="media-icon"/>}
-        options={[
-          ...subtitleStreams.map((s) => ({ value: String(s.streamIndex), label: trackLabel(s) })),
-          { value: '-1', label: 'Off' },
-        ]}
-        value={String(subtitleValue)}
-        onSelect={(v) => onSelectSubtitle(Number(v))}
-        side="top"
-        align="center"
-      />
-    )
-    : null
-
   return (
     <div css={playerStyle}>
-      <VideoJsPlayer
-        read={read}
-        size={fileSize}
+      <MediaPlayer
+        {...source}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWorkerUrl={jassubWorkerUrl}
@@ -231,18 +153,11 @@ const Player = () => {
         defaultFontUrl={defaultFontUrl}
         autoplay={true}
         overlay={overlay}
-        menu={subtitleMenu}
-        thumbnails={thumbnails}
         downloadedRanges={downloadedRanges}
+        // A non-prioritising, fail-fast reader: generating previews walks the whole file, and sharing
+        // playback's reader would let it steal download order from the bytes playback is blocked on.
+        thumbnailRead={readQuiet}
         onSeek={(fraction) => { if (fileSize) prioritizeFrom(fraction * fileSize) }}
-        audioStreamIndex={selectedAudio}
-        onSubtitleStreams={setSubtitleStreams}
-        onAudioStreams={(streams, selected) => { setAudioStreams(streams); setEffectiveAudio(selected) }}
-        onController={(controller) => {
-          controllerRef.current = controller
-          if (controller) setPlayerReady(true)
-          if (controller && selectedSubtitle !== undefined) controller.selectSubtitleStream(selectedSubtitle)
-        }}
       />
     </div>
   )
