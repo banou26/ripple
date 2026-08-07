@@ -35,7 +35,7 @@
     "ass-compiler": "^0.1.15",
     "idb-keyval": "^6.2.1",
     "libav-wasm": "^0.8.3",
-    "libtorrent-wasm": "^0.3.5",
+    "libtorrent-wasm": "^0.3.6",
     "osra": "^0.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
