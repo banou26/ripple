@@ -556,7 +556,10 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'flush-resume') {
       await Promise.all(handles.map((h) => persistResume(h)))
     } else if (m.type === 'watch') {
-      watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
+      // a move carrying a read length is a reader advancing, so it takes the same re-anchor test a read
+      // takes; without one it is a user seek, which moves the anchor unconditionally
+      if (m.readLen != null) anchorSequential(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.readLen)
+      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
     } else if (m.type === 'unwatch-owner') {

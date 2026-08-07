@@ -33,7 +33,12 @@ export type TorrentClient = {
   removeMissing: (infoHash: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string) => Promise<Uint8Array>
   newViewerId: () => string
-  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number) => void
+  /**
+   * Move a viewer's anchor. Pass `readLen` when the move came from a read rather than from a user seek:
+   * it routes through the same re-anchor test a read takes, which debounces small moves and refuses to
+   * follow a demuxer index probe at the file's tail. A seek has neither of those and wants neither.
+   */
+  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number) => void
   unwatch: (viewer: string) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -261,7 +266,7 @@ const createTorrentClient = (): EngineClient => {
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     newViewerId: () => `${docId}:${++viewerId}`,
-    watch: (viewer, handle, fileIndex, fromOffset = 0) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset }),
+    watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
     destroy: () => {
       window.removeEventListener('online', onOnline)
