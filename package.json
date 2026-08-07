@@ -18,7 +18,7 @@
     "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker.wasm build/jassub-worker.wasm && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm && shx cp node_modules/jassub/dist/default.woff2 build/default.woff2",
     "copy-html": "shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && shx cp src/sw.js build/sw.js && copyfiles -u 2 ./src/assets/* build/assets",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test": "vitest run src",
+    "test": "vitest run --project unit",
     "test:e2e": "npm run build && playwright test --project=chromium tests/smoke.spec.ts tests/stream-download.spec.ts tests/multi-tab.spec.ts",
     "test:stream": "npm run build && playwright test tests/stream-download.spec.ts",
     "test:multi": "npm run build && playwright test tests/multi-tab.spec.ts",
@@ -26,12 +26,13 @@
     "test:contiguity": "npm run build && playwright test --project=chromium tests/stream-contiguity.spec.ts",
     "preview": "vp preview",
     "bench:install": "playwright install chromium firefox",
-    "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts"
+    "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts",
+    "test:browser": "vitest run --project browser"
   },
   "dependencies": {
+    "@banou/media-player": "^0.8.0",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.3",
-    "@videojs/react": "^10.0.0-beta.22",
     "ass-compiler": "^0.1.15",
     "idb-keyval": "^6.2.1",
     "libav-wasm": "^0.8.4",
@@ -52,22 +53,25 @@
     "@playwright/test": "1.58.0",
     "@rollup/plugin-inject": "^5.0.3",
     "@types/node": "^25.9.3",
-    "@types/react": "^18.2.15",
-    "@types/react-dom": "^18.2.7",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@types/wicg-file-system-access": "^2023.10.1",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser-playwright": "^4.1.10",
     "copyfiles": "^2.4.1",
     "eslint": "^8.45.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
     "jassub": "^1.7.18",
     "node-stdlib-browser": "^1.2.0",
+    "playwright": "^1.58.0",
     "serve": "^14.2.1",
     "shx": "^0.3.4",
     "typescript": "^7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.4",
-    "vite-plus": "0.2.4"
+    "vite-plus": "0.2.4",
+    "vitest-browser-react": "^2.2.0"
   }
 }
