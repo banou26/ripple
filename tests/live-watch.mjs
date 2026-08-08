@@ -150,6 +150,12 @@ const report = {
 
 if (OUT) {
   writeFileSync(`${OUT}.json`, JSON.stringify(report, null, 1))
+  // Wake the chrome first, and only after the layout pass above has recorded whether it had hidden
+  // itself. By this point the pointer has been still for the whole watch, so an unprompted screenshot
+  // catches a bare video and shows nothing about the controls, the title or the app's readout.
+  await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2)
+  await page.mouse.move(VIEWPORT.width / 2 + 8, VIEWPORT.height / 2 + 8)
+  await page.waitForTimeout(400)
   await page.screenshot({ path: `${OUT}.png` })
 }
 console.log(JSON.stringify(report, null, 1))

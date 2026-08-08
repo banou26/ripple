@@ -18,11 +18,26 @@ const playerStyle = css`
   background: #000;
 
   /**
-   * One right-aligned group, because the player's top bar gives it the right-hand end of the row and
-   * keeps the left for the filename. It supplies the padding and the fade too, so this sizes itself
-   * against the player's own unit rather than against \`rem\`, and adds no padding of its own.
+   * Placed by this app, not by the player: an overlay item is handed a layer covering the whole
+   * picture and nothing else, so this is ordinary absolute positioning against the video.
+   *
+   * Top right, clear of the filename the player draws at the top left. The inset matches the one the
+   * title uses so the two line up, and sizes itself against the player's own unit rather than against
+   * \`rem\`, which is root relative and belongs to whatever page is embedding this.
    */
   .ripple-overlay-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    /* longhands per breakpoint: a shorthand inside a media query is hoisted after the rule above it
+       and would silently drop the safe-area inset, which clears a notch in fullscreen */
+    padding-top: calc(calc(1.2 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
+    padding-right: calc(calc(1.6 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
+    @media (min-width: 768px) {
+      padding-top: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
+      padding-right: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
+    }
+
     display: flex;
     align-items: center;
     gap: calc(1.2 * var(--mp-unit));
