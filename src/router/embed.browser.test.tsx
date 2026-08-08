@@ -1,7 +1,8 @@
 import type { PlayerTorrent } from '../torrent/use-player-torrent'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { page } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
@@ -39,25 +40,36 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
 const state = { current: torrent() }
 vi.mock('../torrent/use-player-torrent', () => ({ usePlayerTorrent: () => state.current }))
 
-const sized = () => {
+const DESKTOP = { width: 1280, height: 720 }
+const PHONE = { width: 390, height: 780 }
+
+const sized = ({ width, height }: { width: number, height: number }) => {
   const container = document.createElement('div')
-  container.style.cssText = 'width: 1280px; height: 720px;'
+  container.style.cssText = `width: ${width}px; height: ${height}px;`
   document.body.append(container)
   return { container }
 }
 
-const mount = async () => {
+/**
+ * The VIEWPORT is resized, not only the container. Every breakpoint in the player and in this row is
+ * a media query, and a media query reads the viewport, so a narrow box inside a 1280px window renders
+ * the desktop layout at a small size: the exact arrangement that hides a phone-only bug.
+ */
+const mount = async (size = DESKTOP) => {
+  await page.viewport(size.width, size.height)
   const { default: Embed } = await import('./embed')
   return render(
     <MemoryRouter initialEntries={['/embed?magnet=bWFnbmV0Og==']}>
       <Embed />
     </MemoryRouter>,
-    sized(),
+    sized(size),
   )
 }
 
 describe('the embed route', () => {
   beforeEach(() => { state.current = torrent() })
+  // the viewport is shared by every test in the file, so a phone-sized one has to be handed back
+  afterEach(async () => { await page.viewport(DESKTOP.width, DESKTOP.height) })
 
   it('names the file being played, without the folder around it', async () => {
     const screen = await mount()
@@ -84,8 +96,44 @@ describe('the embed route', () => {
     state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } })
     const screen = await mount()
     await expect.element(screen.getByText('Loading metadata…')).toBeInTheDocument()
-    // no filename to show yet, and no empty line reserved for one
-    expect(screen.container.querySelector('.title')).toBeNull()
+    // there is no filename until metadata lands, so the slot that holds it is empty rather than absent
+    expect(screen.container.querySelector('.file-name')?.textContent).toBe('')
+    // and the player draws no title of its own, which is the whole reason this row exists
+    expect(screen.container.querySelector('[class*="css"] > .title')).toBeNull()
+  })
+
+  it('lets the filename give way to the numbers rather than running under them', async () => {
+    // The bug this replaced: the player drew the title full width in its own layer and the readout
+    // in another, so on a phone the filename ellipsized against the WHOLE width and then ran
+    // underneath the peer count painted on top of it. One row is what makes the two see each other.
+    const screen = await mount(PHONE)
+
+    await expect.element(screen.getByText('82')).toBeInTheDocument()
+    const name = screen.container.querySelector('.file-name')!.getBoundingClientRect()
+    const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
+    const player = screen.container.firstElementChild!.getBoundingClientRect()
+
+    // they share a line and do not overlap, which is the claim
+    expect(name.right).toBeLessThanOrEqual(readout.left + 1)
+    expect(readout.right).toBeLessThanOrEqual(player.right)
+    // the filename was actually truncated rather than pushing the numbers off the edge
+    expect(name.width).toBeLessThan(player.width)
+    expect(screen.container.querySelector('.file-name')!.scrollWidth)
+      .toBeGreaterThan(Math.ceil(name.width))
+  })
+
+  it('drops the byte counter before the status text when the row runs out of room', async () => {
+    // Both are text on the same line, but only one of them explains a player showing nothing.
+    const narrow = await mount(PHONE)
+    await expect.element(narrow.getByText('82')).toBeInTheDocument()
+    expect(narrow.container.querySelector('.downloaded')).not.toBeNull()
+    expect(getComputedStyle(narrow.container.querySelector('.downloaded')!).display).toBe('none')
+
+    state.current = torrent({ engineError: 'The download engine stopped. Reload the page to try again.' })
+    const failed = await mount(PHONE)
+    await expect.element(failed.getByText(/The download engine stopped/)).toBeInTheDocument()
+    expect(getComputedStyle(failed.container.querySelector('.loading-information')!).display)
+      .not.toBe('none')
   })
 
   it('reports an engine failure instead of counting bytes that will never arrive', async () => {

@@ -18,23 +18,33 @@ const playerStyle = css`
   background: #000;
 
   /**
-   * Placed by this app, not by the player: an overlay item is handed a layer covering the whole
-   * picture and nothing else, so this is ordinary absolute positioning against the video.
+   * The whole top row, drawn by this app rather than by the player.
    *
-   * Top right, clear of the filename the player draws at the top left. The inset matches the one the
-   * title uses so the two line up, and sizes itself against the player's own unit rather than against
-   * \`rem\`, which is root relative and belongs to whatever page is embedding this.
+   * The player will render a \`title\` of its own across the full width, and on a phone that is the
+   * problem: the filename ellipsizes against the WHOLE width and then runs underneath the readout
+   * painted on top of it, because the two sit in separate layers and neither can see the other. One
+   * flex row is the only arrangement where the filename can give way to the numbers, so this app owns
+   * both and passes the player no title at all.
+   *
+   * An overlay item is handed a layer covering the whole picture, so this is ordinary positioning
+   * against the video, sized against the player's own unit rather than \`rem\`, which is root relative
+   * and belongs to whatever page is embedding this.
    */
   .ripple-overlay-content {
     position: absolute;
     top: 0;
+    left: 0;
     right: 0;
     /* longhands per breakpoint: a shorthand inside a media query is hoisted after the rule above it
        and would silently drop the safe-area inset, which clears a notch in fullscreen */
     padding-top: calc(calc(1.2 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(1.2 * var(--mp-unit));
+    padding-left: calc(calc(1.6 * var(--mp-unit)) + env(safe-area-inset-left, 0px));
     padding-right: calc(calc(1.6 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
     @media (min-width: 768px) {
       padding-top: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(2.4 * var(--mp-unit));
+      padding-left: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-left, 0px));
       padding-right: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
     }
 
@@ -52,6 +62,38 @@ const playerStyle = css`
     text-shadow: 0 0 4px rgba(0, 0, 0, 1);
     color: #fff;
     white-space: nowrap;
+
+    /* the same wash the player puts behind its own title, so light footage cannot swallow either end */
+    background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.3) 30%, rgba(0,0,0,0.2) 60%, rgba(0,0,0,0.1) 80%, transparent 100%);
+  }
+
+  /* The one thing here that may be cut: a release filename is long and its tail is the least of it,
+     where a peer count that loses a digit is simply wrong. So this yields the width and nothing else
+     does. */
+  .file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    font-weight: 500;
+    font-size: calc(1.6 * var(--mp-unit));
+    line-height: calc(1.9 * var(--mp-unit));
+    @media (min-width: 960px) {
+      font-size: calc(1.8 * var(--mp-unit));
+      line-height: calc(2.2 * var(--mp-unit));
+    }
+  }
+
+  /* Bytes downloaded is the first thing to go when there is no room: it is the only figure here that
+     is also drawn on the seekbar, and the numbers beside it are not repeated anywhere. The status
+     text is NOT dropped with it, because "Loading metadata…" and an engine failure are the whole
+     explanation of a player that is showing nothing, and a phone is where that matters most. */
+  .downloaded {
+    display: none;
+    @media (min-width: 560px) {
+      display: block;
+    }
   }
 
   /* the slot itself takes no pointer events, so the tooltip anchors ask for them back */
@@ -118,6 +160,9 @@ const Player = () => {
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
+  // Why there is nothing to watch yet, or null once there is. Kept apart from the byte counter
+  // because only the counter is dropped when the row runs out of room.
+  const status = engineError ?? (hasMetadata ? null : 'Loading metadata…')
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
   // because a file's download percentage is not its playback percentage.
   const downloadedRanges = useMemo(
@@ -132,13 +177,12 @@ const Player = () => {
 
   const overlay = (
     <div className="ripple-overlay-content">
+      {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
+      <div className="file-name">{fileName}</div>
       {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
-      <div className="loading-information">
-        {engineError
-          ?? (!hasMetadata
-            ? 'Loading metadata…'
-            : `Downloaded ${getHumanReadableByteString(downloaded)}`)}
-      </div>
+      {status
+        ? <div className="loading-information">{status}</div>
+        : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
       <div className="media-information" data-testid="media-information">
         <TooltipDisplay
           id="peers"
@@ -164,7 +208,9 @@ const Player = () => {
     <div css={playerStyle}>
       <MediaPlayer
         {...source}
-        title={fileName}
+        // No `title`: the player would draw it full width in a layer of its own, where it cannot see
+        // the readout above it and runs underneath it on a narrow screen. The overlay row below
+        // carries the filename instead, in the same flex line as the numbers it has to give way to.
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWorkerUrl={jassubWorkerUrl}
