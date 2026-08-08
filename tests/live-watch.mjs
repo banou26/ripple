@@ -20,7 +20,10 @@ import { writeFileSync } from 'node:fs'
 const URL_UNDER_TEST = process.argv[2]
 const OUT = process.argv[3]
 const WATCH_MS = Number(process.env.WATCH_MS ?? 150_000)
-const VIEWPORT = { width: 1600, height: 900 }
+// Every breakpoint in the player and in the overlay row is a media query, so the viewport is the
+// only way to see the phone layout. VIEWPORT=390x780 checks the narrow arrangement.
+const [vw, vh] = (process.env.VIEWPORT ?? '1600x900').split('x').map(Number)
+const VIEWPORT = { width: vw, height: vh }
 
 if (!URL_UNDER_TEST) {
   console.error('usage: node tests/live-watch.mjs <url> [outPrefix]')
