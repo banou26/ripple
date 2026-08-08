@@ -79,7 +79,15 @@ export default defineConfig((env) => ({
     ],
   },
   optimizeDeps: {
-    include: ['@fkn/lib', '@fkn/lib/react'],
+    // React and its consumers are listed so they share ONE pre-bundled copy. `dedupe` above resolves
+    // them to a single file but does not decide how each is loaded, and a dependency left un-optimised
+    // imports React's raw CJS build while the test renderer carries a pre-bundled one. Two instances,
+    // one hooks dispatcher: any component reaching a tooltip dies on "Cannot read properties of null
+    // (reading 'useState')", in the browser project only.
+    include: [
+      '@fkn/lib', '@fkn/lib/react',
+      'react', 'react-dom', 'react-dom/client', 'react-tooltip', 'react-feather',
+    ],
   },
   worker: {
     format: 'es',

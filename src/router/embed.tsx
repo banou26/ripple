@@ -17,41 +17,40 @@ const playerStyle = css`
   overflow: hidden;
   background: #000;
 
+  /**
+   * One right-aligned group, because the player's top bar gives it the right-hand end of the row and
+   * keeps the left for the filename. It supplies the padding and the fade too, so this sizes itself
+   * against the player's own unit rather than against \`rem\`, and adds no padding of its own.
+   */
   .ripple-overlay-content {
     display: flex;
-    justify-content: space-between;
-    align-items: start;
-    padding: 1.5rem;
+    align-items: center;
+    gap: calc(1.2 * var(--mp-unit));
+
+    font-weight: 400;
+    font-size: calc(1.2 * var(--mp-unit));
+    line-height: calc(1.7 * var(--mp-unit));
+    @media (min-width: 960px) {
+      font-size: calc(1.4 * var(--mp-unit));
+      line-height: calc(2 * var(--mp-unit));
+    }
+    text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+    color: #fff;
+    white-space: nowrap;
   }
 
+  /* the slot itself takes no pointer events, so the tooltip anchors ask for them back */
   .media-information {
     pointer-events: auto;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    font-weight: 400;
-    font-size: 1.2rem;
-    line-height: 1.7rem;
-    @media (min-width: 960px) {
-      font-size: 1.4rem;
-      line-height: 2rem;
-    }
-    text-shadow: 0 0 4px rgba(0, 0, 0, 1);
-    color: #fff;
+    gap: calc(1.2 * var(--mp-unit));
 
     .item {
       display: flex;
       align-items: center;
       gap: 4px;
     }
-  }
-
-  .loading-information {
-    color: #fff;
-    font-size: 1.3rem;
-    text-shadow: 0 0 4px rgba(0, 0, 0, 1);
-    padding: 8px 12px;
   }
 `
 
@@ -67,6 +66,10 @@ const Player = () => {
 
   const selectedFile = snapshot?.files?.files[fileIndex]
   const fileSize = selectedFile?.size
+  // libtorrent reports a path relative to the torrent root, so a multi-file release carries its
+  // folder in front of every entry. The player has one line for a filename and the folder repeats
+  // the release name that is usually already in the app around it, so only the last segment shows.
+  const fileName = selectedFile?.path.split('/').pop() || undefined
 
   const origin = useMemo(() => new URL(window.location.toString()).origin, [])
   const publicPath = useMemo(() => new URL(import.meta.env.DEV ? '/build/' : '/', origin).toString(), [origin])
@@ -121,7 +124,7 @@ const Player = () => {
             ? 'Loading metadata…'
             : `Downloaded ${getHumanReadableByteString(downloaded)}`)}
       </div>
-      <div className="media-information">
+      <div className="media-information" data-testid="media-information">
         <TooltipDisplay
           id="peers"
           text={<div className="item"><User /><span>{info.peers}</span></div>}
@@ -146,6 +149,7 @@ const Player = () => {
     <div css={playerStyle}>
       <MediaPlayer
         {...source}
+        title={fileName}
         publicPath={publicPath}
         libavWorkerUrl={libavWorkerUrl}
         jassubWorkerUrl={jassubWorkerUrl}
