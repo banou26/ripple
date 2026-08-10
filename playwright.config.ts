@@ -22,7 +22,8 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { args: ['--enable-experimental-web-platform-features', '--autoplay-policy=no-user-gesture-required'] },
+        // --mute-audio because the torrent ramp runs headful and plays real video
+        launchOptions: { args: ['--enable-experimental-web-platform-features', '--autoplay-policy=no-user-gesture-required', '--mute-audio'] },
       },
     },
     {
@@ -33,6 +34,8 @@ export default defineConfig({
           firefoxUserPrefs: {
             'media.autoplay.default': 0,
             'media.autoplay.blocking_policy': 0,
+            // headful ramp runs play real video
+            'media.volume_scale': '0.0',
           },
         },
       },

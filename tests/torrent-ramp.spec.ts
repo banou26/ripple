@@ -5,6 +5,15 @@ import { expect, test } from '@playwright/test'
 import { DEMO_SEEDED_KEY } from '../src/torrent/constants'
 import { createRecentRateTracker } from '../src/torrent/recent-rate'
 
+// Headful is not a preference here, it is the difference between a benchmark and
+// noise. In headless chromium the engine reaches "Loading metadata..." and sits at a
+// flat 0 B/s forever, in EVERY topology, while its data plane is provably healthy;
+// the identical run headful downloads at ~10 MB/s. Playwright defaults to headless
+// and playwright.config.ts sets nothing, so without this the ramp tests measure the
+// stall and report it as the result. It must be top-level: Playwright forbids
+// test.use({ headless }) inside a describe.
+test.use({ headless: false })
+
 const MIB = 1_048_576
 const DEFAULT_MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969'
 const MAGNET = process.env.RIPPLE_BENCH_MAGNET ?? DEFAULT_MAGNET
