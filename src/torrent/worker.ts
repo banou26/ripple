@@ -118,6 +118,10 @@ const needsPriorityReset = new Set<number>()
 // stays under the caller's own 120s ceiling in client.ts
 const READ_ATTEMPT_MS = 6_000
 const READ_ATTEMPTS = 18
+// How many of a stalled read's missing pieces get taken back from their peers per attempt. A read
+// covers a handful of pieces at the sizes that occur in the wild, so this is a bound for the small-
+// piece case rather than a policy; anything past it is left alone and named in the stall message.
+const CANCEL_PER_STALL = 16
 
 const readsByHandle = new Map<number, Set<number>>()
 const failReads = (h: number, error: string) => {
@@ -454,14 +458,36 @@ const handleMessage = async (session: Session, m: any) => {
           } catch (err) {
             if (!inFlight.has(m.id)) return
             if (attempt + 1 >= READ_ATTEMPTS || !/did not arrive/.test(String(err))) throw err
+            const missing = missingPieces(m.handle, m.fileIndex, m.offset, m.len)
             post({
               type: 'read-stalled',
               id: m.id, handle: m.handle, fileIndex: m.fileIndex, offset: m.offset, len: m.len,
               waitedMs: (attempt + 1) * READ_ATTEMPT_MS,
-              missing: missingPieces(m.handle, m.fileIndex, m.offset, m.len),
+              missing,
+              cancelled: Math.min(missing.length, CANCEL_PER_STALL),
               downloadRate: session.status(m.handle)?.downloadRate ?? null,
               numPeers: session.status(m.handle)?.numPeers ?? null,
             })
+            // Take the blocking pieces back from whatever peers are sitting on them.
+            //
+            // Nothing else does, and that is the whole reason a read can stall while the torrent
+            // runs at full speed. Once every block of a piece is outstanding, libtorrent's rescue
+            // for a late time-critical piece is gated behind `m_average_piece_time > 0`, which
+            // stays 0 until a deadlined piece has completed ONCE, so it is inert for exactly the
+            // first pieces of a file. `cancel_non_critical` would reclaim them but deliberately
+            // skips pieces with a deadline, i.e. the ones playback is blocked on. And the sequential
+            // walk cannot cover for it either: `piece_picker::pick_pieces` skips `top_priority`
+            // pieces in its in-order loop, and a deadline sets exactly that priority, so the walk
+            // steps over the window and downloads the rest of the file instead. That is what
+            // "168 MB downloaded, still 0:00" is: the head is stranded, everything after it is not.
+            //
+            // Cancelling only drops OUTSTANDING requests, so no received block is thrown away, and
+            // it is done after a full attempt has already elapsed rather than on a merely slow peer.
+            for (const piece of missing.slice(0, CANCEL_PER_STALL)) {
+              session.cancelPieceRequests(m.handle, piece)
+            }
+            // re-anchoring re-places the deadlines, so the next tick requests the freed blocks from
+            // the fastest peers rather than the ones that just lost them
             if (m.prioritize !== false && m.viewer) watch(m.viewer, m.handle, m.fileIndex, m.offset)
           }
         }
