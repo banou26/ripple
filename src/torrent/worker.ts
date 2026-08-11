@@ -7,11 +7,17 @@ import { createSession, PRIORITY } from 'libtorrent-wasm'
 import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
+import type { MeasurableStorage } from './opfs-storage'
+import type { EvictionCandidate } from './storage-budget'
+import type { Persisted } from './library'
 
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
+import { evictionFloor, planEviction } from './storage-budget'
+import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
+import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
@@ -31,9 +37,12 @@ const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // started === false is a torrent synced from another device and NOT added to the session; both flags are device-local and deliberately left out of the cloud backup
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
-export type Persisted = { infoHash: string, magnet: string, savePath: string, addedAt: number, started?: boolean, paused?: boolean }
+// ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
+// lastUsedAt orders that cache. It is device-local too, and written without broadcasting the list, or every playback would schedule a cloud backup write
+export type { Persisted }
 
 let session: Session | null = null
+let storage: MeasurableStorage | null = null
 let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
@@ -67,17 +76,24 @@ const snapshot = (): TorrentSnapshot[] =>
 
 // update() keeps each read-modify-write in one IDB transaction, so interleaved async handlers can't drop entries
 const loadList = async (): Promise<Persisted[]> => (await get(LIST_KEY)) ?? []
+
+// the rule itself is in library.ts, where it can be tested: every field of it decides something the
+// user can lose
 const upsertList = async (entry: Persisted) => {
   let list: Persisted[] = []
   await update<Persisted[]>(LIST_KEY, (prev) => {
     list = prev ?? []
     const i = list.findIndex((e) => e.infoHash === entry.infoHash)
-    if (i >= 0) list[i] = entry; else list.push(entry)
+    const merged = mergeEntry(i >= 0 ? list[i] : null, entry)
+    if (i >= 0) list[i] = merged; else list.push(merged)
     return list
   })
   post({ type: 'list', list })
 }
-const patchList = async (ih: string, patch: Partial<Persisted>) => {
+
+// `quiet` skips the broadcast: a lastUsedAt touch changes nothing any tab renders, and every `list`
+// message arms a debounced cloud backup write
+const patchList = async (ih: string, patch: Partial<Persisted>, quiet = false) => {
   let list: Persisted[] = []
   await update<Persisted[]>(LIST_KEY, (prev) => {
     list = prev ?? []
@@ -85,7 +101,12 @@ const patchList = async (ih: string, patch: Partial<Persisted>) => {
     if (i >= 0) list[i] = { ...list[i]!, ...patch }
     return list
   })
-  post({ type: 'list', list })
+  if (!quiet) post({ type: 'list', list })
+}
+
+const touchUsed = (h: number) => {
+  const ih = infoHashByHandle.get(h)
+  if (ih) void patchList(ih, { lastUsedAt: Date.now() }, true).catch(() => {})
 }
 const removeFromList = async (ih: string) => {
   let list: Persisted[] = []
@@ -95,11 +116,33 @@ const removeFromList = async (ih: string) => {
   post({ type: 'list', list })
 }
 
-const track = (h: number, magnet: string, ih: string | null, savePath: string) => {
+// Torrents the player asked for rather than the user. Their bytes are the cache the budget pass
+// reclaims from, and they are the only ones it will ever delete.
+const ephemeralHandles = new Set<number>()
+// Stopped because nobody is watching, which is NOT the user's pause: it stays out of `userPaused`
+// and out of the persisted `paused` flag, so it never looks like a decision the user made.
+const cacheIdle = new Set<number>()
+// When a torrent last served a read. Save-to-disk, the zip export and the auto-save folder mirror
+// all read without registering a viewer, so a viewer check alone would call them idle and delete
+// the file out from under them mid-copy.
+const lastReadAt = new Map<number, number>()
+// Waiting to have their one top-level name written into the list, which needs the file layout.
+const needsRootEntry = new Set<number>()
+
+/** The names this torrent occupies directly inside its save path. Empty until the layout lands. */
+const rootEntriesOf = (h: number): string[] => {
+  const files = session?.files(h)
+  if (!files) return []
+  const names = files.files.map((f) => f.path.split('/').filter(Boolean)[0]).filter(Boolean) as string[]
+  return [...new Set(names)]
+}
+
+const track = (h: number, magnet: string, ih: string | null, savePath: string, ephemeral = false) => {
   if (!handles.includes(h)) handles.push(h)
   magnetByHandle.set(h, magnet)
-  if (ih) infoHashByHandle.set(h, ih)
+  if (ih) { infoHashByHandle.set(h, ih); needsRootEntry.add(h) }
   savePathByHandle.set(h, savePath)
+  if (ephemeral) ephemeralHandles.add(h); else ephemeralHandles.delete(h)
 }
 const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
@@ -107,6 +150,16 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h)
+  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
+}
+
+// A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
+// to work. Without this a paused torrent would park a read on pieces that can never arrive.
+const wake = (h: number) => {
+  if (!cacheIdle.delete(h)) return
+  wantPaused.delete(h)
+  session?.resumeTorrent(h)
+  recovery.hold(h, Date.now())
 }
 
 // Piece priorities ride along inside resume data, so a torrent whose resume was saved while a file
@@ -138,7 +191,11 @@ const persistResume = async (h: number): Promise<boolean> => {
   if (!ih || !session || resumeInFlight.has(h)) return false
   resumeInFlight.add(h)
   try {
-    await set(resumeKey(ih), await session.saveResumeData(h))
+    const blob = await session.saveResumeData(h)
+    // a snapshot that lands after the torrent was given up describes files that no longer exist,
+    // and the next reload would restore a have-set the disk cannot back
+    if (!handles.includes(h)) return false
+    await set(resumeKey(ih), blob)
     return true
   } catch (err) {
     console.error('[worker] saving resume data failed', String(err))
@@ -163,14 +220,28 @@ const pendingViewing = new Set<number>()
 
 const applyViewing = (h: number) => {
   if (!session) return
+  // a handle the engine no longer has is not a torrent with no viewers, it is not a torrent at all;
+  // parking it in pendingViewing would retry it on every pump for the life of the session
+  if (!handles.includes(h)) { viewers.delete(h); pendingViewing.delete(h); return }
   const watching = viewers.get(h)
   if (!watching?.size) {
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
     // This is also what takes the skip mask off before it can be written into resume data.
     pendingViewing.delete(h)
     session.clearStreamWindow(h)
+    // Clearing the window also puts every OTHER file in the torrent back to normal priority, so a
+    // player closing on one episode of a pack turns into a full speed download of the whole pack
+    // that nobody asked for and no screen shows. For a cache torrent that is bytes the budget pass
+    // then has to reclaim, and metered quota spent on them first, so stop it instead.
+    if (ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
+      cacheIdle.add(h)
+      wantPaused.add(h)
+      session.pauseTorrent(h)
+      void persistResume(h)
+    }
     return
   }
+  wake(h)
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
   const claims = [...watching.values()].map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
@@ -190,9 +261,16 @@ const applyViewing = (h: number) => {
 }
 
 const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number) => {
+  // A read is dispatched without waiting on the command queue, so one issued against a torrent the
+  // budget pass has just evicted arrives here afterwards. Recreating the entry would resurrect a
+  // dead handle, and the engine reuses a handle number for the same infohash, so the entry would
+  // then attach to whatever is added under it next.
+  if (!handles.includes(h)) return
   let watching = viewers.get(h)
+  const first = !watching?.size
   if (!watching) viewers.set(h, watching = new Map())
   watching.set(viewer, { fileIndex, fromOffset })
+  if (first) touchUsed(h)
   applyViewing(h)
 }
 
@@ -200,7 +278,8 @@ const unwatch = (matches: (viewer: string) => boolean) => {
   for (const [h, watching] of viewers) {
     let changed = false
     for (const viewer of [...watching.keys()]) if (matches(viewer)) { watching.delete(viewer); changed = true }
-    if (!watching.size) viewers.delete(h)
+    // when it stopped being watched is the truest thing to order the cache by
+    if (!watching.size) { viewers.delete(h); if (changed) touchUsed(h) }
     if (changed) applyViewing(h)
   }
 }
@@ -229,8 +308,44 @@ const missingPieces = (h: number, fileIndex: number, offset: number, len: number
   return out
 }
 
+/**
+ * What the torrents someone is watching still have to write, from the bitfield.
+ *
+ * NOT `totalWanted - totalDone`. The streaming plan skips every unwatched file, which shrinks
+ * `totalWanted` to the watched selection, while `totalDone` keeps counting every piece the torrent
+ * holds including the skipped ones. On a season pack that downloaded a few episodes before anyone
+ * pressed play the subtraction is negative, clamps to zero, and reserves nothing for exactly the
+ * file that is about to write gigabytes.
+ *
+ * Pieces are counted once per torrent however many viewers claim them, and a piece straddling the
+ * end of the watched file is counted whole, which errs towards reserving too much.
+ */
+const remainingForViewers = (): number => {
+  if (!session) return 0
+  let total = 0
+  for (const [h, watching] of viewers) {
+    if (!watching.size || !handles.includes(h)) continue
+    const files = session.files(h)
+    const bf = session.bitfield(h)
+    if (!files) continue
+    if (!bf) {
+      // layout but no bitfield: reserve the whole of what is claimed rather than nothing
+      for (const { fileIndex } of watching.values()) total += files.files[fileIndex]?.size ?? 0
+      continue
+    }
+    const missing = new Set<number>()
+    for (const { fileIndex } of watching.values()) {
+      const r = filePieceRange(h, fileIndex)
+      if (!r) continue
+      for (let p = r.p0; p <= r.p1; p++) if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) missing.add(p)
+    }
+    total += missing.size * files.pieceLength
+  }
+  return total
+}
+
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
-  if (!viewer) return
+  if (!viewer || !handles.includes(h)) return
   const current = viewers.get(h)?.get(viewer)
   if (!current || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
   const r = filePieceRange(h, fileIndex)
@@ -284,6 +399,178 @@ const observed = (st: TorrentStatus): ObservedStatus => ({
   error: st.error,
 })
 
+// How often the origin's storage budget is checked. The engine runs in exactly one tab, so this
+// runs once per browser however many tabs are open.
+const EVICT_INTERVAL_MS = 10_000
+// How long after its last read a torrent still counts as in use. Save-to-disk, the zip export and
+// the auto-save folder mirror all read without registering a viewer, and a copy that pauses between
+// chunks must not be deleted out from under itself.
+const READ_GRACE_MS = 60_000
+// A torrent used this recently is in use, whoever is holding it. /embed re-opening one it played
+// before touches it and only then attaches a viewer, once the layout arrives, and a pass landing
+// inside that gap would delete exactly the thing the person just asked to watch.
+const RECENT_USE_MS = 15_000
+// A delete lands asynchronously, so the estimate is given time to move before the next eviction is
+// decided against it. Without this one pass reads its own stale usage and cascades through the cache.
+const RECLAIM_POLL_MS = 250
+const RECLAIM_WAIT_MS = 4_000
+
+type Space = { usedBytes: number, limitBytes: number }
+
+const measureSpace = async (): Promise<Space | null> => {
+  try {
+    const estimate = await navigator.storage.estimate()
+    // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
+    if (estimate.usage === undefined || !estimate.quota) return null
+    return { usedBytes: estimate.usage, limitBytes: estimate.quota }
+  } catch { return null }
+}
+
+const settleAfterDelete = async (before: number): Promise<Space | null> => {
+  for (let waited = 0; waited < RECLAIM_WAIT_MS; waited += RECLAIM_POLL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, RECLAIM_POLL_MS))
+    const now = await measureSpace()
+    if (!now || now.usedBytes < before) return now
+  }
+  return measureSpace()
+}
+
+const evict = async (live: Session, h: number, ih: string) => {
+  failReads(h, 'torrent removed to make room')
+  live.removeTorrent(h, true)
+  untrack(h)
+  // the saved have-set now describes files that do not exist
+  await del(resumeKey(ih)).catch(() => {})
+  // The list entry SURVIVES. It is the user's library row and it is mirrored to their other
+  // devices, so removing it would propagate a deletion they never asked for; only the bytes behind
+  // it were ever a cache, and the row goes back to the same "files missing" state a wiped site
+  // leaves, with the same Download button.
+  await patchList(ih, { started: false, paused: false })
+}
+
+const collectCandidates = async (list: Persisted[], now: number): Promise<EvictionCandidate[]> => {
+  const byHash = new Map(list.map((e) => [e.infoHash, e]))
+  const out: EvictionCandidate[] = []
+  for (const h of [...handles]) {
+    const ih = infoHashByHandle.get(h)
+    if (!ih) continue
+    const entry = byHash.get(ih)
+    // only what the player asked for, and only where deleting a directory can reach nothing else
+    if (!entry?.ephemeral || !ownsItsDirectory(entry.savePath, ih)) continue
+    if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
+    if (now - (lastReadAt.get(h) ?? 0) < READ_GRACE_MS) continue
+    const usedAt = entry.lastUsedAt ?? entry.addedAt
+    if (now - usedAt < RECENT_USE_MS) continue
+    const bytesOnDisk = (await storage?.usageOf(entry.savePath)) ?? 0
+    if (bytesOnDisk <= 0) continue
+    out.push({ infoHash: ih, usedAt, bytesOnDisk })
+  }
+  return out
+}
+
+// Reported from the estimate AFTER a pass, never from the plan: a pass that just freed 10 GB
+// announcing the origin as full is worse than saying nothing.
+let storageFull = false
+const reportSpace = (space: Space) => {
+  const full = space.limitBytes - space.usedBytes < evictionFloor(space.limitBytes)
+  if (full === storageFull) return
+  storageFull = full
+  post({ type: 'storage-full', full, usedBytes: space.usedBytes, limitBytes: space.limitBytes })
+}
+
+// Slow on purpose: this walks directories and its whole job is tidying, so it is never in the way
+// of a download. It also runs from the budget pass when the origin is full, because bytes nothing
+// owns are the one thing there that can always be given back.
+const SWEEP_INTERVAL_MS = 10 * 60_000
+const SWEEP_FIRST_MS = 60_000
+
+let sweepRunning = false
+const runOrphanSweep = async (): Promise<number> => {
+  if (!session || sweepRunning) return 0
+  sweepRunning = true
+  try {
+    const list = await loadList()
+    const listedHashes = new Set(list.map((e) => e.infoHash.toLowerCase()))
+    const claimedNames = new Set<string>()
+    let attributable = true
+
+    // Anything in the session counts as known even before its entry lands: add-magnet writes the
+    // list after the engine has already created the directory, and a sweep inside that window would
+    // delete the torrent it is being asked to start.
+    for (const h of handles) {
+      const ih = infoHashByHandle.get(h)
+      if (ih) listedHashes.add(ih.toLowerCase())
+      if ((savePathByHandle.get(h) ?? SHARED_ROOT) !== SHARED_ROOT) continue
+      const names = rootEntriesOf(h)
+      // in the shared root and no layout yet: its folder cannot be told from an orphan
+      if (!names.length) { attributable = false; continue }
+      for (const name of names) claimedNames.add(name)
+    }
+
+    for (const e of list) {
+      const savePath = e.savePath || SHARED_ROOT
+      // a save path outside the root this sweeps is territory it knows nothing about
+      if (savePath !== SHARED_ROOT && !savePath.startsWith(SHARED_ROOT + '/')) { attributable = false; continue }
+      if (savePath !== SHARED_ROOT) continue
+      if (e.rootEntry) { claimedNames.add(e.rootEntry); continue }
+      const live = handles.some((h) => infoHashByHandle.get(h) === e.infoHash)
+      // Should be running but is not, and never recorded what it occupies. A torrent that has never
+      // started here has written nothing, so only one that was expected to be live is a problem.
+      if (!live && e.started !== false) attributable = false
+    }
+
+    const root = await navigator.storage.getDirectory()
+    const removed = await sweepSaveRoot(root, SHARED_ROOT, { listedHashes, claimedNames, attributable })
+    await sweepProbes(root).catch(() => 0)
+    // one line, only when something actually went: this deletes data, so it leaves a trace
+    if (removed.length) console.log('[worker] removed storage nothing owns', removed)
+    return removed.length
+  } catch (err) {
+    console.error('[worker] orphan sweep failed', String(err))
+    return 0
+  } finally { sweepRunning = false }
+}
+
+let budgetPassRunning = false
+const runStorageBudget = async () => {
+  const live = session
+  if (!live || budgetPassRunning) return
+  budgetPassRunning = true
+  try {
+    let space = await measureSpace()
+    if (!space) return
+    const pendingBytes = remainingForViewers()
+    let candidates = await collectCandidates(await loadList(), Date.now())
+    // One at a time, re-measured in between. The plan's sizes decide the ORDER and whether to start
+    // at all; the browser's own accounting decides when there is enough room. A size that is wrong
+    // then costs one extra pass rather than the whole cache.
+    while (candidates.length) {
+      const [next] = planEviction({ ...space, pendingBytes, candidates })
+      if (!next) break
+      candidates = candidates.filter((c) => c.infoHash !== next)
+      const h = handles.find((x) => infoHashByHandle.get(x) === next)
+      if (h === undefined) continue
+      // Re-checked at the moment of deletion, not only when the list was collected: measuring every
+      // candidate and waiting out each previous delete takes seconds, and a player can attach inside
+      // that window. Commands do not queue behind this pass, so nothing else would notice.
+      if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
+      const before = space.usedBytes
+      await evict(live, h, next)
+      const after = await settleAfterDelete(before)
+      if (!after) return
+      space = after
+    }
+    // Out of torrents it may give up, but bytes nothing owns are always fair game and are exactly
+    // what an account switch leaves behind, so sweep before calling the origin full.
+    if (space.limitBytes - space.usedBytes < evictionFloor(space.limitBytes) && await runOrphanSweep()) {
+      space = (await settleAfterDelete(space.usedBytes)) ?? space
+    }
+    reportSpace(space)
+  } catch (err) {
+    console.error('[worker] storage budget pass failed', String(err))
+  } finally { budgetPassRunning = false }
+}
+
 const init = async () => {
   const origErr = console.error.bind(console)
   console.error = (...args: any[]) => { origErr(...args); try { post({ type: 'worker-error', args: args.map(String) }) } catch {} }
@@ -294,17 +581,17 @@ const init = async () => {
   }
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  const storage = createResilientStorage()
+  storage = createResilientStorage()
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
   try {
     const list = await loadList()
-    const cleared = !(await opfsHasData(list.map((e) => e.savePath || '/dl')))
+    const cleared = !(await opfsHasData(list.map((e) => e.savePath || SHARED_ROOT)))
     let changed = false
     for (const e of list) {
       if (e.started === false) continue
-      const savePath = e.savePath || '/dl'
+      const savePath = e.savePath || SHARED_ROOT
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
       if (cleared && resume && resume.byteLength) {
@@ -317,7 +604,7 @@ const init = async () => {
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
       if (addFailed(h)) continue
-      track(h, e.magnet, e.infoHash, savePath)
+      track(h, e.magnet, e.infoHash, savePath, e.ephemeral === true)
       needsPriorityReset.add(h)
       if (e.paused) { userPaused.add(h); wantPaused.add(h) }
       recovery.hold(h, Date.now())
@@ -343,9 +630,21 @@ const init = async () => {
     for (const h of [...needsPriorityReset]) {
       if (!session.files(h)) continue
       needsPriorityReset.delete(h)
-      if (!viewers.get(h)?.size) session.clearStreamWindow(h)
+      // applyViewing, not clearStreamWindow alone: a restored cache torrent nobody is watching has
+      // to be stopped here too, or every reload restarts the whole set at full speed
+      if (!viewers.get(h)?.size) applyViewing(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+
+    // record what each torrent occupies inside its save path, so the orphan sweep can account for
+    // it later even when it is no longer in the session to be asked
+    for (const h of [...needsRootEntry]) {
+      const [name] = rootEntriesOf(h)
+      if (!name) continue
+      needsRootEntry.delete(h)
+      const ih = infoHashByHandle.get(h)
+      if (ih) void patchList(ih, { rootEntry: name }, true).catch(() => {})
+    }
 
     for (const h of wantPaused) {
       const st = session.status(h)
@@ -358,7 +657,9 @@ const init = async () => {
     recovery.retain(new Set(handles))
     for (const h of handles) {
       const st = session.status(h)
-      recovery.observe(h, st && observed(st), userPaused.has(h), now)
+      // an idle-paused cache torrent is stopped on purpose too, so recovery must not read it as a
+      // failure and start it again five seconds later
+      recovery.observe(h, st && observed(st), userPaused.has(h) || cacheIdle.has(h), now)
     }
     for (const { handle, reason } of recovery.due(now)) {
       if (reason === 'stalled') session.pauseTorrent(handle)
@@ -387,27 +688,53 @@ const init = async () => {
     }
   }, 15000)
 
+  setInterval(() => { void runStorageBudget() }, EVICT_INTERVAL_MS)
+  void runStorageBudget()
+
+  // the first pass waits for metadata to land, or every magnet still resolving reads as a torrent
+  // that cannot be accounted for and the shared root is skipped for nothing
+  setTimeout(() => {
+    void runOrphanSweep()
+    setInterval(() => { void runOrphanSweep() }, SWEEP_INTERVAL_MS)
+  }, SWEEP_FIRST_MS)
+
   self.addEventListener('online', () => recovery.retryNow(Date.now()))
 }
 
 const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
-      const savePath = m.savePath || '/dl'
       const ih = magnetInfoHash(m.magnet)
       const existing = ih ? handles.find((h) => infoHashByHandle.get(h) === ih) : undefined
       if (existing !== undefined) {
+        if (ih && !m.ephemeral) {
+          // a deliberate re-add promotes a cache entry to a library one, which is the only gesture
+          // there is for keeping something the budget pass would otherwise be free to reclaim
+          ephemeralHandles.delete(existing)
+          await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
+        } else touchUsed(existing)
         post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
       } else {
+        // bytes already on disk stay where they were written, so a re-add never moves a torrent to
+        // a fresh directory and orphans the old one
+        const known = ih ? (await loadList()).find((e) => e.infoHash === ih) : undefined
+        const savePath = m.savePath || known?.savePath || savePathFor(ih)
+        const ephemeral = m.ephemeral === true
         const h = session.addMagnet(m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
-        track(h, m.magnet, ih, savePath)
+        track(h, m.magnet, ih, savePath, ephemeral)
         recovery.hold(h, Date.now())
-        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: Date.now() })
+        const at = Date.now()
+        // started/paused written explicitly: this add is what clears an eviction's tombstone
+        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
         post({ type: 'added', handle: h, magnet: m.magnet })
+        void runStorageBudget()
       }
     } else if (m.type === 'add-torrent-file') {
-      const savePath = m.savePath || '/dl'
+      // A .torrent only reveals its infohash after the add, so this one cannot be given a directory
+      // of its own. It is a deliberate user action, so it is never a cache entry and the budget pass
+      // never touches it, which is what makes sharing the root safe here.
+      const savePath = m.savePath || SHARED_ROOT
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { post({ type: 'add-failed', message: 'That file is not a valid .torrent' }); return }
@@ -428,9 +755,19 @@ const handleMessage = async (session: Session, m: any) => {
       const magnet = 'magnet:?xt=urn:btih:' + ih
       track(h, magnet, ih, savePath)
       await set(torrentKey(ih), bytes)
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt: Date.now() })
+      const addedAt = Date.now()
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: false, started: true, paused: false })
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
+      // The engine reuses a handle number for the same infohash, so a read that arrives after the
+      // budget pass evicted its torrent would otherwise attach to whatever is added under it next.
+      if (!handles.includes(m.handle)) {
+        post({ type: 'read-error', id: m.id, error: 'torrent removed' })
+        return
+      }
+      // wanting bytes is what puts a torrent back to work, whether or not the reader is a player
+      wake(m.handle)
+      lastReadAt.set(m.handle, Date.now())
       if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: 'torrent paused' })
         return
@@ -491,7 +828,8 @@ const handleMessage = async (session: Session, m: any) => {
             if (m.prioritize !== false && m.viewer) watch(m.viewer, m.handle, m.fileIndex, m.offset)
           }
         }
-      } finally { inFlight.delete(m.id) }
+      // the handle check keeps a torrent that was given up mid-read from leaving an entry behind
+      } finally { inFlight.delete(m.id); if (handles.includes(m.handle)) lastReadAt.set(m.handle, Date.now()) }
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
       failReads(m.handle, 'torrent removed')
@@ -507,7 +845,8 @@ const handleMessage = async (session: Session, m: any) => {
         const have = new Set(list.map((e) => e.infoHash))
         for (const e of incoming) {
           if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
-          list.push({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || '/dl', addedAt: e.addedAt || Date.now(), started: false })
+          // a library entry from another device, never a cache one: the cache is device-local and is not backed up
+          list.push({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false })
           have.add(e.infoHash)
           changed = true
         }
@@ -517,17 +856,20 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'start') {
       const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
       if (e) {
-        const savePath = e.savePath || '/dl'
+        const savePath = e.savePath || SHARED_ROOT
         const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That torrent could not be read' }); return }
-        track(h, e.magnet, e.infoHash, savePath)
+        // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
+        // promotion an evicted item re-downloads straight back into the front of the eviction queue
+        // and the button spends the user's metered quota in a loop.
+        track(h, e.magnet, e.infoHash, savePath, false)
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
         post({ type: 'state', torrents: snapshot() })
-        await upsertList({ ...e, started: true, paused: false })
+        await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
@@ -536,8 +878,13 @@ const handleMessage = async (session: Session, m: any) => {
         await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
-      // the list and its resume/torrent blobs go, OPFS bytes deliberately stay on disk
-      for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, false); untrack(h) }
+      // The list, its resume/torrent blobs AND the payload. This used to leave the bytes on disk so
+      // that switching back to the account that owns them adopted the data instead of downloading
+      // it again, but the list is the only record there is: once the entry is gone nothing can show
+      // that data, restart it, export it or reclaim it, and it counts against the origin's budget
+      // for good. The orphan sweep would take it minutes later regardless, so it goes here, at the
+      // moment and for the reason a person could understand.
+      for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
       let dropped: Persisted[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
       for (const e of dropped) {
@@ -547,6 +894,8 @@ const handleMessage = async (session: Session, m: any) => {
       post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
       userPaused.add(m.handle)
+      // whatever happens next, it is the user's decision now and not an idle cache torrent's
+      cacheIdle.delete(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, 'torrent paused')
@@ -555,6 +904,8 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih) await patchList(ih, { paused: true })
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
+      cacheIdle.delete(m.handle)
+      wantPaused.delete(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
       recovery.hold(m.handle, Date.now())
@@ -570,6 +921,7 @@ const handleMessage = async (session: Session, m: any) => {
       // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go too
       userPaused.delete(m.handle)
       wantPaused.delete(m.handle)
+      cacheIdle.delete(m.handle)
       recovery.forget(m.handle)
       session.forceRecheck(m.handle)
       recovery.hold(m.handle, Date.now())

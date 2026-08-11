@@ -50,7 +50,7 @@ export type TransportFactory = (host: TransportHost, docId: string) => Transport
 
 // Read replies are excluded on purpose: those belong to whoever asked, and go to that tab's own channel.
 export const BROADCAST_TYPES = new Set([
-  'ready', 'state', 'list', 'storage-unavailable', 'add-failed', 'worker-error', 'error', 'fatal',
+  'ready', 'state', 'list', 'storage-unavailable', 'storage-full', 'add-failed', 'worker-error', 'error', 'fatal',
 ])
 
 export const ENGINE_RESET = 'engine-reset'

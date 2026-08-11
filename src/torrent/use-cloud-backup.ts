@@ -70,7 +70,8 @@ export const useCloudBackup = (): SyncStatus => {
     const writeNow = () => {
       pending = false
       window.clearTimeout(timer)
-      // Sync only the device-portable identity, never device-local state like `started` or `paused`
+      // Sync only the device-portable identity, never device-local state: `started`, `paused`, and
+      // the cache tier (`ephemeral`, `lastUsedAt`), which describes what THIS browser is holding
       const portable = latest.map((e) => ({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt }))
       return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(portable), { contentType: 'application/json' })
     }

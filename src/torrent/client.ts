@@ -20,6 +20,8 @@ export type TorrentClient = {
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
   onList: (cb: (list: Persisted[]) => void) => () => void
   onStorageUnavailable: (cb: () => void) => () => void
+  /** The origin is out of room and the engine has nothing left it is allowed to reclaim. */
+  onStorageFull: (cb: (full: boolean) => void) => () => void
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => () => void
   onAddFailed: (cb: (message: string) => void) => () => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
@@ -27,7 +29,12 @@ export type TorrentClient = {
   onEngineReset: (cb: () => void) => () => void
   importList: (list: Persisted[]) => void
   clearList: () => void
-  addMagnet: (magnet: string, savePath?: string) => void
+  /**
+   * `ephemeral` marks a torrent the PLAYER asked for rather than the user. Its bytes become a cache
+   * the engine may reclaim under storage pressure, so only the player passes it; every path where a
+   * person deliberately added something leaves it off, and a deliberate add clears it for good.
+   */
+  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean }) => void
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
@@ -81,6 +88,7 @@ const createTorrentClient = (): EngineClient => {
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
   const listCbs = new Set<(l: Persisted[]) => void>()
   const storageUnavailableCbs = new Set<() => void>()
+  const storageFullCbs = new Set<(full: boolean) => void>()
   const workerErrorCbs = new Set<(error: { message: string, fatal: boolean }) => void>()
   const addFailedCbs = new Set<(message: string) => void>()
   const ownershipCbs = new Set<(owned: boolean) => void>()
@@ -103,6 +111,7 @@ const createTorrentClient = (): EngineClient => {
   let lastState: TorrentSnapshot[] | null = null
   let lastRawState: WorkerTorrentSnapshot[] | null = null
   let storageIsUnavailable = false
+  let storageIsFull = false
   let fatalMessage: string | null = null
 
   const settleRead = (id: number) => {
@@ -131,6 +140,7 @@ const createTorrentClient = (): EngineClient => {
     fatal = null
     fatalMessage = null
     storageIsUnavailable = false
+    storageIsFull = false
     lastState = null
     lastRawState = null
     lastList = null
@@ -173,6 +183,11 @@ const createTorrentClient = (): EngineClient => {
         storageIsUnavailable = true
         die(new Error('storage unavailable'))
         storageUnavailableCbs.forEach((cb) => cb())
+      } else if (m.type === 'storage-full') {
+        // recoverable, unlike storage-unavailable: the engine keeps running and says so again when
+        // room appears, so this must never reach die()
+        storageIsFull = !!m.full
+        storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         const handles = new Set<number>()
         const at = performance.now()
@@ -217,6 +232,7 @@ const createTorrentClient = (): EngineClient => {
     onState: (cb) => { stateCbs.add(cb); if (lastState) cb(lastState); return () => { stateCbs.delete(cb) } },
     onList: (cb) => { listCbs.add(cb); if (lastList) cb(lastList); return () => { listCbs.delete(cb) } },
     onStorageUnavailable: (cb) => { storageUnavailableCbs.add(cb); if (storageIsUnavailable) cb(); return () => { storageUnavailableCbs.delete(cb) } },
+    onStorageFull: (cb) => { storageFullCbs.add(cb); if (storageIsFull) cb(true); return () => { storageFullCbs.delete(cb) } },
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
@@ -244,7 +260,7 @@ const createTorrentClient = (): EngineClient => {
     },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
-    addMagnet: (magnet, savePath) => send({ type: 'add-magnet', magnet, savePath }),
+    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true }),
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
