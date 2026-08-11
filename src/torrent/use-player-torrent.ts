@@ -8,6 +8,8 @@ import { makeReadWindowStore } from './read-window-store'
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
   engineError: string | null
+  /** The browser's storage budget is exhausted and the engine has nothing left it may reclaim. */
+  storageFull: boolean
   read: (offset: number, size: number) => Promise<ArrayBuffer>
   readQuiet: (offset: number, size: number) => Promise<ArrayBuffer>
   prioritizeFrom: (offset: number) => void
@@ -21,6 +23,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
   if (!viewerRef.current) viewerRef.current = client.newViewerId()
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
   const [engineError, setEngineError] = useState<string | null>(null)
+  const [storageFull, setStorageFull] = useState(false)
   // playback only; the thumbnailer seeks all over the file and would evict the windows the player needs
   const readWindows = useRef(makeReadWindowStore())
 
@@ -34,7 +37,12 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     const offWorkerError = client.onWorkerError(({ fatal }) => {
       if (fatal) setEngineError('The download engine stopped. Reload the page to try again.')
     })
-    client.addMagnet(magnet)
+    const offFull = client.onStorageFull(setStorageFull)
+    // Ephemeral: the page asked for this, not the person using it. That makes its bytes a cache the
+    // engine may reclaim when the origin runs short, which is what keeps one embedding page playing
+    // episode after episode from filling the browser's whole budget and stalling on a failed write.
+    // Adding the same magnet by hand in the library promotes it out of the cache for good.
+    client.addMagnet(magnet, { ephemeral: true })
     // match on the infoHash, never on the magnet string, and never on "the first one"
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
@@ -60,6 +68,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
       offReset()
       offUnavailable()
       offWorkerError()
+      offFull()
       client.unwatch(viewer)
       handleRef.current = null
     }
@@ -116,5 +125,5 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     if (handle != null) client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, engineError, read, readQuiet, prioritizeFrom }
+  return { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom }
 }

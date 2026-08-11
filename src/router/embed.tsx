@@ -116,7 +116,7 @@ const Player = () => {
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
   const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
-  const { snapshot, engineError, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  const { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.
@@ -162,7 +162,14 @@ const Player = () => {
   const downloaded = snapshot?.status?.totalDone ?? 0
   // Why there is nothing to watch yet, or null once there is. Kept apart from the byte counter
   // because only the counter is dropped when the row runs out of room.
-  const status = engineError ?? (hasMetadata ? null : 'Loading metadata…')
+  //
+  // A full origin outranks the metadata line and survives past it: nothing more will ever be
+  // written, so playback stops wherever it is, and without this the player just stops with no
+  // explanation anywhere. Ripple reclaims what it can on its own first, so seeing this at all means
+  // the space is held by torrents the user added themselves.
+  const status = engineError
+    ?? (storageFull ? 'Out of storage space. Remove a download in Ripple to free room.' : null)
+    ?? (hasMetadata ? null : 'Loading metadata…')
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
   // because a file's download percentage is not its playback percentage.
   const downloadedRanges = useMemo(
