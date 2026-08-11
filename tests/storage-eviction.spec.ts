@@ -16,6 +16,8 @@ const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 // that one leaves the stream window skipping every other file, so almost nothing is ever written.
 const SINTEL_VIDEO = 5
 const SINTEL_VIDEO_BYTES = 129_241_752
+// the video plus ten subtitle tracks and a poster, rounded up
+const SINTEL_TORRENT_BYTES = 129_300_000
 
 const embedUrl = (magnet: string) => `/embed?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${SINTEL_VIDEO}`
 
@@ -128,6 +130,77 @@ const downloadSome = async (page: Page, atLeast: number) => {
     { timeout: 120_000, intervals: [2_000] },
   ).toBeGreaterThan(atLeast)
 }
+
+/** Write a sparse file at `path`, creating every directory on the way. */
+const plant = (page: Page, path: string, bytes: number) =>
+  page.evaluate(async ([target, size]: [string, number]) => {
+    const code = `self.onmessage = async (e) => {
+      const [path, size] = e.data
+      const parts = path.split('/').filter(Boolean)
+      const name = parts.pop()
+      let dir = await navigator.storage.getDirectory()
+      for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true })
+      const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle()
+      handle.write(new Uint8Array(1), { at: size - 1 })
+      handle.flush()
+      handle.close()
+      postMessage('done')
+    }`
+    const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })))
+    await new Promise((resolve) => { worker.onmessage = resolve; worker.postMessage([target, size]) })
+    worker.terminate()
+  }, [path, bytes] as [string, number])
+
+const exists = (page: Page, path: string) =>
+  page.evaluate(async (target: string) => {
+    let dir = await navigator.storage.getDirectory()
+    for (const segment of target.split('/').filter(Boolean)) {
+      const next = await dir.getDirectoryHandle(segment).catch(() => null)
+      if (!next) return false
+      dir = next
+    }
+    return true
+  }, path)
+
+test.describe('orphan sweep', () => {
+  test('removes storage the library has no record of, and keeps what it does', async ({ page }) => {
+    test.setTimeout(240_000)
+
+    await page.goto('/')
+    await expect(page.locator('.torrent').first()).toBeVisible()
+    // let the demo publish its layout, which is what lets the shared root be accounted for at all
+    await downloadSome(page, 5_000_000)
+    const entries = await library(page)
+    expect(entries).toHaveLength(1)
+    const kept = entries[0].savePath === '/dl' ? '/dl/Sintel' : entries[0].savePath
+    expect(await exists(page, kept)).toBe(true)
+
+    // a per-torrent directory for a torrent that is not in the list, and a release folder in the
+    // shared root that nothing claims: the two shapes an orphan comes in
+    const PLANTED = 500_000_000
+    await plant(page, '/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Ghost/ghost.mkv', 300_000_000)
+    await plant(page, '/dl/Some Orphaned Release/stray.mkv', 200_000_000)
+    const before = await estimate(page)
+    expect(await exists(page, '/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')).toBe(true)
+    expect(await exists(page, '/dl/Some Orphaned Release')).toBe(true)
+    console.log('[test] planted, usage', before)
+
+    await expect.poll(
+      async () => [
+        await exists(page, '/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+        await exists(page, '/dl/Some Orphaned Release'),
+      ],
+      { timeout: 150_000, intervals: [3_000], message: 'the orphans were never swept' },
+    ).toEqual([false, false])
+
+    // The bytes come back, and the torrent the library DOES know about is untouched. The demo keeps
+    // downloading through the wait, so the drop is netted against the most it could possibly add,
+    // which is the whole torrent.
+    expect((await estimate(page)).used).toBeLessThan(before.used - (PLANTED - SINTEL_TORRENT_BYTES))
+    expect(await exists(page, kept), 'a torrent the library records must survive the sweep').toBe(true)
+    expect(await library(page)).toHaveLength(1)
+  })
+})
 
 test.describe('storage eviction', () => {
   test('gives up an embed torrent nobody is watching, and reclaims its bytes', async ({ page }) => {

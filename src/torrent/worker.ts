@@ -15,6 +15,7 @@ import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-pla
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
+import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
@@ -36,9 +37,12 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache. It is device-local too, and written without broadcasting the list, or every playback would schedule a cloud backup write
+// rootEntry is the one name this torrent occupies inside its save path, recorded once the layout
+// arrives. It is what lets the orphan sweep tell a release folder in the shared root apart from
+// data nothing owns, for a torrent that is not in the session to be asked
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
-  started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number,
+  started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
 }
 
 // The shared root every torrent used before per-torrent directories. Deleting one torrent's files
@@ -152,11 +156,21 @@ const cacheIdle = new Set<number>()
 // all read without registering a viewer, so a viewer check alone would call them idle and delete
 // the file out from under them mid-copy.
 const lastReadAt = new Map<number, number>()
+// Waiting to have their one top-level name written into the list, which needs the file layout.
+const needsRootEntry = new Set<number>()
+
+/** The names this torrent occupies directly inside its save path. Empty until the layout lands. */
+const rootEntriesOf = (h: number): string[] => {
+  const files = session?.files(h)
+  if (!files) return []
+  const names = files.files.map((f) => f.path.split('/').filter(Boolean)[0]).filter(Boolean) as string[]
+  return [...new Set(names)]
+}
 
 const track = (h: number, magnet: string, ih: string | null, savePath: string, ephemeral = false) => {
   if (!handles.includes(h)) handles.push(h)
   magnetByHandle.set(h, magnet)
-  if (ih) infoHashByHandle.set(h, ih)
+  if (ih) { infoHashByHandle.set(h, ih); needsRootEntry.add(h) }
   savePathByHandle.set(h, savePath)
   if (ephemeral) ephemeralHandles.add(h); else ephemeralHandles.delete(h)
 }
@@ -166,7 +180,7 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h)
-  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h)
+  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
@@ -494,6 +508,59 @@ const reportSpace = (space: Space) => {
   post({ type: 'storage-full', full, usedBytes: space.usedBytes, limitBytes: space.limitBytes })
 }
 
+// Slow on purpose: this walks directories and its whole job is tidying, so it is never in the way
+// of a download. It also runs from the budget pass when the origin is full, because bytes nothing
+// owns are the one thing there that can always be given back.
+const SWEEP_INTERVAL_MS = 10 * 60_000
+const SWEEP_FIRST_MS = 60_000
+
+let sweepRunning = false
+const runOrphanSweep = async (): Promise<number> => {
+  if (!session || sweepRunning) return 0
+  sweepRunning = true
+  try {
+    const list = await loadList()
+    const listedHashes = new Set(list.map((e) => e.infoHash.toLowerCase()))
+    const claimedNames = new Set<string>()
+    let attributable = true
+
+    // Anything in the session counts as known even before its entry lands: add-magnet writes the
+    // list after the engine has already created the directory, and a sweep inside that window would
+    // delete the torrent it is being asked to start.
+    for (const h of handles) {
+      const ih = infoHashByHandle.get(h)
+      if (ih) listedHashes.add(ih.toLowerCase())
+      if ((savePathByHandle.get(h) ?? SHARED_ROOT) !== SHARED_ROOT) continue
+      const names = rootEntriesOf(h)
+      // in the shared root and no layout yet: its folder cannot be told from an orphan
+      if (!names.length) { attributable = false; continue }
+      for (const name of names) claimedNames.add(name)
+    }
+
+    for (const e of list) {
+      const savePath = e.savePath || SHARED_ROOT
+      // a save path outside the root this sweeps is territory it knows nothing about
+      if (savePath !== SHARED_ROOT && !savePath.startsWith(SHARED_ROOT + '/')) { attributable = false; continue }
+      if (savePath !== SHARED_ROOT) continue
+      if (e.rootEntry) { claimedNames.add(e.rootEntry); continue }
+      const live = handles.some((h) => infoHashByHandle.get(h) === e.infoHash)
+      // Should be running but is not, and never recorded what it occupies. A torrent that has never
+      // started here has written nothing, so only one that was expected to be live is a problem.
+      if (!live && e.started !== false) attributable = false
+    }
+
+    const root = await navigator.storage.getDirectory()
+    const removed = await sweepSaveRoot(root, SHARED_ROOT, { listedHashes, claimedNames, attributable })
+    await sweepProbes(root).catch(() => 0)
+    // one line, only when something actually went: this deletes data, so it leaves a trace
+    if (removed.length) console.log('[worker] removed storage nothing owns', removed)
+    return removed.length
+  } catch (err) {
+    console.error('[worker] orphan sweep failed', String(err))
+    return 0
+  } finally { sweepRunning = false }
+}
+
 let budgetPassRunning = false
 const runStorageBudget = async () => {
   const live = session
@@ -522,6 +589,11 @@ const runStorageBudget = async () => {
       const after = await settleAfterDelete(before)
       if (!after) return
       space = after
+    }
+    // Out of torrents it may give up, but bytes nothing owns are always fair game and are exactly
+    // what an account switch leaves behind, so sweep before calling the origin full.
+    if (space.limitBytes - space.usedBytes < evictionFloor(space.limitBytes) && await runOrphanSweep()) {
+      space = (await settleAfterDelete(space.usedBytes)) ?? space
     }
     reportSpace(space)
   } catch (err) {
@@ -594,6 +666,16 @@ const init = async () => {
     }
     for (const h of [...pendingViewing]) applyViewing(h)
 
+    // record what each torrent occupies inside its save path, so the orphan sweep can account for
+    // it later even when it is no longer in the session to be asked
+    for (const h of [...needsRootEntry]) {
+      const [name] = rootEntriesOf(h)
+      if (!name) continue
+      needsRootEntry.delete(h)
+      const ih = infoHashByHandle.get(h)
+      if (ih) void patchList(ih, { rootEntry: name }, true).catch(() => {})
+    }
+
     for (const h of wantPaused) {
       const st = session.status(h)
       if (!st) continue
@@ -638,6 +720,13 @@ const init = async () => {
 
   setInterval(() => { void runStorageBudget() }, EVICT_INTERVAL_MS)
   void runStorageBudget()
+
+  // the first pass waits for metadata to land, or every magnet still resolving reads as a torrent
+  // that cannot be accounted for and the shared root is skipped for nothing
+  setTimeout(() => {
+    void runOrphanSweep()
+    setInterval(() => { void runOrphanSweep() }, SWEEP_INTERVAL_MS)
+  }, SWEEP_FIRST_MS)
 
   self.addEventListener('online', () => recovery.retryNow(Date.now()))
 }
@@ -819,17 +908,13 @@ const handleMessage = async (session: Session, m: any) => {
         await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
-      // The list and its resume/torrent blobs go. A library torrent's OPFS bytes deliberately stay,
-      // so switching back to the account that owns them adopts the data instead of re-downloading
-      // it. A cache torrent's do not: nothing would ever claim them again, and with the entry gone
-      // no budget pass could reach them either, which is how an origin ends up permanently full.
-      const cache = new Set((await loadList()).filter((e) => e.ephemeral).map((e) => e.infoHash))
-      for (const h of [...handles]) {
-        const ih = infoHashByHandle.get(h)
-        failReads(h, 'torrent removed')
-        session.removeTorrent(h, !!ih && cache.has(ih))
-        untrack(h)
-      }
+      // The list, its resume/torrent blobs AND the payload. This used to leave the bytes on disk so
+      // that switching back to the account that owns them adopted the data instead of downloading
+      // it again, but the list is the only record there is: once the entry is gone nothing can show
+      // that data, restart it, export it or reclaim it, and it counts against the origin's budget
+      // for good. The orphan sweep would take it minutes later regardless, so it goes here, at the
+      // moment and for the reason a person could understand.
+      for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
       let dropped: Persisted[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
       for (const e of dropped) {
