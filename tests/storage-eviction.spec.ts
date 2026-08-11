@@ -19,7 +19,14 @@ const SINTEL_VIDEO_BYTES = 129_241_752
 // the video plus ten subtitle tracks and a poster, rounded up
 const SINTEL_TORRENT_BYTES = 129_300_000
 
-const embedUrl = (magnet: string) => `/embed?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${SINTEL_VIDEO}`
+// a second webseeded demo, so eviction ORDER can be tested against two real torrents rather than
+// against the planner's arithmetic alone. Index 1 is Big Buck Bunny.mp4, 276,134,947 bytes.
+const BUNNY = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
+const BUNNY_HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'
+const BUNNY_VIDEO = 1
+
+const embedUrl = (magnet: string, fileIndex = SINTEL_VIDEO) =>
+  `/embed?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${fileIndex}`
 
 test.use({ headless: false })
 
@@ -244,6 +251,55 @@ test.describe('storage eviction', () => {
     expect(after).toHaveLength(1)
     expect(after[0].infoHash).toBe(SINTEL_HASH)
     expect(after[0].started).toBe(false)
+  })
+
+  test('gives up the least recently watched of two, and only that one', async ({ page }) => {
+    test.setTimeout(300_000)
+
+    // watched first, so it is the one that should go
+    await page.goto(embedUrl(SINTEL, SINTEL_VIDEO))
+    await downloadSome(page, 25_000_000)
+    // watched second: a full navigation kills the worker, and the restore brings the first one back
+    // unwatched, so nothing after this touches its place in the order
+    await page.goto(embedUrl(BUNNY, BUNNY_VIDEO))
+    await downloadSome(page, 25_000_000)
+
+    // leave both players: neither is watched now
+    await page.goto('/')
+    await expect(page.locator('.torrent').first()).toBeVisible()
+    const entries = await library(page)
+    expect(entries).toHaveLength(2)
+    expect(entries.every((e) => e.ephemeral)).toBe(true)
+
+    const olderPath = '/dl/' + SINTEL_HASH
+    const newerPath = '/dl/' + BUNNY_HASH
+    // past the window that keeps a just-opened torrent off the table
+    await page.waitForTimeout(20_000)
+    const older = await filesUnder(page, olderPath)
+    const newer = await filesUnder(page, newerPath)
+    expect(older.count).toBeGreaterThan(0)
+    expect(newer.count).toBeGreaterThan(0)
+
+    // Leave the origin just under the floor the engine keeps free, so the shortfall is a few MB and
+    // ONE torrent covers it. Anything more would not tell an ordering apart from a purge.
+    const { quota } = await estimate(page)
+    const floor = Math.min(1_000_000_000, Math.floor(quota * 0.1))
+    const squeezed = await squeezeTo(page, floor - 10_000_000)
+    console.log('[test] floor', floor, 'after squeeze', squeezed, { older, newer })
+
+    await expect.poll(
+      async () => (await filesUnder(page, olderPath)).count,
+      { timeout: 90_000, intervals: [2_000], message: 'the older torrent was never given up' },
+    ).toBe(0)
+
+    // the whole point: the shortfall was covered, so the newer one is untouched
+    expect((await filesUnder(page, newerPath)).count, 'only the least recently watched should go')
+      .toBe(newer.count)
+
+    const after = await library(page)
+    expect(after).toHaveLength(2)
+    expect(after.find((e) => e.infoHash === SINTEL_HASH)!.started).toBe(false)
+    expect(after.find((e) => e.infoHash === BUNNY_HASH)!.started).not.toBe(false)
   })
 
   test('never gives up a torrent the user added themselves', async ({ page }) => {

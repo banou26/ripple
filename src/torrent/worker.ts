@@ -9,6 +9,7 @@ import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
 import type { EvictionCandidate } from './storage-budget'
+import type { Persisted } from './library'
 
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
@@ -16,6 +17,7 @@ import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
+import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
@@ -37,22 +39,7 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache. It is device-local too, and written without broadcasting the list, or every playback would schedule a cloud backup write
-// rootEntry is the one name this torrent occupies inside its save path, recorded once the layout
-// arrives. It is what lets the orphan sweep tell a release folder in the shared root apart from
-// data nothing owns, for a torrent that is not in the session to be asked
-export type Persisted = {
-  infoHash: string, magnet: string, savePath: string, addedAt: number,
-  started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
-}
-
-// The shared root every torrent used before per-torrent directories. Deleting one torrent's files
-// there can delete another's: libtorrent names files by their path inside the save path, and a
-// single-file torrent gets no directory of its own, so two releases carrying the same filename are
-// the same OPFS file. Nothing rooted here is ever auto-evicted.
-const SHARED_ROOT = '/dl'
-const savePathFor = (infoHash: string | null) => (infoHash ? SHARED_ROOT + '/' + infoHash : SHARED_ROOT)
-// only a torrent that owns its whole directory can have that directory deleted out from under it
-const ownsItsDirectory = (savePath: string | undefined, infoHash: string) => savePath === savePathFor(infoHash)
+export type { Persisted }
 
 let session: Session | null = null
 let storage: MeasurableStorage | null = null
@@ -90,31 +77,14 @@ const snapshot = (): TorrentSnapshot[] =>
 // update() keeps each read-modify-write in one IDB transaction, so interleaved async handlers can't drop entries
 const loadList = async (): Promise<Persisted[]> => (await get(LIST_KEY)) ?? []
 
-/**
- * Record an add, merging field by field rather than spreading either side wholesale.
- *
- * `started` and `paused` come from the INCOMING entry only. An add is what clears the tombstone
- * eviction leaves behind, and carrying a stale `started: false` forward would leave a torrent live
- * and downloading now but skipped by the next reload's restore, which is a full copy of a video on
- * disk that no eviction can ever reach again. `savePath` goes the other way: bytes already written
- * stay where they are, so a re-add must never move the torrent to a fresh directory.
- */
+// the rule itself is in library.ts, where it can be tested: every field of it decides something the
+// user can lose
 const upsertList = async (entry: Persisted) => {
   let list: Persisted[] = []
   await update<Persisted[]>(LIST_KEY, (prev) => {
     list = prev ?? []
     const i = list.findIndex((e) => e.infoHash === entry.infoHash)
-    const was = i >= 0 ? list[i]! : null
-    const merged: Persisted = was
-      ? {
-        ...entry,
-        // a deliberate add wins for good: this stays a cache entry only while both sides agree
-        ephemeral: was.ephemeral === true && entry.ephemeral === true,
-        addedAt: Math.min(was.addedAt, entry.addedAt),
-        lastUsedAt: Math.max(was.lastUsedAt ?? 0, entry.lastUsedAt ?? entry.addedAt),
-        savePath: was.savePath || entry.savePath,
-      }
-      : entry
+    const merged = mergeEntry(i >= 0 ? list[i] : null, entry)
     if (i >= 0) list[i] = merged; else list.push(merged)
     return list
   })
