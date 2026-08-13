@@ -7,6 +7,19 @@ const FIRST_PULL_MS = 15_000
 // A service worker is killed when it looks idle, and chunk traffic over a MessagePort does not count as activity.
 const PING_MS = 10_000
 const MISSED_PONGS = 3
+/**
+ * How long the frame and the port outlive the last byte.
+ *
+ * Posting `end` does not mean the browser has committed the response as a download yet, and removing
+ * the frame destroys the browsing context that owns it, which cancels it. Measured as a four-way A/B
+ * against the real worker with the same 1652 bytes under the same name: torn down immediately the
+ * download NEVER appeared, with a declared Content-Length and without; given a few seconds it
+ * appeared every time in both. The page still reported success either way, so the failure is silent.
+ *
+ * A big file hides this because the writes themselves take longer than the commit does; it is the
+ * small ones, a subtitle track or a short archive, that lose the race.
+ */
+const CLOSE_GRACE_MS = 10_000
 
 export type Sink = {
   write: (chunk: Uint8Array) => Promise<void>
@@ -83,7 +96,12 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   const frame = openDownloadFrame(PREFIX + id + '/' + encodeURIComponent(name))
 
   let missed = 0
+  // Set once `end` has been posted. Past that the worker has nothing left to do for this download
+  // and a missed pong says nothing, so the heartbeat must stop escalating while the grace window
+  // below keeps everything else alive.
+  let ended = false
   const heartbeat = setInterval(() => {
+    if (ended) return
     if (++missed > MISSED_PONGS) fail(new Error('The download was interrupted'))
     else worker.postMessage({ type: 'ping', id })
   }, PING_MS)
@@ -118,8 +136,11 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
     },
     close: async () => {
       if (failure) { teardown(); throw failure }
+      ended = true
       port.postMessage({ type: 'end' })
-      teardown()
+      // Deliberately NOT torn down here: see CLOSE_GRACE_MS. The frame has to outlive the commit or
+      // the download is cancelled before it exists, silently, and this resolves as a success anyway.
+      setTimeout(teardown, CLOSE_GRACE_MS)
     },
     abort: async () => {
       try { port.postMessage({ type: 'abort', reason: 'cancelled' }) } catch { /* already gone */ }
