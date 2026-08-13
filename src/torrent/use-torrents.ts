@@ -5,14 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
-import { magnetInfoHash } from './magnet'
+import { magnetInfoHash, magnetParam } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
-
-const magnetParam = (magnet: string, key: string): string | undefined => {
-  const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))
-  if (!m) return undefined
-  try { return decodeURIComponent(m[1]!.replace(/\+/g, ' ')) } catch { return m[1] }
-}
 
 // keys are libtorrent torrent_status state_t
 const STATE: Record<number, TorrentState> = {

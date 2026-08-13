@@ -17,15 +17,13 @@ import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
-import { saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
+import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
-
-const isSaveCancelled = (error: unknown): boolean => (error as { name?: string })?.name === 'AbortError'
 
 const STATE_LABEL: Record<Torrent['state'], string> = {
   downloading: 'Downloading',

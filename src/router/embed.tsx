@@ -10,6 +10,8 @@ import { getHumanReadableByteString } from '../utils/bytes'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
+import DownloadPage from './download'
+import { parseFileSelection, parseMode } from './file-selection'
 
 const playerStyle = css`
   height: 100%;
@@ -235,4 +237,33 @@ const Player = () => {
   )
 }
 
-export default Player
+/**
+ * The two things /embed can be, chosen by `mode`.
+ *
+ * One route rather than two because an embedder already holds an /embed URL for a release: turning
+ * that into a download page is `&mode=download`, with the magnet and the file untouched. Absent, and
+ * on anything unrecognised, it stays the player, which is what the one shipped consumer
+ * (@banou/stub-plugin, which passes only `magnet`) keeps getting.
+ *
+ * The two are separate COMPONENTS, not two branches inside one, so neither mounts the other's hooks:
+ * the player would otherwise register a playback viewer with its own read-window cache behind a page
+ * that never plays anything.
+ */
+const Embed = () => {
+  const [searchParams] = useSearchParams()
+  const mode = parseMode(searchParams.get('mode'))
+  const rawMagnet = searchParams.get('magnet')
+  const magnet = useMemo(() => {
+    if (!rawMagnet) return undefined
+    try { return atob(rawMagnet) } catch { return undefined }
+  }, [rawMagnet])
+  const selection = useMemo(
+    () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),
+    [searchParams],
+  )
+
+  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} />
+  return <Player />
+}
+
+export default Embed
