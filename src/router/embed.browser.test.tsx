@@ -55,11 +55,11 @@ const sized = ({ width, height }: { width: number, height: number }) => {
  * a media query, and a media query reads the viewport, so a narrow box inside a 1280px window renders
  * the desktop layout at a small size: the exact arrangement that hides a phone-only bug.
  */
-const mount = async (size = DESKTOP) => {
+const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
   await page.viewport(size.width, size.height)
   const { default: Embed } = await import('./embed')
   return render(
-    <MemoryRouter initialEntries={['/embed?magnet=bWFnbmV0Og==']}>
+    <MemoryRouter initialEntries={[`/embed${search}`]}>
       <Embed />
     </MemoryRouter>,
     sized(size),
@@ -140,5 +140,25 @@ describe('the embed route', () => {
     state.current = torrent({ engineError: 'The download engine stopped. Reload the page to try again.' })
     const screen = await mount()
     await expect.element(screen.getByText(/The download engine stopped/)).toBeInTheDocument()
+  })
+
+  /**
+   * Every param here is written by whoever wrote the embed, so none of it can be trusted to parse.
+   *
+   * The player used to decode the magnet with a bare `atob`, which THROWS on anything that is not
+   * base64, during render, on the route that a missing `mode` selects. A mistyped link took the
+   * whole page down rather than showing an empty player. The download path was guarded from the
+   * start; this one only looked like it was, because the failure needs a malformed URL to appear.
+   */
+  it('survives a magnet param that is not base64', async () => {
+    const screen = await mount(DESKTOP, '?magnet=not!base64!')
+    // the player mounts, having decoded nothing
+    await expect.poll(() => screen.container.querySelector('video')).not.toBeNull()
+  })
+
+  it('survives a fileIndex that is not a number', async () => {
+    const screen = await mount(DESKTOP, '?magnet=bWFnbmV0Og==&fileIndex=abc')
+    // NaN would reach the engine and match no file at all, so it collapses to the first
+    await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
   })
 })

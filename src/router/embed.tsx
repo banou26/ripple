@@ -116,8 +116,21 @@ const playerStyle = css`
 const Player = () => {
   const [searchParams] = useSearchParams()
   const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
-  const magnet = useMemo(() => (_magnet ? atob(_magnet) : undefined), [_magnet])
-  const fileIndex = useMemo(() => Number(_fileIndex || 0), [_fileIndex])
+  /**
+   * Guarded, because `magnet` is embedder-written text and atob THROWS on anything that is not
+   * base64. Bare, that exception lands during render on the default route, so a mistyped link takes
+   * the whole page down rather than showing an empty player. The download path has always been
+   * guarded; this one was not.
+   */
+  const magnet = useMemo(() => {
+    if (!_magnet) return undefined
+    try { return atob(_magnet) } catch { return undefined }
+  }, [_magnet])
+  // NaN would reach the engine as a file index and match nothing, so it collapses to the first file
+  const fileIndex = useMemo(() => {
+    const index = Number(_fileIndex)
+    return Number.isSafeInteger(index) && index >= 0 ? index : 0
+  }, [_fileIndex])
   const { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
