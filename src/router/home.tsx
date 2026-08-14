@@ -129,8 +129,10 @@ const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
   return (
     <div className={'stat' + (failed ? ' error' : '')} title={failed ? listenFailed.join('\n') : undefined}>
       <label>Inbound</label>
+      {/* the port stays visible once peers arrive: it is what a user checks against a router or a
+          firewall, and hiding it exactly when the feature starts working is the wrong trade */}
       <strong className={inbound > 0 ? 'ok' : undefined}>
-        {failed ? 'Failed' : !port ? 'Unreachable' : inbound === 0 ? `Port ${port}` : detail}
+        {failed ? 'Failed' : !port ? 'Unreachable' : inbound === 0 ? `Port ${port}` : `${port} · ${detail}`}
       </strong>
     </div>
   )

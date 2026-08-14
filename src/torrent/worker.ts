@@ -588,6 +588,7 @@ const init = async () => {
   for (let i = 0; i < 30; i++) session.tick()
 
 
+
   try {
     const list = await loadList()
     const cleared = !(await opfsHasData(list.map((e) => e.savePath || SHARED_ROOT)))
