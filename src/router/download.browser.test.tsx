@@ -155,7 +155,12 @@ describe('the embed route in download mode', () => {
 
     // the <summary> specifically: "4 files" also appears in the size line and on the main button
     ;(screen.container.querySelector('.files summary') as HTMLElement).click()
-    await screen.getByRole('button', { name: 'Get' }).nth(2).click()
+    // `exact` is what keeps this off the main button: without it the name matches as a SUBSTRING, so
+    // "Download 4 files as .zip" is nth(0) and every row shifts by one, silently exporting E02
+    const rows = screen.getByRole('button', { name: 'Download', exact: true })
+    // the rows and nothing else, so an nth() below indexes files rather than whatever else matched
+    expect(await rows.all()).toHaveLength(FILES.length)
+    await rows.nth(2).click()
 
     expect(saved.file).toEqual([
       { index: 2, path: 'Pack.Name/E03.mkv', size: 1_600_000_000, viewer: 'viewer-1' },

@@ -235,6 +235,8 @@ const style = css`
     .list {
       max-height: 220px;
       overflow-y: auto;
+      /* the row button ends flush against the scrollbar without this, to a third of a pixel */
+      padding-right: 8px;
     }
 
     .file {
@@ -484,8 +486,10 @@ const DownloadPage = ({ magnet, selection }: Props) => {
                 <div className="file" key={entry.index}>
                   <span className="name">{leaf(entry.path)}</span>
                   <span className="size">{getHumanReadableByteString(entry.size)}</span>
+                  {/* Reads exactly "Download", which cannot collide with the button above it: the
+                      bare label there needs `single`, and a single entry never renders this list. */}
                   <button onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)} disabled={!ready || busy}>
-                    Get
+                    Download
                   </button>
                 </div>
               ))}
