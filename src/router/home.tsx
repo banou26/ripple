@@ -22,6 +22,7 @@ import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
+import { EmbedBuilder } from './embed-builder'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
@@ -216,6 +217,14 @@ const style = css`
 
         &:focus {
           border-color: #f97316;
+          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+        }
+
+        /* the same amber the page-wide overlay uses, so a drag reads as landing in one place */
+        &[data-drop] {
+          border-color: #fbbf24;
+          border-style: dashed;
+          background: rgba(249, 115, 22, 0.08);
           box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
         }
       }
@@ -987,6 +996,7 @@ type RowProps = {
   onRemove: (t: Torrent) => void
   onStart: (t: Torrent) => void
   onPause: (t: Torrent) => void
+  onEmbed: (t: Torrent) => void
 }
 
 const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'>) => (
@@ -1007,7 +1017,7 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
   </div>
 )
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause }: RowProps) => {
+const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed }: RowProps) => {
   if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
@@ -1046,6 +1056,8 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemov
             </button>
           )}
           {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
+          {/* a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk */}
+          {!!t.magnet && <button onClick={() => onEmbed(t)}>Embed</button>}
           {!!t.files?.length && t.state !== 'checking' && (
             <button onClick={() => onRecheck(t)}>Recheck</button>
           )}
@@ -1079,8 +1091,21 @@ const Home = () => {
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
   const [offline, setOffline] = useState(() => navigator.onLine === false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<number | undefined>(undefined)
+
+  const [embedOpen, setEmbedOpen] = useState(false)
+  const [embedId, setEmbedId] = useState<string | null>(null)
+  /**
+   * What the panel should adopt once the engine catches up with a drop.
+   *
+   * A drop is answered asynchronously: a magnet appears in the list on the next state tick, and a
+   * .torrent only after the worker has polled up to ten seconds for its infohash. So the panel
+   * cannot be pointed at anything at drop time, and this records what to point it at when it shows
+   * up. `hash` covers a magnet, whose infohash is known immediately and which may ALSO already be in
+   * the list; `before` covers a file, whose identity the page never learns (the worker's `added`
+   * message reaches nothing), leaving "the one that was not here a moment ago" as the only handle.
+   */
+  const claimRef = useRef<{ hash: string } | { before: Set<string> } | null>(null)
 
   const torrentsRef = useRef(torrents)
   torrentsRef.current = torrents
@@ -1125,12 +1150,69 @@ const Home = () => {
   }, [addMagnet, showToast])
 
   const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
-    for (const file of [...files]) {
-      if (!/\.torrent$/i.test(file.name)) continue
+    const all = [...files]
+    const torrents = all.filter((file) => /\.torrent$/i.test(file.name))
+    // Something was handed over and none of it was usable, which used to end in silence. A drop that
+    // reports nothing is indistinguishable from one the page never received.
+    if (!torrents.length) {
+      if (all.length) showToast(all.length === 1 ? 'That is not a .torrent file' : 'No .torrent file in what you dropped')
+      return
+    }
+    for (const file of torrents) {
       addTorrentFile(new Uint8Array(await file.arrayBuffer()))
       showToast(`${file.name} added`)
     }
   }, [addTorrentFile, showToast])
+
+  /**
+   * The one place a drop is turned into an add, shared by the window and by the magnet field.
+   *
+   * Both targets have to agree, and the field cannot simply let the drop bubble: it stops
+   * propagation so the page-wide overlay does not also claim the drop, which means the window
+   * listener never runs and this is the only handler that fires.
+   */
+  const acceptDrop = useCallback((data: DataTransfer | null) => {
+    // Armed BEFORE the add, because `before` has to be the list as it was; reading it afterwards
+    // would already contain the new torrent and nothing would ever look new.
+    const claim = (next: { hash: string } | { before: Set<string> }) => {
+      if (embedOpen) claimRef.current = next
+    }
+    if (data?.files?.length) {
+      claim({ before: new Set(torrentsRef.current.map((t) => t.id)) })
+      void addTorrentFiles(data.files)
+      return
+    }
+    const text = data?.getData('text') ?? ''
+    if (!text.trim()) return
+    const hash = magnetInfoHash(text.trim())
+    if (hash) claim({ hash })
+    if (!commitMagnet(text)) showToast('Not a magnet link')
+  }, [addTorrentFiles, commitMagnet, embedOpen, showToast])
+
+  // The claim is resolved here rather than at the drop, because this is the first render at which
+  // the torrent it names exists. A claim that never resolves (a bad file, an add that failed) is
+  // dropped when the panel closes, so it cannot adopt an unrelated torrent added minutes later.
+  useEffect(() => {
+    const claim = claimRef.current
+    if (!claim) return
+    const found = 'hash' in claim
+      ? torrents.find((t) => t.infoHash === claim.hash)
+      : torrents.find((t) => !claim.before.has(t.id))
+    if (!found) return
+    claimRef.current = null
+    setEmbedId(found.id)
+  }, [torrents])
+
+  const openEmbed = useCallback((id: string | null) => {
+    claimRef.current = null
+    setEmbedId(id)
+    setEmbedOpen(true)
+  }, [])
+
+  const closeEmbed = useCallback(() => {
+    claimRef.current = null
+    setEmbedOpen(false)
+  }, [])
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -1145,17 +1227,25 @@ const Home = () => {
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
+  /**
+   * A ref rather than a closure variable, because the magnet field also has to clear it.
+   *
+   * That field stops the drop propagating, so the window listener that would normally zero this
+   * never runs. Left as a local, the count would stay at whatever the last dragenter made it and
+   * every later drag would start already "inside", leaving the overlay stuck on.
+   */
+  const dragDepth = useRef(0)
+  // no depth counter for the field: an <input> is void, so its dragenter/dragleave cannot nest
+  const [fieldDrag, setFieldDrag] = useState(false)
+  const endDrag = useCallback(() => { dragDepth.current = 0; setDragging(false); setFieldDrag(false) }, [])
   useEffect(() => {
-    let depth = 0
-    const onDragEnter = () => { if (++depth === 1) setDragging(true) }
-    const onDragLeave = () => { if (--depth <= 0) { depth = 0; setDragging(false) } }
+    const onDragEnter = () => { if (++dragDepth.current === 1) setDragging(true) }
+    const onDragLeave = () => { if (--dragDepth.current <= 0) endDrag() }
     const onDragOver = (e: DragEvent) => e.preventDefault()
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
-      depth = 0
-      setDragging(false)
-      if (e.dataTransfer?.files?.length) addTorrentFiles(e.dataTransfer.files)
-      else commitMagnet(e.dataTransfer?.getData('text') ?? '')
+      endDrag()
+      acceptDrop(e.dataTransfer)
     }
     window.addEventListener('dragenter', onDragEnter)
     window.addEventListener('dragleave', onDragLeave)
@@ -1167,7 +1257,7 @@ const Home = () => {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
     }
-  }, [addTorrentFiles, commitMagnet])
+  }, [acceptDrop, endDrag])
 
   useEffect(() => {
     const addFromLaunchUrl = (rawUrl: string | undefined) => {
@@ -1303,26 +1393,39 @@ const Home = () => {
             else if (input.trim()) showToast('Not a magnet link')
           }}
         >
+          {/**
+            * The field takes a dropped .torrent as well as typed text, and says so.
+            *
+            * It stops the drop propagating so the page-wide overlay does not light up over a target
+            * that is already lit; `endDrag` is what keeps the window's depth count honest across
+            * that, since its own drop listener never runs.
+            */}
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Add a magnet link"
+            placeholder="Add a magnet link, or drop a .torrent"
             spellCheck={false}
             disabled={storageUnavailable}
-          />
-          <button className="primary" type="submit" disabled={storageUnavailable}>Add</button>
-          <button className="ghost" type="button" onClick={() => fileInputRef.current?.click()} disabled={storageUnavailable}>.torrent</button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".torrent,application/x-bittorrent"
-            multiple
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              if (e.currentTarget.files?.length) addTorrentFiles(e.currentTarget.files)
-              e.currentTarget.value = ''
+            data-drop={fieldDrag || undefined}
+            onDragEnter={() => { if (!storageUnavailable) setFieldDrag(true) }}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={() => setFieldDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              endDrag()
+              if (!storageUnavailable) acceptDrop(e.dataTransfer)
             }}
           />
+          <button className="primary" type="submit" disabled={storageUnavailable}>Add</button>
+          <button
+            className="ghost"
+            type="button"
+            aria-expanded={embedOpen}
+            onClick={() => (embedOpen ? closeEmbed() : openEmbed(embedId))}
+          >
+            Embed
+          </button>
         </form>
         {showSetup && (
           <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
@@ -1331,6 +1434,17 @@ const Home = () => {
         )}
         <AccountWidget/>
       </header>
+
+      {embedOpen && (
+        <EmbedBuilder
+          torrents={torrents}
+          torrent={torrents.find((t) => t.id === embedId) ?? null}
+          dragging={dragging}
+          onSelect={setEmbedId}
+          onClose={closeEmbed}
+          onToast={showToast}
+        />
+      )}
 
       {storageUnavailable && (
         <div className="storage-warning surface" role="alert">
@@ -1435,6 +1549,7 @@ const Home = () => {
               onRemove={onRemove}
               onStart={onStart}
               onPause={onPause}
+              onEmbed={(t) => openEmbed(t.id)}
             />
           ))}
       </main>
