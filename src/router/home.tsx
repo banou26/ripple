@@ -510,9 +510,11 @@ export const style = css`
     flex: none;
     border-radius: 14px;
     padding: 10px 12px;
+    /* a ROW at the top level, so the picture is a column of its own spanning the whole card rather
+       than a thing beside one line of it */
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    align-items: stretch;
+    gap: 12px;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 
     &:hover {
@@ -524,26 +526,41 @@ export const style = css`
         inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
-    /* The card's one line: picture, then everything about the torrent, then what can be done to it.
-       The file list is the only thing below it, and only when there is more than one file. */
-    .main {
+    /* Everything that is not the picture. A column, because the file list sits under the main line
+       and both of them have to clear the picture on the left. */
+    .content {
+      flex: 1;
+      min-width: 0;
       display: flex;
-      align-items: stretch;
-      gap: 12px;
-      /* a floor, so a row whose bar is hidden is not visibly shorter than the one above it */
-      min-height: 58px;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
     }
 
-    /* stretch rather than a fixed height, so the picture is as tall as the row it belongs to */
+    /* what the torrent is on the left, what can be done to it on the right, on ONE line */
+    .main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      /* a floor, so a row whose bar is hidden is not visibly shorter than the one above it */
+      min-height: 62px;
+    }
+
+    /**
+     * Stretched rather than a fixed height, so the picture is as tall as the card it belongs to.
+     *
+     * Capped, because the card grows by the whole file list when that is opened, and a season pack
+     * would otherwise turn a 16:9 frame into a 150 by 500 pixel column of one cropped stripe. The cap
+     * is above any collapsed row, so it only ever takes effect for an opened list.
+     */
     .poster {
       flex: none;
       align-self: stretch;
-      /* stated here rather than leaned on: the file list below is indented by exactly this width
-         plus the gap, and a border outside the 104px would push the two out of line by 2px */
       box-sizing: border-box;
-      width: 104px;
-      min-height: 58px;
-      border-radius: 8px;
+      width: 150px;
+      min-height: 84px;
+      max-height: 148px;
+      border-radius: 10px;
       object-fit: cover;
       background: #221a31;
       border: 1px solid rgba(44, 39, 55, 0.9);
@@ -689,10 +706,19 @@ export const style = css`
       font-variant-numeric: tabular-nums;
     }
 
+    /* One right-hand group on one line.
+       The state, the percentage and the buttons used to sit at three different heights: the first two
+       at the end of the title, the third centred against the whole body, which reads as three things
+       that were each aligned to something different. They are one thing, so they are one row. */
+    .side {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
     .actions {
       flex: none;
-      /* the row stretches its children, and a stretched button column would be as tall as the card */
-      align-self: center;
       display: flex;
       flex-wrap: wrap;
       justify-content: flex-end;
@@ -736,10 +762,6 @@ export const style = css`
     }
 
     .files {
-      /* the picture's width plus the gap, so the list starts under the title rather than under the
-         picture, which reads as a second column starting halfway through the card */
-      margin-left: 116px;
-
       summary {
         cursor: pointer;
         color: #a39db3;
@@ -1018,24 +1040,24 @@ export const style = css`
       }
     }
 
-    /* the buttons take their own line under the picture and the text, rather than squeezing both */
+    /* the right-hand group takes its own line rather than squeezing the name out of existence */
     .torrent .main {
       flex-wrap: wrap;
     }
 
-    .torrent .actions {
+    .torrent .side {
       flex-basis: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+
+    .torrent .actions {
       justify-content: flex-start;
     }
 
     .torrent .poster {
-      width: 84px;
-      min-height: 48px;
-    }
-
-    /* the buttons wrap to their own line here, so there is no picture beside the list to clear */
-    .torrent .files {
-      margin-left: 0;
+      width: 96px;
+      min-height: 64px;
     }
   }
 `
@@ -1089,21 +1111,23 @@ const Poster = ({ url }: { url: string | null }) =>
 
 const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'> & { poster: string | null }) => (
   <div className="torrent surface missing">
-    <div className="main">
-      {/* the files are gone from this device but the picture was cached here, so it still shows */}
-      <Poster url={poster}/>
-      <div className="body">
-        <div className="title">
-          <strong>{t.name}</strong>
+    {/* the files are gone from this device but the picture was cached here, so it still shows */}
+    <Poster url={poster}/>
+    <div className="content">
+      <div className="main">
+        <div className="body">
+          <div className="title"><strong>{t.name}</strong></div>
+          <div className="meta">
+            <span>Files aren't on this device · download to fetch them</span>
+          </div>
+        </div>
+        <div className="side">
           <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+          <div className="actions">
+            <button className="primary" onClick={() => onStart(t)}>Download</button>
+            <button onClick={() => onRemove(t)}>Remove</button>
+          </div>
         </div>
-        <div className="meta">
-          <span>Files aren't on this device · download to fetch them</span>
-        </div>
-      </div>
-      <div className="actions">
-        <button className="primary" onClick={() => onStart(t)}>Download</button>
-        <button onClick={() => onRemove(t)}>Remove</button>
       </div>
     </div>
   </div>
@@ -1127,69 +1151,73 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
   const complete = t.progress >= 1
   return (
     <div className="torrent surface">
-      <div className="main">
-        <Poster url={poster}/>
-        <div className="body">
-          <div className="title">
-            <strong>{t.name}</strong>
+      <Poster url={poster}/>
+      <div className="content">
+        <div className="main">
+          <div className="body">
+            <div className="title">
+              <strong>{t.name}</strong>
+            </div>
+            <div className="meta">
+              <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
+              <span>↓ {speed(t.down)}</span>
+              <span>↑ {speed(t.up)}</span>
+              <span>{t.peers} peers</span>
+              {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+              {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
+            </div>
+            {/* only while there is something to watch: at 100% it is a solid bar saying what the
+                percentage beside the name already says, across the whole width of the card */}
+            {(t.progress < 1 || t.state === 'checking') && (
+              <div className="bar">
+                <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
+              </div>
+            )}
+          </div>
+          <div className="side">
             <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
             <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
-          </div>
-          <div className="meta">
-            <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
-            <span>↓ {speed(t.down)}</span>
-            <span>↑ {speed(t.up)}</span>
-            <span>{t.peers} peers</span>
-            {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
-            {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
-          </div>
-          {/* only while there is something to watch: at 100% it is a solid bar saying what the
-              percentage beside the name already says, across the whole width of the card */}
-          {(t.progress < 1 || t.state === 'checking') && (
-            <div className="bar">
-              <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
-            </div>
-          )}
-        </div>
-        <div className="actions">
-          {href && <Link className="primary" to={href}>Watch</Link>}
-          {!!t.files?.length && complete && (
-            <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
-              {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
-            </button>
-          )}
-          {t.state !== 'checking' && (
-            <button onClick={() => onToggle(t)}>
-              {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
-            </button>
-          )}
-          {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
-          {/* a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk */}
-          {!!t.magnet && <button onClick={() => onEmbed(t)}>Embed</button>}
-          {!!t.files?.length && t.state !== 'checking' && (
-            <button onClick={() => onRecheck(t)}>Recheck</button>
-          )}
-          <button onClick={() => onRemove(t)}>Remove</button>
-        </div>
-      </div>
-      {/* the only thing below the main line, and only when there is more than one file */}
-      {(t.files?.length ?? 0) > 1 && (
-        <details className="files">
-          <summary>{t.files!.length} files</summary>
-          {t.files!.map((f, i) => {
-            const s = saving[savingKey(t.id, i)]
-            return (
-              <div className="file" key={i}>
-                <span className="name">{f.name}</span>
-                <span className="size">{getHumanReadableByteString(f.size, true)}</span>
-                <button onClick={() => onSave(t, i)} disabled={s != null}>
-                  {s != null ? `${Math.round(s * 100)}%` : 'Save'}
+            <div className="actions">
+              {href && <Link className="primary" to={href}>Watch</Link>}
+              {!!t.files?.length && complete && (
+                <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
+                  {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
                 </button>
-              </div>
-            )
-          })}
-        </details>
-      )}
+              )}
+              {t.state !== 'checking' && (
+                <button onClick={() => onToggle(t)}>
+                  {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
+                </button>
+              )}
+              {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
+              {/* a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk */}
+              {!!t.magnet && <button onClick={() => onEmbed(t)}>Embed</button>}
+              {!!t.files?.length && t.state !== 'checking' && (
+                <button onClick={() => onRecheck(t)}>Recheck</button>
+              )}
+              <button onClick={() => onRemove(t)}>Remove</button>
+            </div>
+          </div>
+        </div>
+        {/* the only thing below the main line, and only when there is more than one file */}
+        {(t.files?.length ?? 0) > 1 && (
+          <details className="files">
+            <summary>{t.files!.length} files</summary>
+            {t.files!.map((f, i) => {
+              const s = saving[savingKey(t.id, i)]
+              return (
+                <div className="file" key={i}>
+                  <span className="name">{f.name}</span>
+                  <span className="size">{getHumanReadableByteString(f.size, true)}</span>
+                  <button onClick={() => onSave(t, i)} disabled={s != null}>
+                    {s != null ? `${Math.round(s * 100)}%` : 'Save'}
+                  </button>
+                </div>
+              )
+            })}
+          </details>
+        )}
+      </div>
     </div>
   )
 }

@@ -157,6 +157,54 @@ describe('a library row', () => {
   })
 
   /**
+   * The state, the percentage and the buttons are one right-hand group and have to read as one.
+   *
+   * They used to sit at three different heights: the first two at the end of the title row, the
+   * third centred against the whole body, which looks like three things each aligned to something
+   * different. Centres are compared rather than tops, because they are different heights by design.
+   */
+  it('puts the state, the percentage and the buttons on one line', async () => {
+    thumbnail.current = null
+    const screen = await mount(torrent())
+    const middle = (sel: string) => { const b = box(screen.container.querySelector(sel))!; return b.top + b.height / 2 }
+    const badge = middle('.badge')
+    expect(Math.abs(middle('.pct') - badge)).toBeLessThan(2)
+    expect(Math.abs(middle('.actions') - badge)).toBeLessThan(2)
+    // left to right in that order, all of them past the text
+    const body = box(screen.container.querySelector('.body'))!
+    expect(box(screen.container.querySelector('.badge'))!.left).toBeGreaterThanOrEqual(body.right)
+  })
+
+  /**
+   * The picture is a column of the whole card, not a thing beside one line of it.
+   *
+   * With the caveat that the card grows by the entire file list when that is opened, so following it
+   * without limit turns a 16:9 frame into a tall column of one cropped stripe. A season pack is 24
+   * rows, which is where this stops being a detail.
+   */
+  it('runs the picture down the full height of the card, but not down an opened file list', async () => {
+    thumbnail.current = null
+    // a season pack, which is the case the cap exists for: three files make too short a card to tell
+    const pack = torrent({
+      files: Array.from({ length: 24 }, (_, i) => ({ name: `Pack/E${i + 1}.mkv`, size: 1e9, progress: 1 })),
+    })
+    const screen = await mount(pack)
+    const card = box(screen.container.querySelector('.torrent'))!
+    const collapsed = box(screen.container.querySelector('.poster'))!
+    // collapsed, the card's padding is all that separates them
+    expect(card.height - collapsed.height).toBeLessThan(24)
+
+    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
+    await expect.poll(() => box(screen.container.querySelector('.torrent'))!.height)
+      .toBeGreaterThan(card.height * 3)
+    const opened = box(screen.container.querySelector('.poster'))!
+    const grown = box(screen.container.querySelector('.torrent'))!
+    // it stayed a picture rather than following the card down into a cropped stripe
+    expect(opened.height).toBeLessThan(grown.height / 3)
+    expect(opened.width / opened.height).toBeGreaterThan(0.9)
+  })
+
+  /**
    * On a phone the row would otherwise squeeze the picture, the text AND six buttons onto one line.
    *
    * The breakpoint had to be rewritten with the layout: the old rule widened `.actions` inside a
@@ -170,16 +218,14 @@ describe('a library row', () => {
 
     const poster = box(screen.container.querySelector('.poster'))!
     const body = box(screen.container.querySelector('.body'))!
-    const actions = box(screen.container.querySelector('.actions'))!
+    const side = box(screen.container.querySelector('.side'))!
 
-    // picture and text still share a line
+    // the picture is still its own column, beside everything rather than above it
     expect(poster.right).toBeLessThanOrEqual(body.left)
-    expect(Math.abs(poster.top - body.top)).toBeLessThan(2)
-    // the buttons dropped below both of them
-    expect(actions.top).toBeGreaterThanOrEqual(poster.bottom)
-    // and the file list is no longer indented past a picture that is not beside it
-    const summary = box(screen.container.querySelector('.files summary'))!
-    expect(summary.left).toBeLessThan(poster.right)
+    expect(side.left).toBeGreaterThanOrEqual(poster.right)
+    // and the right-hand group dropped under the name instead of squeezing it
+    expect(side.top).toBeGreaterThanOrEqual(body.bottom - 1)
+    expect(body.right).toBeGreaterThan(body.left + 100)
   })
 
   /**
