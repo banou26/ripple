@@ -486,9 +486,18 @@ const DownloadPage = ({ magnet, selection }: Props) => {
                 <div className="file" key={entry.index}>
                   <span className="name">{leaf(entry.path)}</span>
                   <span className="size">{getHumanReadableByteString(entry.size)}</span>
-                  {/* Reads exactly "Download", which cannot collide with the button above it: the
-                      bare label there needs `single`, and a single entry never renders this list. */}
-                  <button onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)} disabled={!ready || busy}>
+                  {/**
+                    * Shows "Download" and ANNOUNCES the file, because the visible label is only
+                    * unambiguous next to the name in the same row. Read on its own, as a screen
+                    * reader's element list does, a season pack is otherwise 24 buttons that all say
+                    * the same word. The visible text stays a prefix of the accessible name, so
+                    * "click Download" still addresses this button by voice.
+                    */}
+                  <button
+                    aria-label={`Download ${leaf(entry.path)}`}
+                    onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)}
+                    disabled={!ready || busy}
+                  >
                     Download
                   </button>
                 </div>
