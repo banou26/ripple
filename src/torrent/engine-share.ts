@@ -142,7 +142,9 @@ export const serveFollowers = (client: EngineClient): () => void => {
       const list = client.latestList()
       if (list) reply(from, { type: 'list', list })
       const state = client.latestState()
-      if (state) reply(from, { type: 'state', torrents: state })
+      // reachable rides the state message, so a follower that only ever sees this replay would
+      // otherwise report no port at all rather than the leader's
+      if (state) reply(from, { type: 'state', torrents: state, reachable: client.latestReachable() ?? undefined })
       return
     }
 

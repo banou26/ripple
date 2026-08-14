@@ -4,7 +4,7 @@ import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, PRIORITY } from 'libtorrent-wasm'
-import type { Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
+import type { Reachability, Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
@@ -40,6 +40,8 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache. It is device-local too, and written without broadcasting the list, or every playback would schedule a cloud backup write
 export type { Persisted }
+/** Where inbound peers can reach this session, if anywhere. Re-exported so the UI can read it. */
+export type { Reachability }
 
 let session: Session | null = null
 let storage: MeasurableStorage | null = null
@@ -585,6 +587,7 @@ const init = async () => {
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
+
   try {
     const list = await loadList()
     const cleared = !(await opfsHasData(list.map((e) => e.savePath || SHARED_ROOT)))
@@ -666,7 +669,7 @@ const init = async () => {
       session.resumeTorrent(handle)
     }
 
-    post({ type: 'state', torrents: snapshot() })
+    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable() })
     for (const h of handles) {
       const st = session.status(h)
       if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.has(h) || resumeInFlight.has(h)) continue
@@ -868,7 +871,7 @@ const handleMessage = async (session: Session, m: any) => {
         track(h, e.magnet, e.infoHash, savePath, false)
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
-        post({ type: 'state', torrents: snapshot() })
+        post({ type: 'state', torrents: snapshot(), reachable: session!.reachable() })
         await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {

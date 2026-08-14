@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { Reachability } from '../torrent/client'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncStatus } from '../torrent/use-cloud-backup'
@@ -106,6 +107,31 @@ const SyncStat = ({ status }: { status: SyncStatus }) => {
     <div className={'stat sync' + (status === 'error' ? ' error' : '')}>
       <label>Library</label>
       <strong className={status === 'synced' ? 'ok' : undefined}>{label}</strong>
+    </div>
+  )
+}
+
+/**
+ * Whether peers out there can open a connection TO us, which decides how many of them we ever meet.
+ *
+ * A port is reserved on the relay before the engine starts and libtorrent announces that exact
+ * number, so `port` being set is what separates "peers can dial us" from "we can only dial out".
+ * `inbound` counts the ones that have, split by transport because uTP and TCP fail independently:
+ * uTP arrives through the DHT's implied port while TCP depends on the announced number being real.
+ */
+const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
+  if (!reachable) return null
+  const { port, inbound, inboundByTransport, listenFailed } = reachable
+  const failed = listenFailed.length > 0
+  const detail = Object.entries(inboundByTransport)
+    .map(([transport, n]) => `${n} ${transport}`)
+    .join(' · ')
+  return (
+    <div className={'stat' + (failed ? ' error' : '')} title={failed ? listenFailed.join('\n') : undefined}>
+      <label>Inbound</label>
+      <strong className={inbound > 0 ? 'ok' : undefined}>
+        {failed ? 'Failed' : !port ? 'Unreachable' : inbound === 0 ? `Port ${port}` : detail}
+      </strong>
     </div>
   )
 }
@@ -1224,7 +1250,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, client } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -1681,6 +1707,7 @@ const Home = () => {
               <label>Active</label>
               <strong>{active} / {torrents.length}</strong>
             </div>
+            <ConnectionStat reachable={reachable}/>
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
             {quota && <QuotaStat quota={quota}/>}
             <SyncStat status={syncStatus}/>

@@ -1,4 +1,4 @@
-import type { Persisted, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+import type { Persisted, Reachability, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -9,7 +9,7 @@ import { electEngineOwner } from './engine-election'
 import { ENGINE_RESET, hasWebLocks, newClientId } from './engine-protocol'
 import { createGate } from './gate'
 
-export type { Persisted }
+export type { Persisted, Reachability }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
 
 // a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries
@@ -24,6 +24,8 @@ export type TorrentClient = {
   onStorageFull: (cb: (full: boolean) => void) => () => void
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => () => void
   onAddFailed: (cb: (message: string) => void) => () => void
+  /** Where inbound peers can reach this session. Latched, so a late subscriber gets the last value. */
+  onReachable: (cb: (reachable: Reachability) => void) => () => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void
@@ -60,6 +62,7 @@ export type EngineClient = TorrentClient & {
   onRaw: (cb: (msg: any) => void) => () => void
   latestList: () => Persisted[] | null
   latestState: () => WorkerTorrentSnapshot[] | null
+  latestReachable: () => Reachability | null
   started: () => boolean
   useTransport: (factory: TransportFactory, owns: boolean) => void
 }
@@ -94,6 +97,7 @@ const createTorrentClient = (): EngineClient => {
   const ownershipCbs = new Set<(owned: boolean) => void>()
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
+  const reachableCbs = new Set<(r: Reachability) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
   const recentRate = createRecentRateTracker()
   // names this tab to the others, and prefixes the viewer ids its players hand out
@@ -110,6 +114,7 @@ const createTorrentClient = (): EngineClient => {
   let lastList: Persisted[] | null = null
   let lastState: TorrentSnapshot[] | null = null
   let lastRawState: WorkerTorrentSnapshot[] | null = null
+  let lastReachable: Reachability | null = null
   let storageIsUnavailable = false
   let storageIsFull = false
   let fatalMessage: string | null = null
@@ -143,6 +148,8 @@ const createTorrentClient = (): EngineClient => {
     storageIsFull = false
     lastState = null
     lastRawState = null
+    // a new engine reserves its own port, so the old one describes a session that no longer exists
+    lastReachable = null
     lastList = null
     // keyed by handle, so across a handover it would credit one torrent's bytes to another
     recentRate.retain(new Set())
@@ -189,6 +196,7 @@ const createTorrentClient = (): EngineClient => {
         storageIsFull = !!m.full
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
+        if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
         const handles = new Set<number>()
         const at = performance.now()
         lastRawState = m.torrents as WorkerTorrentSnapshot[]
@@ -235,11 +243,13 @@ const createTorrentClient = (): EngineClient => {
     onStorageFull: (cb) => { storageFullCbs.add(cb); if (storageIsFull) cb(true); return () => { storageFullCbs.delete(cb) } },
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
+    onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
     onEngineReset: (cb) => { engineResetCbs.add(cb); return () => { engineResetCbs.delete(cb) } },
     onRaw: (cb) => { rawCbs.add(cb); return () => { rawCbs.delete(cb) } },
     latestList: () => lastList,
     latestState: () => lastRawState,
+    latestReachable: () => lastReachable,
     started: () => started,
     owns: () => owned,
     sendRaw: (msg) => send(msg),
