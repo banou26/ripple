@@ -8,6 +8,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncStatus } from '../torrent/use-cloud-backup'
 
+import { Folder } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
@@ -20,6 +21,8 @@ import { useAccount } from '../torrent/use-account'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { pickVideoFile, watchHref } from '../torrent/watch'
+import { forgetThumbnail } from '../torrent/thumbnail-store'
+import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { EmbedBuilder } from './embed-builder'
@@ -147,7 +150,14 @@ const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<n
   )
 }
 
-const style = css`
+/**
+ * Exported so a row can be measured on its own.
+ *
+ * Every rule below is scoped to this one element, so a TorrentRow rendered anywhere else has no
+ * styles at all: it still renders, and every box it reports is at the origin with no size. A test
+ * that measures such a row is measuring nothing, so it has to mount this around it.
+ */
+export const style = css`
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -499,10 +509,10 @@ const style = css`
   .torrent {
     flex: none;
     border-radius: 14px;
-    padding: 14px 16px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 
     &:hover {
@@ -512,6 +522,52 @@ const style = css`
         0 0 0 1px rgba(249, 115, 22, 0.12),
         0 8px 20px -6px rgba(0, 0, 0, 0.45),
         inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    /* The card's one line: picture, then everything about the torrent, then what can be done to it.
+       The file list is the only thing below it, and only when there is more than one file. */
+    .main {
+      display: flex;
+      align-items: stretch;
+      gap: 12px;
+      /* a floor, so a row whose bar is hidden is not visibly shorter than the one above it */
+      min-height: 58px;
+    }
+
+    /* stretch rather than a fixed height, so the picture is as tall as the row it belongs to */
+    .poster {
+      flex: none;
+      align-self: stretch;
+      /* stated here rather than leaned on: the file list below is indented by exactly this width
+         plus the gap, and a border outside the 104px would push the two out of line by 2px */
+      box-sizing: border-box;
+      width: 104px;
+      min-height: 58px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #221a31;
+      border: 1px solid rgba(44, 39, 55, 0.9);
+    }
+
+    /* Held even when there is no picture, so every row's text starts at the same place. An absent
+       left column would make a list of mixed torrents look ragged rather than compact. */
+    .poster.placeholder {
+      display: grid;
+      place-items: center;
+      border-color: rgba(249, 115, 22, 0.25);
+      background: rgba(249, 115, 22, 0.06);
+      color: rgba(251, 191, 36, 0.55);
+
+      svg { width: 20px; height: 20px; }
+    }
+
+    .body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
     }
 
     .title {
@@ -600,8 +656,9 @@ const style = css`
       overflow-wrap: anywhere;
     }
 
+    /* thin, and inside the body rather than owning a row of its own */
     .bar {
-      height: 6px;
+      height: 4px;
       border-radius: 999px;
       background: rgba(44, 39, 55, 0.9);
       overflow: hidden;
@@ -634,8 +691,11 @@ const style = css`
 
     .actions {
       flex: none;
+      /* the row stretches its children, and a stretched button column would be as tall as the card */
+      align-self: center;
       display: flex;
       flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 6px;
 
       a, button {
@@ -676,6 +736,10 @@ const style = css`
     }
 
     .files {
+      /* the picture's width plus the gap, so the list starts under the title rather than under the
+         picture, which reads as a second column starting halfway through the card */
+      margin-left: 116px;
+
       summary {
         cursor: pointer;
         color: #a39db3;
@@ -954,8 +1018,24 @@ const style = css`
       }
     }
 
+    /* the buttons take their own line under the picture and the text, rather than squeezing both */
+    .torrent .main {
+      flex-wrap: wrap;
+    }
+
     .torrent .actions {
       flex-basis: 100%;
+      justify-content: flex-start;
+    }
+
+    .torrent .poster {
+      width: 84px;
+      min-height: 48px;
+    }
+
+    /* the buttons wrap to their own line here, so there is no picture beside the list to clear */
+    .torrent .files {
+      margin-left: 0;
     }
   }
 `
@@ -999,15 +1079,27 @@ type RowProps = {
   onEmbed: (t: Torrent) => void
 }
 
-const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'>) => (
+/** The picture, or the box it would have been in, so every row's text starts at the same place. */
+const Poster = ({ url }: { url: string | null }) =>
+  url
+    // decorative: the name is right beside it, so a screen reader announcing this twice is worse
+    // than it announcing nothing
+    ? <img className="poster" src={url} alt="" />
+    : <div className="poster placeholder"><Folder /></div>
+
+const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'> & { poster: string | null }) => (
   <div className="torrent surface missing">
-    <div className="title">
-      <strong>{t.name}</strong>
-      <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
-    </div>
-    <div className="row">
-      <div className="meta">
-        <span>Files aren't on this device · download to fetch them</span>
+    <div className="main">
+      {/* the files are gone from this device but the picture was cached here, so it still shows */}
+      <Poster url={poster}/>
+      <div className="body">
+        <div className="title">
+          <strong>{t.name}</strong>
+          <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+        </div>
+        <div className="meta">
+          <span>Files aren't on this device · download to fetch them</span>
+        </div>
       </div>
       <div className="actions">
         <button className="primary" onClick={() => onStart(t)}>Download</button>
@@ -1017,8 +1109,17 @@ const MissingRow = ({ t, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | '
   </div>
 )
 
-const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed }: RowProps) => {
-  if (t.state === 'missing') return <MissingRow t={t} onStart={onStart} onRemove={onRemove}/>
+/** Exported for its own test: the page around it needs the whole engine, and the row does not. */
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed }: RowProps) => {
+  /**
+   * Before the missing branch, not after it.
+   *
+   * A torrent moves between missing and present at runtime (a recheck, a restored library), and a
+   * hook that only runs on one side of that branch changes the hook COUNT between two renders of the
+   * same component, which React treats as a corrupted render rather than a state change.
+   */
+  const poster = useThumbnail(t.infoHash)
+  if (t.state === 'missing') return <MissingRow t={t} poster={poster} onStart={onStart} onRemove={onRemove}/>
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
   const multi = (t.files?.length ?? 0) > 1
@@ -1026,22 +1127,29 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemov
   const complete = t.progress >= 1
   return (
     <div className="torrent surface">
-      <div className="title">
-        <strong>{t.name}</strong>
-        <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
-        <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
-      </div>
-      <div className="bar">
-        <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
-      </div>
-      <div className="row">
-        <div className="meta">
-          <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
-          <span>↓ {speed(t.down)}</span>
-          <span>↑ {speed(t.up)}</span>
-          <span>{t.peers} peers</span>
-          {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
-          {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
+      <div className="main">
+        <Poster url={poster}/>
+        <div className="body">
+          <div className="title">
+            <strong>{t.name}</strong>
+            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+            <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
+          </div>
+          <div className="meta">
+            <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
+            <span>↓ {speed(t.down)}</span>
+            <span>↑ {speed(t.up)}</span>
+            <span>{t.peers} peers</span>
+            {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+            {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
+          </div>
+          {/* only while there is something to watch: at 100% it is a solid bar saying what the
+              percentage beside the name already says, across the whole width of the card */}
+          {(t.progress < 1 || t.state === 'checking') && (
+            <div className="bar">
+              <div className="fill" style={{ width: `${Math.min(100, t.progress * 100)}%` }}/>
+            </div>
+          )}
         </div>
         <div className="actions">
           {href && <Link className="primary" to={href}>Watch</Link>}
@@ -1064,6 +1172,7 @@ const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemov
           <button onClick={() => onRemove(t)}>Remove</button>
         </div>
       </div>
+      {/* the only thing below the main line, and only when there is more than one file */}
       {(t.files?.length ?? 0) > 1 && (
         <details className="files">
           <summary>{t.files!.length} files</summary>
@@ -1125,6 +1234,10 @@ const Home = () => {
   }, [])
 
   useEffect(() => client.onAddFailed(showToast), [client, showToast])
+
+  // Mounted once, here, because it drives the WHOLE library rather than a row: every job opens a
+  // libav worker, so one owner with a queue is the difference between one at a time and one per row.
+  useThumbnailGeneration(client)
 
   const [showSetup] = useState(() => !isAppInstalled())
   const onSetupHandlers = useCallback(async () => {
@@ -1298,6 +1411,9 @@ const Home = () => {
   const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
 
   const onRemove = (t: Torrent) => {
+    // Nothing else would ever collect it: the worker deletes its own three key shapes on removal and
+    // never clears the store, so a picture left behind here outlives the torrent it belongs to.
+    if (t.infoHash) void forgetThumbnail(t.infoHash)
     if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
   }
