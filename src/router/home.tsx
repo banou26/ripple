@@ -25,6 +25,7 @@ import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
+import { useConfirm } from '../components/confirm-dialog'
 import { EmbedBuilder } from './embed-builder'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
@@ -1229,6 +1230,7 @@ const Home = () => {
   const [saving, setSaving] = useState<Record<string, number>>({})
   const [offline, setOffline] = useState(() => navigator.onLine === false)
   const toastTimer = useRef<number | undefined>(undefined)
+  const { confirm, confirmElement, confirmOpen } = useConfirm()
 
   const [embedOpen, setEmbedOpen] = useState(false)
   const [embedId, setEmbedId] = useState<string | null>(null)
@@ -1357,6 +1359,9 @@ const Home = () => {
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      // <dialog> makes the page inert to pointers but not to window-level listeners, so without this
+      // a paste behind an open confirmation would add a torrent the user cannot see.
+      if (confirmOpen) return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
@@ -1364,7 +1369,7 @@ const Home = () => {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [commitMagnet])
+  }, [commitMagnet, confirmOpen])
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
@@ -1438,11 +1443,25 @@ const Home = () => {
 
   const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
 
-  const onRemove = (t: Torrent) => {
+  const onRemove = async (t: Torrent) => {
+    // A torrent whose files are already gone has nothing to destroy, so asking would be noise. Every
+    // other case deletes the payload, which on a metered connection costs the time to fetch it again.
+    const missing = t.state === 'missing'
+    if (!missing) {
+      const onDisk = getHumanReadableByteString(t.downloaded ?? 0, true)
+      const ok = await confirm({
+        title: `Remove ${t.name}?`,
+        body: `This deletes the ${onDisk} already downloaded. It cannot be undone, and getting it back means downloading it again.`,
+        confirmLabel: 'Remove and delete',
+        tone: 'danger',
+        rememberKey: 'ripple:confirm-remove',
+      })
+      if (!ok) return
+    }
     // Nothing else would ever collect it: the worker deletes its own three key shapes on removal and
     // never clears the store, so a picture left behind here outlives the torrent it belongs to.
     if (t.infoHash) void forgetThumbnail(t.infoHash)
-    if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
+    if (missing) { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
   }
 
@@ -1527,6 +1546,9 @@ const Home = () => {
 
   return (
     <div css={style} data-drag={dragging || undefined}>
+      {/* Rendered here rather than beside the row that asks: showModal() puts it in the top layer,
+          so its position in the tree does not affect stacking, and one instance serves every caller. */}
+      {confirmElement}
       <div className="drop">Drop to add</div>
       <header>
         <span className="wordmark">Ripple</span>
