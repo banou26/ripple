@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
 import type { QuotaStatus } from '../torrent/use-quota'
@@ -22,6 +22,12 @@ import { useAccount } from '../torrent/use-account'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { moveTorrentFiles } from '../torrent/move-files'
+import { describeAddRequest } from './add-request'
+import { AddTorrentDialog } from '../components/add-torrent-dialog'
+import {
+  ADD_DIALOG_KEY, defaultChoices, dialogEnabled, filePriorities, flagsFor,
+} from '../torrent/add-options'
+import type { AddChoices } from '../torrent/add-options'
 import {
   currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
@@ -1648,6 +1654,27 @@ const Home = () => {
     else showToast('Use your browser menu to install Ripple as an app.')
   }, [showToast])
 
+  /** Whether an add the person made themselves stops to ask. Off by default: it is friction. */
+  const [addDialog, setAddDialog] = useState(() => dialogEnabled((k) => localStorage.getItem(k)))
+  const chooseAddDialog = (on: boolean) => {
+    setAddDialog(on)
+    try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
+  }
+
+  const [pendingAdd, setPendingAdd] = useState<{ magnet: string, infoHash: string, name: string, external: boolean, from: string | null } | null>(null)
+  const [choices, setChoices] = useState<AddChoices | null>(null)
+  const heldRef = useRef<number | null>(null)
+
+  const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null) => {
+    const request = describeAddRequest({ magnet })
+    if (!request.ok) { showToast(request.problem); return }
+    const existing = torrentsRef.current.find((t) => t.infoHash === request.infoHash && !t.ephemeral && t.state !== 'missing')
+    if (existing) { showToast('Already in your list'); return }
+    client.addMagnet(request.magnet, { ephemeral: true })
+    setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
+    setChoices(null)
+  }, [client, showToast])
+
   const commitMagnet = useCallback((raw: string): boolean => {
     const text = raw.trim()
     if (!isMagnet(text)) return false
@@ -1657,10 +1684,11 @@ const Home = () => {
       showToast('Already in your list')
       return true
     }
+    if (addDialog) { beginAdd(text, false); return true }
     addMagnet(text)
     showToast('Magnet added')
     return true
-  }, [addMagnet, showToast])
+  }, [addMagnet, showToast, addDialog, beginAdd])
 
   const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
     const all = [...files]
@@ -1956,6 +1984,8 @@ const Home = () => {
   const [defaultLocation, setDefaultLocation] = useState<SaveLocation>(() => {
     try { return readGlobalDefault((k) => localStorage.getItem(k)) } catch { return 'browser' }
   })
+  const [params, setParams] = useSearchParams()
+
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
@@ -2108,6 +2138,84 @@ const Home = () => {
    * without permission, and a copy made under a grant the browser has since dropped is not one the
    * user can be told is still there.
    */
+  /**
+   * The add dialog: what is in this torrent, and which of it do you want.
+   *
+   * One flow for two arrivals. A magnet the person pasted or dropped only gets the dialog when they
+   * have turned it on, since it is friction in front of a question whose answer is usually "all of
+   * it". A magnet arriving from another site through `/add` always gets it, because that one is a
+   * stranger's proposal and this is where they agree to it.
+   *
+   * The torrent is added `ephemeral` first either way. A magnet carries no file list, so the swarm
+   * is the only place to get one, which means adding it before anything can be asked. Ephemeral is
+   * what keeps that from being a decision: those bytes are a cache the engine may reclaim and the row
+   * is not part of the library, so cancelling can drop it and changing nothing is genuinely nothing.
+   */
+  const pendingTorrent = pendingAdd
+    ? torrents.find((t) => t.infoHash === pendingAdd.infoHash && t.state !== 'missing')
+    : undefined
+  const pendingFiles = pendingTorrent?.files ?? []
+
+  // The file list decides the default selection, so the choices cannot exist until it arrives. This
+  // is also where the torrent is HELD: metadata is in by now, so from here on it would be fetching
+  // pieces nobody has agreed to yet.
+  useEffect(() => {
+    if (!pendingAdd || choices || pendingFiles.length === 0 || !pendingTorrent) return
+    setChoices(defaultChoices({ fileCount: pendingFiles.length, location: defaultLocation }))
+    heldRef.current = Number(pendingTorrent.id)
+    pause(Number(pendingTorrent.id))
+  }, [pendingAdd, choices, pendingFiles.length, pendingTorrent, defaultLocation, pause])
+
+  const closeAdd = useCallback(() => {
+    setPendingAdd(null)
+    setChoices(null)
+    heldRef.current = null
+    // the link is spent once it has been answered, so a reload does not ask again
+    if (params.get('add')) setParams(new URLSearchParams(), { replace: true })
+  }, [params, setParams])
+
+  const cancelAdd = useCallback(() => {
+    // only the cache entry this flow created. Anything already theirs was never ours to remove.
+    if (pendingTorrent?.ephemeral) remove(Number(pendingTorrent.id), true)
+    closeAdd()
+  }, [pendingTorrent, remove, closeAdd])
+
+  const confirmAdd = useCallback(() => {
+    if (!pendingAdd || !choices || !pendingTorrent) return
+    const handle = Number(pendingTorrent.id)
+    // the same magnet without `ephemeral`, which is the gesture that promotes it into the library
+    addMagnet(pendingAdd.magnet)
+    client.setFilePriorities(handle, filePriorities(choices, pendingFiles.length))
+    client.setFlags(handle, ...flagsFor(choices))
+    if (pendingAdd.infoHash) client.setLocation(pendingAdd.infoHash, choices.location)
+    if (choices.topOfQueue) client.moveInQueue(handle, 'top')
+    // held since the file list arrived, so starting is an explicit step rather than the absence of one
+    if (choices.start) resume(handle)
+    showToast(choices.start ? `${pendingAdd.name} added` : `${pendingAdd.name} added, paused`)
+    closeAdd()
+  }, [pendingAdd, choices, pendingTorrent, pendingFiles.length, addMagnet, client, resume, showToast, closeAdd])
+
+  /**
+   * A torrent handed over by another site, through `/add`.
+   *
+   * Refused inside a frame, and not as a formality: a page that can size and position an invisible
+   * iframe can put the Add button under the visitor's cursor while they believe they are clicking
+   * something else. Nothing rendered inside the frame helps, because the page around it chooses what
+   * is visible.
+   */
+  useEffect(() => {
+    const magnet = params.get('add')
+    if (!magnet) return
+    let framed = true
+    try { framed = window.top !== window.self } catch { framed = true }
+    if (framed) { setParams(new URLSearchParams(), { replace: true }); return }
+    let from: string | null = null
+    try { from = document.referrer ? new URL(document.referrer).origin : null } catch { from = null }
+    if (from === window.location.origin) from = null
+    beginAdd(magnet, true, from)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.get('add')])
+
   const optionContext = (t: Torrent): TorrentOptionContext => {
     const { intended, current } = locationOf(t)
     return {
@@ -2348,6 +2456,24 @@ const Home = () => {
         />
       )}
 
+      {pendingAdd && (
+        <AddTorrentDialog
+          name={pendingAdd.name}
+          from={pendingAdd.from}
+          external={pendingAdd.external}
+          files={pendingFiles}
+          choices={choices ?? defaultChoices({ fileCount: 0, location: defaultLocation })}
+          onChoices={setChoices}
+          folderName={folder?.name}
+          folderReady={!!folder && permitted}
+          onConfirm={confirmAdd}
+          onCancel={cancelAdd}
+          // switching the step off is offered only for their OWN adds: a setting that could silence
+          // the consent step for links from anywhere is not one worth having
+          onNeverAsk={pendingAdd.external ? undefined : () => chooseAddDialog(false)}
+        />
+      )}
+
       <footer>
         <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
         <Link to="/legal">Legal</Link>
@@ -2362,6 +2488,20 @@ const Home = () => {
           v{__APP_VERSION__} · {__COMMIT_HASH__.slice(0, 7)}
         </a>
         <div className="controls">
+          <div className="folder">
+            <span>On add</span>
+            <button
+              className={addDialog ? 'on' : undefined}
+              onClick={() => chooseAddDialog(!addDialog)}
+              title={
+                addDialog
+                  ? 'Adding a magnet opens a dialog first, so you can pick which files to download and where they go.'
+                  : 'A magnet you add starts straight away with every file. Torrents sent from other sites always ask, whatever this says.'
+              }
+            >
+              {addDialog ? 'Ask what to download' : 'Start straight away'}
+            </button>
+          </div>
           {folderSupported && (
             <div className="folder">
               <span>Auto-save</span>

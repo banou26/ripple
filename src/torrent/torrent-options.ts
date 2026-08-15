@@ -258,7 +258,7 @@ export const buildTorrentOptions = (
           kind: 'radio',
           id: 'order-sequential',
           group: 'order',
-          label: 'In order',
+          label: 'Sequential',
           hint: 'Downloads front to back so it can be watched while it arrives. Usually slower.',
           selected: sequential,
           disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),

@@ -22,7 +22,7 @@ import { createHybridStorage } from './hybrid-storage'
 import { currentLocation, savePathIn } from './save-location'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-file-priorities', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -960,6 +960,14 @@ const handleMessage = async (session: Session, m: any) => {
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
+    } else if (m.type === 'set-file-priorities') {
+      // One call per file, because the engine rewrites that file's PIECE priorities from it and a
+      // boundary piece shared with a wanted file has to survive its neighbour being skipped. Doing
+      // that mapping here instead would be re-deriving something libtorrent already knows.
+      const priorities: number[] = Array.isArray(m.priorities) ? m.priorities : []
+      for (const [fileIndex, priority] of priorities.entries()) {
+        session.setFilePriority(m.handle, fileIndex, Math.max(0, Math.min(PRIORITY.top, priority | 0)))
+      }
     } else if (m.type === 'set-folder') {
       // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
       // wins, deliberately, because the newest offer is the one whose grant was checked most recently.

@@ -102,6 +102,14 @@ export type TorrentClient = {
    */
   setLocation: (infoHash: string, to: SaveLocation) => void
   /**
+   * Which files of a torrent to download, as a priority per file indexed the way `files` is.
+   *
+   * `PRIORITY.skip` for one nobody wants. Per FILE rather than per piece deliberately: the engine
+   * rewrites the piece priorities from it, which is the only way a piece straddling a skipped file
+   * and a wanted one keeps being downloaded.
+   */
+  setFilePriorities: (handle: number, priorities: number[]) => void
+  /**
    * Offer the engine the directory the user granted, or null once it is gone.
    *
    * The engine reads a folder-backed torrent through this, so it has to reach the realm the engine
@@ -357,6 +365,7 @@ const createTorrentClient = (): EngineClient => {
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     relocate: (handle, to) => send({ type: 'relocate', handle, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
+    setFilePriorities: (handle, priorities) => send({ type: 'set-file-priorities', handle, priorities }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),
