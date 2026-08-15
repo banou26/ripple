@@ -163,6 +163,26 @@ describe('a library row', () => {
   })
 
   /**
+   * Taking over the right button removes Inspect, Copy and Save as, so there has to be a way back.
+   * Both modifiers are honoured because Ctrl is the secondary click on macOS while Shift is the
+   * one that reads naturally elsewhere, and the menu states the keys in its own footer rather than
+   * leaving the escape hatch to be discovered.
+   */
+  it.each([['shift', { shiftKey: true }], ['ctrl', { ctrlKey: true }]])(
+    'lets %s + right-click through to the browser',
+    async (_name, modifier) => {
+      thumbnail.current = null
+      const { screen, props } = await inPage(torrent())
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...modifier })
+      screen.container.querySelector('.torrent')!.dispatchEvent(event)
+
+      expect(props.onOptions).not.toHaveBeenCalled()
+      // not prevented, so the browser goes on to draw its own menu
+      expect(event.defaultPrevented).toBe(false)
+    },
+  )
+
+  /**
    * The detail panel's addresses, tracker URLs and info hash exist to be copied. Replacing the
    * browser's Copy with a torrent menu would remove the only reason that text is selectable.
    */

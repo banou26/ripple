@@ -51,8 +51,10 @@ const actions = () => ({
   removeWithFiles: vi.fn(),
 })
 
-const flat = (t: Torrent, a = actions()) => buildTorrentOptions(t, a).flatMap((g) => g.items)
-const find = (t: Torrent, id: string, a = actions()) => flat(t, a).find((i) => i.id === id)
+const flat = (t: Torrent, a = actions(), saved = false) =>
+  buildTorrentOptions(t, a, { savedToUserStorage: saved }).flatMap((g) => g.items)
+const find = (t: Torrent, id: string, a = actions(), saved = false) =>
+  flat(t, a, saved).find((i) => i.id === id)
 
 describe('the torrent option list', () => {
   describe('the discovery settings, which libtorrent stores inverted', () => {
@@ -196,16 +198,45 @@ describe('the torrent option list', () => {
       expect(find(ghost, 'remove')!.disabled).toBeUndefined()
     })
 
+    /** There is nothing on this device to delete, so the option is absent rather than greyed. */
     it('does not offer to delete files it does not have', () => {
-      expect(find(ghost, 'remove-files')!.disabled).toBeTruthy()
+      expect(flat(ghost).map((i) => i.id)).not.toContain('remove-files')
+    })
+
+    it('does not claim its files are being left anywhere', () => {
+      expect(find(ghost, 'remove')!.hint).not.toContain('folder')
     })
   })
 
+  /**
+   * "Remove but keep the files" is only a real choice when there are files to keep. Ripple
+   * downloads into OPFS, which has no path and no file manager entry and cannot be reached except
+   * through Ripple, so against OPFS alone the option promises to preserve something nobody can
+   * ever open, while still spending the origin quota to hold it.
+   */
   describe('the destructive items', () => {
-    it('separates removing from removing with the files, and marks both', () => {
+    it('offers only a full delete while the files live in OPFS alone', () => {
+      const ids = flat(torrent(), actions(), false).map((i) => i.id)
+      expect(ids).not.toContain('remove')
+      expect(ids).toContain('remove-files')
+    })
+
+    it('offers both once a copy is in the user\'s own folder', () => {
+      const ids = flat(torrent(), actions(), true).map((i) => i.id)
+      expect(ids).toContain('remove')
+      expect(ids).toContain('remove-files')
+    })
+
+    /** With a copy safely elsewhere, the delete is about reclaiming space, and says so. */
+    it('renames the delete once it is only removing Ripple\'s copy', () => {
+      expect(find(torrent(), 'remove-files', actions(), false)!.label).toBe('Remove and delete the files')
+      expect(find(torrent(), 'remove-files', actions(), true)!.label).toBe("Remove and delete Ripple's copy")
+    })
+
+    it('separates the two, and marks both as destructive', () => {
       const a = actions()
-      const keep = find(torrent(), 'remove', a)!
-      const wipe = find(torrent(), 'remove-files', a)!
+      const keep = find(torrent(), 'remove', a, true)!
+      const wipe = find(torrent(), 'remove-files', a, true)!
       if (keep.kind !== 'action' || wipe.kind !== 'action') throw new Error('not actions')
       expect(keep.danger).toBe(true)
       expect(wipe.danger).toBe(true)
@@ -218,9 +249,11 @@ describe('the torrent option list', () => {
   })
 
   it('gives every item a unique id, since both surfaces key on it', () => {
-    for (const t of [torrent(), torrent({ queuePosition: 0 }), torrent({ progress: 1 })]) {
-      const ids = flat(t).map((i) => i.id)
-      expect(new Set(ids).size).toBe(ids.length)
+    for (const saved of [false, true]) {
+      for (const t of [torrent(), torrent({ queuePosition: 0 }), torrent({ progress: 1 }), torrent({ state: 'missing' })]) {
+        const ids = flat(t, actions(), saved).map((i) => i.id)
+        expect(new Set(ids).size).toBe(ids.length)
+      }
     }
   })
 

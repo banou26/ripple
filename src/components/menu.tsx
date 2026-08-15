@@ -53,6 +53,20 @@ export const menuStyle = css`
     color: #8b8499;
   }
 
+  &:focus {
+    /* the container takes focus on open, and a ring around the whole menu is noise */
+    outline: none;
+  }
+
+  .passthrough {
+    margin: 4px 0 0;
+    padding: 7px 10px 3px;
+    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    color: #6f6980;
+    font-size: 0.7rem;
+    line-height: 1.35;
+  }
+
   button {
     display: flex;
     align-items: center;
@@ -207,7 +221,33 @@ export const ContextMenu = ({
 
   useEffect(() => {
     const enabled = () => items.current.filter((el): el is HTMLButtonElement => !!el && !el.disabled)
-    enabled()[0]?.focus()
+    /**
+     * The CONTAINER, not the first item.
+     *
+     * Focusing an item draws a focus ring on it, and a ring on the first usable row reads as a
+     * selection the user did not make: the menu opens looking as though "Use the DHT" is already
+     * chosen, and it looks that way every single time because the first usable row rarely changes.
+     * No native context menu does that. Keyboard access is unaffected, because the arrow keys move
+     * INTO the list from here, which is the first thing the handler below does.
+     */
+    // preventScroll, or focusing scrolls the element into view, that scroll reaches the handler
+    // below, and the menu closes itself the instant it opens. Every focus() in this component has
+    // the same hazard, which is why they all carry it.
+    ref.current?.focus({ preventScroll: true })
+
+    /**
+     * Focus a row without letting the browser scroll it into view.
+     *
+     * The menu scrolls internally once the list is long, and a scroll inside it would otherwise
+     * reach the close handler below, so arrowing past the visible rows would shut the menu.
+     * `scrollIntoView` with `block: 'nearest'` does the same job without emitting a scroll the
+     * window hears.
+     */
+    const focusItem = (el: HTMLButtonElement | undefined) => {
+      if (!el) return
+      el.focus({ preventScroll: true })
+      el.scrollIntoView({ block: 'nearest' })
+    }
 
     const onKey = (e: KeyboardEvent) => {
       const list = enabled()
@@ -217,22 +257,33 @@ export const ContextMenu = ({
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         if (!list.length) return
+        // -1 is the container still holding focus, where down means the first row and up means the
+        // last. Falling through to the wrap arithmetic would send up to the second-to-last instead.
+        if (here < 0) { focusItem(e.key === 'ArrowDown' ? list[0] : list[list.length - 1]); return }
         const step = e.key === 'ArrowDown' ? 1 : -1
         // wraps, which is what a menu does and what makes a long list usable from the bottom
-        list[(here + step + list.length) % list.length]?.focus()
+        focusItem(list[(here + step + list.length) % list.length])
         return
       }
-      if (e.key === 'Home') { e.preventDefault(); list[0]?.focus(); return }
-      if (e.key === 'End') { e.preventDefault(); list[list.length - 1]?.focus() }
+      if (e.key === 'Home') { e.preventDefault(); focusItem(list[0]); return }
+      if (e.key === 'End') { e.preventDefault(); focusItem(list[list.length - 1]) }
     }
 
     const onPointerDown = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
-    // A menu anchored to a viewport coordinate is wrong the moment anything scrolls, so it closes
-    // rather than following. `true` for the capture phase: the scroll may be inside the panel the
-    // menu was opened over, and a scroll event on an inner element does not bubble to window.
-    const onScroll = () => onClose()
+    /**
+     * A menu anchored to a viewport coordinate is wrong the moment the page under it scrolls, so it
+     * closes rather than following. `true` for the capture phase: the scroll may be inside the
+     * panel the menu was opened over, and a scroll event on an inner element does not bubble.
+     *
+     * Its OWN scrolling is not that. The list scrolls internally once it is long enough, and
+     * closing on that would make a long menu impossible to reach the bottom of.
+     */
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node && ref.current?.contains(e.target)) return
+      onClose()
+    }
 
     document.addEventListener('keydown', onKey)
     document.addEventListener('pointerdown', onPointerDown, true)
@@ -252,12 +303,18 @@ export const ContextMenu = ({
       ref={ref}
       role="menu"
       aria-label={label}
+      // focusable so the menu itself can hold focus without any row looking chosen
+      tabIndex={-1}
       style={{ left: pos.x, top: pos.y }}
       // the menu owns the right button too: a second right-click inside it should not stack
       // another menu on top of this one
       onContextMenu={(e) => e.preventDefault()}
     >
       <MenuItems groups={groups} onChose={onClose} itemRef={itemRef}/>
+      {/* Taking over the right button removes something the browser normally offers, so the way
+          back is stated rather than left to be discovered. Both modifiers are accepted: Ctrl is
+          the secondary click on macOS, where Shift is the one that reads naturally. */}
+      <p className="passthrough">Shift or Ctrl + right-click for the browser menu</p>
     </div>
   )
 }

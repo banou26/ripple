@@ -64,7 +64,17 @@ const items = () => [...document.querySelectorAll<HTMLButtonElement>('[role^="me
 // the label only: every item also carries a decorative tick span, which is part of textContent
 const labelOf = (el: Element | null | undefined) => el?.querySelector('.text')?.textContent?.trim()
 const byLabel = (label: string) => items().find((el) => labelOf(el) === label)!
-const active = () => labelOf(document.activeElement as HTMLElement)
+/**
+ * The label of the focused ITEM, or undefined when no item has focus.
+ *
+ * Scoped to a menuitem on purpose. Reading `.text` off whatever holds focus finds the first label
+ * in the subtree when that is the menu container, so "nothing is selected" and "the first row is
+ * selected" both answer 'Rarest first' and the assertion that separates them cannot fail.
+ */
+const active = () => {
+  const el = document.activeElement
+  return el?.matches('[role^="menuitem"]') ? labelOf(el) : undefined
+}
 
 describe('the torrent context menu', () => {
   it('is a menu, with each item typed for what it does', async () => {
@@ -84,13 +94,23 @@ describe('the torrent context menu', () => {
     expect(byLabel('Exchange peers').getAttribute('aria-checked')).toBe('false')
   })
 
-  it('puts focus on the first usable item when it opens', async () => {
+  /**
+   * Nothing is pre-selected. Focusing the first usable row draws a ring on it, which reads as a
+   * choice the user did not make, and because the first usable row rarely changes it reads that
+   * way on every single open. Reported from the live site: the menu always looked stuck on
+   * "Use the DHT", which is simply the first row that is not disabled for a finished torrent.
+   */
+  it('opens with no item selected', async () => {
     await mount()
-    expect(active()).toBe('Rarest first')
+    expect(active()).toBeUndefined()
+    expect(document.activeElement).toBe(menu())
+    expect(items().some((el) => el.matches(':focus'))).toBe(false)
   })
 
   it('walks with the arrow keys and wraps at both ends', async () => {
     await mount()
+    // down from the container enters at the top
+    await userEvent.keyboard('{ArrowDown}')
     expect(active()).toBe('Rarest first')
     await userEvent.keyboard('{ArrowDown}')
     expect(active()).toBe('In order')
@@ -99,6 +119,21 @@ describe('the torrent context menu', () => {
     expect(active()).toBe('Remove')
     await userEvent.keyboard('{ArrowDown}')
     expect(active()).toBe('Rarest first')
+  })
+
+  /** Up from the container is the LAST row, not the second-to-last the wrap arithmetic would give. */
+  it('enters at the bottom when the first move is upward', async () => {
+    await mount()
+    await userEvent.keyboard('{ArrowUp}')
+    expect(active()).toBe('Remove')
+  })
+
+  it('tells the user how to reach the browser menu instead', async () => {
+    await mount()
+    const note = menu().querySelector('.passthrough')?.textContent ?? ''
+    expect(note).toMatch(/right-click/i)
+    expect(note).toMatch(/shift/i)
+    expect(note).toMatch(/ctrl/i)
   })
 
   /** A disabled item that can be focused is a dead end the user has to arrow past. */
@@ -129,7 +164,8 @@ describe('the torrent context menu', () => {
     const g = groups()
     const dht = g[1]!.items[0]!
     const { onClose } = await mount({ g })
-    await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    // container -> Rarest first -> In order -> Use the DHT
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}')
     if (dht.kind !== 'toggle') throw new Error('not a toggle')
     expect(dht.apply).toHaveBeenCalledWith(false)
     expect(onClose).toHaveBeenCalled()
@@ -158,11 +194,40 @@ describe('the torrent context menu', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  /** It is placed against viewport coordinates, so it is wrong the instant anything scrolls. */
+  /** It is placed against viewport coordinates, so it is wrong the instant the page scrolls. */
   it('closes rather than following the page when something scrolls', async () => {
     const { onClose } = await mount()
     window.dispatchEvent(new Event('scroll'))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  /**
+   * Its OWN scrolling is not the page moving. The list scrolls internally once it is long, and
+   * closing on that makes the bottom of a long menu unreachable.
+   *
+   * This is the same hazard that made the menu invisible on first release: focusing the container
+   * scrolled it into view, that scroll reached this handler, and the menu shut itself in the same
+   * frame it opened. Every focus() in the component now passes `preventScroll`.
+   */
+  it('survives scrolling inside itself', async () => {
+    const { onClose } = await mount()
+    menu().dispatchEvent(new Event('scroll', { bubbles: false }))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not shut itself while arrowing through a list longer than it is', async () => {
+    const long: OptionGroup[] = [{
+      id: 'many',
+      label: 'Many',
+      items: Array.from({ length: 40 }, (_, i) => ({
+        kind: 'action' as const, id: `i${i}`, label: `Item ${i}`, hint: 'h', run: vi.fn(),
+      })),
+    }]
+    const { onClose } = await mount({ g: long })
+    for (let i = 0; i < 40; i++) await userEvent.keyboard('{ArrowDown}')
+    expect(onClose).not.toHaveBeenCalled()
+    // and it actually walked, rather than never leaving the container
+    expect(active()).toBeDefined()
   })
 
   describe('placement', () => {

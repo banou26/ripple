@@ -33,7 +33,7 @@ import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { buildTorrentOptions } from '../torrent/torrent-options'
-import type { TorrentOptionActions } from '../torrent/torrent-options'
+import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
@@ -1410,6 +1410,10 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
         // hash are there to be copied, and replacing Copy with a torrent menu would take away the
         // only reason to select that text.
         if ((e.target as HTMLElement).closest('.detail .pane')) return
+        // Held modifier means the user wants the browser's menu, not this one. Taking over the
+        // right button removes Inspect, Copy and Save as, and there has to be a way back; the menu
+        // says which keys in its own footer, so the escape hatch is not left to be discovered.
+        if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
@@ -1819,9 +1823,27 @@ const Home = () => {
   // writable leaves the destination at its old size until close(), so the size-based idempotence check cannot catch a second pass over the same files
   const syncingRef = useRef(new Set<string>())
   const folderGenerationRef = useRef(0)
-  useEffect(() => { folderGenerationRef.current++; syncAtRef.current.clear() }, [folder, permitted])
+  /**
+   * Which torrents have actually landed in the user's folder, as STATE rather than a ref.
+   *
+   * The backoff map above is a ref because nothing renders from it. This does render: it decides
+   * whether "Remove from the library" is offered at all, since keeping the files is only a real
+   * choice once the files are somewhere the person can open.
+   */
+  const [savedToFolder, setSavedToFolder] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    folderGenerationRef.current++
+    syncAtRef.current.clear()
+    // a different folder, or a revoked grant, means nothing is known to be mirrored any more
+    setSavedToFolder(new Set())
+  }, [folder, permitted])
   // Both maps are keyed by the session handle, which names a different torrent after the engine moves to another tab
-  useEffect(() => client.onEngineReset(() => { syncAtRef.current.clear(); syncingRef.current.clear() }), [client])
+  useEffect(() => client.onEngineReset(() => {
+    syncAtRef.current.clear()
+    syncingRef.current.clear()
+    // ids are session handles, so after a reset they name different torrents entirely
+    setSavedToFolder(new Set())
+  }), [client])
   useEffect(() => {
     if (!folder || !permitted) return
     const now = Date.now()
@@ -1837,6 +1859,9 @@ const Home = () => {
           if (generation !== folderGenerationRef.current) return
           if (written === null) return
           syncAtRef.current.set(t.id, DONE)
+          // `written` is false for a copy that was already there, which is still "it is in the
+          // folder" and still the thing the removal options need to know
+          setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
           if (written) showToast(`${t.name} saved to ${folder.name}`)
         })
         .catch(() => {
@@ -1847,6 +1872,17 @@ const Home = () => {
         .finally(() => syncingRef.current.delete(t.id))
     }
   }, [torrents, folder, permitted, client, showToast])
+
+  /**
+   * What the option list needs to know about this torrent's surroundings.
+   *
+   * The folder grant has to be live, not merely remembered: a restored directory handle comes back
+   * without permission, and a copy made under a grant the browser has since dropped is not one the
+   * user can be told is still there.
+   */
+  const optionContext = (t: Torrent): TorrentOptionContext => ({
+    savedToUserStorage: !!folder && permitted && savedToFolder.has(t.id),
+  })
 
   const [history, setHistory] = useState<number[]>([])
   useEffect(() => {
@@ -1875,7 +1911,7 @@ const Home = () => {
           viewport; the dialog uses the browser's top layer. */}
       {menu && menuTorrent && (
         <ContextMenu
-          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent))}
+          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent), optionContext(menuTorrent))}
           at={menu.at}
           label={`Options for ${menuTorrent.name}`}
           onClose={() => setMenu(null)}
@@ -1884,7 +1920,7 @@ const Home = () => {
       {optionsTorrent && (
         <TorrentOptionsDialog
           title={optionsTorrent.name}
-          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent))}
+          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent), optionContext(optionsTorrent))}
           onClose={() => setOptionsId(null)}
         />
       )}

@@ -60,6 +60,27 @@ export type OptionGroup = {
   items: OptionItem[]
 }
 
+/**
+ * What is true about this torrent's surroundings, which the torrent itself cannot say.
+ */
+export interface TorrentOptionContext {
+  /**
+   * Whether this torrent's files exist somewhere the person can actually open.
+   *
+   * Ripple downloads into OPFS, which is browser-private storage with no path, no file manager
+   * entry and no way for anyone to reach it except through Ripple. So "remove the torrent and keep
+   * the files" is a real choice only once the bytes have also been written into the folder the user
+   * chose; against OPFS alone it promises to keep something that is not keepable, and quietly
+   * leaves the origin quota spent on data nobody can ever open again.
+   *
+   * The auto-save mirror is the signal actually available. A one-off "Save to disk" also puts the
+   * bytes somewhere real, and leaves no state to observe, so it is not counted; the cost of that is
+   * an option hidden from someone who could have used it, which is the safe direction to be wrong
+   * in.
+   */
+  savedToUserStorage: boolean
+}
+
 /** Everything the option list needs to be able to do. Supplied by whoever renders it. */
 export interface TorrentOptionActions {
   setFlags: (flags: number, mask: number) => void
@@ -80,7 +101,11 @@ const has = (t: Torrent, flag: number) => (t.flags & flag) !== 0
  */
 const isGhost = (t: Torrent) => t.state === 'missing'
 
-export const buildTorrentOptions = (t: Torrent, a: TorrentOptionActions): OptionGroup[] => {
+export const buildTorrentOptions = (
+  t: Torrent,
+  a: TorrentOptionActions,
+  context: TorrentOptionContext = { savedToUserStorage: false },
+): OptionGroup[] => {
   const ghost = isGhost(t) ? 'This torrent is not running on this device.' : undefined
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
@@ -197,45 +222,66 @@ export const buildTorrentOptions = (t: Torrent, a: TorrentOptionActions): Option
     })
   }
 
-  groups.push({
-    id: 'maintenance',
-    label: 'This torrent',
-    items: [
-      {
-        kind: 'action',
-        id: 'toggle-run',
-        label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
-        hint: 'Stops or restarts this torrent without forgetting anything.',
-        disabled: ghost,
-        run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
-      },
-      {
-        kind: 'action',
-        id: 'recheck',
-        label: 'Check the files again',
-        hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
-        disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
-        run: a.recheck,
-      },
-      {
+  const maintenance: OptionItem[] = [
+    {
+      kind: 'action',
+      id: 'toggle-run',
+      label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
+      hint: 'Stops or restarts this torrent without forgetting anything.',
+      disabled: ghost,
+      run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
+    },
+    {
+      kind: 'action',
+      id: 'recheck',
+      label: 'Check the files again',
+      hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
+      disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
+      run: a.recheck,
+    },
+  ]
+
+  /**
+   * Which removals are real for this torrent.
+   *
+   * A ghost has no files here at all, so forgetting the entry is the only thing removal can mean.
+   * A torrent living only in OPFS cannot have its files "kept", because there is nowhere for them
+   * to be kept: offering it would promise something the storage cannot deliver. Only once the
+   * bytes are in the user's own folder do both readings exist, and only then are both offered.
+   */
+  if (isGhost(t)) {
+    maintenance.push({
+      kind: 'action',
+      id: 'remove',
+      label: 'Remove from the library',
+      hint: 'Forgets this entry. Its files are not on this device anyway.',
+      danger: true,
+      run: a.remove,
+    })
+  } else {
+    if (context.savedToUserStorage) {
+      maintenance.push({
         kind: 'action',
         id: 'remove',
         label: 'Remove from the library',
-        hint: 'Forgets the torrent and leaves the downloaded files where they are.',
+        hint: 'Forgets the torrent and stops sharing it. The copy in your folder stays.',
         danger: true,
         run: a.remove,
-      },
-      {
-        kind: 'action',
-        id: 'remove-files',
-        label: 'Remove and delete the files',
-        hint: 'Forgets the torrent and deletes what it downloaded. This cannot be undone.',
-        danger: true,
-        disabled: ghost,
-        run: a.removeWithFiles,
-      },
-    ],
-  })
+      })
+    }
+    maintenance.push({
+      kind: 'action',
+      id: 'remove-files',
+      label: context.savedToUserStorage ? 'Remove and delete Ripple\'s copy' : 'Remove and delete the files',
+      hint: context.savedToUserStorage
+        ? 'Forgets the torrent and frees the space Ripple is using. The copy in your folder stays.'
+        : 'Forgets the torrent and deletes what it downloaded. This cannot be undone.',
+      danger: true,
+      run: a.removeWithFiles,
+    })
+  }
+
+  groups.push({ id: 'maintenance', label: 'This torrent', items: maintenance })
 
   return groups
 }
