@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { userEvent } from '@vitest/browser/context'
 import { useState } from 'react'
 
 import { useConfirm } from './confirm-dialog'
@@ -73,13 +74,16 @@ describe('the confirmation in front of a destructive action', () => {
   it('settles when dismissed with Escape rather than hanging the caller', async () => {
     const screen = await render(<Harness />)
     await screen.getByRole('button', { name: 'Ask' }).click()
-    const dialog = screen.container.querySelector('dialog') as HTMLDialogElement
-    expect(dialog.open).toBe(true)
+    // a portal to the body, and no longer a <dialog>, so it is found by role in the document rather
+    // than by tag inside the render container
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
 
-    dialog.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }))
+    // Escape is handled by the shell's own keydown now, where <dialog> used to raise 'cancel'
+    await userEvent.keyboard('{Escape}')
 
     await expect.element(screen.getByTestId('result')).toHaveTextContent('cancelled')
-    await expect.poll(() => screen.container.querySelector('dialog')).toBeNull()
+    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull()
   })
 
   /**
@@ -120,7 +124,7 @@ describe('the confirmation in front of a destructive action', () => {
     // second time it must not even render, and must still answer true
     await screen.getByRole('button', { name: 'Ask' }).click()
     await expect.element(screen.getByTestId('result')).toHaveTextContent('confirmed')
-    expect(screen.container.querySelector('dialog')).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('does not remember a ticked box when the user cancels', async () => {

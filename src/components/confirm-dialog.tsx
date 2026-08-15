@@ -1,8 +1,10 @@
 // A confirmation the user cannot miss, for the actions that cannot be undone.
 //
-// Built on the native <dialog> with showModal(), which brings the focus trap, Esc to dismiss, the
-// top layer (so no z-index competition with the drop overlay or the embed panel) and inertness of
-// everything behind it. None of that is worth reimplementing.
+// Built on Ripple's own Modal shell rather than <dialog>.showModal(). showModal puts an element in
+// the TOP LAYER, above the entire z-index system, which covered @fkn/lib's broker frame and made an
+// FKN prompt raised during a confirmation impossible to answer. The shell keeps everything showModal
+// was giving us (Esc, a backdrop, a focus trap, inertness behind, focus restored) and gives up only
+// the one thing that was causing the problem. See components/modal.tsx.
 //
 // The API is a promise so a call site stays one line:
 //
@@ -12,7 +14,9 @@
 // these end up half-wired to one call site and missing from the other.
 
 import { css } from '@emotion/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+
+import { Modal } from './modal'
 
 export type ConfirmRequest = {
   title: string
@@ -27,17 +31,10 @@ export type ConfirmRequest = {
 }
 
 const style = css`
-  border: none;
-  padding: 0;
-  background: transparent;
   color: #f4f2f8;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   max-width: min(460px, calc(100vw - 32px));
-
-  &::backdrop {
-    background: rgba(10, 8, 14, 0.62);
-    backdrop-filter: blur(2px);
-  }
+  width: 100%;
 
   .card {
     box-sizing: border-box;
@@ -150,7 +147,6 @@ const remember = (key?: string) => {
 export const useConfirm = () => {
   const [request, setRequest] = useState<ConfirmRequest | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
-  const dialogRef = useRef<HTMLDialogElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const settle = useRef<((ok: boolean) => void) | null>(null)
 
@@ -161,26 +157,8 @@ export const useConfirm = () => {
     return new Promise<boolean>((resolve) => { settle.current = resolve })
   }, [])
 
-  // showModal has to run after the node is in the DOM, and calling it twice throws
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog || !request) return
-    if (!dialog.open) dialog.showModal()
-    /**
-     * Focus the safe action EXPLICITLY, rather than relying on autofocus placement.
-     *
-     * showModal's focusing steps take the first focusable descendant when nothing carries the
-     * autofocus attribute, and with a remember key present that is the "Don't ask again" checkbox,
-     * not a button. Found live: the dialog shipped with focus on the checkbox while the test
-     * asserting "focus is on Cancel" passed, because that test rendered the variant with no
-     * checkbox in the tree. One ref removes the dependence on DOM order entirely.
-     */
-    cancelRef.current?.focus()
-  }, [request])
-
   const close = useCallback((ok: boolean) => {
     if (ok && dontAsk) remember(request?.rememberKey)
-    dialogRef.current?.close()
     setRequest(null)
     // never leave a caller awaiting forever: every exit path runs through here
     settle.current?.(ok)
@@ -189,15 +167,20 @@ export const useConfirm = () => {
 
   const element = request
     ? (
-      <dialog
-        ref={dialogRef}
-        css={style}
-        aria-labelledby="confirm-title"
-        // Esc fires 'cancel' rather than a click, so without this the promise never settles
-        onCancel={(e) => { e.preventDefault(); close(false) }}
-        // the backdrop is part of the dialog's own box, so a click outside the card lands here
-        onClick={(e) => { if (e.target === dialogRef.current) close(false) }}
+      <Modal
+        labelledBy="confirm-title"
+        onClose={() => close(false)}
+        /**
+         * The safe action EXPLICITLY, never the first focusable descendant.
+         *
+         * With a remember key present the first one is the "Don't ask again" checkbox, not a button.
+         * Found live: the dialog shipped with focus on the checkbox while the test asserting "focus
+         * is on Cancel" passed, because that test rendered the variant with no checkbox in the tree.
+         * One ref removes the dependence on DOM order entirely.
+         */
+        initialFocus={cancelRef}
       >
+        <div css={style}>
         <div className="card">
           <h2 id="confirm-title">{request.title}</h2>
           <p>{request.body}</p>
@@ -222,7 +205,8 @@ export const useConfirm = () => {
             </button>
           </div>
         </div>
-      </dialog>
+        </div>
+      </Modal>
     )
     : null
 

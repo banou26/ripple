@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { css } from '@emotion/react'
+
+import { Modal } from './modal'
 
 import type { AddChoices } from '../torrent/add-options'
 import type { SaveLocation } from '../torrent/library'
@@ -13,8 +15,9 @@ import { getHumanReadableByteString } from '../utils/bytes'
 /**
  * What is in this torrent, and which of it do you want?
  *
- * Native `<dialog>` and `showModal()`, matching the other two dialogs, which buys the top layer and
- * the focus trap without reimplementing either.
+ * Ripple's own Modal shell, matching the other two dialogs. Deliberately not `showModal()`: that
+ * puts an element in the top layer, above @fkn/lib's broker frame, so an FKN prompt raised while
+ * this was open could not be answered.
  *
  * It is the same dialog for two arrivals that feel different. A torrent the person added themselves
  * only gets it when they have asked for it, since it is friction in front of a question whose answer
@@ -25,19 +28,7 @@ import { getHumanReadableByteString } from '../utils/bytes'
  */
 
 const style = css`
-  border: none;
-  padding: 0;
-  background: none;
-  max-width: none;
-  max-height: none;
   width: 100%;
-  height: 100%;
-
-  &::backdrop {
-    background: rgba(8, 6, 12, 0.72);
-    backdrop-filter: blur(3px);
-  }
-
   display: flex;
   align-items: center;
   justify-content: center;
@@ -241,18 +232,9 @@ export const AddTorrentDialog = ({
   /** absent for an external add, where switching the step off is not on offer */
   onNeverAsk?: () => void
 }) => {
-  const ref = useRef<HTMLDialogElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const [neverAsk, setNeverAsk] = useState(false)
 
-  useEffect(() => {
-    const dialog = ref.current
-    if (!dialog) return
-    if (!dialog.open) dialog.showModal()
-    // Cancel, not Add. showModal's own rule would land on the first focusable control, which arms
-    // Enter to accept something nobody has read yet, and this one is a stranger's proposal.
-    cancelRef.current?.focus()
-  }, [])
 
   const ready = files.length > 0
   const problem = ready ? choicesProblem(choices) : null
@@ -268,13 +250,8 @@ export const AddTorrentDialog = ({
   }
 
   return (
-    <dialog
-      ref={ref}
-      css={style}
-      aria-labelledby="add-torrent-title"
-      onCancel={(e) => { e.preventDefault(); onCancel() }}
-      onClick={(e) => { if (e.target === ref.current) onCancel() }}
-    >
+    <Modal labelledBy="add-torrent-title" onClose={onCancel} initialFocus={cancelRef}>
+      <div css={style}>
       <div className="card">
         <header>
           <h2 id="add-torrent-title">{name}</h2>
@@ -396,7 +373,8 @@ export const AddTorrentDialog = ({
           <button className="primary" onClick={confirm} disabled={!ready || !!problem}>Add torrent</button>
         </footer>
       </div>
-    </dialog>
+      </div>
+    </Modal>
   )
 }
 

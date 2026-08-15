@@ -2248,12 +2248,12 @@ const Home = () => {
 
   return (
     <div css={style} data-drag={dragging || undefined}>
-      {/* Rendered here rather than beside the row that asks: showModal() puts it in the top layer,
-          so its position in the tree does not affect stacking, and one instance serves every caller. */}
+      {/* Rendered here rather than beside the row that asks: the Modal shell portals to the body, so
+          its position in the tree does not affect stacking, and one instance serves every caller. */}
       {confirmElement}
       {/* Both are rendered from here rather than from the row: only one may be open at a time, and
           each has to sit above every row rather than inside one. The menu is positioned against the
-          viewport; the dialog uses the browser's top layer. */}
+          viewport; the dialog portals to the body, one step below the broker frame. */}
       {menu && menuTorrent && (
         <ContextMenu
           groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent), optionContext(menuTorrent))}

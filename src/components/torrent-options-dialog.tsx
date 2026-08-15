@@ -1,7 +1,9 @@
 import type { OptionGroup } from '../torrent/torrent-options'
 
 import { css } from '@emotion/react'
-import { useEffect, useRef } from 'react'
+
+import { Modal } from './modal'
+import { useRef } from 'react'
 
 /**
  * The same options as the right-click menu, with room to explain them.
@@ -12,22 +14,15 @@ import { useEffect, useRef } from 'react'
  * That difference is the reason for two surfaces rather than one: changing three settings in a
  * menu means opening it three times.
  *
- * Native `<dialog>` + `showModal()`, matching confirm-dialog, which buys the top layer, the
- * backdrop, focus containment and Escape without reimplementing any of it.
+ * Ripple's own Modal shell, matching confirm-dialog, which buys Esc, a backdrop, focus containment
+ * and inertness behind without reimplementing any of it.
  */
 
 const style = css`
-  border: none;
-  padding: 0;
-  background: none;
   color: #f4f2f8;
+  width: 100%;
   max-width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
-
-  &::backdrop {
-    background: rgba(10, 8, 14, 0.6);
-    backdrop-filter: blur(2px);
-  }
 
   .card {
     display: flex;
@@ -211,27 +206,12 @@ export const TorrentOptionsDialog = ({
   groups: OptionGroup[]
   onClose: () => void
 }) => {
-  const ref = useRef<HTMLDialogElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    const dialog = ref.current
-    if (!dialog) return
-    if (!dialog.open) dialog.showModal()
-    // Explicitly, rather than leaving it to showModal's first-focusable rule, which would land on
-    // whichever option happens to be first and arm Enter to change a setting the user has not read.
-    closeRef.current?.focus()
-  }, [])
 
   return (
-    <dialog
-      ref={ref}
-      css={style}
-      aria-labelledby="torrent-options-title"
-      onCancel={(e) => { e.preventDefault(); onClose() }}
-      // the backdrop belongs to the dialog's own box, so a click outside the card lands here
-      onClick={(e) => { if (e.target === ref.current) onClose() }}
-    >
+    <Modal labelledBy="torrent-options-title" onClose={onClose} initialFocus={closeRef}>
+      <div css={style}>
       <div className="card">
         <header>
           <h2 id="torrent-options-title">{title}</h2>
@@ -302,6 +282,7 @@ export const TorrentOptionsDialog = ({
           <button type="button" ref={closeRef} onClick={onClose}>Done</button>
         </footer>
       </div>
-    </dialog>
+      </div>
+    </Modal>
   )
 }

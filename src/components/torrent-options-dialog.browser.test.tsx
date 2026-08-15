@@ -42,8 +42,8 @@ const groups = (): OptionGroup[] => [
 const mount = async (g: OptionGroup[] = groups()) => {
   const onClose = vi.fn()
   render(<TorrentOptionsDialog title="Big Buck Bunny" groups={g} onClose={onClose}/>)
-  // showModal and the focus move both live in an effect, so nothing here is true on the first turn
-  await expect.poll(() => document.querySelector('dialog[open]')).not.toBeNull()
+  // the portal and the focus move both live in an effect, so nothing here is true on the first turn
+  await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull()
   return { onClose, g }
 }
 
@@ -54,7 +54,7 @@ const byLabel = (label: string) =>
 describe('the torrent options dialog', () => {
   it('names the torrent it is about', async () => {
     await mount()
-    const dialog = document.querySelector('dialog')!
+    const dialog = document.querySelector('[role="dialog"]')!
     const title = document.getElementById(dialog.getAttribute('aria-labelledby')!)
     expect(title?.textContent).toBe('Big Buck Bunny')
   })
