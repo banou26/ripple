@@ -118,6 +118,7 @@ const SYNC_DETAIL: Record<SyncReason, string> = {
   'account-unknown': 'Waiting until your account identifies itself, so libraries cannot be mixed up.',
   locked: 'Your storage is locked. Unlock it to sync again.',
   'read-failed': 'Your saved library could not be read, so it has been left untouched. Retrying.',
+  'read-timeout': 'FKN did not answer in time, so your saved library was left untouched. Retrying.',
   'switch-unverified': 'Waiting to read this account\'s library before replacing the one on this device.',
   'write-failed': 'This device\'s library could not be saved. It will retry on the next change.',
 }

@@ -40,6 +40,12 @@ export type SyncReason =
   | 'locked'
   /** The backup exists and could not be read, which is never a reason to overwrite it. */
   | 'read-failed'
+  /**
+   * The broker did not answer the read inside the bound. Separated from `read-failed` because the
+   * two want opposite responses: a real read error is about storage, while this is usually the
+   * broker being starved by whatever else the tab is doing, and the retry underneath will clear it.
+   */
+  | 'read-timeout'
   /** The account changed and the new one's backup could not be read, so the local list is held. */
   | 'switch-unverified'
   /** The library was read, and writing it back did not land. */
@@ -115,9 +121,13 @@ export const useCloudBackup = (): SyncState => {
     if (!owned) return
     // every call site names a status and, when it is not a healthy one, why. The log line is what
     // makes the next report of this answerable from a console rather than from six candidate paths.
-    const setStatus = (status: SyncStatus, reason: SyncReason | null = null) => {
+    const setStatus = (status: SyncStatus, reason: SyncReason | null = null, detail?: string) => {
       setState({ status, reason })
-      if (reason) console.warn(`[ripple] library sync ${status}: ${reason}`)
+      // The reason names WHICH path; `detail` carries what the layer underneath actually said,
+      // because the reason alone leaves a second round of this question to answer. Measured on the
+      // live site on 2026-08-16: `read-failed` located the path in one reload and still could not
+      // say whether storage had refused the read or simply not answered in time.
+      if (reason) console.warn(`[ripple] library sync ${status}: ${reason}${detail ? ` (${detail})` : ''}`)
     }
     let cancelled = false
     let connected = false
@@ -211,13 +221,20 @@ export const useCloudBackup = (): SyncState => {
       let text: string | null = null
       let missing = false
       let locked = false
+      let timedOut = false
+      let failure = ''
       try {
         const read = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
-        if (read === null) throw new Error('broker timed out')
-        text = read
+        // `bounded` reports its own timeout by resolving to the fallback rather than throwing, so
+        // this is the ONLY place the two can still be told apart. Folding it into the catch below
+        // as a synthetic error is what made a starved broker indistinguishable from storage
+        // refusing the read.
+        if (read === null) timedOut = true
+        else text = read
       } catch (err) {
+        failure = (err as { message?: string })?.message ?? String(err)
         // Anything other than a definitive "not found" or unreadable bytes is transient and must never seed over a backup that may still be good
-        missing = /not found/i.test((err as { message?: string })?.message ?? '') || isUnreadable(err)
+        missing = /not found/i.test(failure) || isUnreadable(err)
         locked = isLocked(err)
       }
       if (stale()) return
@@ -263,7 +280,7 @@ export const useCloudBackup = (): SyncState => {
         setStatus('synced')
         if (latest.length) schedule()
       } else {
-        setStatus('error', 'read-failed')
+        setStatus('error', timedOut ? 'read-timeout' : 'read-failed', timedOut ? undefined : failure)
         retryLater(attempt)
       }
     }
