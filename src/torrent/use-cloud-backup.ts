@@ -17,6 +17,70 @@ const BROKER_TIMEOUT = 10_000
 
 export type SyncStatus = 'off' | 'syncing' | 'synced' | 'error'
 
+/**
+ * Which of the several ways this can go is the one that went, because from outside they are
+ * identical and none of them says what to do about it.
+ *
+ * Every terminal state here used to render as one of two things: the words "Sync failed", or
+ * nothing at all. Six distinct causes shared the first and two shared the second, so a report of
+ * "my library says sync failed" narrowed it down to six code paths and a report of silence
+ * narrowed it down to nothing whatsoever, since silence is also what a user who never signed in
+ * correctly sees.
+ */
+export type SyncReason =
+  /** No account, so there is nowhere to sync to and nothing is wrong. */
+  | 'signed-out'
+  /** Signed in, but no storage grant came back. Transient far more often than not: see `restore`. */
+  | 'no-storage-grant'
+  /** The broker did not answer at all within the bound. */
+  | 'broker-timeout'
+  /** Signed in, and the account did not name itself, so a merge could hand one library to another. */
+  | 'account-unknown'
+  /** The storage scope is locked and the unlock did not take. */
+  | 'locked'
+  /** The backup exists and could not be read, which is never a reason to overwrite it. */
+  | 'read-failed'
+  /** The account changed and the new one's backup could not be read, so the local list is held. */
+  | 'switch-unverified'
+  /** The library was read, and writing it back did not land. */
+  | 'write-failed'
+
+export interface SyncState {
+  status: SyncStatus
+  /** Null while syncing or synced, since neither needs explaining. */
+  reason: SyncReason | null
+}
+
+/**
+ * What a storage-availability answer means for a session that may or may not have an account.
+ *
+ * `cloud.fs.available()` reads like a static capability check and is not one: it resolves a connect
+ * token through the broker and the SharedWorker behind it, and that pull has its own timeout, so a
+ * signed-in account with a momentarily unreachable broker answers exactly the same `false` as a
+ * user who is not signed in at all.
+ *
+ * Treating the two alike is what made this terminal. `false` parked the hook on 'off', which
+ * schedules no retry and renders nothing, so a transient token pull at page load turned into a
+ * library that was silently never backed up for the rest of the session. Nothing re-armed it:
+ * `account.onChange` only fires on a change, and the account had not changed.
+ *
+ * Observed on the live site on 2026-08-16, signed in, Premium, with `account.info()` answering
+ * normally and the sync stat absent from the page entirely.
+ */
+export const classifyAvailability = (
+  available: boolean | null,
+  signedIn: boolean,
+): { connected: boolean, status: SyncStatus, reason: SyncReason | null, retry: boolean } => {
+  if (available === null) return { connected: false, status: 'error', reason: 'broker-timeout', retry: true }
+  if (available) return { connected: true, status: 'syncing', reason: null, retry: false }
+  // The asymmetry is deliberate. Parking is right for a signed-out user and `account.onChange`
+  // covers them signing in, so retrying would only add noise. For a signed-in one there is no
+  // second event coming, and the retry is a token lookup that costs no network when there is
+  // nothing to look up.
+  if (signedIn) return { connected: false, status: 'error', reason: 'no-storage-grant', retry: true }
+  return { connected: false, status: 'off', reason: 'signed-out', retry: false }
+}
+
 // Resolves once the first cloud restore has settled; useTorrents waits on this before deciding to seed the demo
 let settle: () => void
 export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = resolve })
@@ -40,15 +104,21 @@ const bounded = <T>(work: Promise<T>, fallback: T, ms = BROKER_TIMEOUT): Promise
 const accountName = (): Promise<string | null> =>
   bounded(account.info().then((a) => a?.name ?? null), null, 4_000).catch(() => null)
 
-export const useCloudBackup = (): SyncStatus => {
+export const useCloudBackup = (): SyncState => {
   const client = getTorrentClient()
-  const [status, setStatus] = useState<SyncStatus>('off')
+  const [state, setState] = useState<SyncState>({ status: 'off', reason: 'signed-out' })
   // Only the tab hosting the engine syncs: one writer, and it is the tab that owns the library
   const [owned, setOwned] = useState(false)
   useEffect(() => client.onOwnership(setOwned), [client])
 
   useEffect(() => {
     if (!owned) return
+    // every call site names a status and, when it is not a healthy one, why. The log line is what
+    // makes the next report of this answerable from a console rather than from six candidate paths.
+    const setStatus = (status: SyncStatus, reason: SyncReason | null = null) => {
+      setState({ status, reason })
+      if (reason) console.warn(`[ripple] library sync ${status}: ${reason}`)
+    }
     let cancelled = false
     let connected = false
     let restored = false
@@ -92,7 +162,7 @@ export const useCloudBackup = (): SyncStatus => {
             if (cancelled) return
           }
         }
-        setStatus('error')
+        setStatus('error', 'write-failed')
       }
     }
     const schedule = () => { pending = true; window.clearTimeout(timer); timer = window.setTimeout(write, WRITE_DEBOUNCE) }
@@ -119,14 +189,23 @@ export const useCloudBackup = (): SyncStatus => {
       let available: boolean | null = null
       try { available = await bounded<boolean | null>(cloud.fs.available().then(Boolean), null) } catch {}
       if (stale()) return
-      if (available === null) { setStatus('error'); retryLater(attempt); return }
-      connected = available
-      if (!connected) { setStatus('off'); return }
 
+      // asked BEFORE the availability is judged, because a `false` means opposite things depending
+      // on the answer: no account is the correct resting state, an account is a grant that should
+      // be there and is not
       const name = await accountName()
       if (stale()) return
+
+      const verdict = classifyAvailability(available, name !== null)
+      connected = verdict.connected
+      if (!connected) {
+        setStatus(verdict.status, verdict.reason)
+        if (verdict.retry) retryLater(attempt)
+        return
+      }
+
       // A null name is "we do not know who this is", not "nobody": merging the local list into that account's backup would hand one user's library to another
-      if (name === null && currentAccount() !== null) { setStatus('error'); retryLater(attempt); return }
+      if (name === null && currentAccount() !== null) { setStatus('error', 'account-unknown'); retryLater(attempt); return }
 
       setStatus('syncing')
       let text: string | null = null
@@ -151,7 +230,7 @@ export const useCloudBackup = (): SyncStatus => {
           try { await bounded(cloud.fs.unlock(), false) } catch {}
           if (stale()) return
         }
-        setStatus('error')
+        setStatus('error', 'locked')
         retryLater(attempt)
         return
       }
@@ -160,7 +239,7 @@ export const useCloudBackup = (): SyncStatus => {
       const previous = currentAccount()
       const switched = !!name && !!previous && previous !== name
       if (switched && text === null && !missing) {
-        setStatus('error')
+        setStatus('error', 'switch-unverified')
         retryLater(attempt)
         return
       }
@@ -184,7 +263,7 @@ export const useCloudBackup = (): SyncStatus => {
         setStatus('synced')
         if (latest.length) schedule()
       } else {
-        setStatus('error')
+        setStatus('error', 'read-failed')
         retryLater(attempt)
       }
     }
@@ -211,5 +290,5 @@ export const useCloudBackup = (): SyncStatus => {
     }
   }, [client, owned])
 
-  return status
+  return state
 }
