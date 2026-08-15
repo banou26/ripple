@@ -64,6 +64,15 @@ export type Torrent = {
    * library ghost, which has no engine state to report.
    */
   stats: TorrentStats | null
+  /**
+   * The folder this device copied the files into before letting go of its own copy.
+   *
+   * Present only on a library ghost, and it is what separates the two ways a row can have no bytes
+   * behind it: "this was never downloaded here" and "this is on your disk, Ripple just stopped
+   * keeping a second copy". The second one should not be offering to fetch it again as if it were
+   * gone.
+   */
+  savedTo?: { name: string, at: number }
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'

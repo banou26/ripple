@@ -93,6 +93,8 @@ export interface TorrentOptionActions {
   resume: () => void
   remove: () => void
   removeWithFiles: () => void
+  /** Delete this device's copy and keep the library row, for a torrent already in the user's folder. */
+  release: () => void
   /** Open the player. Only reachable when the torrent has something playable in it. */
   watch: () => void
   /** Write it out: one file to disk, or the whole torrent as a zip when there is more than one. */
@@ -145,8 +147,13 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'start',
-      label: 'Download to this device',
-      hint: 'This torrent is in your library but not on this device. This fetches it again.',
+      // A ghost carrying `savedTo` is not missing, it is on their disk with no second copy here. The
+      // two cases want the same button and a different sentence, because fetching it again is a
+      // recovery in one reading and a duplicate download in the other.
+      label: t.savedTo ? 'Download it here again' : 'Download to this device',
+      hint: t.savedTo
+        ? `The files are in ${t.savedTo.name}, and Ripple is not keeping its own copy. Fetching it again is what it takes to share it.`
+        : 'This torrent is in your library but not on this device. This fetches it again.',
       run: a.start,
     })
   }
@@ -340,6 +347,25 @@ export const buildTorrentOptions = (
     })
   } else {
     if (context.savedToUserStorage) {
+      /**
+       * Freeing the space without losing the torrent.
+       *
+       * Ripple downloads into OPFS and the auto-save mirror then writes the same bytes into the
+       * user's folder, so a mirrored torrent is stored twice on one disk and one of the two copies
+       * is browser-private storage nobody can open. This drops that one.
+       *
+       * It is not free, and the hint says so rather than burying it: libtorrent serves uploads by
+       * reading the files back, so a torrent with nothing here to read cannot share. That is the
+       * whole cost, and it is why this is an action someone chooses rather than something that
+       * happens on its own.
+       */
+      maintenance.push({
+        kind: 'action',
+        id: 'release',
+        label: 'Free Ripple\'s copy',
+        hint: 'Deletes the second copy Ripple keeps in browser storage and leaves yours alone. The torrent stays in your library, and stops being shared.',
+        run: a.release,
+      })
       maintenance.push({
         kind: 'action',
         id: 'remove',

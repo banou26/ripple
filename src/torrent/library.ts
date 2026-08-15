@@ -10,10 +10,15 @@
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
+// savedTo records that this device wrote the files into a folder of the user's and then let go of its own copy, which is why the row survives with no bytes behind it
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
+  savedTo?: SavedTo,
 }
+
+/** The folder this device copied a torrent into, and when. Device-local, like `started` and `paused`. */
+export type SavedTo = { name: string, at: number }
 
 /**
  * The save root every torrent used before per-torrent directories.
@@ -45,6 +50,9 @@ export const ownsItsDirectory = (savePath: string | undefined, infoHash: string)
  * - `ephemeral` is an AND, so a deliberate add clears it for good and two player adds cannot put a
  *   torrent the user claimed back into the reclaimable cache.
  * - `addedAt` keeps the earliest and `lastUsedAt` the latest, which is what each one means.
+ * - `savedTo` comes from the INCOMING entry, by falling out of the spread, and that is the wanted
+ *   behaviour rather than an oversight: an add is a fresh copy being downloaded into this browser,
+ *   so a record saying the last copy was handed to a folder no longer describes anything.
  */
 export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): Persisted =>
   was

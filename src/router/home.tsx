@@ -21,6 +21,7 @@ import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
+import { FREE_AFTER_SAVE_KEY } from '../torrent/constants'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -1588,7 +1589,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, release, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -1856,6 +1857,7 @@ const Home = () => {
     else remove(Number(t.id), false)
   }
 
+
   /**
    * Which torrent's options are open, and in which surface. Held here rather than per row because
    * only one may be open at a time, and because both surfaces have to sit above every row.
@@ -1892,6 +1894,7 @@ const Home = () => {
     resume: () => resume(Number(t.id)),
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
+    release: () => { void onRelease(t) },
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
@@ -1937,6 +1940,52 @@ const Home = () => {
   }
 
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
+
+  /**
+   * Drop Ripple's own copy of something already written into the user's folder.
+   *
+   * This is the one removal that is not a removal: the library row stays, so the torrent is still
+   * theirs and still listed, it just has no bytes on this device any more. What it costs is sharing,
+   * because libtorrent uploads by reading the files back and there is nothing here left to read.
+   * Confirmed for that reason alone, and rememberable, since somebody who wants the space back
+   * usually wants it back for every torrent rather than once.
+   *
+   * Deliberately NOT offered for a one-off "Save to disk": that leaves no record, so there would be
+   * nothing to check before deleting the only copy Ripple can still see.
+   */
+  const onRelease = async (t: Torrent) => {
+    if (!folder) return
+    const freed = getHumanReadableByteString(t.downloaded ?? 0, true)
+    const ok = await confirm({
+      title: `Free Ripple's copy of ${t.name}?`,
+      body: `Your copy in ${folder.name} stays exactly where it is. This deletes the ${freed} Ripple is holding in browser storage, and stops sharing the torrent, because sharing means reading those files back.`,
+      confirmLabel: 'Free the space',
+      rememberKey: 'ripple:confirm-release',
+    })
+    if (!ok) return
+    release(Number(t.id), { name: folder.name, at: Date.now() })
+    showToast(`Freed Ripple's copy of ${t.name}`)
+  }
+
+  /**
+   * Whether a torrent that has landed in the user's folder should give up Ripple's own copy.
+   *
+   * Off by default and it stays that way, because the space is not free: libtorrent uploads by
+   * reading the files back, so a released torrent cannot be shared. Somebody who wants a browser
+   * that does not quietly hold a second copy of everything can say so, and nobody has it decided
+   * for them.
+   */
+  const [freeAfterSave, setFreeAfterSave] = useState(() => {
+    try { return localStorage.getItem(FREE_AFTER_SAVE_KEY) === '1' } catch { return false }
+  })
+  const toggleFreeAfterSave = (on: boolean) => {
+    setFreeAfterSave(on)
+    try { localStorage.setItem(FREE_AFTER_SAVE_KEY, on ? '1' : '0') } catch {}
+  }
+  // read inside the mirror's callback, which is created once per effect run and would otherwise
+  // close over whatever the setting was when the copy STARTED rather than when it finished
+  const freeAfterSaveRef = useRef(freeAfterSave)
+  freeAfterSaveRef.current = freeAfterSave
 
   // The backoff is what makes retrying safe: this effect re-runs twice a second from the state tick, so a bare retry would hammer the disk
   const syncAtRef = useRef(new Map<string, number>())
@@ -1984,6 +2033,12 @@ const Home = () => {
           // folder" and still the thing the removal options need to know
           setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
           if (written) showToast(`${t.name} saved to ${folder.name}`)
+          // Only now, and only because the copy resolved: syncTorrentToDirectory checks the CONTENT
+          // of anything it decides not to rewrite, so reaching here means every file is present and
+          // matches. `ifIdle` leaves anything being read alone, and the mirror comes back around.
+          if (freeAfterSaveRef.current) {
+            release(Number(t.id), { name: folder.name, at: Date.now() }, true)
+          }
         })
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
@@ -2261,6 +2316,19 @@ const Home = () => {
                     </>
                   )
                   : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
+              {folder && permitted && (
+                <button
+                  className={freeAfterSave ? 'on' : undefined}
+                  onClick={() => toggleFreeAfterSave(!freeAfterSave)}
+                  title={
+                    freeAfterSave
+                      ? `Once a torrent is verified in ${folder.name}, Ripple deletes its own copy from browser storage. It stops sharing those torrents, because sharing means reading the files back.`
+                      : `Ripple keeps its own copy in browser storage as well as the one in ${folder.name}, so saved torrents are stored twice and stay shared.`
+                  }
+                >
+                  {freeAfterSave ? 'Keeping one copy' : 'Keeping two copies'}
+                </button>
+              )}
             </div>
           )}
         </div>

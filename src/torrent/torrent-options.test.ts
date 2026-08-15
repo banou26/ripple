@@ -71,6 +71,7 @@ const actions = () => ({
   resume: vi.fn(),
   remove: vi.fn(),
   removeWithFiles: vi.fn(),
+  release: vi.fn(),
   watch: vi.fn(),
   save: vi.fn(),
   embed: vi.fn(),
@@ -260,6 +261,43 @@ describe('the torrent option list', () => {
       expect(find(torrent(), 'remove-files', actions(), true)!.label).toBe("Remove and delete Ripple's copy")
     })
 
+    /**
+     * The third removal, which is not one.
+     *
+     * A mirrored torrent is stored twice on one disk, and one of the two copies is browser-private
+     * storage nobody can open. Dropping that one is not the same request as forgetting the torrent,
+     * so it is not the same item: the library row survives, and what is actually lost is sharing,
+     * because libtorrent uploads by reading the files back.
+     */
+    it('offers freeing Ripple\'s copy only once there is another one', () => {
+      expect(flat(torrent(), actions(), false).map((i) => i.id)).not.toContain('release')
+      expect(flat(torrent(), actions(), true).map((i) => i.id)).toContain('release')
+    })
+
+    it('is not marked destructive, because the files survive it', () => {
+      const item = find(torrent(), 'release', actions(), true)!
+      expect(item.kind === 'action' && item.danger).toBeFalsy()
+    })
+
+    it('says out loud that it stops sharing, since that is the whole cost', () => {
+      expect(find(torrent(), 'release', actions(), true)!.hint).toMatch(/stops being shared/)
+    })
+
+    it('runs the release rather than either removal', () => {
+      const a = actions()
+      const item = find(torrent(), 'release', a, true)!
+      if (item.kind !== 'action') throw new Error('not an action')
+      item.run()
+      expect(a.release).toHaveBeenCalled()
+      expect(a.remove).not.toHaveBeenCalled()
+      expect(a.removeWithFiles).not.toHaveBeenCalled()
+    })
+
+    it('is never offered for a ghost, which has nothing here to free', () => {
+      const ids = flat(torrent({ state: 'missing' }), actions(), true).map((i) => i.id)
+      expect(ids).not.toContain('release')
+    })
+
     it('separates the two, and marks both as destructive', () => {
       const a = actions()
       const keep = find(torrent(), 'remove', a, true)!
@@ -272,6 +310,32 @@ describe('the torrent option list', () => {
       expect(a.removeWithFiles).not.toHaveBeenCalled()
       wipe.run()
       expect(a.removeWithFiles).toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * A ghost with no bytes here means two different things, and the row must not read the same way for
+   * both. "Never downloaded here" wants a plain fetch; "on your disk, Ripple just is not keeping a
+   * second copy" is not missing at all, and offering to fetch it as if it were lost invites somebody
+   * to download a file they are already looking at.
+   */
+  describe('a ghost that was released rather than lost', () => {
+    const released = torrent({ state: 'missing', savedTo: { name: 'Downloads', at: 1 } })
+
+    it('still offers the fetch, because sharing needs the bytes back here', () => {
+      expect(flat(released, actions(), false).map((i) => i.id)).toContain('start')
+    })
+
+    it('names the folder rather than calling the torrent missing', () => {
+      const item = find(released, 'start')!
+      expect(item.hint).toContain('Downloads')
+      expect(item.hint).not.toMatch(/not on this device/)
+    })
+
+    it('leaves an ordinary ghost saying exactly what it said before', () => {
+      const item = find(torrent({ state: 'missing' }), 'start')!
+      expect(item.label).toBe('Download to this device')
+      expect(item.hint).toMatch(/not on this device/)
     })
   })
 

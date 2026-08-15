@@ -1,5 +1,6 @@
 import type { Torrent, TorrentState } from './types'
 import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './client'
+import type { SavedTo } from './library'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -111,6 +112,7 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   flags: 0,
   queuePosition: -1,
   stats: null,
+  savedTo: e.savedTo,
 })
 
 export type UseTorrents = {
@@ -122,6 +124,8 @@ export type UseTorrents = {
   retry: (handle: number) => void
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
+  /** Drop this device's copy of a mirrored torrent and keep its library row. */
+  release: (handle: number, savedTo: SavedTo, ifIdle?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   storageUnavailable: boolean
@@ -197,7 +201,8 @@ export const useTorrents = (): UseTorrents => {
   const retry = useCallback((handle: number) => client.retry(handle), [client])
   const recheck = useCallback((handle: number) => client.recheck(handle), [client])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
+  const release = useCallback((handle: number, savedTo: SavedTo, ifIdle?: boolean) => client.release(handle, savedTo, ifIdle), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
+  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, release, start, removeMissing, storageUnavailable, workerError, reachable, client }
 }

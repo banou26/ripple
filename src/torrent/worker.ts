@@ -20,7 +20,7 @@ import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'release', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -482,18 +482,35 @@ const settleAfterDelete = async (before: number): Promise<Space | null> => {
   return measureSpace()
 }
 
-const evict = async (live: Session, h: number, ih: string) => {
-  failReads(h, 'torrent removed to make room')
+/**
+ * Give up the bytes and keep the row.
+ *
+ * The list entry SURVIVES. It is the user's library row and it is mirrored to their other devices,
+ * so removing it would propagate a deletion they never asked for; only the bytes behind it were ever
+ * replaceable, and the row goes back to the same "files missing" state a wiped site leaves, with the
+ * same Download button.
+ *
+ * Order is not arrangeable. The torrent is removed BEFORE anything else so libtorrent closes its
+ * sync access handles and deletes the files itself: while those handles are open, OPFS refuses the
+ * removal outright, and a file deleted out from under a live torrent is re-created empty on the next
+ * read (`opfs.ts` opens with `create: true` and zero-fills a short read), so the engine would hand
+ * back zeros with no error anywhere.
+ *
+ * The resume blob has to go with it, and this is the one step where forgetting is silent rather than
+ * loud: `check()` answers no_error when no file holds bytes, which means "trust what you have" and
+ * NOT "verify", so a surviving have-set is believed rather than caught.
+ */
+const releaseStorage = async (live: Session, h: number, ih: string, reason: string, patch: Partial<Persisted> = {}) => {
+  failReads(h, reason)
   live.removeTorrent(h, true)
   untrack(h)
   // the saved have-set now describes files that do not exist
   await del(resumeKey(ih)).catch(() => {})
-  // The list entry SURVIVES. It is the user's library row and it is mirrored to their other
-  // devices, so removing it would propagate a deletion they never asked for; only the bytes behind
-  // it were ever a cache, and the row goes back to the same "files missing" state a wiped site
-  // leaves, with the same Download button.
-  await patchList(ih, { started: false, paused: false })
+  await patchList(ih, { started: false, paused: false, ...patch })
 }
+
+const evict = (live: Session, h: number, ih: string) =>
+  releaseStorage(live, h, ih, 'torrent removed to make room')
 
 const collectCandidates = async (list: Persisted[], now: number): Promise<EvictionCandidate[]> => {
   const byHash = new Map(list.map((e) => [e.infoHash, e]))
@@ -885,6 +902,18 @@ const handleMessage = async (session: Session, m: any) => {
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
+    } else if (m.type === 'release') {
+      // the copy is in a folder of theirs now, so this device stops holding a second one. Only the
+      // bytes go: the library row stays, carrying where they went.
+      const ih = infoHashByHandle.get(m.handle)
+      // `ifIdle` is the automatic path asking, and it must never pull the file out from under a
+      // player: releasing fails every in-flight read, which is fine for something someone just
+      // clicked and not for something a setting decided while they were watching. A skip needs no
+      // reply, because the mirror runs again on the next tick and will find the same torrent.
+      const busy = (viewers.get(m.handle)?.size ?? 0) > 0 || (readsByHandle.get(m.handle)?.size ?? 0) > 0
+      if (ih && !(m.ifIdle && busy)) {
+        await releaseStorage(session, m.handle, ih, 'this device released its copy', { savedTo: m.savedTo })
+      }
     } else if (m.type === 'import-list') {
       const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
       let list: Persisted[] = []

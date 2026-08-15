@@ -1,4 +1,5 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+import type { SavedTo } from './library'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -82,6 +83,19 @@ export type TorrentClient = {
   retry: (handle: number) => void
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
+  /**
+   * Hand the bytes back to the browser and keep the library row.
+   *
+   * Not `remove(handle, true)` with a flag: that one forgets the torrent, which is the right answer
+   * when someone is finished with it and the wrong one when the point is that they still have the
+   * files, just not here. The row survives carrying `savedTo`, so it reads as being in their folder
+   * rather than as missing, and sharing stops because there is nothing left here to serve.
+   *
+   * `ifIdle` is the automatic path asking, and it means "skip this one if anybody is reading it".
+   * A release fails every in-flight read, which is a fair price for something the user just clicked
+   * and not for something a setting decided while they were watching.
+   */
+  release: (handle: number, savedTo: SavedTo, ifIdle?: boolean) => void
   destroy: () => void
 }
 
@@ -328,6 +342,7 @@ const createTorrentClient = (): EngineClient => {
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
+    release: (handle, savedTo, ifIdle = false) => send({ type: 'release', handle, savedTo, ifIdle }),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
