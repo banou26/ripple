@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import type { Reachability } from '../torrent/client'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
-import type { SyncStatus } from '../torrent/use-cloud-backup'
+import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
 import { Folder } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
@@ -100,11 +100,31 @@ const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) 
   </div>
 )
 
-const SyncStat = ({ status }: { status: SyncStatus }) => {
+/**
+ * One line each, because a stat strip is not the place for a paragraph and a new user has no idea
+ * what a connect grant is. The distinction that matters to them is whether their library is safe
+ * somewhere else, and whether they need to do anything about it.
+ */
+const SYNC_DETAIL: Record<SyncReason, string> = {
+  'signed-out': 'Connect an account to keep your library across devices.',
+  'no-storage-grant': 'Your account is connected but storage did not answer. Retrying.',
+  'broker-timeout': 'FKN did not respond in time. Retrying.',
+  'account-unknown': 'Waiting until your account identifies itself, so libraries cannot be mixed up.',
+  locked: 'Your storage is locked. Unlock it to sync again.',
+  'read-failed': 'Your saved library could not be read, so it has been left untouched. Retrying.',
+  'switch-unverified': 'Waiting to read this account\'s library before replacing the one on this device.',
+  'write-failed': 'This device\'s library could not be saved. It will retry on the next change.',
+}
+
+const SyncStat = ({ state }: { state: SyncState }) => {
+  const { status, reason } = state
+  // A signed-out user is not having a problem, so nothing is shown. Every other state is, including
+  // the ones that used to be silent: a library that is quietly not being backed up looks exactly
+  // like one that is, which is the worst way for this to fail.
   if (status === 'off') return null
   const label = status === 'syncing' ? 'Syncing…' : status === 'error' ? 'Sync failed' : 'Synced'
   return (
-    <div className={'stat sync' + (status === 'error' ? ' error' : '')}>
+    <div className={'stat sync' + (status === 'error' ? ' error' : '')} title={reason ? SYNC_DETAIL[reason] : undefined}>
       <label>Library</label>
       <strong className={status === 'synced' ? 'ok' : undefined}>{label}</strong>
     </div>
@@ -121,19 +141,34 @@ const SyncStat = ({ status }: { status: SyncStatus }) => {
  */
 const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
   if (!reachable) return null
-  const { port, inbound, inboundByTransport, listenFailed } = reachable
+  const { port, portOpen, listeners, inbound, inboundByTransport, listenFailed } = reachable
   const failed = listenFailed.length > 0
   const detail = Object.entries(inboundByTransport)
     .map(([transport, n]) => `${n} ${transport}`)
     .join(' · ')
+  // The announced port is fixed for the session and the sockets holding it are not, so a reserved
+  // port is not by itself evidence anyone can still reach it. `portOpen` is the live half: after a
+  // dropped tunnel the acceptor heals itself, and until it does this readout would otherwise keep
+  // naming a dead number with exactly the confidence it had when the number worked.
+  const healing = !!port && !portOpen && listeners.some((l) => l.healing)
+  const label =
+    failed ? 'Failed'
+    : !port ? 'Unreachable'
+    : healing ? `Port ${port} · reconnecting`
+    : !portOpen ? `Port ${port} · closed`
+    : inbound === 0 ? `Port ${port}`
+    : `${port} · ${detail}`
+  const title =
+    failed ? listenFailed.join('\n')
+    : healing ? 'The connection carrying this port dropped. Reclaiming it.'
+    : port && !portOpen ? `Peers were told to dial ${port} and nothing is holding it any more. Reload to take a new one.`
+    : undefined
   return (
-    <div className={'stat' + (failed ? ' error' : '')} title={failed ? listenFailed.join('\n') : undefined}>
+    <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} title={title}>
       <label>Inbound</label>
       {/* the port stays visible once peers arrive: it is what a user checks against a router or a
           firewall, and hiding it exactly when the feature starts working is the wrong trade */}
-      <strong className={inbound > 0 ? 'ok' : undefined}>
-        {failed ? 'Failed' : !port ? 'Unreachable' : inbound === 0 ? `Port ${port}` : `${port} · ${detail}`}
-      </strong>
+      <strong className={inbound > 0 && portOpen ? 'ok' : undefined}>{label}</strong>
     </div>
   )
 }
@@ -1567,7 +1602,7 @@ const Home = () => {
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
-  const syncStatus = useCloudBackup()
+  const syncState = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
   const storage = useStorageUsage(torrents.length)
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
@@ -1712,7 +1747,7 @@ const Home = () => {
             <ConnectionStat reachable={reachable}/>
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
             {quota && <QuotaStat quota={quota}/>}
-            <SyncStat status={syncStatus}/>
+            <SyncStat state={syncState}/>
           </div>
           <SpeedGraph history={history}/>
         </section>
