@@ -79,7 +79,7 @@ test('every unconnected verdict names a reason a UI can show', () => {
  */
 describe('recognising an absent backup', () => {
   it('accepts the api refusing to presign a path with no row', () => {
-    expect(isAbsent('Not found')).toBe(true)
+    expect(isAbsent(new Error('Not found'), 'Not found')).toBe(true)
   })
 
   /**
@@ -88,7 +88,21 @@ describe('recognising an absent backup', () => {
    * and the library was never backed up.
    */
   it('accepts a committed row whose object is not in the bucket', () => {
-    expect(isAbsent('storage: read failed (404)')).toBe(true)
+    expect(isAbsent(new Error('storage: read failed (404)'), 'storage: read failed (404)')).toBe(true)
+  })
+
+  /**
+   * The code beats the message, which is the whole point of it existing: a rewording upstream
+   * cannot break this, and there is one thing to test rather than two sentences to parse.
+   */
+  it('accepts the typed code whatever the message says', () => {
+    const typed = Object.assign(new Error('completely unrelated wording'), { code: 'FKN_STORAGE_NOT_FOUND' })
+    expect(isAbsent(typed, typed.message)).toBe(true)
+  })
+
+  it('is not fooled by some other code', () => {
+    const locked = Object.assign(new Error('storage locked'), { code: 'FKN_E2E_LOCKED' })
+    expect(isAbsent(locked, locked.message)).toBe(false)
   })
 
   /** Everything else is inconclusive, and must never seed over a backup that may still be good. */
@@ -100,12 +114,12 @@ describe('recognising an absent backup', () => {
     ['a network failure', 'Failed to fetch'],
     ['nothing at all', ''],
   ])('holds the backup back on %s', (_name, message) => {
-    expect(isAbsent(message)).toBe(false)
+    expect(isAbsent(new Error(message), message)).toBe(false)
   })
 
   /** 404 has to be the STATUS, not a coincidence in a path or a byte count. */
   it('does not fire on a 404 that is part of some other number', () => {
-    expect(isAbsent('storage: read failed (4040)')).toBe(false)
-    expect(isAbsent('read 404040 bytes')).toBe(false)
+    expect(isAbsent(new Error('x'), 'storage: read failed (4040)')).toBe(false)
+    expect(isAbsent(new Error('x'), 'read 404040 bytes')).toBe(false)
   })
 })

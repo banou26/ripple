@@ -96,23 +96,29 @@ export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = res
 // The broker reports each with a reserved marker that survives the osra boundary (custom props are stripped, the message and `code` are not)
 const isLocked = (err: unknown): boolean => (err as { code?: string })?.code === 'FKN_E2E_LOCKED'
 /**
- * "There is no backup to read", in every form the storage layer expresses it.
+ * "There is no backup to read", however the storage layer says it.
  *
- * Two different 404s reach here and only one of them used to be recognised.
+ * The CODE is the real answer. @fkn/lib 0.9.17 types absence as `FKN_STORAGE_NOT_FOUND`, which is
+ * one thing to test rather than two sentences to parse, and it was added because parsing them is
+ * exactly what went wrong here: absence arrives either as `Not found` (the api refusing to presign
+ * a path with no committed row) or as `storage: read failed (404)` (the presign succeeding and the
+ * object fetch coming back empty). Only the first was matched, so the second read as a transient
+ * failure, retried on the backoff forever, and this device's library went un-backed-up for a day
+ * reporting nothing but "Sync failed". Measured live on 2026-08-16.
  *
- * `Not found` is the api refusing to presign a path with no committed row. The other is
- * `storage: read failed (404)`, which is the presign SUCCEEDING and the object fetch then coming
- * back empty (`fkn/web` `src/api/storage.ts:67`): a committed row whose object is not in the
- * bucket. Only the first matched, so the second was read as a transient failure and retried
- * forever, and a library in that state was never backed up again. Measured on the live site on
- * 2026-08-16, where it retried on the backoff indefinitely and reported only "Sync failed".
+ * The message fallback stays because the code arrives from the fkn.app realm, which is a separate
+ * deploy: this page can be running against a data plane older than the lib that types it. Dropping
+ * the fallback the day the lib ships would reintroduce the same bug for exactly as long as the
+ * other side lagged.
  *
- * Both are DEFINITIVE, which is what makes seeding over them safe: the rule this file is built on
- * is that anything merely inconclusive must never overwrite a backup that may still be good, and
- * an object the store says is not there is not inconclusive.
+ * Either way the answer must be DEFINITIVE. The rule this file is built on is that anything merely
+ * inconclusive never overwrites a backup that may still be good, and an object the store says is
+ * not there is not inconclusive.
  */
-const isAbsent = (message: string): boolean =>
-  /not found/i.test(message) || /\(404\)/.test(message)
+const isAbsent = (err: unknown, message: string): boolean =>
+  (err as { code?: string } | null)?.code === 'FKN_STORAGE_NOT_FOUND'
+  || /not found/i.test(message)
+  || /\(404\)/.test(message)
 
 const isUnreadable = (err: unknown): boolean => {
   const message = (err as { message?: string })?.message ?? ''
@@ -255,7 +261,7 @@ export const useCloudBackup = (): SyncState => {
       } catch (err) {
         failure = (err as { message?: string })?.message ?? String(err)
         // Anything other than a definitive absence or unreadable bytes is transient and must never seed over a backup that may still be good
-        missing = isAbsent(failure) || isUnreadable(err)
+        missing = isAbsent(err, failure) || isUnreadable(err)
         locked = isLocked(err)
       }
       if (stale()) return
