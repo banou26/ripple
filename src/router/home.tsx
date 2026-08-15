@@ -1356,6 +1356,7 @@ type RowProps = {
   /** `at` opens the menu at a point; null opens the options dialog instead. */
   onOptions: (t: Torrent, at: MenuPosition | null) => void
   selected: boolean
+  /** Selects, and only selects. Deselecting is the dock's own gesture, not a second click here. */
   onSelect: (t: Torrent) => void
 }
 
@@ -1782,13 +1783,16 @@ const Home = () => {
   const [menu, setMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
   const [optionsId, setOptionsId] = useState<string | null>(null)
   /**
-   * The torrent the dock is showing. One at a time, and clicking the selected row again clears it,
-   * so the dock can be dismissed from the same place it was opened.
+   * The torrent the dock is showing. One at a time.
+   *
+   * Clicking a row SELECTS it and never deselects it, even when it is already the selected one.
+   * A dock that toggles off under a second click is a dock that closes while the user is reading
+   * it: rows are large, they carry buttons and a poster, and clicking one again to look at
+   * something in it is a completely ordinary thing to do. Closing is its own gesture, so it has its
+   * own controls, the header button and Escape.
    */
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const onSelect = useCallback((t: Torrent) => {
-    setSelectedId((prev) => (prev === t.id ? null : t.id))
-  }, [])
+  const onSelect = useCallback((t: Torrent) => setSelectedId(t.id), [])
 
   const onOptions = useCallback((t: Torrent, at: MenuPosition | null) => {
     if (at) { setOptionsId(null); setMenu({ id: t.id, at }) }

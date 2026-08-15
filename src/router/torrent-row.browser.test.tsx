@@ -307,6 +307,31 @@ describe('a library row', () => {
       expect(props.onSelect.mock.calls[0]![0].id).toBe(t.id)
     })
 
+    /**
+     * Clicking an already-selected row asks for it AGAIN rather than asking to clear it. The row
+     * has no way to know it is the selected one for that purpose, and it must not: a dock that
+     * toggles shut under a second click closes while the user is reading it, and rows are big
+     * enough that clicking one twice is ordinary. Closing has its own controls.
+     */
+    it('keeps asking for the same torrent when its row is clicked again', async () => {
+      thumbnail.current = null
+      const t = torrent()
+      const { TorrentRow, style } = await import('./home')
+      const props = handlers()
+      const screen = await render(
+        <MemoryRouter>
+          <div css={style}><main><TorrentRow t={t} {...props} selected/></main></div>
+        </MemoryRouter>,
+        sized(),
+      )
+      const card = screen.container.querySelector('.torrent') as HTMLElement
+      card.click()
+      card.click()
+      expect(props.onSelect).toHaveBeenCalledTimes(2)
+      // the same torrent both times, and never a null or an "unselect" signal
+      for (const call of props.onSelect.mock.calls) expect(call[0].id).toBe(t.id)
+    })
+
     /** Every button already does something. Selecting as well would fire two actions per click. */
     it('does not select when an action button is used', async () => {
       thumbnail.current = null
