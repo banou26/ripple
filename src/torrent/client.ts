@@ -1,4 +1,7 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+import type { RateLimits } from './rate-limits'
+
+import { normalizeLimits } from './rate-limits'
 import type { SaveLocation } from './library'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
@@ -53,8 +56,19 @@ export type TorrentClient = {
   /** Announce to this torrent's trackers now. libtorrent rate limits it internally. */
   reannounce: (handle: number) => void
   moveInQueue: (handle: number, where: 'top' | 'up' | 'down' | 'bottom') => void
-  /** Bytes per second, 0 for unlimited. Omit a side to leave it alone. */
+  /** Bytes per second, 0 for unlimited. Omit a side to leave it alone. Kept across reloads. */
   setLimits: (handle: number, limits: { down?: number, up?: number }) => void
+  /**
+   * The ceilings for everything at once, bytes per second, 0 for unlimited. Omit a side to leave it
+   * alone.
+   *
+   * Held by the engine's own worker rather than by any page, so it survives the engine moving to
+   * another tab. There is no getter to pair with this: subscribe with {@link onRateLimits} instead,
+   * which reports what is actually in force.
+   */
+  setSessionLimits: (limits: { down?: number, up?: number }) => void
+  /** The session ceilings in force, replayed immediately to a new subscriber once anything is known. */
+  onRateLimits: (cb: (limits: RateLimits) => void) => () => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void
@@ -128,6 +142,8 @@ export type EngineClient = TorrentClient & {
   latestList: () => Persisted[] | null
   latestState: () => WorkerTorrentSnapshot[] | null
   latestReachable: () => Reachability | null
+  /** For the leader replaying state to a follower that just joined. Null before the first broadcast. */
+  latestRateLimits: () => RateLimits | null
   started: () => boolean
   useTransport: (factory: TransportFactory, owns: boolean) => void
 }
@@ -163,6 +179,7 @@ const createTorrentClient = (): EngineClient => {
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
   const reachableCbs = new Set<(r: Reachability) => void>()
+  const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
   const detailCbs = new Set<(d: TorrentDetail | null) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
   const recentRate = createRecentRateTracker()
@@ -181,6 +198,9 @@ const createTorrentClient = (): EngineClient => {
   let lastState: TorrentSnapshot[] | null = null
   let lastRawState: WorkerTorrentSnapshot[] | null = null
   let lastReachable: Reachability | null = null
+  // the engine is the only place these are true, and it cannot be asked, so this latches whatever
+  // the last broadcast said rather than mirroring a copy the page keeps
+  let lastRateLimits: RateLimits | null = null
   let storageIsUnavailable = false
   let storageIsFull = false
   let fatalMessage: string | null = null
@@ -263,6 +283,12 @@ const createTorrentClient = (): EngineClient => {
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
+        // absent rather than unlimited when a synthesized state reply omits it, so a tab that has
+        // just joined keeps showing the last real answer instead of flashing "Unlimited"
+        if (m.rateLimits) {
+          lastRateLimits = normalizeLimits(m.rateLimits)
+          rateLimitsCbs.forEach((cb) => cb(lastRateLimits!))
+        }
         // null is a real answer: it means nothing is inspected, and a panel reads it as "no data yet"
         detailCbs.forEach((cb) => cb(m.detail ?? null))
         const handles = new Set<number>()
@@ -318,12 +344,15 @@ const createTorrentClient = (): EngineClient => {
     reannounce: (handle) => send({ type: 'reannounce', handle }),
     moveInQueue: (handle, where) => send({ type: 'queue-move', handle, where }),
     setLimits: (handle, limits) => send({ type: 'set-limits', handle, ...limits }),
+    setSessionLimits: (limits) => send({ type: 'set-session-limits', ...limits }),
+    onRateLimits: (cb) => { rateLimitsCbs.add(cb); if (lastRateLimits) cb(lastRateLimits); return () => { rateLimitsCbs.delete(cb) } },
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
     onEngineReset: (cb) => { engineResetCbs.add(cb); return () => { engineResetCbs.delete(cb) } },
     onRaw: (cb) => { rawCbs.add(cb); return () => { rawCbs.delete(cb) } },
     latestList: () => lastList,
     latestState: () => lastRawState,
     latestReachable: () => lastReachable,
+    latestRateLimits: () => lastRateLimits,
     started: () => started,
     owns: () => owned,
     sendRaw: (msg) => send(msg),

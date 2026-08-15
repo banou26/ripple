@@ -21,9 +21,11 @@ import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './librar
 import { createHybridStorage } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
+import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
+import type { RateLimits } from './rate-limits'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -210,6 +212,7 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
+  limitsByHandle.delete(h); pendingLimits.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
@@ -236,6 +239,67 @@ const needsPriorityReset = new Set<number>()
  * next reload, quietly turning "just this subtitle" back into the whole torrent.
  */
 const planByHandle = new Map<number, { wanted?: number[], firstLast?: boolean }>()
+
+/**
+ * The session-wide ceilings currently in force, and the only record of them that exists.
+ *
+ * The engine cannot be asked. `Session.setRateLimits` is write-only by construction, because the
+ * matching getters are sync calls into an io_context that only runs inside a tick, so asking from
+ * here would block the thread that has to tick for the answer. Anything the UI shows is derived from
+ * this object, never from the engine.
+ *
+ * Owned by the WORKER rather than pushed down by a page, and that is what makes it survive. The
+ * engine moves between tabs, and a page that pushed a setting into the tab that used to hold the
+ * engine has no idea the engine has gone: there is no re-push on handover today, which is why
+ * `setFolder` has to be offered by every tab continuously. Reading this out of IndexedDB in the
+ * worker ties its lifetime to the session's by construction, so there is no window in which an
+ * engine is running without the limits the user chose, whichever tab happens to be hosting it and
+ * whether or not that tab has a settings screen at all. An `/embed` tab has none.
+ */
+let sessionLimits: RateLimits = { down: 0, up: 0 }
+
+/**
+ * Per-torrent ceilings waiting for a handle the engine will admit.
+ *
+ * NOT applied at add time, which looks like it should work and silently does not:
+ * `lt_torrent_set_download_limit` looks the handle up and returns -1 for one libtorrent has not
+ * registered yet, registration only happens when the add alert is pumped, and the JS wrapper
+ * discards that return value. There is no throw and nothing in any console. The symptom is a limit
+ * that is ignored on a fresh add and works after a reload, which is a miserable thing to chase.
+ *
+ * The gate is `status(h)` being non-null, which means registered, and deliberately NOT `files(h)`,
+ * which means metadata has arrived. The piece plan needs the file layout; a rate limit needs only a
+ * handle. Waiting for metadata would leave a cold magnet running uncapped for the tens of seconds
+ * during which someone who just set a cap is watching it.
+ */
+const limitsByHandle = new Map<number, { down?: number, up?: number }>()
+const pendingLimits = new Set<number>()
+
+/**
+ * Remember what this torrent should be held to, and apply it as soon as the engine will accept it.
+ *
+ * Returns whether anything was recorded, so a caller can tell "nothing to do" from "done".
+ *
+ * Merged field by field rather than by spreading the pair, because a spread carries an explicit
+ * `undefined` over the top of a real value: changing only the upload ceiling would quietly forget
+ * the download one this map was holding.
+ */
+const wantLimits = (h: number, limits: { down?: number, up?: number }): boolean => {
+  const merged = { ...limitsByHandle.get(h) }
+  if (isLimit(limits.down)) merged.down = limits.down
+  if (isLimit(limits.up)) merged.up = limits.up
+  if (!isLimit(merged.down) && !isLimit(merged.up)) return false
+  limitsByHandle.set(h, merged)
+  pendingLimits.add(h)
+  return true
+}
+
+const applyLimits = (h: number) => {
+  const limits = limitsByHandle.get(h)
+  if (!session || !limits) return
+  if (isLimit(limits.down)) session.setDownloadLimit(h, limits.down)
+  if (isLimit(limits.up)) session.setUploadLimit(h, limits.up)
+}
 
 // one attempt is short enough that a plan that starved a read gets rewritten quickly; the product
 // stays under the caller's own 120s ceiling in client.ts
@@ -738,10 +802,24 @@ const init = async () => {
     return
   }
 
+  // Started before the session is built so the read overlaps the wasm load, and bounded, because
+  // nothing on the path to `ready` may hang: every command in every tab parks behind that message,
+  // so a blocked IndexedDB here would freeze the whole app rather than merely lose a setting. A
+  // timeout means unlimited, which is the same thing a first run means.
+  const storedLimits = Promise.race([
+    get(RATE_LIMITS_KEY).catch(() => undefined),
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2_000)),
+  ])
+
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
   storage = createHybridStorage(createResilientStorage(), () => folderHandle)
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
+
+  // before the restore loop below adds anything, so a stored ceiling is in force from the first byte
+  // rather than from a tick later
+  sessionLimits = normalizeLimits(await storedLimits)
+  session.setRateLimits({ download: sessionLimits.down, upload: sessionLimits.up })
 
 
 
@@ -768,6 +846,10 @@ const init = async () => {
       // before needsPriorityReset, so the pass that clears the window has the plan to write back
       planByHandle.set(h, { wanted: e.wantedFiles, firstLast: e.firstLast })
       needsPriorityReset.add(h)
+      // the resume blob does carry a limit, which is exactly why this does not rely on it: ripple
+      // deletes the blob on a recheck and on the cleared-storage path, and falls back to addMagnet
+      // when there is none, so the entry is the only record that is always there
+      wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
       if (e.paused) { userPaused.add(h); wantPaused.add(h) }
       recovery.hold(h, Date.now())
     }
@@ -797,6 +879,15 @@ const init = async () => {
       if (!viewers.get(h)?.size) applyViewing(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+
+    // a ceiling needs a REGISTERED handle and nothing more, so this gate is status rather than the
+    // files() the two loops above wait on. Registration happens when the add alert is pumped, a few
+    // lines up, so this normally lands on the very next pass.
+    for (const h of [...pendingLimits]) {
+      if (!session.status(h)) continue
+      pendingLimits.delete(h)
+      applyLimits(h)
+    }
 
     // record what each torrent occupies inside its save path, so the orphan sweep can account for
     // it later even when it is no longer in the session to be asked
@@ -828,7 +919,10 @@ const init = async () => {
       session.resumeTorrent(handle)
     }
 
-    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), detail: inspectDetail(now) })
+    // the limits ride the existing broadcast rather than getting a channel of their own, so every
+    // tab renders the value actually in force. idb-keyval has no change notification, so without
+    // this two settings panels would silently disagree.
+    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
       const st = session.status(h)
       if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.has(h) || resumeInFlight.has(h)) continue
@@ -885,6 +979,9 @@ const handleMessage = async (session: Session, m: any) => {
         const h = session.addMagnet(m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
         track(h, m.magnet, ih, savePath, ephemeral)
+        // a re-add of something this device already knows keeps the ceiling it was given, matching
+        // mergeEntry, which carries the limit forward rather than letting an add quietly uncap it
+        wantLimits(h, { down: known?.downloadLimit, up: known?.uploadLimit })
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
@@ -1050,6 +1147,9 @@ const handleMessage = async (session: Session, m: any) => {
         // promotion an evicted item re-downloads straight back into the front of the eviction queue
         // and the button spends the user's metered quota in a loop.
         track(h, e.magnet, e.infoHash, savePath, false)
+        // the entry is already in hand, so the ceiling it carries comes back with it. The piece plan
+        // is NOT seeded here, which is a live bug of its own rather than a precedent to copy.
+        wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
         post({ type: 'state', torrents: snapshot(), reachable: session!.reachable() })
@@ -1136,8 +1236,32 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'queue-move') {
       session.moveInQueue(m.handle, m.where)
     } else if (m.type === 'set-limits') {
-      if (typeof m.down === 'number') session.setDownloadLimit(m.handle, m.down)
-      if (typeof m.up === 'number') session.setUploadLimit(m.handle, m.up)
+      // Stored as well as applied, for the same reason the piece plan is: the engine's copy does not
+      // outlive the session, and a handle names a different torrent after a handover, so a ceiling
+      // kept only in libtorrent's head is gone on the next reload with nothing on screen to say so.
+      const down = isLimit(m.down) ? m.down : undefined
+      const up = isLimit(m.up) ? m.up : undefined
+      // only clear the pending flag when something was actually recorded, or a command carrying
+      // nothing usable would drop a ceiling that a restore had queued and never applied yet
+      if (wantLimits(m.handle, { down, up }) && session.status(m.handle)) {
+        pendingLimits.delete(m.handle)
+        applyLimits(m.handle)
+      }
+      const ih = infoHashByHandle.get(m.handle)
+      if (ih) {
+        const patch: Partial<Persisted> = {}
+        if (down !== undefined) patch.downloadLimit = down
+        if (up !== undefined) patch.uploadLimit = up
+        if (Object.keys(patch).length) await patchList(ih, patch)
+      }
+    } else if (m.type === 'set-session-limits') {
+      // The worker is the only writer of this key, deliberately. It runs on the same serialized
+      // command lane as every other list mutation, so applying and persisting are one act and two
+      // tabs cannot interleave a read-modify-write of it.
+      if (isLimit(m.down)) sessionLimits.down = m.down
+      if (isLimit(m.up)) sessionLimits.up = m.up
+      session.setRateLimits({ download: sessionLimits.down, upload: sessionLimits.up })
+      await set(RATE_LIMITS_KEY, { ...sessionLimits })
     } else if (m.type === 'inspect') {
       // a panel closing must clear this, or the engine keeps paying for a list nobody reads
       const next = typeof m.handle === 'number' ? m.handle : null

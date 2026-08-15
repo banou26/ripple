@@ -12,10 +12,13 @@
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
 // wantedFiles is the file selection, absent meaning all of them, and firstLast is qBittorrent's "download first and last pieces first"; both live here rather than only in the engine because clearStreamWindow rewrites the whole priority map on every restore
 // saveTo is where the user WANTS this torrent, which is not the same fact as savePath, where its bytes are: a folder cannot hold a download in progress, so the two disagree until it finishes
+// downloadLimit and uploadLimit are this torrent's own speed ceilings in bytes per second, and they live here because the engine cannot be asked: the getters for them are sync calls into an io_context that only runs inside a tick, so what the user asked for is only ever what we remember asking for
+// absent means never given one, which is NOT the same as 0: 0 is a torrent deliberately exempted from a limit, and collapsing the two cannot be undone once written
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
   saveTo?: SaveLocation, wantedFiles?: number[], firstLast?: boolean,
+  downloadLimit?: number, uploadLimit?: number,
 }
 
 /**
@@ -62,6 +65,10 @@ export const ownsItsDirectory = (savePath: string | undefined, infoHash: string)
  * - `savedTo` comes from the INCOMING entry, by falling out of the spread, and that is the wanted
  *   behaviour rather than an oversight: an add is a fresh copy being downloaded into this browser,
  *   so a record saying the last copy was handed to a folder no longer describes anything.
+ * - the speed ceilings come from the OLD entry unless the add carries its own. Unlike a save
+ *   location, a cap does not describe the copy on disk, it describes how hard the user is willing to
+ *   let this torrent work their connection, and re-adding a torrent is no reason to quietly uncap
+ *   it. An add that names a limit still wins, so the add dialog stays authoritative.
  */
 export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): Persisted =>
   was
@@ -72,5 +79,7 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       lastUsedAt: Math.max(was.lastUsedAt ?? 0, next.lastUsedAt ?? next.addedAt),
       savePath: was.savePath || next.savePath,
       rootEntry: next.rootEntry ?? was.rootEntry,
+      downloadLimit: next.downloadLimit ?? was.downloadLimit,
+      uploadLimit: next.uploadLimit ?? was.uploadLimit,
     }
     : next

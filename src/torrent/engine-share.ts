@@ -142,9 +142,18 @@ export const serveFollowers = (client: EngineClient): () => void => {
       const list = client.latestList()
       if (list) reply(from, { type: 'list', list })
       const state = client.latestState()
-      // reachable rides the state message, so a follower that only ever sees this replay would
-      // otherwise report no port at all rather than the leader's
-      if (state) reply(from, { type: 'state', torrents: state, reachable: client.latestReachable() ?? undefined })
+      // reachable and the session rate limits both ride the state message, so a follower that only
+      // ever sees this replay would otherwise report no port at all rather than the leader's, and
+      // draw its speed settings as unlimited while a limit is in force. This is SYNTHESIZED rather
+      // than a replay of the real message, so every field the state carries has to be named here.
+      if (state) {
+        reply(from, {
+          type: 'state',
+          torrents: state,
+          reachable: client.latestReachable() ?? undefined,
+          rateLimits: client.latestRateLimits() ?? undefined,
+        })
+      }
       return
     }
 

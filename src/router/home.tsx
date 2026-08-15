@@ -32,6 +32,9 @@ import {
   currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
 import type { SaveLocation } from '../torrent/library'
+import { RateLimitDialog } from '../components/rate-limit-dialog'
+import { NO_LIMITS, formatLimit, limitNote } from '../torrent/rate-limits'
+import type { RateLimits } from '../torrent/rate-limits'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -1610,6 +1613,30 @@ const Home = () => {
 
   const [embedOpen, setEmbedOpen] = useState(false)
   const [embedId, setEmbedId] = useState<string | null>(null)
+
+  /**
+   * How fast anything is allowed to go, read from the ENGINE rather than kept here.
+   *
+   * Deliberately not localStorage, which is how the default save location works and is the wrong
+   * shape for this one. The engine lives in whichever tab won the election, and a setting pushed
+   * down from a page is lost the moment that election moves, with nothing to re-push it. So the
+   * worker owns these, reads them back at startup and reports them on its ordinary broadcast: every
+   * tab then renders the value actually in force, including an `/embed` tab that has no settings
+   * screen to push from at all.
+   */
+  const [sessionLimits, setSessionLimits] = useState<RateLimits>(NO_LIMITS)
+  useEffect(() => client.onRateLimits(setSessionLimits), [client])
+
+  /**
+   * Which ceiling is being edited, if any. `scope` names the session or one torrent.
+   *
+   * Up here beside the other surfaces rather than next to the handlers that use it, because the
+   * window-level paste listener has to stand down while it is open and that effect is declared
+   * further up the body.
+   */
+  const [rateEdit, setRateEdit] = useState<
+    { scope: 'session' | { torrent: string }, direction: 'down' | 'up' } | null
+  >(null)
   /**
    * What the panel should adopt once the engine catches up with a drop.
    *
@@ -1757,9 +1784,11 @@ const Home = () => {
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      // <dialog> makes the page inert to pointers but not to window-level listeners, so without this
-      // a paste behind an open confirmation would add a torrent the user cannot see.
-      if (confirmOpen) return
+      // A modal makes the page inert to pointers but not to window-level listeners, so without this
+      // a paste behind an open confirmation would add a torrent the user cannot see. The rate limit
+      // editor counts for the same reason, and doubly so: it holds a text field, so a stray paste
+      // there is a gesture aimed at THIS dialog rather than at the page behind it.
+      if (confirmOpen || rateEdit) return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
@@ -1767,7 +1796,7 @@ const Home = () => {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [commitMagnet, confirmOpen])
+  }, [commitMagnet, confirmOpen, rateEdit])
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
@@ -1929,6 +1958,7 @@ const Home = () => {
     setLocation: (location) => { void onSetLocation(t, location) },
     setFirstLast: (on) => client.setPlan(Number(t.id), { wanted: t.wantedFiles, firstLast: on }),
     pickFolder,
+    limitRate: (direction) => setRateEdit({ scope: { torrent: t.id }, direction }),
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
@@ -1991,6 +2021,18 @@ const Home = () => {
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
+  }
+
+  const rateEditTorrent = rateEdit && typeof rateEdit.scope === 'object'
+    ? torrents.find((t) => t.id === (rateEdit.scope as { torrent: string }).torrent)
+    : undefined
+
+  const applyRateEdit = (bytesPerSecond: number) => {
+    if (!rateEdit) return
+    const side = rateEdit.direction === 'down' ? 'down' : 'up'
+    if (rateEdit.scope === 'session') client.setSessionLimits({ [side]: bytesPerSecond })
+    else if (rateEditTorrent) client.setLimits(Number(rateEditTorrent.id), { [side]: bytesPerSecond })
+    setRateEdit(null)
   }
 
   /**
@@ -2226,6 +2268,7 @@ const Home = () => {
       current,
       folderName: folder?.name,
       folderReady: !!folder && permitted,
+      sessionLimits,
     }
   }
 
@@ -2476,6 +2519,30 @@ const Home = () => {
         />
       )}
 
+      {rateEdit && (rateEdit.scope === 'session' || rateEditTorrent) && (
+        <RateLimitDialog
+          title={rateEdit.direction === 'down'
+            ? (rateEdit.scope === 'session' ? 'Total download rate limit' : 'Download rate limit')
+            : (rateEdit.scope === 'session' ? 'Total upload rate limit' : 'Upload rate limit')}
+          subject={rateEdit.scope === 'session'
+            ? 'Applies to every torrent at once'
+            : rateEditTorrent?.name}
+          value={rateEdit.scope === 'session'
+            ? (rateEdit.direction === 'down' ? sessionLimits.down : sessionLimits.up)
+            : (rateEdit.direction === 'down' ? rateEditTorrent?.downloadLimit : rateEditTorrent?.uploadLimit)}
+          // only for a torrent: the session limit cannot be overridden by one, and saying so is the
+          // difference between a control that looks broken and one that explains itself
+          note={rateEdit.scope === 'session'
+            ? null
+            : limitNote(
+              rateEdit.direction === 'down' ? rateEditTorrent?.downloadLimit : rateEditTorrent?.uploadLimit,
+              rateEdit.direction === 'down' ? sessionLimits.down : sessionLimits.up,
+            )}
+          onCancel={() => setRateEdit(null)}
+          onApply={applyRateEdit}
+        />
+      )}
+
       <footer>
         <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
         <Link to="/legal">Legal</Link>
@@ -2490,6 +2557,25 @@ const Home = () => {
           v{__APP_VERSION__} · {__COMMIT_HASH__.slice(0, 7)}
         </a>
         <div className="controls">
+          {/* qBittorrent keeps the global limits in its status bar, reachable in one click from
+              wherever you are, rather than buried in a preferences tree. Same here. */}
+          <div className="folder">
+            <span>Speed</span>
+            <button
+              className={sessionLimits.down > 0 ? 'on' : undefined}
+              onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
+              title="The most Ripple will download in total, across every torrent at once."
+            >
+              {formatLimit(sessionLimits.down)} down
+            </button>
+            <button
+              className={sessionLimits.up > 0 ? 'on' : undefined}
+              onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
+              title="The most Ripple will upload in total. Sharing back is what keeps a torrent alive, so leaving room here helps everyone on it."
+            >
+              {formatLimit(sessionLimits.up)} up
+            </button>
+          </div>
           <div className="folder">
             <span>On add</span>
             <button

@@ -5,6 +5,7 @@ import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
+import { limitLabel } from './rate-limits'
 
 /**
  * What a user may change about one torrent, defined once and rendered twice.
@@ -91,6 +92,14 @@ export interface TorrentOptionContext {
   folderName?: string
   /** Whether a folder is usable at all right now, which decides if the choice can even be offered. */
   folderReady?: boolean
+  /**
+   * The ceilings applying to everything at once, in bytes per second, 0 meaning unlimited.
+   *
+   * Needed here because a per-torrent ceiling above the session one is accepted by libtorrent and
+   * then ignored: a torrent can never exceed the global limit. Without the session figure to
+   * compare against, the item would show a number that is not the one in force and read as broken.
+   */
+  sessionLimits?: { down: number, up: number }
 }
 
 /** Everything the option list needs to be able to do. Supplied by whoever renders it. */
@@ -109,6 +118,8 @@ export interface TorrentOptionActions {
   setFirstLast: (on: boolean) => void
   /** Choose or change the folder, which is the picker qBittorrent's Set location opens. */
   pickFolder: () => void
+  /** Open the speed ceiling editor for this torrent, one direction at a time as qBittorrent does. */
+  limitRate: (direction: 'down' | 'up') => void
   /** Open the player. Only reachable when the torrent has something playable in it. */
   watch: () => void
   /** Write it out: one file to disk, or the whole torrent as a zip when there is more than one. */
@@ -139,6 +150,7 @@ export const buildTorrentOptions = (
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
   const multi = (t.files?.length ?? 0) > 1
+  const sessionLimits = context.sessionLimits ?? { down: 0, up: 0 }
 
   /**
    * The things that used to be buttons on the row.
@@ -290,6 +302,39 @@ export const buildTorrentOptions = (
           apply: (on) => a.setFirstLast(on),
         },
       ],
+    },
+    /**
+     * The two speed ceilings, as ACTIONS that open a small editor rather than as a control drawn
+     * inline.
+     *
+     * That is qBittorrent's own shape, and it is also the only one this list can express: an option
+     * item is a toggle, a radio or an action, and none of the three carries a number. Adding a
+     * fourth kind would mean teaching both renderers about a text field, its validation and its
+     * commit, for a control most people never touch. The trailing dots are this file's existing mark
+     * for an item that opens something.
+     *
+     * The label carries the value, which is the one place this file's "show the ENGINE's state"
+     * rule is deliberately relaxed. There is nothing to read back: the engine's limit getters are
+     * sync calls into a context that only runs inside a tick, so asking would hang it. What is shown
+     * is what was last asked for, kept in the library entry so it survives a reload, and the label
+     * also names the session limit whenever that is the one really binding.
+     */
+    {
+      id: 'speed',
+      label: 'Speed',
+      items: ([
+        ['limit-down', 'Limit download rate...', 'down', 'downloads', t.downloadLimit, sessionLimits.down],
+        ['limit-up', 'Limit upload rate...', 'up', 'shares back', t.uploadLimit, sessionLimits.up],
+      ] as const).map(([id, label, direction, verb, own, global]) => ({
+        kind: 'action' as const,
+        id,
+        label,
+        // the value lives in the hint rather than the label, so the label stays qBittorrent's and the
+        // sentence still says what the control does to someone who has never set one
+        hint: `How fast this torrent ${verb}, whatever else is running. Currently ${limitLabel(own, global)}.`,
+        disabled: ghost,
+        run: () => a.limitRate(direction),
+      })),
     },
     {
       id: 'peers',

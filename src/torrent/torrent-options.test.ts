@@ -77,6 +77,7 @@ const actions = () => ({
   setLocation: vi.fn(),
   setFirstLast: vi.fn(),
   pickFolder: vi.fn(),
+  limitRate: vi.fn(),
   watch: vi.fn(),
   save: vi.fn(),
   embed: vi.fn(),

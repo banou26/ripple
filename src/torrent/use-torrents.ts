@@ -195,6 +195,8 @@ export const useTorrents = (): UseTorrents => {
           ephemeral: entry.ephemeral === true,
           wantedFiles: entry.wantedFiles,
           firstLast: entry.firstLast === true,
+          downloadLimit: entry.downloadLimit,
+          uploadLimit: entry.uploadLimit,
         }
         : t
     })

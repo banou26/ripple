@@ -87,6 +87,15 @@ export type Torrent = {
   wantedFiles?: number[]
   /** qBittorrent's "Download first and last pieces first". */
   firstLast?: boolean
+  /**
+   * This torrent's own speed ceilings in bytes per second, absent where it has never been given one.
+   *
+   * Remembered rather than reported. The engine has no readable answer for these: its getters are
+   * sync calls into a context that only runs inside a tick, so what is shown is what was asked for.
+   * Absent and 0 are different, and 0 is a torrent deliberately exempted from a limit.
+   */
+  downloadLimit?: number
+  uploadLimit?: number
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'
