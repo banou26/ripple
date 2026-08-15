@@ -145,9 +145,25 @@ const SyncStat = ({ state }: { state: SyncState }) => {
  * `inbound` counts the ones that have, split by transport because uTP and TCP fail independently:
  * uTP arrives through the DHT's implied port while TCP depends on the announced number being real.
  */
-const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
+/** Exported for its own test: a stat that throws takes the whole route with it. */
+export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
   if (!reachable) return null
-  const { port, portOpen, listeners, inbound, inboundByTransport, listenFailed } = reachable
+  const { port, inbound, inboundByTransport, listenFailed } = reachable
+  /**
+   * An engine older than 0.3.13 sends neither of these, and this component has to survive that.
+   *
+   * A deploy is never atomic. The page can be the new build while the engine chunk behind it is
+   * still the one the service worker cached, and `engine-share` lets a tab receive state from
+   * whichever OTHER tab owns the engine, which during a rollout is routinely the old one. This
+   * shipped without the guard and took the whole route down with
+   * `Cannot read properties of undefined (reading 'some')`, because a crash in a stat strip is a
+   * crash in the page that contains it.
+   *
+   * `portOpen` defaults to TRUE on an old engine, not false: it cannot tell us, and claiming the
+   * port is closed would be inventing a fault out of a missing field.
+   */
+  const listeners = reachable.listeners ?? []
+  const portOpen = reachable.portOpen ?? true
   const failed = listenFailed.length > 0
   const detail = Object.entries(inboundByTransport)
     .map(([transport, n]) => `${n} ${transport}`)
