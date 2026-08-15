@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
+
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
 import { ArrowDown, Download, File as FileIcon, Folder, User } from 'react-feather'
 
 import type { SaveEntry } from '../torrent/save-file'
@@ -141,13 +143,13 @@ const style = css`
     align-self: center;
     border: 1px solid #3a3447;
     border-radius: 4px;
-    background: none;
+    background: ${CONTROL_BG};
     color: #f4f2f8;
     padding: 6px 16px;
     font-size: 0.8rem;
     font-weight: 700;
 
-    &:hover { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+    &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
   }
 
   .progress {
@@ -264,12 +266,12 @@ const style = css`
         flex: none;
         border: 1px solid #3a3447;
         border-radius: 4px;
-        background: none;
+        background: ${CONTROL_BG};
         color: #f4f2f8;
         padding: 4px 12px;
         font-size: 0.75rem;
 
-        &:hover:not(:disabled) { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+        &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
         &:disabled { opacity: 0.5; }
       }
     }

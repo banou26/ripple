@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { css } from '@emotion/react'
 
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+
 import { Modal } from './modal'
 
 import type { AddChoices } from '../torrent/add-options'
@@ -187,11 +189,11 @@ const style = css`
     padding: 8px 18px;
     border-radius: 6px;
     border: 1px solid #2c2737;
-    background: none;
+    background: ${CONTROL_BG};
     color: #c9c4d4;
     cursor: pointer;
 
-    &:hover:not(:disabled) { border-color: #3a3447; color: #f4f2f8; }
+    &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: #3a3447; color: #f4f2f8; }
     &:disabled { opacity: 0.45; cursor: default; }
 
     &.primary {

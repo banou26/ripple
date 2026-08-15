@@ -2,6 +2,8 @@ import type { OptionGroup } from '../torrent/torrent-options'
 
 import { css } from '@emotion/react'
 
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+
 import { Modal } from './modal'
 import { useRef } from 'react'
 
@@ -185,14 +187,14 @@ const style = css`
     button {
       border: 1px solid #3a3447;
       border-radius: 6px;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
       padding: 6px 18px;
       font-size: 0.85rem;
       font-weight: 700;
 
       &:hover {
-        background: #241e30;
+        background: ${CONTROL_HOVER_BG};
         border-color: rgba(249, 115, 22, 0.35);
       }
     }
