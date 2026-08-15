@@ -105,6 +105,10 @@ export interface TorrentOptionActions {
   removeWithFiles: () => void
   /** Choose where this torrent's files belong. The move itself follows when it can. */
   setLocation: (location: SaveLocation) => void
+  /** Fetch the head and tail of each wanted file ahead of the middle. */
+  setFirstLast: (on: boolean) => void
+  /** Choose or change the folder, which is the picker qBittorrent's Set location opens. */
+  pickFolder: () => void
   /** Open the player. Only reachable when the torrent has something playable in it. */
   watch: () => void
   /** Write it out: one file to disk, or the whole torrent as a zip when there is more than one. */
@@ -208,7 +212,7 @@ export const buildTorrentOptions = (
     const pending = pendingLabel(readiness, context.folderName)
     groups.push({
       id: 'location',
-      label: 'Files',
+      label: 'Set location',
       items: [
         {
           kind: 'radio',
@@ -231,6 +235,16 @@ export const buildTorrentOptions = (
             : 'Puts the files somewhere you can open, and frees the browser storage they were using. Ripple keeps sharing them from there.',
           selected: intended === 'folder',
           apply: () => a.setLocation('folder'),
+        },
+        {
+          kind: 'action',
+          id: 'pick-folder',
+          label: 'Choose another folder...',
+          // Ripple holds ONE granted directory, so this changes it for everything rather than for
+          // this torrent alone. Said out loud, because a per-torrent menu implies per-torrent scope
+          // and quietly moving everyone else's files would be the worst possible surprise here.
+          hint: 'Picks the folder Ripple saves into. It is shared by every torrent set to save there.',
+          run: a.pickFolder,
         },
       ],
     })
@@ -263,6 +277,17 @@ export const buildTorrentOptions = (
           selected: sequential,
           disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
           apply: () => a.setFlags(TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload),
+        },
+        {
+          kind: 'toggle',
+          id: 'first-last',
+          label: 'Download first and last pieces first',
+          hint: 'Takes each file\'s head and tail early, where a player looks for the header and the index.',
+          checked: t.firstLast === true,
+          // it composes with the piece order rather than replacing it, exactly as in qBittorrent,
+          // which is why it is a checkbox beside the pair rather than a third choice within it
+          disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
+          apply: (on) => a.setFirstLast(on),
         },
       ],
     },

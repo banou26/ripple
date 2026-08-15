@@ -10,11 +10,12 @@
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
+// wantedFiles is the file selection, absent meaning all of them, and firstLast is qBittorrent's "download first and last pieces first"; both live here rather than only in the engine because clearStreamWindow rewrites the whole priority map on every restore
 // saveTo is where the user WANTS this torrent, which is not the same fact as savePath, where its bytes are: a folder cannot hold a download in progress, so the two disagree until it finishes
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
-  saveTo?: SaveLocation,
+  saveTo?: SaveLocation, wantedFiles?: number[], firstLast?: boolean,
 }
 
 /**

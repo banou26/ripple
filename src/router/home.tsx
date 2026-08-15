@@ -25,7 +25,7 @@ import { moveTorrentFiles } from '../torrent/move-files'
 import { describeAddRequest } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
 import {
-  ADD_DIALOG_KEY, defaultChoices, dialogEnabled, filePriorities, flagsFor,
+  ADD_DIALOG_KEY, defaultChoices, dialogEnabled, flagsFor, planFor,
 } from '../torrent/add-options'
 import type { AddChoices } from '../torrent/add-options'
 import {
@@ -1927,6 +1927,8 @@ const Home = () => {
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
     setLocation: (location) => { void onSetLocation(t, location) },
+    setFirstLast: (on) => client.setPlan(Number(t.id), { wanted: t.wantedFiles, firstLast: on }),
+    pickFolder,
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
@@ -2185,7 +2187,7 @@ const Home = () => {
     const handle = Number(pendingTorrent.id)
     // the same magnet without `ephemeral`, which is the gesture that promotes it into the library
     addMagnet(pendingAdd.magnet)
-    client.setFilePriorities(handle, filePriorities(choices, pendingFiles.length))
+    client.setPlan(handle, planFor(choices, pendingFiles.length))
     client.setFlags(handle, ...flagsFor(choices))
     if (pendingAdd.infoHash) client.setLocation(pendingAdd.infoHash, choices.location)
     if (choices.topOfQueue) client.moveInQueue(handle, 'top')

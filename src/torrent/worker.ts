@@ -19,10 +19,11 @@ import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 import { createHybridStorage } from './hybrid-storage'
+import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-file-priorities', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -208,7 +209,7 @@ const untrack = (h: number) => {
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); resumeRetry.delete(h)
-  viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h)
+  viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
@@ -225,6 +226,16 @@ const wake = (h: number) => {
 // was being streamed comes back with every other file still skipped. Put them back to default once
 // the layout lands, unless a viewer got there first and already planned a window.
 const needsPriorityReset = new Set<number>()
+
+/**
+ * What each torrent's piece priorities should be when nobody is watching it.
+ *
+ * Kept here AND in the list entry, because the engine's copy does not survive: `applyViewing` calls
+ * `clearStreamWindow` for any torrent with no viewers, which fills the whole map with normal, and
+ * that runs on restore too. A selection living only in libtorrent's head was therefore undone by the
+ * next reload, quietly turning "just this subtitle" back into the whole torrent.
+ */
+const planByHandle = new Map<number, { wanted?: number[], firstLast?: boolean }>()
 
 // one attempt is short enough that a plan that starved a read gets rewritten quickly; the product
 // stays under the caller's own 120s ceiling in client.ts
@@ -277,6 +288,27 @@ const viewers = new Map<number, Map<string, Viewer>>()
 // could not be built yet is retried from the pump instead of being dropped
 const pendingViewing = new Set<number>()
 
+/**
+ * Write this torrent's own priorities over the default map.
+ *
+ * Silent when there is nothing to say, so an ordinary torrent costs no vector copy across the
+ * boundary. The layout is required rather than waited for: with no file list there are no piece
+ * ranges to compute, and `needsPriorityReset` brings the handle back once the metadata lands.
+ */
+const applyPiecePlan = (h: number) => {
+  const plan = planByHandle.get(h)
+  if (!session || !plan || planIsDefault(plan)) return
+  const files = session.files(h)
+  if (!files) return
+  session.prioritizePieces(h, piecePlan({
+    files: files.files,
+    pieceLength: files.pieceLength,
+    numPieces: Math.ceil(files.totalSize / files.pieceLength),
+    wanted: plan.wanted,
+    firstLast: plan.firstLast,
+  }))
+}
+
 const applyViewing = (h: number) => {
   if (!session) return
   // a handle the engine no longer has is not a torrent with no viewers, it is not a torrent at all;
@@ -288,6 +320,10 @@ const applyViewing = (h: number) => {
     // This is also what takes the skip mask off before it can be written into resume data.
     pendingViewing.delete(h)
     session.clearStreamWindow(h)
+    // clearStreamWindow just wrote normal over every piece, so anything the person chose has to be
+    // written back on top of it. This is the only place that happens, which is why it is also what
+    // makes a selection survive a reload.
+    applyPiecePlan(h)
     // Clearing the window also puts every OTHER file in the torrent back to normal priority, so a
     // player closing on one episode of a pack turns into a full speed download of the whole pack
     // that nobody asked for and no screen shows. For a cache torrent that is bytes the budget pass
@@ -729,6 +765,8 @@ const init = async () => {
           : session.addMagnet(e.magnet, savePath)
       if (addFailed(h)) continue
       track(h, e.magnet, e.infoHash, savePath, e.ephemeral === true)
+      // before needsPriorityReset, so the pass that clears the window has the plan to write back
+      planByHandle.set(h, { wanted: e.wantedFiles, firstLast: e.firstLast })
       needsPriorityReset.add(h)
       if (e.paused) { userPaused.add(h); wantPaused.add(h) }
       recovery.hold(h, Date.now())
@@ -960,14 +998,16 @@ const handleMessage = async (session: Session, m: any) => {
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
-    } else if (m.type === 'set-file-priorities') {
-      // One call per file, because the engine rewrites that file's PIECE priorities from it and a
-      // boundary piece shared with a wanted file has to survive its neighbour being skipped. Doing
-      // that mapping here instead would be re-deriving something libtorrent already knows.
-      const priorities: number[] = Array.isArray(m.priorities) ? m.priorities : []
-      for (const [fileIndex, priority] of priorities.entries()) {
-        session.setFilePriority(m.handle, fileIndex, Math.max(0, Math.min(PRIORITY.top, priority | 0)))
-      }
+    } else if (m.type === 'set-plan') {
+      // Stored as well as applied, and that is the point rather than bookkeeping: the engine's copy
+      // is overwritten by clearStreamWindow on the next restore, so a selection kept only there is
+      // undone by a reload with nothing on screen to say so.
+      const wanted = Array.isArray(m.wanted) ? m.wanted.map((n: unknown) => Number(n) | 0) : undefined
+      const firstLast = m.firstLast === true
+      planByHandle.set(m.handle, { wanted, firstLast })
+      applyPiecePlan(m.handle)
+      const ih = infoHashByHandle.get(m.handle)
+      if (ih) await patchList(ih, { wantedFiles: wanted, firstLast })
     } else if (m.type === 'set-folder') {
       // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
       // wins, deliberately, because the newest offer is the one whose grant was checked most recently.

@@ -75,6 +75,8 @@ const actions = () => ({
   removeWithFiles: vi.fn(),
   release: vi.fn(),
   setLocation: vi.fn(),
+  setFirstLast: vi.fn(),
+  pickFolder: vi.fn(),
   watch: vi.fn(),
   save: vi.fn(),
   embed: vi.fn(),
@@ -297,6 +299,39 @@ describe('the torrent option list', () => {
   })
 
   /**
+   * qBittorrent has this beside sequential rather than inside it, and so does this: it composes with
+   * the piece order rather than replacing it. Its state comes from the library entry, because the
+   * engine's own piece map does not survive a reload.
+   */
+  describe('download first and last pieces first', () => {
+    it('reads its state off the torrent rather than remembering a click', () => {
+      expect(find(torrent({ firstLast: true }), 'first-last')).toMatchObject({ checked: true })
+      expect(find(torrent({ firstLast: false }), 'first-last')).toMatchObject({ checked: false })
+      expect(find(torrent({}), 'first-last')).toMatchObject({ checked: false })
+    })
+
+    it('applies in both directions', () => {
+      const a = actions()
+      const item = find(torrent(), 'first-last', a)!
+      if (item.kind !== 'toggle') throw new Error('not a toggle')
+      item.apply(true)
+      expect(a.setFirstLast).toHaveBeenCalledWith(true)
+      item.apply(false)
+      expect(a.setFirstLast).toHaveBeenCalledWith(false)
+    })
+
+    it('is not offered once there is nothing left to fetch', () => {
+      expect(find(torrent({ progress: 1 }), 'first-last')!.disabled).toBeTruthy()
+      expect(find(torrent({ progress: 0.5 }), 'first-last')!.disabled).toBeUndefined()
+    })
+
+    it('sits with the piece order, which is where qBittorrent puts it', () => {
+      const group = buildTorrentOptions(torrent(), actions()).find((g) => g.items.some((i) => i.id === 'first-last'))
+      expect(group?.items.map((i) => i.id)).toContain('order-sequential')
+    })
+  })
+
+  /**
    * Where the files belong.
    *
    * Two radios and not a path field, because a browser has exactly two places to put them: its own
@@ -365,6 +400,21 @@ describe('the torrent option list', () => {
     it('is never offered for a ghost, which has no files anywhere to move', () => {
       const ids = items(torrent({ state: 'missing' }), withFolder()).map((i) => i.id)
       expect(ids).not.toContain('location-folder')
+    })
+
+    /**
+     * qBittorrent's Set location opens a directory chooser. Ripple holds ONE granted directory, so
+     * this changes it for every torrent saving there, and the hint has to say so: a per-torrent menu
+     * implies per-torrent scope, and quietly moving everyone else's files would be the worst
+     * surprise available here.
+     */
+    it('offers the folder picker, and says it is shared', () => {
+      const a = actions()
+      const pick = item(torrent(), 'pick-folder', withFolder(), a)!
+      if (pick.kind !== 'action') throw new Error('not an action')
+      expect(pick.hint).toMatch(/shared by every torrent/)
+      pick.run()
+      expect(a.pickFolder).toHaveBeenCalled()
     })
   })
 

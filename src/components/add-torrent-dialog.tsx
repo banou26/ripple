@@ -367,6 +367,13 @@ export const AddTorrentDialog = ({
                 </span>
               </label>
               <label className="check">
+                <input type="checkbox" checked={choices.firstLast} onChange={(e) => set({ firstLast: e.currentTarget.checked })}/>
+                <span>
+                  Download first and last pieces first
+                  <span className="hint">Grabs each file's head and tail early, where a player looks for the header and the index.</span>
+                </span>
+              </label>
+              <label className="check">
                 <input type="checkbox" checked={choices.topOfQueue} onChange={(e) => set({ topOfQueue: e.currentTarget.checked })}/>
                 <span>
                   Put it first

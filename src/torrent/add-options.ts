@@ -1,4 +1,4 @@
-import { PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
+import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import type { SaveLocation } from './library'
 
@@ -28,6 +28,8 @@ export type AddChoices = {
   /** Off means it is added but held, which is qBittorrent's unticked "Start torrent". */
   start: boolean
   sequential: boolean
+  /** qBittorrent's "Download first and last pieces first": the head and tail of each wanted file. */
+  firstLast: boolean
   /** Jump the queue, for when something is wanted before whatever is already running. */
   topOfQueue: boolean
 }
@@ -39,6 +41,7 @@ export const defaultChoices = (
   location,
   start: true,
   sequential: false,
+  firstLast: false,
   topOfQueue: false,
 })
 
@@ -48,16 +51,16 @@ export const dialogEnabled = (read: (key: string) => string | null): boolean => 
 }
 
 /**
- * A priority per file, indexed the way the file list is.
+ * The download plan these choices imply, in the shape `client.setPlan` takes.
  *
- * Skip is 0 and means never download, so this is the whole of "only the episode I asked for". It
- * goes to the engine per FILE rather than per piece, because a piece straddling a skipped file and a
- * wanted one still has to be fetched, and libtorrent already knows where those boundaries are.
+ * `wanted` is left OUT when every file is selected, which is not the same as listing them all: the
+ * absent form is what says "no selection", and it is the one that survives a torrent gaining files
+ * it did not have when this was decided.
  */
-export const filePriorities = (choices: AddChoices, fileCount: number): number[] => {
-  const wanted = new Set(choices.files)
-  return Array.from({ length: fileCount }, (_, i) => (wanted.has(i) ? PRIORITY.normal : PRIORITY.skip))
-}
+export const planFor = (choices: AddChoices, fileCount: number): { wanted?: number[], firstLast?: boolean } => ({
+  wanted: choices.files.length === fileCount ? undefined : [...choices.files].sort((a, b) => a - b),
+  firstLast: choices.firstLast,
+})
 
 /** The libtorrent flags these choices imply, as a `[flags, mask]` pair for `setFlags`. */
 export const flagsFor = (choices: AddChoices): [flags: number, mask: number] => [

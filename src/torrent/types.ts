@@ -83,6 +83,10 @@ export type Torrent = {
    * moment later the two are indistinguishable.
    */
   ephemeral?: boolean
+  /** File indices this torrent is downloading, absent meaning all of them. */
+  wantedFiles?: number[]
+  /** qBittorrent's "Download first and last pieces first". */
+  firstLast?: boolean
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'

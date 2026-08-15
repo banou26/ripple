@@ -188,7 +188,15 @@ export const useTorrents = (): UseTorrents => {
     const live = snaps.map((s) => {
       const t = snapshotToTorrent(s, now)
       const entry = t.infoHash ? entryByHash.get(t.infoHash) : undefined
-      return entry ? { ...t, saveTo: entry.saveTo, ephemeral: entry.ephemeral === true } : t
+      return entry
+        ? {
+          ...t,
+          saveTo: entry.saveTo,
+          ephemeral: entry.ephemeral === true,
+          wantedFiles: entry.wantedFiles,
+          firstLast: entry.firstLast === true,
+        }
+        : t
     })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
     const ghosts = list

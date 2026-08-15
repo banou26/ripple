@@ -102,13 +102,15 @@ export type TorrentClient = {
    */
   setLocation: (infoHash: string, to: SaveLocation) => void
   /**
-   * Which files of a torrent to download, as a priority per file indexed the way `files` is.
+   * How this torrent should be downloaded when nobody is watching it: which files, and whether to
+   * take the head and tail of each ahead of the middle.
    *
-   * `PRIORITY.skip` for one nobody wants. Per FILE rather than per piece deliberately: the engine
-   * rewrites the piece priorities from it, which is the only way a piece straddling a skipped file
-   * and a wanted one keeps being downloaded.
+   * `wanted` is file indices, and leaving it out means all of them, which is NOT the same as an
+   * empty array. Both are stored on the library entry as well as applied, because the engine's copy
+   * does not survive a reload: the pass that hands a torrent back to ordinary downloading rewrites
+   * the whole priority map.
    */
-  setFilePriorities: (handle: number, priorities: number[]) => void
+  setPlan: (handle: number, plan: { wanted?: number[], firstLast?: boolean }) => void
   /**
    * Offer the engine the directory the user granted, or null once it is gone.
    *
@@ -365,7 +367,7 @@ const createTorrentClient = (): EngineClient => {
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     relocate: (handle, to) => send({ type: 'relocate', handle, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
-    setFilePriorities: (handle, priorities) => send({ type: 'set-file-priorities', handle, priorities }),
+    setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),

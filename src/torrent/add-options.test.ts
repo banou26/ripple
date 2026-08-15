@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
+import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import {
   ADD_DIALOG_KEY,
   choicesProblem,
   defaultChoices,
   dialogEnabled,
-  filePriorities,
+  planFor,
   flagsFor,
   selectAll,
   selectNone,
@@ -29,7 +29,9 @@ const base = defaultChoices({ fileCount: 3, location: 'browser' })
 
 describe('what a torrent starts with', () => {
   it('wants every file, started, in the usual order', () => {
-    expect(base).toEqual({ files: [0, 1, 2], location: 'browser', start: true, sequential: false, topOfQueue: false })
+    expect(base).toEqual({
+      files: [0, 1, 2], location: 'browser', start: true, sequential: false, firstLast: false, topOfQueue: false,
+    })
   })
 
   it('takes the save location it was given rather than assuming one', () => {
@@ -56,18 +58,27 @@ describe('the dialog is off unless it was turned on', () => {
   })
 })
 
-describe('turning choices into priorities', () => {
-  it('gives every wanted file the ordinary priority', () => {
-    expect(filePriorities(base, 3)).toEqual([PRIORITY.normal, PRIORITY.normal, PRIORITY.normal])
+describe('turning choices into a download plan', () => {
+  /**
+   * Everything selected has to come out as NO selection rather than as a list of all of them. The
+   * two are different downstream: absent means "whatever the torrent turns out to contain", and a
+   * list would freeze the answer to the files known at the moment somebody clicked.
+   */
+  it('leaves the selection out entirely when every file is wanted', () => {
+    expect(planFor(base, 3).wanted).toBeUndefined()
   })
 
-  it('skips the ones nobody asked for, and skip is zero', () => {
-    expect(filePriorities({ ...base, files: [1] }, 3)).toEqual([PRIORITY.skip, PRIORITY.normal, PRIORITY.skip])
-    expect(PRIORITY.skip).toBe(0)
+  it('lists the selection when it is a real one, in order', () => {
+    expect(planFor({ ...base, files: [2, 0] }, 3).wanted).toEqual([0, 2])
   })
 
-  it('answers for every file even when the selection names one that does not exist', () => {
-    expect(filePriorities({ ...base, files: [0, 9] }, 3)).toEqual([PRIORITY.normal, PRIORITY.skip, PRIORITY.skip])
+  it('carries an empty selection through as empty, not as absent', () => {
+    expect(planFor({ ...base, files: [] }, 3).wanted).toEqual([])
+  })
+
+  it('carries first and last pieces first', () => {
+    expect(planFor(base, 3).firstLast).toBe(false)
+    expect(planFor({ ...base, firstLast: true }, 3).firstLast).toBe(true)
   })
 })
 
@@ -102,9 +113,9 @@ describe('editing the selection', () => {
   })
 
   it('leaves every other choice alone while the selection changes', () => {
-    const chosen = { ...base, location: 'folder' as const, sequential: true, start: false, topOfQueue: true }
+    const chosen = { ...base, location: 'folder' as const, sequential: true, start: false, firstLast: true, topOfQueue: true }
     const { files: _, ...rest } = toggleFile(chosen, 0)
-    expect(rest).toEqual({ location: 'folder', sequential: true, start: false, topOfQueue: true })
+    expect(rest).toEqual({ location: 'folder', sequential: true, start: false, firstLast: true, topOfQueue: true })
   })
 })
 
