@@ -1,5 +1,7 @@
 import type { OptionGroup } from '../torrent/torrent-options'
 
+import { useEffect, useState } from 'react'
+
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
@@ -152,6 +154,75 @@ describe('the torrent context menu', () => {
     expect(active()).toBe('Remove')
     await userEvent.keyboard('{Home}')
     expect(active()).toBe('Rarest first')
+  })
+
+  /**
+   * THE REGRESSION. The engine broadcasts state twice a second, so the page re-renders twice a
+   * second, so this component is handed a fresh `onClose` closure and a freshly built `groups`
+   * array that often. An effect that focuses and lists either in its deps then re-runs on that
+   * cadence and drags focus off whatever the user had arrowed to.
+   *
+   * Reported from the live site as the selection resetting "every second or so". Every test above
+   * mounts once and never re-renders, which is exactly why none of them saw it.
+   */
+  describe('while the page around it keeps re-rendering', () => {
+    /**
+     * The live shape, reproduced: a parent that re-renders on a timer and rebuilds the props each
+     * time. `groups` is a fresh array from `buildTorrentOptions` and `onClose` a fresh closure,
+     * exactly as the page produces them, because it is those changing identities that made the
+     * effect re-run and steal focus.
+     */
+    let closed = 0
+    const Ticking = () => {
+      const [n, setN] = useState(0)
+      useEffect(() => {
+        const timer = setInterval(() => setN((x) => x + 1), 20)
+        return () => clearInterval(timer)
+      }, [])
+      return (
+        <ContextMenu
+          groups={groups()}
+          at={{ x: 40, y: 40 }}
+          label={`Options for Big Buck Bunny ${n === -1 ? n : ''}`.trim()}
+          onClose={() => { closed += 1 }}
+        />
+      )
+    }
+
+    const mountTicking = async () => {
+      closed = 0
+      render(<Ticking/>)
+      await expect.poll(() => document.querySelector('[role="menu"]')).not.toBeNull()
+    }
+
+    it('leaves the arrowed-to item focused', async () => {
+      await mountTicking()
+      await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}')
+      expect(active()).toBe('Use the DHT')
+
+      // several parent re-renders, which is a second or so of the real broadcast cadence
+      await new Promise((r) => setTimeout(r, 120))
+
+      expect(active()).toBe('Use the DHT')
+    })
+
+    /** And it must not quietly re-focus the container either, which loses the selection too. */
+    it('does not drag focus back to the top', async () => {
+      await mountTicking()
+      await userEvent.keyboard('{End}')
+      expect(active()).toBe('Remove')
+
+      await new Promise((r) => setTimeout(r, 120))
+
+      expect(active()).toBe('Remove')
+    })
+
+    it('still closes, through the onClose it was most recently given', async () => {
+      await mountTicking()
+      await new Promise((r) => setTimeout(r, 60))
+      await userEvent.keyboard('{Escape}')
+      expect(closed).toBeGreaterThan(0)
+    })
   })
 
   it('closes on Escape', async () => {

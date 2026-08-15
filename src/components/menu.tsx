@@ -137,9 +137,11 @@ export const MenuItems = ({
           {group.items.map((item) => {
             index += 1
             const at = index
+            // `key` is deliberately NOT in here. React warns when a key arrives by spread, and the
+            // reconciliation it drives is what keeps each row's DOM node, and therefore the focus
+            // on it, alive across the re-render the page performs twice a second.
             const common = {
               type: 'button' as const,
-              key: item.id,
               ref: (el: HTMLButtonElement | null) => itemRef(el, at),
               disabled: !!item.disabled,
               title: itemLabel(item),
@@ -149,6 +151,7 @@ export const MenuItems = ({
             if (item.kind === 'toggle') {
               return (
                 <button
+                  key={item.id}
                   {...common}
                   role="menuitemcheckbox"
                   aria-checked={item.checked}
@@ -162,6 +165,7 @@ export const MenuItems = ({
             if (item.kind === 'radio') {
               return (
                 <button
+                  key={item.id}
                   {...common}
                   role="menuitemradio"
                   aria-checked={item.selected}
@@ -174,6 +178,7 @@ export const MenuItems = ({
             }
             return (
               <button
+                key={item.id}
                 {...common}
                 role="menuitem"
                 className={item.danger ? 'danger' : undefined}
@@ -219,21 +224,33 @@ export const ContextMenu = ({
     setPos({ x, y })
   }, [at.x, at.y])
 
+  /**
+   * ONCE, on mount, and never again.
+   *
+   * This is the whole reason the effect below is split in two. The engine broadcasts state twice a
+   * second, which re-renders the page, which hands this component a fresh `onClose` closure and a
+   * freshly built `groups` array every time. An effect that focuses and lists `onClose` in its
+   * deps therefore re-runs twice a second and drags focus back, so a user arrowing down the menu
+   * watches their selection snap back to the top about once a second. Reported from the live site,
+   * and invisible to a test that never re-renders.
+   *
+   * The CONTAINER, not the first item: a ring on the first usable row reads as a choice the user
+   * did not make, and the arrow keys move into the list from here anyway.
+   *
+   * preventScroll, or focusing scrolls the element into view, that scroll reaches the close handler
+   * below, and the menu shuts itself in the frame it opened.
+   */
   useEffect(() => {
-    const enabled = () => items.current.filter((el): el is HTMLButtonElement => !!el && !el.disabled)
-    /**
-     * The CONTAINER, not the first item.
-     *
-     * Focusing an item draws a focus ring on it, and a ring on the first usable row reads as a
-     * selection the user did not make: the menu opens looking as though "Use the DHT" is already
-     * chosen, and it looks that way every single time because the first usable row rarely changes.
-     * No native context menu does that. Keyboard access is unaffected, because the arrow keys move
-     * INTO the list from here, which is the first thing the handler below does.
-     */
-    // preventScroll, or focusing scrolls the element into view, that scroll reaches the handler
-    // below, and the menu closes itself the instant it opens. Every focus() in this component has
-    // the same hazard, which is why they all carry it.
     ref.current?.focus({ preventScroll: true })
+  }, [])
+
+  // read through a ref so the listeners below can be attached once and still call the current one
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose })
+
+  useEffect(() => {
+    const onClose = () => onCloseRef.current()
+    const enabled = () => items.current.filter((el): el is HTMLButtonElement => !!el && !el.disabled)
 
     /**
      * Focus a row without letting the browser scroll it into view.
@@ -295,7 +312,9 @@ export const ContextMenu = ({
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onScroll)
     }
-  }, [onClose])
+    // attached once: re-attaching on every render is what re-ran the focus above, and these
+    // listeners have no reason to churn either
+  }, [])
 
   return (
     <div
