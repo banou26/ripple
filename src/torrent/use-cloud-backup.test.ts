@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest'
+import { describe, expect, it, test } from 'vitest'
 
-import { classifyAvailability } from './use-cloud-backup'
+import { classifyAvailability, isAbsent } from './use-cloud-backup'
 
 /**
  * What a storage-availability answer means, and specifically when it means "try again".
@@ -67,4 +67,45 @@ test('every unconnected verdict names a reason a UI can show', () => {
     expect(verdict.connected).toBe(false)
     expect(verdict.reason).toBeTruthy()
   }
+})
+
+/**
+ * Whether the store is saying "there is no backup" or "I could not tell you".
+ *
+ * The distinction decides whether the local library is written up as a fresh backup or held back
+ * untouched, so being wrong in one direction loses a user's library and in the other never starts
+ * syncing at all. It is a message test because that is all that survives the broker boundary:
+ * custom error properties are stripped, and only `message` and `code` come through.
+ */
+describe('recognising an absent backup', () => {
+  it('accepts the api refusing to presign a path with no row', () => {
+    expect(isAbsent('Not found')).toBe(true)
+  })
+
+  /**
+   * THE REGRESSION. The presign succeeds, the object fetch 404s, and the message says nothing
+   * about "not found". Observed live on 2026-08-16: the sync retried on its backoff indefinitely
+   * and the library was never backed up.
+   */
+  it('accepts a committed row whose object is not in the bucket', () => {
+    expect(isAbsent('storage: read failed (404)')).toBe(true)
+  })
+
+  /** Everything else is inconclusive, and must never seed over a backup that may still be good. */
+  it.each([
+    ['a server fault', 'storage: read failed (500)'],
+    ['a gateway fault', 'storage: read failed (502)'],
+    ['a refusal', 'storage: read failed (403)'],
+    ['a broker timeout', 'broker timed out'],
+    ['a network failure', 'Failed to fetch'],
+    ['nothing at all', ''],
+  ])('holds the backup back on %s', (_name, message) => {
+    expect(isAbsent(message)).toBe(false)
+  })
+
+  /** 404 has to be the STATUS, not a coincidence in a path or a byte count. */
+  it('does not fire on a 404 that is part of some other number', () => {
+    expect(isAbsent('storage: read failed (4040)')).toBe(false)
+    expect(isAbsent('read 404040 bytes')).toBe(false)
+  })
 })

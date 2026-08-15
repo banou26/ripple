@@ -73,6 +73,8 @@ export interface SyncState {
  * Observed on the live site on 2026-08-16, signed in, Premium, with `account.info()` answering
  * normally and the sync stat absent from the page entirely.
  */
+export { isAbsent }
+
 export const classifyAvailability = (
   available: boolean | null,
   signedIn: boolean,
@@ -93,6 +95,25 @@ export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = res
 
 // The broker reports each with a reserved marker that survives the osra boundary (custom props are stripped, the message and `code` are not)
 const isLocked = (err: unknown): boolean => (err as { code?: string })?.code === 'FKN_E2E_LOCKED'
+/**
+ * "There is no backup to read", in every form the storage layer expresses it.
+ *
+ * Two different 404s reach here and only one of them used to be recognised.
+ *
+ * `Not found` is the api refusing to presign a path with no committed row. The other is
+ * `storage: read failed (404)`, which is the presign SUCCEEDING and the object fetch then coming
+ * back empty (`fkn/web` `src/api/storage.ts:67`): a committed row whose object is not in the
+ * bucket. Only the first matched, so the second was read as a transient failure and retried
+ * forever, and a library in that state was never backed up again. Measured on the live site on
+ * 2026-08-16, where it retried on the backoff indefinitely and reported only "Sync failed".
+ *
+ * Both are DEFINITIVE, which is what makes seeding over them safe: the rule this file is built on
+ * is that anything merely inconclusive must never overwrite a backup that may still be good, and
+ * an object the store says is not there is not inconclusive.
+ */
+const isAbsent = (message: string): boolean =>
+  /not found/i.test(message) || /\(404\)/.test(message)
+
 const isUnreadable = (err: unknown): boolean => {
   const message = (err as { message?: string })?.message ?? ''
   return message.startsWith('fkn:e2e-integrity') || message.startsWith('fkn:e2e-stale-epoch')
@@ -233,8 +254,8 @@ export const useCloudBackup = (): SyncState => {
         else text = read
       } catch (err) {
         failure = (err as { message?: string })?.message ?? String(err)
-        // Anything other than a definitive "not found" or unreadable bytes is transient and must never seed over a backup that may still be good
-        missing = /not found/i.test(failure) || isUnreadable(err)
+        // Anything other than a definitive absence or unreadable bytes is transient and must never seed over a backup that may still be good
+        missing = isAbsent(failure) || isUnreadable(err)
         locked = isLocked(err)
       }
       if (stale()) return
