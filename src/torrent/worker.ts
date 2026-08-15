@@ -3,13 +3,13 @@ import './node-shims'
 import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
-import { createSession, PRIORITY } from 'libtorrent-wasm'
+import { createSession, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
 import type { EvictionCandidate } from './storage-budget'
-import type { Persisted } from './library'
+import type { Persisted, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
@@ -18,9 +18,11 @@ import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
+import { createHybridStorage } from './hybrid-storage'
+import { currentLocation, savePathIn } from './save-location'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'release', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'release', 'relocate', 'set-folder', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -62,6 +64,16 @@ export type { PeerInfo, TrackerInfo }
 
 let session: Session | null = null
 let storage: MeasurableStorage | null = null
+/**
+ * The directory the user granted, as handed over by a page.
+ *
+ * The engine reads a folder-backed torrent's files through this, so it has to live where the engine
+ * does. A File System Access grant belongs to a realm, and the tab that owns the engine is not
+ * necessarily the tab the user clicked Allow in, so this is pushed IN by whichever page has a
+ * permitted handle rather than restored here. Absent is an ordinary state, not a fault: a grant is
+ * per session and comes back needing a gesture after every reload.
+ */
+let folderHandle: FileSystemDirectoryHandle | null = null
 let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
@@ -512,6 +524,52 @@ const releaseStorage = async (live: Session, h: number, ih: string, reason: stri
 const evict = (live: Session, h: number, ih: string) =>
   releaseStorage(live, h, ih, 'torrent removed to make room')
 
+/**
+ * Point a torrent at the other storage, with its files already there.
+ *
+ * The COPY is not done here. A page does it, because the mirror that writes into the user's folder
+ * already exists there, already verifies content, and already has the directory handle. By the time
+ * this runs the bytes are in both places, and all that is left is to make the engine agree.
+ *
+ * `deleteFiles` is the line to read twice. It is true only when leaving BROWSER storage, where the
+ * copy being dropped is Ripple's own. Leaving a folder passes false, because those files are the
+ * user's and the hybrid backend refuses to delete them anyway: two independent guards on the one
+ * mistake in here that cannot be undone.
+ *
+ * The resume blob always goes. It describes a have-set for files at the old path, and after the move
+ * it is a claim about somewhere else. Without it the re-add asks the storage to check, which for a
+ * folder means hashing what is there and building the have-set from it: reads only, no network.
+ */
+const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) => {
+  const from = currentLocation(savePathByHandle.get(h))
+  if (from === to) return
+  const magnet = magnetByHandle.get(h) ?? ''
+  const savePath = savePathIn(to, ih)
+  const wasPaused = userPaused.has(h)
+
+  failReads(h, 'files moved')
+  live.removeTorrent(h, from === 'browser')
+  untrack(h)
+  await del(resumeKey(ih)).catch(() => {})
+
+  const next = live.addMagnet(magnet, savePath)
+  if (addFailed(next)) {
+    post({ type: 'add-failed', message: 'Moving the files left the torrent unaddable' })
+    await patchList(ih, { savePath, saveTo: to, started: false })
+    return
+  }
+  track(next, magnet, ih, savePath)
+  // Upload only, for a folder. There is no way to write there that is safe for the user's own files,
+  // so a torrent that could ask for a piece would eventually ask this backend to write and be
+  // refused, which reaches libtorrent as a fatal disk error.
+  if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+  if (wasPaused) { userPaused.add(next); wantPaused.add(next) }
+  recovery.hold(next, Date.now())
+  // no message of its own: patchList broadcasts the list, and the next state tick carries the new
+  // handle, so every tab learns about the move through the two channels it already watches
+  await patchList(ih, { savePath, saveTo: to, started: true })
+}
+
 const collectCandidates = async (list: Persisted[], now: number): Promise<EvictionCandidate[]> => {
   const byHash = new Map(list.map((e) => [e.infoHash, e]))
   const out: EvictionCandidate[] = []
@@ -645,7 +703,7 @@ const init = async () => {
   }
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  storage = createResilientStorage()
+  storage = createHybridStorage(createResilientStorage(), () => folderHandle)
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
@@ -914,6 +972,14 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih && !(m.ifIdle && busy)) {
         await releaseStorage(session, m.handle, ih, 'this device released its copy', { savedTo: m.savedTo })
       }
+    } else if (m.type === 'set-folder') {
+      // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
+      // wins, deliberately, because the newest offer is the one whose grant was checked most recently.
+      folderHandle = (m.handle as FileSystemDirectoryHandle | null) ?? null
+    } else if (m.type === 'relocate') {
+      const ih = infoHashByHandle.get(m.handle)
+      const to: SaveLocation = m.to === 'folder' ? 'folder' : 'browser'
+      if (ih) await relocate(session, m.handle, ih, to)
     } else if (m.type === 'import-list') {
       const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
       let list: Persisted[] = []

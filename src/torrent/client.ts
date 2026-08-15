@@ -1,5 +1,5 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
-import type { SavedTo } from './library'
+import type { SavedTo, SaveLocation } from './library'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -96,6 +96,23 @@ export type TorrentClient = {
    * and not for something a setting decided while they were watching.
    */
   release: (handle: number, savedTo: SavedTo, ifIdle?: boolean) => void
+  /**
+   * Point a torrent at the other storage, with its files already copied there.
+   *
+   * The copy is the CALLER's job, because the code that writes into the user's folder lives in the
+   * page along with the directory handle and already verifies what it wrote. This is only the engine
+   * half: drop the old copy where dropping it is ours to do, forget the resume data, and re-add
+   * against the new path so the storage is asked what it holds.
+   */
+  relocate: (handle: number, to: SaveLocation) => void
+  /**
+   * Offer the engine the directory the user granted, or null once it is gone.
+   *
+   * The engine reads a folder-backed torrent through this, so it has to reach the realm the engine
+   * runs in, which is not necessarily the tab the user clicked Allow in. Every tab with a permitted
+   * handle offers it, and the newest offer wins.
+   */
+  setFolder: (handle: FileSystemDirectoryHandle | null) => void
   destroy: () => void
 }
 
@@ -343,6 +360,8 @@ const createTorrentClient = (): EngineClient => {
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     release: (handle, savedTo, ifIdle = false) => send({ type: 'release', handle, savedTo, ifIdle }),
+    relocate: (handle, to) => send({ type: 'relocate', handle, to }),
+    setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
