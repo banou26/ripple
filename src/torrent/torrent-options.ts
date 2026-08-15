@@ -258,7 +258,7 @@ export const buildTorrentOptions = (
           kind: 'radio',
           id: 'order-sequential',
           group: 'order',
-          label: 'Sequential',
+          label: 'Download in sequential order',
           hint: 'Downloads front to back so it can be watched while it arrives. Usually slower.',
           selected: sequential,
           disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
@@ -270,29 +270,31 @@ export const buildTorrentOptions = (
       id: 'peers',
       label: 'Finding peers',
       items: [
+        // Phrased in the negative, which is both qBittorrent's wording and libtorrent's own storage.
+        // The control used to read "Use the DHT" and invert on the way in and out, which was a
+        // needless place to get a switch backwards: the flag IS the disable, so this now says so.
         {
           kind: 'toggle',
           id: 'dht',
-          label: 'Use the DHT',
-          hint: 'Finds peers through the global peer directory, with no tracker involved.',
-          // stored in the negative: the flag being SET is the DHT being off
-          checked: !has(t, TORRENT_FLAG.disableDht),
+          label: 'Disable DHT for this torrent',
+          hint: 'Stops looking for peers in the global peer directory. Trackers and peer exchange still apply.',
+          checked: has(t, TORRENT_FLAG.disableDht),
           disabled: ghost,
-          apply: (on) => a.setFlags(on ? 0 : TORRENT_FLAG.disableDht, TORRENT_FLAG.disableDht),
+          apply: (on) => a.setFlags(on ? TORRENT_FLAG.disableDht : 0, TORRENT_FLAG.disableDht),
         },
         {
           kind: 'toggle',
           id: 'pex',
-          label: 'Exchange peers',
-          hint: 'Lets connected peers introduce you to the peers they know. Also stored in the negative.',
-          checked: !has(t, TORRENT_FLAG.disablePex),
+          label: 'Disable PeX for this torrent',
+          hint: 'Stops connected peers introducing you to the peers they know.',
+          checked: has(t, TORRENT_FLAG.disablePex),
           disabled: ghost,
-          apply: (on) => a.setFlags(on ? 0 : TORRENT_FLAG.disablePex, TORRENT_FLAG.disablePex),
+          apply: (on) => a.setFlags(on ? TORRENT_FLAG.disablePex : 0, TORRENT_FLAG.disablePex),
         },
         {
           kind: 'action',
           id: 'reannounce',
-          label: 'Ask trackers again now',
+          label: 'Force reannounce',
           hint: 'Announces immediately instead of waiting for the next interval.',
           disabled: ghost,
           run: a.reannounce,
@@ -306,7 +308,7 @@ export const buildTorrentOptions = (
         {
           kind: 'toggle',
           id: 'upload-only',
-          label: 'Upload only',
+          label: 'Upload mode',
           hint: 'Keeps sharing what is already here and stops asking for anything new.',
           checked: has(t, TORRENT_FLAG.uploadMode),
           disabled: ghost,
@@ -315,7 +317,7 @@ export const buildTorrentOptions = (
         {
           kind: 'toggle',
           id: 'super-seed',
-          label: 'Super seeding',
+          label: 'Super seeding mode',
           hint: 'Hands each peer a different piece so the swarm gets a full copy sooner. For rare torrents.',
           checked: has(t, TORRENT_FLAG.superSeeding),
           // libtorrent ignores it while anything is still missing, so offering it then would be a
@@ -334,10 +336,10 @@ export const buildTorrentOptions = (
       id: 'queue',
       label: `Queue position ${t.queuePosition + 1}`,
       items: ([
-        ['queue-top', 'Move to the front', 'top'],
+        ['queue-top', 'Move to top', 'top'],
         ['queue-up', 'Move up', 'up'],
         ['queue-down', 'Move down', 'down'],
-        ['queue-bottom', 'Move to the back', 'bottom'],
+        ['queue-bottom', 'Move to bottom', 'bottom'],
       ] as const).map(([id, label, where]) => ({
         kind: 'action' as const,
         id,
@@ -360,7 +362,7 @@ export const buildTorrentOptions = (
     {
       kind: 'action',
       id: 'recheck',
-      label: 'Check the files again',
+      label: 'Force recheck',
       hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
       disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
       run: a.recheck,

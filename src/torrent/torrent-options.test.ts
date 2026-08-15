@@ -11,11 +11,12 @@ import { buildTorrentOptions } from './torrent-options'
  * The option list, which is the single definition both the right-click menu and the options dialog
  * render.
  *
- * The one that matters most is the inversion. libtorrent stores the discovery settings in the
- * NEGATIVE (`disable_dht`, `disable_pex`), while the control a person sees is positive ("use the
- * DHT"). Get it backwards and the switch turns the thing off when it says on, with no error
- * anywhere and nothing on screen to contradict it. It is asserted in both directions here, against
- * the flag constants rather than against numbers, so it stays right if libtorrent renumbers.
+ * The one that matters most is the discovery settings. libtorrent stores them in the NEGATIVE
+ * (`disable_dht`, `disable_pex`) and the controls now say so too, matching qBittorrent's own
+ * "Disable DHT for this torrent". That removed an inversion the UI used to perform on the way in and
+ * out, which was a needless place to get a switch backwards: a mistake there turns the thing off
+ * while the label says on, with no error and nothing on screen to contradict it. Asserted in both
+ * directions against the flag constants rather than numbers, so it survives libtorrent renumbering.
  *
  * The rest is about not offering controls that cannot do anything: a torrent that is not in the
  * session, a queue move for something that is not queued, super seeding on an incomplete torrent.
@@ -87,32 +88,32 @@ const find = (t: Torrent, id: string, a = actions(), saved = false) =>
   flat(t, a, saved).find((i) => i.id === id)
 
 describe('the torrent option list', () => {
-  describe('the discovery settings, which libtorrent stores inverted', () => {
-    it('shows the DHT as on when the disable flag is absent', () => {
+  describe('the discovery settings, which read the same way libtorrent stores them', () => {
+    it('reads unticked when the disable flag is absent, which is the DHT running', () => {
       const dht = find(torrent({ flags: 0 }), 'dht')!
       expect(dht.kind).toBe('toggle')
-      expect(dht.kind === 'toggle' && dht.checked).toBe(true)
-    })
-
-    it('shows the DHT as off when the disable flag is set', () => {
-      const dht = find(torrent({ flags: TORRENT_FLAG.disableDht }), 'dht')!
       expect(dht.kind === 'toggle' && dht.checked).toBe(false)
     })
 
-    /** Turning the control OFF must SET the flag. This is the direction that silently inverts. */
-    it('sets the disable flag when the user turns the DHT off', () => {
+    it('reads ticked when the disable flag is set', () => {
+      const dht = find(torrent({ flags: TORRENT_FLAG.disableDht }), 'dht')!
+      expect(dht.kind === 'toggle' && dht.checked).toBe(true)
+    })
+
+    /** Ticking "Disable DHT" must SET the flag. The direction a wrong sign would silently invert. */
+    it('sets the disable flag when the user ticks it', () => {
       const a = actions()
       const dht = find(torrent({ flags: 0 }), 'dht', a)!
       if (dht.kind !== 'toggle') throw new Error('not a toggle')
-      dht.apply(false)
+      dht.apply(true)
       expect(a.setFlags).toHaveBeenCalledWith(TORRENT_FLAG.disableDht, TORRENT_FLAG.disableDht)
     })
 
-    it('clears the disable flag when the user turns the DHT on', () => {
+    it('clears it when the user unticks it', () => {
       const a = actions()
       const dht = find(torrent({ flags: TORRENT_FLAG.disableDht }), 'dht', a)!
       if (dht.kind !== 'toggle') throw new Error('not a toggle')
-      dht.apply(true)
+      dht.apply(false)
       expect(a.setFlags).toHaveBeenCalledWith(0, TORRENT_FLAG.disableDht)
     })
 
@@ -120,9 +121,26 @@ describe('the torrent option list', () => {
       const a = actions()
       const pex = find(torrent({ flags: TORRENT_FLAG.disablePex }), 'pex', a)!
       if (pex.kind !== 'toggle') throw new Error('not a toggle')
-      expect(pex.checked).toBe(false)
-      pex.apply(true)
+      expect(pex.checked).toBe(true)
+      pex.apply(false)
       expect(a.setFlags).toHaveBeenCalledWith(0, TORRENT_FLAG.disablePex)
+    })
+
+    /**
+     * The labels are qBittorrent's, deliberately and not approximately. Somebody arriving from it
+     * should not have to work out that "Ask trackers again now" was "Force reannounce".
+     */
+    it('uses the names a qBittorrent user already knows', () => {
+      const ids = flat(torrent({ progress: 1, queuePosition: 0 }), actions(), true)
+      const label = (id: string) => ids.find((i) => i.id === id)?.label
+      expect(label('dht')).toBe('Disable DHT for this torrent')
+      expect(label('pex')).toBe('Disable PeX for this torrent')
+      expect(label('reannounce')).toBe('Force reannounce')
+      expect(label('recheck')).toBe('Force recheck')
+      expect(label('super-seed')).toBe('Super seeding mode')
+      expect(label('order-sequential')).toBe('Download in sequential order')
+      expect(label('queue-top')).toBe('Move to top')
+      expect(label('queue-bottom')).toBe('Move to bottom')
     })
 
     /**

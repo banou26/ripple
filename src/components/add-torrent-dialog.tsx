@@ -362,7 +362,7 @@ export const AddTorrentDialog = ({
               <label className="check">
                 <input type="checkbox" checked={choices.sequential} onChange={(e) => set({ sequential: e.currentTarget.checked })}/>
                 <span>
-                  Sequential download
+                  Download in sequential order
                   <span className="hint">Front to back, so it can be watched early. Usually slower.</span>
                 </span>
               </label>
