@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { getTorrentClient } from '../torrent/client'
 import { useTorrents } from '../torrent/use-torrents'
-import { magnetInfoHash, magnetParam } from '../torrent/magnet'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { describeAddRequest, type AddRequest } from './add-request'
 import { getRoutePath, Route } from './path'
@@ -19,6 +19,13 @@ import { getRoutePath, Route } from './path'
  * navigate a browser here, so an `/add` that acted on load would let any page put torrents in
  * someone's library and start them downloading, with one link and no gesture. So this renders what
  * would be added, says who asked, and waits. The add happens on a click or it does not happen.
+ *
+ * The FILE LIST is why the page reads metadata on arrival, and that is worth being clear about since
+ * it is a side effect of following a link. It adds the torrent marked `ephemeral`, exactly as
+ * `/embed` does: the engine treats those bytes as a cache it may reclaim at any time, and the row
+ * never appears in the library. So visiting costs a metadata fetch from the swarm and nothing else,
+ * and the actual add is still a click away. Cancelling drops it again, unless it was already in the
+ * library when the page opened, in which case it was never ours to remove.
  *
  * For the same reason it refuses to do anything inside a frame. A page that can size and position an
  * invisible iframe can put this button under the visitor's cursor while they think they are clicking
@@ -117,6 +124,46 @@ const style = css`
     }
   }
 
+  .files {
+    margin: 0 0 22px;
+    border: 1px solid #2c2737;
+    border-radius: 10px;
+    max-height: 240px;
+    overflow-y: auto;
+
+    .file {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #221e2b;
+
+      &:last-child { border-bottom: none; }
+
+      .path {
+        flex: 1;
+        min-width: 0;
+        color: #c9c4d4;
+        word-break: break-word;
+
+        .dir { color: #8b8499; }
+      }
+
+      .size {
+        flex-shrink: 0;
+        color: #8b8499;
+        font-variant-numeric: tabular-nums;
+      }
+    }
+  }
+
+  .reading {
+    margin: 0 0 22px;
+    font-size: 0.85rem;
+    color: #8b8499;
+  }
+
   .problem {
     color: #f8a5a5;
     font-size: 0.9rem;
@@ -140,9 +187,18 @@ const referrerOrigin = (): string | null => {
   } catch { return null }
 }
 
+/** `a/b/c.mkv` shown as a dimmed `a/b/` and a bright `c.mkv`, so a pack scans by filename */
+const FilePath = ({ path }: { path: string }) => {
+  const cut = path.lastIndexOf('/')
+  return cut < 0
+    ? <>{path}</>
+    : <><span className="dir">{path.slice(0, cut + 1)}</span>{path.slice(cut + 1)}</>
+}
+
 const Add = () => {
   const [params] = useSearchParams()
   const navigate = useNavigate()
+  const client = getTorrentClient()
   const { torrents, addMagnet } = useTorrents()
   const [added, setAdded] = useState(false)
 
@@ -156,9 +212,29 @@ const Add = () => {
   // reading anything off the other window
   const [framed] = useState(() => { try { return window.top !== window.self } catch { return true } })
 
-  const already = request.ok
+  const preview = request.ok
     ? torrents.find((t) => t.infoHash && t.infoHash === request.infoHash)
     : undefined
+  const files = preview?.files ?? []
+  const totalBytes = files.reduce((n, f) => n + f.size, 0)
+
+  /**
+   * Is this already theirs, or only the cache entry this page made to read the file list?
+   *
+   * The engine's own `ephemeral` flag answers it exactly. Watching the list cannot: the preview add
+   * puts a row there too, so "it is in the list" is true either way within a moment of arriving, and
+   * a latch racing that would sometimes offer to remove something the person already had.
+   */
+  const inLibrary = !!preview && preview.state !== 'missing' && !preview.ephemeral
+
+  // Read the file list, without keeping anything. `ephemeral` is what makes this a cache entry the
+  // engine may reclaim rather than something the person chose to keep, and it is also why a magnet
+  // that is ALREADY in the library is not demoted by it: the worker treats an ephemeral add of a
+  // known torrent as a touch, and `mergeEntry` ANDs the flag, so a library row stays a library row.
+  useEffect(() => {
+    if (!request.ok || framed) return
+    client.addMagnet(request.magnet, { ephemeral: true })
+  }, [client, request, framed])
 
   useEffect(() => {
     if (!added) return
@@ -168,8 +244,17 @@ const Add = () => {
 
   const onAdd = () => {
     if (!request.ok) return
+    // the same magnet without `ephemeral`, which is the gesture that promotes it out of the cache
     addMagnet(request.magnet)
     setAdded(true)
+  }
+
+  const onCancel = () => {
+    // only what this page created: anything that was already theirs is left exactly as it was
+    if (preview && preview.ephemeral && preview.state !== 'missing') {
+      client.remove(Number(preview.id), true)
+    }
+    navigate(getRoutePath(Route.HOME))
   }
 
   return (
@@ -187,7 +272,7 @@ const Add = () => {
           )
           : (
             <>
-              <h1>Add this torrent to Ripple?</h1>
+              <h1>Add torrent</h1>
               <p className="from">
                 {from ? <>Sent here by <b>{from}</b>.</> : <>Opened directly.</>}
                 {' '}Nothing is added until you say so.
@@ -195,11 +280,27 @@ const Add = () => {
 
               <div className="name">{request.name}</div>
 
+              {files.length > 0
+                ? (
+                  <div className="files">
+                    {files.map((file) => (
+                      <div className="file" key={file.name}>
+                        <span className="path"><FilePath path={file.name}/></span>
+                        <span className="size">{getHumanReadableByteString(file.size, true)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+                : <p className="reading">Reading the file list from the swarm...</p>}
+
               <dl>
-                {request.sizeBytes !== undefined && (
+                {(totalBytes > 0 || request.sizeBytes !== undefined) && (
                   <>
                     <dt>Size</dt>
-                    <dd>{getHumanReadableByteString(request.sizeBytes, true)}</dd>
+                    <dd>
+                      {getHumanReadableByteString(totalBytes || request.sizeBytes!, true)}
+                      {files.length > 1 && ` in ${files.length} files`}
+                    </dd>
                   </>
                 )}
                 <dt>Info hash</dt>
@@ -210,7 +311,7 @@ const Add = () => {
 
               {added
                 ? <p>Added. Taking you to your library.</p>
-                : already
+                : inLibrary
                   ? (
                     <>
                       <p>This one is already in your library.</p>
@@ -241,8 +342,8 @@ const Add = () => {
                     )
                     : (
                       <div className="actions">
-                        <button className="primary" onClick={onAdd}>Add to Ripple</button>
-                        <Link className="button" to={getRoutePath(Route.HOME)}>Cancel</Link>
+                        <button className="primary" onClick={onAdd}>Add torrent</button>
+                        <button onClick={onCancel}>Cancel</button>
                       </div>
                     )}
 

@@ -184,11 +184,11 @@ export const useTorrents = (): UseTorrents => {
     const now = Date.now()
     // the intent lives in the library row and the engine knows nothing about it, so it is attached
     // here rather than in snapshotToTorrent, which only ever sees engine state
-    const intentByHash = new Map(list.map((e) => [e.infoHash, e.saveTo]))
+    const entryByHash = new Map(list.map((e) => [e.infoHash, e]))
     const live = snaps.map((s) => {
       const t = snapshotToTorrent(s, now)
-      const saveTo = t.infoHash ? intentByHash.get(t.infoHash) : undefined
-      return saveTo ? { ...t, saveTo } : t
+      const entry = t.infoHash ? entryByHash.get(t.infoHash) : undefined
+      return entry ? { ...t, saveTo: entry.saveTo, ephemeral: entry.ephemeral === true } : t
     })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
     const ghosts = list

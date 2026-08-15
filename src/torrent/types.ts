@@ -74,6 +74,15 @@ export type Torrent = {
    * ARE: that is `stats.savePath`, and the two disagree for as long as a move is pending.
    */
   saveTo?: SaveLocation
+  /**
+   * True for a torrent a PAGE asked for rather than the person: its bytes are a cache the engine may
+   * reclaim, and it is not part of the library.
+   *
+   * The engine's own distinction, surfaced rather than re-derived, because "did this row exist before
+   * I touched it" cannot be answered by watching the list: an ephemeral add lands in it too, and a
+   * moment later the two are indistinguishable.
+   */
+  ephemeral?: boolean
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'
