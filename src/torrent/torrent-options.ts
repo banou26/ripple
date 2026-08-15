@@ -2,6 +2,8 @@ import type { Torrent } from './types'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
+import { hasPlayableFile } from './watch'
+
 /**
  * What a user may change about one torrent, defined once and rendered twice.
  *
@@ -91,6 +93,16 @@ export interface TorrentOptionActions {
   resume: () => void
   remove: () => void
   removeWithFiles: () => void
+  /** Open the player. Only reachable when the torrent has something playable in it. */
+  watch: () => void
+  /** Write it out: one file to disk, or the whole torrent as a zip when there is more than one. */
+  save: () => void
+  /** Open the embed builder for this torrent. */
+  embed: () => void
+  /** Stop waiting out the recovery backoff and try again now. */
+  retryNow: () => void
+  /** Add a library entry back to the session, for a torrent this device knows and is not running. */
+  start: () => void
 }
 
 const has = (t: Torrent, flag: number) => (t.flags & flag) !== 0
@@ -110,7 +122,63 @@ export const buildTorrentOptions = (
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
-  const groups: OptionGroup[] = [
+  const multi = (t.files?.length ?? 0) > 1
+
+  /**
+   * The things that used to be buttons on the row.
+   *
+   * The row kept seven of them and could not take another, which is what pushed this menu into
+   * existence in the first place. It now keeps four icons for what people reach for constantly and
+   * everything else lives here, where it has room for a name and a sentence.
+   */
+  const actions: OptionItem[] = []
+  if (hasPlayableFile(t)) {
+    actions.push({
+      kind: 'action',
+      id: 'watch',
+      label: 'Watch',
+      hint: 'Play it here. It streams while the rest arrives, so it does not have to finish first.',
+      run: a.watch,
+    })
+  }
+  if (isGhost(t)) {
+    actions.push({
+      kind: 'action',
+      id: 'start',
+      label: 'Download to this device',
+      hint: 'This torrent is in your library but not on this device. This fetches it again.',
+      run: a.start,
+    })
+  }
+  if (!!t.files?.length && complete && !isGhost(t)) {
+    actions.push({
+      kind: 'action',
+      id: 'save',
+      label: multi ? 'Save as a zip' : 'Save to disk',
+      hint: multi
+        ? 'Writes every file out as one zip, wherever you choose.'
+        : 'Writes the file out wherever you choose.',
+      run: a.save,
+    })
+  }
+  if (t.magnet) {
+    actions.push({
+      kind: 'action',
+      id: 'embed',
+      // a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk
+      label: 'Embed this torrent',
+      hint: 'Builds a link or an iframe that plays this torrent on another page.',
+      run: a.embed,
+    })
+  }
+
+  const groups: OptionGroup[] = []
+  // Named apart from the 'manage' group at the bottom, which was also "This torrent" and made the
+  // menu read as though it repeated itself. This one is what you do WITH the content; that one is
+  // what you do TO the torrent.
+  if (actions.length) groups.push({ id: 'actions', label: 'Actions', items: actions })
+
+  groups.push(
     {
       id: 'order',
       label: 'Piece order',
@@ -199,7 +267,7 @@ export const buildTorrentOptions = (
         },
       ],
     },
-  ]
+  )
 
   // Only auto-managed torrents have a position at all; for everything else it is -1 and every move
   // would be a no-op the user could keep clicking.
@@ -241,6 +309,18 @@ export const buildTorrentOptions = (
     },
   ]
 
+  // A stalled torrent is waiting out a backoff rather than paused, so "resume" would do nothing for
+  // it. This is the item that actually shortens the wait.
+  if (t.state === 'retrying') {
+    maintenance.splice(1, 0, {
+      kind: 'action',
+      id: 'retry-now',
+      label: 'Try again now',
+      hint: 'Stops waiting out the retry timer and reconnects immediately.',
+      run: a.retryNow,
+    })
+  }
+
   /**
    * Which removals are real for this torrent.
    *
@@ -281,7 +361,7 @@ export const buildTorrentOptions = (
     })
   }
 
-  groups.push({ id: 'maintenance', label: 'This torrent', items: maintenance })
+  groups.push({ id: 'maintenance', label: 'Manage', items: maintenance })
 
   return groups
 }

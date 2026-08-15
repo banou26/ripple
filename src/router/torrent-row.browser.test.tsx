@@ -74,7 +74,7 @@ const sized = () => {
 
 const handlers = () => ({
   saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onRecheck: vi.fn(),
-  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(),
+  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(), savedToUserStorage: false,
 })
 
 /**
@@ -335,9 +335,10 @@ describe('a library row', () => {
     /** Every button already does something. Selecting as well would fire two actions per click. */
     it('does not select when an action button is used', async () => {
       thumbnail.current = null
-      const { screen, props } = await inPage(torrent())
-      await screen.getByRole('button', { name: 'Remove' }).click()
-      expect(props.onRemove).toHaveBeenCalled()
+      const t = torrent()
+      const { screen, props } = await inPage(t)
+      await screen.getByRole('button', { name: `Pause ${t.name}` }).click()
+      expect(props.onToggle).toHaveBeenCalled()
       expect(props.onSelect).not.toHaveBeenCalled()
     })
 
@@ -375,6 +376,76 @@ describe('a library row', () => {
       )
       expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: t.id }))
       expect(props.onOptions).toHaveBeenCalled()
+    })
+  })
+
+
+  /**
+   * The action strip, which is deliberately four controls and not seven.
+   *
+   * It carried Watch, Save, Pause, Embed, Recheck, Remove and then an options button wedged on the
+   * end, and had visibly run out of room. Embed and Recheck are occasional, Remove is destructive
+   * and does not belong one stray click away from Pause, and none of the three earns a permanent
+   * place on every row. They moved into the menu, which can afford to name and explain them.
+   */
+  describe('the action strip', () => {
+    const names = (screen: Awaited<ReturnType<typeof mount>>) =>
+      [...screen.container.querySelectorAll('.actions a, .actions button')]
+        .map((el) => el.getAttribute('aria-label'))
+
+    it('keeps only what people reach for constantly', async () => {
+      thumbnail.current = null
+      const t = torrent({ progress: 1, state: 'seeding' })
+      const screen = await mount(t)
+      // the fixture is a multi-file torrent, so the save is a zip; one file would say "to disk"
+      expect(names(screen)).toEqual([
+        `Watch ${t.name}`,
+        `Save ${t.name} as a zip`,
+        `Pause ${t.name}`,
+        `Options for ${t.name}`,
+      ])
+    })
+
+    it('has moved the rest into the menu rather than shrinking them', async () => {
+      thumbnail.current = null
+      const screen = await mount(torrent({ progress: 1 }))
+      const labels = names(screen).join(' ')
+      for (const gone of ['Embed', 'Recheck', 'Remove']) expect(labels).not.toContain(gone)
+    })
+
+    /** Offering to save a second copy of a file the user already has is an action with no outcome. */
+    it('drops the save button once the files are in the user\'s own folder', async () => {
+      thumbnail.current = null
+      const t = torrent({ progress: 1, state: 'seeding' })
+      const { TorrentRow, style } = await import('./home')
+      const screen = await render(
+        <MemoryRouter>
+          <div css={style}><main><TorrentRow t={t} {...handlers()} savedToUserStorage/></main></div>
+        </MemoryRouter>,
+        sized(),
+      )
+      const labels = [...screen.container.querySelectorAll('.actions a, .actions button')]
+        .map((el) => el.getAttribute('aria-label'))
+      expect(labels.join(' ')).not.toContain('Save ')
+      expect(labels).toContain(`Watch ${t.name}`)
+    })
+
+    it('offers no save while the download is still running', async () => {
+      thumbnail.current = null
+      const t = torrent({ progress: 0.5 })
+      const screen = await mount(t)
+      expect(names(screen).join(' ')).not.toContain('Save ')
+    })
+
+    /** A shape with no words needs a name for anyone who cannot see it, and a tip for anyone who can. */
+    it('names every icon for a screen reader and for a hover', async () => {
+      thumbnail.current = null
+      const screen = await mount(torrent({ progress: 1 }))
+      for (const el of screen.container.querySelectorAll('.actions a, .actions button')) {
+        expect(el.getAttribute('aria-label')).toBeTruthy()
+        expect(el.getAttribute('title')).toBeTruthy()
+        expect(el.querySelector('svg, .saving')).not.toBeNull()
+      }
     })
   })
 

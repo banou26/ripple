@@ -2,14 +2,14 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Folder } from 'react-feather'
+import { Download, Folder, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
@@ -820,17 +820,32 @@ export const style = css`
       justify-content: flex-end;
       gap: 6px;
 
-      /* the only icon control on the strip, so it is square and the glyph carries no weight */
-      button.more {
-        padding: 6px 10px;
-        font-weight: 400;
-        font-size: 0.95rem;
-        line-height: 1;
+      /* Every control here is an icon now, so they are all the same square. The label lives in the
+         title and aria-label attributes, never only in the shape. Note for anyone editing this
+         block: it sits inside a css template literal, so a backtick in a comment ends the string
+         and the whole file stops parsing. */
+      a, button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+      }
+
+      svg {
+        display: block;
+      }
+
+      /* the one exception: a save in progress shows its percentage, which needs the room */
+      .saving {
+        font-size: 0.68rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
       }
 
       a, button {
         border-radius: 999px;
-        padding: 6px 14px;
         font-size: 0.8rem;
         font-weight: 700;
       }
@@ -1358,6 +1373,8 @@ type RowProps = {
   selected: boolean
   /** Selects, and only selects. Deselecting is the dock's own gesture, not a second click here. */
   onSelect: (t: Torrent) => void
+  /** Whether this torrent's files are already in the folder the user chose. Hides the save button. */
+  savedToUserStorage: boolean
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -1368,8 +1385,23 @@ const Poster = ({ url }: { url: string | null }) =>
     ? <img className="poster" src={url} alt="" />
     : <div className="poster placeholder"><Folder /></div>
 
-const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onStart' | 'onRemove'> & { poster: string | null }) => (
-  <div className="torrent surface missing">
+const MissingRow = ({
+  t, poster, onStart, onOptions, selected, onSelect,
+}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect'> & { poster: string | null }) => (
+  <div
+    className={'torrent surface missing' + (selected ? ' selected' : '')}
+    aria-current={selected || undefined}
+    onClick={(e) => {
+      if ((e.target as HTMLElement).closest('button, a')) return
+      onSelect(t)
+    }}
+    onContextMenu={(e) => {
+      if (e.shiftKey || e.ctrlKey) return
+      e.preventDefault()
+      onSelect(t)
+      onOptions(t, { x: e.clientX, y: e.clientY })
+    }}
+  >
     {/* the files are gone from this device but the picture was cached here, so it still shows */}
     <Poster url={poster}/>
     <div className="content">
@@ -1382,9 +1414,26 @@ const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onSt
         </div>
         <div className="side">
           <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+          {/* Two, matching the live rows: fetch it, or open the menu. Removing a library entry is
+              in the menu with everything else destructive. */}
           <div className="actions">
-            <button className="primary" onClick={() => onStart(t)}>Download</button>
-            <button onClick={() => onRemove(t)}>Remove</button>
+            <button
+              className="primary"
+              onClick={() => onStart(t)}
+              title="Download to this device"
+              aria-label={`Download ${t.name}`}
+            >
+              <Download size={16} aria-hidden="true"/>
+            </button>
+            <button
+              className="more"
+              aria-haspopup="dialog"
+              aria-label={`Options for ${t.name}`}
+              title="Options"
+              onClick={() => onOptions(t, null)}
+            >
+              <MoreHorizontal size={16} aria-hidden="true"/>
+            </button>
           </div>
         </div>
       </div>
@@ -1393,7 +1442,7 @@ const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onSt
 )
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect, savedToUserStorage }: RowProps) => {
   /**
    * Before the missing branch, not after it.
    *
@@ -1402,12 +1451,21 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
    * same component, which React treats as a corrupted render rather than a state change.
    */
   const poster = useThumbnail(t.infoHash)
-  if (t.state === 'missing') return <MissingRow t={t} poster={poster} onStart={onStart} onRemove={onRemove}/>
+  if (t.state === 'missing') {
+    return (
+      <MissingRow
+        t={t} poster={poster} onStart={onStart}
+        onOptions={onOptions} selected={selected} onSelect={onSelect}
+      />
+    )
+  }
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
   const multi = (t.files?.length ?? 0) > 1
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
   const complete = t.progress >= 1
+  // 'retrying' is not stopped, it is waiting out a backoff, so the control still offers to pause it
+  const running = t.state !== 'paused' && t.state !== 'queued'
   // the panel keys by file index; the page keys by torrent-and-index, since one map covers every row
   const fileSaving: Record<number, number> = {}
   t.files?.forEach((_, i) => {
@@ -1468,28 +1526,49 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
           <div className="side">
             <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
             <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
+            {/**
+              * Four controls, and every one of them is something people reach for constantly.
+              *
+              * This strip carried seven text buttons and had run out of room: Watch, Save, Pause,
+              * Embed, Recheck, Remove and then the options button wedged on the end. Recheck and
+              * Embed are occasional, Remove is destructive and does not belong one stray click from
+              * Pause, and none of the three needs to be on screen for every torrent at all times.
+              * They live in the menu now, which has room to name and explain them.
+              *
+              * Icons rather than labels for the same reason: at four, the shapes are quicker to
+              * find than the words were, and every one carries a title and an aria-label so it is
+              * never only a shape.
+              */}
             <div className="actions">
-              {href && <Link className="primary" to={href}>Watch</Link>}
-              {!!t.files?.length && complete && (
-                <button onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)} disabled={mainSaving != null}>
-                  {mainSaving != null ? `Saving ${Math.round(mainSaving * 100)}%` : multi ? 'Save as zip' : 'Save to disk'}
+              {href && (
+                <Link className="primary" to={href} title="Watch" aria-label={`Watch ${t.name}`}>
+                  <PlayCircle size={16} aria-hidden="true"/>
+                </Link>
+              )}
+              {/* Only when there is something to write out AND it is not already sitting in the
+                  user's own folder: offering to save a second copy of a file they already have is
+                  an action with no outcome. */}
+              {!!t.files?.length && complete && !savedToUserStorage && (
+                <button
+                  onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)}
+                  disabled={mainSaving != null}
+                  title={multi ? 'Save as a zip' : 'Save to disk'}
+                  aria-label={multi ? `Save ${t.name} as a zip` : `Save ${t.name} to disk`}
+                >
+                  {mainSaving != null
+                    ? <span className="saving">{Math.round(mainSaving * 100)}%</span>
+                    : <Download size={16} aria-hidden="true"/>}
                 </button>
               )}
               {t.state !== 'checking' && (
-                <button onClick={() => onToggle(t)}>
-                  {t.state === 'retrying' ? 'Retry now' : t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause'}
+                <button
+                  onClick={() => onToggle(t)}
+                  title={running ? 'Pause' : t.state === 'retrying' ? 'Try again now' : 'Resume'}
+                  aria-label={`${running ? 'Pause' : 'Resume'} ${t.name}`}
+                >
+                  {running ? <Pause size={16} aria-hidden="true"/> : <Play size={16} aria-hidden="true"/>}
                 </button>
               )}
-              {t.state === 'retrying' && <button onClick={() => onPause(t)}>Pause</button>}
-              {/* a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk */}
-              {!!t.magnet && <button onClick={() => onEmbed(t)}>Embed</button>}
-              {!!t.files?.length && t.state !== 'checking' && (
-                <button onClick={() => onRecheck(t)}>Recheck</button>
-              )}
-              <button onClick={() => onRemove(t)}>Remove</button>
-              {/* The eighth control on a strip that was already full, so it is the only icon one:
-                  it is also the only one whose contents are all reachable another way (right-click
-                  the row), which is what makes shrinking it to a glyph acceptable. */}
               <button
                 className="more"
                 aria-haspopup="dialog"
@@ -1497,7 +1576,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                 title="Options"
                 onClick={() => onOptions(t, null)}
               >
-                ⋯
+                <MoreHorizontal size={16} aria-hidden="true"/>
               </button>
             </div>
           </div>
@@ -1516,6 +1595,7 @@ const Home = () => {
   const [offline, setOffline] = useState(() => navigator.onLine === false)
   const toastTimer = useRef<number | undefined>(undefined)
   const { confirm, confirmElement, confirmOpen } = useConfirm()
+  const navigate = useNavigate()
 
   const [embedOpen, setEmbedOpen] = useState(false)
   const [embedId, setEmbedId] = useState<string | null>(null)
@@ -1812,6 +1892,12 @@ const Home = () => {
     resume: () => resume(Number(t.id)),
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
+    // the row's Watch is a <Link>; from a menu it has to navigate itself
+    watch: () => { const href = watchHref(t); if (href) navigate(href) },
+    save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
+    embed: () => openEmbed(t.id),
+    retryNow: () => retry(Number(t.id)),
+    start: () => { if (t.infoHash) start(t.infoHash) },
   })
 
   /**
@@ -2130,6 +2216,7 @@ const Home = () => {
               onOptions={onOptions}
               selected={t.id === selectedId}
               onSelect={onSelect}
+              savedToUserStorage={!!folder && permitted && savedToFolder.has(t.id)}
             />
           ))}
       </main>

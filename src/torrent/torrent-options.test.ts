@@ -71,6 +71,11 @@ const actions = () => ({
   resume: vi.fn(),
   remove: vi.fn(),
   removeWithFiles: vi.fn(),
+  watch: vi.fn(),
+  save: vi.fn(),
+  embed: vi.fn(),
+  retryNow: vi.fn(),
+  start: vi.fn(),
 })
 
 const flat = (t: Torrent, a = actions(), saved = false) =>
@@ -268,6 +273,52 @@ describe('the torrent option list', () => {
       wipe.run()
       expect(a.removeWithFiles).toHaveBeenCalled()
     })
+  })
+
+  /**
+   * Two groups both called "This torrent" made the menu read as though it repeated itself, which is
+   * what shipped in the first pass. A group label is the only thing separating two lists of items
+   * that are otherwise indistinguishable at a glance.
+   */
+  it('gives every group a distinct label', () => {
+    for (const t of [torrent(), torrent({ queuePosition: 0 }), torrent({ state: 'missing' })]) {
+      const labels = buildTorrentOptions(t, actions(), { savedToUserStorage: true }).map((g) => g.label)
+      expect(new Set(labels).size).toBe(labels.length)
+    }
+  })
+
+  /**
+   * Everything taken off the row's action strip has to be reachable here, or removing the button
+   * removed the feature. The strip kept Watch, Save, Pause and Options; these are the rest.
+   */
+  it('carries what the row no longer has room for', () => {
+    const ids = flat(torrent({ progress: 1 }), actions(), true).map((i) => i.id)
+    for (const id of ['watch', 'save', 'embed', 'recheck', 'remove-files']) {
+      expect(ids, id).toContain(id)
+    }
+  })
+
+  it('runs each of them through the action it names', () => {
+    const a = actions()
+    const items = flat(torrent({ progress: 1 }), a, true)
+    for (const [id, fn] of [['watch', a.watch], ['save', a.save], ['embed', a.embed]] as const) {
+      const item = items.find((i) => i.id === id)!
+      if (item.kind !== 'action') throw new Error(`${id} is not an action`)
+      item.run()
+      expect(fn, id).toHaveBeenCalled()
+    }
+  })
+
+  /** A stalled torrent is waiting out a backoff, so "Resume" would do nothing for it. */
+  it('offers to shorten the wait only while a retry is pending', () => {
+    expect(flat(torrent({ state: 'retrying' })).map((i) => i.id)).toContain('retry-now')
+    expect(flat(torrent({ state: 'downloading' })).map((i) => i.id)).not.toContain('retry-now')
+  })
+
+  it('offers a ghost a way back rather than a save it cannot do', () => {
+    const ids = flat(torrent({ state: 'missing' })).map((i) => i.id)
+    expect(ids).toContain('start')
+    expect(ids).not.toContain('save')
   })
 
   it('gives every item a unique id, since both surfaces key on it', () => {
