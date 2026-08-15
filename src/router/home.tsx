@@ -33,7 +33,7 @@ import {
 } from '../torrent/save-location'
 import type { SaveLocation } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
-import { NO_LIMITS, formatLimit, limitNote } from '../torrent/rate-limits'
+import { NO_LIMITS, formatLimit, isLimit, limitNote } from '../torrent/rate-limits'
 import type { RateLimits } from '../torrent/rate-limits'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
@@ -236,6 +236,14 @@ const AccountWidget = () => {
 
 const HISTORY = 120
 
+/**
+ * Samples kept per row, against the page graph's 120.
+ *
+ * Half the history because it is drawn in a tenth of the width: at 120 samples across 80 pixels each
+ * one is well under a pixel, so the line stops being a shape and becomes a texture.
+ */
+const ROW_HISTORY = 60
+
 // A torrent already copied to the folder is parked on DONE, and a failed copy waits SYNC_RETRY before the next attempt
 const DONE = Number.POSITIVE_INFINITY
 const SYNC_RETRY = 30_000
@@ -315,7 +323,7 @@ export const style = css`
         min-width: 0;
         background: rgba(22, 19, 28, 0.8);
         border: 1px solid #2c2737;
-        border-radius: 999px;
+        border-radius: 6px;
         padding: 8px 16px;
         color: #f4f2f8;
         font-size: 0.9rem;
@@ -342,7 +350,7 @@ export const style = css`
 
       button {
         flex: none;
-        border-radius: 999px;
+        border-radius: 6px;
         padding: 8px 18px;
         font-size: 0.85rem;
         font-weight: 700;
@@ -378,7 +386,7 @@ export const style = css`
 
     .setup {
       flex: none;
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 8px 16px;
       font-size: 0.85rem;
       font-weight: 700;
@@ -434,7 +442,7 @@ export const style = css`
 
       .disconnect {
         flex: none;
-        border-radius: 999px;
+        border-radius: 6px;
         padding: 7px 14px;
         font-size: 0.78rem;
         font-weight: 700;
@@ -469,7 +477,7 @@ export const style = css`
     flex: none;
     margin: 14px 16px 0;
     padding: 14px 18px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid rgba(249, 115, 22, 0.45);
     display: flex;
     flex-direction: column;
@@ -481,7 +489,7 @@ export const style = css`
     button {
       align-self: flex-start;
       margin-top: 6px;
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 6px 16px;
       font-size: 0.8rem;
       font-weight: 700;
@@ -510,7 +518,7 @@ export const style = css`
     gap: 24px;
     margin: 14px 16px 0;
     padding: 14px 18px;
-    border-radius: 14px;
+    border-radius: 8px;
 
     .readouts {
       flex: none;
@@ -618,7 +626,7 @@ export const style = css`
     cursor: default;
 
     flex: none;
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 10px 12px;
     /* a ROW at the top level, so the picture is a column of its own spanning the whole card rather
        than a thing beside one line of it */
@@ -670,7 +678,7 @@ export const style = css`
       width: 150px;
       min-height: 84px;
       max-height: 148px;
-      border-radius: 10px;
+      border-radius: 8px;
       object-fit: cover;
       background: #221a31;
       border: 1px solid rgba(44, 39, 55, 0.9);
@@ -727,7 +735,7 @@ export const style = css`
       text-transform: uppercase;
       letter-spacing: 0.06em;
       padding: 3px 10px;
-      border-radius: 999px;
+      border-radius: 4px;
       background: #2c2737;
       border: 1px solid transparent;
       color: #a39db3;
@@ -786,13 +794,13 @@ export const style = css`
     /* thin, and inside the body rather than owning a row of its own */
     .bar {
       height: 4px;
-      border-radius: 999px;
+      border-radius: 2px;
       background: rgba(44, 39, 55, 0.9);
       overflow: hidden;
 
       .fill {
         height: 100%;
-        border-radius: 999px;
+        border-radius: 2px;
         background: linear-gradient(90deg, #fbbf24, #f97316);
         box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
         transition: width 400ms ease;
@@ -814,6 +822,46 @@ export const style = css`
       color: #a39db3;
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
+
+      /* a ceiling is a setting rather than a measurement, so it is marked off from the live numbers
+         beside it instead of reading as another one of them */
+      .limit {
+        padding: 0 6px;
+        border-radius: 4px;
+        color: #d9b38c;
+        background: rgba(249, 115, 22, 0.12);
+        border: 1px solid rgba(249, 115, 22, 0.22);
+      }
+    }
+
+    /**
+     * The per-row transfer graph.
+     *
+     * Fixed width and flex: none, so it cannot compete with the title for space: the name is what
+     * people scan for, and a graph that grew would push it around as rows come and go.
+     */
+    .spark {
+      flex: none;
+      width: 84px;
+      height: 26px;
+      align-self: center;
+
+      .down-fill { fill: rgba(249, 115, 22, 0.18); }
+
+      .down-line {
+        fill: none;
+        stroke: #f97316;
+        stroke-width: 1.2;
+        vector-effect: non-scaling-stroke;
+      }
+
+      /* thinner and cooler than the download line, so the two are told apart at 26px without a key */
+      .up-line {
+        fill: none;
+        stroke: #7dd3a0;
+        stroke-width: 1;
+        vector-effect: non-scaling-stroke;
+      }
     }
 
     /* One right-hand group on one line.
@@ -859,7 +907,7 @@ export const style = css`
       }
 
       a, button {
-        border-radius: 999px;
+        border-radius: 4px;
         font-size: 0.8rem;
         font-weight: 700;
       }
@@ -912,7 +960,7 @@ export const style = css`
         gap: 4px;
         margin: 10px 0 8px;
         padding: 3px;
-        border-radius: 999px;
+        border-radius: 6px;
         background: rgba(22, 19, 28, 0.8);
         width: fit-content;
         max-width: 100%;
@@ -920,7 +968,7 @@ export const style = css`
 
         button {
           border: none;
-          border-radius: 999px;
+          border-radius: 4px;
           background: none;
           color: #a39db3;
           padding: 4px 12px;
@@ -1074,7 +1122,7 @@ export const style = css`
         }
 
         .tag {
-          border-radius: 999px;
+          border-radius: 2px;
           padding: 1px 7px;
           font-size: 0.62rem;
           font-weight: 700;
@@ -1085,7 +1133,7 @@ export const style = css`
         button {
           flex: none;
           border: 1px solid #3a3447;
-          border-radius: 999px;
+          border-radius: 4px;
           background: none;
           color: #f4f2f8;
           padding: 4px 12px;
@@ -1166,7 +1214,7 @@ export const style = css`
 
       span {
         padding: 6px 14px;
-        border-radius: 999px;
+        border-radius: 4px;
         border: 1px solid #2c2737;
         background: rgba(30, 26, 40, 0.66);
         font-size: 0.78rem;
@@ -1182,7 +1230,7 @@ export const style = css`
     display: grid;
     place-items: center;
     border: 2px dashed rgba(249, 115, 22, 0.55);
-    border-radius: 18px;
+    border-radius: 8px;
     background: rgba(249, 115, 22, 0.06);
     color: #fbbf24;
     font-size: 1.15rem;
@@ -1242,7 +1290,7 @@ export const style = css`
       button {
         font-size: 0.75rem;
         padding: 4px 12px;
-        border-radius: 999px;
+        border-radius: 4px;
         border: 1px solid #2c2737;
         background: none;
         color: #8b8499;
@@ -1267,7 +1315,7 @@ export const style = css`
     transform: translateX(-50%);
     background: rgba(30, 26, 40, 0.85);
     border: 1px solid rgba(58, 52, 71, 0.9);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 11px 20px;
     font-size: 0.85rem;
     backdrop-filter: blur(12px) saturate(1.2);
@@ -1368,6 +1416,46 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
   )
 }
 
+/**
+ * One torrent's recent transfer, drawn the way the page graph draws the whole session's.
+ *
+ * BOTH directions, which is where it departs from the page graph on purpose. That one totals
+ * downloads because that is what the page is doing; a single torrent is often seeding, and a
+ * download-only sparkline on a finished torrent is a flat line saying nothing while the thing is
+ * working hard. Download is the filled area, upload the plain line over it, and both are scaled to
+ * the same peak so the two can be read against each other.
+ *
+ * A flat fill rather than the page graph's gradient, deliberately: a gradient needs a `<defs>` with
+ * an id, and an id repeated once per row is invalid in the document and resolves to whichever copy
+ * came first. At 26 pixels tall the gradient was not visible anyway.
+ */
+const RowGraph = ({ down, up }: { down: number[], up: number[] }) => {
+  const w = 100
+  const h = 26
+  // one peak for both series: scaling each to its own would draw a seeding torrent's 20 kB/s at the
+  // same height as another's 20 MB/s, which is the one thing a graph must never do
+  const max = Math.max(...down, ...up, 1)
+  const at = (values: number[]) => {
+    const offset = ROW_HISTORY - values.length
+    return values
+      .map((v, i) => `${(((offset + i) / (ROW_HISTORY - 1)) * w).toFixed(2)},${(h - 1 - (v / max) * (h - 3)).toFixed(2)}`)
+      .join(' ')
+  }
+  if (!down.length) return null
+  const downPoints = at(down)
+  const offset = ROW_HISTORY - down.length
+  return (
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+      <polygon
+        className="down-fill"
+        points={`${((offset / (ROW_HISTORY - 1)) * w).toFixed(2)},${h} ${downPoints} ${w},${h}`}
+      />
+      <polyline className="down-line" points={downPoints}/>
+      {up.some((v) => v > 0) && <polyline className="up-line" points={at(up)}/>}
+    </svg>
+  )
+}
+
 // fileIndex -1 tracks a whole-torrent zip save (never collides with a real file).
 const savingKey = (id: string, fileIndex: number) => `${id}:${fileIndex}`
 
@@ -1389,6 +1477,8 @@ type RowProps = {
   onSelect: (t: Torrent) => void
   /** Whether this torrent's files are already in the folder the user chose. Hides the save button. */
   savedToUserStorage: boolean
+  /** This row's recent transfer, newest last. Absent until the second state tick has been seen. */
+  rates?: { down: number[], up: number[] }
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -1456,7 +1546,7 @@ const MissingRow = ({
 )
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect, savedToUserStorage }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect, savedToUserStorage, rates }: RowProps) => {
   /**
    * Before the missing branch, not after it.
    *
@@ -1527,6 +1617,18 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               <span>↑ {speed(t.up)}</span>
               <span>{t.peers} peers</span>
               {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+              {/* Only when this torrent has been given one of its own. The session ceiling lives in
+                  the footer and would be the same on every row, which is noise rather than news. */}
+              {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (
+                <span className="limit" title={`This torrent will not download faster than ${formatLimit(t.downloadLimit)}`}>
+                  ↓ max {formatLimit(t.downloadLimit)}
+                </span>
+              )}
+              {isLimit(t.uploadLimit) && t.uploadLimit > 0 && (
+                <span className="limit" title={`This torrent will not upload faster than ${formatLimit(t.uploadLimit)}`}>
+                  ↑ max {formatLimit(t.uploadLimit)}
+                </span>
+              )}
               {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
             </div>
             {/* only while there is something to watch: at 100% it is a solid bar saying what the
@@ -1537,6 +1639,9 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               </div>
             )}
           </div>
+          {/* between the text and the controls, so it reads as part of what the row is REPORTING
+              rather than as something to click */}
+          {rates && <RowGraph down={rates.down} up={rates.up}/>}
           <div className="side">
             <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
             <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
@@ -2277,6 +2382,28 @@ const Home = () => {
     setHistory((prev) => [...prev.slice(-(HISTORY - 1)), torrents.reduce((n, t) => n + t.down, 0)])
   }, [torrents])
 
+  /**
+   * The same running history, per torrent.
+   *
+   * Rebuilt from the CURRENT list each tick rather than patched, so a torrent that is removed takes
+   * its samples with it. Patching would leave the series of every torrent ever seen in this tab
+   * accumulating behind the page for as long as it stays open.
+   */
+  const [rowRates, setRowRates] = useState<Record<string, { down: number[], up: number[] }>>({})
+  useEffect(() => {
+    setRowRates((prev) => {
+      const next: Record<string, { down: number[], up: number[] }> = {}
+      for (const t of torrents) {
+        const was = prev[t.id]
+        next[t.id] = {
+          down: [...(was?.down ?? []).slice(-(ROW_HISTORY - 1)), t.down],
+          up: [...(was?.up ?? []).slice(-(ROW_HISTORY - 1)), t.up],
+        }
+      }
+      return next
+    })
+  }, [torrents])
+
   const totalDown = torrents.reduce((n, t) => n + t.down, 0)
   const totalUp = torrents.reduce((n, t) => n + t.up, 0)
   const peak = Math.max(...history, 0)
@@ -2484,6 +2611,7 @@ const Home = () => {
               selected={t.id === selectedId}
               onSelect={onSelect}
               savedToUserStorage={!!folder && permitted && savedToFolder.has(t.id)}
+              rates={rowRates[t.id]}
             />
           ))}
       </main>

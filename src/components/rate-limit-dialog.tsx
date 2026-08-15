@@ -27,7 +27,7 @@ const style = css`
     box-sizing: border-box;
     width: 100%;
     padding: 20px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: #1e1a28;
     border: 1px solid rgba(68, 60, 86, 0.9);
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
@@ -57,7 +57,7 @@ const style = css`
       font-size: 0.9rem;
       width: 9rem;
       padding: 8px 10px;
-      border-radius: 9px;
+      border-radius: 6px;
       border: 1px solid rgba(68, 60, 86, 0.9);
       background: #171320;
       color: #f4f2f8;
@@ -119,7 +119,7 @@ const style = css`
       font-size: 0.85rem;
       font-weight: 600;
       padding: 8px 14px;
-      border-radius: 9px;
+      border-radius: 6px;
       cursor: pointer;
       border: 1px solid rgba(68, 60, 86, 0.9);
       background: #2a2436;

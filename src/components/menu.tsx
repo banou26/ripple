@@ -31,7 +31,7 @@ export const menuStyle = css`
   max-height: min(70vh, 560px);
   overflow-y: auto;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: 8px;
   border: 1px solid rgba(68, 60, 86, 0.9);
   background: #1e1a28;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
@@ -73,7 +73,7 @@ export const menuStyle = css`
     gap: 8px;
     width: 100%;
     border: none;
-    border-radius: 9px;
+    border-radius: 4px;
     background: none;
     color: #f4f2f8;
     padding: 7px 10px;
@@ -119,7 +119,7 @@ const Tick = ({ on, radio }: { on: boolean, radio?: boolean }) => (
   <span className="tick" aria-hidden="true">{on ? (radio ? '●' : '✓') : ''}</span>
 )
 
-const itemLabel = (item: OptionItem) => (item.disabled ? `${item.label} — ${item.disabled}` : item.hint)
+const itemLabel = (item: OptionItem) => (item.disabled ? `${item.label}. ${item.disabled}` : item.hint)
 
 export const MenuItems = ({
   groups, onChose, itemRef,

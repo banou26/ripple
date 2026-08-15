@@ -28,7 +28,7 @@ const style = css`
     display: flex;
     flex-direction: column;
     max-height: calc(100vh - 64px);
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid rgba(68, 60, 86, 0.9);
     background: #1e1a28;
   }
@@ -79,7 +79,7 @@ const style = css`
     gap: 12px;
     width: 100%;
     border: none;
-    border-radius: 10px;
+    border-radius: 6px;
     background: none;
     color: inherit;
     padding: 9px 10px;
@@ -184,7 +184,7 @@ const style = css`
 
     button {
       border: 1px solid #3a3447;
-      border-radius: 999px;
+      border-radius: 6px;
       background: none;
       color: #f4f2f8;
       padding: 6px 18px;

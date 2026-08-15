@@ -6,7 +6,7 @@ const style = (size: buttonSize) => css`
   display: flex;
   justify-content: flex-end;
 
-  border-radius: 0.4rem;
+  border-radius: 6px;
   user-select: none;
 
   z-index: 3;

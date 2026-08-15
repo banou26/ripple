@@ -46,7 +46,7 @@ const style = css`
     /* the page is scrollable and centred, so the card never dictates the height of a short embed */
     margin: auto;
     padding: 26px 24px;
-    border-radius: 18px;
+    border-radius: 8px;
     background: rgba(30, 26, 40, 0.66);
     border: 1px solid rgba(44, 39, 55, 0.9);
     box-shadow:
@@ -81,7 +81,7 @@ const style = css`
       height: 44px;
       display: grid;
       place-items: center;
-      border-radius: 12px;
+      border-radius: 6px;
       border: 1px solid rgba(249, 115, 22, 0.35);
       background: rgba(249, 115, 22, 0.08);
       color: #fbbf24;
@@ -120,7 +120,7 @@ const style = css`
     width: 100%;
     padding: 14px 20px;
     border: none;
-    border-radius: 999px;
+    border-radius: 6px;
     background: linear-gradient(90deg, #fbbf24, #f97316);
     color: #16131c;
     font-size: 1rem;
@@ -140,7 +140,7 @@ const style = css`
   .cancel {
     align-self: center;
     border: 1px solid #3a3447;
-    border-radius: 999px;
+    border-radius: 4px;
     background: none;
     color: #f4f2f8;
     padding: 6px 16px;
@@ -157,13 +157,13 @@ const style = css`
 
     .bar {
       height: 6px;
-      border-radius: 999px;
+      border-radius: 2px;
       background: rgba(44, 39, 55, 0.9);
       overflow: hidden;
 
       .fill {
         height: 100%;
-        border-radius: 999px;
+        border-radius: 2px;
         background: linear-gradient(90deg, #fbbf24, #f97316);
         box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
         transition: width 300ms ease;
@@ -263,7 +263,7 @@ const style = css`
       button {
         flex: none;
         border: 1px solid #3a3447;
-        border-radius: 999px;
+        border-radius: 4px;
         background: none;
         color: #f4f2f8;
         padding: 4px 12px;

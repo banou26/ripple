@@ -303,7 +303,7 @@ export const dockStyle = css`
       width: 46px;
       height: 3px;
       margin: 2px auto 0;
-      border-radius: 999px;
+      border-radius: 2px;
       background: #3a3447;
       transition: background 120ms ease;
     }
@@ -335,7 +335,7 @@ export const dockStyle = css`
     .close {
       flex: none;
       border: 1px solid #3a3447;
-      border-radius: 999px;
+      border-radius: 4px;
       background: none;
       color: #a39db3;
       padding: 3px 11px;
@@ -354,7 +354,7 @@ export const dockStyle = css`
     gap: 4px;
     margin: 0 16px 8px;
     padding: 3px;
-    border-radius: 999px;
+    border-radius: 6px;
     background: rgba(22, 19, 28, 0.8);
     width: fit-content;
     max-width: calc(100% - 32px);
@@ -362,7 +362,7 @@ export const dockStyle = css`
 
     button {
       border: none;
-      border-radius: 999px;
+      border-radius: 4px;
       background: none;
       color: #a39db3;
       padding: 4px 14px;
@@ -529,7 +529,7 @@ export const dockStyle = css`
     }
 
     .tag {
-      border-radius: 999px;
+      border-radius: 2px;
       padding: 1px 7px;
       font-size: 0.62rem;
       font-weight: 700;
@@ -540,7 +540,7 @@ export const dockStyle = css`
     button {
       flex: none;
       border: 1px solid #3a3447;
-      border-radius: 999px;
+      border-radius: 4px;
       background: none;
       color: #f4f2f8;
       padding: 3px 12px;

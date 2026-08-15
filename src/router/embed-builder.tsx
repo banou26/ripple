@@ -13,7 +13,7 @@ const style = css`
   flex: none;
   margin: 14px 16px 0;
   padding: 14px 18px;
-  border-radius: 14px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -35,7 +35,7 @@ const style = css`
     button {
       flex: none;
       border: 1px solid #3a3447;
-      border-radius: 999px;
+      border-radius: 4px;
       background: none;
       color: #f4f2f8;
       padding: 4px 12px;
@@ -53,7 +53,7 @@ const style = css`
     gap: 12px;
     padding: 22px 16px;
     border: 2px dashed rgba(58, 52, 71, 0.9);
-    border-radius: 14px;
+    border-radius: 8px;
     color: #8b8499;
     font-size: 0.85rem;
     text-align: center;
@@ -77,7 +77,7 @@ const style = css`
         text-overflow: ellipsis;
         white-space: nowrap;
         border: 1px solid #3a3447;
-        border-radius: 999px;
+        border-radius: 4px;
         background: none;
         color: #f4f2f8;
         padding: 5px 13px;
@@ -118,7 +118,7 @@ const style = css`
     max-width: 420px;
     background: rgba(22, 19, 28, 0.8);
     border: 1px solid #2c2737;
-    border-radius: 999px;
+    border-radius: 6px;
     padding: 7px 14px;
     color: #f4f2f8;
     font-family: inherit;
@@ -155,12 +155,12 @@ const style = css`
     gap: 4px;
     padding: 3px;
     border: 1px solid #2c2737;
-    border-radius: 999px;
+    border-radius: 6px;
     background: rgba(22, 19, 28, 0.8);
 
     button {
       border: none;
-      border-radius: 999px;
+      border-radius: 4px;
       background: none;
       color: #a39db3;
       padding: 5px 14px;
@@ -237,7 +237,7 @@ const style = css`
 
       button {
         border: 1px solid #3a3447;
-        border-radius: 999px;
+        border-radius: 4px;
         background: none;
         color: #f4f2f8;
         padding: 3px 11px;
@@ -261,7 +261,7 @@ const style = css`
       white-space: nowrap;
       background: rgba(22, 19, 28, 0.8);
       border: 1px solid #2c2737;
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 8px 16px;
       color: #b6b0c4;
       font-size: 0.78rem;
@@ -269,7 +269,7 @@ const style = css`
 
     a, button {
       flex: none;
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 8px 16px;
       font-size: 0.8rem;
       font-weight: 700;
@@ -312,7 +312,7 @@ const style = css`
       overflow-x: auto;
       background: rgba(22, 19, 28, 0.8);
       border: 1px solid #2c2737;
-      border-radius: 12px;
+      border-radius: 6px;
       padding: 10px 14px;
       color: #b6b0c4;
       font-size: 0.72rem;

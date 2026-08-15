@@ -40,7 +40,7 @@ const style = css`
     flex-direction: column;
     background: #17141d;
     border: 1px solid #2c2737;
-    border-radius: 16px;
+    border-radius: 8px;
     color: #f4f2f8;
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
@@ -89,7 +89,7 @@ const style = css`
 
   .files {
     border: 1px solid #2c2737;
-    border-radius: 10px;
+    border-radius: 6px;
     max-height: 260px;
     overflow-y: auto;
   }
@@ -185,7 +185,7 @@ const style = css`
     font: inherit;
     font-size: 0.85rem;
     padding: 8px 18px;
-    border-radius: 999px;
+    border-radius: 6px;
     border: 1px solid #2c2737;
     background: none;
     color: #c9c4d4;
