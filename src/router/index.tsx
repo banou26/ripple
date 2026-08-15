@@ -1,6 +1,7 @@
 import { RouterProvider } from 'react-router'
 import { createBrowserRouter } from 'react-router-dom'
 
+import Add from './add'
 import Embed from './embed'
 import Home from './home'
 import Legal from './legal'
@@ -11,6 +12,10 @@ const router = createBrowserRouter([
   {
     path: getRouterRoutePath(Route.HOME),
     element: <Home/>
+  },
+  {
+    path: getRouterRoutePath(Route.ADD),
+    element: <Add/>
   },
   {
     path: getRouterRoutePath(Route.EMBED),

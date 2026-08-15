@@ -1,0 +1,14 @@
+# Cloudflare Pages serves this verbatim. Path order matters: the first matching block wins.
+
+# /add asks a person to agree to something on behalf of whatever site linked them here, so it must
+# never render inside a frame. A page that can size and position an invisible iframe can put the Add
+# button under the visitor's cursor while they believe they are clicking something else, and nothing
+# written inside the frame helps, because the surrounding page chooses what is visible.
+#
+# The page checks `window.top !== window.self` as well. This header is the half that works before any
+# script runs, and the check is the half that survives a host serving these files without it.
+/add
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
+# NOT /embed, deliberately: being framed by another site is the entire point of that route.

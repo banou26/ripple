@@ -1,5 +1,6 @@
 export enum Route {
   HOME = 'HOME',
+  ADD = 'ADD',
   EMBED = 'EMBED',
   LEGAL = 'LEGAL',
   PRIVACY = 'PRIVACY'
@@ -13,11 +14,21 @@ export enum Route {
  * file the player opens, and the download page falls back to it so that adding `&mode=download` to
  * an existing watch URL downloads what that URL was playing.
  */
+/**
+ * What /add accepts, which is deliberately almost nothing.
+ *
+ * A magnet, and optionally a name for the case where the magnet carries no `dn`. Nothing that
+ * changes what happens: the page's whole job is to show a person what a stranger is proposing and
+ * wait for them, so a parameter that could pre-agree to anything would defeat it.
+ */
+type AddOptions = { magnet: string, name?: string }
+
 type EmbedSource = { magnet: string } | { torrentFile: string }
 type EmbedOptions = EmbedSource & { fileIndex?: string, mode?: 'watch' | 'download', files?: string }
 
 const Routes = {
   [Route.HOME]: () => '/',
+  [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
   [Route.EMBED]: (options: EmbedOptions) => `/embed?${new URLSearchParams(options).toString()}`,
   [Route.LEGAL]: () => '/legal',
   [Route.PRIVACY]: () => '/privacy'
@@ -25,6 +36,7 @@ const Routes = {
 
 const RouterRoutes = {
   [Route.HOME]: '/',
+  [Route.ADD]: '/add',
   [Route.EMBED]: '/embed',
   [Route.LEGAL]: '/legal',
   [Route.PRIVACY]: '/privacy'
