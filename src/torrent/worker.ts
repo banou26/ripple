@@ -4,7 +4,7 @@ import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, PRIORITY } from 'libtorrent-wasm'
-import type { Reachability, Session, TorrentFiles, TorrentStatus } from 'libtorrent-wasm'
+import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
@@ -20,7 +20,7 @@ import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -30,6 +30,21 @@ export type TorrentSnapshot = {
   bitfield: { numPieces: number, pieceLength: number, length: number, pieces: Uint8Array } | null
   recovery: RecoveryState | null
   userPaused: boolean
+}
+
+/**
+ * The per-peer and per-tracker detail for ONE torrent, and only while something is looking at it.
+ *
+ * Deliberately not part of {@link TorrentSnapshot}. A library of thirty torrents with forty peers
+ * each would put twelve hundred rows through the message channel twice a second, all to render one
+ * panel that is usually closed. So the panel names its subject with `inspect` and the engine
+ * computes this for that torrent alone; `inspect(null)` when it closes, and the cost goes back to
+ * nothing.
+ */
+export type TorrentDetail = {
+  handle: number
+  peers: PeerInfo[]
+  trackers: TrackerInfo[]
 }
 
 const LIST_KEY = 'ripple:torrents'
@@ -42,6 +57,8 @@ const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 export type { Persisted }
 /** Where inbound peers can reach this session, if anywhere. Re-exported so the UI can read it. */
 export type { Reachability }
+/** The rows a detail panel draws. Re-exported for the same reason. */
+export type { PeerInfo, TrackerInfo }
 
 let session: Session | null = null
 let storage: MeasurableStorage | null = null
@@ -130,6 +147,34 @@ const cacheIdle = new Set<number>()
 const lastReadAt = new Map<number, number>()
 // Waiting to have their one top-level name written into the list, which needs the file layout.
 const needsRootEntry = new Set<number>()
+
+// The torrent a detail panel is showing, or null when none is. See TorrentDetail for why this is
+// scoped to one rather than computed for the whole library.
+let inspecting: number | null = null
+let trackersPolledAt = 0
+// Trackers move on the announce interval, which is minutes, so re-asking twice a second would be
+// pure waste. Peers ride the ordinary 500ms broadcast because they genuinely change that fast.
+const TRACKER_POLL_MS = 5_000
+
+/**
+ * The detail for the inspected torrent, or null.
+ *
+ * The engine's peers() and trackers() are asynchronous: they post a request and the answer lands
+ * with the next alert pump, because the synchronous getters underneath are sync_calls on an
+ * io_context that only this thread ticks and would deadlock. So this asks and does NOT wait, then
+ * reads the last answer that arrived. The panel runs one broadcast behind, which at 500ms nobody
+ * can see, and the alternative is blocking the tick loop on a round trip through itself.
+ */
+const inspectDetail = (now: number): TorrentDetail | null => {
+  const handle = inspecting
+  if (handle == null || !handles.includes(handle)) return null
+  void session!.peers(handle)
+  if (now - trackersPolledAt >= TRACKER_POLL_MS) {
+    trackersPolledAt = now
+    void session!.trackers(handle)
+  }
+  return { handle, peers: session!.lastPeers(handle), trackers: session!.lastTrackers(handle) }
+}
 
 /** The names this torrent occupies directly inside its save path. Empty until the layout lands. */
 const rootEntriesOf = (h: number): string[] => {
@@ -670,7 +715,7 @@ const init = async () => {
       session.resumeTorrent(handle)
     }
 
-    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable() })
+    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), detail: inspectDetail(now) })
     for (const h of handles) {
       const st = session.status(h)
       if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.has(h) || resumeInFlight.has(h)) continue
@@ -944,6 +989,14 @@ const handleMessage = async (session: Session, m: any) => {
       else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
+    } else if (m.type === 'inspect') {
+      // a panel closing must clear this, or the engine keeps paying for a list nobody reads
+      const next = typeof m.handle === 'number' ? m.handle : null
+      if (next !== inspecting) {
+        inspecting = next
+        // the new subject's trackers are wanted immediately rather than up to TRACKER_POLL_MS later
+        trackersPolledAt = 0
+      }
     } else if (m.type === 'unwatch-owner') {
       // viewer ids are prefixed with the id of the tab that handed them out
       unwatch((viewer) => viewer.startsWith(m.owner + ':'))

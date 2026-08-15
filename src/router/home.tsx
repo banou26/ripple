@@ -28,6 +28,7 @@ import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { EmbedBuilder } from './embed-builder'
+import { TorrentDetailPanel } from './torrent-detail'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
@@ -825,7 +826,7 @@ export const style = css`
       }
     }
 
-    .files {
+    .detail {
       summary {
         cursor: pointer;
         color: #a39db3;
@@ -838,7 +839,100 @@ export const style = css`
         }
       }
 
-      .file {
+      .tabs {
+        display: flex;
+        gap: 4px;
+        margin: 10px 0 8px;
+        padding: 3px;
+        border-radius: 999px;
+        background: rgba(22, 19, 28, 0.8);
+        width: fit-content;
+        max-width: 100%;
+        flex-wrap: wrap;
+
+        button {
+          border: none;
+          border-radius: 999px;
+          background: none;
+          color: #a39db3;
+          padding: 4px 12px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+
+          &:hover {
+            color: #f4f2f8;
+          }
+
+          &[data-on] {
+            background: #fff;
+            color: #16131c;
+          }
+
+          .count {
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            opacity: 0.7;
+          }
+        }
+      }
+
+      /* every tab body is capped and scrolls inside itself: a swarm of eighty peers must not push
+         the next torrent in the library off the bottom of the page */
+      .pane {
+        max-height: 260px;
+        overflow-y: auto;
+        padding-right: 8px;
+      }
+
+      .none {
+        margin: 6px 0 2px;
+        color: #8b8499;
+        font-size: 0.8rem;
+      }
+
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 2px 24px;
+      }
+
+      .fact {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 5px 0;
+        border-bottom: 1px solid rgba(44, 39, 55, 0.9);
+        font-size: 0.8rem;
+
+        label {
+          flex: none;
+          color: #8b8499;
+        }
+
+        span {
+          min-width: 0;
+          overflow-wrap: anywhere;
+          text-align: right;
+          color: #d6d1e0;
+          font-variant-numeric: tabular-nums;
+        }
+      }
+
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.95em;
+      }
+
+      .rows {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .row {
         display: flex;
         align-items: center;
         gap: 12px;
@@ -847,20 +941,77 @@ export const style = css`
         font-size: 0.8rem;
 
         &:first-of-type {
-          margin-top: 8px;
+          border-top: none;
+        }
+
+        /* sticky so a long swarm keeps its column names while it scrolls */
+        &.head {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: #1c1826;
+          border-top: none;
+          padding-top: 2px;
+          font-size: 0.65rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #8b8499;
         }
 
         .name {
           flex: 1;
           min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
           overflow-wrap: anywhere;
           color: #b6b0c4;
+
+          .dim {
+            color: #6f6980;
+          }
         }
 
-        .size {
+        .client {
           flex: none;
+          width: 130px;
+          color: #8b8499;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+
+          &.ok {
+            color: #7dd3a0;
+          }
+
+          &.warn {
+            color: #ef4444;
+          }
+        }
+
+        .num {
+          flex: none;
+          width: 74px;
+          text-align: right;
           color: #8b8499;
           font-variant-numeric: tabular-nums;
+        }
+
+        .tags {
+          display: flex;
+          gap: 4px;
+          flex-wrap: wrap;
+        }
+
+        .tag {
+          border-radius: 999px;
+          padding: 1px 7px;
+          font-size: 0.62rem;
+          font-weight: 700;
+          color: #a39db3;
+          background: rgba(58, 52, 71, 0.6);
         }
 
         button {
@@ -1213,6 +1364,12 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
   const multi = (t.files?.length ?? 0) > 1
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
   const complete = t.progress >= 1
+  // the panel keys by file index; the page keys by torrent-and-index, since one map covers every row
+  const fileSaving: Record<number, number> = {}
+  t.files?.forEach((_, i) => {
+    const s = saving[savingKey(t.id, i)]
+    if (s != null) fileSaving[i] = s
+  })
   return (
     <div className="torrent surface">
       <Poster url={poster}/>
@@ -1263,24 +1420,15 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
             </div>
           </div>
         </div>
-        {/* the only thing below the main line, and only when there is more than one file */}
-        {(t.files?.length ?? 0) > 1 && (
-          <details className="files">
-            <summary>{t.files!.length} files</summary>
-            {t.files!.map((f, i) => {
-              const s = saving[savingKey(t.id, i)]
-              return (
-                <div className="file" key={i}>
-                  <span className="name">{f.name}</span>
-                  <span className="size">{getHumanReadableByteString(f.size, true)}</span>
-                  <button onClick={() => onSave(t, i)} disabled={s != null}>
-                    {s != null ? `${Math.round(s * 100)}%` : 'Save'}
-                  </button>
-                </div>
-              )
-            })}
-          </details>
-        )}
+        {/* The only thing below the main line, and shut by default. A row is a thing to watch
+            first and a torrent second, so everything that makes this look like a torrent client
+            lives one click away rather than in the way. */}
+        <TorrentDetailPanel
+          t={t}
+          handle={Number.isFinite(Number(t.id)) ? Number(t.id) : null}
+          saving={fileSaving}
+          onSave={(i) => onSave(t, i)}
+        />
       </div>
     </div>
   )

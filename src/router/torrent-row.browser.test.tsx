@@ -136,10 +136,10 @@ describe('a library row', () => {
     expect(screen.container.querySelector('.bar')).not.toBeNull()
   })
 
-  it('starts the file list under the title rather than under the picture', async () => {
+  it('starts the details panel under the title rather than under the picture', async () => {
     thumbnail.current = null
     const screen = await mount(torrent())
-    const summary = box(screen.container.querySelector('.files summary'))!
+    const summary = box(screen.container.querySelector('.detail summary'))!
     const title = box(screen.container.querySelector('.title strong'))!
     expect(Math.abs(summary.left - title.left)).toBeLessThan(2)
   })
@@ -182,7 +182,7 @@ describe('a library row', () => {
    * without limit turns a 16:9 frame into a tall column of one cropped stripe. A season pack is 24
    * rows, which is where this stops being a detail.
    */
-  it('runs the picture down the full height of the card, but not down an opened file list', async () => {
+  it('runs the picture down the full height of the card, but not down an opened details panel', async () => {
     thumbnail.current = null
     // a season pack, which is the case the cap exists for: three files make too short a card to tell
     const pack = torrent({
@@ -194,13 +194,22 @@ describe('a library row', () => {
     // collapsed, the card's padding is all that separates them
     expect(card.height - collapsed.height).toBeLessThan(24)
 
-    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
+    ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
+    // onto the file list specifically: the panel opens on its overview tab, which is a compact
+    // grid, and the tall pane this test needs is the one listing twenty-four episodes
+    await expect.poll(() => screen.container.querySelector('.detail .tabs')).not.toBeNull()
+    ;[...screen.container.querySelectorAll<HTMLElement>('.detail .tabs button')]
+      .find((b) => b.textContent === 'Files')!
+      .click()
     await expect.poll(() => box(screen.container.querySelector('.torrent'))!.height)
       .toBeGreaterThan(card.height * 3)
     const opened = box(screen.container.querySelector('.poster'))!
     const grown = box(screen.container.querySelector('.torrent'))!
-    // it stayed a picture rather than following the card down into a cropped stripe
-    expect(opened.height).toBeLessThan(grown.height / 3)
+    // It stayed a picture rather than following the card down into a cropped stripe. Compared
+    // against half the card rather than a third: the poster has its own max-height, so once the
+    // panel is tall enough the poster is a fixed 148px and the ratio stops tightening with it. A
+    // poster that DID follow would be the card's full height, which either bound catches.
+    expect(opened.height).toBeLessThan(grown.height / 2)
     expect(opened.width / opened.height).toBeGreaterThan(0.9)
   })
 

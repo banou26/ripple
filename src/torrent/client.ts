@@ -1,4 +1,4 @@
-import type { Persisted, Reachability, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -9,7 +9,7 @@ import { electEngineOwner } from './engine-election'
 import { ENGINE_RESET, hasWebLocks, newClientId } from './engine-protocol'
 import { createGate } from './gate'
 
-export type { Persisted, Reachability }
+export type { Persisted, Reachability, TorrentDetail }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
 
 // a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries
@@ -26,6 +26,21 @@ export type TorrentClient = {
   onAddFailed: (cb: (message: string) => void) => () => void
   /** Where inbound peers can reach this session. Latched, so a late subscriber gets the last value. */
   onReachable: (cb: (reachable: Reachability) => void) => () => void
+  /**
+   * Peers and trackers for the one torrent {@link inspect} named, on every state broadcast.
+   *
+   * Not latched, unlike onReachable: a latched value would hand a newly opened panel the previous
+   * torrent's peers, and a stale peer list is indistinguishable from a live one.
+   */
+  onDetail: (cb: (detail: TorrentDetail | null) => void) => () => void
+  /**
+   * Name the torrent whose detail should be computed, or null for none.
+   *
+   * The engine does the work for exactly one torrent, so this is not a subscription that stacks:
+   * the last caller wins. A panel must clear it on close or the engine keeps paying for a list
+   * nobody is reading.
+   */
+  inspect: (handle: number | null) => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void
@@ -98,6 +113,7 @@ const createTorrentClient = (): EngineClient => {
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
   const reachableCbs = new Set<(r: Reachability) => void>()
+  const detailCbs = new Set<(d: TorrentDetail | null) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
   const recentRate = createRecentRateTracker()
   // names this tab to the others, and prefixes the viewer ids its players hand out
@@ -197,6 +213,8 @@ const createTorrentClient = (): EngineClient => {
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
+        // null is a real answer: it means nothing is inspected, and a panel reads it as "no data yet"
+        detailCbs.forEach((cb) => cb(m.detail ?? null))
         const handles = new Set<number>()
         const at = performance.now()
         lastRawState = m.torrents as WorkerTorrentSnapshot[]
@@ -244,6 +262,8 @@ const createTorrentClient = (): EngineClient => {
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
+    onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
+    inspect: (handle) => send({ type: 'inspect', handle }),
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
     onEngineReset: (cb) => { engineResetCbs.add(cb); return () => { engineResetCbs.delete(cb) } },
     onRaw: (cb) => { rawCbs.add(cb); return () => { rawCbs.delete(cb) } },
