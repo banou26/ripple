@@ -10,12 +10,11 @@
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
-// savedTo records that this device wrote the files into a folder of the user's and then let go of its own copy, which is why the row survives with no bytes behind it
 // saveTo is where the user WANTS this torrent, which is not the same fact as savePath, where its bytes are: a folder cannot hold a download in progress, so the two disagree until it finishes
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
-  savedTo?: SavedTo, saveTo?: SaveLocation,
+  saveTo?: SaveLocation,
 }
 
 /**
@@ -28,9 +27,6 @@ export type Persisted = {
  * being mirrored to another. The cloud backup allowlists four fields, so it stays out for free.
  */
 export type SaveLocation = 'browser' | 'folder'
-
-/** The folder this device copied a torrent into, and when. Device-local, like `started` and `paused`. */
-export type SavedTo = { name: string, at: number }
 
 /**
  * The save root every torrent used before per-torrent directories.

@@ -22,7 +22,7 @@ import { createHybridStorage } from './hybrid-storage'
 import { currentLocation, savePathIn } from './save-location'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'release', 'relocate', 'set-folder', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -960,22 +960,14 @@ const handleMessage = async (session: Session, m: any) => {
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
-    } else if (m.type === 'release') {
-      // the copy is in a folder of theirs now, so this device stops holding a second one. Only the
-      // bytes go: the library row stays, carrying where they went.
-      const ih = infoHashByHandle.get(m.handle)
-      // `ifIdle` is the automatic path asking, and it must never pull the file out from under a
-      // player: releasing fails every in-flight read, which is fine for something someone just
-      // clicked and not for something a setting decided while they were watching. A skip needs no
-      // reply, because the mirror runs again on the next tick and will find the same torrent.
-      const busy = (viewers.get(m.handle)?.size ?? 0) > 0 || (readsByHandle.get(m.handle)?.size ?? 0) > 0
-      if (ih && !(m.ifIdle && busy)) {
-        await releaseStorage(session, m.handle, ih, 'this device released its copy', { savedTo: m.savedTo })
-      }
     } else if (m.type === 'set-folder') {
       // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
       // wins, deliberately, because the newest offer is the one whose grant was checked most recently.
       folderHandle = (m.handle as FileSystemDirectoryHandle | null) ?? null
+    } else if (m.type === 'set-location') {
+      // intent only. The move that follows is decided by a page, which is the realm that can see
+      // whether the torrent has finished and whether the folder is reachable right now.
+      if (typeof m.infoHash === 'string') await patchList(m.infoHash, { saveTo: m.to === 'folder' ? 'folder' : 'browser' })
     } else if (m.type === 'relocate') {
       const ih = infoHashByHandle.get(m.handle)
       const to: SaveLocation = m.to === 'folder' ? 'folder' : 'browser'

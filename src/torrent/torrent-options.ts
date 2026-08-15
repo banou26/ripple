@@ -1,8 +1,10 @@
 import type { Torrent } from './types'
+import type { SaveLocation } from './library'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { hasPlayableFile } from './watch'
+import { moveReadiness, pendingLabel } from './save-location'
 
 /**
  * What a user may change about one torrent, defined once and rendered twice.
@@ -81,6 +83,14 @@ export interface TorrentOptionContext {
    * in.
    */
   savedToUserStorage: boolean
+  /** Where this torrent's files are meant to be, its own choice or the global default. */
+  intended?: SaveLocation
+  /** Where its bytes actually are right now, which disagrees while a move is pending. */
+  current?: SaveLocation
+  /** The granted folder's name, absent when there is no folder or no live grant. */
+  folderName?: string
+  /** Whether a folder is usable at all right now, which decides if the choice can even be offered. */
+  folderReady?: boolean
 }
 
 /** Everything the option list needs to be able to do. Supplied by whoever renders it. */
@@ -93,8 +103,8 @@ export interface TorrentOptionActions {
   resume: () => void
   remove: () => void
   removeWithFiles: () => void
-  /** Delete this device's copy and keep the library row, for a torrent already in the user's folder. */
-  release: () => void
+  /** Choose where this torrent's files belong. The move itself follows when it can. */
+  setLocation: (location: SaveLocation) => void
   /** Open the player. Only reachable when the torrent has something playable in it. */
   watch: () => void
   /** Write it out: one file to disk, or the whole torrent as a zip when there is more than one. */
@@ -147,13 +157,8 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'start',
-      // A ghost carrying `savedTo` is not missing, it is on their disk with no second copy here. The
-      // two cases want the same button and a different sentence, because fetching it again is a
-      // recovery in one reading and a duplicate download in the other.
-      label: t.savedTo ? 'Download it here again' : 'Download to this device',
-      hint: t.savedTo
-        ? `The files are in ${t.savedTo.name}, and Ripple is not keeping its own copy. Fetching it again is what it takes to share it.`
-        : 'This torrent is in your library but not on this device. This fetches it again.',
+      label: 'Download to this device',
+      hint: 'This torrent is in your library but not on this device. This fetches it again.',
       run: a.start,
     })
   }
@@ -184,6 +189,52 @@ export const buildTorrentOptions = (
   // menu read as though it repeated itself. This one is what you do WITH the content; that one is
   // what you do TO the torrent.
   if (actions.length) groups.push({ id: 'actions', label: 'Actions', items: actions })
+
+  /**
+   * Where this torrent's files belong.
+   *
+   * Two radios rather than a path field, because there are exactly two places a browser can put
+   * them and neither is a path the user types. Offered only when a folder is actually usable: with
+   * no grant there is one option, which is not a choice.
+   *
+   * The hint carries the pending state rather than a separate row, since choosing a folder for
+   * something still downloading is a reasonable thing to ask for and the honest answer is "when it
+   * finishes" rather than a refusal.
+   */
+  if (context.folderReady && !isGhost(t)) {
+    const intended = context.intended ?? 'browser'
+    const current = context.current ?? 'browser'
+    const readiness = moveReadiness({ current, intended, complete, folderReady: true })
+    const pending = pendingLabel(readiness, context.folderName)
+    groups.push({
+      id: 'location',
+      label: 'Files',
+      items: [
+        {
+          kind: 'radio',
+          id: 'location-browser',
+          group: 'location',
+          label: 'Keep in browser storage',
+          hint: current === 'browser' && intended === 'browser'
+            ? 'Where Ripple downloads. Private to this browser, and counts against its storage quota.'
+            : 'Copies the files back into browser storage. It can be shared and rechecked from there.',
+          selected: intended === 'browser',
+          apply: () => a.setLocation('browser'),
+        },
+        {
+          kind: 'radio',
+          id: 'location-folder',
+          group: 'location',
+          label: `Move to ${context.folderName ?? 'your folder'}`,
+          hint: intended === 'folder' && pending
+            ? pending
+            : 'Puts the files somewhere you can open, and frees the browser storage they were using. Ripple keeps sharing them from there.',
+          selected: intended === 'folder',
+          apply: () => a.setLocation('folder'),
+        },
+      ],
+    })
+  }
 
   groups.push(
     {
@@ -347,25 +398,6 @@ export const buildTorrentOptions = (
     })
   } else {
     if (context.savedToUserStorage) {
-      /**
-       * Freeing the space without losing the torrent.
-       *
-       * Ripple downloads into OPFS and the auto-save mirror then writes the same bytes into the
-       * user's folder, so a mirrored torrent is stored twice on one disk and one of the two copies
-       * is browser-private storage nobody can open. This drops that one.
-       *
-       * It is not free, and the hint says so rather than burying it: libtorrent serves uploads by
-       * reading the files back, so a torrent with nothing here to read cannot share. That is the
-       * whole cost, and it is why this is an action someone chooses rather than something that
-       * happens on its own.
-       */
-      maintenance.push({
-        kind: 'action',
-        id: 'release',
-        label: 'Free Ripple\'s copy',
-        hint: 'Deletes the second copy Ripple keeps in browser storage and leaves yours alone. The torrent stays in your library, and stops being shared.',
-        run: a.release,
-      })
       maintenance.push({
         kind: 'action',
         id: 'remove',

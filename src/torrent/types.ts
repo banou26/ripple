@@ -1,3 +1,5 @@
+import type { SaveLocation } from './library'
+
 export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing' | 'retrying' | 'checking'
 
 export type TorrentFile = {
@@ -65,14 +67,13 @@ export type Torrent = {
    */
   stats: TorrentStats | null
   /**
-   * The folder this device copied the files into before letting go of its own copy.
+   * Where this torrent's files are meant to live, when it has said something of its own.
    *
-   * Present only on a library ghost, and it is what separates the two ways a row can have no bytes
-   * behind it: "this was never downloaded here" and "this is on your disk, Ripple just stopped
-   * keeping a second copy". The second one should not be offering to fetch it again as if it were
-   * gone.
+   * Absent means "whatever the global default is", which is a different fact from choosing browser
+   * storage explicitly, so it is not filled in with a default here. It is also not where the files
+   * ARE: that is `stats.savePath`, and the two disagree for as long as a move is pending.
    */
-  savedTo?: { name: string, at: number }
+  saveTo?: SaveLocation
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'

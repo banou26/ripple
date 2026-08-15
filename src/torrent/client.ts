@@ -1,5 +1,5 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
-import type { SavedTo, SaveLocation } from './library'
+import type { SaveLocation } from './library'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -84,19 +84,6 @@ export type TorrentClient = {
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   /**
-   * Hand the bytes back to the browser and keep the library row.
-   *
-   * Not `remove(handle, true)` with a flag: that one forgets the torrent, which is the right answer
-   * when someone is finished with it and the wrong one when the point is that they still have the
-   * files, just not here. The row survives carrying `savedTo`, so it reads as being in their folder
-   * rather than as missing, and sharing stops because there is nothing left here to serve.
-   *
-   * `ifIdle` is the automatic path asking, and it means "skip this one if anybody is reading it".
-   * A release fails every in-flight read, which is a fair price for something the user just clicked
-   * and not for something a setting decided while they were watching.
-   */
-  release: (handle: number, savedTo: SavedTo, ifIdle?: boolean) => void
-  /**
    * Point a torrent at the other storage, with its files already copied there.
    *
    * The copy is the CALLER's job, because the code that writes into the user's folder lives in the
@@ -105,6 +92,15 @@ export type TorrentClient = {
    * against the new path so the storage is asked what it holds.
    */
   relocate: (handle: number, to: SaveLocation) => void
+  /**
+   * Record where a torrent's files belong, without moving anything.
+   *
+   * Separate from `relocate` because the two answer different questions. This is the user's intent,
+   * which is worth remembering the moment they express it even when it cannot be acted on yet: a
+   * folder cannot hold a download in progress, so choosing one for something still downloading is
+   * stored now and carried out when it finishes.
+   */
+  setLocation: (infoHash: string, to: SaveLocation) => void
   /**
    * Offer the engine the directory the user granted, or null once it is gone.
    *
@@ -359,8 +355,8 @@ const createTorrentClient = (): EngineClient => {
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
-    release: (handle, savedTo, ifIdle = false) => send({ type: 'release', handle, savedTo, ifIdle }),
     relocate: (handle, to) => send({ type: 'relocate', handle, to }),
+    setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),

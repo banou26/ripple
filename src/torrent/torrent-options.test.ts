@@ -1,4 +1,5 @@
 import type { Torrent } from './types'
+import type { TorrentOptionContext } from './torrent-options'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -72,6 +73,7 @@ const actions = () => ({
   remove: vi.fn(),
   removeWithFiles: vi.fn(),
   release: vi.fn(),
+  setLocation: vi.fn(),
   watch: vi.fn(),
   save: vi.fn(),
   embed: vi.fn(),
@@ -261,43 +263,6 @@ describe('the torrent option list', () => {
       expect(find(torrent(), 'remove-files', actions(), true)!.label).toBe("Remove and delete Ripple's copy")
     })
 
-    /**
-     * The third removal, which is not one.
-     *
-     * A mirrored torrent is stored twice on one disk, and one of the two copies is browser-private
-     * storage nobody can open. Dropping that one is not the same request as forgetting the torrent,
-     * so it is not the same item: the library row survives, and what is actually lost is sharing,
-     * because libtorrent uploads by reading the files back.
-     */
-    it('offers freeing Ripple\'s copy only once there is another one', () => {
-      expect(flat(torrent(), actions(), false).map((i) => i.id)).not.toContain('release')
-      expect(flat(torrent(), actions(), true).map((i) => i.id)).toContain('release')
-    })
-
-    it('is not marked destructive, because the files survive it', () => {
-      const item = find(torrent(), 'release', actions(), true)!
-      expect(item.kind === 'action' && item.danger).toBeFalsy()
-    })
-
-    it('says out loud that it stops sharing, since that is the whole cost', () => {
-      expect(find(torrent(), 'release', actions(), true)!.hint).toMatch(/stops being shared/)
-    })
-
-    it('runs the release rather than either removal', () => {
-      const a = actions()
-      const item = find(torrent(), 'release', a, true)!
-      if (item.kind !== 'action') throw new Error('not an action')
-      item.run()
-      expect(a.release).toHaveBeenCalled()
-      expect(a.remove).not.toHaveBeenCalled()
-      expect(a.removeWithFiles).not.toHaveBeenCalled()
-    })
-
-    it('is never offered for a ghost, which has nothing here to free', () => {
-      const ids = flat(torrent({ state: 'missing' }), actions(), true).map((i) => i.id)
-      expect(ids).not.toContain('release')
-    })
-
     it('separates the two, and marks both as destructive', () => {
       const a = actions()
       const keep = find(torrent(), 'remove', a, true)!
@@ -314,28 +279,74 @@ describe('the torrent option list', () => {
   })
 
   /**
-   * A ghost with no bytes here means two different things, and the row must not read the same way for
-   * both. "Never downloaded here" wants a plain fetch; "on your disk, Ripple just is not keeping a
-   * second copy" is not missing at all, and offering to fetch it as if it were lost invites somebody
-   * to download a file they are already looking at.
+   * Where the files belong.
+   *
+   * Two radios and not a path field, because a browser has exactly two places to put them: its own
+   * storage, which is the only one a download can be written into, and a folder the user granted,
+   * which can only be reached once the download is finished. Choosing a folder for something still
+   * downloading is a fair thing to ask for, so it is remembered and the hint says when it will
+   * happen rather than the option refusing.
    */
-  describe('a ghost that was released rather than lost', () => {
-    const released = torrent({ state: 'missing', savedTo: { name: 'Downloads', at: 1 } })
+  describe('choosing where the files live', () => {
+    const withFolder = (over: Partial<TorrentOptionContext> = {}): TorrentOptionContext => ({
+      savedToUserStorage: false, folderReady: true, folderName: 'Downloads',
+      intended: 'browser', current: 'browser', ...over,
+    })
+    const items = (t: Torrent, context: TorrentOptionContext, a = actions()) =>
+      buildTorrentOptions(t, a, context).flatMap((g) => g.items)
+    const item = (t: Torrent, id: string, context: TorrentOptionContext, a = actions()) =>
+      items(t, context, a).find((i) => i.id === id)
 
-    it('still offers the fetch, because sharing needs the bytes back here', () => {
-      expect(flat(released, actions(), false).map((i) => i.id)).toContain('start')
+    it('is not offered at all when there is no usable folder, since one place is not a choice', () => {
+      const ids = items(torrent(), withFolder({ folderReady: false })).map((i) => i.id)
+      expect(ids).not.toContain('location-folder')
+      expect(ids).not.toContain('location-browser')
     })
 
-    it('names the folder rather than calling the torrent missing', () => {
-      const item = find(released, 'start')!
-      expect(item.hint).toContain('Downloads')
-      expect(item.hint).not.toMatch(/not on this device/)
+    it('offers both places once a folder is usable', () => {
+      const ids = items(torrent(), withFolder()).map((i) => i.id)
+      expect(ids).toContain('location-browser')
+      expect(ids).toContain('location-folder')
     })
 
-    it('leaves an ordinary ghost saying exactly what it said before', () => {
-      const item = find(torrent({ state: 'missing' }), 'start')!
-      expect(item.label).toBe('Download to this device')
-      expect(item.hint).toMatch(/not on this device/)
+    it('names the folder rather than calling it a folder', () => {
+      expect(item(torrent(), 'location-folder', withFolder())!.label).toBe('Move to Downloads')
+    })
+
+    it('marks the one that is chosen, not the one it is sitting in', () => {
+      // mid-move the two disagree, and the radio has to follow the CHOICE or clicking it does nothing
+      const both = items(torrent({ progress: 1 }), withFolder({ intended: 'folder', current: 'browser' }))
+      const folder = both.find((i) => i.id === 'location-folder')!
+      const browser = both.find((i) => i.id === 'location-browser')!
+      expect(folder.kind === 'radio' && folder.selected).toBe(true)
+      expect(browser.kind === 'radio' && browser.selected).toBe(false)
+    })
+
+    it('says when an unfinished torrent will move rather than refusing the choice', () => {
+      const chosen = item(torrent({ progress: 0.4 }), 'location-folder', withFolder({ intended: 'folder' }))!
+      expect(chosen.hint).toBe('Moves to Downloads when it finishes')
+      expect(chosen.kind === 'radio' && chosen.disabled).toBeUndefined()
+    })
+
+    it('drops the pending wording once it has arrived', () => {
+      const settled = item(torrent({ progress: 1 }), 'location-folder', withFolder({ intended: 'folder', current: 'folder' }))!
+      expect(settled.hint).not.toMatch(/when it finishes/)
+    })
+
+    it('applies the choice through setLocation, in both directions', () => {
+      const a = actions()
+      const folder = item(torrent(), 'location-folder', withFolder(), a)!
+      const browser = item(torrent(), 'location-browser', withFolder(), a)!
+      if (folder.kind !== 'radio' || browser.kind !== 'radio') throw new Error('not radios')
+      folder.apply()
+      expect(a.setLocation).toHaveBeenCalledWith('folder')
+      browser.apply()
+      expect(a.setLocation).toHaveBeenCalledWith('browser')
+    })
+
+    it('is never offered for a ghost, which has no files anywhere to move', () => {
+      const ids = items(torrent({ state: 'missing' }), withFolder()).map((i) => i.id)
+      expect(ids).not.toContain('location-folder')
     })
   })
 

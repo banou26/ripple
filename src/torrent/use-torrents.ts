@@ -1,6 +1,5 @@
 import type { Torrent, TorrentState } from './types'
 import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './client'
-import type { SavedTo } from './library'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -112,7 +111,7 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   flags: 0,
   queuePosition: -1,
   stats: null,
-  savedTo: e.savedTo,
+  saveTo: e.saveTo,
 })
 
 export type UseTorrents = {
@@ -124,8 +123,6 @@ export type UseTorrents = {
   retry: (handle: number) => void
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
-  /** Drop this device's copy of a mirrored torrent and keep its library row. */
-  release: (handle: number, savedTo: SavedTo, ifIdle?: boolean) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   storageUnavailable: boolean
@@ -185,7 +182,14 @@ export const useTorrents = (): UseTorrents => {
   const torrents = useMemo(() => {
     // one clock for the whole list, so every retry countdown in a render agrees
     const now = Date.now()
-    const live = snaps.map((s) => snapshotToTorrent(s, now))
+    // the intent lives in the library row and the engine knows nothing about it, so it is attached
+    // here rather than in snapshotToTorrent, which only ever sees engine state
+    const intentByHash = new Map(list.map((e) => [e.infoHash, e.saveTo]))
+    const live = snaps.map((s) => {
+      const t = snapshotToTorrent(s, now)
+      const saveTo = t.infoHash ? intentByHash.get(t.infoHash) : undefined
+      return saveTo ? { ...t, saveTo } : t
+    })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
     const ghosts = list
       .filter((e) => e.started === false && !liveHashes.has(e.infoHash))
@@ -201,8 +205,7 @@ export const useTorrents = (): UseTorrents => {
   const retry = useCallback((handle: number) => client.retry(handle), [client])
   const recheck = useCallback((handle: number) => client.recheck(handle), [client])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
-  const release = useCallback((handle: number, savedTo: SavedTo, ifIdle?: boolean) => client.release(handle, savedTo, ifIdle), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, release, start, removeMissing, storageUnavailable, workerError, reachable, client }
+  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
 }

@@ -21,7 +21,11 @@ import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { useAccount } from '../torrent/use-account'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
-import { FREE_AFTER_SAVE_KEY } from '../torrent/constants'
+import { moveTorrentFiles } from '../torrent/move-files'
+import {
+  currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
+} from '../torrent/save-location'
+import type { SaveLocation } from '../torrent/library'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -1589,7 +1593,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, release, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
+  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -1894,7 +1898,7 @@ const Home = () => {
     resume: () => resume(Number(t.id)),
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
-    release: () => { void onRelease(t) },
+    setLocation: (location) => { void onSetLocation(t, location) },
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
@@ -1941,51 +1945,105 @@ const Home = () => {
 
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
 
+
   /**
-   * Drop Ripple's own copy of something already written into the user's folder.
+   * Where torrents go by default, and where each one goes when it says otherwise.
    *
-   * This is the one removal that is not a removal: the library row stays, so the torrent is still
-   * theirs and still listed, it just has no bytes on this device any more. What it costs is sharing,
-   * because libtorrent uploads by reading the files back and there is nothing here left to read.
-   * Confirmed for that reason alone, and rememberable, since somebody who wants the space back
-   * usually wants it back for every torrent rather than once.
-   *
-   * Deliberately NOT offered for a one-off "Save to disk": that leaves no record, so there would be
-   * nothing to check before deleting the only copy Ripple can still see.
+   * Two places exist and only one of them can take a download, so this is qBittorrent's split
+   * between a save path and an incomplete path rather than a free choice of directory. A torrent
+   * headed for the folder still lands in browser storage first and moves when it finishes.
    */
-  const onRelease = async (t: Torrent) => {
-    if (!folder) return
-    const freed = getHumanReadableByteString(t.downloaded ?? 0, true)
-    const ok = await confirm({
-      title: `Free Ripple's copy of ${t.name}?`,
-      body: `Your copy in ${folder.name} stays exactly where it is. This deletes the ${freed} Ripple is holding in browser storage, and stops sharing the torrent, because sharing means reading those files back.`,
-      confirmLabel: 'Free the space',
-      rememberKey: 'ripple:confirm-release',
-    })
-    if (!ok) return
-    release(Number(t.id), { name: folder.name, at: Date.now() })
-    showToast(`Freed Ripple's copy of ${t.name}`)
+  const [defaultLocation, setDefaultLocation] = useState<SaveLocation>(() => {
+    try { return readGlobalDefault((k) => localStorage.getItem(k)) } catch { return 'browser' }
+  })
+  const chooseDefaultLocation = (location: SaveLocation) => {
+    setDefaultLocation(location)
+    try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
   }
 
   /**
-   * Whether a torrent that has landed in the user's folder should give up Ripple's own copy.
+   * Hand the engine the folder, from whichever tab actually holds the grant.
    *
-   * Off by default and it stays that way, because the space is not free: libtorrent uploads by
-   * reading the files back, so a released torrent cannot be shared. Somebody who wants a browser
-   * that does not quietly hold a second copy of everything can say so, and nobody has it decided
-   * for them.
+   * A File System Access grant belongs to a realm, and the engine runs in whichever tab won the
+   * election, which is not necessarily this one. Every tab offers what it has and the newest offer
+   * wins, so a grant given anywhere reaches the engine. Offering null when the grant goes is just as
+   * important: a stale handle would have the engine reading against permission it no longer has.
    */
-  const [freeAfterSave, setFreeAfterSave] = useState(() => {
-    try { return localStorage.getItem(FREE_AFTER_SAVE_KEY) === '1' } catch { return false }
+  useEffect(() => {
+    client.setFolder(folder && permitted ? folder : null)
+  }, [client, folder, permitted])
+
+  const locationOf = (t: Torrent) => ({
+    intended: intendedLocation(t, defaultLocation),
+    // the engine's own answer for where it is writing, rather than a remembered one
+    current: currentLocation(t.stats?.savePath),
   })
-  const toggleFreeAfterSave = (on: boolean) => {
-    setFreeAfterSave(on)
-    try { localStorage.setItem(FREE_AFTER_SAVE_KEY, on ? '1' : '0') } catch {}
+
+  /**
+   * Record where a torrent belongs, and move it if it can move now.
+   *
+   * The two halves are deliberately separate. Recording always happens, so choosing a folder for
+   * something still downloading is remembered and acted on when it finishes rather than refused.
+   */
+  const onSetLocation = async (t: Torrent, location: SaveLocation) => {
+    if (!t.infoHash) return
+    client.setLocation(t.infoHash, location)
+    const { current } = locationOf(t)
+    const readiness = moveReadiness({
+      current,
+      intended: location,
+      complete: t.progress >= 1,
+      folderReady: !!folder && permitted,
+    })
+    if (!readiness.move) {
+      const waiting = pendingLabel(readiness, folder?.name)
+      if (waiting) showToast(waiting)
+      return
+    }
+    await runMove(t, location)
   }
-  // read inside the mirror's callback, which is created once per effect run and would otherwise
-  // close over whatever the setting was when the copy STARTED rather than when it finished
-  const freeAfterSaveRef = useRef(freeAfterSave)
-  freeAfterSaveRef.current = freeAfterSave
+
+  /** In-flight moves, so the effect below and a click cannot start the same one twice. */
+  const movingRef = useRef(new Set<string>())
+  const [moving, setMoving] = useState<Record<string, string>>({})
+
+  const runMove = async (t: Torrent, to: SaveLocation) => {
+    if (!folder || !permitted || movingRef.current.has(t.id)) return
+    movingRef.current.add(t.id)
+    setMoving((m) => ({ ...m, [t.id]: `Moving ${t.name}` }))
+    try {
+      await moveTorrentFiles({
+        client,
+        torrent: t,
+        folder,
+        to,
+        onProgress: ({ file, files }) => setMoving((m) => ({ ...m, [t.id]: `Moving ${t.name}, file ${file + 1} of ${files}` })),
+      })
+      showToast(to === 'folder' ? `${t.name} moved to ${folder.name}` : `${t.name} moved into browser storage`)
+    } catch {
+      // nothing was deleted: the copy runs first and the engine is only told once it lands
+      showToast(`Moving ${t.name} failed, nothing was lost`)
+    } finally {
+      movingRef.current.delete(t.id)
+      setMoving((m) => { const { [t.id]: _, ...rest } = m; return rest })
+    }
+  }
+
+  /**
+   * Carry out the moves that became possible: a torrent finished, or the folder came back.
+   *
+   * Runs off the same state tick as the mirror below, so it re-checks twice a second, and every move
+   * it starts is guarded by `movingRef` so a tick during a copy cannot start a second one.
+   */
+  useEffect(() => {
+    if (!folder || !permitted) return
+    for (const t of torrents) {
+      if (t.state === 'missing') continue
+      const { intended, current } = locationOf(t)
+      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1, folderReady: true })
+      if (readiness.move) void runMove(t, readiness.to)
+    }
+  })
 
   // The backoff is what makes retrying safe: this effect re-runs twice a second from the state tick, so a bare retry would hammer the disk
   const syncAtRef = useRef(new Map<string, number>())
@@ -2033,12 +2091,6 @@ const Home = () => {
           // folder" and still the thing the removal options need to know
           setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
           if (written) showToast(`${t.name} saved to ${folder.name}`)
-          // Only now, and only because the copy resolved: syncTorrentToDirectory checks the CONTENT
-          // of anything it decides not to rewrite, so reaching here means every file is present and
-          // matches. `ifIdle` leaves anything being read alone, and the mirror comes back around.
-          if (freeAfterSaveRef.current) {
-            release(Number(t.id), { name: folder.name, at: Date.now() }, true)
-          }
         })
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
@@ -2056,9 +2108,16 @@ const Home = () => {
    * without permission, and a copy made under a grant the browser has since dropped is not one the
    * user can be told is still there.
    */
-  const optionContext = (t: Torrent): TorrentOptionContext => ({
-    savedToUserStorage: !!folder && permitted && savedToFolder.has(t.id),
-  })
+  const optionContext = (t: Torrent): TorrentOptionContext => {
+    const { intended, current } = locationOf(t)
+    return {
+      savedToUserStorage: !!folder && permitted && savedToFolder.has(t.id),
+      intended,
+      current,
+      folderName: folder?.name,
+      folderReady: !!folder && permitted,
+    }
+  }
 
   const [history, setHistory] = useState<number[]>([])
   useEffect(() => {
@@ -2318,15 +2377,15 @@ const Home = () => {
                   : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
               {folder && permitted && (
                 <button
-                  className={freeAfterSave ? 'on' : undefined}
-                  onClick={() => toggleFreeAfterSave(!freeAfterSave)}
+                  className={defaultLocation === 'folder' ? 'on' : undefined}
+                  onClick={() => chooseDefaultLocation(defaultLocation === 'folder' ? 'browser' : 'folder')}
                   title={
-                    freeAfterSave
-                      ? `Once a torrent is verified in ${folder.name}, Ripple deletes its own copy from browser storage. It stops sharing those torrents, because sharing means reading the files back.`
-                      : `Ripple keeps its own copy in browser storage as well as the one in ${folder.name}, so saved torrents are stored twice and stay shared.`
+                    defaultLocation === 'folder'
+                      ? `New torrents download into browser storage and move into ${folder.name} once they finish. Ripple keeps sharing them from there.`
+                      : `New torrents stay in browser storage. Ripple can still copy them into ${folder.name}, and keeps its own copy as well.`
                   }
                 >
-                  {freeAfterSave ? 'Keeping one copy' : 'Keeping two copies'}
+                  {defaultLocation === 'folder' ? `Files go to ${folder.name}` : 'Files stay in the browser'}
                 </button>
               )}
             </div>
