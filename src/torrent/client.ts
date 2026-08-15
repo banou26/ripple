@@ -41,6 +41,19 @@ export type TorrentClient = {
    * nobody is reading.
    */
   inspect: (handle: number | null) => void
+  /**
+   * Turn libtorrent flags on and off: `mask` names the bits to touch, `flags` their new value.
+   *
+   * Fire and forget by design. The engine owns the outcome (it refuses some combinations, and
+   * drives `paused` itself), so a caller reads the result off the next state broadcast rather than
+   * assuming its request landed. Use `TORRENT_FLAG` from libtorrent-wasm for the bits.
+   */
+  setFlags: (handle: number, flags: number, mask: number) => void
+  /** Announce to this torrent's trackers now. libtorrent rate limits it internally. */
+  reannounce: (handle: number) => void
+  moveInQueue: (handle: number, where: 'top' | 'up' | 'down' | 'bottom') => void
+  /** Bytes per second, 0 for unlimited. Omit a side to leave it alone. */
+  setLimits: (handle: number, limits: { down?: number, up?: number }) => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void
@@ -264,6 +277,10 @@ const createTorrentClient = (): EngineClient => {
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
     onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
     inspect: (handle) => send({ type: 'inspect', handle }),
+    setFlags: (handle, flags, mask) => send({ type: 'set-flags', handle, flags, mask }),
+    reannounce: (handle) => send({ type: 'reannounce', handle }),
+    moveInQueue: (handle, where) => send({ type: 'queue-move', handle, where }),
+    setLimits: (handle, limits) => send({ type: 'set-limits', handle, ...limits }),
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
     onEngineReset: (cb) => { engineResetCbs.add(cb); return () => { engineResetCbs.delete(cb) } },
     onRaw: (cb) => { rawCbs.add(cb); return () => { rawCbs.delete(cb) } },

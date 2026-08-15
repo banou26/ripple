@@ -29,6 +29,11 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { EmbedBuilder } from './embed-builder'
 import { TorrentDetailPanel } from './torrent-detail'
+import { ContextMenu } from '../components/menu'
+import type { MenuPosition } from '../components/menu'
+import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
+import { buildTorrentOptions } from '../torrent/torrent-options'
+import type { TorrentOptionActions } from '../torrent/torrent-options'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
@@ -789,6 +794,14 @@ export const style = css`
       justify-content: flex-end;
       gap: 6px;
 
+      /* the only icon control on the strip, so it is square and the glyph carries no weight */
+      button.more {
+        padding: 6px 10px;
+        font-weight: 400;
+        font-size: 0.95rem;
+        line-height: 1;
+      }
+
       a, button {
         border-radius: 999px;
         padding: 6px 14px;
@@ -1314,6 +1327,8 @@ type RowProps = {
   onStart: (t: Torrent) => void
   onPause: (t: Torrent) => void
   onEmbed: (t: Torrent) => void
+  /** `at` opens the menu at a point; null opens the options dialog instead. */
+  onOptions: (t: Torrent, at: MenuPosition | null) => void
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -1349,7 +1364,7 @@ const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onSt
 )
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions }: RowProps) => {
   /**
    * Before the missing branch, not after it.
    *
@@ -1371,7 +1386,17 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
     if (s != null) fileSaving[i] = s
   })
   return (
-    <div className="torrent surface">
+    <div
+      className="torrent surface"
+      onContextMenu={(e) => {
+        // The detail panel keeps the browser's own menu: its peer addresses, tracker URLs and info
+        // hash are there to be copied, and replacing Copy with a torrent menu would take away the
+        // only reason to select that text.
+        if ((e.target as HTMLElement).closest('.detail .pane')) return
+        e.preventDefault()
+        onOptions(t, { x: e.clientX, y: e.clientY })
+      }}
+    >
       <Poster url={poster}/>
       <div className="content">
         <div className="main">
@@ -1417,6 +1442,18 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                 <button onClick={() => onRecheck(t)}>Recheck</button>
               )}
               <button onClick={() => onRemove(t)}>Remove</button>
+              {/* The eighth control on a strip that was already full, so it is the only icon one:
+                  it is also the only one whose contents are all reachable another way (right-click
+                  the row), which is what makes shrinking it to a glyph acceptable. */}
+              <button
+                className="more"
+                aria-haspopup="dialog"
+                aria-label={`Options for ${t.name}`}
+                title="Options"
+                onClick={() => onOptions(t, null)}
+              >
+                ⋯
+              </button>
             </div>
           </div>
         </div>
@@ -1681,6 +1718,62 @@ const Home = () => {
     showToast(`Checking ${t.name} against the files on disk`)
   }
 
+  /**
+   * Remove the torrent and LEAVE the files. Separate from onRemove, which deletes them.
+   *
+   * Still confirmed, because it is still not undoable: the library entry, the resume data and the
+   * thumbnail all go. It just does not cost the bytes back, so it says so and does not offer to be
+   * remembered, unlike the destructive one.
+   */
+  const onRemoveKeepingFiles = async (t: Torrent) => {
+    if (t.state !== 'missing') {
+      const ok = await confirm({
+        title: `Remove ${t.name} from the library?`,
+        body: 'The downloaded files stay where they are. Ripple stops sharing it and forgets its progress.',
+        confirmLabel: 'Remove',
+      })
+      if (!ok) return
+    }
+    if (t.infoHash) void forgetThumbnail(t.infoHash)
+    if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
+    else remove(Number(t.id), false)
+  }
+
+  /**
+   * Which torrent's options are open, and in which surface. Held here rather than per row because
+   * only one may be open at a time, and because both surfaces have to sit above every row.
+   */
+  const [menu, setMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
+  const [optionsId, setOptionsId] = useState<string | null>(null)
+
+  const onOptions = useCallback((t: Torrent, at: MenuPosition | null) => {
+    if (at) { setOptionsId(null); setMenu({ id: t.id, at }) }
+    else { setMenu(null); setOptionsId(t.id) }
+  }, [])
+
+  const optionActions = (t: Torrent): TorrentOptionActions => ({
+    setFlags: (flags, mask) => client.setFlags(Number(t.id), flags, mask),
+    reannounce: () => {
+      client.reannounce(Number(t.id))
+      // the only one of these with no visible consequence anywhere, so it says so itself
+      showToast(`Asking ${t.name}'s trackers for peers again`)
+    },
+    moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
+    recheck: () => onRecheck(t),
+    pause: () => pause(Number(t.id)),
+    resume: () => resume(Number(t.id)),
+    remove: () => { void onRemoveKeepingFiles(t) },
+    removeWithFiles: () => { void onRemove(t) },
+  })
+
+  /**
+   * Looked up by id on every render rather than captured when the surface opened, so a switch
+   * shows what the ENGINE now reports. A captured torrent would leave every toggle frozen at the
+   * value it had when the menu opened, including after the change it just made.
+   */
+  const menuTorrent = menu ? torrents.find((t) => t.id === menu.id) : undefined
+  const optionsTorrent = optionsId ? torrents.find((t) => t.id === optionsId) : undefined
+
   // Called synchronously from the click so showSaveFilePicker keeps the user gesture
   const onSave = (t: Torrent, fileIndex: number) => {
     const file = t.files?.[fileIndex]
@@ -1760,6 +1853,24 @@ const Home = () => {
       {/* Rendered here rather than beside the row that asks: showModal() puts it in the top layer,
           so its position in the tree does not affect stacking, and one instance serves every caller. */}
       {confirmElement}
+      {/* Both are rendered from here rather than from the row: only one may be open at a time, and
+          each has to sit above every row rather than inside one. The menu is positioned against the
+          viewport; the dialog uses the browser's top layer. */}
+      {menu && menuTorrent && (
+        <ContextMenu
+          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent))}
+          at={menu.at}
+          label={`Options for ${menuTorrent.name}`}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {optionsTorrent && (
+        <TorrentOptionsDialog
+          title={optionsTorrent.name}
+          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent))}
+          onClose={() => setOptionsId(null)}
+        />
+      )}
       <div className="drop">Drop to add</div>
       <header>
         <span className="wordmark">Ripple</span>
@@ -1928,6 +2039,7 @@ const Home = () => {
               onStart={onStart}
               onPause={onPause}
               onEmbed={(t) => openEmbed(t.id)}
+              onOptions={onOptions}
             />
           ))}
       </main>

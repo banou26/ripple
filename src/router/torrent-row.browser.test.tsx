@@ -33,6 +33,8 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   peers: 82,
   seeds: 12,
   eta: '4m',
+  flags: 0,
+  queuePosition: -1,
   files: [
     { name: 'Pack/E01.mkv', size: 1_400_000_000, progress: 1 },
     { name: 'Pack/E02.mkv', size: 1_500_000_000, progress: 0.5 },
@@ -50,7 +52,7 @@ const sized = () => {
 
 const handlers = () => ({
   saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onRecheck: vi.fn(),
-  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(),
+  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(),
 })
 
 /**
@@ -134,6 +136,47 @@ describe('a library row', () => {
     thumbnail.current = null
     const screen = await mount(torrent({ progress: 1, state: 'checking' }))
     expect(screen.container.querySelector('.bar')).not.toBeNull()
+  })
+
+  /**
+   * Both routes to the options, which have to be two ways into one thing rather than two features.
+   * The row is the only place either is offered, so a row that forgets to wire one of them takes
+   * every per-torrent setting with it silently.
+   */
+  it('offers its options by right-click and by button, naming the same torrent', async () => {
+    thumbnail.current = null
+    const t = torrent()
+    const { screen, props } = await inPage(t)
+
+    screen.container.querySelector('.torrent')!.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 90 }),
+    )
+    expect(props.onOptions).toHaveBeenCalledTimes(1)
+    expect(props.onOptions.mock.calls[0]![0].id).toBe(t.id)
+    // a point means the menu; the row must not decide which surface, only where
+    expect(props.onOptions.mock.calls[0]![1]).toEqual({ x: 120, y: 90 })
+
+    await screen.getByRole('button', { name: `Options for ${t.name}` }).click()
+    expect(props.onOptions).toHaveBeenCalledTimes(2)
+    // null means the dialog, which is not anchored to anything
+    expect(props.onOptions.mock.calls[1]![1]).toBeNull()
+  })
+
+  /**
+   * The detail panel's addresses, tracker URLs and info hash exist to be copied. Replacing the
+   * browser's Copy with a torrent menu would remove the only reason that text is selectable.
+   */
+  it('leaves the browser its own menu inside the details panel', async () => {
+    thumbnail.current = null
+    const { screen, props } = await inPage(torrent())
+    ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
+    await expect.poll(() => screen.container.querySelector('.detail .pane')).not.toBeNull()
+
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    screen.container.querySelector('.detail .pane')!.dispatchEvent(event)
+
+    expect(props.onOptions).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
   })
 
   it('starts the details panel under the title rather than under the picture', async () => {

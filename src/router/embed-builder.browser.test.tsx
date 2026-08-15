@@ -28,6 +28,8 @@ const SINTEL: Torrent = {
   peers: 6,
   seeds: 1,
   eta: '-',
+  flags: 0,
+  queuePosition: -1,
   files: [
     file('Sintel/Sintel.de.srt', 1_700),
     file('Sintel/Sintel.en.srt', 1_500),

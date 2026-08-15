@@ -20,7 +20,7 @@ import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -989,6 +989,20 @@ const handleMessage = async (session: Session, m: any) => {
       else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
+    } else if (m.type === 'set-flags') {
+      // The engine owns the result, not the caller: some combinations are refused and `paused` is
+      // also driven by auto-management, so nothing is echoed back here. The next status broadcast
+      // carries the torrent's real flags and the UI reads its checkboxes from that.
+      session.setFlags(m.handle, m.flags >>> 0, m.mask >>> 0)
+      // a flag change is worth persisting, and the engine sets need_save_resume for exactly that
+      void persistResume(m.handle)
+    } else if (m.type === 'reannounce') {
+      session.forceReannounce(m.handle)
+    } else if (m.type === 'queue-move') {
+      session.moveInQueue(m.handle, m.where)
+    } else if (m.type === 'set-limits') {
+      if (typeof m.down === 'number') session.setDownloadLimit(m.handle, m.down)
+      if (typeof m.up === 'number') session.setUploadLimit(m.handle, m.up)
     } else if (m.type === 'inspect') {
       // a panel closing must clear this, or the engine keeps paying for a list nobody reads
       const next = typeof m.handle === 'number' ? m.handle : null

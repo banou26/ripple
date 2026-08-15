@@ -48,6 +48,8 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   peers: 82,
   seeds: 12,
   eta: '4m',
+  flags: 0,
+  queuePosition: -1,
   files: [{ name: 'Pack/E01.mkv', size: 1e9, progress: 0.5 }],
   ...over,
 })
