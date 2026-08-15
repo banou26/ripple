@@ -140,12 +140,27 @@ const has = (t: Torrent, flag: number) => (t.flags & flag) !== 0
  */
 const isGhost = (t: Torrent) => t.state === 'missing'
 
+/**
+ * A torrent with no engine handle behind it, for either of the two reasons there are.
+ *
+ * A ghost is not on this device at all. A `starting` row is on its way but the session does not exist
+ * yet, which on a reload lasts over a second while the relay grants a listen port. Neither can be
+ * acted on, and acting on one sends a command naming no torrent, so both disable the same controls.
+ * They differ only in what is OFFERED instead: a ghost gets "Download to this device", and a
+ * starting torrent gets nothing, because it is already doing that.
+ */
+const hasNoHandle = (t: Torrent) => isGhost(t) || t.state === 'starting'
+
 export const buildTorrentOptions = (
   t: Torrent,
   a: TorrentOptionActions,
   context: TorrentOptionContext = { savedToUserStorage: false },
 ): OptionGroup[] => {
-  const ghost = isGhost(t) ? 'This torrent is not running on this device.' : undefined
+  // named `ghost` throughout for the reason it usually is one, but it covers both handle-less cases:
+  // every control it disables would otherwise send a command naming no torrent
+  const ghost = !hasNoHandle(t)
+    ? undefined
+    : isGhost(t) ? 'This torrent is not running on this device.' : 'This torrent is still starting up.'
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
@@ -217,7 +232,7 @@ export const buildTorrentOptions = (
    * something still downloading is a reasonable thing to ask for and the honest answer is "when it
    * finishes" rather than a refusal.
    */
-  if (context.folderReady && !isGhost(t)) {
+  if (context.folderReady && !hasNoHandle(t)) {
     const intended = context.intended ?? 'browser'
     const current = context.current ?? 'browser'
     const readiness = moveReadiness({ current, intended, complete, folderReady: true })

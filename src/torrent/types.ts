@@ -1,6 +1,11 @@
 import type { SaveLocation } from './library'
 
-export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing' | 'retrying' | 'checking'
+// `starting` is a library row the ENGINE has not reported yet, which on a reload is its state for
+// well over a second: the session cannot be built until the relay grants a listen port, and that is
+// two round trips. It is not `missing`, which means the files are not on this device at all, and it
+// is not `queued`, which is a real position in libtorrent's queue. It is "we know this torrent, ask
+// again in a moment", and everything that needs an engine handle is unavailable while it lasts.
+export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing' | 'retrying' | 'checking' | 'starting'
 
 export type TorrentFile = {
   name: string

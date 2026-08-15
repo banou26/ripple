@@ -97,7 +97,11 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   id: 'missing:' + e.infoHash,
   magnet: e.magnet,
   infoHash: e.infoHash,
-  name: magnetParam(e.magnet, 'dn') ?? e.infoHash.slice(0, 8),
+  // `rootEntry` before the hash, because it is the name the torrent actually occupies on disk and
+  // most stored magnets carry no `dn` at all: the demo entry is `magnet:?xt=urn:btih:08ada5a7...`
+  // with nothing else, so without this a row shows eight hex characters where a title belongs, which
+  // reads as some other torrent rather than as this one still loading.
+  name: magnetParam(e.magnet, 'dn') ?? e.rootEntry ?? e.infoHash.slice(0, 8),
   size: 0,
   downloaded: 0,
   progress: 0,
@@ -112,6 +116,20 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   queuePosition: -1,
   stats: null,
   saveTo: e.saveTo,
+})
+
+/**
+ * A library row whose engine handle does not exist yet.
+ *
+ * Everything measurable is zero because nothing has measured it: the name comes off the magnet, and
+ * the id is prefixed so it can never be parsed into a handle. That prefix is the safety property.
+ * Every control on a live row does `Number(t.id)`, and an id that yields NaN sends a command naming
+ * no torrent, so the row renders its identity and offers nothing that needs the engine.
+ */
+const startingToTorrent = (e: Persisted): Torrent => ({
+  ...ghostToTorrent(e),
+  id: 'starting:' + e.infoHash,
+  state: 'starting',
 })
 
 export type UseTorrents = {
@@ -205,7 +223,22 @@ export const useTorrents = (): UseTorrents => {
       .filter((e) => e.started === false && !liveHashes.has(e.infoHash))
       .sort((a, b) => a.addedAt - b.addedAt)
       .map(ghostToTorrent)
-    return [...live, ...ghosts]
+    /**
+     * Rows for torrents this device IS running that the engine has not got to yet.
+     *
+     * The library arrives from IndexedDB in about a millisecond while the engine needs over a second
+     * to exist, almost all of it waiting on the relay for a listen port. Without these the page shows
+     * an empty library for that whole time and then everything appears at once, which reads as a slow
+     * app rather than as one still connecting.
+     *
+     * Distinct from a ghost, which is `started === false` and genuinely not here. These are on their
+     * way, so they are never offered "Download to this device".
+     */
+    const starting = list
+      .filter((e) => e.started !== false && !liveHashes.has(e.infoHash))
+      .sort((a, b) => a.addedAt - b.addedAt)
+      .map(startingToTorrent)
+    return [...live, ...starting, ...ghosts]
   }, [snaps, list])
 
   const addMagnet = useCallback((magnet: string) => client.addMagnet(magnet), [client])

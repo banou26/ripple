@@ -62,6 +62,7 @@ const STATE_LABEL: Record<Torrent['state'], string> = {
   missing: 'Files missing',
   retrying: 'Retrying',
   checking: 'Checking',
+  starting: 'Starting',
 }
 
 const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => {
@@ -763,6 +764,18 @@ export const style = css`
         color: #60a5fa;
         background: #60a5fa14;
         border-color: #60a5fa30;
+
+        &::before {
+          animation: pulse 1.6s ease-in-out infinite;
+        }
+      }
+
+      /* Connecting rather than idle, so it pulses like the other in-progress states. Grey, because
+         it says nothing yet about whether this torrent is downloading, seeding or finished. */
+      &.starting {
+        color: #8b8499;
+        background: #8b849914;
+        border-color: #8b849930;
 
         &::before {
           animation: pulse 1.6s ease-in-out infinite;
@@ -1483,6 +1496,32 @@ const Poster = ({ url }: { url: string | null }) =>
     ? <img className="poster" src={url} alt="" />
     : <div className="poster placeholder"><Folder /></div>
 
+/**
+ * A library row drawn before its engine handle exists.
+ *
+ * Presentational on purpose: no click handler, no context menu, no controls. Every action on a live
+ * row resolves a handle with `Number(t.id)`, and this row's id cannot produce one, so anything
+ * offered here would send a command naming no torrent. It exists to say "this is in your library and
+ * it is coming back", which is the honest answer for the second the relay takes to grant a port, and
+ * it is replaced by the real row the moment the engine reports.
+ */
+const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => (
+  <div className="torrent surface starting">
+    <Poster url={poster}/>
+    <div className="content">
+      <div className="main">
+        <div className="body">
+          <div className="title"><strong>{t.name}</strong></div>
+          <div className="meta"><span>Connecting</span></div>
+        </div>
+        <div className="side">
+          <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+)
+
 const MissingRow = ({
   t, poster, onStart, onOptions, selected, onSelect,
 }: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect'> & { poster: string | null }) => (
@@ -1549,6 +1588,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
    * same component, which React treats as a corrupted render rather than a state change.
    */
   const poster = useThumbnail(t.infoHash)
+  if (t.state === 'starting') return <StartingRow t={t} poster={poster}/>
   if (t.state === 'missing') {
     return (
       <MissingRow

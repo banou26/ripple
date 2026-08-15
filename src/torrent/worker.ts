@@ -802,6 +802,28 @@ const init = async () => {
     return
   }
 
+  /**
+   * The library, sent before the engine exists, because it does not need the engine.
+   *
+   * MEASURED, and the gap is the whole reason this line is here. On a reload the list is readable
+   * from IndexedDB in ONE millisecond, and it used to be posted at 1555ms because it sat behind
+   * `createSession`. That call is not slow for the reason it looks: the engine chunk fetches in 13ms
+   * and the wasm compiles in about 115, while the remaining ~1.36 SECONDS is the relay port
+   * reservation, two round trips to whichever region the tunnel landed in.
+   *
+   * The engine genuinely has to wait for that: libtorrent snapshots a listen socket's endpoint
+   * between bind and listen and never refreshes it, so a port discovered later can never be
+   * announced, which is why the reservation happens up front rather than in the background. The
+   * LIBRARY has no such excuse, so it goes out now and the rows render while the engine is starting.
+   *
+   * Deliberately not awaited. Nothing on the path to `ready` may block: every command in every tab
+   * parks behind that message, so a slow or broken IndexedDB here must cost a late list and nothing
+   * else.
+   */
+  void loadList()
+    .then((list) => { if (list.length) post({ type: 'list', list }) })
+    .catch(() => { /* the post-restore list below is the second chance */ })
+
   // Started before the session is built so the read overlaps the wasm load, and bounded, because
   // nothing on the path to `ready` may hang: every command in every tab parks behind that message,
   // so a blocked IndexedDB here would freeze the whole app rather than merely lose a setting. A
@@ -860,6 +882,12 @@ const init = async () => {
   post({ type: 'ready' })
   readyPosted = true
   post({ type: 'list', list: await loadList().catch(() => []) })
+
+  // One state straight away, because the interval below fires at 500ms and every restored torrent
+  // would otherwise spend that half second on screen as a row with no numbers in it. The alerts have
+  // not been pumped yet, so some statuses are still null here; that is exactly the state a row is
+  // built to render, and the next tick fills them in.
+  post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), rateLimits: { ...sessionLimits } })
 
   setInterval(() => {
     if (!session) return
