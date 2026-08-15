@@ -174,23 +174,47 @@ describe('the quota the origin is charged', () => {
   })
 })
 
+/**
+ * `no_error` here means "there is nothing to verify", not "everything is fine", and getting that
+ * backwards is silent: the torrent starts with an EMPTY have-set, believes it holds nothing, and
+ * seeds nothing. A torrent is pointed at this backend precisely because the files ARE there, and it
+ * arrives with no resume data, so hashing them is the only way it learns what it has.
+ */
 describe('the check on startup', () => {
-  it('trusts a folder whose files are all present at the right length', async () => {
+  it('asks for a full check when the files are there, which is what builds the have-set', async () => {
     const { storage } = mounted({ 'a.bin': bytes(1000, 5), 'b.bin': bytes(20, 5) }, [
       { path: 'a.bin', size: 1000 },
       { path: 'b.bin', size: 20 },
     ])
+    expect(await storage.check!(1)).toBe(2)
+  })
+
+  it('asks for one when only some of the files are there', async () => {
+    const { storage } = mounted({ 'a.bin': bytes(1000, 5) }, [
+      { path: 'a.bin', size: 1000 },
+      { path: 'b.bin', size: 20 },
+    ])
+    expect(await storage.check!(1)).toBe(2)
+  })
+
+  it('reports an empty folder as nothing to check', async () => {
+    const { storage } = mounted({}, [{ path: 'a.bin', size: 1000 }])
     expect(await storage.check!(1)).toBe(0)
   })
 
-  it('asks for a full check when a length has moved', async () => {
-    const { storage } = mounted({ 'a.bin': bytes(999, 5) }, [{ path: 'a.bin', size: 1000 }])
+  it('asks for a full check when the grant is missing, rather than claiming emptiness', async () => {
+    const opfs = fakeOpfs()
+    const storage = createHybridStorage(opfs, () => null)
+    storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'a.bin', size: 4 }])
     expect(await storage.check!(1)).toBe(2)
   })
 
-  it('asks for a full check when a file has gone', async () => {
-    const { storage } = mounted({}, [{ path: 'a.bin', size: 1000 }])
-    expect(await storage.check!(1)).toBe(2)
+  it('still asks OPFS about an OPFS torrent', async () => {
+    const opfs = fakeOpfs()
+    const storage = createHybridStorage(opfs, () => null)
+    storage.onNewStorage(2, '/dl/abc', [])
+    await storage.check!(2)
+    expect(opfs.check).toHaveBeenCalledWith(2)
   })
 })
 

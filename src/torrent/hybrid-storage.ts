@@ -118,17 +118,28 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
       throw new Error(`hybrid storage: ${entry.savePath} is read only, refusing a write of ${bytes.length} at ${offset} in file ${fileIndex}`)
     },
 
+    /**
+     * `need_full_check` when there is data here, `no_error` when there is none, which reads backwards
+     * until you know what libtorrent does with the answer.
+     *
+     * `no_error` means "there is nothing to verify", NOT "everything is fine". It is the answer for
+     * an empty storage, and a torrent that gets it starts with an EMPTY have-set. That is exactly
+     * wrong here: a torrent is pointed at this backend precisely because the files are already
+     * present, it arrives with no resume data (the relocate deletes it, since the old have-set
+     * described files somewhere else), and the only way it learns it holds anything is by hashing
+     * them. So the answer that makes it seed is `need_full_check`, and the check that follows is
+     * reads alone, no network.
+     *
+     * Same rule the OPFS backend uses, deliberately: any file holding bytes means check it.
+     */
     check: async (id) => {
       const entry = native.get(id)
       if (!entry) return opfs.check!(id)
-      // Every file present at the length the torrent says. The mirror already compared CONTENT
-      // before this storage was ever pointed at the folder, so matching lengths here is confirming
-      // that nothing moved since, not deciding the files are right in the first place.
       try {
         const root = rootOr('check')
         for (const meta of entry.files) {
-          const file = await fileAt(root, meta.path)
-          if (file.size !== meta.size) return STORAGE_NEED_FULL_CHECK
+          const file = await fileAt(root, meta.path).catch(() => null)
+          if (file && file.size > 0) return STORAGE_NEED_FULL_CHECK
         }
         return STORAGE_NO_ERROR
       } catch {
