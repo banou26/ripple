@@ -11,11 +11,23 @@
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
 // savedTo records that this device wrote the files into a folder of the user's and then let go of its own copy, which is why the row survives with no bytes behind it
+// saveTo is where the user WANTS this torrent, which is not the same fact as savePath, where its bytes are: a folder cannot hold a download in progress, so the two disagree until it finishes
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
-  savedTo?: SavedTo,
+  savedTo?: SavedTo, saveTo?: SaveLocation,
 }
+
+/**
+ * Where a torrent's files are meant to live.
+ *
+ * Declared here rather than in `save-location.ts`, which owns the rules, because that module reads
+ * save paths out of this one and the dependency cannot run both ways.
+ *
+ * Device-local, like `started` and `paused`: a folder belongs to one machine, so it has no business
+ * being mirrored to another. The cloud backup allowlists four fields, so it stays out for free.
+ */
+export type SaveLocation = 'browser' | 'folder'
 
 /** The folder this device copied a torrent into, and when. Device-local, like `started` and `paused`. */
 export type SavedTo = { name: string, at: number }
