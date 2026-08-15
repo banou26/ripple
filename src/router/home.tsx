@@ -35,6 +35,7 @@ import type { SaveLocation } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
 import { NO_LIMITS, formatLimit, isLimit, limitNote } from '../torrent/rate-limits'
 import type { RateLimits } from '../torrent/rate-limits'
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -266,6 +267,7 @@ const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<n
  * styles at all: it still renders, and every box it reports is at the origin with no size. A test
  * that measures such a row is measuring nothing, so it has to mount this around it.
  */
+
 export const style = css`
   height: 100dvh;
   display: flex;
@@ -355,30 +357,26 @@ export const style = css`
         font-size: 0.85rem;
         font-weight: 700;
 
-        &.primary {
-          border: none;
-          background: #fff;
-          color: #16131c;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+        /**
+         * Add reads exactly like the buttons beside it.
+         *
+         * It used to be solid white, which made it the brightest thing on the page for an action
+         * that is not more important than Embed or Open with Ripple: it is simply the one that
+         * happens to be first. The white was emphasis with nothing behind it.
+         */
+        &.primary,
+        &.ghost {
+          border: 1px solid #3a3447;
+          background: ${CONTROL_BG};
+          color: #f4f2f8;
 
           &:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            background: ${CONTROL_HOVER_BG};
+            border-color: rgba(249, 115, 22, 0.45);
           }
 
           &:active {
             transform: scale(0.98);
-          }
-        }
-
-        &.ghost {
-          border: 1px solid #3a3447;
-          background: none;
-          color: #f4f2f8;
-
-          &:hover {
-            background: #241e30;
-            border-color: rgba(249, 115, 22, 0.45);
           }
         }
       }
@@ -391,11 +389,11 @@ export const style = css`
       font-size: 0.85rem;
       font-weight: 700;
       border: 1px solid #3a3447;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
 
       &:hover {
-        background: #241e30;
+        background: ${CONTROL_HOVER_BG};
         border-color: rgba(249, 115, 22, 0.45);
       }
     }
@@ -447,11 +445,11 @@ export const style = css`
         font-size: 0.78rem;
         font-weight: 700;
         border: 1px solid #3a3447;
-        background: none;
+        background: ${CONTROL_BG};
         color: #f4f2f8;
 
         &:hover {
-          background: #241e30;
+          background: ${CONTROL_HOVER_BG};
           border-color: rgba(249, 115, 22, 0.45);
         }
       }
@@ -494,11 +492,11 @@ export const style = css`
       font-size: 0.8rem;
       font-weight: 700;
       border: 1px solid #3a3447;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
 
       &:hover {
-        background: #241e30;
+        background: ${CONTROL_HOVER_BG};
         border-color: rgba(249, 115, 22, 0.35);
       }
     }
@@ -912,26 +910,17 @@ export const style = css`
         font-weight: 700;
       }
 
-      .primary {
-        border: none;
-        background: #fff;
-        color: #16131c;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-        transition: transform 120ms ease, box-shadow 120ms ease;
-
-        &:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-        }
-      }
-
+      /* Watch is one of the four, not a highlight sitting among them. It was solid white, which made
+         every row carry a bright dot pulling the eye away from the torrent's own name and progress,
+         for an action already reachable by clicking the row. Same shape, same fill, same border. */
+      .primary,
       button {
         border: 1px solid #3a3447;
-        background: none;
+        background: ${CONTROL_BG};
         color: #f4f2f8;
 
         &:hover {
-          background: #241e30;
+          background: ${CONTROL_HOVER_BG};
           border-color: rgba(249, 115, 22, 0.35);
         }
 
@@ -982,9 +971,13 @@ export const style = css`
             color: #f4f2f8;
           }
 
+          /* The selected tab, which has to stand out from the three beside it and no further. It was
+             solid white, and once Watch and Add stopped being white it was the only such thing left
+             on the page, which read as something that had been missed. A raised surface separates it
+             from the sunken track behind it without shouting. */
           &[data-on] {
-            background: #fff;
-            color: #16131c;
+            background: ${CONTROL_HOVER_BG};
+            color: #f4f2f8;
           }
 
           .count {
@@ -1134,13 +1127,13 @@ export const style = css`
           flex: none;
           border: 1px solid #3a3447;
           border-radius: 4px;
-          background: none;
+          background: ${CONTROL_BG};
           color: #f4f2f8;
           padding: 4px 12px;
           font-size: 0.75rem;
 
           &:hover {
-            background: #241e30;
+            background: ${CONTROL_HOVER_BG};
             border-color: rgba(249, 115, 22, 0.35);
           }
 
@@ -1292,10 +1285,11 @@ export const style = css`
         padding: 4px 12px;
         border-radius: 4px;
         border: 1px solid #2c2737;
-        background: none;
+        background: ${CONTROL_BG};
         color: #8b8499;
 
         &:hover {
+          background: ${CONTROL_HOVER_BG};
           color: #c9c4d4;
           border-color: #3a3447;
         }

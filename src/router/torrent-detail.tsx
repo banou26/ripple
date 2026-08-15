@@ -2,6 +2,8 @@ import type { Torrent, TorrentFile, TorrentStats } from '../torrent/types'
 import type { PeerInfo, TrackerInfo } from '../torrent/worker'
 
 import { css } from '@emotion/react'
+
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
@@ -336,13 +338,13 @@ export const dockStyle = css`
       flex: none;
       border: 1px solid #3a3447;
       border-radius: 4px;
-      background: none;
+      background: ${CONTROL_BG};
       color: #a39db3;
       padding: 3px 11px;
       font-size: 0.75rem;
 
       &:hover {
-        background: #241e30;
+        background: ${CONTROL_HOVER_BG};
         color: #f4f2f8;
       }
     }
@@ -377,8 +379,8 @@ export const dockStyle = css`
       }
 
       &[data-on] {
-        background: #fff;
-        color: #16131c;
+        background: ${CONTROL_HOVER_BG};
+        color: #f4f2f8;
       }
 
       .count {
@@ -541,13 +543,13 @@ export const dockStyle = css`
       flex: none;
       border: 1px solid #3a3447;
       border-radius: 4px;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
       padding: 3px 12px;
       font-size: 0.75rem;
 
       &:hover {
-        background: #241e30;
+        background: ${CONTROL_HOVER_BG};
         border-color: rgba(249, 115, 22, 0.35);
       }
 

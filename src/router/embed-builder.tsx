@@ -1,6 +1,8 @@
 import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
+
+import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { EmbedMode } from './file-selection'
@@ -36,13 +38,13 @@ const style = css`
       flex: none;
       border: 1px solid #3a3447;
       border-radius: 4px;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
       padding: 4px 12px;
       font-size: 0.75rem;
       font-weight: 700;
 
-      &:hover { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+      &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
     }
   }
 
@@ -78,13 +80,13 @@ const style = css`
         white-space: nowrap;
         border: 1px solid #3a3447;
         border-radius: 4px;
-        background: none;
+        background: ${CONTROL_BG};
         color: #f4f2f8;
         padding: 5px 13px;
         font-size: 0.78rem;
         font-weight: 700;
 
-        &:hover { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+        &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
       }
     }
   }
@@ -170,8 +172,8 @@ const style = css`
       &:hover { color: #f4f2f8; }
 
       &[data-on] {
-        background: #fff;
-        color: #16131c;
+        background: ${CONTROL_HOVER_BG};
+        color: #f4f2f8;
       }
     }
   }
@@ -238,13 +240,13 @@ const style = css`
       button {
         border: 1px solid #3a3447;
         border-radius: 4px;
-        background: none;
+        background: ${CONTROL_BG};
         color: #f4f2f8;
         padding: 3px 11px;
         font-size: 0.72rem;
         font-weight: 700;
 
-        &:hover { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+        &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
       }
     }
   }
@@ -275,18 +277,20 @@ const style = css`
       font-weight: 700;
       text-decoration: none;
       border: 1px solid #3a3447;
-      background: none;
+      background: ${CONTROL_BG};
       color: #f4f2f8;
 
-      &:hover { background: #241e30; border-color: rgba(249, 115, 22, 0.35); }
+      &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
 
+      /* The panel's main action, marked by an accent border rather than by a fill of its own: it
+         keeps the same shape and the same weight as the buttons beside it, which is the whole point
+         of not having a white button any more. */
       &.primary {
-        border: none;
-        background: #fff;
-        color: #16131c;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(249, 115, 22, 0.55);
+        background: ${CONTROL_HOVER_BG};
+        color: #f4f2f8;
 
-        &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
+        &:hover { border-color: #f97316; }
       }
     }
   }
