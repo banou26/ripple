@@ -57,6 +57,30 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     eta: fmtEta(st),
     flags: st?.flags ?? 0,
     queuePosition: st?.queuePosition ?? -1,
+    stats: st
+      ? {
+        allTimeDownload: st.allTimeDownload,
+        allTimeUpload: st.allTimeUpload,
+        sessionDownload: st.sessionDownload,
+        sessionUpload: st.sessionUpload,
+        wasted: st.wasted,
+        swarmSeeds: st.swarmSeeds,
+        swarmPeers: st.swarmPeers,
+        numConnections: st.numConnections,
+        connectionsLimit: st.connectionsLimit,
+        availability: st.availability,
+        activeSeconds: st.activeSeconds,
+        seedingSeconds: st.seedingSeconds,
+        addedAt: st.addedAt,
+        completedAt: st.completedAt,
+        lastSeenComplete: st.lastSeenComplete,
+        hadIncoming: st.hadIncoming,
+        savePath: st.savePath,
+        pieceLength: s.files?.pieceLength ?? s.bitfield?.pieceLength ?? 0,
+        numPieces: st.numPiecesTotal,
+        numPiecesHave: st.numPiecesHave,
+      }
+      : null,
     files: s.files?.files.map((f) => ({ name: f.path, size: f.size, progress })),
     retry: s.recovery && !s.userPaused
       ? {
@@ -83,9 +107,10 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   peers: 0,
   seeds: 0,
   eta: '-',
-  // a ghost is not in the session, so it has no flags and no queue position to have
+  // a ghost is not in the session, so it has no flags, no queue position and no stats to have
   flags: 0,
   queuePosition: -1,
+  stats: null,
 })
 
 export type UseTorrents = {

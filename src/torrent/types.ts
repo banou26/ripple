@@ -6,6 +6,35 @@ export type TorrentFile = {
   progress: number
 }
 
+export type TorrentStats = {
+  /** Bytes moved across every session. What a share ratio must be computed from. */
+  allTimeDownload: number
+  allTimeUpload: number
+  /** Bytes moved since this session started. */
+  sessionDownload: number
+  sessionUpload: number
+  /** Bytes that arrived and could not be used: failed hashes plus data already held. */
+  wasted: number
+  /** The whole SWARM per the tracker, as opposed to who we are connected to. -1 before an answer. */
+  swarmSeeds: number
+  swarmPeers: number
+  numConnections: number
+  connectionsLimit: number
+  /** Complete copies the reachable peers add up to. Below 1 means nobody visible has all of it. */
+  availability: number
+  activeSeconds: number
+  seedingSeconds: number
+  /** Unix seconds, 0 for something that has not happened. */
+  addedAt: number
+  completedAt: number
+  lastSeenComplete: number
+  hadIncoming: boolean
+  savePath: string
+  pieceLength: number
+  numPieces: number
+  numPiecesHave: number
+}
+
 export type Torrent = {
   id: string
   magnet?: string
@@ -30,6 +59,11 @@ export type Torrent = {
   flags: number
   /** Position in libtorrent's queue, or -1 when the torrent is not queued at all. */
   queuePosition: number
+  /**
+   * Everything a details pane shows and a row does not, straight off the engine. Null for a
+   * library ghost, which has no engine state to report.
+   */
+  stats: TorrentStats | null
   files?: TorrentFile[]
   retry?: {
     reason: 'stopped' | 'stalled'

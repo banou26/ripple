@@ -35,6 +35,28 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   eta: '4m',
   flags: 0,
   queuePosition: -1,
+  stats: {
+    allTimeDownload: 1_000_000_000,
+    allTimeUpload: 250_000_000,
+    sessionDownload: 500_000_000,
+    sessionUpload: 100_000_000,
+    wasted: 4096,
+    swarmSeeds: 40,
+    swarmPeers: 12,
+    numConnections: 6,
+    connectionsLimit: 200,
+    availability: 2.4,
+    activeSeconds: 3600,
+    seedingSeconds: 120,
+    addedAt: 1_755_000_000,
+    completedAt: 1_755_003_600,
+    lastSeenComplete: 1_755_003_600,
+    hadIncoming: true,
+    savePath: '/downloads',
+    pieceLength: 262_144,
+    numPieces: 7630,
+    numPiecesHave: 3815,
+  },
   files: [
     { name: 'Pack/E01.mkv', size: 1_400_000_000, progress: 1 },
     { name: 'Pack/E02.mkv', size: 1_500_000_000, progress: 0.5 },
@@ -52,7 +74,7 @@ const sized = () => {
 
 const handlers = () => ({
   saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onRecheck: vi.fn(),
-  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(),
+  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(),
 })
 
 /**
@@ -182,30 +204,7 @@ describe('a library row', () => {
     },
   )
 
-  /**
-   * The detail panel's addresses, tracker URLs and info hash exist to be copied. Replacing the
-   * browser's Copy with a torrent menu would remove the only reason that text is selectable.
-   */
-  it('leaves the browser its own menu inside the details panel', async () => {
-    thumbnail.current = null
-    const { screen, props } = await inPage(torrent())
-    ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
-    await expect.poll(() => screen.container.querySelector('.detail .pane')).not.toBeNull()
 
-    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
-    screen.container.querySelector('.detail .pane')!.dispatchEvent(event)
-
-    expect(props.onOptions).not.toHaveBeenCalled()
-    expect(event.defaultPrevented).toBe(false)
-  })
-
-  it('starts the details panel under the title rather than under the picture', async () => {
-    thumbnail.current = null
-    const screen = await mount(torrent())
-    const summary = box(screen.container.querySelector('.detail summary'))!
-    const title = box(screen.container.querySelector('.title strong'))!
-    expect(Math.abs(summary.left - title.left)).toBeLessThan(2)
-  })
 
   it('keeps the whole row on one line, with the buttons at the end', async () => {
     thumbnail.current = null
@@ -245,36 +244,6 @@ describe('a library row', () => {
    * without limit turns a 16:9 frame into a tall column of one cropped stripe. A season pack is 24
    * rows, which is where this stops being a detail.
    */
-  it('runs the picture down the full height of the card, but not down an opened details panel', async () => {
-    thumbnail.current = null
-    // a season pack, which is the case the cap exists for: three files make too short a card to tell
-    const pack = torrent({
-      files: Array.from({ length: 24 }, (_, i) => ({ name: `Pack/E${i + 1}.mkv`, size: 1e9, progress: 1 })),
-    })
-    const screen = await mount(pack)
-    const card = box(screen.container.querySelector('.torrent'))!
-    const collapsed = box(screen.container.querySelector('.poster'))!
-    // collapsed, the card's padding is all that separates them
-    expect(card.height - collapsed.height).toBeLessThan(24)
-
-    ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
-    // onto the file list specifically: the panel opens on its overview tab, which is a compact
-    // grid, and the tall pane this test needs is the one listing twenty-four episodes
-    await expect.poll(() => screen.container.querySelector('.detail .tabs')).not.toBeNull()
-    ;[...screen.container.querySelectorAll<HTMLElement>('.detail .tabs button')]
-      .find((b) => b.textContent === 'Files')!
-      .click()
-    await expect.poll(() => box(screen.container.querySelector('.torrent'))!.height)
-      .toBeGreaterThan(card.height * 3)
-    const opened = box(screen.container.querySelector('.poster'))!
-    const grown = box(screen.container.querySelector('.torrent'))!
-    // It stayed a picture rather than following the card down into a cropped stripe. Compared
-    // against half the card rather than a third: the poster has its own max-height, so once the
-    // panel is tall enough the poster is a fixed 148px and the ratio stops tightening with it. A
-    // poster that DID follow would be the card's full height, which either bound catches.
-    expect(opened.height).toBeLessThan(grown.height / 2)
-    expect(opened.width / opened.height).toBeGreaterThan(0.9)
-  })
 
   /**
    * On a phone the row would otherwise squeeze the picture, the text AND six buttons onto one line.
@@ -322,4 +291,66 @@ describe('a library row', () => {
     screen.rerender(row(torrent()))
     await expect.element(screen.getByText('82 peers')).toBeInTheDocument()
   })
+
+  /**
+   * Selection is what fills the docked details panel, so the ordinary click on a card has to be it.
+   * The panel lives at the bottom of the page now rather than inside the row, which is why none of
+   * these look at the row for it.
+   */
+  describe('selection', () => {
+    it('selects the torrent when the card is clicked', async () => {
+      thumbnail.current = null
+      const t = torrent()
+      const { screen, props } = await inPage(t)
+      ;(screen.container.querySelector('.torrent') as HTMLElement).click()
+      expect(props.onSelect).toHaveBeenCalledTimes(1)
+      expect(props.onSelect.mock.calls[0]![0].id).toBe(t.id)
+    })
+
+    /** Every button already does something. Selecting as well would fire two actions per click. */
+    it('does not select when an action button is used', async () => {
+      thumbnail.current = null
+      const { screen, props } = await inPage(torrent())
+      await screen.getByRole('button', { name: 'Remove' }).click()
+      expect(props.onRemove).toHaveBeenCalled()
+      expect(props.onSelect).not.toHaveBeenCalled()
+    })
+
+    it('does not select when the watch link is followed', async () => {
+      thumbnail.current = null
+      const { screen, props } = await inPage(torrent())
+      const link = screen.container.querySelector('a.primary') as HTMLElement | null
+      if (!link) return
+      link.click()
+      expect(props.onSelect).not.toHaveBeenCalled()
+    })
+
+    it('marks the selected row for anyone reading the page', async () => {
+      thumbnail.current = null
+      const { TorrentRow, style } = await import('./home')
+      const props = handlers()
+      const screen = await render(
+        <MemoryRouter>
+          <div css={style}><main><TorrentRow t={torrent()} {...props} selected/></main></div>
+        </MemoryRouter>,
+        sized(),
+      )
+      const card = screen.container.querySelector('.torrent')!
+      expect(card.classList.contains('selected')).toBe(true)
+      expect(card.getAttribute('aria-current')).toBe('true')
+    })
+
+    /** Right-click selects first, so the menu and the dock can never disagree about the subject. */
+    it('selects before opening the menu on right-click', async () => {
+      thumbnail.current = null
+      const t = torrent()
+      const { screen, props } = await inPage(t)
+      screen.container.querySelector('.torrent')!.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      )
+      expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: t.id }))
+      expect(props.onOptions).toHaveBeenCalled()
+    })
+  })
+
 })

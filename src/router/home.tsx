@@ -28,7 +28,7 @@ import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { EmbedBuilder } from './embed-builder'
-import { TorrentDetailPanel } from './torrent-detail'
+import { TorrentDetailDock } from './torrent-detail'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
@@ -594,6 +594,15 @@ export const style = css`
   }
 
   .torrent {
+    /* the row whose details are in the dock, marked clearly enough to find at a glance in a long
+       library without shouting over the rest of it */
+    &.selected {
+      border-color: rgba(249, 115, 22, 0.55);
+      background: rgba(41, 33, 46, 0.8);
+    }
+
+    cursor: default;
+
     flex: none;
     border-radius: 14px;
     padding: 10px 12px;
@@ -1346,6 +1355,8 @@ type RowProps = {
   onEmbed: (t: Torrent) => void
   /** `at` opens the menu at a point; null opens the options dialog instead. */
   onOptions: (t: Torrent, at: MenuPosition | null) => void
+  selected: boolean
+  onSelect: (t: Torrent) => void
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -1381,7 +1392,7 @@ const MissingRow = ({ t, poster, onStart, onRemove }: Pick<RowProps, 't' | 'onSt
 )
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect }: RowProps) => {
   /**
    * Before the missing branch, not after it.
    *
@@ -1404,7 +1415,17 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
   })
   return (
     <div
-      className="torrent surface"
+      className={'torrent surface' + (selected ? ' selected' : '')}
+      aria-current={selected || undefined}
+      // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
+      // that already does something of its own keeps doing it: the buttons, the Watch link, the
+      // file list, and any text the user is trying to select rather than click.
+      onClick={(e) => {
+        const el = e.target as HTMLElement
+        if (el.closest('button, a, input, summary')) return
+        if (window.getSelection()?.toString()) return
+        onSelect(t)
+      }}
       onContextMenu={(e) => {
         // The detail panel keeps the browser's own menu: its peer addresses, tracker URLs and info
         // hash are there to be copied, and replacing Copy with a torrent menu would take away the
@@ -1415,6 +1436,8 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
         // says which keys in its own footer, so the escape hatch is not left to be discovered.
         if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
+        // right-clicking a row selects it first, so the menu and the dock always agree on subject
+        onSelect(t)
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
@@ -1478,15 +1501,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
             </div>
           </div>
         </div>
-        {/* The only thing below the main line, and shut by default. A row is a thing to watch
-            first and a torrent second, so everything that makes this look like a torrent client
-            lives one click away rather than in the way. */}
-        <TorrentDetailPanel
-          t={t}
-          handle={Number.isFinite(Number(t.id)) ? Number(t.id) : null}
-          saving={fileSaving}
-          onSave={(i) => onSave(t, i)}
-        />
+
       </div>
     </div>
   )
@@ -1766,6 +1781,14 @@ const Home = () => {
    */
   const [menu, setMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
   const [optionsId, setOptionsId] = useState<string | null>(null)
+  /**
+   * The torrent the dock is showing. One at a time, and clicking the selected row again clears it,
+   * so the dock can be dismissed from the same place it was opened.
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const onSelect = useCallback((t: Torrent) => {
+    setSelectedId((prev) => (prev === t.id ? null : t.id))
+  }, [])
 
   const onOptions = useCallback((t: Torrent, at: MenuPosition | null) => {
     if (at) { setOptionsId(null); setMenu({ id: t.id, at }) }
@@ -1792,6 +1815,14 @@ const Home = () => {
    * shows what the ENGINE now reports. A captured torrent would leave every toggle frozen at the
    * value it had when the menu opened, including after the change it just made.
    */
+  const selectedTorrent = selectedId ? torrents.find((t) => t.id === selectedId) : undefined
+  // the dock keys by file index; the page keys by torrent-and-index, since one map covers every row
+  const dockSaving: Record<number, number> = {}
+  selectedTorrent?.files?.forEach((_, i) => {
+    const at = saving[savingKey(selectedTorrent.id, i)]
+    if (at != null) dockSaving[i] = at
+  })
+
   const menuTorrent = menu ? torrents.find((t) => t.id === menu.id) : undefined
   const optionsTorrent = optionsId ? torrents.find((t) => t.id === optionsId) : undefined
 
@@ -2093,9 +2124,24 @@ const Home = () => {
               onPause={onPause}
               onEmbed={(t) => openEmbed(t.id)}
               onOptions={onOptions}
+              selected={t.id === selectedId}
+              onSelect={onSelect}
             />
           ))}
       </main>
+
+      {/* Docked below the list rather than inside a row: one place, one subject, and the engine
+          computes peers and trackers only while something is selected. A torrent that vanishes
+          from the library takes the dock with it rather than leaving a panel about nothing. */}
+      {selectedTorrent && (
+        <TorrentDetailDock
+          t={selectedTorrent}
+          handle={Number.isFinite(Number(selectedTorrent.id)) ? Number(selectedTorrent.id) : null}
+          saving={dockSaving}
+          onSave={(i) => onSave(selectedTorrent, i)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
 
       <footer>
         <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>

@@ -5,18 +5,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 /**
- * The detail panel: what it shows, and what it deliberately does not.
+ * The docked details panel: what it shows, and what it deliberately does not.
  *
- * Two guarantees are load-bearing beyond "the right text appears".
+ * The load-bearing guarantee is that it never asks about a torrent it is not showing. The engine
+ * computes peers and trackers for ONE torrent at a time, so a dock that forgets to release its
+ * claim leaves the engine working for a view nobody is looking at, and one that renders an answer
+ * meant for the previous torrent shows a stranger's peers under this torrent's name.
  *
- * The first is that a shut panel costs nothing. `<details>` keeps its children in the DOM rather
- * than unmounting them, so a library of thirty torrents would otherwise carry thirty hidden peer
- * tables, and the engine would be asked to compute every one of them.
- *
- * The second is that the panel never asks about a torrent it is not showing. The engine computes
- * this for one torrent at a time, so a panel that forgets to release its claim leaves the engine
- * working for a closed view, and one that renders an answer meant for the previous torrent shows a
- * stranger's peers under this torrent's name.
+ * The dock is only mounted while something is selected, which is what makes an empty selection cost
+ * nothing at all: the page unmounts it and the claim goes with it.
  */
 
 const inspected: (number | null)[] = []
@@ -29,10 +26,8 @@ vi.mock('../torrent/client', () => ({
   }),
 }))
 
-const { TorrentDetailPanel } = await import('./torrent-detail')
-// the panel's styles are nested under `.torrent .content` in the route's one css template, so a
-// bare mount gets none of them and every measurement is whatever the browser default happens to be
-const { style } = await import('./home')
+const { TorrentDetailDock } = await import('./torrent-detail')
+// the dock carries its own css template, so unlike the old per-row panel it needs no page around it
 
 const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   id: '7',
@@ -50,6 +45,28 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   eta: '4m',
   flags: 0,
   queuePosition: -1,
+  stats: {
+    allTimeDownload: 1_000_000_000,
+    allTimeUpload: 250_000_000,
+    sessionDownload: 500_000_000,
+    sessionUpload: 100_000_000,
+    wasted: 4096,
+    swarmSeeds: 40,
+    swarmPeers: 12,
+    numConnections: 6,
+    connectionsLimit: 200,
+    availability: 2.4,
+    activeSeconds: 3600,
+    seedingSeconds: 120,
+    addedAt: 1_755_000_000,
+    completedAt: 1_755_003_600,
+    lastSeenComplete: 1_755_003_600,
+    hadIncoming: true,
+    savePath: '/downloads',
+    pieceLength: 262_144,
+    numPieces: 7630,
+    numPiecesHave: 3815,
+  },
   files: [{ name: 'Pack/E01.mkv', size: 1e9, progress: 0.5 }],
   ...over,
 })
@@ -95,70 +112,91 @@ const sized = () => {
   return { container }
 }
 
+const onClose = vi.fn()
+
 const mount = async (t: Torrent = torrent(), handle: number | null = 7) => {
   inspected.length = 0
   detailCb = null
+  onClose.mockClear()
   return render(
-    <div css={style}>
-      <main>
-        <div className="torrent surface">
-          <div className="content">
-            <TorrentDetailPanel t={t} handle={handle} saving={{}} onSave={() => {}}/>
-          </div>
-        </div>
-      </main>
-    </div>,
+    <TorrentDetailDock t={t} handle={handle} saving={{}} onSave={() => {}} onClose={onClose}/>,
     sized(),
   )
 }
 
-const open = async (screen: Awaited<ReturnType<typeof mount>>) => {
-  ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
-  await expect.poll(() => screen.container.querySelector('.detail .tabs')).not.toBeNull()
-}
-
 const tabButton = (screen: Awaited<ReturnType<typeof mount>>, name: string) =>
-  [...screen.container.querySelectorAll<HTMLElement>('.detail .tabs button')]
+  [...screen.container.querySelectorAll<HTMLElement>('.tabs button')]
     .find((b) => b.textContent?.startsWith(name))!
 
 const send = (over: any = {}) => detailCb?.({ handle: 7, peers: [], trackers: [], ...over })
 
-describe('the torrent detail panel', () => {
-  it('shows nothing but its own handle until it is opened', async () => {
+describe('the docked torrent details', () => {
+  it('names the torrent it is showing, since it sits away from the row', async () => {
     const screen = await mount()
-    expect(screen.container.querySelector('.detail .tabs')).toBeNull()
-    expect(screen.container.querySelector('.detail .pane')).toBeNull()
-    // the name is in the row above; a shut panel must not put a second copy of the torrent in the DOM
-    expect(screen.container.querySelector('.detail')!.textContent).toBe('Details')
+    expect(screen.container.querySelector('.title')?.textContent).toBe('Big Buck Bunny')
+    expect(screen.container.querySelector('section')?.getAttribute('aria-label'))
+      .toBe('Details for Big Buck Bunny')
   })
 
-  /** A shut panel that still claimed a subject would have the engine computing peers for nobody. */
-  it('does not ask the engine for anything until it is opened', async () => {
+  it('claims its torrent as soon as it is shown', async () => {
     await mount()
-    expect(inspected.filter((h) => h !== null)).toEqual([])
+    expect(inspected).toContain(7)
   })
 
-  it('claims its torrent on open and releases it on close', async () => {
+  /** Mounted only while something is selected, so unmounting is what releases the engine. */
+  it('releases the claim when it goes away', async () => {
     const screen = await mount()
-    await open(screen)
     expect(inspected).toContain(7)
+    screen.unmount()
+    await expect.poll(() => inspected[inspected.length - 1]).toBeNull()
+  })
 
-    ;(screen.container.querySelector('.detail summary') as HTMLElement).click()
-    await expect.poll(() => screen.container.querySelector('.detail .tabs')).toBeNull()
-    // the last word to the engine has to be the release, whatever order the effects ran in
-    expect(inspected[inspected.length - 1]).toBeNull()
+  it('can be dismissed from its own header', async () => {
+    const screen = await mount()
+    ;(screen.container.querySelector('.close') as HTMLElement).click()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  /** The shortcut anyone tries first on a panel like this. */
+  it('can be dismissed with Escape', async () => {
+    await mount()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  /**
+   * libtorrent reports -1 for availability it does not know: before metadata, or before any peer
+   * has sent a bitfield. Printed straight it reads as "-1.00 copies", which is a measurement of
+   * nothing dressed up as a measurement. Seen live on 2026-08-16 on a seeding torrent with no peers.
+   */
+  it('shows unknown availability as unknown rather than as minus one', async () => {
+    const screen = await mount(torrent({ stats: { ...torrent().stats!, availability: -1 } }))
+    const facts = [...screen.container.querySelectorAll('.fact')]
+    const availability = facts.find((f) => f.querySelector('label')?.textContent === 'Availability')!
+    expect(availability.querySelector('span')?.textContent).toBe('-')
+  })
+
+  it('shows a real availability when there is one', async () => {
+    const screen = await mount()
+    const facts = [...screen.container.querySelectorAll('.fact')]
+    const availability = facts.find((f) => f.querySelector('label')?.textContent === 'Availability')!
+    expect(availability.querySelector('span')?.textContent).toBe('2.40')
+  })
+
+  /** All-time, not this session: a ratio from session figures is wrong for anything ever restarted. */
+  it('reports the all-time totals with the session figures beside them', async () => {
+    const screen = await mount()
+    await expect.element(screen.getByText(/1 GB \(500 MB this session\)/)).toBeInTheDocument()
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {
     const screen = await mount()
-    await open(screen)
-    await expect.element(screen.getByText('82 peers, 12 of them seeds')).toBeInTheDocument()
     await expect.element(screen.getByText('aabbccddeeff00112233445566778899aabbccdd')).toBeInTheDocument()
+    await expect.element(screen.getByText('/downloads')).toBeInTheDocument()
   })
 
   it('says nobody is connected rather than showing an empty table', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Peers').click()
     send({ peers: [] })
     await expect.element(screen.getByText('Nobody is connected right now.')).toBeInTheDocument()
@@ -171,7 +209,6 @@ describe('the torrent detail panel', () => {
    */
   it('ignores an answer meant for a different torrent', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Peers').click()
     send({ handle: 99, peers: [peer({ endpoint: '198.51.100.1:6881' })] })
     await new Promise((r) => setTimeout(r, 50))
@@ -182,7 +219,6 @@ describe('the torrent detail panel', () => {
 
   it('lists peers busiest first, with their transport and where they came from', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Peers').click()
     send({
       peers: [
@@ -191,7 +227,7 @@ describe('the torrent detail panel', () => {
       ],
     })
     await expect.element(screen.getByText('203.0.113.7:51413')).toBeInTheDocument()
-    const rows = [...screen.container.querySelectorAll('.detail .rows .row:not(.head) .name')]
+    const rows = [...screen.container.querySelectorAll('.rows .row:not(.head) .name')]
     expect(rows[0]!.textContent).toContain('203.0.113.7:51413')
     expect(rows[0]!.textContent).toContain('uTP')
     expect(rows[0]!.textContent).toContain('incoming')
@@ -206,18 +242,17 @@ describe('the torrent detail panel', () => {
    */
   it('shows an unscraped tracker as unknown rather than as zero', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Trackers').click()
     send({ trackers: [tracker({ fails: -1, seeders: -1, leechers: -1, nextAnnounceIn: -1 })] })
     await expect.element(screen.getByText('Not contacted')).toBeInTheDocument()
-    const row = screen.container.querySelector('.detail .rows .row:not(.head)')!
+    const row = screen.container.querySelector('.rows .row:not(.head)')!
     const nums = [...row.querySelectorAll('.num')].map((n) => n.textContent)
-    expect(nums).toEqual(['-', '-', '-'])
+    // tier is a real 0; the three scrape counts are the ones that must read as unknown
+    expect(nums).toEqual(['0', '-', '-', '-'])
   })
 
   it('separates a working tracker from one that has never been tried', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Trackers').click()
     send({ trackers: [tracker({ fails: 0 }), tracker({ url: 'udp://b.invalid:80/announce', fails: 3 })] })
     await expect.element(screen.getByText('Working')).toBeInTheDocument()
@@ -226,7 +261,6 @@ describe('the torrent detail panel', () => {
 
   it('explains a torrent with no trackers instead of leaving the tab blank', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Trackers').click()
     send({ trackers: [] })
     await expect.element(screen.getByText(/finds peers through the DHT/)).toBeInTheDocument()
@@ -244,28 +278,25 @@ describe('the torrent detail panel', () => {
         { name: 'Pack/E02.mkv', size: 1e9, progress: 0.5 },
       ],
     }))
-    await open(screen)
-    tabButton(screen, 'Files').click()
+    tabButton(screen, 'Content').click()
     await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
-    expect(screen.container.querySelector('.detail .bar')).toBeNull()
+    expect(screen.container.querySelector('.bar')).toBeNull()
   })
 
   it('keeps a long swarm inside its own scroll rather than growing the page', async () => {
     const screen = await mount()
-    await open(screen)
     tabButton(screen, 'Peers').click()
     send({ peers: Array.from({ length: 80 }, (_, i) => peer({ endpoint: `203.0.113.${i % 250}:${6881 + i}` })) })
     await expect.element(screen.getByText('203.0.113.1:6882')).toBeInTheDocument()
-    const pane = screen.container.querySelector('.detail .pane') as HTMLElement
+    const pane = screen.container.querySelector('.pane') as HTMLElement
     expect(pane.scrollHeight).toBeGreaterThan(pane.clientHeight)
   })
 
   /** A library ghost has no engine handle, and asking about one would be asking about nothing. */
   it('never claims a torrent that is not in the session', async () => {
     const screen = await mount(torrent(), null)
-    await open(screen)
     expect(inspected.filter((h) => h !== null)).toEqual([])
     // the overview still works: it is drawn from the row's own data, not from the engine
-    await expect.element(screen.getByText('82 peers, 12 of them seeds')).toBeInTheDocument()
+    await expect.element(screen.getByText('Big Buck Bunny')).toBeInTheDocument()
   })
 })
