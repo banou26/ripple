@@ -1,0 +1,29 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # `npm test` is `vitest run --project unit`: the 24 files under src/ that are pure logic in node.
+      # They read no env, so the gitignored .env.local being absent on a runner changes nothing, and
+      # they need no browser and no build/ artifacts.
+      - run: npm test
+
+      # The other two suites deliberately stay local. The `browser` project mounts components in a real
+      # Chrome that vite.config.ts locates on PATH, and it also serves build/ output (the player test
+      # loads build/libav-worker.js), so it would need a browser step plus a full `npm run build`. The
+      # tests/ Playwright specs watch a torrent actually transfer, which only reaches speed headful.
