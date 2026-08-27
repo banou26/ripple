@@ -995,6 +995,17 @@ const handleMessage = async (session: Session, m: any) => {
           // a deliberate re-add promotes a cache entry to a library one, which is the only gesture
           // there is for keeping something the budget pass would otherwise be free to reclaim
           ephemeralHandles.delete(existing)
+          /**
+           * And it has to START it, because a cache torrent is very likely parked.
+           *
+           * `applyViewing` idle-pauses an ephemeral torrent as soon as its last viewer leaves, and
+           * promotion cleared the flag that made it a cache entry without touching the pause that
+           * flag had already caused. So watching something in /embed, closing it, and then adding
+           * the same magnet to the library gave a row that sat at Queued for good: not user-paused,
+           * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
+           * leaves it alone.
+           */
+          wake(existing)
           await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
         } else touchUsed(existing)
         post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
