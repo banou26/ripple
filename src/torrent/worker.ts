@@ -346,7 +346,17 @@ const filePieceRange = (h: number, fileIndex: number) => {
   return { file, pieceLength: files.pieceLength, p0, p1 }
 }
 
-type Viewer = { fileIndex: number, fromOffset: number }
+/**
+ * `held` is a claim on the TORRENT without a claim on its bytes.
+ *
+ * A download page registers one for as long as it is open, so the budget pass can see that somebody
+ * has this torrent in front of them, while the priority map and the idle pause still behave as
+ * though nobody is watching. Without it the page's own torrent becomes an ordinary eviction
+ * candidate fifteen seconds after it is added, and evicting it untracks the handle, which the page
+ * cannot come back from: its add runs once per magnet and the row it was showing simply stops
+ * existing.
+ */
+type Viewer = { fileIndex: number, fromOffset: number, held?: boolean }
 const viewers = new Map<number, Map<string, Viewer>>()
 // the layout arrives with the torrent-ready record, later than the first watch, so a plan that
 // could not be built yet is retried from the pump instead of being dropped
@@ -373,13 +383,26 @@ const applyPiecePlan = (h: number) => {
   }))
 }
 
+/**
+ * The claims that are actually asking for bytes.
+ *
+ * A held claim keeps the torrent alive without wanting any of it, so every priority and pause
+ * decision is made from these alone and a page that is only holding reads exactly like no page at
+ * all. Anything asking "is this torrent in front of somebody", the eviction pass above, reads
+ * `viewers` instead, which is the whole point of the distinction.
+ */
+const activeViewers = (h: number): Viewer[] => {
+  const watching = viewers.get(h)
+  return watching ? [...watching.values()].filter((v) => !v.held) : []
+}
+
 const applyViewing = (h: number) => {
   if (!session) return
   // a handle the engine no longer has is not a torrent with no viewers, it is not a torrent at all;
   // parking it in pendingViewing would retry it on every pump for the life of the session
   if (!handles.includes(h)) { viewers.delete(h); pendingViewing.delete(h); return }
-  const watching = viewers.get(h)
-  if (!watching?.size) {
+  const active = activeViewers(h)
+  if (!active.length) {
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
     // This is also what takes the skip mask off before it can be written into resume data.
     pendingViewing.delete(h)
@@ -392,7 +415,12 @@ const applyViewing = (h: number) => {
     // player closing on one episode of a pack turns into a full speed download of the whole pack
     // that nobody asked for and no screen shows. For a cache torrent that is bytes the budget pass
     // then has to reclaim, and metered quota spent on them first, so stop it instead.
-    if (ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
+    //
+    // Never before the layout has landed, though: a paused torrent connects to nobody, so parking
+    // one that is still fetching its metadata stops it ever getting any. Every other caller of this
+    // branch already has metadata by construction; a held claim registered the moment a handle
+    // exists does not, and that is the one that would have hung the page it was protecting.
+    if (session.files(h) && ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPaused.add(h)
       session.pauseTorrent(h)
@@ -403,7 +431,7 @@ const applyViewing = (h: number) => {
   wake(h)
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
-  const claims = [...watching.values()].map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
+  const claims = active.map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
   // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
   // sits at the first piece the torrent does not have, so without it the capacity beyond the
   // deadline window goes to the first file in the torrent rather than the one being watched.
@@ -419,7 +447,7 @@ const applyViewing = (h: number) => {
   else pendingViewing.add(h)
 }
 
-const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number) => {
+const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false) => {
   // A read is dispatched without waiting on the command queue, so one issued against a torrent the
   // budget pass has just evicted arrives here afterwards. Recreating the entry would resurrect a
   // dead handle, and the engine reuses a handle number for the same infohash, so the entry would
@@ -428,7 +456,9 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number)
   let watching = viewers.get(h)
   const first = !watching?.size
   if (!watching) viewers.set(h, watching = new Map())
-  watching.set(viewer, { fileIndex, fromOffset })
+  // `held: undefined` rather than `false`, so the entry a real claim writes is shaped exactly as it
+  // was before holds existed and nothing downstream has to know the difference
+  watching.set(viewer, held ? { fileIndex, fromOffset, held } : { fileIndex, fromOffset })
   if (first) touchUsed(h)
   applyViewing(h)
 }
@@ -506,7 +536,11 @@ const remainingForViewers = (): number => {
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
   if (!viewer || !handles.includes(h)) return
   const current = viewers.get(h)?.get(viewer)
-  if (!current || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
+  // `current.held` too: a read IS the reader asking for bytes, so a claim that was only holding the
+  // torrent has to be promoted here. Without it a read landing on the file the hold happened to name
+  // takes the re-anchor test instead, keeps the claim held, and the swarm is never planned around a
+  // download that has already started.
+  if (!current || current.held || current.fileIndex !== fileIndex) { watch(viewer, h, fileIndex, offset); return }
   const r = filePieceRange(h, fileIndex)
   if (!r) return
   const span = { fileOffset: r.file.offset, pieceLength: r.pieceLength, p1: r.p1 }
@@ -903,8 +937,12 @@ const init = async () => {
       if (!session.files(h)) continue
       needsPriorityReset.delete(h)
       // applyViewing, not clearStreamWindow alone: a restored cache torrent nobody is watching has
-      // to be stopped here too, or every reload restarts the whole set at full speed
-      if (!viewers.get(h)?.size) applyViewing(h)
+      // to be stopped here too, or every reload restarts the whole set at full speed.
+      //
+      // ACTIVE viewers, because a download page holds a claim from the moment its handle exists and
+      // a plain size check would read that as "somebody is watching" and skip the very pass the
+      // hold was asked for.
+      if (!activeViewers(h).length) applyViewing(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
 
@@ -1280,7 +1318,7 @@ const handleMessage = async (session: Session, m: any) => {
       // a move carrying a read length is a reader advancing, so it takes the same re-anchor test a read
       // takes; without one it is a user seek, which moves the anchor unconditionally
       if (m.readLen != null) anchorSequential(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.readLen)
-      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0)
+      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.held === true)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
     } else if (m.type === 'set-flags') {

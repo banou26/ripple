@@ -350,6 +350,47 @@ test.describe('storage eviction', () => {
     expect(full, 'a full origin with nothing reclaimable has to be reported').toContain(true)
   })
 
+  /**
+   * A download page transfers nothing until its button is pressed, and that must not cost it the
+   * torrent it is showing.
+   *
+   * The page used to claim a viewer as soon as the file list landed, which excluded it from
+   * `collectCandidates` outright. Holding instead removed that protection: fifteen seconds after the
+   * add it became an ordinary candidate, and an eviction untracks the handle, which the page cannot
+   * come back from because its add runs once per magnet. It would sit at a disabled "Loading
+   * torrent…" for good, with the bytes it was about to hand over already deleted.
+   *
+   * The arm above ("gives up an embed torrent nobody is watching") is the control: the same squeeze,
+   * the same torrent, no page open, and the bytes go. Without that pair this would pass against an
+   * origin that simply never came under pressure.
+   */
+  test('never gives up the torrent a download page is holding', async ({ page }) => {
+    test.setTimeout(240_000)
+
+    // bytes on disk first: a torrent holding nothing is not an eviction candidate at all, so the
+    // hold would be protecting it from something that could not have happened
+    await page.goto(embedUrl(SINTEL))
+    await downloadSome(page, 30_000_000)
+    const savePath = '/dl/' + SINTEL_HASH
+    const before = await filesUnder(page, savePath)
+    expect(before.count).toBeGreaterThan(0)
+
+    // now the DOWNLOAD page for the same torrent, which holds rather than transfers
+    await page.goto(`/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download&files=${SINTEL_VIDEO}`)
+    await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled({ timeout: 60_000 })
+    await expect(page.getByText(/Opening this page downloads nothing/)).toBeVisible()
+
+    const squeezed = await squeezeTo(page, 60_000_000)
+    console.log('[test] after squeeze:', squeezed, 'holding', before)
+
+    // well past RECENT_USE_MS, which is the only thing that would have covered this by accident
+    await page.waitForTimeout(45_000)
+    expect((await filesUnder(page, savePath)).count, 'a held torrent with its page open was evicted')
+      .toBeGreaterThan(0)
+    // and the page is still able to hand it over, which is the part the user would have lost
+    await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
+  })
+
   test('never gives up the torrent being watched', async ({ page }) => {
     test.setTimeout(240_000)
 

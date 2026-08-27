@@ -94,7 +94,12 @@ export type TorrentClient = {
    * it routes through the same re-anchor test a read takes, which debounces small moves and refuses to
    * follow a demuxer index probe at the file's tail. A seek has neither of those and wants neither.
    */
-  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number) => void
+  /**
+   * `held` registers the claim WITHOUT asking for any bytes: nothing is prioritised and a cache
+   * torrent stays parked. It is how a page says "this is open in front of somebody" so the storage
+   * budget does not reclaim a torrent whose page is still on screen.
+   */
+  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number, held?: boolean) => void
   unwatch: (viewer: string) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -403,7 +408,7 @@ const createTorrentClient = (): EngineClient => {
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
-    watch: (viewer, handle, fileIndex, fromOffset = 0, readLen) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen }),
+    watch: (viewer, handle, fileIndex, fromOffset = 0, readLen, held) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen, held: held === true }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
     destroy: () => {
       window.removeEventListener('online', onOnline)

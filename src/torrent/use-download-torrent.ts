@@ -65,13 +65,27 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     client.addMagnet(magnet, { ephemeral: true, hold: true })
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
-    const offReset = client.onEngineReset(() => { handleRef.current = null })
+    let holding = false
+    const offReset = client.onEngineReset(() => { holding = false; handleRef.current = null })
     const off = client.onState((snaps) => {
       // match on the infoHash, never on the magnet string, and never on "the first one"
       const snap = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
       if (snap) handleRef.current = snap.handle
+      /**
+       * A HELD claim, registered as soon as there is a handle and kept for as long as the page is.
+       *
+       * It asks for no bytes and lifts no pause, so the hold above is untouched. What it does is
+       * tell the storage budget that somebody has this torrent on screen: without it the page's own
+       * torrent becomes an eviction candidate fifteen seconds after the add, and an eviction
+       * untracks the handle, which this hook cannot recover from because its add runs once per
+       * magnet. The page would sit at "Loading torrent…" for good.
+       */
+      if (snap && !holding) {
+        holding = true
+        client.watch(viewer, snap.handle, 0, 0, undefined, true)
+      }
       setSnapshot(snap)
     })
     return () => {
