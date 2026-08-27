@@ -52,6 +52,23 @@ import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torr
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
+/**
+ * Whether a drag carries something this page could actually add.
+ *
+ * Files are a .torrent, and `text/uri-list` is what a link dragged out of another page or another
+ * browser carries, which is how a magnet arrives. A selection dragged around inside a text field
+ * carries `text/plain` and `text/html` and NOT `text/uri-list`, so gating on these two keeps the
+ * page from lighting up for a gesture aimed at nothing.
+ *
+ * A magnet dragged as bare text out of an editor is therefore not announced, but it still drops:
+ * this only decides the highlight, never what `acceptDrop` will take.
+ */
+const droppable = (data: DataTransfer | null): boolean => {
+  const types = data?.types
+  if (!types) return false
+  return [...types].some((t) => t === 'Files' || t === 'text/uri-list')
+}
+
 const STATE_LABEL: Record<Torrent['state'], string> = {
   downloading: 'Downloading',
   seeding: 'Seeding',
@@ -1229,6 +1246,13 @@ export const style = css`
     }
   }
 
+  /**
+   * A frame with the message sitting in it, rather than a page-sized amber flood.
+   *
+   * The wash is gone from the fill and lives on the message alone: the frame is what says WHERE the
+   * drop lands, and it can say that at the edge of the window without tinting everything the person
+   * is looking at.
+   */
   .drop {
     position: fixed;
     inset: 12px;
@@ -1237,14 +1261,21 @@ export const style = css`
     place-items: center;
     border: 2px dashed rgba(249, 115, 22, 0.55);
     border-radius: 8px;
-    background: rgba(249, 115, 22, 0.06);
-    color: #fbbf24;
-    font-size: 1.15rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
     pointer-events: none;
     opacity: 0;
     transition: opacity 150ms ease;
+
+    span {
+      padding: 10px 22px;
+      border-radius: 8px;
+      background: rgba(22, 19, 28, 0.92);
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
+      color: #fbbf24;
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
   }
 
   &[data-drag] .drop {
@@ -1951,8 +1982,14 @@ const Home = () => {
   const [fieldDrag, setFieldDrag] = useState(false)
   const endDrag = useCallback(() => { dragDepth.current = 0; setDragging(false); setFieldDrag(false) }, [])
   useEffect(() => {
-    const onDragEnter = () => { if (++dragDepth.current === 1) setDragging(true) }
-    const onDragLeave = () => { if (--dragDepth.current <= 0) endDrag() }
+    const onDragEnter = (e: DragEvent) => {
+      if (!droppable(e.dataTransfer)) return
+      if (++dragDepth.current === 1) setDragging(true)
+    }
+    const onDragLeave = (e: DragEvent) => {
+      if (!droppable(e.dataTransfer)) return
+      if (--dragDepth.current <= 0) endDrag()
+    }
     const onDragOver = (e: DragEvent) => e.preventDefault()
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
@@ -1963,10 +2000,22 @@ const Home = () => {
     window.addEventListener('dragleave', onDragLeave)
     window.addEventListener('dragover', onDragOver)
     window.addEventListener('drop', onDrop)
+    /**
+     * A drag that ends anywhere else still has to put the page back.
+     *
+     * `dragleave` does not fire when a drag is cancelled with Escape, dropped on another window, or
+     * ends outside the viewport, and the depth counter then never reaches zero, so the highlight is
+     * stuck on with nothing being dragged. `dragend` covers a drag that started here; the window
+     * losing focus covers one that did not.
+     */
+    window.addEventListener('dragend', endDrag)
+    window.addEventListener('blur', endDrag)
     return () => {
       window.removeEventListener('dragenter', onDragEnter)
       window.removeEventListener('dragleave', onDragLeave)
       window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('dragend', endDrag)
+      window.removeEventListener('blur', endDrag)
       window.removeEventListener('drop', onDrop)
     }
   }, [acceptDrop, endDrag])
@@ -2450,8 +2499,18 @@ const Home = () => {
   const storage = useStorageUsage(torrents.length)
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
+  /**
+   * Exactly one surface is ever lit, and the more specific one wins.
+   *
+   * The page-wide overlay and the magnet field used to light INDEPENDENTLY, so hovering the field
+   * mid-drag left the whole window washed amber with a second amber box inside it, saying two
+   * different things about where one drop was going to land. The field is the narrower target, so
+   * reaching it stands the page down.
+   */
+  const pageDrop = dragging && !fieldDrag
+
   return (
-    <div css={style} data-drag={dragging || undefined}>
+    <div css={style} data-drag={pageDrop || undefined}>
       {/* Rendered here rather than beside the row that asks: the Modal shell portals to the body, so
           its position in the tree does not affect stacking, and one instance serves every caller. */}
       {confirmElement}
@@ -2473,7 +2532,7 @@ const Home = () => {
           onClose={() => setOptionsId(null)}
         />
       )}
-      <div className="drop">Drop to add</div>
+      <div className="drop"><span>Drop a .torrent or a magnet link to add it</span></div>
       <header>
         <span className="wordmark">Ripple</span>
         <form
@@ -2529,7 +2588,7 @@ const Home = () => {
         <EmbedBuilder
           torrents={torrents}
           torrent={torrents.find((t) => t.id === embedId) ?? null}
-          dragging={dragging}
+          dragging={pageDrop}
           onSelect={setEmbedId}
           onClose={closeEmbed}
           onToast={showToast}
