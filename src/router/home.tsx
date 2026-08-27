@@ -47,6 +47,7 @@ import { TorrentDetailDock } from './torrent-detail'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
+import { dropTarget } from './drop-target'
 import { buildTorrentOptions } from '../torrent/torrent-options'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
@@ -2577,17 +2578,25 @@ const Home = () => {
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
   /**
-   * Exactly one surface is ever lit, and the more specific one wins.
+   * The ONE surface that announces the drop, chosen in `dropTarget` and read from nowhere else.
    *
-   * The page-wide overlay and the magnet field used to light INDEPENDENTLY, so hovering the field
-   * mid-drag left the whole window washed amber with a second amber box inside it, saying two
-   * different things about where one drop was going to land. The field is the narrower target, so
-   * reaching it stands the page down.
+   * Every surface below is driven by comparing against this, rather than by a flag of its own. That
+   * is the whole point: the same defect shipped twice from three independent booleans, first the
+   * page lighting alongside the magnet field, then the page lighting alongside the share panel's
+   * box, because two of them were still reading one value. A single name cannot describe two places.
+   *
+   * The share panel only draws a drop box while it is waiting to be given a torrent; once one is
+   * chosen it shows that torrent's link options instead, and there is nothing there for a drop to
+   * land on, so the page-wide overlay is the right surface again.
    */
-  const pageDrop = dragging && !fieldDrag
+  const target = dropTarget({
+    dragging,
+    overField: fieldDrag,
+    pickOpen: embedOpen && !torrents.some((t) => t.id === embedId),
+  })
 
   return (
-    <div css={style} data-drag={pageDrop || undefined}>
+    <div css={style} data-drag={target === 'page' || undefined}>
       {/* Rendered here rather than beside the row that asks: the Modal shell portals to the body, so
           its position in the tree does not affect stacking, and one instance serves every caller. */}
       {confirmElement}
@@ -2632,7 +2641,7 @@ const Home = () => {
             placeholder="Add a magnet link, or drop a .torrent"
             spellCheck={false}
             disabled={storageUnavailable}
-            data-drop={fieldDrag || undefined}
+            data-drop={target === 'field' || undefined}
             onDragEnter={() => { if (!storageUnavailable) setFieldDrag(true) }}
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={() => setFieldDrag(false)}
@@ -2704,7 +2713,7 @@ const Home = () => {
         <EmbedBuilder
           torrents={torrents}
           torrent={torrents.find((t) => t.id === embedId) ?? null}
-          dragging={pageDrop}
+          dragging={target === 'pick'}
           onSelect={setEmbedId}
           onClose={closeEmbed}
           onToast={showToast}
