@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Download, Folder, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
+import { Download, FilePlus, Folder, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
@@ -332,15 +332,26 @@ export const style = css`
       color: transparent;
     }
 
+    /**
+     * Wraps, and the field keeps a width worth reading.
+     *
+     * Three unshrinkable controls in a row that could not wrap took every pixel out of the only
+     * flexible item: the field measured 52px at a 900px viewport and 34px at 800px, where the form
+     * itself then overflowed and the document grew a horizontal scrollbar. A zero minimum width on
+     * the field is what allowed that, and the field is the one thing here that must not shrink,
+     * since its placeholder is the page's whole explanation of how to add anything.
+     */
     form {
       flex: 1;
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       min-width: 240px;
 
-      input {
+      /* the file picker's own input is hidden inside its label and must not take this treatment */
+      input:not([type='file']) {
         flex: 1;
-        min-width: 0;
+        min-width: 210px;
         background: rgba(22, 19, 28, 0.8);
         border: 1px solid #2c2737;
         border-radius: 6px;
@@ -368,34 +379,93 @@ export const style = css`
         }
       }
 
-      button {
+      button,
+      .file-button {
         flex: none;
         border-radius: 6px;
         padding: 8px 18px;
         font-size: 0.85rem;
         font-weight: 700;
+        white-space: nowrap;
 
         /**
          * Add reads exactly like the buttons beside it.
          *
          * It used to be solid white, which made it the brightest thing on the page for an action
-         * that is not more important than Embed or Open with Ripple: it is simply the one that
-         * happens to be first. The white was emphasis with nothing behind it.
+         * that is not more important than the ones next to it: it is simply the one that happens to
+         * be first. The white was emphasis with nothing behind it.
          */
         &.primary,
         &.ghost {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
           border: 1px solid #3a3447;
           background: ${CONTROL_BG};
           color: #f4f2f8;
 
-          &:hover {
+          svg { width: 15px; height: 15px; }
+
+          &:hover:not(:disabled) {
             background: ${CONTROL_HOVER_BG};
             border-color: rgba(249, 115, 22, 0.45);
           }
 
-          &:active {
+          &:active:not(:disabled) {
             transform: scale(0.98);
           }
+        }
+
+        /**
+         * A control that cannot act has to LOOK like one.
+         *
+         * Add is disabled whenever the field holds nothing to add, and it used to keep its full
+         * contrast and its hover while disabled, so pressing it was indistinguishable from pressing
+         * a live button that silently did nothing. That is the whole of "Add does nothing".
+         */
+        &:disabled {
+          opacity: 0.4;
+          cursor: default;
+        }
+      }
+
+      /* a label wrapping a hidden file input, so it needs the cursor a button has by default */
+      .file-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        cursor: pointer;
+        user-select: none;
+        /* so the absolutely positioned input below is contained rather than laid out off the page */
+        position: relative;
+        overflow: hidden;
+
+        svg { width: 15px; height: 15px; }
+
+        /**
+         * Hidden without being removed, so it can still be reached by keyboard.
+         *
+         * A display:none input is out of the accessibility tree AND out of the tab order,
+         * which would leave the only .torrent picker on the page unreachable to anybody not using a
+         * mouse. Sized to nothing instead, with the label taking the focus ring on its behalf.
+         */
+        input {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        &:focus-within {
+          background: ${CONTROL_HOVER_BG};
+          border-color: #f97316;
+          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+        }
+
+        &[aria-disabled='true'] {
+          opacity: 0.4;
+          cursor: default;
         }
       }
     }
@@ -2566,7 +2636,32 @@ const Home = () => {
               if (!storageUnavailable) acceptDrop(e.dataTransfer)
             }}
           />
-          <button className="primary" type="submit" disabled={storageUnavailable}>Add</button>
+          {/* disabled on an empty field rather than accepting the click and doing nothing with it */}
+          <button className="primary" type="submit" disabled={storageUnavailable || !input.trim()}>Add</button>
+          {/**
+            * The only way to pick a .torrent that is not a drag.
+            *
+            * There was none: the file could be dropped or handed over by the OS through the
+            * installed app, and a browser that cannot drag (a touch screen, a file manager the page
+            * cannot reach) had no route at all. A label wrapping a hidden input is what gives it the
+            * native picker without a click handler.
+            */}
+          <label className="ghost file-button" aria-disabled={storageUnavailable || undefined}>
+            <FilePlus/>
+            Open file
+            <input
+              type="file"
+              accept=".torrent,application/x-bittorrent"
+              multiple
+              disabled={storageUnavailable}
+              onChange={(e) => {
+                const picked = e.currentTarget.files
+                if (picked?.length) void addTorrentFiles(picked)
+                // cleared so choosing the SAME file again still fires a change event
+                e.currentTarget.value = ''
+              }}
+            />
+          </label>
           <button
             className="ghost"
             type="button"
@@ -2681,9 +2776,9 @@ const Home = () => {
               Ripple is a torrent client that runs entirely in your browser.<br/>
               Watch the video while it downloads, then save it to your disk.
               <div className="hints">
-                <span>Paste a magnet link</span>
-                <span>Drop a .torrent anywhere</span>
-                <span>Press Ctrl+V to add instantly</span>
+                <span>Paste a magnet link above, then press Add</span>
+                <span>Or press Open file to pick a .torrent</span>
+                <span>Or drop either one anywhere on this page</span>
               </div>
             </div>
           )
