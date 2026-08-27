@@ -90,9 +90,26 @@ const mount = async (torrent: Torrent | null, torrents: Torrent[] = [SINTEL]) =>
 describe('the embed link builder', () => {
   it('asks for a torrent when it has none, and offers the library', async () => {
     const { screen, onSelect } = await mount(null)
-    await expect.element(screen.getByText(/Drop a .torrent or a magnet link/)).toBeInTheDocument()
+    await expect.element(screen.getByText(/Pick a torrent to make a link for/)).toBeInTheDocument()
     await screen.getByRole('button', { name: 'Sintel' }).click()
     expect(onSelect).toHaveBeenCalledWith('7')
+  })
+
+  /**
+   * The panel has to say what it makes, before it makes it.
+   *
+   * Its heading was the word "Embed", which names the least common of the three things it produces
+   * and explains none of them to anybody who has not already used it. The explanation is shown in
+   * both states, because the empty one is where somebody arrives who does not yet know.
+   */
+  it('says what the link is for before a torrent is chosen', async () => {
+    const { screen } = await mount(null)
+    await expect.element(screen.getByText(/opens this torrent on any device/)).toBeInTheDocument()
+  })
+
+  it('keeps saying it once a torrent is chosen', async () => {
+    const { screen } = await mount(SINTEL)
+    await expect.element(screen.getByText(/opens this torrent on any device/)).toBeInTheDocument()
   })
 
   it('defaults to a watch link on the file the player would have picked', async () => {

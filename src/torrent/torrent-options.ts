@@ -208,9 +208,9 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'embed',
-      // a magnet is the whole of an embed link, so this needs no metadata and no bytes on disk
-      label: 'Embed this torrent',
-      hint: 'Builds a link or an iframe that plays this torrent on another page.',
+      // a magnet is the whole of a share link, so this needs no metadata and no bytes on disk
+      label: 'Get a share link',
+      hint: 'Makes a link that plays or downloads this torrent on any device.',
       run: a.embed,
     })
   }

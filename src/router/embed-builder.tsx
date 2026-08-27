@@ -185,6 +185,16 @@ const style = css`
     color: #8b8499;
   }
 
+  /* the one that explains the panel, so it gets a readable measure instead of a column width */
+  .note.lead {
+    flex: none;
+    margin-top: -4px;
+    max-width: 62ch;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: #a39db3;
+  }
+
   .files {
     width: 100%;
 
@@ -400,17 +410,23 @@ export const EmbedBuilder = ({ torrents, torrent, dragging, onSelect, onClose, o
     })
 
   return (
-    <section css={style} className="surface embed" aria-label="Embed link">
+    <section css={style} className="surface embed" aria-label="Share link">
       <div className="head">
-        <label>Embed link</label>
+        <label>Share link</label>
         {torrent && <button type="button" onClick={() => onSelect(null)}>Change torrent</button>}
         <button type="button" onClick={onClose}>Close</button>
       </div>
 
+      {/* what the thing this panel makes actually IS, which the old heading assumed you knew */}
+      <span className="note lead">
+        Makes a link that opens this torrent on any device, with no Ripple account and nothing to
+        install. Send it to somebody, or put it on a page.
+      </span>
+
       {!torrent
         ? (
           <div className="pick" data-drop={dragging || undefined}>
-            <span>Drop a .torrent or a magnet link anywhere on this page</span>
+            <span>Pick a torrent to make a link for, or drop a .torrent or magnet link on this page</span>
             {torrents.length > 0 && (
               <div className="chips">
                 {torrents.map((t) => (
@@ -431,15 +447,15 @@ export const EmbedBuilder = ({ torrents, torrent, dragging, onSelect, onClose, o
             </div>
 
             <div className="opt">
-              <label id="embed-mode">Mode</label>
+              <label id="embed-mode">The link</label>
               <div className="seg" role="group" aria-labelledby="embed-mode">
                 <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>Watch</button>
                 <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>Download</button>
               </div>
               <span className="note">
                 {mode === 'watch'
-                  ? 'Plays one file in the media player.'
-                  : 'Offers the files for download, more than one as a zip.'}
+                  ? 'Opens the player and starts playing while the file downloads.'
+                  : 'Opens a page with a Download button. Several files arrive as one .zip.'}
               </span>
             </div>
 
@@ -498,7 +514,7 @@ export const EmbedBuilder = ({ torrents, torrent, dragging, onSelect, onClose, o
                   </div>
 
                   <details className="snippet">
-                    <summary>Frame to paste into a page</summary>
+                    <summary>Put it on a web page instead</summary>
                     <div className="out">
                       <pre data-testid="embed-iframe">{snippet}</pre>
                       <button type="button" onClick={() => copy(snippet, 'Frame')}>Copy</button>

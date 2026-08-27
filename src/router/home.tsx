@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Download, FilePlus, Folder, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
+import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
@@ -470,8 +470,13 @@ export const style = css`
       }
     }
 
-    .setup {
+    /* header-level actions, outside the add form: the header itself wraps, so these can drop a line */
+    .setup,
+    .share {
       flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
       border-radius: 6px;
       padding: 8px 16px;
       font-size: 0.85rem;
@@ -479,6 +484,8 @@ export const style = css`
       border: 1px solid #3a3447;
       background: ${CONTROL_BG};
       color: #f4f2f8;
+
+      svg { width: 15px; height: 15px; }
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
@@ -2662,15 +2669,29 @@ const Home = () => {
               }}
             />
           </label>
-          <button
-            className="ghost"
-            type="button"
-            aria-expanded={embedOpen}
-            onClick={() => (embedOpen ? closeEmbed() : openEmbed(embedId))}
-          >
-            Embed
-          </button>
         </form>
+        {/**
+          * "Embed" named the artefact, not the job, and named the least common one at that.
+          *
+          * The panel behind it mostly produces a LINK that anyone can open, and offers an iframe as
+          * a disclosure below it. The label now says what pressing it is for, and the title says
+          * what comes out, because the word on its own explained nothing to anybody who had not
+          * already used it.
+          *
+          * Outside the form, where it belongs: it does not add anything, and a third control inside
+          * a row that cannot wrap was taking its width out of the magnet field. The header wraps, so
+          * out here it drops to its own line instead of squeezing the field.
+          */}
+        <button
+          className="share"
+          type="button"
+          aria-expanded={embedOpen}
+          title="Make a link that plays or downloads one of your torrents on any device"
+          onClick={() => (embedOpen ? closeEmbed() : openEmbed(embedId))}
+        >
+          <Link2/>
+          Share link
+        </button>
         {showSetup && (
           <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
             Open torrents with Ripple
