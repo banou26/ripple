@@ -15,7 +15,7 @@ import {
 import { magnetParam } from '../torrent/magnet'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { getHumanReadableByteString } from '../utils/bytes'
-import { firstIndexOf, resolveSelection } from './file-selection'
+import { resolveSelection } from './file-selection'
 
 const style = css`
   height: 100%;
@@ -305,21 +305,7 @@ type Props = {
 }
 
 const DownloadPage = ({ magnet, selection }: Props) => {
-  /**
-   * The first file of the selection, resolved before the file list exists.
-   *
-   * It seeds the engine claim, and the claim is what keeps an ephemeral torrent off the idle-pause
-   * path, so it has to be available on the very first render rather than after metadata lands. An
-   * `all` selection starts at 0, which is also where a zip starts writing.
-   *
-   * It is a HINT, not a checked index: nothing here knows how many files the torrent has yet. The
-   * hook clamps it against the real list at the moment it claims, which matters, because a claim the
-   * engine cannot resolve writes no priority map at all and leaves the torrent downloading
-   * everything.
-   */
-  const firstIndex = useMemo(() => firstIndexOf(selection), [selection])
-
-  const { client, snapshot, handle, viewer, engineError, storageFull } = useDownloadTorrent(magnet, firstIndex)
+  const { client, snapshot, handle, viewer, claim, engineError, storageFull } = useDownloadTorrent(magnet)
 
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -354,9 +340,18 @@ const DownloadPage = ({ magnet, selection }: Props) => {
     : window.location.origin + window.location.pathname + window.location.search
 
   const start = useCallback((chosen: SaveEntry[], label: string) => {
-    // Called straight from the click with nothing awaited before it: the save picker and the service
-    // worker handshake both spend the gesture's transient activation, and an await here loses it.
+    // Called straight from the click with nothing awaited before it: the service worker handshake
+    // and the save picker both spend the gesture's transient activation, and an await here loses it.
     if (handle == null || !chosen.length || abortRef.current) return
+    /**
+     * The click is what starts the transfer, and this is where it starts.
+     *
+     * Until now the torrent has been sitting on its metadata with every piece at skip, so the swarm
+     * has been told nothing about what this page wants. The reads below re-anchor the window as they
+     * advance and would eventually plan it themselves, but the first one is behind a sink handshake
+     * that can take seconds, and those are seconds of a pressed button with nothing moving.
+     */
+    claim(chosen[0]!.index)
     const controller = new AbortController()
     abortRef.current = controller
     setFailure(null)
@@ -385,7 +380,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
         abortRef.current = null
         setJob(null)
       })
-  }, [client, handle, viewer, torrentName])
+  }, [client, handle, viewer, claim, torrentName])
 
   const cancel = () => abortRef.current?.abort(Object.assign(new Error('cancelled'), { name: 'AbortError' }))
 
@@ -472,12 +467,29 @@ const DownloadPage = ({ magnet, selection }: Props) => {
         {failure && <div className="failure">{failure}</div>}
         {finished && <div className="done">Saved {finished}</div>}
 
-        {/* what the swarm is doing, which is the only explanation of a download that is not moving */}
-        {Boolean(files) && !status && (
+        {/**
+          * What the swarm is doing, which is the only explanation of a download that is not moving.
+          *
+          * Only while one is running. Before the click nothing is being transferred on purpose, and
+          * a permanent "0 peers · 0 B/s" under an unpressed button reads as a page that is broken
+          * rather than one that is waiting.
+          */}
+        {busy && !status && (
           <div className="swarm" data-testid="swarm">
             <span className="item"><User />{peers} peers</span>
             <span className="item"><ArrowDown />{getHumanReadableByteString(rate, true)}/s</span>
           </div>
+        )}
+
+        {/**
+          * Says out loud that arriving here costs nothing, which is the whole point of the hold.
+          *
+          * Phrased about what OPENING the page did, not about what is on disk: a second visit to the
+          * same link finds bytes already cached from the first, and "nothing is downloaded" would be
+          * a claim about those.
+          */}
+        {ready && !busy && !status && !finished && (
+          <div className="note">Opening this page downloads nothing. Press the button to start.</div>
         )}
 
         {entries.length > 1 && (

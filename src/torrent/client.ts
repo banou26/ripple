@@ -79,7 +79,11 @@ export type TorrentClient = {
    * the engine may reclaim under storage pressure, so only the player passes it; every path where a
    * person deliberately added something leaves it off, and a deliberate add clears it for good.
    */
-  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean }) => void
+  /**
+   * `hold` fetches the torrent's file list and then stops, transferring nothing until somebody
+   * watches or reads it. For a page that offers a Download button rather than starting one.
+   */
+  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean }) => void
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
@@ -373,7 +377,7 @@ const createTorrentClient = (): EngineClient => {
     },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
-    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true }),
+    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),

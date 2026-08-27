@@ -28,6 +28,32 @@ const SUBTITLE_RANGE = '0-2'
 const downloadUrl = (params: string) =>
   `/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download&${params}`
 
+// a magnet gets a directory of its own, named by its infohash, under the shared save root
+const SINTEL_SAVE_PATH = '/dl/08ada5a7a6183aae1e09d831df6748d566095a10'
+
+/**
+ * How many payload files the engine has written for this torrent, counted recursively.
+ *
+ * The COUNT rather than the size, because a file the engine is still holding a sync access handle
+ * for refuses `getFile()`, and the byte reading then comes back 0 for a file that is being actively
+ * written. A file that was never written has no entry to find at all, so counting cannot report a
+ * running torrent as an idle one.
+ */
+const payloadFiles = (page: import('@playwright/test').Page) =>
+  page.evaluate(async (path: string) => {
+    let dir: any = await navigator.storage.getDirectory()
+    for (const segment of path.split('/').filter(Boolean)) {
+      dir = await dir.getDirectoryHandle(segment).catch(() => null)
+      if (!dir) return 0
+    }
+    const walk = async (handle: any): Promise<number> => {
+      let count = 0
+      for await (const child of handle.values()) count += child.kind === 'file' ? 1 : await walk(child)
+      return count
+    }
+    return walk(dir)
+  }, SINTEL_SAVE_PATH)
+
 /**
  * Chromium exposes showSaveFilePicker, which would open a native dialog no test can answer.
  *
@@ -166,6 +192,49 @@ print(json.dumps({
     await expect(framed.getByRole('button', { name: 'Download', exact: true })).toBeEnabled({ timeout: 60_000 })
     // shown only when window.top is another origin, so its presence IS the cross-origin detection
     await expect(framed.getByText('Open this page in Ripple')).toBeVisible()
+  })
+
+  /**
+   * Opening the page must cost nothing until the button is pressed.
+   *
+   * It used to claim a viewer the moment the file list landed, so a link somebody followed out of
+   * curiosity started filling their storage at full speed with no download in progress anywhere on
+   * screen. The engine now settles a page-added torrent to all-skip as soon as its layout arrives,
+   * and the press is what lifts it.
+   *
+   * The held arm is a NEGATIVE result, so it carries its own positive control in the same run: the
+   * click that follows has to move the very bytes the wait proved were not moving. Without it, a
+   * torrent that simply failed to reach the swarm would pass this test.
+   */
+  test('writes nothing until Download is pressed, then writes', async ({ page }) => {
+    await page.addInitScript(forceStreamSink)
+    await page.goto(downloadUrl(`files=${SUBTITLE}`))
+    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
+
+    const button = page.getByRole('button', { name: 'Download', exact: true })
+    // enabled means the file list arrived, so everything after this is the HELD state and not a page still loading
+    await expect(button).toBeEnabled({ timeout: 60_000 })
+    await expect(page.getByText(/Opening this page downloads nothing/)).toBeVisible()
+    // a swarm readout under an unpressed button would be describing a transfer that must not exist
+    await expect(page.getByTestId('swarm')).toHaveCount(0)
+
+    // Long enough to be a real observation rather than a race won: this torrent is webseeded, so a
+    // running one has files on disk well inside it.
+    const held = await payloadFiles(page)
+    await page.waitForTimeout(15_000)
+    expect(await payloadFiles(page), 'the engine wrote while the page was only holding metadata')
+      .toBe(held)
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 120_000 }),
+      button.click(),
+    ])
+    await download.cancel().catch(() => {})
+
+    // the positive control: the same measurement, after the only thing that changed was the click
+    await expect
+      .poll(() => payloadFiles(page), { timeout: 120_000 })
+      .toBeGreaterThan(held)
   })
 
   /**

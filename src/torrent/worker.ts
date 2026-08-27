@@ -1018,6 +1018,26 @@ const handleMessage = async (session: Session, m: any) => {
         const h = session.addMagnet(m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
         track(h, m.magnet, ih, savePath, ephemeral)
+        // before needsPriorityReset, so the pass that clears the window has the plan to write back.
+        // A re-add used to lose the file selection this device already had: the restore path reads
+        // it back but nothing did on an add, so returning to a torrent through a link downloaded
+        // everything again.
+        planByHandle.set(h, { wanted: known?.wantedFiles, firstLast: known?.firstLast })
+        /**
+         * A hold settles this torrent's priorities the moment its layout lands.
+         *
+         * A magnet has no pieces until its metadata arrives, so nothing is transferred before this
+         * fires and the gap costs nothing. What it buys is the pass at the bottom of the pump: with
+         * no viewer it calls `applyViewing`, which writes the stored plan and, for a CACHE torrent,
+         * parks it. That is what makes a page-opened torrent fetch its file list and then stop,
+         * instead of pulling the whole release at full speed while a Download button sits unpressed.
+         *
+         * Asked for rather than applied to every add, because a torrent somebody is about to WATCH
+         * wants none of it: the player claims its viewer a round trip after the same pump publishes
+         * the layout, so a park here would land in between and cost the swarm it had just built for
+         * nothing anybody would ever see.
+         */
+        if (m.hold === true) needsPriorityReset.add(h)
         // a re-add of something this device already knows keeps the ceiling it was given, matching
         // mergeEntry, which carries the limit forward rather than letting an add quietly uncap it
         wantLimits(h, { down: known?.downloadLimit, up: known?.uploadLimit })

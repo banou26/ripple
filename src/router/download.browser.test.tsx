@@ -21,9 +21,13 @@ const FILES = [
   { path: 'Pack.Name/notes.txt', size: 2_048, offset: 4_500_000_000 },
 ]
 
+/** Every file index the page has asked the engine to fetch, in order. Empty means nothing is moving. */
+const claimed: number[] = []
+
 const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
   // the page subscribes to engine resets to stop an export holding a handle the reset invalidated
   client: { onEngineReset: () => () => {} } as unknown as DownloadTorrent['client'],
+  claim: (fileIndex: number) => { claimed.push(fileIndex) },
   snapshot: {
     handle: 7,
     magnet: 'magnet:?xt=urn:btih:abc&dn=Pack.Name',
@@ -82,6 +86,7 @@ describe('the embed route in download mode', () => {
     state.current = torrent()
     saved.zip = []
     saved.file = []
+    claimed.length = 0
   })
 
   it('stays the player when no mode is asked for', async () => {
@@ -217,5 +222,42 @@ describe('the embed route in download mode', () => {
     const screen = await mount('&mode=download')
     await expect.element(screen.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(screen.container.querySelector('[data-testid="swarm"]')).toBeNull()
+  })
+
+  /**
+   * Arriving must cost nothing, which is the whole reason the page has a button.
+   *
+   * It used to claim a viewer the moment the file list landed, so opening a link started pulling
+   * the first file of the selection at full speed into a browser's storage before anybody had
+   * agreed to download anything, and the only sign of it was a peer count.
+   */
+  it('asks the engine for nothing until Download is pressed', async () => {
+    const screen = await mount('&mode=download&files=2')
+    await expect.element(screen.getByRole('button', { name: 'Download' })).toBeEnabled()
+    // a rendered file list proves the metadata arrived, so this is the held state and not a page still loading
+    await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
+    expect(claimed).toEqual([])
+    // and it says so, rather than leaving a still page to be read as a broken one
+    await expect.element(screen.getByText(/Opening this page downloads nothing/)).toBeInTheDocument()
+    expect(screen.container.querySelector('[data-testid="swarm"]')).toBeNull()
+
+    await screen.getByRole('button', { name: 'Download' }).click()
+
+    // the ENGINE index of the chosen file, not its position in the selection
+    expect(claimed).toEqual([2])
+  })
+
+  it('claims the first file of a zip, which is where the archive starts writing', async () => {
+    const screen = await mount('&mode=download&files=1-2')
+    await screen.getByRole('button', { name: /Download 2 files as .zip/ }).click()
+    expect(claimed).toEqual([1])
+  })
+
+  it('claims the row that was pressed, not the head of the page selection', async () => {
+    const screen = await mount('&mode=download')
+    await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
+    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
+    await screen.getByRole('button', { name: 'Download E03.mkv', exact: true }).click()
+    expect(claimed).toEqual([2])
   })
 })
