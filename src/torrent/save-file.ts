@@ -80,8 +80,30 @@ type SinkRequest = {
   totalBytes?: number
 }
 
-// MUST be called synchronously from the click handler, so showSaveFilePicker still has the gesture
+/**
+ * Where the bytes go, in the order the arms are worth trying.
+ *
+ * The service worker comes FIRST, and that ordering is the product decision rather than a fallback
+ * chain: the download then belongs to the browser's own download manager, with its progress, its
+ * pause and resume, its history and its default folder, and nobody is asked to choose a location
+ * before anything has been fetched. The save picker sat here until 2026-08-28 and made that arm
+ * unreachable on every desktop Chromium at top level, so the shipping path was only ever exercised
+ * inside a cross-origin frame.
+ *
+ * The picker stays as the arm BELOW it, because the worker's answer is not always yes: a first load
+ * before `clients.claim()` has run has no controller, and a dev server has no worker at all. The
+ * controller is checked synchronously so that a page in that state falls through with the click's
+ * transient activation still intact, which the picker needs and cannot get back.
+ *
+ * MUST be called synchronously from the click handler for the same reason: both arms spend that
+ * activation, and an await before this loses it.
+ */
 const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }: SinkRequest = {}): Promise<Sink> => {
+  if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+    const streamed = await openStreamSink(baseName, contentLength)
+    if (streamed) return streamed
+  }
+
   const picker = (window as any).showSaveFilePicker as undefined | ((o: any) => Promise<any>)
   if (picker && !inCrossOriginFrame()) {
     try {
@@ -96,16 +118,13 @@ const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }:
       /**
        * Only a genuine "the user closed the dialog" ends the save.
        *
-       * Everything else is this environment declining to offer a picker, and the arms below can
-       * still deliver the bytes. Letting a SecurityError out of here made the two arms below dead
-       * code wherever the picker is refused, and reported it as "Saving X failed".
+       * Everything else is this environment declining to offer a picker, and the arm below can
+       * still deliver the bytes. Letting a SecurityError out of here made it dead code wherever the
+       * picker is refused, and reported it as "Saving X failed".
        */
       if (isSaveCancelled(error)) throw error
     }
   }
-
-  const streamed = await openStreamSink(baseName, contentLength)
-  if (streamed) return streamed
 
   if (totalBytes > MAX_BUFFERED_BYTES) {
     throw new DownloadUnavailableError(

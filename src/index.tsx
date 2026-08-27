@@ -41,9 +41,17 @@ root.render(
   </>
 )
 
-// Registering a service worker is what makes the app installable, which is what lets the OS route .torrent files and magnet links to it
+/**
+ * The worker makes the app installable, which is what lets the OS route .torrent files and magnet
+ * links to it, and it is also the thing every download is written through: `openStreamSink` needs a
+ * controller on this page or a save falls back to the picker.
+ *
+ * `updateViaCache: 'none'` rather than a `_headers` rule, because Cloudflare Pages is known to
+ * override cache-control on worker paths, and this option needs nobody's cooperation: the browser
+ * skips its own HTTP cache for the script on the first fetch and on every update check.
+ */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {})
   })
 }

@@ -167,4 +167,39 @@ print(json.dumps({
     // shown only when window.top is another origin, so its presence IS the cross-origin detection
     await expect(framed.getByText('Open this page in Ripple')).toBeVisible()
   })
+
+  /**
+   * The service worker is the FIRST arm, not the fallback, and this is the only check that can say so.
+   *
+   * Every other test here deletes `showSaveFilePicker` to reach the streaming path, which means all
+   * of them would keep passing if the picker were put back in front of it. This one leaves the
+   * picker in place, as a real desktop Chromium has it, and requires the download to arrive without
+   * it ever being called.
+   */
+  test('takes the service worker even where a save picker exists', async ({ page }) => {
+    await page.addInitScript(() => {
+      ;(window as any).__pickerCalls = 0
+      // Never resolves, so if this arm is ever taken the download event simply never fires and the
+      // test fails on the timeout rather than on a native dialog nothing can answer.
+      ;(window as any).showSaveFilePicker = () => {
+        ;(window as any).__pickerCalls++
+        return new Promise(() => {})
+      }
+    })
+
+    await page.goto(downloadUrl(`files=${SUBTITLE}`))
+    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
+
+    const button = page.getByRole('button', { name: 'Download', exact: true })
+    await expect(button).toBeEnabled({ timeout: 60_000 })
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 120_000 }),
+      button.click(),
+    ])
+
+    expect(download.suggestedFilename()).toMatch(/\.srt$/)
+    expect(await page.evaluate(() => (window as any).__pickerCalls)).toBe(0)
+    await download.cancel().catch(() => {})
+  })
 })
