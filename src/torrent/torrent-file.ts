@@ -180,8 +180,16 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
  * degraded answer: a whole-torrent link is exactly what somebody pasting a magnet asked for.
  */
 export const readMagnet = (raw: string): ShareSubject | null => {
-  const magnet = raw.trim()
-  const infoHash = magnetInfoHash(magnet)
+  const trimmed = raw.trim()
+  const infoHash = magnetInfoHash(trimmed)
   if (!infoHash) return null
+  /*
+   * Normalized rather than kept verbatim, because a display name is routinely pasted with its own
+   * characters in it: `&dn=映画の題名` is what a lot of sites put on the clipboard. The link this
+   * subject ends up in is base64, and base64 of anything above U+00FF throws. Percent-encoding the
+   * query changes nothing about which torrent this names, and leaves it pure ASCII.
+   */
+  let magnet = trimmed
+  try { magnet = new URL(trimmed).href } catch { /* not a URL, so leave it as typed */ }
   return { magnet, name: magnetParam(magnet, 'dn') ?? infoHash, size: 0, files: null }
 }

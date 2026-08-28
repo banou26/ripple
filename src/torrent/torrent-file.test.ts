@@ -60,4 +60,21 @@ describe('reading a share subject without the engine', () => {
   it('refuses text that is not a magnet', () => {
     for (const bad of ['', 'hello', 'http://example.com', 'magnet:?dn=x']) expect(readMagnet(bad), bad).toBeNull()
   })
+
+  /**
+   * A pasted magnet is stored percent-encoded, because the link built from it is base64 and base64
+   * of anything above U+00FF throws. Plenty of sites put the release name on the clipboard with its
+   * own characters intact, so this is an ordinary paste rather than a hostile one.
+   */
+  it('normalizes a magnet whose display name is not ASCII', () => {
+    const s = readMagnet('magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=映画の題名')!
+    expect(() => btoa(s.magnet)).not.toThrow()
+    // and the name is still readable, because the reader decodes what the writer encoded
+    expect(s.name).toBe('映画の題名')
+  })
+
+  it('leaves an already-encoded magnet as it found it', () => {
+    const raw = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
+    expect(readMagnet(raw)!.magnet).toBe(raw)
+  })
 })

@@ -1,5 +1,6 @@
 import type { Torrent, TorrentFile } from './types'
 
+import { encodeMagnet } from '../router/embed-link'
 import { getRoutePath, Route } from '../router/path'
 
 const VIDEO_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|wmv|mpg|mpeg|ogv)$/i
@@ -35,5 +36,8 @@ export const hasPlayableFile = (t: Torrent): boolean =>
 
 export const watchHref = (t: Torrent): string | null => {
   if (!t.magnet || !t.files?.length) return null
-  return getRoutePath(Route.EMBED, { magnet: btoa(t.magnet), fileIndex: String(pickVideoFile(t.files)) })
+  // a magnet carrying a raw unicode display name cannot be base64'd, and this runs during a render
+  const magnet = encodeMagnet(t.magnet)
+  if (magnet === null) return null
+  return getRoutePath(Route.EMBED, { magnet, fileIndex: String(pickVideoFile(t.files)) })
 }

@@ -493,9 +493,11 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   )
 
   const empty = mode === 'download' && fileCount > 0 && indices.length === 0
-  const url = link && !empty ? embedUrl(link) : ''
-  const path = link && !empty ? embedPath(link) : ''
-  const snippet = link && !empty ? embedIframe(link) : ''
+  // null out of these means the magnet could not be encoded at all, which reads the same as having
+  // no magnet: say so, rather than offering a link that is not one
+  const url = (link && !empty ? embedUrl(link) : '') ?? ''
+  const path = (link && !empty ? embedPath(link) : '') ?? ''
+  const snippet = (link && !empty ? embedIframe(link) : '') ?? ''
 
   const copy = (text: string, what: string) => {
     navigator.clipboard.writeText(text)

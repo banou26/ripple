@@ -51,14 +51,32 @@ export type EmbedLink = {
 }
 
 /**
+ * base64 for a magnet, which is not always Latin-1.
+ *
+ * `btoa` throws on any code point above U+00FF, and a magnet copied with its display name left
+ * unencoded carries them literally: `&dn=映画の題名` is a real thing to paste. Normalizing through
+ * URL percent-encodes the query without changing what the magnet names, which makes it pure ASCII.
+ *
+ * Null rather than a throw for anything left over, because every caller builds a link during a
+ * render. An exception there takes out the whole route, so the worst case has to be a link that is
+ * not offered rather than a page that disappears.
+ */
+export const encodeMagnet = (magnet: string): string | null => {
+  try { return btoa(new URL(magnet).href) } catch { /* not a URL at all, or still not Latin-1 */ }
+  try { return btoa(magnet) } catch { return null }
+}
+
+/**
  * The `/embed?...` path for a link, relative to the app root.
  *
  * Built through getRoutePath rather than by hand so the base64 magnet goes through
  * URLSearchParams, which percent-encodes the `+`, `/` and `=` that base64 can carry. Written
  * literally into a query string, a `+` reads back as a space and the magnet fails to decode.
  */
-export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string => {
-  const params: { magnet: string, mode?: 'download', files?: string, fileIndex?: string } = { magnet: btoa(magnet) }
+export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string | null => {
+  const encoded = encodeMagnet(magnet)
+  if (encoded === null) return null
+  const params: { magnet: string, mode?: 'download', files?: string, fileIndex?: string } = { magnet: encoded }
   // `watch` is the default, so saying it adds length and no meaning
   if (mode === 'download') {
     params.mode = 'download'
@@ -73,8 +91,10 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */
-export const embedUrl = (link: EmbedLink, origin = window.location.origin): string =>
-  origin + embedPath(link)
+export const embedUrl = (link: EmbedLink, origin = window.location.origin): string | null => {
+  const path = embedPath(link)
+  return path === null ? null : origin + path
+}
 
 /**
  * The frame to paste into a page.
@@ -84,11 +104,13 @@ export const embedUrl = (link: EmbedLink, origin = window.location.origin): stri
  * restore what the page above withheld, and Chrome refuses the download with no event and nothing
  * thrown. `allow-same-origin` is what lets the engine reach its own storage.
  */
-export const embedIframe = (link: EmbedLink, origin?: string): string => {
+export const embedIframe = (link: EmbedLink, origin?: string): string | null => {
+  const url = embedUrl(link, origin)
+  if (url === null) return null
   const sandbox = ['allow-scripts', 'allow-same-origin', 'allow-popups']
   if (link.mode === 'download') sandbox.push('allow-downloads')
   return [
-    `<iframe src="${embedUrl(link, origin)}"`,
+    `<iframe src="${url}"`,
     `        width="100%" height="480" frameborder="0"`,
     `        allowfullscreen`,
     `        sandbox="${sandbox.join(' ')}"></iframe>`,
