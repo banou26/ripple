@@ -1004,7 +1004,11 @@ const init = async () => {
          * rather than summed from the list: the total stays right even when the list is cut.
          */
         files: files?.files.slice(0, SYNCED_FILE_CAP).map((f) => ({ name: f.path, size: f.size })),
-      }, true).catch(() => {})
+        // Announced, not quiet. It was quiet while this wrote only rootEntry, which nothing renders
+        // and no other device reads. It now carries the name, size and file list, and the cloud
+        // write is scheduled off this broadcast: without it the metadata sits on disk until the
+        // next page load, which is exactly the device that already knew it.
+      }).catch(() => {})
     }
 
     for (const h of wantPaused) {
