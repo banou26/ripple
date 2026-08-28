@@ -124,30 +124,38 @@ describe('the share link dialog, once it has a torrent', () => {
     expect(dialog().textContent).toContain('no Ripple account and nothing to install')
   })
 
-  it('defaults to a watch link on the file the player would have picked', async () => {
+  /** download is the default now: it works for every torrent, including ones with nothing playable */
+  it('defaults to a download link over the whole torrent', async () => {
     const { query } = await mount(SINTEL)
-    // index 3 is the mp4; the three subtitles are smaller and not video
-    expect(query().get('fileIndex')).toBe('3')
-    // watch is the default, so the link says nothing rather than saying so
-    expect(query().get('mode')).toBeNull()
+    expect(query().get('mode')).toBe('download')
+    // every file selected means every file, so the grammar says nothing rather than listing them
+    expect(query().get('files')).toBeNull()
+    expect(query().get('fileIndex')).toBeNull()
     expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
   })
 
-  it('never puts a files list on a watch link', async () => {
-    const { query } = await mount(SINTEL)
-    expect(query().get('files')).toBeNull()
-  })
-
-  it('switches to a download link and drops the file index with it', async () => {
+  it('switches to a watch link on the file the player would have picked', async () => {
     const { query } = await mount(SINTEL)
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
-    expect(query().get('mode')).toBe('download')
-    expect(query().get('fileIndex')).toBeNull()
+    // index 3 is the mp4; the three subtitles are smaller and not video
+    await expect.poll(() => query().get('fileIndex')).toBe('3')
+    // watch is the grammar's default, so the link says nothing rather than saying so
+    expect(query().get('mode')).toBeNull()
+  })
+
+  /**
+   * The player reads `fileIndex` and never `files`, so a set on a watch link is dropped in silence
+   * and the embed opens whatever the player chose for itself.
+   */
+  it('never puts a files list on a watch link', async () => {
+    const { query } = await mount(SINTEL)
+    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
+    await expect.poll(() => query().get('fileIndex')).toBe('3')
+    expect(query().get('files')).toBeNull()
   })
 
   it('refuses to show a link when nothing is selected rather than widening to everything', async () => {
     const { url } = await mount(SINTEL)
-    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
     await userEvent.click(dialog().querySelector('details.files summary') as HTMLElement)
     await userEvent.click([...dialog().querySelectorAll('.bulk button')][1] as HTMLElement)
     await expect.poll(() => dialog().textContent).toContain('Pick at least one file')
@@ -156,7 +164,6 @@ describe('the share link dialog, once it has a torrent', () => {
 
   it('comes back from empty when a file is checked again', async () => {
     const { url } = await mount(SINTEL)
-    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
     await userEvent.click(dialog().querySelector('details.files summary') as HTMLElement)
     await userEvent.click([...dialog().querySelectorAll('.bulk button')][1] as HTMLElement)
     await userEvent.click(dialog().querySelector('.file input[type="checkbox"]') as HTMLElement)
@@ -167,9 +174,76 @@ describe('the share link dialog, once it has a torrent', () => {
     await mount(SINTEL)
     const snippet = () => dialog().querySelector('[data-testid="embed-iframe"]')?.textContent ?? ''
     await userEvent.click(dialog().querySelector('details.snippet summary') as HTMLElement)
-    expect(snippet()).not.toContain('allow-downloads')
+    // download is the default, so the flag is there from the start
+    expect(snippet()).toContain('allow-downloads')
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
-    await expect.poll(snippet).toContain('allow-downloads')
+    await expect.poll(snippet).not.toContain('allow-downloads')
+  })
+
+  /**
+   * A single-file torrent has nothing to choose between, so neither control is offered. The link
+   * must be identical to the one the controls would have produced, which is the half a screenshot
+   * cannot check: `compileFileSelection` returns null once a selection covers every file, and
+   * `embedPath` omits `fileIndex` when it is 0, so both parameters are absent either way.
+   */
+  const ONE_FILE = { ...SINTEL, files: [file('Sintel/Sintel.mp4', 129_200_000)] }
+
+  it('offers no file picker when the torrent holds one file', async () => {
+    await mount(ONE_FILE)
+    expect(dialog().querySelector('#share-file'), 'the watch picker is still there').toBeNull()
+    expect(dialog().querySelector('details.files'), 'the download list is still there').toBeNull()
+  })
+
+  it('offers none in watch mode either', async () => {
+    await mount(ONE_FILE)
+    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
+    await expect.poll(() => dialog().querySelector('[aria-pressed="true"]')?.textContent).toBe('Watch')
+    expect(dialog().querySelector('#share-file')).toBeNull()
+  })
+
+  it('builds the same link it would have with the picker on screen', async () => {
+    const { query } = await mount(ONE_FILE)
+    // index 0 is what an absent fileIndex already means, and one of one file is every file
+    expect(query().get('fileIndex')).toBeNull()
+    expect(query().get('files')).toBeNull()
+    expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
+  })
+
+  it('still offers the picker as soon as there are two files to choose between', async () => {
+    await mount({ ...SINTEL, files: [file('a.mkv', 2), file('b.srt', 1)] })
+    // download is the default, so the list is the picker on screen
+    expect(dialog().querySelector('details.files')).not.toBeNull()
+  })
+
+  /**
+   * Nothing playable means Watch is not offered at all.
+   *
+   * Offering it would produce a link that opens the player on a file it cannot play, which fails
+   * only once somebody else has already clicked it. The note has to say why, or the missing control
+   * reads as a bug.
+   */
+  const NO_MEDIA = { ...SINTEL, files: [file('readme.txt', 10), file('data.zip', 900)] }
+
+  it('offers no Watch option when nothing in the torrent can be played', async () => {
+    await mount(NO_MEDIA)
+    expect([...dialog().querySelectorAll('button')].map((b) => b.textContent)).not.toContain('Watch')
+    expect(dialog().querySelector('.seg')).toBeNull()
+  })
+
+  it('says why Watch is missing rather than leaving a gap', async () => {
+    await mount(NO_MEDIA)
+    expect(dialog().textContent).toContain('nothing here the player can open')
+  })
+
+  it('builds a download link for it regardless', async () => {
+    const { query } = await mount(NO_MEDIA)
+    expect(query().get('mode')).toBe('download')
+    expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
+  })
+
+  it('keeps Watch for a magnet whose file list has not arrived, since unknown is not unplayable', async () => {
+    await mount({ ...SINTEL, files: null })
+    expect([...dialog().querySelectorAll('button')].map((b) => b.textContent)).toContain('Watch')
   })
 
   it('still builds a link before the file list arrives, covering the whole torrent', async () => {

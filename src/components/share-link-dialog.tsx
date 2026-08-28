@@ -7,7 +7,7 @@ import type { EmbedMode } from '../router/file-selection'
 
 import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
 import { embedIframe, embedPath, embedUrl } from '../router/embed-link'
-import { pickVideoFile } from '../torrent/watch'
+import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { Modal } from './modal'
 
@@ -430,7 +430,14 @@ type Props = {
 }
 
 export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear, onClose, onToast }: Props) => {
-  const [mode, setMode] = useState<EmbedMode>('watch')
+  /**
+   * Download by default.
+   *
+   * Watch was the default because the player is the thing ripple is proudest of, which is not the
+   * same as being what somebody sending a link most often wants. A download link works for every
+   * torrent, including the ones with nothing playable in them.
+   */
+  const [mode, setMode] = useState<EmbedMode>('download')
   const [input, setInput] = useState('')
   /**
    * Something was handed over and the torrent it becomes has not arrived yet.
@@ -467,6 +474,18 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   const fileIndex = watchIndex ?? defaultWatch
 
   const indices = useMemo(() => picked ?? [...Array(fileCount).keys()], [picked, fileCount])
+
+  /**
+   * Whether Watch is on offer at all.
+   *
+   * Nothing playable means the player would open on a file it cannot play, so the choice is not
+   * offered rather than offered and broken. A magnet whose file list has not arrived keeps both,
+   * because "not known yet" is not "not video".
+   */
+  const watchable = canOfferWatch(files ?? undefined)
+
+  // a subject that turns out to hold nothing playable must not be left on a watch link
+  useEffect(() => { if (!watchable) setMode('download') }, [watchable])
 
   const link = useMemo(
     () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount, fileIndex } : null),
@@ -571,19 +590,36 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
 
                   <div className="opt">
                     <label id="share-mode">The link</label>
-                    <div className="seg" role="group" aria-labelledby="share-mode">
-                      <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>Watch</button>
-                      <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>Download</button>
-                    </div>
+                    {/* one option is not a choice, so nothing to press is offered when Watch is out */}
+                    {watchable && (
+                      <div className="seg" role="group" aria-labelledby="share-mode">
+                        <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>Watch</button>
+                        <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>Download</button>
+                      </div>
+                    )}
                     <span className="note">
                       {mode === 'watch'
                         ? 'Opens the player and starts playing while the file downloads.'
-                        : 'Opens a page with a Download button. Several files arrive as one .zip.'}
+                        : watchable
+                          ? 'Opens a page with a Download button. Several files arrive as one .zip.'
+                          : 'Opens a page with a Download button. There is nothing here the player can open, so a watch link is not offered.'}
                     </span>
                   </div>
 
+                  {/*
+                    * Nothing to choose between with a single file, so nothing is offered.
+                    *
+                    * The link is byte for byte the same either way, which is what makes this purely
+                    * a matter of not asking a question with one answer: `compileFileSelection`
+                    * returns null once the selection covers every file, and `embedPath` omits
+                    * `fileIndex` when it is 0, so a one-file torrent emits neither parameter
+                    * whether the controls are on screen or not. The subject line above already
+                    * says the name and "1 file".
+                    */}
                   {fileCount === 0
                     ? <span className="note">Reading the file list from the network. The link works already and covers the whole torrent.</span>
+                    : fileCount === 1
+                    ? null
                     : mode === 'watch'
                       ? (
                         <div className="opt">
