@@ -149,8 +149,17 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
   const trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  // a disconnect started HERE is in flight, so the next `info` going null is ours to announce
-  const disconnecting = useRef(false)
+  /**
+   * WHEN a disconnect was started here, so the next `info` going null can be recognised as ours.
+   *
+   * A timestamp rather than a flag, because a flag has no way to expire. `logout()` can fail to
+   * take without saying so, either by hanging past the cap below or by rejecting into the swallow
+   * in use-account.ts, and in both cases the session survives and no null ever arrives to clear it.
+   * The flag would then sit armed for the life of the page and hand its credit to some later,
+   * unrelated null: a "Disconnected" toast for a broker hiccup, with the account tag still on
+   * screen. Measured, not imagined.
+   */
+  const disconnectingSince = useRef(0)
 
   const close = useCallback(() => setOpen(false), [])
 
@@ -162,21 +171,21 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
    * broker. Left set, `open` survives the swap to the ConnectButton and the menu is already showing
    * when an account reconnects.
    *
-   * The toast is gated on the flag, so a logout somewhere else cannot claim credit here and a
-   * timed-out read cannot announce a disconnect that did not happen.
+   * The toast is gated on the window above, so a logout somewhere else cannot claim credit here and
+   * a timed-out read cannot announce a disconnect that did not happen.
    */
   useEffect(() => {
     if (info) return
     setOpen(false)
     setBusy(false)
-    if (disconnecting.current) {
-      disconnecting.current = false
+    if (disconnectingSince.current && Date.now() - disconnectingSince.current <= LOGOUT_TIMEOUT) {
+      disconnectingSince.current = 0
       onToast('Disconnected')
     }
   }, [info, onToast])
 
   const onDisconnect = async () => {
-    disconnecting.current = true
+    disconnectingSince.current = Date.now()
     setBusy(true)
     try {
       await Promise.race([logout(), new Promise((resolve) => setTimeout(resolve, LOGOUT_TIMEOUT))])

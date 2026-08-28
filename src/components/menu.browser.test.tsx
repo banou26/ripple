@@ -328,5 +328,32 @@ describe('the torrent context menu', () => {
       await expect.poll(() => menu().getBoundingClientRect().left).toBeGreaterThanOrEqual(0)
       expect(menu().getBoundingClientRect().top).toBeGreaterThanOrEqual(0)
     })
+
+    /**
+     * A menu handed a new position while it is still mounted goes to the new position.
+     *
+     * Nothing in ripple does this today: a second right-click closes the first menu before the
+     * second opens, so every menu is placed once on mount. It is asserted because the placement
+     * is now shared behaviour rather than this component's own, and the way it breaks is silent.
+     * The position is read in a LAYOUT effect, so a placement mirrored into a ref by a passive
+     * effect is one render stale there, and the menu simply stays where it was with nothing thrown.
+     */
+    it('follows a position it is given while already open', async () => {
+      // a parent that moves the menu without unmounting it, which is the only way to reach the
+      // layout effect with a placement the component has already been rendered with once
+      let move: (to: { x: number, y: number }) => void = () => {}
+      const Movable = () => {
+        const [at, setAt] = useState({ x: 40, y: 40 })
+        move = setAt
+        return <ContextMenu groups={groups()} at={at} label="Options for Big Buck Bunny" onClose={() => {}}/>
+      }
+      render(<Movable/>)
+      await expect.poll(() => document.querySelector('[role="menu"]')).not.toBeNull()
+      await expect.poll(() => menu().getBoundingClientRect().left).toBeCloseTo(40, 0)
+
+      move({ x: 300, y: 200 })
+      await expect.poll(() => menu().getBoundingClientRect().left).toBeCloseTo(300, 0)
+      expect(menu().getBoundingClientRect().top).toBeCloseTo(200, 0)
+    })
   })
 })

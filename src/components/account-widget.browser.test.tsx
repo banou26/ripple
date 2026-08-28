@@ -306,4 +306,64 @@ describe('disconnecting', () => {
     // and the tag is still there, because nothing actually disconnected
     expect(trigger()).not.toBeNull()
   })
+
+  /**
+   * The step the test above stops one short of, and the reason the arming is a TIMESTAMP.
+   *
+   * A boolean flag has no way to expire. After a logout that hung past the cap the session is still
+   * alive, so no null ever arrives to clear the flag, and it sits armed for the life of the page
+   * waiting to hand its credit to something else. The something else is ordinary: the hook's own
+   * four second `info()` race resolves null for a broker that is merely slow. The user then reads
+   * "Disconnected" about an account they are still signed into.
+   */
+  it('does not blame a later broker hiccup on a disconnect that already gave up', async () => {
+    account.logout = vi.fn(() => new Promise<void>(() => {}))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const screen = await mounted()
+    await openMenu()
+    await userEvent.click(byLabel('Disconnect'))
+    await vi.advanceTimersByTimeAsync(LOGOUT_TIMEOUT + 100)
+    await expect.poll(menu).toBeNull()
+
+    // long enough later that this null cannot be the disconnect, then a null from somewhere else
+    await vi.advanceTimersByTimeAsync(LOGOUT_TIMEOUT * 2)
+    account.info = null
+    screen.rerender(
+      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', boxSizing: 'border-box', paddingRight: 24 }}>
+        <AccountWidget onToast={onToast}/>
+      </div>,
+    )
+    await expect.poll(connect).not.toBeNull()
+    expect(onToast).not.toHaveBeenCalled()
+  })
+})
+
+describe('the menu keyboard, on rows that are not all buttons', () => {
+  /**
+   * A button activates on Space for free, so this was invisible while every row was one. The
+   * settings row is an anchor, which takes Enter only, and two rows that look identical answering
+   * differently to the same key is the kind of thing nobody reports, they just decide it is broken.
+   */
+  it('activates a link row with Space, the way it activates a button row', async () => {
+    await mounted()
+    await openMenu()
+    await userEvent.keyboard('{ArrowDown}')
+    await expect.poll(active).toBe('Manage account')
+
+    const link = byLabel('Manage account') as HTMLAnchorElement
+    let defaultPrevented: boolean | null = null
+    // the anchor's href opens a tab, so the click is caught here rather than followed
+    link.addEventListener('click', (e) => { defaultPrevented = true; e.preventDefault() }, { once: true })
+    await userEvent.keyboard(' ')
+    await expect.poll(() => defaultPrevented).toBe(true)
+  })
+
+  it('still activates the button row with Space', async () => {
+    await mounted()
+    await openMenu()
+    await userEvent.keyboard('{ArrowUp}')
+    await expect.poll(active).toBe('Disconnect')
+    await userEvent.keyboard(' ')
+    await expect.poll(() => account.logout.mock.calls.length).toBe(1)
+  })
 })

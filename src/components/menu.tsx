@@ -258,9 +258,12 @@ export const MenuSurface = ({
     placement.kind === 'pointer' ? placement.at : { x: -9999, y: -9999 },
   )
 
-  // read through a ref so the listeners below can be attached once and still see the current value
+  // Read through a ref so the listeners below can be attached once and still see the current value.
+  // Written during render rather than in an effect: the placement is read by a LAYOUT effect, which
+  // runs before passive effects, so mirroring it passively leaves that read one render stale and a
+  // menu moved to a new anchor is placed at the previous one.
   const placementRef = useRef(placement)
-  useEffect(() => { placementRef.current = placement })
+  placementRef.current = placement
   // a mounted surface never changes kind, so this can be read inside listeners attached once
   const pinned = useRef(placement.kind === 'pointer').current
 
@@ -375,7 +378,22 @@ export const MenuSurface = ({
         return
       }
       if (e.key === 'Home') { e.preventDefault(); focusItem(list[0]); return }
-      if (e.key === 'End') { e.preventDefault(); focusItem(list[list.length - 1]) }
+      if (e.key === 'End') { e.preventDefault(); focusItem(list[list.length - 1]); return }
+      /*
+       * Space, on whatever row holds focus.
+       *
+       * A button does this for free, so it was invisible while every row was one. A row can now be
+       * an anchor, and an anchor takes Enter only, so two rows that look identical would answer
+       * differently to the same key with nothing on screen to explain it. Routed through click() so
+       * the row's own handler and href do the work.
+       */
+      if (e.key === ' ') {
+        const el = document.activeElement
+        if (el instanceof HTMLElement && ref.current?.contains(el) && el.matches('[role^="menuitem"]')) {
+          e.preventDefault()
+          el.click()
+        }
+      }
     }
 
     const onPointerDown = (e: PointerEvent) => {
