@@ -32,15 +32,28 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
   return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
 }
 
-export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
+/**
+ * The state alone, without building a whole Torrent for it.
+ *
+ * Split out so a caller that only needs to know what a torrent is DOING does not pay for the name
+ * parsing and info-hash extraction below, and more importantly so there is one derivation rather
+ * than two: the shell-update handler asks this on every engine tick, and a second copy of these
+ * rules would drift from the one the list renders.
+ */
+export const snapshotState = (s: TorrentSnapshot): TorrentState => {
   const st = s.status
-  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
-  const progress = st?.progress ?? 0
   const retrying = s.recovery && !s.userPaused
   const stopped: TorrentState = s.userPaused ? 'paused' : 'queued'
   const base: TorrentState = st
     ? (CHECKING.has(st.state) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
     : (s.files ? 'queued' : 'downloading')
+  return retrying ? 'retrying' : base
+}
+
+export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
+  const st = s.status
+  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
+  const progress = st?.progress ?? 0
   return {
     id: String(s.handle),
     magnet: s.magnet,
@@ -49,7 +62,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
     downloaded: st?.totalDone ?? 0,
     progress,
-    state: retrying ? 'retrying' : base,
+    state: snapshotState(s),
     down: s.displayDownloadRate,
     up: st?.uploadRate ?? 0,
     peers: st?.numPeers ?? 0,
