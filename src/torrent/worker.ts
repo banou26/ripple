@@ -406,19 +406,25 @@ const applyViewing = (h: number) => {
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
     // This is also what takes the skip mask off before it can be written into resume data.
     /*
-     * Nothing below can run before the file layout lands.
+     * Wait for the file layout before doing any of this.
      *
-     * `clearStreamWindow` begins with `lt_torrent_clear_piece_deadlines`, which walks the piece
-     * list, and the engine guards its own `prioritizePieces` on the layout two lines later for
-     * exactly that reason without guarding this one. A trap in there is not a soft failure: the
-     * wasm instance is finished afterwards, so the engine is gone for the life of the page.
+     * NOT for safety. An earlier version of this comment claimed
+     * `lt_torrent_clear_piece_deadlines` walks the piece list and that the engine's own
+     * `prioritizePieces` is layout-guarded for the same reason. Both are false, and the correction
+     * is worth keeping because the false version reads like a rule somebody would apply elsewhere:
+     * the C export reads no geometry at all (`wrapper.cpp`, no `geometry_for`, unlike
+     * `reset_piece_deadline` and `prioritize_pieces` beside it), and `prioritizePieces` is guarded
+     * only because it has to size `new Uint8Array(layout.numPieces)`. Calling this before metadata
+     * is inert, not a trap.
      *
-     * Deferred rather than dropped, the same way the claimed path below defers: the pump re-runs
-     * everything in `pendingViewing`, so this lands on the first pass after the metadata arrives.
+     * It is here for BEHAVIOUR. A download page registers a HELD claim the moment its handle
+     * exists, which is before metadata, and a held claim is not an active viewer, so this branch
+     * runs at `watch` time. Without the wait it would run once, drop the handle from
+     * `pendingViewing`, and never come back, so the ephemeral idle-park below would never happen
+     * for that torrent and a cache entry nobody is watching would keep downloading.
      *
-     * Reachable because a download page registers a HELD claim the moment its handle exists, and a
-     * held claim is not an active viewer, so this branch runs at `watch` time, which is before any
-     * metadata exists.
+     * Deferring instead is what the claimed path below already does: the pump re-runs everything in
+     * `pendingViewing`, so this lands on the first pass after the metadata arrives.
      */
     if (!session.files(h)) { pendingViewing.add(h); return }
     pendingViewing.delete(h)
