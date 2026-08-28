@@ -142,7 +142,8 @@ const Files = ({
 }: {
   files: TorrentFile[]
   saving: Record<number, number>
-  onSave: (index: number) => void
+  /** Null for a torrent that is not in the session: the list is synced, the bytes are not here. */
+  onSave: ((index: number) => void) | null
 }) => {
   if (!files.length) return <p className="none">No file list yet. It arrives with the torrent's metadata.</p>
   return (
@@ -158,9 +159,11 @@ const Files = ({
               {dir && <span className="dim">{dir}</span>}{name}
             </span>
             <span className="num">{bytes(f.size)}</span>
-            <button type="button" onClick={() => onSave(i)} disabled={s != null}>
-              {s != null ? `${Math.round(s * 100)}%` : 'Save'}
-            </button>
+            {onSave && (
+              <button type="button" onClick={() => onSave(i)} disabled={s != null}>
+                {s != null ? `${Math.round(s * 100)}%` : 'Save'}
+              </button>
+            )}
           </div>
         )
       })}
@@ -662,7 +665,9 @@ export const TorrentDetailDock = ({
       </div>
       <div className="pane">
         {tab === 'general' && <General t={t}/>}
-        {tab === 'files' && <Files files={t.files ?? []} saving={saving} onSave={onSave}/>}
+        {/* no handle means no bytes on this device, so Save would name a torrent the engine has
+            never heard of and open a browser download that can only sit at zero and abort */}
+        {tab === 'files' && <Files files={t.files ?? []} saving={saving} onSave={handle == null ? null : onSave}/>}
         {tab === 'peers' && <Peers peers={detail.peers} loaded={detail.loaded}/>}
         {tab === 'trackers' && <Trackers trackers={detail.trackers} loaded={detail.loaded}/>}
       </div>

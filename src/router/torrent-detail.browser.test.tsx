@@ -299,4 +299,26 @@ describe('the docked torrent details', () => {
     // the overview still works: it is drawn from the row's own data, not from the engine
     await expect.element(screen.getByText('Big Buck Bunny')).toBeInTheDocument()
   })
+
+  /**
+   * The Content tab of a ghost is new: its file list is synced from the device that has the torrent,
+   * so this tab used to be empty here and is now full. Save must not come with it.
+   *
+   * There is no handle, so the save would be aimed at NaN. The sink opens before the first read, so
+   * a real browser download starts with the right name and size, sits at zero, and aborts a few
+   * seconds later, directly under a row that correctly says the files are not on this device.
+   */
+  it('lists the synced files of a ghost without offering to save them', async () => {
+    const screen = await mount(torrent(), null)
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
+    expect([...screen.container.querySelectorAll('.row.file button')]).toEqual([])
+  })
+
+  it('offers Save again for the same list once the torrent is in the session', async () => {
+    const screen = await mount(torrent(), 7)
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
+    expect(screen.container.querySelectorAll('.row.file button').length).toBe(1)
+  })
 })
