@@ -200,6 +200,11 @@ export const useCloudBackup = (): SyncState => {
           }
         }
         setStatus('error', 'write-failed')
+        // Re-arm, because writeNow cleared `pending` before it threw and this is the only terminal
+        // branch with no retry: without it the queued snapshot waits for the next list change or the
+        // next mount. @fkn/lib 0.9.22 made this branch newly reachable, by rejecting a call the
+        // broker was replaced under instead of leaving it pending forever.
+        schedule()
       }
     }
     const schedule = () => { pending = true; window.clearTimeout(timer); timer = window.setTimeout(write, WRITE_DEBOUNCE) }
