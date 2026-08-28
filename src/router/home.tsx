@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle } from 'react-feather'
+import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
@@ -336,139 +336,146 @@ export const style = css`
     }
 
     /**
-     * Wraps, and the field keeps a width worth reading.
+     * One field, the way a search bar is one field.
      *
-     * Three unshrinkable controls in a row that could not wrap took every pixel out of the only
-     * flexible item: the field measured 52px at a 900px viewport and 34px at 800px, where the form
-     * itself then overflowed and the document grew a horizontal scrollbar. A zero minimum width on
-     * the field is what allowed that, and the field is the one thing here that must not shrink,
-     * since its placeholder is the page's whole explanation of how to add anything.
+     * It used to be three controls in a row: the input, an Add button and an Open file button. They
+     * could not shrink, so they took every pixel out of the only flexible item, and the field
+     * measured 52px at a 900px viewport and 34px at 800px, where the form overflowed and the
+     * document grew a horizontal scrollbar. Widening the field was treating the symptom; the actual
+     * problem was three things competing for one row to say one thing.
+     *
+     * So the actions moved INSIDE the field as icons, which is the shape everybody already knows
+     * from a browser's address bar. The pill is the only item in the row now, nothing beside it can
+     * squeeze it, and the two buttons that used to carry words carry a tooltip instead.
      */
     form {
       flex: 1;
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      min-width: 240px;
+      /*
+       * The floor is on the FORM and has to cover the icons, not just the text.
+       *
+       * Set to 260 it read as "the field may shrink to 260", which it did, leaving 160px of actual
+       * text once the two icon buttons and the padding took their ~110px out of it. The number that
+       * matters is the readable width of the placeholder, so it is written as that plus what the
+       * chrome costs, and the header wraps the form to its own line rather than go under it.
+       */
+      min-width: 330px;
+    }
 
-      /* the file picker's own input is hidden inside its label and must not take this treatment */
+    .field {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px 5px 3px 18px;
+      border-radius: 999px;
+      background: rgba(22, 19, 28, 0.8);
+      border: 1px solid #2c2737;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+
+      /* the ring belongs to the pill, not to the bare input inside it */
+      &:focus-within {
+        border-color: #f97316;
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+      }
+
+      /* the same amber the page-wide overlay uses, so a drag reads as landing in one place */
+      &[data-drop] {
+        border-color: #fbbf24;
+        border-style: dashed;
+        background: rgba(249, 115, 22, 0.08);
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+      }
+
+      /* the text itself: no chrome of its own, since the pill around it is the control */
       input:not([type='file']) {
         flex: 1;
-        min-width: 210px;
-        background: rgba(22, 19, 28, 0.8);
-        border: 1px solid #2c2737;
-        border-radius: 6px;
-        padding: 8px 16px;
-        color: #f4f2f8;
-        font-size: 0.9rem;
+        min-width: 0;
+        background: none;
+        border: none;
         outline: none;
-        transition: border-color 120ms ease, box-shadow 120ms ease;
+        padding: 9px 0;
+        color: #f4f2f8;
+        font-family: inherit;
+        font-size: 0.9rem;
 
-        &::placeholder {
-          color: #8b8499;
-        }
-
-        &:focus {
-          border-color: #f97316;
-          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
-        }
-
-        /* the same amber the page-wide overlay uses, so a drag reads as landing in one place */
-        &[data-drop] {
-          border-color: #fbbf24;
-          border-style: dashed;
-          background: rgba(249, 115, 22, 0.08);
-          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
-        }
+        &::placeholder { color: #8b8499; }
       }
 
-      button,
-      .file-button {
+      /* a hairline between the text and the actions, the way an address bar separates them */
+      .sep {
         flex: none;
-        border-radius: 6px;
-        padding: 8px 18px;
-        font-size: 0.85rem;
-        font-weight: 700;
-        white-space: nowrap;
+        width: 1px;
+        height: 20px;
+        margin: 0 5px;
+        background: #2c2737;
+      }
+    }
 
-        /**
-         * Add reads exactly like the buttons beside it.
-         *
-         * It used to be solid white, which made it the brightest thing on the page for an action
-         * that is not more important than the ones next to it: it is simply the one that happens to
-         * be first. The white was emphasis with nothing behind it.
-         */
-        &.primary,
-        &.ghost {
-          display: inline-flex;
-          align-items: center;
-          gap: 7px;
-          border: 1px solid #3a3447;
-          background: ${CONTROL_BG};
-          color: #f4f2f8;
+    /**
+     * The actions, as round icon buttons.
+     *
+     * Each one keeps a title AND an aria-label: dropping the words is a real cost to anyone who has
+     * not seen this shape before, and a tooltip is the cheapest way to pay it back. The file one is
+     * a label wrapping an input rather than a button, so it needs the cursor and the focus ring a
+     * button would have given it.
+     */
+    .icon {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: none;
+      color: #a39db3;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
 
-          svg { width: 15px; height: 15px; }
+      svg { width: 17px; height: 17px; }
 
-          &:hover:not(:disabled) {
-            background: ${CONTROL_HOVER_BG};
-            border-color: rgba(249, 115, 22, 0.45);
-          }
-
-          &:active:not(:disabled) {
-            transform: scale(0.98);
-          }
-        }
-
-        /**
-         * A control that cannot act has to LOOK like one.
-         *
-         * Add is disabled whenever the field holds nothing to add, and it used to keep its full
-         * contrast and its hover while disabled, so pressing it was indistinguishable from pressing
-         * a live button that silently did nothing. That is the whole of "Add does nothing".
-         */
-        &:disabled {
-          opacity: 0.4;
-          cursor: default;
-        }
+      &:hover:not(:disabled):not([aria-disabled='true']) {
+        background: rgba(255, 255, 255, 0.07);
+        color: #f4f2f8;
       }
 
-      /* a label wrapping a hidden file input, so it needs the cursor a button has by default */
-      .file-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        cursor: pointer;
-        user-select: none;
-        /* so the absolutely positioned input below is contained rather than laid out off the page */
+      &:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.55);
+      }
+
+      /**
+       * A control that cannot act has to LOOK like one.
+       *
+       * Add is disabled whenever the field holds nothing to add. It used to keep its full contrast
+       * and its hover while disabled, so pressing it was indistinguishable from pressing a live
+       * button that silently did nothing. That is the whole of "Add does nothing".
+       */
+      &:disabled,
+      &[aria-disabled='true'] {
+        opacity: 0.35;
+        cursor: default;
+      }
+
+      /* the submit, tinted so the one action that commits is the one that reads as an action */
+      &.go:not(:disabled) { color: #f97316; }
+
+      /* the file picker's own input, sized to nothing rather than display:none, which would take it
+         out of the tab order and leave the only .torrent picker unreachable without a mouse */
+      &.file-button {
         position: relative;
         overflow: hidden;
 
-        svg { width: 15px; height: 15px; }
-
-        /**
-         * Hidden without being removed, so it can still be reached by keyboard.
-         *
-         * A display:none input is out of the accessibility tree AND out of the tab order,
-         * which would leave the only .torrent picker on the page unreachable to anybody not using a
-         * mouse. Sized to nothing instead, with the label taking the focus ring on its behalf.
-         */
-        input {
+        input[type='file'] {
           position: absolute;
           width: 1px;
           height: 1px;
           opacity: 0;
           pointer-events: none;
-        }
-
-        &:focus-within {
-          background: ${CONTROL_HOVER_BG};
-          border-color: #f97316;
-          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
-        }
-
-        &[aria-disabled='true'] {
-          opacity: 0.4;
-          cursor: default;
         }
       }
     }
@@ -1861,6 +1868,7 @@ const Home = () => {
   const { confirm, confirmElement, confirmOpen } = useConfirm()
   const navigate = useNavigate()
 
+  const fieldRef = useRef<HTMLInputElement>(null)
   const [embedOpen, setEmbedOpen] = useState(false)
   const [embedId, setEmbedId] = useState<string | null>(null)
 
@@ -2663,18 +2671,16 @@ const Home = () => {
           }}
         >
           {/**
-            * The field takes a dropped .torrent as well as typed text, and says so.
+            * The pill takes a dropped .torrent as well as typed text, and says so.
             *
-            * It stops the drop propagating so the page-wide overlay does not light up over a target
-            * that is already lit; `endDrag` is what keeps the window's depth count honest across
-            * that, since its own drop listener never runs.
+            * The handlers sit on the WRAPPER rather than on the input, so the whole control is the
+            * target and the highlight is the whole control. It stops the drop propagating so the
+            * page-wide overlay does not light up over a target that is already lit; `endDrag` is
+            * what keeps the window's depth count honest across that, since its own drop listener
+            * never runs.
             */}
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Add a magnet link, or drop a .torrent"
-            spellCheck={false}
-            disabled={storageUnavailable}
+          <div
+            className="field"
             data-drop={target === 'field' || undefined}
             onDragEnter={() => { if (!storageUnavailable) setFieldDrag(true) }}
             onDragOver={(e) => e.preventDefault()}
@@ -2685,33 +2691,72 @@ const Home = () => {
               endDrag()
               if (!storageUnavailable) acceptDrop(e.dataTransfer)
             }}
-          />
-          {/* disabled on an empty field rather than accepting the click and doing nothing with it */}
-          <button className="primary" type="submit" disabled={storageUnavailable || !input.trim()}>Add</button>
-          {/**
-            * The only way to pick a .torrent that is not a drag.
-            *
-            * There was none: the file could be dropped or handed over by the OS through the
-            * installed app, and a browser that cannot drag (a touch screen, a file manager the page
-            * cannot reach) had no route at all. A label wrapping a hidden input is what gives it the
-            * native picker without a click handler.
-            */}
-          <label className="ghost file-button" aria-disabled={storageUnavailable || undefined}>
-            <FilePlus/>
-            Open file
+          >
             <input
-              type="file"
-              accept=".torrent,application/x-bittorrent"
-              multiple
+              ref={fieldRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Add a magnet link, or drop a .torrent"
+              aria-label="Magnet link"
+              spellCheck={false}
               disabled={storageUnavailable}
-              onChange={(e) => {
-                const picked = e.currentTarget.files
-                if (picked?.length) void addTorrentFiles(picked)
-                // cleared so choosing the SAME file again still fires a change event
-                e.currentTarget.value = ''
-              }}
             />
-          </label>
+
+            {/* only while there is something to clear, the way a search field does it */}
+            {input && (
+              <button
+                className="icon"
+                type="button"
+                title="Clear"
+                aria-label="Clear"
+                onClick={() => { setInput(''); fieldRef.current?.focus() }}
+              >
+                <X/>
+              </button>
+            )}
+
+            <span className="sep" aria-hidden="true"/>
+
+            {/**
+              * The only way to pick a .torrent that is not a drag.
+              *
+              * There was none: the file could be dropped or handed over by the OS through the
+              * installed app, and a browser that cannot drag (a touch screen, a file manager the
+              * page cannot reach) had no route at all. A label wrapping an input is what gives it
+              * the native picker without a click handler.
+              */}
+            <label
+              className="icon file-button"
+              title="Open a .torrent file"
+              aria-label="Open a .torrent file"
+              aria-disabled={storageUnavailable || undefined}
+            >
+              <FilePlus/>
+              <input
+                type="file"
+                accept=".torrent,application/x-bittorrent"
+                multiple
+                disabled={storageUnavailable}
+                onChange={(e) => {
+                  const picked = e.currentTarget.files
+                  if (picked?.length) void addTorrentFiles(picked)
+                  // cleared so choosing the SAME file again still fires a change event
+                  e.currentTarget.value = ''
+                }}
+              />
+            </label>
+
+            {/* disabled on an empty field rather than accepting the click and doing nothing with it */}
+            <button
+              className="icon go"
+              type="submit"
+              title="Add this magnet link"
+              aria-label="Add"
+              disabled={storageUnavailable || !input.trim()}
+            >
+              <Plus/>
+            </button>
+          </div>
         </form>
         {/**
           * "Embed" named the artefact, not the job, and named the least common one at that.
@@ -2729,11 +2774,11 @@ const Home = () => {
           className="share"
           type="button"
           aria-expanded={embedOpen}
-          title="Make a link that plays or downloads one of your torrents on any device"
+          title="Make a link that plays or downloads a torrent on any device, with no account"
           onClick={() => (embedOpen ? closeEmbed() : openEmbed(embedId))}
         >
           <Link2/>
-          Share link
+          Share a torrent
         </button>
         {showSetup && (
           <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
@@ -2841,8 +2886,8 @@ const Home = () => {
               Ripple is a torrent client that runs entirely in your browser.<br/>
               Watch the video while it downloads, then save it to your disk.
               <div className="hints">
-                <span>Paste a magnet link above, then press Add</span>
-                <span>Or press Open file to pick a .torrent</span>
+                <span>Paste a magnet link in the bar above</span>
+                <span>Or use the file button in it to pick a .torrent</span>
                 <span>Or drop either one anywhere on this page</span>
               </div>
             </div>

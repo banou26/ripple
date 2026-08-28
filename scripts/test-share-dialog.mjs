@@ -38,7 +38,7 @@ try {
     await page.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('footer', { timeout: 30_000 })
 
-    await page.getByRole('button', { name: /share link/i }).click()
+    await page.getByRole('button', { name: /share a torrent/i }).click()
     await page.waitForSelector('[role="dialog"]', { timeout: 10_000 })
     await page.waitForTimeout(400)
 
