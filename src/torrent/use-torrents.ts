@@ -106,16 +106,21 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
   }
 }
 
-const ghostToTorrent = (e: Persisted): Torrent => ({
+export const ghostToTorrent = (e: Persisted): Torrent => ({
   id: 'missing:' + e.infoHash,
   magnet: e.magnet,
   infoHash: e.infoHash,
-  // `rootEntry` before the hash, because it is the name the torrent actually occupies on disk and
-  // most stored magnets carry no `dn` at all: the demo entry is `magnet:?xt=urn:btih:08ada5a7...`
-  // with nothing else, so without this a row shows eight hex characters where a title belongs, which
-  // reads as some other torrent rather than as this one still loading.
-  name: magnetParam(e.magnet, 'dn') ?? e.rootEntry ?? e.infoHash.slice(0, 8),
-  size: 0,
+  /*
+   * Stored metadata first, because it is the only source that survives the trip to another device.
+   *
+   * A torrent restored from the cloud has no engine, no local .torrent and usually no `dn` on its
+   * magnet: the demo entry is `magnet:?xt=urn:btih:08ada5a7...` with nothing else. That is how a row
+   * ended up showing eight hex characters where a title belongs, which reads as some other torrent
+   * rather than as this one waiting. `rootEntry` stays after it as the older field that carried the
+   * same name for entries written before metadata was synced.
+   */
+  name: e.name ?? magnetParam(e.magnet, 'dn') ?? e.rootEntry ?? e.infoHash.slice(0, 8),
+  size: e.size ?? 0,
   downloaded: 0,
   progress: 0,
   state: 'missing',
@@ -129,6 +134,8 @@ const ghostToTorrent = (e: Persisted): Torrent => ({
   queuePosition: -1,
   stats: null,
   saveTo: e.saveTo,
+  // progress 0 for every one: nothing here is downloaded, which is what the row is saying
+  files: e.files?.map((f) => ({ name: f.name, size: f.size, progress: 0 })),
 })
 
 /**

@@ -19,6 +19,18 @@ export type Persisted = {
   started?: boolean, paused?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
   saveTo?: SaveLocation, wantedFiles?: number[], firstLast?: boolean,
   downloadLimit?: number, uploadLimit?: number,
+  /**
+   * What the torrent IS, written once its metadata lands and then never re-derived.
+   *
+   * Device-portable on purpose, unlike everything above it that describes what this browser is
+   * holding. A second device signed into the same account has the magnet and nothing else, so
+   * without these its row could only show eight characters of infohash and a size of zero. The
+   * metadata is a property of the torrent, not of the machine, so it travels.
+   *
+   * `files` is capped when it is written; see the writer for why and for what a truncated list
+   * means to a reader.
+   */
+  name?: string, size?: number, files?: { name: string, size: number }[],
 }
 
 /**
@@ -83,3 +95,33 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       uploadLimit: next.uploadLimit ?? was.uploadLimit,
     }
     : next
+
+/**
+ * How many file entries travel with a torrent in the library list.
+ *
+ * The list is mirrored to the cloud as one json document, so an unbounded per-torrent array makes
+ * the whole backup hostage to the largest torrent in it. A hundred is comfortably more than a
+ * season pack and small enough that fifty of them stay well inside a sensible blob.
+ */
+export const SYNCED_FILE_CAP = 100
+
+/**
+ * The metadata fields of an incoming entry, and nothing else.
+ *
+ * This is json that has been round-tripped through cloud storage, so it is shaped by whatever wrote
+ * it last, which may be a newer or older ripple. Each field is checked rather than trusted: a `size`
+ * that is a string would render as `NaN B`, and a `files` array with no bound would let one entry
+ * decide how much memory the list costs. The same cap is applied on the way in as on the way out,
+ * because the writer's promise is not a property of the reader's input.
+ */
+export const syncedMetadata = (e: Partial<Persisted>): Pick<Persisted, 'name' | 'size' | 'files'> => ({
+  name: typeof e.name === 'string' && e.name ? e.name : undefined,
+  size: typeof e.size === 'number' && Number.isFinite(e.size) && e.size >= 0 ? e.size : undefined,
+  files: Array.isArray(e.files)
+    ? e.files
+      .filter((f): f is { name: string, size: number } =>
+        !!f && typeof f.name === 'string' && typeof f.size === 'number' && Number.isFinite(f.size))
+      .slice(0, SYNCED_FILE_CAP)
+    : undefined,
+})
+

@@ -17,7 +17,7 @@ import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
+import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
 import { createHybridStorage } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -162,6 +162,7 @@ const cacheIdle = new Set<number>()
 const lastReadAt = new Map<number, number>()
 // Waiting to have their one top-level name written into the list, which needs the file layout.
 const needsRootEntry = new Set<number>()
+
 
 // The torrent a detail panel is showing, or null when none is. See TorrentDetail for why this is
 // scoped to one rather than computed for the whole library.
@@ -977,14 +978,34 @@ const init = async () => {
       applyLimits(h)
     }
 
-    // record what each torrent occupies inside its save path, so the orphan sweep can account for
-    // it later even when it is no longer in the session to be asked
+    /*
+     * Metadata lands here, once, and is written to the library entry.
+     *
+     * `rootEntry` is what the torrent occupies inside its save path, so the orphan sweep can
+     * account for it later even when it is no longer in the session to be asked. The rest is what
+     * the torrent IS, and it is recorded for a reader that has no engine: another device signed
+     * into the same account restores the list from the cloud and has only the magnet, so without
+     * this its rows show eight hex characters and a size of zero.
+     */
     for (const h of [...needsRootEntry]) {
       const [name] = rootEntriesOf(h)
       if (!name) continue
       needsRootEntry.delete(h)
       const ih = infoHashByHandle.get(h)
-      if (ih) void patchList(ih, { rootEntry: name }, true).catch(() => {})
+      if (!ih) continue
+      const files = session.files(h)
+      void patchList(ih, {
+        rootEntry: name,
+        name,
+        size: files?.totalSize,
+        /*
+         * Capped, because this is mirrored into ONE json blob holding the whole library and a
+         * torrent with thousands of files would dominate it. A reader must therefore treat a list
+         * of exactly the cap as possibly incomplete, which is why `size` is stored separately
+         * rather than summed from the list: the total stays right even when the list is cut.
+         */
+        files: files?.files.slice(0, SYNCED_FILE_CAP).map((f) => ({ name: f.path, size: f.size })),
+      }, true).catch(() => {})
     }
 
     for (const h of wantPaused) {
@@ -1242,12 +1263,30 @@ const handleMessage = async (session: Session, m: any) => {
       let changed = false
       await update<Persisted[]>(LIST_KEY, (prev) => {
         list = prev ?? []
-        const have = new Set(list.map((e) => e.infoHash))
+        const byHash = new Map(list.map((e) => [e.infoHash, e]))
         for (const e of incoming) {
-          if (!e || typeof e.infoHash !== 'string' || !e.magnet || have.has(e.infoHash)) continue
+          if (!e || typeof e.infoHash !== 'string' || !e.magnet) continue
+          const meta = syncedMetadata(e)
+          const mine = byHash.get(e.infoHash)
+          if (mine) {
+            /*
+             * Already here, so this device's entry wins: everything else on it describes what THIS
+             * browser is doing and must not be replaced by another machine's view.
+             *
+             * Metadata is the exception, and only to FILL A GAP. An entry added before metadata was
+             * synced, or on a device that never reached the swarm, has no name and no size, and the
+             * incoming copy is the only place either exists. Never an overwrite: a local value was
+             * read off the torrent itself and is at least as good as a mirrored one.
+             */
+            if (mine.name === undefined && meta.name !== undefined) { mine.name = meta.name; changed = true }
+            if (mine.size === undefined && meta.size !== undefined) { mine.size = meta.size; changed = true }
+            if (mine.files === undefined && meta.files !== undefined) { mine.files = meta.files; changed = true }
+            continue
+          }
           // a library entry from another device, never a cache one: the cache is device-local and is not backed up
-          list.push({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false })
-          have.add(e.infoHash)
+          const entry: Persisted = { infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false, ...meta }
+          list.push(entry)
+          byHash.set(entry.infoHash, entry)
           changed = true
         }
         return list

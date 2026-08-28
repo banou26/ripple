@@ -181,9 +181,19 @@ export const useCloudBackup = (): SyncState => {
     const writeNow = () => {
       pending = false
       window.clearTimeout(timer)
-      // Sync only the device-portable identity, never device-local state: `started`, `paused`, and
-      // the cache tier (`ephemeral`, `lastUsedAt`), which describes what THIS browser is holding
-      const portable = latest.map((e) => ({ infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt }))
+      /*
+       * Sync only the device-portable identity, never device-local state: `started`, `paused`, and
+       * the cache tier (`ephemeral`, `lastUsedAt`), which describe what THIS browser is holding.
+       *
+       * The metadata below belongs on that portable side. It says what the torrent IS rather than
+       * what this machine has done with it, and without it a second device signed into the same
+       * account can only render eight characters of infohash and a size of zero, because all it has
+       * is the magnet. `savePath` stays for historical reasons; it is a path, not a machine.
+       */
+      const portable = latest.map((e) => ({
+        infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
+        name: e.name, size: e.size, files: e.files,
+      }))
       return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(portable), { contentType: 'application/json' })
     }
     const write = async () => {

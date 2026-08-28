@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SHARED_ROOT, mergeEntry, ownsItsDirectory, savePathFor } from './library'
+import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
 import type { Persisted } from './library'
 
 const HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
@@ -110,5 +110,68 @@ describe('mergeEntry', () => {
     // the orphan sweep reads this to tell a release folder from data nothing owns
     expect(mergeEntry(entry({ rootEntry: 'Sintel' }), anAdd()).rootEntry).toBe('Sintel')
     expect(mergeEntry(entry({ rootEntry: 'Sintel' }), anAdd({ rootEntry: 'Renamed' })).rootEntry).toBe('Renamed')
+  })
+})
+
+/**
+ * The metadata that travels between devices.
+ *
+ * A second device signed into the same account restores the library from one json blob and has the
+ * magnet and nothing else, so these three fields are the only thing standing between a real row and
+ * eight characters of infohash with a size of zero. That blob has been round-tripped through cloud
+ * storage and written by whatever version of ripple touched it last, so nothing in it is trusted.
+ */
+describe('the metadata carried between devices', () => {
+  it('takes a well formed entry whole', () => {
+    expect(syncedMetadata({ name: 'Sintel', size: 129_300_000, files: [{ name: 'Sintel.mp4', size: 129_200_000 }] }))
+      .toEqual({ name: 'Sintel', size: 129_300_000, files: [{ name: 'Sintel.mp4', size: 129_200_000 }] })
+  })
+
+  it('leaves every field undefined when the entry carries none', () => {
+    expect(syncedMetadata({ infoHash: 'a', magnet: 'm' })).toEqual({ name: undefined, size: undefined, files: undefined })
+  })
+
+  /** a string size would render as `NaN B`, which looks like a bug in the size formatter */
+  it('refuses a size that is not a usable number', () => {
+    for (const size of ['129300000', NaN, Infinity, -1, null, {}] as unknown[]) {
+      expect(syncedMetadata({ size: size as number }).size, String(size)).toBeUndefined()
+    }
+  })
+
+  it('refuses an empty or non-string name rather than rendering nothing', () => {
+    for (const name of ['', 0, null, {}, []] as unknown[]) {
+      expect(syncedMetadata({ name: name as string }).name, JSON.stringify(name)).toBeUndefined()
+    }
+  })
+
+  it('drops malformed file entries and keeps the rest', () => {
+    const files = [
+      { name: 'good.mkv', size: 10 },
+      { name: 'no size' },
+      { size: 5 },
+      null,
+      'nope',
+      { name: 'bad size', size: 'big' },
+      { name: 'also good.srt', size: 2 },
+    ] as unknown as { name: string, size: number }[]
+    expect(syncedMetadata({ files })).toMatchObject({
+      files: [{ name: 'good.mkv', size: 10 }, { name: 'also good.srt', size: 2 }],
+    })
+  })
+
+  /**
+   * Capped on the way IN as well as on the way out. The writer's promise is not a property of the
+   * reader's input: the blob may have been written by an older ripple, or by a newer one with a
+   * larger cap, and one torrent must not decide how much memory the whole list costs.
+   */
+  it('caps the file list on read, not only on write', () => {
+    const files = Array.from({ length: SYNCED_FILE_CAP + 250 }, (_, i) => ({ name: `f${i}`, size: 1 }))
+    expect(syncedMetadata({ files }).files).toHaveLength(SYNCED_FILE_CAP)
+  })
+
+  it('refuses a files value that is not an array', () => {
+    for (const files of ['[]', 3, {}, null] as unknown[]) {
+      expect(syncedMetadata({ files: files as { name: string, size: number }[] }).files, String(files)).toBeUndefined()
+    }
   })
 })
