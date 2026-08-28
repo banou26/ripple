@@ -2799,8 +2799,7 @@ const Home = () => {
               Watch the video while it downloads, then save it to your disk.
               <div className="hints">
                 <span>Paste a magnet link in the bar above</span>
-                <span>Or use the file button in it to pick a .torrent</span>
-                <span>Or drop either one anywhere on this page</span>
+                <span>Or drop a magnet or a .torrent anywhere on this page</span>
               </div>
             </div>
           )
