@@ -35,7 +35,7 @@
   "dependencies": {
     "@banou/media-player": "^0.8.15",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.9.22",
+    "@fkn/lib": "^0.9.23",
     "ass-compiler": "^0.1.15",
     "idb-keyval": "^6.2.1",
     "libav-wasm": "^0.8.6",
