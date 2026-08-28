@@ -160,7 +160,9 @@ export default defineConfig((env) => ({
           browser: {
             enabled: true,
             headless: !process.env.RIPPLE_HEADFUL,
-            provider: playwright({ launchOptions: { executablePath: findChrome() } }),
+            // --mute-audio because this is the owner's machine and a browser test can autoplay
+            // whatever a component renders. Output only, so no measurement here can change.
+            provider: playwright({ launchOptions: { executablePath: findChrome(), args: ['--mute-audio'] } }),
             // explicit: the default is a 414px phone, and the player chrome branches on 768px
             instances: [{ browser: 'chromium', viewport: { width: 1280, height: 720 } }],
           },
