@@ -93,7 +93,11 @@ export const classifyAvailability = (
 let settle: () => void
 export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = resolve })
 
-// The broker reports each with a reserved marker that survives the osra boundary (custom props are stripped, the message and `code` are not)
+// The broker reports each with a reserved marker. Only the MESSAGE crosses the osra boundary: it
+// boxes an Error as name/message/stack/cause and strips every custom prop, `code` included. The code
+// read below is minted in THIS realm by @fkn/lib's storage layer, which matches the broker's message
+// and rethrows a typed error (see its storage.ts). So a code is still one thing to test rather than
+// two sentences to parse, but it is a local translation, not something that arrived over the wire.
 const isLocked = (err: unknown): boolean => (err as { code?: string })?.code === 'FKN_E2E_LOCKED'
 /**
  * "There is no backup to read", however the storage layer says it.
