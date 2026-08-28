@@ -1,7 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-import type { TorrentClient } from './client'
+import { get } from 'idb-keyval'
 
+import type { TorrentClient } from './client'
+import type { Persisted } from './library'
+
+import { LIST_KEY } from './library'
 import { magnetInfoHash } from './magnet'
 import {
   considerThumbnails,
@@ -34,6 +38,29 @@ const libavPaths = () => {
  * that already exist, so generation never competes with a download.
  */
 export const useThumbnailGeneration = (client: TorrentClient) => {
+  /**
+   * Show the pictures already on this device WITHOUT waiting for the engine.
+   *
+   * They used to be loaded from `client.onState`, which does not fire until a worker has spawned,
+   * compiled several megabytes of wasm, opened OPFS, created a session and restored the library.
+   * That is seconds, and it made every reload look as though the thumbnails had been lost and were
+   * being remade, when in fact they were sitting in IndexedDB the whole time: measured on the
+   * owner's browser at 8 kB and 0.1 ms to read.
+   *
+   * Nothing about a stored picture needs the engine. The library list is in the same database, so
+   * this reads it directly and paints whatever is already there, and the state-driven path below
+   * still covers torrents added while the page is open.
+   */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const list = (await get<Persisted[]>(LIST_KEY).catch(() => undefined)) ?? []
+      const hashes = list.map((e) => e.infoHash).filter(Boolean)
+      if (!cancelled && hashes.length) await loadCachedThumbnails(hashes).catch(() => {})
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     const paths = libavPaths()
     let cached = new Set<string>()

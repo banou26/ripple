@@ -125,3 +125,12 @@ export const syncedMetadata = (e: Partial<Persisted>): Pick<Persisted, 'name' | 
     : undefined,
 })
 
+/**
+ * Where the library list lives in this browser.
+ *
+ * Shared rather than private to the worker because the PAGE reads it too, at mount, to find out
+ * which thumbnails it can show before the engine exists. That read costs a fraction of a
+ * millisecond and the engine takes seconds, so binding the two together made every reload look like
+ * the pictures had been lost.
+ */
+export const LIST_KEY = 'ripple:torrents'

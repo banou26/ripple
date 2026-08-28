@@ -17,7 +17,7 @@ import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
+import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
 import { createHybridStorage } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -52,7 +52,6 @@ export type TorrentDetail = {
   trackers: TrackerInfo[]
 }
 
-const LIST_KEY = 'ripple:torrents'
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 // started === false is a torrent synced from another device and NOT added to the session; both flags are device-local and deliberately left out of the cloud backup
