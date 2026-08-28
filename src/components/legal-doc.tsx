@@ -7,7 +7,9 @@ import { getRoutePath, Route } from '../router/path'
 
 const style = css`
   position: relative;
-  min-height: 100vh;
+  /* vh minus the strip the broker reserved, same contract as the library page. A bare 100vh here
+     would still be a full viewport tall inside a root the reservation already shortened. */
+  min-height: calc(100vh - var(--fkn-inset-top, 0px));
   background: radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%), #16131c;
   color: #b6b0c4;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

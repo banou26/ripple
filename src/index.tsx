@@ -14,12 +14,26 @@ const style = css`
     box-sizing: border-box;
   }
 
-  html, body {
+  /*
+   * The root gives back whatever the FKN broker reserves at the top of the viewport.
+   *
+   * Its docked header mode writes an important margin-top on this element plus a matching
+   * --fkn-inset-top, and that variable is the app's half of the contract. Without it the margin is
+   * added to a root that is already exactly as tall as the viewport, so the document grows by the
+   * strip: a second scrollbar appears and the footer sits below the fold at rest.
+   *
+   * The fallback is 0px, which is every other mode and every page with no broker at all.
+   *
+   * No backticks in here. This is a css template literal, so one would end it.
+   */
+  html {
     margin: 0;
-    height: 100%;
+    height: calc(100% - var(--fkn-inset-top, 0px));
   }
 
   body {
+    margin: 0;
+    height: 100%;
     background: #16131c;
     color: #f4f2f8;
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

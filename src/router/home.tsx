@@ -288,7 +288,9 @@ const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<n
  */
 
 export const style = css`
-  height: 100dvh;
+  /* dvh minus whatever the broker reserved at the top, so docking its header does not push the
+     footer under the fold. See the root rule in index.tsx for what writes the variable. */
+  height: calc(100dvh - var(--fkn-inset-top, 0px));
   display: flex;
   flex-direction: column;
   background:
