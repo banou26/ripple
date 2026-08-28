@@ -1,4 +1,4 @@
-import type { Torrent } from '../torrent/types'
+import type { ShareSubject } from '../torrent/torrent-file'
 
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -17,46 +17,12 @@ import { ShareLinkDialog } from './share-link-dialog'
  * in the library; it is now a modal that asks for one it does not have, because sharing something
  * already in the library belongs on that row's own options menu rather than duplicated here.
  */
-const file = (name: string, size: number) => ({ name, size, progress: 1 })
+const file = (name: string, size: number) => ({ name, size })
 
-const SINTEL: Torrent = {
-  id: '7',
+const SINTEL: ShareSubject = {
   magnet: 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel',
-  infoHash: '08ada5a7a6183aae1e09d831df6748d566095a10',
   name: 'Sintel',
   size: 129_300_000,
-  downloaded: 0,
-  progress: 0,
-  state: 'downloading',
-  down: 0,
-  up: 0,
-  peers: 6,
-  seeds: 1,
-  eta: '-',
-  flags: 0,
-  queuePosition: -1,
-  stats: {
-    allTimeDownload: 1_000_000_000,
-    allTimeUpload: 250_000_000,
-    sessionDownload: 500_000_000,
-    sessionUpload: 100_000_000,
-    wasted: 4096,
-    swarmSeeds: 40,
-    swarmPeers: 12,
-    numConnections: 6,
-    connectionsLimit: 200,
-    availability: 2.4,
-    activeSeconds: 3600,
-    seedingSeconds: 120,
-    addedAt: 1_755_000_000,
-    completedAt: 1_755_003_600,
-    lastSeenComplete: 1_755_003_600,
-    hadIncoming: true,
-    savePath: '/downloads',
-    pieceLength: 262_144,
-    numPieces: 7630,
-    numPiecesHave: 3815,
-  },
   files: [
     file('Sintel/Sintel.de.srt', 1_700),
     file('Sintel/Sintel.en.srt', 1_500),
@@ -68,7 +34,7 @@ const SINTEL: Torrent = {
 // the shell portals to the body, so nothing here is reachable through the render container
 const dialog = () => document.querySelector('[role="dialog"]') as HTMLElement
 
-const mount = async (torrent: Torrent | null, dragging = false) => {
+const mount = async (torrent: ShareSubject | null, dragging = false) => {
   const onMagnet = vi.fn<(text: string) => boolean>(() => true)
   const onFiles = vi.fn()
   const onClear = vi.fn()
@@ -207,13 +173,13 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 
   it('still builds a link before the file list arrives, covering the whole torrent', async () => {
-    const { url, query } = await mount({ ...SINTEL, files: undefined })
+    const { url, query } = await mount({ ...SINTEL, files: null })
     expect(url()).not.toBe('')
     expect(query().get('files')).toBeNull()
   })
 
   it('says so instead of showing a broken link when the torrent has no magnet', async () => {
-    const { url } = await mount({ ...SINTEL, magnet: undefined })
+    const { url } = await mount({ ...SINTEL, magnet: '' })
     expect(dialog().textContent).toContain('no magnet yet')
     expect(url()).toBe('')
   })

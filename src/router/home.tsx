@@ -48,7 +48,8 @@ import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
-import { torrentInfoHash } from '../torrent/torrent-info-hash'
+import type { ShareSubject } from '../torrent/torrent-file'
+import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
@@ -1871,7 +1872,15 @@ const Home = () => {
 
   const fieldRef = useRef<HTMLInputElement>(null)
   const [embedOpen, setEmbedOpen] = useState(false)
-  const [embedId, setEmbedId] = useState<string | null>(null)
+  /**
+   * What the share dialog is building a link FOR.
+   *
+   * Held as a subject rather than as a library id, because the dialog no longer adds anything. A
+   * `.torrent` carries its own infohash, name, file list and trackers, and a magnet carries its own
+   * infohash, so a link is built from the input in the page and the engine is never involved.
+   * Opened from a torrent's own row it is simply that torrent, mapped into the same shape.
+   */
+  const [shareSubject, setShareSubject] = useState<ShareSubject | null>(null)
 
   /**
    * How fast anything is allowed to go, read from the ENGINE rather than kept here.
@@ -1906,7 +1915,6 @@ const Home = () => {
    * the list; `before` covers a file, whose identity the page never learns (the worker's `added`
    * message reaches nothing), leaving "the one that was not here a moment ago" as the only handle.
    */
-  const claimRef = useRef<{ hash: string } | { before: Set<string> } | null>(null)
 
   const torrentsRef = useRef(torrents)
   torrentsRef.current = torrents
@@ -1992,105 +2000,75 @@ const Home = () => {
   }, [addTorrentFile, showToast])
 
   /**
-   * The one place a drop is turned into an add, shared by the window and by the magnet field.
+   * The share dialog's two inputs. Neither adds anything to the library.
+   *
+   * Handing them to the add path and waiting for the torrent to come back was the old shape. It
+   * produced a link and it also started a download nobody asked for: somebody wanting a url to send
+   * a friend ended up with the torrent in their own list. Reading the input in the page gives the
+   * same link and leaves the library alone.
+   */
+  const shareMagnet = useCallback((raw: string): boolean => {
+    const subject = readMagnet(raw)
+    if (!subject) return false
+    setShareSubject(subject)
+    return true
+  }, [])
+
+  const shareFiles = useCallback((files: Iterable<File>) => {
+    const torrent = [...files].find((file) => /\.torrent$/i.test(file.name))
+    if (!torrent) { showToast('That is not a .torrent file'); return }
+    void (async () => {
+      const subject = await readTorrentFile(new Uint8Array(await torrent.arrayBuffer()))
+      if (!subject) { showToast('That .torrent could not be read'); return }
+      setShareSubject(subject)
+    })()
+  }, [showToast])
+
+  /**
+   * The one place a drop is turned into an action, shared by the window and by the magnet field.
    *
    * Both targets have to agree, and the field cannot simply let the drop bubble: it stops
    * propagation so the page-wide overlay does not also claim the drop, which means the window
    * listener never runs and this is the only handler that fires.
+   *
+   * WHILE THE SHARE DIALOG IS ASKING FOR A TORRENT, the drop belongs to it and to nothing else.
+   * Dropping a .torrent onto the open dialog used to do both: build the link AND add the torrent to
+   * the library, so asking for a url started a download. The dialog is a link builder, so the drop
+   * is read in the page and the library is left alone.
    */
   const acceptDrop = useCallback((data: DataTransfer | null) => {
-    // Armed BEFORE the add, because `before` has to be the list as it was; reading it afterwards
-    // would already contain the new torrent and nothing would ever look new.
-    const claim = (next: { hash: string } | { before: Set<string> }) => {
-      if (embedOpen) claimRef.current = next
-    }
+    const forShareDialog = embedOpen && !shareSubject
     if (data?.files?.length) {
-      claim({ before: new Set(torrentsRef.current.map((t) => t.id)) })
+      if (forShareDialog) { shareFiles(data.files); return }
       void addTorrentFiles(data.files)
       return
     }
     const text = data?.getData('text') ?? ''
     if (!text.trim()) return
-    const hash = magnetInfoHash(text.trim())
-    if (hash) claim({ hash })
+    if (forShareDialog) {
+      if (!shareMagnet(text)) showToast('Not a magnet link')
+      return
+    }
     if (!commitMagnet(text)) showToast('Not a magnet link')
-  }, [addTorrentFiles, commitMagnet, embedOpen, showToast])
+  }, [addTorrentFiles, commitMagnet, embedOpen, shareSubject, shareFiles, shareMagnet, showToast])
 
-  // The claim is resolved here rather than at the drop, because this is the first render at which
-  // the torrent it names exists. A claim that never resolves (a bad file, an add that failed) is
-  // dropped when the panel closes, so it cannot adopt an unrelated torrent added minutes later.
-  useEffect(() => {
-    const claim = claimRef.current
-    if (!claim) return
-    const found = 'hash' in claim
-      ? torrents.find((t) => t.infoHash === claim.hash)
-      : torrents.find((t) => !claim.before.has(t.id))
-    if (!found) return
-    claimRef.current = null
-    setEmbedId(found.id)
-  }, [torrents])
-
-  /**
-   * The share dialog's own two inputs, which have to arm the same claim a drop does.
-   *
-   * `acceptDrop` arms it for anything dropped on the window, but the dialog's magnet field and file
-   * picker call the add path directly, so without these the torrent would be added and the dialog
-   * would sit on its empty state waiting for something that already happened.
-   */
-  const shareMagnet = useCallback((raw: string): boolean => {
-    const text = raw.trim()
-    const hash = magnetInfoHash(text)
-    /*
-     * Already in the library, so nothing is going to be added and no claim would ever resolve: the
-     * claim is drained by an effect on `torrents`, and a list that does not change never runs it.
-     * Point straight at the torrent instead, which is also the more useful answer to someone asking
-     * for a link to something they already have.
-     */
-    const existing = hash && torrentsRef.current.find((t) => t.magnet && magnetInfoHash(t.magnet) === hash)
-    if (existing) { claimRef.current = null; setEmbedId(existing.id); return true }
-    // armed before the add, so the claim cannot miss a torrent that appears synchronously
-    if (hash) claimRef.current = { hash }
-    const added = commitMagnet(text)
-    if (!added) claimRef.current = null
-    return added
-  }, [commitMagnet])
-
-  const shareFiles = useCallback((files: Iterable<File>) => {
-    const all = [...files]
-    const torrent = all.find((file) => /\.torrent$/i.test(file.name))
-    // nothing usable in the drop; addTorrentFiles owns saying so
-    if (!torrent) { void addTorrentFiles(all); return }
-    void (async () => {
-      const hash = await torrentInfoHash(new Uint8Array(await torrent.arrayBuffer()))
-      /*
-       * Already in the library, which is the LIKELY case rather than the edge: the .torrent sitting
-       * on somebody's disk is usually the one they already opened. Re-adding it adds nothing, so a
-       * claim waiting for a new torrent to appear waits for ever, and the dialog sat on "Reading
-       * the torrent..." until the person gave up. Point straight at it instead.
-       */
-      const existing = hash && torrentsRef.current.find((t) => t.infoHash === hash)
-      if (existing) { claimRef.current = null; setEmbedId(existing.id); return }
-      /*
-       * Claim by HASH when we have one. The `before` set only says "something new turned up", which
-       * picks the wrong torrent if two arrive at once, and cannot resolve at all when none does.
-       * It stays as the fallback for a file this parser could not read, where the engine may still
-       * manage to add it.
-       */
-      claimRef.current = hash ? { hash } : { before: new Set(torrentsRef.current.map((t) => t.id)) }
-      void addTorrentFiles(all)
-    })()
-  }, [addTorrentFiles])
-
-  const openEmbed = useCallback((id: string | null) => {
-    claimRef.current = null
-    setEmbedId(id)
+  const openEmbed = useCallback((subject: ShareSubject | null) => {
+    setShareSubject(subject)
     setEmbedOpen(true)
   }, [])
 
   const closeEmbed = useCallback(() => {
-    claimRef.current = null
+    setShareSubject(null)
     setEmbedOpen(false)
   }, [])
+
+  /** a torrent already in the library, in the same shape a parsed file produces */
+  const subjectOf = useCallback((t: Torrent): ShareSubject => ({
+    magnet: t.magnet ?? '',
+    name: t.name,
+    size: t.size,
+    files: t.files ? t.files.map((f) => ({ name: f.name, size: f.size })) : null,
+  }), [])
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -2290,7 +2268,7 @@ const Home = () => {
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
-    embed: () => openEmbed(t.id),
+    embed: () => openEmbed(subjectOf(t)),
     retryNow: () => retry(Number(t.id)),
     start: () => { if (t.infoHash) start(t.infoHash) },
   })
@@ -2655,7 +2633,7 @@ const Home = () => {
   const target = dropTarget({
     dragging,
     overField: fieldDrag,
-    shareOpen: embedOpen && !torrents.some((t) => t.id === embedId),
+    shareOpen: embedOpen && !shareSubject,
   })
 
   return (
@@ -2796,7 +2774,7 @@ const Home = () => {
           type="button"
           aria-expanded={embedOpen}
           title="Make a link that plays or downloads a torrent on any device, with no account"
-          onClick={() => (embedOpen ? closeEmbed() : openEmbed(embedId))}
+          onClick={() => (embedOpen ? closeEmbed() : openEmbed(null))}
         >
           <Link2/>
           Share a torrent
@@ -2811,11 +2789,11 @@ const Home = () => {
 
       {embedOpen && (
         <ShareLinkDialog
-          torrent={torrents.find((t) => t.id === embedId) ?? null}
+          torrent={shareSubject}
           dragging={target === 'share'}
           onMagnet={shareMagnet}
           onFiles={shareFiles}
-          onClear={() => setEmbedId(null)}
+          onClear={() => setShareSubject(null)}
           onClose={closeEmbed}
           onToast={showToast}
         />
@@ -2925,7 +2903,7 @@ const Home = () => {
               onRemove={onRemove}
               onStart={onStart}
               onPause={onPause}
-              onEmbed={(t) => openEmbed(t.id)}
+              onEmbed={(t) => openEmbed(subjectOf(t))}
               onOptions={onOptions}
               selected={t.id === selectedId}
               onSelect={onSelect}

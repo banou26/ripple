@@ -9,10 +9,7 @@
 
 import { chromium } from 'playwright'
 import { spawn } from 'child_process'
-import { writeFile } from 'fs/promises'
 import { createHash } from 'crypto'
-import { tmpdir } from 'os'
-import { join } from 'path'
 
 const PORT = 4602
 const ORIGIN = `http://127.0.0.1:${PORT}`
@@ -81,71 +78,79 @@ try {
   }
 
   /*
-   * Sharing a .torrent that is ALREADY in the library.
+   * Dropping a .torrent onto the open share dialog builds a link and adds NOTHING.
    *
-   * This hung for ever on "Reading the torrent...". The dialog armed a claim that waits for a NEW
-   * torrent to appear, and re-adding one you already have adds nothing, so nothing ever resolved
-   * it. That is the likely case rather than the edge: the file on somebody's disk is usually the
-   * one they already opened. Fixed by reading the infohash out of the file first and pointing
-   * straight at the existing torrent.
+   * It used to do both: the drop went to the library's add path, the dialog waited for the torrent
+   * to come back, and somebody who wanted a url to send a friend ended up with the torrent in their
+   * own list, downloading. A `.torrent` already carries its infohash, name, file list and trackers,
+   * so the link is built in the page and the engine is never involved.
    *
-   * The fixture is built here rather than committed, so the check carries its own input and does
-   * not depend on a torrent living on one particular machine.
+   * Two assertions, and the second is the one that was broken: the link names the RIGHT torrent,
+   * and the library is exactly as long afterwards as it was before.
+   *
+   * The fixture is built here rather than committed, so the check carries its own input.
    */
-  const fixture = join(tmpdir(), 'ripple-share-fixture.torrent')
-  // ONE piece exactly: `pieces` must hold 20 bytes per piece, so a length longer than one piece
-  // with a single hash is rejected by the engine and the case silently stops being staged
   const pieces = Buffer.alloc(20, 7)
   const info = Buffer.concat([
     Buffer.from('d6:lengthi262144e4:name17:ripple-fixture.md12:piece lengthi262144e6:pieces20:'),
     pieces,
     Buffer.from('e'),
   ])
-  // the infohash is the sha1 of the info VALUE, so building it here gives the exact number the
-  // link must carry. Asserting on that rather than on "a link appeared" is the whole point: the
-  // old `before` claim resolves to whatever torrent turns up next, so a check that only asks
-  // whether SOMETHING resolved passes on the wrong torrent.
+  // the infohash is the sha1 of the info VALUE, so building it here gives the exact number the link
+  // must carry. Asserting that rather than "a link appeared" is the point: a check that only asks
+  // whether something resolved passes on the wrong torrent.
   const fixtureHash = createHash('sha1').update(info).digest('hex')
-  await writeFile(fixture, Buffer.concat([Buffer.from('d8:announce20:udp://127.0.0.1:6969' + '4:info'), info, Buffer.from('e')]))
+  const fixtureBytes = Buffer.concat([Buffer.from('d8:announce20:udp://127.0.0.1:6969' + '4:info'), info, Buffer.from('e')])
+  const fixtureB64 = fixtureBytes.toString('base64')
 
-  const dup = await browser.newPage({ viewport: { width: 1280, height: 860 } })
-  const dupErrors = []
-  dup.on('pageerror', (e) => dupErrors.push(String(e)))
-  await dup.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
-  await dup.waitForSelector('header .field', { timeout: 30_000 })
-  await dup.setInputFiles("header .field input[type='file']", fixture)
-  const inLibrary = await dup
-    .waitForFunction(() => [...document.querySelectorAll('.torrent')].some((r) => /ripple-fixture/.test(r.textContent ?? '')), null, { timeout: 45_000 })
-    .then(() => true).catch(() => false)
+  const drop = await browser.newPage({ viewport: { width: 1280, height: 860 } })
+  const dropErrors = []
+  drop.on('pageerror', (e) => dropErrors.push(String(e)))
+  await drop.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
+  await drop.waitForSelector('header .field', { timeout: 30_000 })
+  // Named, not counted. The demo torrent seeds asynchronously, so a row count taken too early
+  // moves on its own and a later comparison reads that as "the drop added something". Asking
+  // whether THE FIXTURE is in the list is exact and immune to anything else arriving.
+  const fixtureInLibrary = () => drop.evaluate(() =>
+    [...document.querySelectorAll('.torrent')].some((r) => /ripple-fixture/.test(r.textContent ?? '')))
+  await drop.waitForTimeout(3_000)
+  const before = await fixtureInLibrary()
 
-  if (!inLibrary) {
-    console.log('duplicate share: SKIPPED, the fixture never reached the library so the case cannot be staged')
-  } else {
-    await dup.getByRole('button', { name: /share a torrent/i }).click()
-    await dup.waitForSelector('[role="dialog"]', { timeout: 10_000 })
-    await dup.setInputFiles("[role=\"dialog\"] input[type='file']", fixture)
-    const resolved = await dup
-      .waitForFunction((want) => {
-        const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
-        const magnet = new URLSearchParams(url.slice(url.indexOf('?'))).get('magnet')
-        return !!magnet && atob(magnet).includes(want)
-      }, fixtureHash, { timeout: 15_000 })
-      .then(() => true).catch(() => false)
-    const stillWaiting = await dup.evaluate(() => /Reading the torrent/.test(document.querySelector('[role="dialog"]')?.textContent ?? ''))
-    const linked = await dup.evaluate(() => {
+  await drop.getByRole('button', { name: /share a torrent/i }).click()
+  await drop.waitForSelector('[role="dialog"]', { timeout: 10_000 })
+
+  // a real drop on the window, which is the path that used to add
+  await drop.evaluate((b64) => {
+    const bin = atob(b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    const dt = new DataTransfer()
+    dt.items.add(new File([bytes], 'ripple-fixture.torrent', { type: 'application/x-bittorrent' }))
+    window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+  }, fixtureB64)
+
+  const linked = await drop
+    .waitForFunction((want) => {
       const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
       const magnet = new URLSearchParams(url.slice(url.indexOf('?'))).get('magnet')
-      return magnet ? atob(magnet).slice(0, 60) : null
-    })
-    console.log(`duplicate share: linkedTheRightTorrent=${resolved} stillWaiting=${stillWaiting} link=${JSON.stringify(linked)} errors=${dupErrors.length}`)
-    const bad = []
-    if (!resolved) bad.push(`the link does not name the fixture (${fixtureHash}); it linked ${linked}`)
-    if (stillWaiting) bad.push('still sitting on "Reading the torrent..."')
-    if (dupErrors.length) bad.push(`page errors: ${dupErrors.slice(0, 2).join(' | ')}`)
-    if (bad.length) { console.log(`  FAIL: ${bad.join('; ')}`); code = 1 }
-    else console.log('  PASS')
-  }
-  await dup.close()
+      return !!magnet && atob(magnet).includes(want)
+    }, fixtureHash, { timeout: 15_000 })
+    .then(() => true).catch(() => false)
+
+  // generous, because an add would show up on the next engine tick rather than instantly
+  await drop.waitForTimeout(5_000)
+  const after = await fixtureInLibrary()
+  const stillWaiting = await drop.evaluate(() => /Reading the torrent/.test(document.querySelector('[role="dialog"]')?.textContent ?? ''))
+
+  console.log(`drop into the dialog: linkedTheRightTorrent=${linked} fixtureInLibrary ${before} -> ${after} stillWaiting=${stillWaiting} errors=${dropErrors.length}`)
+  const dropBad = []
+  if (!linked) dropBad.push(`no link naming the fixture (${fixtureHash})`)
+  if (stillWaiting) dropBad.push('still sitting on "Reading the torrent..."')
+  if (after) dropBad.push('it also added the torrent to the library, which is the whole complaint')
+  if (dropErrors.length) dropBad.push(`page errors: ${dropErrors.slice(0, 2).join(' | ')}`)
+  if (dropBad.length) { console.log(`  FAIL: ${dropBad.join('; ')}`); code = 1 }
+  else console.log('  PASS')
+  await drop.close()
 
   /*
    * The other half of the design: sharing a torrent you already have goes through its own row,

@@ -5,7 +5,9 @@ import { getRoutePath, Route } from '../router/path'
 const VIDEO_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|wmv|mpg|mpeg|ogv)$/i
 
 // The array index IS the engine's file index (order preserved)
-export const pickVideoFile = (files?: TorrentFile[]): number => {
+// only `name` and `size` are read, so anything carrying those qualifies: the share dialog builds
+// its file list from a .torrent in the page and never has a TorrentFile
+export const pickVideoFile = (files?: readonly { name: string, size: number }[]): number => {
   if (!files?.length) return 0
   let best = -1, bestSize = -1
   files.forEach((f, i) => { if (VIDEO_RE.test(f.name) && f.size > bestSize) { best = i; bestSize = f.size } })

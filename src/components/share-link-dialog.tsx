@@ -1,4 +1,4 @@
-import type { Torrent } from '../torrent/types'
+import type { ShareSubject } from '../torrent/torrent-file'
 
 import { css } from '@emotion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -415,8 +415,8 @@ const style = css`
 const leaf = (path: string) => path.split('/').pop() || path
 
 type Props = {
-  /** The torrent to link. Null asks for one, which is the state the header button opens. */
-  torrent: Torrent | null
+  /** What to build a link for. Null asks for one, which is the state the header button opens. */
+  torrent: ShareSubject | null
   /** True while a drag carrying something addable is over the window. */
   dragging: boolean
   /** Hand a magnet to the library's add path. False means it was not a magnet. */
@@ -456,13 +456,14 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   const [watchIndex, setWatchIndex] = useState<number | null>(null)
 
   // a different torrent is a different file list, so nothing about the old selection survives
-  useEffect(() => { setPicked(null); setWatchIndex(null) }, [torrent?.id])
+  // keyed on the magnet, which is what identifies a subject now that it need not be in the library
+  useEffect(() => { setPicked(null); setWatchIndex(null) }, [torrent?.magnet])
 
   // the subject arrived, so the field has done its job and the empty state is behind us
   useEffect(() => { if (torrent) { setHandedOver(false); setInput('') } }, [torrent])
 
   // the player's own default, so an untouched watch link opens what pressing Watch would have
-  const defaultWatch = useMemo(() => pickVideoFile(files), [files])
+  const defaultWatch = useMemo(() => pickVideoFile(files ?? undefined), [files])
   const fileIndex = watchIndex ?? defaultWatch
 
   const indices = useMemo(() => picked ?? [...Array(fileCount).keys()], [picked, fileCount])
