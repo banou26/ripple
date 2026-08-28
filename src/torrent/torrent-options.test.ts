@@ -257,6 +257,25 @@ describe('the torrent option list', () => {
     it('does not claim its files are being left anywhere', () => {
       expect(find(ghost, 'remove')!.hint).not.toContain('folder')
     })
+
+    /**
+     * Watch is the one that got dangerous rather than merely useless.
+     *
+     * A ghost carries a file list now, synced from the device that has the torrent, so it looks
+     * playable while none of its bytes are here. Playing it adds the torrent, and the add survives
+     * as a permanent non-evictable download, which is precisely what the row's Download button
+     * exists to ask for first. Every other engine control on a ghost is greyed out; this one would
+     * have worked, which is worse.
+     */
+    it('does not offer Watch, however playable its synced file list looks', () => {
+      const playable = torrent({ state: 'missing', files: [{ name: 'Sintel.mp4', size: 1, progress: 0 }] })
+      expect(flat(playable).map((i) => i.id)).not.toContain('watch')
+    })
+
+    it('still offers Watch for the same file list once the torrent is actually here', () => {
+      const here = torrent({ state: 'downloading', files: [{ name: 'Sintel.mp4', size: 1, progress: 0 }] })
+      expect(flat(here).map((i) => i.id)).toContain('watch')
+    })
   })
 
   /**

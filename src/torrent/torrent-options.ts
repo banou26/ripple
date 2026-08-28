@@ -175,7 +175,10 @@ export const buildTorrentOptions = (
    * everything else lives here, where it has room for a name and a sentence.
    */
   const actions: OptionItem[] = []
-  if (hasPlayableFile(t)) {
+  // Not for a ghost. Its file list is synced from another device, so it now looks playable while
+  // none of the bytes are here, and Watch would silently start the full permanent download that the
+  // row's own Download button exists to ask for.
+  if (hasPlayableFile(t) && !isGhost(t)) {
     actions.push({
       kind: 'action',
       id: 'watch',
