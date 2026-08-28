@@ -91,6 +91,12 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       lastUsedAt: Math.max(was.lastUsedAt ?? 0, next.lastUsedAt ?? next.addedAt),
       savePath: was.savePath || next.savePath,
       rootEntry: next.rootEntry ?? was.rootEntry,
+      // An add carries no metadata: it is written before the swarm has said anything. Letting the
+      // spread through would erase what a previous session, or another device, already learned, and
+      // the erased version is what the next cloud write uploads.
+      name: next.name ?? was.name,
+      size: next.size ?? was.size,
+      files: next.files ?? was.files,
       downloadLimit: next.downloadLimit ?? was.downloadLimit,
       uploadLimit: next.uploadLimit ?? was.uploadLimit,
     }

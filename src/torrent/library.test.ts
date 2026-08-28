@@ -111,6 +111,43 @@ describe('mergeEntry', () => {
     expect(mergeEntry(entry({ rootEntry: 'Sintel' }), anAdd()).rootEntry).toBe('Sintel')
     expect(mergeEntry(entry({ rootEntry: 'Sintel' }), anAdd({ rootEntry: 'Renamed' })).rootEntry).toBe('Renamed')
   })
+
+  /**
+   * The same rule for the three fields that travel between devices.
+   *
+   * An add is written before the swarm has said anything, so it never carries metadata. Letting it
+   * through would erase what a previous session already learned, and since the erased list is what
+   * the next cloud write uploads, the loss follows the account onto every other device: the second
+   * device goes back to eight hex characters and a size of zero for a torrent it was showing
+   * properly a moment earlier.
+   */
+  it('keeps the synced metadata through a re-add that carries none', () => {
+    const known = entry({ name: 'Sintel', size: 129_300_000, files: [{ name: 'Sintel.mp4', size: 129_200_000 }] })
+    const merged = mergeEntry(known, anAdd())
+    expect(merged.name).toBe('Sintel')
+    expect(merged.size).toBe(129_300_000)
+    expect(merged.files).toEqual([{ name: 'Sintel.mp4', size: 129_200_000 }])
+  })
+
+  it('takes fresher metadata when the add has it, the way rootEntry does', () => {
+    const known = entry({ name: 'old', size: 1, files: [{ name: 'old.mkv', size: 1 }] })
+    const merged = mergeEntry(known, anAdd({ name: 'new', size: 2, files: [{ name: 'new.mkv', size: 2 }] }))
+    expect(merged.name).toBe('new')
+    expect(merged.size).toBe(2)
+    expect(merged.files).toEqual([{ name: 'new.mkv', size: 2 }])
+  })
+
+  it('leaves them absent when neither side ever knew', () => {
+    const merged = mergeEntry(entry(), anAdd())
+    expect(merged.name).toBeUndefined()
+    expect(merged.size).toBeUndefined()
+    expect(merged.files).toBeUndefined()
+  })
+
+  /** a zero-byte torrent is a real thing, and `??` is what keeps it from reading as unknown */
+  it('keeps a size of zero rather than treating it as nothing known', () => {
+    expect(mergeEntry(entry({ size: 0 }), anAdd()).size).toBe(0)
+  })
 })
 
 /**
