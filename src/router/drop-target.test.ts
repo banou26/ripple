@@ -12,7 +12,7 @@ import { dropTarget } from './drop-target'
  */
 const ALL: DropState[] = [false, true].flatMap((dragging) =>
   [false, true].flatMap((overField) =>
-    [false, true].map((pickOpen) => ({ dragging, overField, pickOpen }))))
+    [false, true].map((shareOpen) => ({ dragging, overField, shareOpen }))))
 
 describe('the drop target', () => {
   it('covers every combination of the three inputs', () => {
@@ -22,7 +22,7 @@ describe('the drop target', () => {
   it('names at most one surface, whatever the state', () => {
     for (const state of ALL) {
       const lit = dropTarget(state)
-      const surfaces: DropTarget[] = ['field', 'pick', 'page']
+      const surfaces: DropTarget[] = ['field', 'share', 'page']
       expect(surfaces.filter((s) => s === lit), JSON.stringify(state)).toHaveLength(lit === null ? 0 : 1)
     }
   })
@@ -46,18 +46,26 @@ describe('the drop target', () => {
    * both lit. Named individually so a failure says which one came back.
    */
   it('stands the page down when the drag reaches the magnet field', () => {
-    expect(dropTarget({ dragging: true, overField: true, pickOpen: false })).toBe('field')
+    expect(dropTarget({ dragging: true, overField: true, shareOpen: false })).toBe('field')
   })
 
-  it('stands the page down when the share panel is asking for a torrent', () => {
-    expect(dropTarget({ dragging: true, overField: false, pickOpen: true })).toBe('pick')
+  it('stands the page down when the share dialog is asking for a torrent', () => {
+    expect(dropTarget({ dragging: true, overField: false, shareOpen: true })).toBe('share')
   })
 
-  it('prefers the field to the share panel, since the field takes the drop itself', () => {
-    expect(dropTarget({ dragging: true, overField: true, pickOpen: true })).toBe('field')
+  /**
+   * This one INVERTED when the share panel became a modal, so it is worth stating why rather than
+   * just asserting the new answer.
+   *
+   * As an inline panel the field was a live control beside it and won, because a drop really could
+   * land there. As a dialog the field is behind a backdrop and marked inert by the modal shell, so
+   * it cannot receive anything. Lighting it would point at a control that is not listening.
+   */
+  it('prefers the share dialog to the field, because the dialog covers it and the field is inert', () => {
+    expect(dropTarget({ dragging: true, overField: true, shareOpen: true })).toBe('share')
   })
 
   it('falls back to the page-wide overlay when nothing narrower is on screen', () => {
-    expect(dropTarget({ dragging: true, overField: false, pickOpen: false })).toBe('page')
+    expect(dropTarget({ dragging: true, overField: false, shareOpen: false })).toBe('page')
   })
 })

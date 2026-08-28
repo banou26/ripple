@@ -30,6 +30,7 @@
     "bench:install": "playwright install chromium firefox",
     "bench:ramp": "npm run build && playwright test --config playwright.config.ts tests/torrent-ramp.spec.ts",
     "test:browser": "vitest run --project browser",
+    "test:share-dialog": "npm run build && node scripts/test-share-dialog.mjs",
     "verify:live": "node tests/live-watch.mjs"
   },
   "dependencies": {

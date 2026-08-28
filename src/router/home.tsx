@@ -42,7 +42,7 @@ import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
-import { EmbedBuilder } from './embed-builder'
+import { ShareLinkDialog } from '../components/share-link-dialog'
 import { TorrentDetailDock } from './torrent-detail'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
@@ -2021,6 +2021,37 @@ const Home = () => {
     setEmbedId(found.id)
   }, [torrents])
 
+  /**
+   * The share dialog's own two inputs, which have to arm the same claim a drop does.
+   *
+   * `acceptDrop` arms it for anything dropped on the window, but the dialog's magnet field and file
+   * picker call the add path directly, so without these the torrent would be added and the dialog
+   * would sit on its empty state waiting for something that already happened.
+   */
+  const shareMagnet = useCallback((raw: string): boolean => {
+    const text = raw.trim()
+    const hash = magnetInfoHash(text)
+    /*
+     * Already in the library, so nothing is going to be added and no claim would ever resolve: the
+     * claim is drained by an effect on `torrents`, and a list that does not change never runs it.
+     * Point straight at the torrent instead, which is also the more useful answer to someone asking
+     * for a link to something they already have.
+     */
+    const existing = hash && torrentsRef.current.find((t) => t.magnet && magnetInfoHash(t.magnet) === hash)
+    if (existing) { claimRef.current = null; setEmbedId(existing.id); return true }
+    // armed before the add, so the claim cannot miss a torrent that appears synchronously
+    if (hash) claimRef.current = { hash }
+    const added = commitMagnet(text)
+    if (!added) claimRef.current = null
+    return added
+  }, [commitMagnet])
+
+  const shareFiles = useCallback((files: Iterable<File>) => {
+    // `before` has to be the list as it was, so this is armed first, exactly as the drop path does
+    claimRef.current = { before: new Set(torrentsRef.current.map((t) => t.id)) }
+    void addTorrentFiles(files)
+  }, [addTorrentFiles])
+
   const openEmbed = useCallback((id: string | null) => {
     claimRef.current = null
     setEmbedId(id)
@@ -2587,14 +2618,15 @@ const Home = () => {
    * page lighting alongside the magnet field, then the page lighting alongside the share panel's
    * box, because two of them were still reading one value. A single name cannot describe two places.
    *
-   * The share panel only draws a drop box while it is waiting to be given a torrent; once one is
+   * The share dialog only draws a drop zone while it is waiting to be given a torrent; once one is
    * chosen it shows that torrent's link options instead, and there is nothing there for a drop to
-   * land on, so the page-wide overlay is the right surface again.
+   * land on, so the page-wide overlay is the right surface again. Note that the dialog is a modal,
+   * so while it is asking it covers the field too, which is why it outranks it.
    */
   const target = dropTarget({
     dragging,
     overField: fieldDrag,
-    pickOpen: embedOpen && !torrents.some((t) => t.id === embedId),
+    shareOpen: embedOpen && !torrents.some((t) => t.id === embedId),
   })
 
   return (
@@ -2712,11 +2744,12 @@ const Home = () => {
       </header>
 
       {embedOpen && (
-        <EmbedBuilder
-          torrents={torrents}
+        <ShareLinkDialog
           torrent={torrents.find((t) => t.id === embedId) ?? null}
-          dragging={target === 'pick'}
-          onSelect={setEmbedId}
+          dragging={target === 'share'}
+          onMagnet={shareMagnet}
+          onFiles={shareFiles}
+          onClear={() => setEmbedId(null)}
           onClose={closeEmbed}
           onToast={showToast}
         />
