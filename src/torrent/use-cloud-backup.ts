@@ -6,6 +6,7 @@ import { account, cloud } from '@fkn/lib'
 
 import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
+import { retryMissedThumbnails, syncThumbnails } from './thumbnail-sync'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
 const ACCOUNT_KEY = 'ripple:sync-account'
@@ -200,7 +201,19 @@ export const useCloudBackup = (): SyncState => {
       if (cancelled || !connected || !restored) return
       if (writesFor !== currentAccount()) return
       setStatus('syncing')
-      try { await writeNow(); if (!cancelled) setStatus('synced') }
+      try {
+        await writeNow()
+        if (!cancelled) setStatus('synced')
+        /*
+         * Pictures ride alongside the list, not inside it.
+         *
+         * Done here because this is the point at which the cloud is known to be reachable and the
+         * list is known to agree on both sides. It is bounded per pass and every failure is
+         * swallowed, so it can never turn a good backup into a reported one: a missing thumbnail is
+         * a smaller problem than anything worth risking to avoid it.
+         */
+        void syncThumbnails(latest.map((e) => e.infoHash)).catch(() => {})
+      }
       catch (err) {
         if (cancelled) return
         // One retry only, so a persistent lock cannot loop the modal unlock card in front of the user every minute
@@ -320,6 +333,11 @@ export const useCloudBackup = (): SyncState => {
         }
         restored = true
         setStatus('synced')
+        // the case this exists for: a device that just adopted a library it has no files for, and
+        // therefore no way to picture any of it
+        retryMissedThumbnails()
+        void syncThumbnails((Array.isArray(list) ? list : []).map((e: Persisted) => e.infoHash).filter(Boolean))
+          .catch(() => {})
         if (latest.length) schedule()
       } else if (missing) {
         restored = true
