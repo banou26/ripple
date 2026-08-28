@@ -10,7 +10,6 @@ import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
 import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
-import { ConnectButton } from '@fkn/lib/react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
@@ -18,7 +17,6 @@ import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
-import { useAccount } from '../torrent/use-account'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { moveTorrentFiles } from '../torrent/move-files'
@@ -44,6 +42,7 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { TorrentDetailDock } from './torrent-detail'
+import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
@@ -228,30 +227,6 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
       {/* the port stays visible once peers arrive: it is what a user checks against a router or a
           firewall, and hiding it exactly when the feature starts working is the wrong trade */}
       <strong className={inbound > 0 && portOpen ? 'ok' : undefined}>{label}</strong>
-    </div>
-  )
-}
-
-const AccountWidget = () => {
-  const { info, ready, logout } = useAccount()
-  const [busy, setBusy] = useState(false)
-
-  const onDisconnect = async () => {
-    setBusy(true)
-    try { await logout() } finally { setBusy(false) }
-  }
-
-  if (!ready) return null
-
-  if (!info) return <ConnectButton style={{ flex: 'none', width: 140, height: 38 }} />
-
-  return (
-    <div className="account">
-      <div className="who">
-        <span className="name">{info.name || 'Account'}</span>
-        <span className={`tier ${info.premium ? 'premium' : 'free'}`}>{info.premium ? 'Premium' : 'Free'}</span>
-      </div>
-      <button className="disconnect" disabled={busy} onClick={onDisconnect}>Disconnect</button>
     </div>
   )
 }
@@ -503,68 +478,6 @@ export const style = css`
         background: ${CONTROL_HOVER_BG};
         border-color: rgba(249, 115, 22, 0.45);
       }
-    }
-
-    .account {
-      flex: none;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-
-      .who {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 1px;
-        line-height: 1.15;
-        min-width: 0;
-      }
-
-      .name {
-        font-size: 0.82rem;
-        font-weight: 600;
-        color: #f4f2f8;
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .tier {
-        font-size: 0.6rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-      }
-
-      .tier.premium {
-        color: #7dd3a0;
-      }
-
-      .tier.free {
-        color: #8b8499;
-      }
-
-      .disconnect {
-        flex: none;
-        border-radius: 6px;
-        padding: 7px 14px;
-        font-size: 0.78rem;
-        font-weight: 700;
-        border: 1px solid #3a3447;
-        background: ${CONTROL_BG};
-        color: #f4f2f8;
-
-        &:hover {
-          background: ${CONTROL_HOVER_BG};
-          border-color: rgba(249, 115, 22, 0.45);
-        }
-      }
-    }
-
-    .account button:disabled {
-      opacity: 0.6;
-      cursor: default;
     }
   }
 
@@ -2784,7 +2697,7 @@ const Home = () => {
             Open torrents with Ripple
           </button>
         )}
-        <AccountWidget/>
+        <AccountWidget onToast={showToast}/>
       </header>
 
       {embedOpen && (
