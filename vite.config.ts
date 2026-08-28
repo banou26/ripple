@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises'
 import { defineConfig, lazyPlugins } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import { playwright } from '@vitest/browser-playwright'
@@ -28,6 +29,36 @@ const commitHash =
       return 'main'
     }
   })()
+
+/**
+ * Serve `/sw.js` from `src/` while developing.
+ *
+ * The service worker is copied into `build/` by the `copy-html` script, which only runs for a real
+ * build, so under `vp dev` the request falls through to the SPA fallback and comes back as
+ * index.html. The browser then logs "The script has an unsupported MIME type ('text/html')" on every
+ * dev session, and the streamed download, which is entirely a service worker, cannot work at all.
+ *
+ * Read from disk per request rather than cached, so editing the worker and reloading is enough.
+ */
+const serveServiceWorkerInDev = () => ({
+  name: 'ripple-serve-sw-in-dev',
+  apply: 'serve' as const,
+  configureServer (server: { middlewares: { use: (fn: (req: { url?: string }, res: ServerResponseLike, next: () => void) => void) => void } }) {
+    server.middlewares.use((req, res, next) => {
+      if ((req.url ?? '').split('?')[0] !== '/sw.js') return next()
+      readFile(new URL('./src/sw.js', import.meta.url), 'utf8')
+        .then(body => {
+          res.setHeader('content-type', 'text/javascript')
+          // the worker must never be the stale thing deciding what the page gets
+          res.setHeader('cache-control', 'no-store')
+          res.end(body)
+        })
+        .catch(() => next())
+    })
+  },
+})
+
+type ServerResponseLike = { setHeader: (name: string, value: string) => void, end: (body: string) => void }
 
 export default defineConfig((env) => ({
   fmt: { semi: false, singleQuote: true },
@@ -104,6 +135,7 @@ export default defineConfig((env) => ({
       jsxImportSource: '@emotion/react',
     }),
     polyfills(),
+    serveServiceWorkerInDev(),
   ]),
   /**
    * `unit` is the pure logic in node. `browser` mounts things in real Chrome, which is the only place

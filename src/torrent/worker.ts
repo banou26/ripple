@@ -405,6 +405,22 @@ const applyViewing = (h: number) => {
   if (!active.length) {
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
     // This is also what takes the skip mask off before it can be written into resume data.
+    /*
+     * Nothing below can run before the file layout lands.
+     *
+     * `clearStreamWindow` begins with `lt_torrent_clear_piece_deadlines`, which walks the piece
+     * list, and the engine guards its own `prioritizePieces` on the layout two lines later for
+     * exactly that reason without guarding this one. A trap in there is not a soft failure: the
+     * wasm instance is finished afterwards, so the engine is gone for the life of the page.
+     *
+     * Deferred rather than dropped, the same way the claimed path below defers: the pump re-runs
+     * everything in `pendingViewing`, so this lands on the first pass after the metadata arrives.
+     *
+     * Reachable because a download page registers a HELD claim the moment its handle exists, and a
+     * held claim is not an active viewer, so this branch runs at `watch` time, which is before any
+     * metadata exists.
+     */
+    if (!session.files(h)) { pendingViewing.add(h); return }
     pendingViewing.delete(h)
     session.clearStreamWindow(h)
     // clearStreamWindow just wrote normal over every piece, so anything the person chose has to be
@@ -420,7 +436,7 @@ const applyViewing = (h: number) => {
     // one that is still fetching its metadata stops it ever getting any. Every other caller of this
     // branch already has metadata by construction; a held claim registered the moment a handle
     // exists does not, and that is the one that would have hung the page it was protecting.
-    if (session.files(h) && ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
+    if (ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPaused.add(h)
       session.pauseTorrent(h)
