@@ -9,6 +9,10 @@
 
 import { chromium } from 'playwright'
 import { spawn } from 'child_process'
+import { writeFile } from 'fs/promises'
+import { createHash } from 'crypto'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const PORT = 4602
 const ORIGIN = `http://127.0.0.1:${PORT}`
@@ -75,6 +79,73 @@ try {
     else console.log('  PASS')
     await page.close()
   }
+
+  /*
+   * Sharing a .torrent that is ALREADY in the library.
+   *
+   * This hung for ever on "Reading the torrent...". The dialog armed a claim that waits for a NEW
+   * torrent to appear, and re-adding one you already have adds nothing, so nothing ever resolved
+   * it. That is the likely case rather than the edge: the file on somebody's disk is usually the
+   * one they already opened. Fixed by reading the infohash out of the file first and pointing
+   * straight at the existing torrent.
+   *
+   * The fixture is built here rather than committed, so the check carries its own input and does
+   * not depend on a torrent living on one particular machine.
+   */
+  const fixture = join(tmpdir(), 'ripple-share-fixture.torrent')
+  // ONE piece exactly: `pieces` must hold 20 bytes per piece, so a length longer than one piece
+  // with a single hash is rejected by the engine and the case silently stops being staged
+  const pieces = Buffer.alloc(20, 7)
+  const info = Buffer.concat([
+    Buffer.from('d6:lengthi262144e4:name17:ripple-fixture.md12:piece lengthi262144e6:pieces20:'),
+    pieces,
+    Buffer.from('e'),
+  ])
+  // the infohash is the sha1 of the info VALUE, so building it here gives the exact number the
+  // link must carry. Asserting on that rather than on "a link appeared" is the whole point: the
+  // old `before` claim resolves to whatever torrent turns up next, so a check that only asks
+  // whether SOMETHING resolved passes on the wrong torrent.
+  const fixtureHash = createHash('sha1').update(info).digest('hex')
+  await writeFile(fixture, Buffer.concat([Buffer.from('d8:announce20:udp://127.0.0.1:6969' + '4:info'), info, Buffer.from('e')]))
+
+  const dup = await browser.newPage({ viewport: { width: 1280, height: 860 } })
+  const dupErrors = []
+  dup.on('pageerror', (e) => dupErrors.push(String(e)))
+  await dup.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
+  await dup.waitForSelector('header .field', { timeout: 30_000 })
+  await dup.setInputFiles("header .field input[type='file']", fixture)
+  const inLibrary = await dup
+    .waitForFunction(() => [...document.querySelectorAll('.torrent')].some((r) => /ripple-fixture/.test(r.textContent ?? '')), null, { timeout: 45_000 })
+    .then(() => true).catch(() => false)
+
+  if (!inLibrary) {
+    console.log('duplicate share: SKIPPED, the fixture never reached the library so the case cannot be staged')
+  } else {
+    await dup.getByRole('button', { name: /share a torrent/i }).click()
+    await dup.waitForSelector('[role="dialog"]', { timeout: 10_000 })
+    await dup.setInputFiles("[role=\"dialog\"] input[type='file']", fixture)
+    const resolved = await dup
+      .waitForFunction((want) => {
+        const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
+        const magnet = new URLSearchParams(url.slice(url.indexOf('?'))).get('magnet')
+        return !!magnet && atob(magnet).includes(want)
+      }, fixtureHash, { timeout: 15_000 })
+      .then(() => true).catch(() => false)
+    const stillWaiting = await dup.evaluate(() => /Reading the torrent/.test(document.querySelector('[role="dialog"]')?.textContent ?? ''))
+    const linked = await dup.evaluate(() => {
+      const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
+      const magnet = new URLSearchParams(url.slice(url.indexOf('?'))).get('magnet')
+      return magnet ? atob(magnet).slice(0, 60) : null
+    })
+    console.log(`duplicate share: linkedTheRightTorrent=${resolved} stillWaiting=${stillWaiting} link=${JSON.stringify(linked)} errors=${dupErrors.length}`)
+    const bad = []
+    if (!resolved) bad.push(`the link does not name the fixture (${fixtureHash}); it linked ${linked}`)
+    if (stillWaiting) bad.push('still sitting on "Reading the torrent..."')
+    if (dupErrors.length) bad.push(`page errors: ${dupErrors.slice(0, 2).join(' | ')}`)
+    if (bad.length) { console.log(`  FAIL: ${bad.join('; ')}`); code = 1 }
+    else console.log('  PASS')
+  }
+  await dup.close()
 
   /*
    * The other half of the design: sharing a torrent you already have goes through its own row,

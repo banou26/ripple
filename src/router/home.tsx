@@ -48,6 +48,7 @@ import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
+import { torrentInfoHash } from '../torrent/torrent-info-hash'
 import { buildTorrentOptions } from '../torrent/torrent-options'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
@@ -2055,9 +2056,29 @@ const Home = () => {
   }, [commitMagnet])
 
   const shareFiles = useCallback((files: Iterable<File>) => {
-    // `before` has to be the list as it was, so this is armed first, exactly as the drop path does
-    claimRef.current = { before: new Set(torrentsRef.current.map((t) => t.id)) }
-    void addTorrentFiles(files)
+    const all = [...files]
+    const torrent = all.find((file) => /\.torrent$/i.test(file.name))
+    // nothing usable in the drop; addTorrentFiles owns saying so
+    if (!torrent) { void addTorrentFiles(all); return }
+    void (async () => {
+      const hash = await torrentInfoHash(new Uint8Array(await torrent.arrayBuffer()))
+      /*
+       * Already in the library, which is the LIKELY case rather than the edge: the .torrent sitting
+       * on somebody's disk is usually the one they already opened. Re-adding it adds nothing, so a
+       * claim waiting for a new torrent to appear waits for ever, and the dialog sat on "Reading
+       * the torrent..." until the person gave up. Point straight at it instead.
+       */
+      const existing = hash && torrentsRef.current.find((t) => t.infoHash === hash)
+      if (existing) { claimRef.current = null; setEmbedId(existing.id); return }
+      /*
+       * Claim by HASH when we have one. The `before` set only says "something new turned up", which
+       * picks the wrong torrent if two arrive at once, and cannot resolve at all when none does.
+       * It stays as the fallback for a file this parser could not read, where the engine may still
+       * manage to add it.
+       */
+      claimRef.current = hash ? { hash } : { before: new Set(torrentsRef.current.map((t) => t.id)) }
+      void addTorrentFiles(all)
+    })()
   }, [addTorrentFiles])
 
   const openEmbed = useCallback((id: string | null) => {
