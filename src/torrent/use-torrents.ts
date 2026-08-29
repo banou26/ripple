@@ -21,6 +21,19 @@ const STATE: Record<number, TorrentState> = {
 // libtorrent holds a checking torrent paused, so this MUST be read before `paused`
 const CHECKING = new Set([1, 7])
 
+/**
+ * Every byte the torrent wanted is on disk: libtorrent's `finished` and `seeding`.
+ *
+ * Read on PAUSED torrents, which is the whole reason it exists, and safe there because the state is
+ * a property of the torrent rather than of the session running it: pausing does not reset it, so a
+ * stopped torrent keeps saying it has everything.
+ *
+ * Not derived from `totalDone >= totalWanted`, which looks like the same question and is not: the
+ * streaming plan skips every unwatched file, shrinking `totalWanted` to the watched selection while
+ * `totalDone` keeps counting every piece held. A season pack with one episode fetched satisfies it.
+ */
+const COMPLETE = new Set([4, 5])
+
 const fmtEta = (status: TorrentSnapshot['status']): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
@@ -43,7 +56,20 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
 export const snapshotState = (s: TorrentSnapshot): TorrentState => {
   const st = s.status
   const retrying = s.recovery && !s.userPaused
-  const stopped: TorrentState = s.userPaused ? 'paused' : 'queued'
+  /**
+   * What a STOPPED torrent is called, and why completion outranks the stop.
+   *
+   * This used to be `queued` for anything the engine stopped, which describes the SESSION rather
+   * than the torrent. Two ordinary things land there with every byte already on disk: libtorrent
+   * parks a finished torrent past `active_seeds` in its own queue, and `applyViewing` idle-parks a
+   * cache torrent as soon as its last viewer leaves. Both then read as "waiting its turn to
+   * download", so somebody who just watched a download finish is told it is queued.
+   *
+   * The user's own pause still outranks `done`, because that one is a decision they made and the
+   * row is the only place it is reflected back to them.
+   */
+  const complete = !!st && COMPLETE.has(st.state)
+  const stopped: TorrentState = s.userPaused ? 'paused' : complete ? 'done' : 'queued'
   const base: TorrentState = st
     ? (CHECKING.has(st.state) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
     : (s.files ? 'queued' : 'downloading')
