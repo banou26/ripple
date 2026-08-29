@@ -32,6 +32,10 @@ if (!URL_UNDER_TEST) {
 
 const browser = await chromium.launch({
   headless: false,
+  // headful is required to observe a transfer at all, which makes this the loudest thing the repo
+  // can run: it drives a real torrent for up to 150s on someone else's machine. --mute-audio is
+  // output only, so currentTime, buffered and every number read below are identical muted.
+  args: ['--mute-audio'],
   executablePath: process.env.RIPPLE_CHROME || undefined,
 })
 const context = await browser.newContext({ viewport: VIEWPORT })
