@@ -144,12 +144,13 @@ const style = css`
     svg { width: 18px; height: 18px; }
 
     /* Down, not up: EMPHASIS is already the brightest fill the palette has, so the hover steps to
-       EMPHASIS_HOVER, the one value the palette picks for this. The lift rides along with it, and
-       the label is restated so the light fill and the dark label always travel together. */
+       EMPHASIS_HOVER, the one value the palette picks for this. The label is restated so the light
+       fill and the dark label always travel together. No lift: it used to rise a pixel against a
+       growing amber glow, and with the glow gone the movement is just the button twitching. The
+       press still answers, through the scale on :active. */
     &:hover:not(:disabled) {
       background: ${EMPHASIS_HOVER};
       color: ${TEXT_ON_LIGHT};
-      transform: translateY(-1px);
     }
 
     /* the fill is light, so dimming the whole button keeps the label at 5.8:1 against it over the

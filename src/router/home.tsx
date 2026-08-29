@@ -669,14 +669,17 @@ export const style = css`
     display: flex;
     align-items: stretch;
     gap: 12px;
-    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    transition: border-color 120ms ease, background 120ms ease;
 
-    /* Hover lifts and brightens its edge; selection above holds a brighter edge AND a lighter fill.
-       Two different properties for two different states, rather than two alphas of one colour, which
-       is what told them apart before and would not survive without a hue to vary. */
+    /* Hover brightens the edge, and that is the whole of it. It used to lift a pixel as well, which
+       made sense while the row also grew a drop shadow underneath: the two together read as the card
+       rising off the page. Flat, the shadow is gone and the lift has nothing left to explain it, so
+       a row that jumps a pixel under the cursor reads as the layout twitching rather than as
+       feedback. Selection above holds a brighter edge AND a lighter fill: two different properties
+       for two different states, rather than two alphas of one colour, which is what told them apart
+       before and would not survive without a hue to vary. */
     &:hover {
       border-color: ${BORDER_STRONG};
-      transform: translateY(-1px);
     }
 
     /* Everything that is not the picture. A column, because the file list sits under the main line
