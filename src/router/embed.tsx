@@ -13,6 +13,7 @@ import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection, parseMode } from './file-selection'
+import { decodeMagnetParam } from './magnet-codec'
 
 const playerStyle = css`
   height: 100%;
@@ -133,17 +134,17 @@ const playerStyle = css`
 
 const Player = () => {
   const [searchParams] = useSearchParams()
-  const { magnet: _magnet, fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
+  const { fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   /**
-   * Guarded, because `magnet` is embedder-written text and atob THROWS on anything that is not
-   * base64. Bare, that exception lands during render on the default route, so a mistyped link takes
-   * the whole page down rather than showing an empty player. The download path has always been
-   * guarded; this one was not.
+   * Both parameters, because this is the SECOND of two decode sites and they have to agree: the
+   * other is in `Embed` below. Reading `m` here and only `magnet` there would render an empty player
+   * for every packed watch link while download links kept working.
+   *
+   * decodeMagnetParam never throws. It is fed embedder-written text, and a bare atob lands its
+   * exception during render on the default route, taking the whole page down rather than showing an
+   * empty player.
    */
-  const magnet = useMemo(() => {
-    if (!_magnet) return undefined
-    try { return atob(_magnet) } catch { return undefined }
-  }, [_magnet])
+  const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
   // NaN would reach the engine as a file index and match nothing, so it collapses to the first file
   const fileIndex = useMemo(() => {
     const index = Number(_fileIndex)
@@ -283,11 +284,7 @@ const Player = () => {
 const Embed = () => {
   const [searchParams] = useSearchParams()
   const mode = parseMode(searchParams.get('mode'))
-  const rawMagnet = searchParams.get('magnet')
-  const magnet = useMemo(() => {
-    if (!rawMagnet) return undefined
-    try { return atob(rawMagnet) } catch { return undefined }
-  }, [rawMagnet])
+  const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
   const selection = useMemo(
     () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),
     [searchParams],

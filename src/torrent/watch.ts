@@ -1,6 +1,6 @@
 import type { Torrent, TorrentFile } from './types'
 
-import { encodeMagnet } from '../router/embed-link'
+import { encodeMagnetParam } from '../router/magnet-codec'
 import { getRoutePath, Route } from '../router/path'
 
 const VIDEO_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|wmv|mpg|mpeg|ogv)$/i
@@ -36,8 +36,10 @@ export const hasPlayableFile = (t: Torrent): boolean =>
 
 export const watchHref = (t: Torrent): string | null => {
   if (!t.magnet || !t.files?.length) return null
-  // a magnet carrying a raw unicode display name cannot be base64'd, and this runs during a render
-  const magnet = encodeMagnet(t.magnet)
-  if (magnet === null) return null
-  return getRoutePath(Route.EMBED, { magnet, fileIndex: String(pickVideoFile(t.files)) })
+  // runs once per row inside a render, which is why the codec is synchronous, and returns null
+  // rather than throwing on a magnet no encoding can hold
+  const encoded = encodeMagnetParam(t.magnet)
+  if (encoded === null) return null
+  const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
+  return getRoutePath(Route.EMBED, { ...source, fileIndex: String(pickVideoFile(t.files)) })
 }

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { compileFileSelection, embedIframe, embedPath, embedUrl, encodeMagnet } from './embed-link'
+import { compileFileSelection, embedIframe, embedPath, embedUrl } from './embed-link'
 import { parseFileSelection, resolveSelection } from './file-selection'
+import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
+
+/** What a built path actually names, read back the way /embed reads it. */
+const magnetOf = (path: string) => decodeMagnetParam(new URLSearchParams(path.slice(path.indexOf('?') + 1)))
 
 const MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
 
@@ -86,7 +90,19 @@ describe('compile then parse round trip', () => {
 
 describe('embedPath', () => {
   it('carries only the magnet for a plain watch link', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).toBe(`/embed?magnet=${encodeURIComponent(btoa(MAGNET))}`)
+    const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}`)
+    expect(magnetOf(path)).toBe(MAGNET)
+  })
+
+  /**
+   * The reason this module changed at all. Pinned as a floor rather than an exact length so a
+   * dictionary or format change is free to do better, but a change that quietly stops packing and
+   * falls back to base64 for every link cannot pass.
+   */
+  it('is far shorter than writing the magnet out as base64', () => {
+    const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    expect(path.length).toBeLessThan(`/embed?magnet=${encodeURIComponent(btoa(MAGNET))}`.length / 2)
   })
 
   it('names a file on a watch link with fileIndex, which is what the player reads', () => {
@@ -127,10 +143,11 @@ describe('embedPath', () => {
   /**
    * base64 of a magnet can contain `+`, `/` and `=`, and a `+` written literally into a query string
    * reads back as a SPACE, so the magnet fails to decode and the embed shows nothing.
+   *
+   * This magnet carries no hash the packer recognises, so it takes the legacy base64 branch, which
+   * is exactly the branch that needs the escaping. The packed branch is base64url and needs none.
    */
   it('percent-encodes a base64 magnet rather than trusting it in a query string', () => {
-    // this exact `dn` is chosen so the base64 contains a '+' AND the magnet is already normalized,
-    // so the property under test is the query encoding rather than anything encodeMagnet did
     const awkward = 'magnet:?xt=urn:btih:abc&dn=:1~'
     const b64 = btoa(awkward)
     expect(b64, 'the fixture no longer produces the character this test is about').toContain('+')
@@ -138,6 +155,16 @@ describe('embedPath', () => {
     const readBack = new URLSearchParams(path.slice(path.indexOf('?'))).get('magnet')
     expect(readBack).toBe(b64)
     expect(atob(readBack!)).toBe(awkward)
+  })
+
+  /**
+   * The packed form is written with the base64url alphabet precisely so a query string carries it
+   * untouched. If a `+`, `/` or `=` ever reached a link, URLSearchParams would spend three
+   * characters escaping each one and hand back a space where a plus was.
+   */
+  it('writes the packed form with nothing a query string has to escape', () => {
+    const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+$/)
   })
 })
 
@@ -156,15 +183,13 @@ describe('a magnet that btoa cannot take', () => {
     expect(() => btoa(UNICODE)).toThrow()
   })
 
-  it('encodes it anyway, by percent-encoding what the query can hold', () => {
-    const encoded = encodeMagnet(UNICODE)
-    expect(encoded).not.toBeNull()
-    expect(atob(encoded!)).toBe('magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=%E6%98%A0%E7%94%BB%E3%81%AE%E9%A1%8C%E5%90%8D')
+  it('encodes it anyway, by normalizing to what the query can hold', () => {
+    expect(encodeMagnetParam(UNICODE)).not.toBeNull()
   })
 
   it('keeps naming the same torrent, which is the only part that has to survive', () => {
-    const back = atob(encodeMagnet(UNICODE)!)
-    const params = new URLSearchParams(back.slice(back.indexOf('?')))
+    const back = magnetOf(embedPath({ magnet: UNICODE, mode: 'watch' })!)!
+    const params = new URLSearchParams(back.slice(back.indexOf('?') + 1))
     expect(params.get('xt')).toBe('urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10')
     // and the name comes back readable, because the reader decodes
     expect(params.get('dn')).toBe('映画の題名')
@@ -172,16 +197,12 @@ describe('a magnet that btoa cannot take', () => {
 
   it('builds a link for it instead of throwing mid-render', () => {
     expect(() => embedPath({ magnet: UNICODE, mode: 'watch' })).not.toThrow()
-    expect(embedPath({ magnet: UNICODE, mode: 'watch' })).toContain('/embed?magnet=')
-  })
-
-  it('leaves an ordinary magnet byte for byte alone', () => {
-    expect(encodeMagnet(MAGNET)).toBe(btoa(MAGNET))
+    expect(embedPath({ magnet: UNICODE, mode: 'watch' })).toContain('/embed?m=')
   })
 
   /** null rather than a throw, so the caller renders its no-link branch */
   it('gives back null for something no encoding can save', () => {
-    expect(encodeMagnet('\u{1F600} not a url')).toBeNull()
+    expect(encodeMagnetParam('\u{1F600} not a url')).toBeNull()
     expect(embedPath({ magnet: '\u{1F600} not a url', mode: 'watch' })).toBeNull()
     expect(embedUrl({ magnet: '\u{1F600} not a url', mode: 'watch' }, 'https://x')).toBeNull()
     expect(embedIframe({ magnet: '\u{1F600} not a url', mode: 'watch' }, 'https://x')).toBeNull()
@@ -191,7 +212,7 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/embed?magnet=' + encodeURIComponent(btoa(MAGNET)))
+      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value)
   })
 
   /**

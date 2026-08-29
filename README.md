@@ -9,13 +9,33 @@ chosen by `mode`.
 
 | param | value | meaning |
 | --- | --- | --- |
-| `magnet` | base64 of the magnet URI | required |
+| `m` | the packed magnet, base64url | what Ripple writes today |
+| `magnet` | base64 of the magnet URI | the original form, read forever |
 | `mode` | `watch` (default) or `download` | which page to render |
 | `fileIndex` | a file index | the file `watch` plays; the fallback `download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `download` delivers |
 
+One of `m` or `magnet` is required. `m` wins if both are present.
+
 `mode` is absent-safe: anything unrecognised stays the player, so an existing embed URL keeps working
 untouched.
+
+### The two magnet forms
+
+`magnet=<base64 of the magnet URI>` is the original, and it is **permanent**. Every link ever handed
+out with it keeps working, and an embedder that finds it easier to write can keep writing it. Nothing
+about it has changed.
+
+`m=` is the same torrent packed smaller: the infohash as raw bytes rather than 40 hex characters, and
+the rest of the query deflated against a fixed table of the announce URLs that public magnets
+overwhelmingly share. It is base64url, so a query string carries it without escaping anything. Across
+a corpus covering every magnet form Ripple accepts, the median link is **69% shorter**; a five-tracker
+release goes from a 549-character URL to 148. A magnet using only private trackers has nothing to
+match against and still comes out around 42% shorter, on the strength of the packed infohash alone.
+
+Ripple writes whichever of the two is shorter, which is almost always `m`. The digit is a version:
+the table it compresses against can never be edited, so if it ever needs to change the parameter
+becomes `m2` and `m` keeps decoding the way it always did.
 
 ### `mode=watch`
 

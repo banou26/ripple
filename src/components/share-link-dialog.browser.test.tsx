@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
+import { decodeMagnetParam } from '../router/magnet-codec'
 import { ShareLinkDialog } from './share-link-dialog'
 
 /**
@@ -131,7 +132,7 @@ describe('the share link dialog, once it has a torrent', () => {
     // every file selected means every file, so the grammar says nothing rather than listing them
     expect(query().get('files')).toBeNull()
     expect(query().get('fileIndex')).toBeNull()
-    expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
+    expect(decodeMagnetParam(query())).toBe(SINTEL.magnet)
   })
 
   it('switches to a watch link on the file the player would have picked', async () => {
@@ -206,7 +207,7 @@ describe('the share link dialog, once it has a torrent', () => {
     // index 0 is what an absent fileIndex already means, and one of one file is every file
     expect(query().get('fileIndex')).toBeNull()
     expect(query().get('files')).toBeNull()
-    expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
+    expect(decodeMagnetParam(query())).toBe(SINTEL.magnet)
   })
 
   it('still offers the picker as soon as there are two files to choose between', async () => {
@@ -238,7 +239,7 @@ describe('the share link dialog, once it has a torrent', () => {
   it('builds a download link for it regardless', async () => {
     const { query } = await mount(NO_MEDIA)
     expect(query().get('mode')).toBe('download')
-    expect(atob(query().get('magnet')!)).toBe(SINTEL.magnet)
+    expect(decodeMagnetParam(query())).toBe(SINTEL.magnet)
   })
 
   it('keeps Watch for a magnet whose file list has not arrived, since unknown is not unplayable', async () => {

@@ -6,7 +6,10 @@
 
 import type { EmbedMode } from './file-selection'
 
+import { encodeMagnetParam } from './magnet-codec'
 import { getRoutePath, Route } from './path'
+
+export { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 
 /**
  * The shortest `files=` value naming exactly `indices`, or null when the param should be OMITTED.
@@ -51,43 +54,31 @@ export type EmbedLink = {
 }
 
 /**
- * base64 for a magnet, which is not always Latin-1.
- *
- * `btoa` throws on any code point above U+00FF, and a magnet copied with its display name left
- * unencoded carries them literally: `&dn=映画の題名` is a real thing to paste. Normalizing through
- * URL percent-encodes the query without changing what the magnet names, which makes it pure ASCII.
- *
- * Null rather than a throw for anything left over, because every caller builds a link during a
- * render. An exception there takes out the whole route, so the worst case has to be a link that is
- * not offered rather than a page that disappears.
- */
-export const encodeMagnet = (magnet: string): string | null => {
-  try { return btoa(new URL(magnet).href) } catch { /* not a URL at all, or still not Latin-1 */ }
-  try { return btoa(magnet) } catch { return null }
-}
-
-/**
  * The `/embed?...` path for a link, relative to the app root.
  *
- * Built through getRoutePath rather than by hand so the base64 magnet goes through
- * URLSearchParams, which percent-encodes the `+`, `/` and `=` that base64 can carry. Written
- * literally into a query string, a `+` reads back as a space and the magnet fails to decode.
+ * Built through getRoutePath rather than by hand so whichever form the codec picked goes through
+ * URLSearchParams. That matters for the legacy fallback, whose base64 can carry `+`, `/` and `=`:
+ * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
+ * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
 export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string | null => {
-  const encoded = encodeMagnet(magnet)
+  const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
-  const params: { magnet: string, mode?: 'download', files?: string, fileIndex?: string } = { magnet: encoded }
+  // spread rather than a computed key so the two parameter names stay distinguishable to the type
+  // checker, and so the torrent leads the query as every published example shows it
+  const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
+  const rest: { mode?: 'download', files?: string, fileIndex?: string } = {}
   // `watch` is the default, so saying it adds length and no meaning
   if (mode === 'download') {
-    params.mode = 'download'
+    rest.mode = 'download'
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
-    if (files) params.files = files
+    if (files) rest.files = files
   } else if (fileIndex != null && fileIndex > 0) {
     // fileIndex=0 is what an absent one already means
-    params.fileIndex = String(fileIndex)
+    rest.fileIndex = String(fileIndex)
   }
 
-  return getRoutePath(Route.EMBED, params)
+  return getRoutePath(Route.EMBED, { ...source, ...rest })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */
