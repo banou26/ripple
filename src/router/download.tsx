@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
+import { Link } from 'react-router-dom'
 
 import {
   BORDER,
@@ -30,7 +31,9 @@ import {
 } from '../torrent/save-file'
 import { magnetParam } from '../torrent/magnet'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
+import { useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { VpnStat } from '../components/vpn-stat'
 import type { PreviewFile } from './file-list-codec'
 import { resolveSelection } from './file-selection'
 
@@ -39,9 +42,6 @@ const style = css`
   overflow: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
   background: ${PAGE_BG};
   color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -54,6 +54,46 @@ const style = css`
     transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
     &:active { transform: scale(0.98); }
     &:disabled { cursor: default; }
+  }
+
+  /**
+   * The way back into the app, and the same bar the library has.
+   *
+   * This page is reached from a link somebody was handed, so for a lot of the people who see it this
+   * is the ONLY ripple page they have ever loaded, and until now it named the app without saying it
+   * was one you could go and use. The wordmark is the whole navigation: there is one destination.
+   */
+  > header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    padding: 10px 18px;
+    /* opaque and edged, exactly as the library's header is: the card scrolls under it */
+    background: ${SURFACE_BG};
+    border-bottom: 1px solid ${BORDER};
+  }
+
+  /* Centred inside the card before, where it was a caption. In the bar it is the brand and the link,
+     so it sits at the top text tier and brightens under the cursor like every other link here. */
+  .wordmark {
+    font-size: 1.2rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    color: ${TEXT};
+    transition: opacity 120ms ease;
+
+    &:hover { opacity: 0.75; }
+  }
+
+  /* Grows to whatever is left, so a short card sits in the middle of the page and a tall one simply
+     makes the page scroll rather than being clipped at the top. */
+  > main {
+    flex: 1;
+    display: flex;
+    padding: 24px 16px;
   }
 
   .card {
@@ -71,14 +111,6 @@ const style = css`
     display: flex;
     flex-direction: column;
     gap: 18px;
-  }
-
-  .wordmark {
-    align-self: center;
-    font-size: 1.1rem;
-    font-weight: 900;
-    letter-spacing: 0.06em;
-    color: ${TEXT};
   }
 
   .subject {
@@ -345,6 +377,14 @@ type Props = {
 
 const DownloadPage = ({ magnet, selection, preview }: Props) => {
   const { client, snapshot, handle, viewer, claim, engineError, storageFull } = useDownloadTorrent(magnet)
+  /**
+   * Whether anything is carrying peer traffic, which is the one explanation this page never had.
+   *
+   * A link opened with the tunnel down sits on "Loading torrent…" with a disabled button and no
+   * error text anywhere, and the page is the whole of what that person can see: they have no library
+   * strip to check and usually no idea ripple has a transport at all.
+   */
+  const reachable = useReachability()
 
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -496,117 +536,119 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
 
   return (
     <div css={style}>
-      <div className="card">
-        <span className="wordmark">Ripple</span>
+      <header>
+        {/**
+          * Opened in a new tab when somebody else's page is framing this one, because navigating
+          * here would replace the download card with the whole library INSIDE their layout, which is
+          * not a place ripple should put itself. Unframed it is an ordinary in-app navigation, so
+          * the engine and anything it is running survive the trip.
+          */}
+        <Link className="wordmark" to="/" target={framed ? '_blank' : undefined} rel={framed ? 'noreferrer' : undefined}>
+          Ripple
+        </Link>
+        <VpnStat reachable={reachable}/>
+      </header>
 
-        <div className="subject">
-          <div className="glyph">{singleShown ? <FileIcon /> : <Folder />}</div>
-          <div className="about">
-            <div className="name">{subjectName}</div>
-            <div className="meta">
-              {shown.length === 0
-                ? files
-                  ? 'None of the requested files are in this torrent'
-                  : 'Reading the torrent from the network'
-                : `${getHumanReadableByteString(totalBytes)}${singleShown ? '' : ` · ${shown.length} files`}`}
-              {/* said out loud, because until metadata lands this is the link's word and not the
-                  torrent's, and the two can disagree */}
-              {showingPreview && ' · from the link'}
+      <main>
+        <div className="card">
+          <div className="subject">
+            <div className="glyph">{singleShown ? <FileIcon /> : <Folder />}</div>
+            <div className="about">
+              <div className="name">{subjectName}</div>
+              <div className="meta">
+                {shown.length === 0
+                  ? files
+                    ? 'None of the requested files are in this torrent'
+                    : 'Reading the torrent from the network'
+                  : `${getHumanReadableByteString(totalBytes)}${singleShown ? '' : ` · ${shown.length} files`}`}
+                {/* said out loud, because until metadata lands this is the link's word and not the
+                    torrent's, and the two can disagree */}
+                {showingPreview && ' · from the link'}
+              </div>
             </div>
           </div>
+
+          <button className="cta" onClick={() => start(entries, 'Downloading')} disabled={!ready || busy}>
+            {!busy && <Download />}
+            {label}
+          </button>
+
+          {busy && (
+            <div className="progress">
+              <div className="bar"><div className="fill" style={{ width: `${Math.round(job.fraction * 100)}%` }} /></div>
+              <div className="line">
+                <span>{Math.round(job.fraction * 100)}%</span>
+                <span>{getHumanReadableByteString(job.fraction * job.total)} of {getHumanReadableByteString(job.total)}</span>
+              </div>
+            </div>
+          )}
+
+          {busy && <button className="cancel" onClick={cancel}>Cancel</button>}
+
+          {status && <div className="failure">{status}</div>}
+          {failure && <div className="failure">{failure}</div>}
+          {finished && <div className="done">Saved {finished}</div>}
+
+          {/**
+            * What the swarm is doing, which is the only explanation of a download that is not moving.
+            *
+            * Only while one is running. Before the click nothing is being transferred on purpose, and
+            * a permanent "0 peers · 0 B/s" under an unpressed button reads as a page that is broken
+            * rather than one that is waiting.
+            */}
+          {busy && !status && (
+            <div className="swarm" data-testid="swarm">
+              <span className="item"><User />{peers} peers</span>
+              <span className="item"><ArrowDown />{getHumanReadableByteString(rate, true)}/s</span>
+            </div>
+          )}
+
+          {shown.length > 1 && (
+            <details className="files">
+              <summary>{shown.length} files{showingPreview && ' from the link'}</summary>
+              <div className="list">
+                {shown.map((entry) => (
+                  <div className="file" key={entry.index}>
+                    <span className="name">{leaf(entry.path)}</span>
+                    <span className="size">{getHumanReadableByteString(entry.size)}</span>
+                    {/**
+                      * Shows "Download" and ANNOUNCES the file, because the visible label is only
+                      * unambiguous next to the name in the same row. Read on its own, as a screen
+                      * reader's element list does, a season pack is otherwise 24 buttons that all say
+                      * the same word. The visible text stays a prefix of the accessible name, so
+                      * "click Download" still addresses this button by voice.
+                      */}
+                    {/* no per-file button while this list is the link's claim rather than the
+                        torrent's: its indices are the link's too, and `start` writes files to disk by
+                        index. Disabling the button would be enough today and would stop being enough
+                        the first time somebody loosens `ready`. Not rendering it cannot rot that way. */}
+                    {!showingPreview && (
+                    <button
+                      aria-label={`Download ${leaf(entry.path)}`}
+                      onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)}
+                      disabled={!ready || busy}
+                    >
+                      Download
+                    </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/**
+            * A framed page cannot know whether its embedder granted `allow-downloads`, and a refusal is
+            * silent: the frame navigation is dropped, no event fires and nothing throws. So the way out
+            * is offered up front rather than after a download that quietly never started.
+            */}
+          {framed && openHere && (
+            <div className="note">
+              Download not starting? <a href={openHere} target="_blank" rel="noreferrer">Open this page in Ripple</a>.
+            </div>
+          )}
         </div>
-
-        <button className="cta" onClick={() => start(entries, 'Downloading')} disabled={!ready || busy}>
-          {!busy && <Download />}
-          {label}
-        </button>
-
-        {busy && (
-          <div className="progress">
-            <div className="bar"><div className="fill" style={{ width: `${Math.round(job.fraction * 100)}%` }} /></div>
-            <div className="line">
-              <span>{Math.round(job.fraction * 100)}%</span>
-              <span>{getHumanReadableByteString(job.fraction * job.total)} of {getHumanReadableByteString(job.total)}</span>
-            </div>
-          </div>
-        )}
-
-        {busy && <button className="cancel" onClick={cancel}>Cancel</button>}
-
-        {status && <div className="failure">{status}</div>}
-        {failure && <div className="failure">{failure}</div>}
-        {finished && <div className="done">Saved {finished}</div>}
-
-        {/**
-          * What the swarm is doing, which is the only explanation of a download that is not moving.
-          *
-          * Only while one is running. Before the click nothing is being transferred on purpose, and
-          * a permanent "0 peers · 0 B/s" under an unpressed button reads as a page that is broken
-          * rather than one that is waiting.
-          */}
-        {busy && !status && (
-          <div className="swarm" data-testid="swarm">
-            <span className="item"><User />{peers} peers</span>
-            <span className="item"><ArrowDown />{getHumanReadableByteString(rate, true)}/s</span>
-          </div>
-        )}
-
-        {/**
-          * Says out loud that arriving here costs nothing, which is the whole point of the hold.
-          *
-          * Phrased about what OPENING the page did, not about what is on disk: a second visit to the
-          * same link finds bytes already cached from the first, and "nothing is downloaded" would be
-          * a claim about those.
-          */}
-        {ready && !busy && !status && !finished && (
-          <div className="note">Opening this page downloads nothing. Press the button to start.</div>
-        )}
-
-        {shown.length > 1 && (
-          <details className="files">
-            <summary>{shown.length} files{showingPreview && ' from the link'}</summary>
-            <div className="list">
-              {shown.map((entry) => (
-                <div className="file" key={entry.index}>
-                  <span className="name">{leaf(entry.path)}</span>
-                  <span className="size">{getHumanReadableByteString(entry.size)}</span>
-                  {/**
-                    * Shows "Download" and ANNOUNCES the file, because the visible label is only
-                    * unambiguous next to the name in the same row. Read on its own, as a screen
-                    * reader's element list does, a season pack is otherwise 24 buttons that all say
-                    * the same word. The visible text stays a prefix of the accessible name, so
-                    * "click Download" still addresses this button by voice.
-                    */}
-                  {/* no per-file button while this list is the link's claim rather than the
-                      torrent's: its indices are the link's too, and `start` writes files to disk by
-                      index. Disabling the button would be enough today and would stop being enough
-                      the first time somebody loosens `ready`. Not rendering it cannot rot that way. */}
-                  {!showingPreview && (
-                  <button
-                    aria-label={`Download ${leaf(entry.path)}`}
-                    onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)}
-                    disabled={!ready || busy}
-                  >
-                    Download
-                  </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/**
-          * A framed page cannot know whether its embedder granted `allow-downloads`, and a refusal is
-          * silent: the frame navigation is dropped, no event fires and nothing throws. So the way out
-          * is offered up front rather than after a download that quietly never started.
-          */}
-        {framed && openHere && (
-          <div className="note">
-            Download not starting? <a href={openHere} target="_blank" rel="noreferrer">Open this page in Ripple</a>.
-          </div>
-        )}
-      </div>
+      </main>
     </div>
   )
 }

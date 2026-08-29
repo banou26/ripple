@@ -378,7 +378,6 @@ test.describe('storage eviction', () => {
     // now the DOWNLOAD page for the same torrent, which holds rather than transfers
     await page.goto(`/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download&files=${SINTEL_VIDEO}`)
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled({ timeout: 60_000 })
-    await expect(page.getByText(/Opening this page downloads nothing/)).toBeVisible()
 
     const squeezed = await squeezeTo(page, 60_000_000)
     console.log('[test] after squeeze:', squeezed, 'holding', before)

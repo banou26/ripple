@@ -238,8 +238,7 @@ describe('the embed route in download mode', () => {
     // a rendered file list proves the metadata arrived, so this is the held state and not a page still loading
     await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
     expect(claimed).toEqual([])
-    // and it says so, rather than leaving a still page to be read as a broken one
-    await expect.element(screen.getByText(/Opening this page downloads nothing/)).toBeInTheDocument()
+    // a swarm readout under an unpressed button would be describing a transfer that must not exist
     expect(screen.container.querySelector('[data-testid="swarm"]')).toBeNull()
 
     await screen.getByRole('button', { name: 'Download' }).click()

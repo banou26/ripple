@@ -214,7 +214,6 @@ print(json.dumps({
     const button = page.getByRole('button', { name: 'Download', exact: true })
     // enabled means the file list arrived, so everything after this is the HELD state and not a page still loading
     await expect(button).toBeEnabled({ timeout: 60_000 })
-    await expect(page.getByText(/Opening this page downloads nothing/)).toBeVisible()
     // a swarm readout under an unpressed button would be describing a transfer that must not exist
     await expect(page.getByTestId('swarm')).toHaveCount(0)
 

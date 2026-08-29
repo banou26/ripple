@@ -49,6 +49,7 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { TorrentDetailDock } from './torrent-detail'
+import { VpnStat } from '../components/vpn-stat'
 import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
@@ -188,49 +189,6 @@ const SyncStat = ({ state }: { state: SyncState }) => {
  * `inbound` counts the ones that have, split by transport because uTP and TCP fail independently:
  * uTP arrives through the DHT's implied port while TCP depends on the announced number being real.
  */
-/**
- * Whether peer traffic is going through FKN's WebVPN.
- *
- * Exported for its own test, like every other stat here: a stat that throws takes the route with it.
- *
- * ON means the relay reserved a port for this session AND a socket is bound and receiving on it.
- * Both halves are needed and they fail separately: `port` is the reservation and never changes for
- * the life of the session, while `listeners` is what is actually holding it right now, so a session
- * whose tunnel dropped keeps its number long after anything can reach it.
- *
- * OFF is deliberately NOT reported as "using the desktop stack". `@fkn/lib/desktop` is a declared
- * placeholder in 0.9.24 whose `available()` returns false and whose every method throws, so there is
- * no second transport to fall back to yet. Off therefore means the WebVPN path is not carrying
- * anything, which is a real and diagnosable state: it is what a signed-out session looks like, and
- * it is the state in which every torrent sits on "Loading torrent…" with zero peers and no error
- * anywhere on screen. That is the whole reason this readout exists.
- *
- * When a desktop backend does ship, this is the place to add the third answer rather than widening
- * "off" to mean two opposite things.
- */
-export const VpnStat = ({ reachable }: { reachable: Reachability | null }) => {
-  // nothing known yet is not the same as off, and claiming off would invent a fault out of a gap
-  if (!reachable) return null
-  const listeners = reachable.listeners ?? []
-  const bound = listeners.some((l) => l.up)
-  const healing = listeners.some((l) => l.healing)
-  const on = reachable.port !== null && bound
-
-  const label = on ? 'On' : healing ? 'Reconnecting' : 'Off'
-  const title = on
-    ? 'Peer traffic is going through FKN WebVPN.'
-    : healing
-      ? 'The WebVPN tunnel dropped and is being reclaimed.'
-      : 'Nothing is carrying peer traffic. Torrents will sit on "Loading torrent…" with no peers until this reads On.'
-
-  return (
-    <div className={'stat vpn' + (on ? '' : ' error')} title={title}>
-      <label>VPN</label>
-      <strong className={on ? 'ok' : undefined}>{label}</strong>
-    </div>
-  )
-}
-
 /** Exported for its own test: a stat that throws takes the whole route with it. */
 export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
   if (!reachable) return null
@@ -355,6 +313,10 @@ export const style = css`
       font-weight: 900;
       letter-spacing: 0.06em;
       color: ${TEXT};
+      transition: opacity 120ms ease;
+
+      /* it is a link now, and a link that answers nothing under the cursor reads as dead text */
+      &:hover { opacity: 0.75; }
     }
 
     /**
@@ -668,21 +630,8 @@ export const style = css`
         color: ${WARN};
       }
 
-      /*
-       * On is the healthy hue every other stat uses for the same idea. Off is WARN rather than
-       * DANGER because nothing has failed: the tunnel is simply not up, which is recoverable by
-       * signing in, and the strip already spends DANGER on outcomes rather than states.
-       *
-       * Both states carry a different WORD as well as a different colour, so the readout still
-       * separates without one.
-       */
-      &.vpn strong.ok {
-        color: ${OK};
-      }
-
-      &.vpn.error strong {
-        color: ${WARN};
-      }
+      /* the VPN readout brings its own colours: it is mounted on the download page too, where none
+         of these rules exist, so it cannot lean on them here either */
     }
 
     svg {
@@ -2679,7 +2628,9 @@ const Home = () => {
       )}
       <div className="drop"><span>Drop a .torrent or a magnet link to add it</span></div>
       <header>
-        <span className="wordmark">Ripple</span>
+        {/* the way home from every other page, so it is one here too rather than a word that is a
+            link on the download page and dead text on this one */}
+        <Link className="wordmark" to="/">Ripple</Link>
         <form
           onSubmit={(e) => {
             e.preventDefault()

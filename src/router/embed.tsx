@@ -3,13 +3,15 @@ import type { MediaPlayerSource } from '@banou/media-player'
 import { useEffect, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowDown, ArrowUp, User } from 'react-feather'
+import { ArrowDown, ArrowUp, Shield, User } from 'react-feather'
 import { MediaPlayer } from '@banou/media-player'
 
-import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW } from '../theme'
+import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
+import { useReachability } from '../torrent/use-reachability'
+import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection, parseMode } from './file-selection'
@@ -130,6 +132,19 @@ const playerStyle = css`
       align-items: center;
       gap: 4px;
     }
+
+    /*
+     * Only the states worth acting on take a colour.
+     *
+     * A green tick on every healthy playback would be one more permanently lit thing over the
+     * picture, and this row sits on top of somebody's video. On reads in the same text as the peer
+     * count beside it; off and reconnecting are the ones that explain a player showing nothing, so
+     * they are the ones allowed to stand out. The WORD differs in all three cases either way.
+     */
+    .item.vpn[data-state='off'],
+    .item.vpn[data-state='healing'] {
+      color: ${WARN};
+    }
   }
 `
 
@@ -152,6 +167,14 @@ const Player = () => {
     return Number.isSafeInteger(index) && index >= 0 ? index : 0
   }, [_fileIndex])
   const { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  /**
+   * Whether anything is carrying peer traffic, drawn beside the peer count it explains.
+   *
+   * A player with the tunnel down shows "Loading metadata…" and zero peers forever, which is exactly
+   * what a torrent nobody is seeding looks like. One of those is worth waiting out and the other is
+   * not, and until this readout existed the picture was identical.
+   */
+  const vpn = vpnStatus(useReachability())
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.
@@ -226,6 +249,13 @@ const Player = () => {
         ? <div className="loading-information">{status}</div>
         : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
       <div className="media-information" data-testid="media-information">
+        {vpn && (
+          <TooltipDisplay
+            id="vpn"
+            text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
+            toolTipText={<span>VPN: {vpn.label}<br />{VPN_EXPLAINER}</span>}
+          />
+        )}
         <TooltipDisplay
           id="peers"
           text={<div className="item"><User /><span>{info.peers}</span></div>}
