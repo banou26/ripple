@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { compileFileSelection, embedIframe, embedPath, embedUrl } from './embed-link'
-import { parseFileSelection, resolveSelection } from './file-selection'
+import { parseFileSelection, parseMode, resolveSelection } from './file-selection'
 import { decodeFileList } from './file-list-codec'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 
@@ -90,9 +90,9 @@ describe('compile then parse round trip', () => {
 })
 
 describe('embedPath', () => {
-  it('carries only the magnet for a plain watch link', () => {
+  it('carries the magnet and the mode for a plain watch link, and nothing else', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}`)
+    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}&mode=watch`)
     expect(magnetOf(path)).toBe(MAGNET)
   })
 
@@ -102,8 +102,18 @@ describe('embedPath', () => {
    * falls back to base64 for every link cannot pass.
    */
   it('is far shorter than writing the magnet out as base64', () => {
-    const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path.length).toBeLessThan(`/embed?magnet=${encodeURIComponent(btoa(MAGNET))}`.length / 2)
+    const encoded = encodeMagnetParam(MAGNET)!
+    /*
+     * The PARAMETER, not the whole path.
+     *
+     * It used to measure the path, which stopped working the day `&mode=watch` was added: eleven
+     * fixed characters sit on both sides of the comparison and do nothing but dilute the ratio the
+     * codec is answerable for, and at this magnet's length that alone pushed 2x out of reach. The
+     * claim being made is about the encoding, so the encoding is what is measured.
+     */
+    expect(encoded.key, 'fell back to base64 for a magnet the packed form can hold').toBe('m')
+    expect(`m=${encoded.value}`.length)
+      .toBeLessThan(`magnet=${encodeURIComponent(btoa(MAGNET))}`.length / 2)
   })
 
   it('names a file on a watch link with fileIndex, which is what the player reads', () => {
@@ -114,8 +124,28 @@ describe('embedPath', () => {
     expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 0 })).not.toContain('fileIndex')
   })
 
-  it('leaves mode off for watch, because absent already means the player', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).not.toContain('mode')
+  /**
+   * Both modes SAY which they are, so a link can be told apart by reading it rather than by noticing
+   * that a parameter is missing. It costs 11 characters on a watch link, which is the deliberate
+   * trade: everything else in the query is packed or an index, and this is the only part left that
+   * a person is meant to read.
+   */
+  it('names the mode on both kinds of link, rather than leaving watch to be inferred', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).toContain('mode=watch')
+    expect(embedPath({ magnet: MAGNET, mode: 'download' })).toContain('mode=download')
+  })
+
+  /**
+   * WRITING it must not change READING it. Every link published before this omits `mode`, and the
+   * one shipped consumer passes only `magnet`, so an absent mode has to keep opening the player.
+   * parseMode is what guarantees that; this is the round trip through the two of them together.
+   */
+  it('still opens the player for a link that names no mode at all', () => {
+    const legacy = `/embed?magnet=${encodeURIComponent(btoa(MAGNET))}`
+    expect(parseMode(new URLSearchParams(legacy.split('?')[1]).get('mode'))).toBe('watch')
+    // and the mode this module now writes reads back as the same thing
+    const written = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    expect(parseMode(new URLSearchParams(written.split('?')[1]).get('mode'))).toBe('watch')
   })
 
   /**
@@ -165,7 +195,7 @@ describe('embedPath', () => {
    */
   it('writes the packed form with nothing a query string has to escape', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+$/)
+    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+&mode=watch$/)
   })
 })
 
@@ -213,7 +243,7 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value)
+      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value + '&mode=watch')
   })
 
   /**

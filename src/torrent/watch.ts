@@ -41,5 +41,7 @@ export const watchHref = (t: Torrent): string | null => {
   const encoded = encodeMagnetParam(t.magnet)
   if (encoded === null) return null
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
-  return getRoutePath(Route.EMBED, { ...source, fileIndex: String(pickVideoFile(t.files)) })
+  // `mode` is named here for the same reason embedPath names it: this URL is what sits in the
+  // address bar while somebody watches, and it should say so rather than leave it to be inferred
+  return getRoutePath(Route.EMBED, { ...source, mode: 'watch', fileIndex: String(pickVideoFile(t.files)) })
 }

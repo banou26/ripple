@@ -62,8 +62,15 @@ file list is the part that is both small and worth having.
 
 ### `mode=watch`
 
-The default, and what `/embed?magnet=...` has always been. Plays `fileIndex` (0 if absent) in the
-media player, with the filename, peer count and transfer rates drawn over the video.
+Plays `fileIndex` (0 if absent) in the media player, with the filename, peer count and transfer
+rates drawn over the video.
+
+Ripple writes `mode=watch` out in full on every link it builds, even though **an absent `mode` still
+means exactly this and always will**: `/embed?magnet=...` is what has been published since the
+beginning and it keeps working untouched. Naming it costs 11 characters and buys the one thing
+packing the magnet took away, which is a link a person can read. Everything else in the query is
+either compressed or an index, so this is the only part of the URL still meant for a human, and a
+watch link that said nothing could only be told from a download link by an absence.
 
 ### `mode=download`
 

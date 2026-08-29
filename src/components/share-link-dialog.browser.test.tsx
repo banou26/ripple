@@ -142,8 +142,8 @@ describe('the share link dialog, once it has a torrent', () => {
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
     // index 3 is the mp4; the three subtitles are smaller and not video
     await expect.poll(() => query().get('fileIndex')).toBe('3')
-    // watch is the grammar's default, so the link says nothing rather than saying so
-    expect(query().get('mode')).toBeNull()
+    // and the link SAYS it is a watch link, rather than leaving it to be read off an absent param
+    expect(query().get('mode')).toBe('watch')
   })
 
   /**

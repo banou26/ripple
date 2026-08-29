@@ -81,10 +81,22 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview
   // spread rather than a computed key so the two parameter names stay distinguishable to the type
   // checker, and so the torrent leads the query as every published example shows it
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
-  const rest: { mode?: 'download', files?: string, fileIndex?: string, f?: string } = {}
-  // `watch` is the default, so saying it adds length and no meaning
+  const rest: { mode?: EmbedMode, files?: string, fileIndex?: string, f?: string } = {}
+  /*
+   * Written out even for `watch`, which an absent `mode` already means.
+   *
+   * It costs 11 characters on a watch link and buys back the one thing packing the magnet took away:
+   * a person holding the link can see what it is going to do. A download link said so and a watch
+   * link said nothing, so the two were told apart by an ABSENCE, which is not something anybody
+   * reads. Everything else in the query is now compressed or an index, so this is the only part of
+   * the URL that is still meant for a human.
+   *
+   * Reading is untouched and must stay that way: absent still parses as watch, because every link
+   * published before this omits it and the one shipped consumer (@banou/stub-plugin) passes only
+   * `magnet`. See parseMode in file-selection.ts, which is tested for exactly that.
+   */
+  rest.mode = mode
   if (mode === 'download') {
-    rest.mode = 'download'
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
     if (files) rest.files = files
     /*
