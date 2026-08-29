@@ -76,6 +76,31 @@ describe('packing a magnet', () => {
   })
 })
 
+/**
+ * The dictionary is frozen, and until this test existed nothing enforced that: editing TRACKERS
+ * rewrote what every link already handed out decodes to, and the whole suite stayed green, because
+ * every other test here encodes and decodes with the same edited table.
+ *
+ * This pins the bytes instead. A link is a promise made to somebody else's clipboard, so the only
+ * correct way to change the table is to leave it alone and add a new parameter name beside it.
+ * If this fails, that is what it is telling you. Do not update the expected value.
+ */
+describe('the frozen dictionary', () => {
+  it('still produces the exact bytes that links in the wild were written with', () => {
+    const magnet = `magnet:?xt=urn:btih:${HASH}&dn=Sintel&tr=${TRACKER}`
+    expect(encodeMagnetParam(magnet)).toEqual({
+      key: 'm',
+      value: 'AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpOeSmTQA',
+    })
+  })
+
+  it('decodes a value captured before this test was written, which is the promise it is keeping', () => {
+    const captured = 'AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpOeSmTQA'
+    const back = decodeMagnetParam(new URLSearchParams({ m: captured }))
+    expect(back).toBe(`magnet:?xt=urn:btih:${HASH}&dn=Sintel&tr=${TRACKER}`)
+  })
+})
+
 describe('choosing a parameter', () => {
   it('picks the packed form for an ordinary magnet, and it is much shorter', () => {
     const magnet = CORPUS.find(([name]) => name === 'several trackers')![1]
@@ -95,6 +120,28 @@ describe('choosing a parameter', () => {
       expect(encoded.value.length).toBeLessThanOrEqual(btoa(new URL(magnet).href).length)
     })
   }
+
+  /**
+   * The encoder memoises, because it runs per library row inside a render. A cache that returned
+   * one torrent's link for another would be the worst bug available here: silently correct-looking,
+   * and it would hand somebody the wrong download.
+   */
+  it('never serves one magnet the answer it computed for another', () => {
+    const seen = new Map<string, string>()
+    // twice through, so the second pass is entirely cache hits
+    for (const pass of [1, 2]) {
+      for (const [name, magnet] of CORPUS) {
+        const { key, value } = encodeMagnetParam(magnet)!
+        const previous = seen.get(name)
+        if (previous !== undefined) expect(value, `${name} changed between passes`).toBe(previous)
+        seen.set(name, value)
+        expect(fields(decodeMagnetParam(new URLSearchParams({ [key]: value }))!), `${name} on pass ${pass}`)
+          .toEqual(fields(new URL(magnet).href))
+      }
+    }
+    // and every distinct magnet still has a distinct encoding
+    expect(new Set(seen.values()).size).toBe(CORPUS.length)
+  })
 
   it('falls back to the published base64 form when nothing can be packed', () => {
     const encoded = encodeMagnetParam('magnet:?dn=no+hash+here')!
@@ -168,6 +215,31 @@ describe('reading a parameter back', () => {
    * so the decoder is fed deliberate garbage here. The requirement is only that it never throws:
    * whatever it returns, the caller treats a null as "no link".
    */
+  /**
+   * The property the previous encoding had for free and this one has to be given.
+   *
+   * base64 DEFLATES text by 0.75, so a `magnet=` link could never name a magnet longer than the URL
+   * carrying it. Deflate inverts that: measured at 1010:1 on a repetitive payload, so a 64KB URL
+   * (which the edge serves; it only starts refusing above that) would otherwise produce a ~45MB
+   * string, synchronously, during a render, and hand it to the engine.
+   */
+  it('refuses a value that inflates out of all proportion, rather than handing it on', () => {
+    const huge = `magnet:?xt=urn:btih:${HASH}&dn=${'A'.repeat(2_000_000)}`
+    const packed = packMagnet(huge)!
+    expect(packed, 'the fixture no longer packs, so this test is checking nothing').not.toBeNull()
+    // small enough to sit in a URL comfortably, which is the whole problem
+    expect(packed.length).toBeLessThan(5_000)
+    expect(unpackMagnet(packed)).toBeNull()
+  })
+
+  it('still accepts a magnet that is merely large, so the cap is not just a low ceiling', () => {
+    const many = `magnet:?xt=urn:btih:${HASH}&dn=Big.Release&` + Array.from({ length: 60 }, (_, i) =>
+      `tr=udp%3A%2F%2Ftracker${i}.example.org%3A1337%2Fannounce`).join('&')
+    const back = unpackMagnet(packMagnet(many)!)
+    expect(back).not.toBeNull()
+    expect(fields(back!)).toEqual(fields(many))
+  })
+
   it('never throws on hostile input', () => {
     const hostile = ['A', 'AA', '-', '_'.repeat(100), 'AQ', 'AQID', btoa('magnet:?xt=urn:btih:' + HASH), 'A'.repeat(5000)]
     for (const value of hostile) {

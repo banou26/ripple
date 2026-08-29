@@ -179,6 +179,21 @@ export const packMagnet = (magnet: string): Uint8Array | null => {
   return out
 }
 
+/**
+ * The most a packed value is allowed to inflate to, past which it is refused rather than decoded.
+ *
+ * Nothing else here bounds the output, and deflate is happy to turn 990 bytes into a megabyte:
+ * measured at 1010:1 on a run of repeated characters, so a 64KB URL (which the edge does serve, it
+ * only starts answering 414 above that) would otherwise hand a ~45MB string to the engine after a
+ * ~130ms stall on the main thread, during a render. The parameter is embedder-written, and the form
+ * it replaced could not do this: base64 DEFLATES by 0.75, so the magnet was always bounded by the
+ * URL that carried it. Keeping that property is the point of this cap.
+ *
+ * 16 KiB is far past any real magnet. The remainder this bounds excludes the hashes entirely, so it
+ * is display name plus announce URLs, and a hundred trackers do not reach it.
+ */
+const MAX_INFLATED = 16 * 1024
+
 /** The magnet a packed value names, or null if the bytes are not one. */
 export const unpackMagnet = (bytes: Uint8Array): string | null => {
   try {
@@ -200,7 +215,15 @@ export const unpackMagnet = (bytes: Uint8Array): string | null => {
       )
       if (!parts[parts.length - 1]) return null
     }
-    const rest = decoder.decode(inflateSync(bytes.subarray(offset), { dictionary: DICTIONARY }))
+    /*
+     * One byte of headroom past the cap, because fflate does not throw on a full buffer: it fills
+     * `out` and hands it back, and returns a correctly sized slice when the output fits. So a
+     * result that reaches MAX_INFLATED + 1 is the only signal that it was still going, and asking
+     * for exactly the cap would be indistinguishable from a payload that happens to be that long.
+     */
+    const inflated = inflateSync(bytes.subarray(offset), { dictionary: DICTIONARY, out: new Uint8Array(MAX_INFLATED + 1) })
+    if (inflated.length > MAX_INFLATED) return null
+    const rest = decoder.decode(inflated)
     if (rest) parts.push(rest)
     return `magnet:?${parts.join('&')}`
   } catch {
@@ -210,6 +233,21 @@ export const unpackMagnet = (bytes: Uint8Array): string | null => {
 }
 
 export type EncodedMagnet = { key: string, value: string }
+
+/**
+ * Encoded links, kept because `watchHref` builds one per library row inside a render and rows
+ * re-render on every progress tick.
+ *
+ * Packing costs about 27us where the base64 it replaced cost half a microsecond, so a hundred rows
+ * went from 0.05ms to 2.7ms per render. That is not a stall, but it is 52x for a value that cannot
+ * change: the encoding is a pure function of the magnet string.
+ *
+ * Bounded and FIFO rather than an LRU, because the access pattern is "every row, every tick", so
+ * every live entry is touched on each pass and recency carries no information. The cap only has to
+ * exceed a plausible library.
+ */
+const CACHE_LIMIT = 512
+const cache = new Map<string, EncodedMagnet | null>()
 
 /**
  * The shortest `<key>=<value>` that names this magnet, or null if nothing can encode it.
@@ -225,6 +263,16 @@ export type EncodedMagnet = { key: string, value: string }
  * not" reasoning.
  */
 export const encodeMagnetParam = (magnet: string): EncodedMagnet | null => {
+  const hit = cache.get(magnet)
+  // `undefined` is a miss and `null` is a remembered "nothing can encode this", which are different
+  if (hit !== undefined) return hit
+  const encoded = encodeUncached(magnet)
+  if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!)
+  cache.set(magnet, encoded)
+  return encoded
+}
+
+const encodeUncached = (magnet: string): EncodedMagnet | null => {
   let normalised: string | null = null
   try { normalised = new URL(magnet).href } catch { /* not a URL at all */ }
 
