@@ -83,6 +83,20 @@ describe('encoding a file list', () => {
     expect(encodeFileList([])).toBeNull()
   })
 
+  /**
+   * The crash this bound exists for. A size of 1e18 is 35 characters of `f=`, and it used to index
+   * past the six-entry unit table in utils/bytes.ts, where Intl.NumberFormat throws `Invalid unit
+   * argument` and takes the download card out with it. Two files of 6e17 each do it too: neither is
+   * over the line on its own, only the total the page renders.
+   */
+  it('refuses a size no torrent could have, which used to crash the page that showed it', () => {
+    expect(encodeFileList([{ path: 'Pack/E01.mkv', size: 1e18 }])).toBeNull()
+    expect(encodeFileList([{ path: 'a.mkv', size: Number.MAX_SAFE_INTEGER + 4096 }])).toBeNull()
+    // and still accepts the largest thing that could actually exist
+    const huge = [{ path: 'a.mkv', size: Number.MAX_SAFE_INTEGER }]
+    expect(decodeFileList(encodeFileList(huge)!)).toEqual(huge)
+  })
+
   it('refuses a nonsense size rather than encoding it', () => {
     expect(encodeFileList([{ path: 'a.mkv', size: -1 }])).toBeNull()
     expect(encodeFileList([{ path: 'a.mkv', size: NaN }])).toBeNull()
@@ -152,11 +166,54 @@ describe('reading a file list back', () => {
     expect(decodeFileList(toB64(bytes))).toBeNull()
   })
 
-  it('refuses a payload that inflates out of all proportion', () => {
-    // a deliberately tiny value that expands enormously, the trap magnet-codec was fixed for
-    const bomb = new Uint8Array(1 + 4096)
-    bomb[0] = 1
-    expect(() => decodeFileList(toB64(bomb))).not.toThrow()
+  /**
+   * This test used to assert only `not.toThrow()`, which passed with the cap deleted, so it was
+   * guarding nothing. Now it builds a value that genuinely inflates past MAX_INFLATED and asserts
+   * the REFUSAL, and pairs it with a payload just under the cap that must still decode, so the
+   * check can express both outcomes rather than only the one it wants.
+   */
+  it('refuses a payload that inflates past the cap, and accepts one just under it', () => {
+    /*
+     * The bomb has to be a payload the decoder would OTHERWISE accept, or the cap is not what
+     * rejects it and the test proves nothing. An earlier version of this used a block of zeros:
+     * that inflates hugely, but its first byte is a count of 0, so the count check refused it and
+     * the test passed with the cap deleted. This one is a well-formed list of ten files whose only
+     * problem is that its path block is 300 KB.
+     *
+     * Measured, so the claim is exact: with BOTH the bounded `out` allocation and the explicit
+     * length check removed, this decodes to ten files. With either one present it is refused. They
+     * are belt and braces rather than one guard and one dead line, which is why removing just one
+     * of them does not turn this test red.
+     */
+    const varint = (n: number, out: number[]) => {
+      let v = n
+      while (v >= 0x80) { out.push((v % 0x80) + 0x80); v = Math.floor(v / 0x80) }
+      out.push(v)
+    }
+    const paths = Array.from({ length: 10 }, (_, i) => `${i}`.padEnd(30_000, 'a')).join('\n')
+    const pathBytes = new TextEncoder().encode(paths)
+    const head: number[] = []
+    varint(10, head)
+    varint(pathBytes.length, head)
+    const sizes: number[] = []
+    for (let i = 0; i < 10; i++) varint(1_000_000, sizes)
+    const payload = new Uint8Array(head.length + pathBytes.length + sizes.length)
+    payload.set(head, 0)
+    payload.set(pathBytes, head.length)
+    payload.set(sizes, head.length + pathBytes.length)
+    expect(payload.length).toBeGreaterThan(256 * 1024)
+
+    const bomb = deflateSync(payload, { level: 9 })
+    expect(bomb.length, 'the bomb is not actually small, so it proves nothing').toBeLessThan(2_000)
+    const framed = new Uint8Array(1 + bomb.length)
+    framed[0] = 1
+    framed.set(bomb, 1)
+    expect(decodeFileList(toB64(framed))).toBeNull()
+
+    // the control: a real list well inside the cap still decodes, so the refusal above is the cap
+    // biting rather than the decoder refusing everything
+    const ordinary = season(20)
+    expect(decodeFileList(encodeFileList(ordinary)!)).toEqual(ordinary)
   })
 })
 

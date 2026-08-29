@@ -39,6 +39,19 @@ const MAX_VALUE = 1200
 
 /** Bounds on the way back in, because the value is embedder-written. See MAX_INFLATED below. */
 const MAX_FILES = 4096
+/**
+ * The largest size a preview may claim.
+ *
+ * Bounded for the same reason as the count and the inflated length: a number arriving from a query
+ * string is used, and a torrent bigger than 9 PB does not exist. Past MAX_SAFE_INTEGER a JavaScript
+ * integer is not exact anyway, so nothing above this could be reported faithfully even if it were
+ * real.
+ *
+ * The formatter is clamped too (utils/bytes.ts), so neither of these alone is load bearing. That is
+ * deliberate: this bound keeps a nonsense number out of the page, and the clamp keeps every OTHER
+ * caller safe from the same shape.
+ */
+const MAX_SIZE = Number.MAX_SAFE_INTEGER
 /*
  * Deflate turns 990 bytes into a megabyte given the chance, which is the trap magnet-codec had to be
  * fixed for after the fact. Applied here from the start: the parameter is attacker-influencable and
@@ -102,7 +115,7 @@ export const encodeFileList = (files: readonly PreviewFile[]): string | null => 
   // '\n' separates the paths, so a path containing one could not be read back. Refuse rather than
   // emit a preview that would split into the wrong names.
   if (files.some((file) => file.path.includes('\n'))) return null
-  if (files.some((file) => !Number.isFinite(file.size) || file.size < 0)) return null
+  if (files.some((file) => !Number.isFinite(file.size) || file.size < 0 || file.size > MAX_SIZE)) return null
 
   const pathBlock = encoder.encode(files.map((file) => file.path).join('\n'))
   const head: number[] = []
@@ -161,6 +174,7 @@ export const decodeFileList = (value: string): PreviewFile[] | null => {
     for (let i = 0; i < count; i++) {
       const read = readVarint(inflated, offset)
       if (!read) return null
+      if (read[0] > MAX_SIZE) return null
       files.push({ path: paths[i]!, size: read[0] })
       offset = read[1]
     }

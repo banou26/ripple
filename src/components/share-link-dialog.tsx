@@ -25,6 +25,7 @@ import {
   WARN,
 } from '../theme'
 import { embedIframe, embedPath, embedUrl } from '../router/embed-link'
+import { SYNCED_FILE_CAP } from '../torrent/library'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { Modal } from './modal'
@@ -570,10 +571,23 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
    * Null files is a magnet whose metadata nobody in this page has, which is exactly the case there
    * is nothing to preview.
    */
-  const preview = useMemo(
-    () => files?.map((file) => ({ path: file.name, size: file.size })),
-    [files],
-  )
+  const preview = useMemo(() => {
+    if (!files?.length) return undefined
+    /*
+     * Nothing at all rather than a list that might be short.
+     *
+     * A library entry's file list is TRUNCATED at SYNCED_FILE_CAP on the way in, and a truncated
+     * list is indistinguishable from a complete one of exactly that length. So a 240-file pack
+     * shared from its own row would hand somebody a link stating "100 files" and a total that is
+     * less than half the real one, as fact, with nothing on either end able to notice.
+     *
+     * A torrent read from a `.torrent` in this page is not capped and keeps its preview. The cost
+     * is that a genuinely-100-file torrent loses one, which is the right way round: no preview is
+     * the behaviour this feature replaced, and a wrong preview is worse than that.
+     */
+    if (files.length >= SYNCED_FILE_CAP) return undefined
+    return files.map((file) => ({ path: file.name, size: file.size }))
+  }, [files])
 
   const link = useMemo(
     () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount, fileIndex, preview } : null),

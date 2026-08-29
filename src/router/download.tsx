@@ -376,13 +376,22 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
   const shown = files ? entries : previewEntries
   const totalBytes = shown.reduce((n, e) => n + e.size, 0)
 
-  const torrentName = useMemo(
-    () => (magnet ? magnetParam(magnet, 'dn') : undefined)
-      ?? files?.[0]?.path.split('/')[0]
-      ?? preview?.[0]?.path.split('/')[0]
-      ?? 'this torrent',
-    [magnet, files, preview],
-  )
+  /*
+   * `||` throughout rather than `??`, and spelled out rather than chained.
+   *
+   * A path of "" or "/x" splits to an EMPTY STRING, which `??` accepts as a real answer, so the card
+   * would head itself with nothing at all. A preview path is written by whoever built the link, so
+   * that is reachable on purpose rather than by accident.
+   *
+   * Written as statements because mixing `??` and `||` in one chain is a syntax error, and the
+   * version of this that tried it parsed as nothing and took out every module importing this file.
+   */
+  const torrentName = useMemo(() => {
+    const fromMagnet = magnet ? magnetParam(magnet, 'dn') : undefined
+    const fromFiles = files?.[0]?.path.split('/')[0]
+    const fromPreview = preview?.[0]?.path.split('/')[0]
+    return fromMagnet || fromFiles || fromPreview || 'this torrent'
+  }, [magnet, files, preview])
 
   const single = entries.length === 1 ? entries[0]! : null
   /* the same question asked of whatever is on screen, so a one-file preview reads as one file */
