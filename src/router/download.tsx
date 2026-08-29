@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER,
+  BORDER_STRONG,
+  CONTROL_BG,
+  CONTROL_HOVER_BG,
+  DANGER,
+  EMPHASIS,
+  EMPHASIS_HOVER,
+  OK,
+  PAGE_BG,
+  SUNKEN_BG,
+  SURFACE_BG,
+  TEXT,
+  TEXT_FAINT,
+  TEXT_MUTED,
+  TEXT_ON_LIGHT,
+} from '../theme'
 import { ArrowDown, Download, File as FileIcon, Folder, User } from 'react-feather'
 
 import type { SaveEntry } from '../torrent/save-file'
@@ -25,11 +41,8 @@ const style = css`
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background:
-    radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%),
-    radial-gradient(900px 420px at -10% 110%, #221a31 0%, transparent 55%),
-    #16131c;
-  color: #f4f2f8;
+  background: ${PAGE_BG};
+  color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   a { text-decoration: none; }
@@ -49,13 +62,11 @@ const style = css`
     margin: auto;
     padding: 26px 24px;
     border-radius: 8px;
-    background: rgba(30, 26, 40, 0.66);
-    border: 1px solid rgba(44, 39, 55, 0.9);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.03),
-      0 4px 14px -4px rgba(0, 0, 0, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(12px) saturate(1.2);
+    /* opaque rather than translucent: the old 66% fill leaned on a backdrop blur to stay readable
+       over the page's own glows, and both of those are gone, so the border is now the only thing
+       separating card from page. */
+    background: ${SURFACE_BG};
+    border: 1px solid ${BORDER};
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -66,10 +77,7 @@ const style = css`
     font-size: 1.1rem;
     font-weight: 900;
     letter-spacing: 0.06em;
-    background: linear-gradient(90deg, #fbbf24, #f97316);
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
+    color: ${TEXT};
   }
 
   .subject {
@@ -84,9 +92,14 @@ const style = css`
       display: grid;
       place-items: center;
       border-radius: 6px;
-      border: 1px solid rgba(249, 115, 22, 0.35);
-      background: rgba(249, 115, 22, 0.08);
-      color: #fbbf24;
+      /* An opaque fill where this used to be an 8% tint. Not because a neutral tint would be
+         fainter, it would in fact be marginally lighter than this fill (white at 8% over the card
+         composites to #2a2a2a against CONTROL_BG's #242424), but because at 1.2:1 either way the
+         fill is not what draws the tile: the border is. So the fill goes to the token every other
+         control uses and the 1px BORDER does the work it was already doing. */
+      border: 1px solid ${BORDER};
+      background: ${CONTROL_BG};
+      color: ${TEXT};
 
       svg { width: 22px; height: 22px; }
     }
@@ -108,7 +121,7 @@ const style = css`
     }
 
     .meta {
-      color: #8b8499;
+      color: ${TEXT_FAINT};
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
     }
@@ -123,33 +136,39 @@ const style = css`
     padding: 14px 20px;
     border: none;
     border-radius: 6px;
-    background: linear-gradient(90deg, #fbbf24, #f97316);
-    color: #16131c;
+    background: ${EMPHASIS};
+    color: ${TEXT_ON_LIGHT};
     font-size: 1rem;
     font-weight: 800;
-    box-shadow: 0 6px 18px -6px rgba(249, 115, 22, 0.7);
 
     svg { width: 18px; height: 18px; }
 
+    /* Down, not up: EMPHASIS is already the brightest fill the palette has, so the hover steps to
+       EMPHASIS_HOVER, the one value the palette picks for this. The lift rides along with it, and
+       the label is restated so the light fill and the dark label always travel together. */
     &:hover:not(:disabled) {
+      background: ${EMPHASIS_HOVER};
+      color: ${TEXT_ON_LIGHT};
       transform: translateY(-1px);
-      box-shadow: 0 10px 22px -8px rgba(249, 115, 22, 0.85);
     }
 
-    &:disabled { opacity: 0.55; box-shadow: none; }
+    /* the fill is light, so dimming the whole button keeps the label at 5.8:1 against it over the
+       card and the disabled state stays readable, which matters: this button spends the entire
+       metadata-loading phase disabled with "Loading torrent…" written on it */
+    &:disabled { opacity: 0.55; }
   }
 
   .cancel {
     align-self: center;
-    border: 1px solid #3a3447;
+    border: 1px solid ${BORDER};
     border-radius: 4px;
     background: ${CONTROL_BG};
-    color: #f4f2f8;
+    color: ${TEXT};
     padding: 6px 16px;
     font-size: 0.8rem;
     font-weight: 700;
 
-    &:hover { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
+    &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
   }
 
   .progress {
@@ -160,14 +179,16 @@ const style = css`
     .bar {
       height: 6px;
       border-radius: 2px;
-      background: rgba(44, 39, 55, 0.9);
+      /* a hole punched in the card, so the fill is read against the darkest thing on screen. The
+         fill used to be told apart from its track by hue and needed a 10px bloom to make 6px of it
+         feel like anything; brightness does both jobs at 17:1 and needs no help. */
+      background: ${SUNKEN_BG};
       overflow: hidden;
 
       .fill {
         height: 100%;
         border-radius: 2px;
-        background: linear-gradient(90deg, #fbbf24, #f97316);
-        box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
+        background: ${EMPHASIS};
         transition: width 300ms ease;
       }
     }
@@ -176,7 +197,7 @@ const style = css`
       display: flex;
       justify-content: space-between;
       gap: 12px;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
     }
@@ -187,7 +208,7 @@ const style = css`
     justify-content: center;
     flex-wrap: wrap;
     gap: 6px 18px;
-    color: #8b8499;
+    color: ${TEXT_FAINT};
     font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
 
@@ -196,16 +217,22 @@ const style = css`
   }
 
   .note {
-    color: #8b8499;
+    color: ${TEXT_FAINT};
     font-size: 0.8rem;
     line-height: 1.6;
     text-align: center;
 
-    a { color: #fbbf24; &:hover { text-decoration: underline; } }
+    /* underlined at rest, not on hover. Colour used to be the only thing separating this link from
+       the sentence it sits in, and there is no colour left to spend on it. */
+    a { color: ${TEXT}; text-decoration: underline; }
   }
 
+  /* Red, where every one of these used to be amber. They are outcomes, not cautions: an engine
+     failure, a full origin and a stopped export all mean the download is not happening, and the
+     line renders directly above a .note at nearly its size (0.85rem against 0.8rem), so it needs
+     to not read as more prose. */
   .failure {
-    color: #fbbf24;
+    color: ${DANGER};
     font-size: 0.85rem;
     line-height: 1.6;
     text-align: center;
@@ -213,24 +240,24 @@ const style = css`
   }
 
   .done {
-    color: #7dd3a0;
+    color: ${OK};
     font-size: 0.85rem;
     font-weight: 600;
     text-align: center;
   }
 
   .files {
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    border-top: 1px solid ${BORDER};
     padding-top: 4px;
 
     summary {
       cursor: pointer;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-size: 0.8rem;
       user-select: none;
       padding: 8px 0;
       transition: color 120ms ease;
-      &:hover { color: #c9c4d4; }
+      &:hover { color: ${TEXT}; }
     }
 
     /* capped and scrolled: a season pack is 24 rows and would push the button off a phone screen */
@@ -246,32 +273,32 @@ const style = css`
       align-items: center;
       gap: 12px;
       padding: 7px 0;
-      border-top: 1px solid rgba(44, 39, 55, 0.9);
+      border-top: 1px solid ${BORDER};
       font-size: 0.8rem;
 
       .name {
         flex: 1;
         min-width: 0;
         overflow-wrap: anywhere;
-        color: #b6b0c4;
+        color: ${TEXT_MUTED};
       }
 
       .size {
         flex: none;
-        color: #8b8499;
+        color: ${TEXT_FAINT};
         font-variant-numeric: tabular-nums;
       }
 
       button {
         flex: none;
-        border: 1px solid #3a3447;
+        border: 1px solid ${BORDER};
         border-radius: 4px;
         background: ${CONTROL_BG};
-        color: #f4f2f8;
+        color: ${TEXT};
         padding: 4px 12px;
         font-size: 0.75rem;
 
-        &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: rgba(249, 115, 22, 0.35); }
+        &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
         &:disabled { opacity: 0.5; }
       }
     }

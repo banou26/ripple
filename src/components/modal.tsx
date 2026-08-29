@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { css } from '@emotion/react'
 
+import { OVERLAY_BG } from '../theme'
+
 /**
  * Ripple's own modal shell, deliberately NOT `<dialog>.showModal()`.
  *
@@ -40,8 +42,11 @@ const style = css`
   justify-content: center;
   padding: 24px;
   box-sizing: border-box;
-  background: rgba(10, 8, 14, 0.62);
-  backdrop-filter: blur(2px);
+  /* The scrim is the entire separation from the page: this element draws no border and no shadow.
+     It used to be 62% over a 2px backdrop blur, and the blur was doing less than it looked, mostly
+     softening the hairlines of the torrent table underneath. OVERLAY_BG is 75% for that reason, and
+     alpha alone turns out to be enough to stop the list behind competing with the dialog. */
+  background: ${OVERLAY_BG};
 `
 
 const FOCUSABLE = [

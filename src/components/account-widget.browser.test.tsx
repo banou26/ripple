@@ -138,9 +138,17 @@ describe('the account tag', () => {
   })
 
   /**
-   * The header carries backdrop-filter, which is both a stacking context and a containing block for
-   * fixed descendants, so a menu left inside it would be positioned against the header box while
-   * its arithmetic reads the viewport, and would paint under the toast.
+   * The menu is a `position: fixed` box written in viewport coordinates, so it lands where it was
+   * told only while the viewport is its containing block. Any ancestor that takes a transform, a
+   * filter or containment becomes the containing block instead, and the menu then resolves against
+   * the header's box with nothing in the arithmetic to notice it moved.
+   *
+   * This used to name the header's backdrop-filter as the specific hazard. The monochrome redesign
+   * deleted every backdrop-filter in the app, and the assertion is kept anyway rather than retired
+   * with it: the reason was never that one property, it is that a fixed box measured against the
+   * viewport must not be parented to something that can quietly stop being the viewport. Nothing
+   * stops a later edit adding a transform to the header, and the failure would show up as a menu
+   * hanging in the wrong place rather than as anything that looks like a CSS mistake.
    */
   it('portals the menu out of the header rather than nesting it', async () => {
     await mounted()

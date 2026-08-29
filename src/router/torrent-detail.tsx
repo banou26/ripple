@@ -3,7 +3,10 @@ import type { PeerInfo, TrackerInfo } from '../torrent/worker'
 
 import { css } from '@emotion/react'
 
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG,
+  EMPHASIS, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
+} from '../theme'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
@@ -291,9 +294,15 @@ export const dockStyle = css`
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid rgba(58, 52, 71, 0.9);
-  background: rgba(30, 26, 40, 0.96);
-  backdrop-filter: blur(8px);
+  /* Opaque, and the top edge is what separates it from the list.
+
+     This used to be 96% alpha over an 8px backdrop blur, which was frosting a 4% signal: the list
+     behind it was already all but gone, so the blur cost a compositing layer to soften something
+     nobody could see. ELEVATED_BG is only 1.05:1 against the surfaces above it, so BORDER_STRONG is
+     now the whole depth cue, which is the trade that makes the panel readable at any contrast
+     setting rather than only on a good screen. */
+  border-top: 1px solid ${BORDER_STRONG};
+  background: ${ELEVATED_BG};
 
   .grip {
     flex: none;
@@ -309,13 +318,19 @@ export const dockStyle = css`
       height: 3px;
       margin: 2px auto 0;
       border-radius: 2px;
-      background: #3a3447;
+      background: ${BORDER_STRONG};
       transition: background 120ms ease;
     }
 
+    /* The whole affordance, so the jump has to be big.
+
+       A 46x3px bar in a 7px strip has no label, no border and no size change to fall back on: this
+       swap is the only thing saying the panel can be dragged, and it doubles as the active state
+       while dragging. It used to be a hue swap to the brand orange; with hue gone it has to be
+       brightness, and a small step would read as nothing, so it goes all the way to EMPHASIS. */
     &:hover::after,
     &[data-dragging]::after {
-      background: #f97316;
+      background: ${EMPHASIS};
     }
   }
 
@@ -334,21 +349,21 @@ export const dockStyle = css`
       white-space: nowrap;
       font-size: 0.85rem;
       font-weight: 700;
-      color: #f4f2f8;
+      color: ${TEXT};
     }
 
     .close {
       flex: none;
-      border: 1px solid #3a3447;
+      border: 1px solid ${BORDER};
       border-radius: 4px;
       background: ${CONTROL_BG};
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       padding: 3px 11px;
       font-size: 0.75rem;
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
-        color: #f4f2f8;
+        color: ${TEXT};
       }
     }
   }
@@ -360,7 +375,7 @@ export const dockStyle = css`
     margin: 0 16px 8px;
     padding: 3px;
     border-radius: 6px;
-    background: rgba(22, 19, 28, 0.8);
+    background: ${SUNKEN_BG};
     width: fit-content;
     max-width: calc(100% - 32px);
     flex-wrap: wrap;
@@ -369,7 +384,7 @@ export const dockStyle = css`
       border: none;
       border-radius: 4px;
       background: none;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       padding: 4px 14px;
       font-size: 0.75rem;
       font-weight: 700;
@@ -378,18 +393,30 @@ export const dockStyle = css`
       gap: 6px;
 
       &:hover {
-        color: #f4f2f8;
+        color: ${TEXT};
       }
 
+      /* selection is a step ABOVE the hover fill, not equal to it: hover brightens the label only,
+         so the open tab still reads as open while the pointer is anywhere in the strip */
       &[data-on] {
-        background: ${CONTROL_HOVER_BG};
-        color: #f4f2f8;
+        background: ${CONTROL_ACTIVE_BG};
+        color: ${TEXT};
       }
 
+      /*
+       * The badge dims rather than picking a colour, so that it tracks whatever state the tab is in
+       * instead of pinning one value and going wrong in two of the three.
+       *
+       * 0.7 was survivable when the label above it was #a39db3 on a translucent strip. It is not any
+       * more: the strip went to SUNKEN_BG and the label to TEXT_MUTED, and 0.7 of that over #0f0f0f
+       * composites to #6e6e6e, which is 3.76:1 on a 0.75rem badge, under the 4.5 this palette holds
+       * normal text to. 0.85 composites to #828282 and 4.99:1. The other two states were never the
+       * problem and keep their margin: hovered is 12.4:1, selected 8.1:1.
+       */
       .count {
         font-variant-numeric: tabular-nums;
         font-weight: 600;
-        opacity: 0.7;
+        opacity: 0.85;
       }
     }
   }
@@ -403,7 +430,7 @@ export const dockStyle = css`
 
   .none {
     margin: 6px 0 2px;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
     font-size: 0.8rem;
   }
 
@@ -419,7 +446,7 @@ export const dockStyle = css`
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 
   .facts {
@@ -434,19 +461,21 @@ export const dockStyle = css`
     justify-content: space-between;
     gap: 12px;
     padding: 4px 0;
-    border-bottom: 1px solid rgba(44, 39, 55, 0.7);
+    border-bottom: 1px solid ${BORDER};
     font-size: 0.78rem;
 
+    /* the label has to stay dimmer than its value: in a two-column grid of facts that gap is the
+       only thing telling the eye which half is the question and which half is the answer */
     label {
       flex: none;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
     }
 
     span {
       min-width: 0;
       overflow-wrap: anywhere;
       text-align: right;
-      color: #d6d1e0;
+      color: ${TEXT};
       font-variant-numeric: tabular-nums;
     }
   }
@@ -466,7 +495,7 @@ export const dockStyle = css`
     align-items: center;
     gap: 12px;
     padding: 6px 0;
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    border-top: 1px solid ${BORDER};
     font-size: 0.78rem;
 
     &:first-of-type {
@@ -478,13 +507,25 @@ export const dockStyle = css`
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #1e1a28;
+      /* the same OPAQUE token as the dock itself, and it has to stay that way: this used to be a
+         hand-computed twin of the panel's translucent fill, so the two could drift apart and leave
+         a mismatched band pinned over the rows. Any alpha here and the swarm scrolls through the
+         column names. */
+      background: ${ELEVATED_BG};
       border-top: none;
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
+
+      /* The .row .name rule below matches this row's first cell DIRECTLY, so it beats the colour
+         set here and inherited by every other header cell. Without this, ADDRESS and TRACKER
+         render at TEXT while CLIENT, HAS, DOWN and UP render at TEXT_MUTED: a 2.64:1 gap that
+         makes the first column name read as a value rather than as a label. */
+      .name {
+        color: inherit;
+      }
     }
 
     .name {
@@ -495,27 +536,36 @@ export const dockStyle = css`
       gap: 8px;
       flex-wrap: wrap;
       overflow-wrap: anywhere;
-      color: #b6b0c4;
+      /* full text weight: the endpoint, the tracker URL and the file name are what these tables are
+         for, and everything beside them is a number about them */
+      color: ${TEXT};
 
+      /* The directory prefix, quieter than the file name it sits in front of but not TEXT_FAINT:
+         this dock is the app's one ELEVATED_BG panel, and TEXT_FAINT lands at 4.435:1 there, under
+         the 4.5 this palette holds normal text to. TEXT_MUTED is 5.762:1 and still 2.64:1 below the
+         TEXT above it, so the prefix stays subordinate to the name without going under AA. */
       .dim {
-        color: #6f6980;
+        color: ${TEXT_MUTED};
       }
     }
 
     .client {
       flex: none;
       width: 130px;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
 
+      /* the only two hues left in this panel, and both are outcomes rather than progress. The third
+         tone trackerState can return, 'idle', deliberately has no rule: "Announcing…" and "Not
+         contacted" are neutral facts, so they inherit the muted colour above. */
       &.ok {
-        color: #7dd3a0;
+        color: ${OK};
       }
 
       &.warn {
-        color: #ef4444;
+        color: ${DANGER};
       }
     }
 
@@ -523,7 +573,7 @@ export const dockStyle = css`
       flex: none;
       width: 72px;
       text-align: right;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
     }
 
@@ -533,27 +583,31 @@ export const dockStyle = css`
       flex-wrap: wrap;
     }
 
+    /* No border, so the fill is the entire reason five chips read as five chips rather than as a run
+       of loose words. It takes CONTROL_HOVER_BG rather than the resting control fill because even
+       that is only about 1.25:1 off the panel; going one step brighter would push the 0.62rem label
+       under AA, so this is as loud as the chip gets while its text stays readable. */
     .tag {
       border-radius: 2px;
       padding: 1px 7px;
       font-size: 0.62rem;
       font-weight: 700;
-      color: #a39db3;
-      background: rgba(58, 52, 71, 0.6);
+      color: ${TEXT_MUTED};
+      background: ${CONTROL_HOVER_BG};
     }
 
     button {
       flex: none;
-      border: 1px solid #3a3447;
+      border: 1px solid ${BORDER};
       border-radius: 4px;
       background: ${CONTROL_BG};
-      color: #f4f2f8;
+      color: ${TEXT};
       padding: 3px 12px;
       font-size: 0.75rem;
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
-        border-color: rgba(249, 115, 22, 0.35);
+        border-color: ${BORDER_STRONG};
       }
 
       &:disabled {

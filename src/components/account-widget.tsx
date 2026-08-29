@@ -6,7 +6,16 @@ import { ConnectButton } from '@fkn/lib/react'
 
 import { MenuSurface } from './menu'
 import { useAccount } from '../torrent/use-account'
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER,
+  BORDER_STRONG,
+  CONTROL_BG,
+  CONTROL_HOVER_BG,
+  FOCUS_RING,
+  OK,
+  TEXT,
+  TEXT_MUTED,
+} from '../theme'
 
 /**
  * The account tag in the header, and the menu it opens.
@@ -48,9 +57,9 @@ const triggerStyle = css`
   min-height: 38px;
   padding: 4px 8px 4px 12px;
   border-radius: 6px;
-  border: 1px solid #3a3447;
+  border: 1px solid ${BORDER};
   background: ${CONTROL_BG};
-  color: #f4f2f8;
+  color: ${TEXT};
   font-family: inherit;
   cursor: pointer;
 
@@ -79,14 +88,17 @@ const triggerStyle = css`
     letter-spacing: 0.06em;
   }
 
-  .tier.premium { color: #7dd3a0; }
-  .tier.free { color: #8b8499; }
+  /* Premium is a status and keeps its green. Free is not a status, it is the absence of one, so it
+     gets the muted text tier rather than a colour of its own. Muted, never faint: nothing below
+     TEXT_MUTED clears AA on a control fill, and this label sits on one. */
+  .tier.premium { color: ${OK}; }
+  .tier.free { color: ${TEXT_MUTED}; }
 
   .chevron {
     flex: none;
     width: 15px;
     height: 15px;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
     transition: transform 120ms ease;
   }
 
@@ -94,16 +106,18 @@ const triggerStyle = css`
   &:hover,
   &[aria-expanded='true'] {
     background: ${CONTROL_HOVER_BG};
-    border-color: rgba(249, 115, 22, 0.45);
+    border-color: ${BORDER_STRONG};
   }
 
   &[aria-expanded='true'] .chevron { transform: rotate(180deg); }
 
-  /* the header family's outer orange ring, not the menu family's inset amber one: this button
-     belongs to the row with Share a torrent, not to the list it opens */
+  /* An OUTER ring, where a menu row takes an inset one: this button belongs to the header row with
+     Share a torrent, not to the list it opens. That split used to be carried by hue as well, orange
+     out here against amber in the menu, and monochrome leaves the geometry to say it alone.
+     outline: none above means this box-shadow is the only focus indicator the tag has. */
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.55);
+    box-shadow: 0 0 0 2px ${FOCUS_RING};
   }
 `
 
@@ -116,7 +130,7 @@ const rowStyle = css`
   border: none;
   border-radius: 4px;
   background: none;
-  color: #f4f2f8;
+  color: ${TEXT};
   font-family: inherit;
   font-size: 0.82rem;
   text-align: left;
@@ -125,11 +139,14 @@ const rowStyle = css`
 
   &:hover:not(:disabled),
   &:focus-visible {
-    background: #2a2338;
+    background: ${CONTROL_HOVER_BG};
     outline: none;
   }
 
-  &:focus-visible { box-shadow: inset 0 0 0 2px #fbbf24; }
+  /* Inset, and load bearing twice over: outline: none sits right above, and hover and focus share
+     the fill on the rule above, so this ring is the only thing telling a keyboard user apart from
+     a mouse. */
+  &:focus-visible { box-shadow: inset 0 0 0 2px ${FOCUS_RING}; }
 
   &:disabled {
     opacity: 0.45;
@@ -140,7 +157,7 @@ const rowStyle = css`
     flex: none;
     width: 15px;
     height: 15px;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 `
 
@@ -224,11 +241,13 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
         </span>
         <ChevronDown className="chevron" aria-hidden="true"/>
       </button>
-      {/* To the body, not into the header. The header carries backdrop-filter, which is BOTH a
-          stacking context and a containing block for fixed descendants, so a menu left in place
-          would resolve its coordinates against the header box while its arithmetic reads
-          window.innerWidth, and would still paint under the drop overlay and the toast. Same reason
-          and same answer as modal.tsx. */}
+      {/* To the body, not into the header. `place()` measures the trigger with
+          getBoundingClientRect and clamps against window.innerWidth, so the numbers it returns are
+          viewport coordinates, and MenuSurface writes them straight onto a `position: fixed` box.
+          That only lands where it was told while the containing block IS the viewport: an ancestor
+          that takes a transform, a filter or containment becomes the containing block instead, and
+          the menu then resolves against the header's box with nothing in the arithmetic to notice.
+          Out here no ancestor can do that to it. Same reason and same answer as modal.tsx. */}
       {open && createPortal(
         <MenuSurface placement={{ kind: 'under', of: trigger }} label={`Account: ${name}`} onClose={close}>
           {/* an anchor, not a button calling window.open: it keeps middle-click, ctrl-click, open

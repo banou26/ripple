@@ -4,6 +4,10 @@ import type { ReactNode, RefObject } from 'react'
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import {
+  BORDER, BORDER_STRONG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, FOCUS_RING, TEXT, TEXT_MUTED,
+} from '../theme'
+
 /**
  * The menu pattern, and the two surfaces built on it.
  *
@@ -85,15 +89,18 @@ export const menuStyle = css`
   overflow-y: auto;
   padding: 6px;
   border-radius: 8px;
-  border: 1px solid rgba(68, 60, 86, 0.9);
-  background: #1e1a28;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-  color: #f4f2f8;
+  /* The border is the whole elevation now, and it has to be, because ELEVATED_BG is barely a step
+     above the panels this opens over: on its own the menu would read as part of the page. The 48px
+     drop shadow that used to do the lifting is gone with the rest of the soft effects, and a
+     hairline that holds at any contrast setting is the honest trade. */
+  border: 1px solid ${BORDER_STRONG};
+  background: ${ELEVATED_BG};
+  color: ${TEXT};
 
   .group + .group {
     margin-top: 4px;
     padding-top: 4px;
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    border-top: 1px solid ${BORDER};
   }
 
   .group > label {
@@ -103,7 +110,7 @@ export const menuStyle = css`
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 
   &:focus {
@@ -114,8 +121,13 @@ export const menuStyle = css`
   .passthrough {
     margin: 4px 0 0;
     padding: 7px 10px 3px;
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
-    color: #6f6980;
+    border-top: 1px solid ${BORDER};
+    /* A footnote about an affordance the browser normally offers, not an item in the list, so it
+       should read quieter than the group headings. Not by going darker, though: TEXT_FAINT lands at
+       4.4:1 on ELEVATED_BG, which is why theme.ts holds it to PAGE_BG and SURFACE_BG. TEXT_MUTED is
+       5.8:1 here, and the tier still reads, because the headings are 0.65rem uppercase bold with
+       0.08em tracking against this 0.7rem sentence case. */
+    color: ${TEXT_MUTED};
     font-size: 0.7rem;
     line-height: 1.35;
   }
@@ -128,35 +140,47 @@ export const menuStyle = css`
     border: none;
     border-radius: 4px;
     background: none;
-    color: #f4f2f8;
+    color: ${TEXT};
     padding: 7px 10px;
     font-size: 0.82rem;
     text-align: left;
 
     &:hover:not(:disabled),
     &:focus-visible {
-      background: #2a2338;
+      background: ${CONTROL_HOVER_BG};
       outline: none;
     }
 
     &:focus-visible {
-      box-shadow: inset 0 0 0 2px #fbbf24;
+      /* The only thing that says "the arrow keys are on this row" rather than "the mouse happens to
+         be over it": the rule above hands both states the same fill and kills the outline for both.
+         Brightness is all that is left to carry it, so the ring is the loudest value in the palette
+         and its width is not up for negotiation. */
+      box-shadow: inset 0 0 0 2px ${FOCUS_RING};
     }
 
     &:disabled {
+      /* Still opacity rather than a disabled text colour, because it dims the tick and the label
+         together. A colour set here would only reach the tick by inheritance, and the .tick rule
+         below declares its own, so the glyph would stay fully lit on a row nobody can press. Not a
+         cascade tie: the two rules match different elements, so specificity and source order never
+         come into it. Opacity applies to the rendered subtree and cannot be opted out of that way. */
       opacity: 0.45;
       cursor: default;
     }
 
     &.danger:not(:disabled) {
-      color: #f87171;
+      color: ${DANGER};
     }
 
     .tick {
       flex: none;
       width: 14px;
       text-align: center;
-      color: #fbbf24;
+      /* The glyph's presence is the whole signal, so it only has to be as bright as the label beside
+         it. It used to be amber, which made an unchecked row's neighbour look like the loud thing on
+         screen; matching the label puts the emphasis back on the row. */
+      color: ${TEXT};
     }
 
     .text {

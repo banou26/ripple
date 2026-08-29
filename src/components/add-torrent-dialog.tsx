@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react'
 import { css } from '@emotion/react'
 
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, EMPHASIS, EMPHASIS_HOVER, HOVER_WASH,
+  SURFACE_BG,
+  TEXT, TEXT_MUTED, TEXT_ON_LIGHT,
+} from '../theme'
 
 import { Modal } from './modal'
 
@@ -40,17 +44,19 @@ const style = css`
     max-height: calc(100vh - 48px);
     display: flex;
     flex-direction: column;
-    background: #17141d;
-    border: 1px solid #2c2737;
+    background: ${SURFACE_BG};
+    /* The stronger edge, matching torrent-options-dialog. This card used to lean on a 64px drop
+       shadow for its separation from the page; the shadow is gone, so the border does that job
+       alone now, and it does it at any contrast setting. */
+    border: 1px solid ${BORDER_STRONG};
     border-radius: 8px;
-    color: #f4f2f8;
+    color: ${TEXT};
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   }
 
   header {
     padding: 20px 24px 14px;
-    border-bottom: 1px solid #221e2b;
+    border-bottom: 1px solid ${BORDER};
 
     h2 {
       margin: 0;
@@ -62,9 +68,9 @@ const style = css`
     .from {
       margin: 6px 0 0;
       font-size: 0.8rem;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
 
-      b { color: #c9c4d4; }
+      b { color: ${TEXT}; }
     }
   }
 
@@ -85,12 +91,12 @@ const style = css`
       font-size: 0.7rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
     }
   }
 
   .files {
-    border: 1px solid #2c2737;
+    border: 1px solid ${BORDER};
     border-radius: 6px;
     max-height: 260px;
     overflow-y: auto;
@@ -102,28 +108,35 @@ const style = css`
     gap: 12px;
     padding: 7px 12px;
     font-size: 0.85rem;
-    border-bottom: 1px solid #221e2b;
+    border-bottom: 1px solid ${BORDER};
     cursor: pointer;
 
     &:last-child { border-bottom: none; }
-    &:hover { background: #1d1926; }
+    &:hover { background: ${HOVER_WASH}; }
 
-    input { accent-color: #f97316; flex-shrink: 0; }
+    /* Native checkboxes, so leaving this out does not make them neutral: it hands them back to the
+       UA, which under color-scheme: dark paints checked boxes in the platform accent, usually blue.
+       A near-white accent also gets the tick rendered dark on light, the highest contrast the
+       native control offers, which matters in a list that can run to hundreds of rows. */
+    input { accent-color: ${EMPHASIS}; flex-shrink: 0; }
 
     .path {
       flex: 1;
       min-width: 0;
       word-break: break-word;
-      .dir { color: #8b8499; }
+      .dir { color: ${TEXT_MUTED}; }
     }
 
     .size {
       flex-shrink: 0;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
     }
 
-    &.off .path { color: #6b6579; text-decoration: line-through; }
+    /* Muted rather than faint: this row is the point of the picker, it says what you are NOT
+       taking, and the line-through has already eaten into the glyphs. The strike carries the
+       meaning, so the colour only has to step down, not disappear. */
+    &.off .path { color: ${TEXT_MUTED}; text-decoration: line-through; }
   }
 
   .bulk {
@@ -134,7 +147,7 @@ const style = css`
     .count {
       margin-left: auto;
       font-size: 0.8rem;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
     }
   }
@@ -153,28 +166,29 @@ const style = css`
     cursor: pointer;
     line-height: 1.4;
 
-    input { accent-color: #f97316; margin-top: 2px; flex-shrink: 0; }
+    /* Same reason as the file rows above: an explicit neutral accent, or the UA paints these blue. */
+    input { accent-color: ${EMPHASIS}; margin-top: 2px; flex-shrink: 0; }
 
     .hint {
       display: block;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       font-size: 0.78rem;
     }
   }
 
   .waiting {
     font-size: 0.85rem;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 
   .problem {
     font-size: 0.85rem;
-    color: #f8a5a5;
+    color: ${DANGER};
   }
 
   footer {
     padding: 14px 24px 18px;
-    border-top: 1px solid #221e2b;
+    border-top: 1px solid ${BORDER};
     display: flex;
     align-items: center;
     gap: 10px;
@@ -188,21 +202,40 @@ const style = css`
     font-size: 0.85rem;
     padding: 8px 18px;
     border-radius: 6px;
-    border: 1px solid #2c2737;
+    border: 1px solid ${BORDER};
     background: ${CONTROL_BG};
-    color: #c9c4d4;
+    color: ${TEXT_MUTED};
     cursor: pointer;
 
-    &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: #3a3447; color: #f4f2f8; }
+    &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; color: ${TEXT}; }
     &:disabled { opacity: 0.45; cursor: default; }
 
+    /*
+     * The primary is the light one. It sits next to Cancel and it is the only control here with a
+     * disabled state, so the two must not collapse into the same object: emphasis is carried by a
+     * near-white fill with dark text, which is the same dark-on-bright relationship the orange had.
+     *
+     * The hover block repeats the fill and the label on purpose. The button:hover:not(:disabled)
+     * rule above carries two pseudo-classes to this rule's one class, so it out-specifies .primary
+     * itself and would otherwise hand a hovered primary that fill's near-white label on top of a
+     * near-white fill, which is text that is exactly as legible as no text at all.
+     *
+     * Nothing in the palette is brighter than EMPHASIS, so the fill steps DOWN on hover rather than
+     * up, to EMPHASIS_HOVER. That value is not a local choice: it is calibrated in theme.ts to clear
+     * the grey this same button composites to when it is disabled at 45%, because a hover that
+     * happened to land there would make an enabled button look unavailable.
+     */
     &.primary {
-      background: #f97316;
-      border-color: #f97316;
-      color: #1a1020;
+      background: ${EMPHASIS};
+      border-color: ${EMPHASIS};
+      color: ${TEXT_ON_LIGHT};
       font-weight: 600;
 
-      &:hover:not(:disabled) { background: #fb8a3c; }
+      &:hover:not(:disabled) {
+        background: ${EMPHASIS_HOVER};
+        border-color: ${EMPHASIS_HOVER};
+        color: ${TEXT_ON_LIGHT};
+      }
     }
 
     &.small { padding: 5px 12px; font-size: 0.78rem; }

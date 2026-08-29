@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, User } from 'react-feather'
 import { MediaPlayer } from '@banou/media-player'
 
+import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW } from '../theme'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
@@ -17,7 +18,12 @@ const playerStyle = css`
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: #000;
+  /* The player covers this box completely: its own root is opaque and sized 100% by 100%, as is the
+     chrome inside it, so the letterbox bars and the frame before the first decode are made of the
+     PLAYER's black and not of this rule. This is only the backstop underneath, which is why it can
+     be the page grey rather than the black it used to be: nothing here is normally on screen, and
+     no colour is allowed to live outside the palette. */
+  background: ${PAGE_BG};
 
   /**
    * The whole top row, drawn by this app rather than by the player.
@@ -61,12 +67,24 @@ const playerStyle = css`
       font-size: calc(1.4 * var(--mp-unit));
       line-height: calc(2 * var(--mp-unit));
     }
-    text-shadow: 0 0 4px rgba(0, 0, 0, 1);
-    color: #fff;
+    text-shadow: 0 0 4px ${VIDEO_TEXT_SHADOW};
+    color: ${TEXT};
     white-space: nowrap;
 
-    /* the same wash the player puts behind its own title, so light footage cannot swallow either end */
-    background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.3) 30%, rgba(0,0,0,0.2) 60%, rgba(0,0,0,0.1) 80%, transparent 100%);
+    /**
+     * The wash under this row, and the only one there is.
+     *
+     * The player draws a scrim of its own at the top, but it hangs off the \`title\` element, and
+     * this app deliberately passes no title (see the note on the MediaPlayer below), so it never
+     * mounts. That leaves this band plus the per-glyph shadow above as the entire reason the
+     * filename, the peer count and an engine failure stay readable over arbitrary footage.
+     *
+     * It used to fade out down the row; flat, it ends on a hard edge instead. That is the honest
+     * trade for a flat palette: the band stays translucent so the picture still reads through it,
+     * and the row is hidden with the rest of the controls once the player goes idle, so it is not
+     * sitting over the video the whole time.
+     */
+    background: ${VIDEO_SCRIM};
   }
 
   /* The one thing here that may be cut: a release filename is long and its tail is the least of it,

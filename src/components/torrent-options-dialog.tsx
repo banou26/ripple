@@ -2,7 +2,10 @@ import type { OptionGroup } from '../torrent/torrent-options'
 
 import { css } from '@emotion/react'
 
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
+  DANGER, EMPHASIS, FOCUS_RING, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_MUTED,
+} from '../theme'
 
 import { Modal } from './modal'
 import { useRef } from 'react'
@@ -21,7 +24,7 @@ import { useRef } from 'react'
  */
 
 const style = css`
-  color: #f4f2f8;
+  color: ${TEXT};
   width: 100%;
   max-width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
@@ -31,8 +34,10 @@ const style = css`
     flex-direction: column;
     max-height: calc(100vh - 64px);
     border-radius: 8px;
-    border: 1px solid rgba(68, 60, 86, 0.9);
-    background: #1e1a28;
+    /* The stronger edge, matching add-torrent-dialog: a dialog floats, and now that neither card
+       carries a drop shadow the border is the only thing separating it from the scrim. */
+    border: 1px solid ${BORDER_STRONG};
+    background: ${SURFACE_BG};
   }
 
   header {
@@ -41,7 +46,7 @@ const style = css`
     align-items: baseline;
     gap: 12px;
     padding: 16px 18px 12px;
-    border-bottom: 1px solid rgba(44, 39, 55, 0.9);
+    border-bottom: 1px solid ${BORDER};
 
     h2 {
       flex: 1;
@@ -71,7 +76,7 @@ const style = css`
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
     }
   }
 
@@ -89,12 +94,17 @@ const style = css`
 
     &:hover:not(:disabled),
     &:focus-visible {
-      background: #2a2338;
+      background: ${CONTROL_HOVER_BG};
       outline: none;
     }
 
     &:focus-visible {
-      box-shadow: inset 0 0 0 2px #fbbf24;
+      /* The rule above kills the UA outline, so this inset ring is the whole keyboard affordance
+         for these rows. It is inset because the row is a full-bleed button inside a scrolling body,
+         where an outset outline clips, and it has to out-contrast the hover fill that the very same
+         selector paints underneath it. FOCUS_RING is the brightest value in the palette for exactly
+         that reason: at 12.1:1 on the hover fill it cannot be lost. */
+      box-shadow: inset 0 0 0 2px ${FOCUS_RING};
     }
 
     &:disabled {
@@ -103,7 +113,7 @@ const style = css`
     }
 
     &.danger:not(:disabled) .label {
-      color: #f87171;
+      color: ${DANGER};
     }
 
     .text {
@@ -119,7 +129,7 @@ const style = css`
     .hint {
       display: block;
       margin-top: 2px;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       font-size: 0.78rem;
       line-height: 1.35;
     }
@@ -132,24 +142,39 @@ const style = css`
     width: 32px;
     height: 18px;
     border-radius: 999px;
-    background: #3a3447;
+    /* Nothing but this outline says a control is here, so the track takes the interactive border
+       value, 3.89:1 on the card, the same one the radio ring below takes. The fill on its own is
+       1.07:1 off and 1.53:1 on, so without the outline there is no track for the knob to travel in.
+       The fill is the groove value rather than a button value for the same reason a progress track
+       is: off should read as a recess in the card, and it doubles the on/off step on the way.
+       border-box keeps the outer box at 32x18 and shrinks the padding box the knob is positioned
+       against to 30x16, which is why the knob offsets below are 1px rather than 2px. */
+    border: 1px solid ${BORDER_INTERACTIVE};
+    background: ${SUNKEN_BG};
     position: relative;
     transition: background 120ms ease;
 
     &::after {
       content: '';
       position: absolute;
-      top: 2px;
-      left: 2px;
+      top: 1px;
+      left: 1px;
       width: 14px;
       height: 14px;
       border-radius: 999px;
-      background: #f4f2f8;
+      background: ${EMPHASIS};
       transition: transform 120ms ease;
     }
 
+    /*
+     * On used to be a saturated orange track, which carried the state on its own. Without an accent
+     * the fill can only step from SUNKEN_BG to CONTROL_ACTIVE_BG, which measures 1.63:1: readable
+     * as a step inside a track the outline already draws, but well under the 3:1 WCAG 1.4.11 wants
+     * of a state cue standing alone. So the knob sliding the full width of the track carries the
+     * state, and the transform below is load bearing rather than decoration.
+     */
     &[data-on] {
-      background: #f97316;
+      background: ${CONTROL_ACTIVE_BG};
 
       &::after {
         transform: translateX(14px);
@@ -157,18 +182,39 @@ const style = css`
     }
   }
 
+  /*
+   * A hand-rolled radio, and the selected pip is the only thing that says which option is live.
+   *
+   * It used to be a single-stop radial-gradient painted into the background, which cannot simply be
+   * flattened: a plain background fills the whole padding box, so the pip grows into a blob touching
+   * the ring and the control reads as a filled checkbox. A centred pseudo-element draws the same
+   * 7px disc and keeps the same 2px of card showing between disc and ring, and it is a shape rather
+   * than a paint trick, so there is no gradient left to remove.
+   */
   .dot {
     flex: none;
+    position: relative;
     margin-top: 3px;
     width: 15px;
     height: 15px;
     border-radius: 999px;
-    border: 2px solid #3a3447;
+    /* Nothing but this ring says a control is here, so it takes the interactive border weight
+       rather than the hairline one. */
+    border: 2px solid ${BORDER_INTERACTIVE};
 
     &[data-on] {
-      border-color: #f97316;
-      background:
-        radial-gradient(circle at 50% 50%, #f97316 0 3.5px, transparent 3.5px);
+      border-color: ${EMPHASIS};
+    }
+
+    &[data-on]::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: ${EMPHASIS};
     }
   }
 
@@ -182,20 +228,20 @@ const style = css`
     display: flex;
     justify-content: flex-end;
     padding: 12px 18px;
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
+    border-top: 1px solid ${BORDER};
 
     button {
-      border: 1px solid #3a3447;
+      border: 1px solid ${BORDER};
       border-radius: 6px;
       background: ${CONTROL_BG};
-      color: #f4f2f8;
+      color: ${TEXT};
       padding: 6px 18px;
       font-size: 0.85rem;
       font-weight: 700;
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
-        border-color: rgba(249, 115, 22, 0.35);
+        border-color: ${BORDER_STRONG};
       }
     }
   }

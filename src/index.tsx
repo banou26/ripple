@@ -4,8 +4,17 @@ import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'
 
 import Mount from './components/mount'
+import { PAGE_BG, TEXT } from './theme'
 
 const style = css`
+  /*
+   * What colours the scrollbars, the text caret, ::selection and the chrome the UA draws on form
+   * controls. Nothing in this repo touches the first three, so for those this one keyword is the
+   * whole answer. Form controls are the exception, and only a partial one: the checkboxes and radios
+   * in the dialogs set their checked fill with accent-color, while everything else about how the
+   * UA paints them still comes from here. Dropping it hands a near-black page a set of white
+   * scrollbars and white select popups, and no test would notice.
+   */
   :root {
     color-scheme: dark;
   }
@@ -31,11 +40,18 @@ const style = css`
     height: calc(100% - var(--fkn-inset-top, 0px));
   }
 
+  /*
+   * PAGE_BG is duplicated by hand in app.webmanifest as background_color and theme_color, because a
+   * manifest is JSON and cannot import a token, and no build step derives one from the other. They
+   * have to move together: the manifest paints the PWA splash and the installed title bar, so a page
+   * background changed on its own gives an installed Ripple a splash in the old colour that flips to
+   * the new one the instant the document paints, and a title bar that never catches up at all.
+   */
   body {
     margin: 0;
     height: 100%;
-    background: #16131c;
-    color: #f4f2f8;
+    background: ${PAGE_BG};
+    color: ${TEXT};
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   }
 

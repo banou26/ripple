@@ -18,10 +18,10 @@
   ],
   "id": "/?source=pwa",
   "start_url": "/?source=pwa",
-  "background_color": "#16131c",
+  "background_color": "#0f0f0f",
   "display": "standalone",
   "scope": "/",
-  "theme_color": "#16131c",
+  "theme_color": "#0f0f0f",
   "launch_handler": {
     "client_mode": "focus-existing"
   },

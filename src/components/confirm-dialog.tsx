@@ -17,6 +17,18 @@ import { css } from '@emotion/react'
 import { useCallback, useRef, useState } from 'react'
 
 import { Modal } from './modal'
+import {
+  BORDER,
+  BORDER_STRONG,
+  CONTROL_BG,
+  CONTROL_HOVER_BG,
+  DANGER,
+  EMPHASIS,
+  FOCUS_RING,
+  SURFACE_BG,
+  TEXT,
+  TEXT_MUTED,
+} from '../theme'
 
 export type ConfirmRequest = {
   title: string
@@ -31,7 +43,7 @@ export type ConfirmRequest = {
 }
 
 const style = css`
-  color: #f4f2f8;
+  color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   max-width: min(460px, calc(100vw - 32px));
   width: 100%;
@@ -41,9 +53,11 @@ const style = css`
     width: 100%;
     padding: 20px;
     border-radius: 8px;
-    background: #1e1a28;
-    border: 1px solid rgba(68, 60, 86, 0.9);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    background: ${SURFACE_BG};
+    /* The strong border, not the hairline every other surface takes. This card used to float on a
+       60px drop shadow; with that gone the edge is the only thing left saying the card sits above
+       the scrimmed page rather than in it. */
+    border: 1px solid ${BORDER_STRONG};
   }
 
   h2 {
@@ -58,7 +72,7 @@ const style = css`
     margin: 0;
     font-size: 0.88rem;
     line-height: 1.5;
-    color: #b9b2c8;
+    color: ${TEXT_MUTED};
     overflow-wrap: anywhere;
   }
 
@@ -68,13 +82,16 @@ const style = css`
     gap: 8px;
     margin-top: 14px;
     font-size: 0.82rem;
-    color: #b9b2c8;
+    color: ${TEXT_MUTED};
     cursor: pointer;
     user-select: none;
 
     input {
       cursor: pointer;
-      accent-color: #fbbf24;
+      /* Set, never dropped. This is a native checkbox, and with the property gone the UA paints the
+         checked state in the platform accent, which under color-scheme: dark is blue. A near-white
+         accent also gives the tick a dark-on-light rendering, the highest contrast the control has. */
+      accent-color: ${EMPHASIS};
     }
   }
 
@@ -91,26 +108,35 @@ const style = css`
       padding: 8px 14px;
       border-radius: 6px;
       cursor: pointer;
-      border: 1px solid rgba(68, 60, 86, 0.9);
-      background: #2a2436;
-      color: #f4f2f8;
+      border: 1px solid ${BORDER};
+      background: ${CONTROL_BG};
+      color: ${TEXT};
       transition: background 120ms ease, border-color 120ms ease;
 
       &:hover {
-        background: #332c42;
+        background: ${CONTROL_HOVER_BG};
       }
 
+      /**
+       * A neutral button with a red label, rather than a red button with a pale one.
+       *
+       * The palette carries both DANGER and DANGER_SOLID and forbids using them together, so this
+       * is a real choice and it goes this way for two reasons. DANGER was measured for exactly this
+       * pairing: 4.9:1 sitting on a hovered control fill, which is precisely where a destructive
+       * button lives. And a solid fill would have to hold still on hover, because there is no
+       * second red to brighten into, leaving the one button in the dialog that most deserves
+       * feedback as the only one without any. Falling through to the neutral hover above keeps it.
+       *
+       * What carries the weight instead is the label, which names the verb and never says "OK",
+       * plus the red hairline, so the warning is not colour alone.
+       */
       &.danger {
-        background: #b91c1c;
-        border-color: #dc2626;
-
-        &:hover {
-          background: #dc2626;
-        }
+        border-color: ${DANGER};
+        color: ${DANGER};
       }
 
       &:focus-visible {
-        outline: 2px solid #fbbf24;
+        outline: 2px solid ${FOCUS_RING};
         outline-offset: 2px;
       }
     }

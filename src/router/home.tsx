@@ -33,7 +33,14 @@ import type { SaveLocation } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
 import { NO_LIMITS, formatLimit, isLimit, limitNote } from '../torrent/rate-limits'
 import type { RateLimits } from '../torrent/rate-limits'
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER, BORDER_INTERACTIVE, BORDER_STRONG,
+  CHART_PRIMARY, CHART_PRIMARY_FILL, CHART_SECONDARY,
+  CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
+  DANGER, ELEVATED_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, OK,
+  PAGE_BG, SUNKEN_BG, SURFACE_BG,
+  TEXT, TEXT_FAINT, TEXT_MUTED, WARN,
+} from '../theme'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -270,11 +277,8 @@ export const style = css`
   height: calc(100dvh - var(--fkn-inset-top, 0px));
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(1100px 500px at 75% -5%, #2b1f3f 0%, transparent 60%),
-    radial-gradient(900px 420px at -10% 110%, #221a31 0%, transparent 55%),
-    #16131c;
-  color: #f4f2f8;
+  background: ${PAGE_BG};
+  color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   a {
@@ -298,18 +302,16 @@ export const style = css`
     flex-wrap: wrap;
     gap: 10px 16px;
     padding: 12px 18px;
-    background: rgba(30, 26, 40, 0.6);
-    border-bottom: 1px solid rgba(44, 39, 55, 0.9);
-    backdrop-filter: blur(12px) saturate(1.2);
+    /* opaque rather than frosted: the bar has to hide the list scrolling under it, and a flat fill
+       does that at any contrast setting where a blur only softened it */
+    background: ${SURFACE_BG};
+    border-bottom: 1px solid ${BORDER};
 
     .wordmark {
       font-size: 1.35rem;
       font-weight: 900;
       letter-spacing: 0.06em;
-      background: linear-gradient(90deg, #fbbf24, #f97316);
-      background-clip: text;
-      -webkit-background-clip: text;
-      color: transparent;
+      color: ${TEXT};
     }
 
     /**
@@ -347,22 +349,24 @@ export const style = css`
       gap: 2px;
       padding: 3px 5px 3px 18px;
       border-radius: 999px;
-      background: rgba(22, 19, 28, 0.8);
-      border: 1px solid #2c2737;
+      /* a hole punched in the header, and an outline bright enough to be the only thing saying a
+         control is here, which is all a bare pill has left once there is no accent to lean on */
+      background: ${SUNKEN_BG};
+      border: 1px solid ${BORDER_INTERACTIVE};
       transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 
       /* the ring belongs to the pill, not to the bare input inside it */
       &:focus-within {
-        border-color: #f97316;
-        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+        border-color: ${FOCUS_RING};
+        box-shadow: 0 0 0 3px ${FOCUS_RING};
       }
 
-      /* the same amber the page-wide overlay uses, so a drag reads as landing in one place */
+      /* the same bright edge the page-wide overlay uses, so a drag reads as landing in one place */
       &[data-drop] {
-        border-color: #fbbf24;
+        border-color: ${EMPHASIS};
         border-style: dashed;
-        background: rgba(249, 115, 22, 0.08);
-        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+        background: ${HOVER_WASH};
+        box-shadow: 0 0 0 3px ${EMPHASIS};
       }
 
       /* the text itself: no chrome of its own, since the pill around it is the control */
@@ -373,20 +377,22 @@ export const style = css`
         border: none;
         outline: none;
         padding: 9px 0;
-        color: #f4f2f8;
+        color: ${TEXT};
         font-family: inherit;
         font-size: 0.9rem;
 
-        &::placeholder { color: #8b8499; }
+        &::placeholder { color: ${TEXT_MUTED}; }
       }
 
-      /* a hairline between the text and the actions, the way an address bar separates them */
+      /* A hairline between the text and the actions, the way an address bar separates them. The
+         stronger of the two line tokens, because this one sits on the sunken fill rather than on a
+         surface, and BORDER against that is 1.3:1, which is nothing. */
       .sep {
         flex: none;
         width: 1px;
         height: 20px;
         margin: 0 5px;
-        background: #2c2737;
+        background: ${BORDER_STRONG};
       }
     }
 
@@ -409,20 +415,22 @@ export const style = css`
       border: none;
       border-radius: 50%;
       background: none;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       cursor: pointer;
       transition: background 120ms ease, color 120ms ease;
 
       svg { width: 17px; height: 17px; }
 
       &:hover:not(:disabled):not([aria-disabled='true']) {
-        background: rgba(255, 255, 255, 0.07);
-        color: #f4f2f8;
+        background: ${HOVER_WASH};
+        color: ${TEXT};
       }
 
+      /* outline: none above means this ring IS the focus indicator, so it is drawn at full strength
+         rather than at the alpha the old accent ring used */
       &:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.55);
+        box-shadow: 0 0 0 2px ${FOCUS_RING};
       }
 
       /**
@@ -438,8 +446,9 @@ export const style = css`
         cursor: default;
       }
 
-      /* the submit, tinted so the one action that commits is the one that reads as an action */
-      &.go:not(:disabled) { color: #f97316; }
+      /* the submit, at full brightness against its muted neighbour so the one action that commits is
+         the one that reads as an action */
+      &.go:not(:disabled) { color: ${TEXT}; }
 
       /* the file picker's own input, sized to nothing rather than display:none, which would take it
          out of the tab order and leave the only .torrent picker unreachable without a mouse */
@@ -468,27 +477,30 @@ export const style = css`
       padding: 8px 16px;
       font-size: 0.85rem;
       font-weight: 700;
-      border: 1px solid #3a3447;
+      border: 1px solid ${BORDER};
       background: ${CONTROL_BG};
-      color: #f4f2f8;
+      color: ${TEXT};
 
       svg { width: 15px; height: 15px; }
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
-        border-color: rgba(249, 115, 22, 0.45);
+        border-color: ${BORDER_STRONG};
       }
     }
   }
 
+  /**
+   * A plane on the page: the stats panel, the storage warnings, every torrent row.
+   *
+   * Flat and opaque. This used to be a translucent fill, a frosting blur and a three-layer shadow
+   * stack (a light ring, a drop shadow and an inset highlight) doing the work of saying "this is a
+   * card". The border does that on its own, it costs one hairline instead of four paint layers, and
+   * nothing scrolling underneath ghosts through it any more.
+   */
   .surface {
-    background: rgba(30, 26, 40, 0.66);
-    border: 1px solid rgba(44, 39, 55, 0.9);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.03),
-      0 4px 14px -4px rgba(0, 0, 0, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(12px) saturate(1.2);
+    background: ${SURFACE_BG};
+    border: 1px solid ${BORDER};
   }
 
   .storage-warning {
@@ -496,13 +508,15 @@ export const style = css`
     margin: 14px 16px 0;
     padding: 14px 18px;
     border-radius: 8px;
-    border: 1px solid rgba(249, 115, 22, 0.45);
+    /* the frame and the heading are the whole "this is a caution" signal, and they are the one place
+       on the page a hue is still spent */
+    border: 1px solid ${WARN};
     display: flex;
     flex-direction: column;
     gap: 4px;
 
-    strong { color: #fbbf24; font-size: 0.95rem; }
-    span { color: #8b8499; font-size: 0.85rem; line-height: 1.6; }
+    strong { color: ${WARN}; font-size: 0.95rem; }
+    span { color: ${TEXT_MUTED}; font-size: 0.85rem; line-height: 1.6; }
 
     button {
       align-self: flex-start;
@@ -511,21 +525,22 @@ export const style = css`
       padding: 6px 16px;
       font-size: 0.8rem;
       font-weight: 700;
-      border: 1px solid #3a3447;
+      border: 1px solid ${BORDER};
       background: ${CONTROL_BG};
-      color: #f4f2f8;
+      color: ${TEXT};
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
-        border-color: rgba(249, 115, 22, 0.35);
+        border-color: ${BORDER_STRONG};
       }
     }
 
-    /* Recoverable on its own, so it reads as a notice rather than an alarm. */
+    /* Recoverable on its own, so it reads as a notice rather than an alarm: the caution hue comes
+       off both the frame and the heading and it goes back to being a neutral card. */
     &.offline {
-      border-color: rgba(139, 132, 153, 0.35);
+      border-color: ${BORDER_STRONG};
 
-      strong { color: #c9c4d4; }
+      strong { color: ${TEXT}; }
     }
   }
 
@@ -556,7 +571,7 @@ export const style = css`
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #8b8499;
+        color: ${TEXT_MUTED};
       }
 
       strong {
@@ -565,46 +580,49 @@ export const style = css`
         white-space: nowrap;
       }
 
+      /* the number is identical in both states, so without a colour the low state would be the same
+         pixels as the healthy one; this is a caution and it keeps the caution hue */
       &.storage.low strong {
-        color: #fbbf24;
+        color: ${WARN};
       }
 
       &.big strong {
         font-size: 1.7rem;
         line-height: 1.1;
-        background: linear-gradient(90deg, #fbbf24, #f97316);
-        background-clip: text;
-        -webkit-background-clip: text;
-        color: transparent;
+        color: ${TEXT};
       }
 
       &.quota strong.ok {
-        color: #7dd3a0;
+        color: ${OK};
       }
 
       &.quota.throttled strong {
-        color: #fbbf24;
+        color: ${WARN};
       }
 
+      /* Underlined always, not only on hover. It repeats the label's size, weight and casing, so with
+         the accent gone the underline is the only thing left saying it is a link. That frees colour
+         to do the hover instead: it rests a tier down and climbs to the top one under the cursor,
+         which is the whole feedback this link gets. */
       &.quota a {
         font-size: 0.62rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #fbbf24;
-        text-decoration: none;
-      }
-
-      &.quota a:hover {
+        color: ${TEXT_MUTED};
         text-decoration: underline;
       }
 
+      &.quota a:hover {
+        color: ${TEXT};
+      }
+
       &.sync strong.ok {
-        color: #7dd3a0;
+        color: ${OK};
       }
 
       &.sync.error strong {
-        color: #fbbf24;
+        color: ${WARN};
       }
     }
 
@@ -616,7 +634,7 @@ export const style = css`
 
       polyline {
         fill: none;
-        stroke: #f97316;
+        stroke: ${CHART_PRIMARY};
         stroke-width: 1.2;
         vector-effect: non-scaling-stroke;
       }
@@ -637,8 +655,8 @@ export const style = css`
     /* the row whose details are in the dock, marked clearly enough to find at a glance in a long
        library without shouting over the rest of it */
     &.selected {
-      border-color: rgba(249, 115, 22, 0.55);
-      background: rgba(41, 33, 46, 0.8);
+      border-color: ${BORDER_INTERACTIVE};
+      background: ${CONTROL_BG};
     }
 
     cursor: default;
@@ -653,13 +671,12 @@ export const style = css`
     gap: 12px;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 
+    /* Hover lifts and brightens its edge; selection above holds a brighter edge AND a lighter fill.
+       Two different properties for two different states, rather than two alphas of one colour, which
+       is what told them apart before and would not survive without a hue to vary. */
     &:hover {
-      border-color: rgba(249, 115, 22, 0.35);
+      border-color: ${BORDER_STRONG};
       transform: translateY(-1px);
-      box-shadow:
-        0 0 0 1px rgba(249, 115, 22, 0.12),
-        0 8px 20px -6px rgba(0, 0, 0, 0.45),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
     /* Everything that is not the picture. A column, because the file list sits under the main line
@@ -698,8 +715,8 @@ export const style = css`
       max-height: 148px;
       border-radius: 8px;
       object-fit: cover;
-      background: #221a31;
-      border: 1px solid rgba(44, 39, 55, 0.9);
+      background: ${SUNKEN_BG};
+      border: 1px solid ${BORDER};
     }
 
     /* Held even when there is no picture, so every row's text starts at the same place. An absent
@@ -707,9 +724,11 @@ export const style = css`
     .poster.placeholder {
       display: grid;
       place-items: center;
-      border-color: rgba(249, 115, 22, 0.25);
-      background: rgba(249, 115, 22, 0.06);
-      color: rgba(251, 191, 36, 0.55);
+      /* lighter than the plain poster fill, so an empty frame reads as a deliberate placeholder
+         rather than as a picture that has not arrived yet */
+      border-color: ${BORDER};
+      background: ${CONTROL_BG};
+      color: ${TEXT_MUTED};
 
       svg { width: 20px; height: 20px; }
     }
@@ -739,7 +758,7 @@ export const style = css`
         flex: none;
         font-size: 0.85rem;
         font-variant-numeric: tabular-nums;
-        color: #b6b0c4;
+        color: ${TEXT_MUTED};
       }
     }
 
@@ -754,9 +773,19 @@ export const style = css`
       letter-spacing: 0.06em;
       padding: 3px 10px;
       border-radius: 4px;
-      background: #2c2737;
-      border: 1px solid transparent;
-      color: #a39db3;
+      /**
+       * One chip, eight states, and the words do the telling.
+       *
+       * Every state used to have a hue of its own: amber downloading, teal seeding, blue checking,
+       * purple done. The badge prints the state in words either way, so the colour was saying
+       * nothing the label was not, and the giveaway is that STARTING and MISSING were already the
+       * same grey and nobody ever noticed. What is left is brightness for "is this doing something",
+       * the pulse on the dot for "and it is still going", and a hue on exactly the two states that
+       * are outcomes rather than progress.
+       */
+      background: ${CONTROL_BG};
+      border: 1px solid ${BORDER};
+      color: ${TEXT_MUTED};
 
       &::before {
         content: '';
@@ -768,47 +797,42 @@ export const style = css`
       }
 
       &.downloading {
-        color: #fbbf24;
-        background: #fbbf2414;
-        border-color: #fbbf2430;
+        color: ${TEXT};
 
         &::before {
           animation: pulse 1.6s ease-in-out infinite;
         }
       }
-      &.seeding { color: #2dd4bf; background: #2dd4bf14; border-color: #2dd4bf30; }
+      &.seeding { color: ${TEXT}; }
 
       /* Working, not waiting: the progress bar tracks the check while this runs. */
       &.checking {
-        color: #60a5fa;
-        background: #60a5fa14;
-        border-color: #60a5fa30;
+        color: ${TEXT};
 
         &::before {
           animation: pulse 1.6s ease-in-out infinite;
         }
       }
 
-      /* Connecting rather than idle, so it pulses like the other in-progress states. Grey, because
+      /* Connecting rather than idle, so it pulses like the other in-progress states. Quiet, because
          it says nothing yet about whether this torrent is downloading, seeding or finished. */
       &.starting {
-        color: #8b8499;
-        background: #8b849914;
-        border-color: #8b849930;
+        color: ${TEXT_MUTED};
 
         &::before {
           animation: pulse 1.6s ease-in-out infinite;
         }
       }
 
-      &.done { color: #c084fc; background: #c084fc14; border-color: #c084fc30; }
-      &.error { color: #ef4444; background: #ef444414; border-color: #ef444430; }
-      &.missing { color: #8b8499; background: #8b849914; border-color: #8b849930; }
+      /* the two outcomes, and the only badges that still spend a hue */
+      &.done { color: ${OK}; }
+      &.error { color: ${DANGER}; }
+
+      /* stated rather than inherited from the base: this state is deliberately the quiet one */
+      &.missing { color: ${TEXT_MUTED}; }
 
       &.retrying {
-        color: #f97316;
-        background: #f9731614;
-        border-color: #f9731630;
+        color: ${TEXT};
 
         &::before {
           animation: pulse 1.6s ease-in-out infinite;
@@ -816,8 +840,10 @@ export const style = css`
       }
     }
 
+    /* why a torrent stalled and when it tries again, brighter than the meta numbers it sits among so
+       it does not read as one more of them */
     .retry {
-      color: #f97316;
+      color: ${TEXT};
       overflow-wrap: anywhere;
     }
 
@@ -825,14 +851,16 @@ export const style = css`
     .bar {
       height: 4px;
       border-radius: 2px;
-      background: rgba(44, 39, 55, 0.9);
+      background: ${SUNKEN_BG};
       overflow: hidden;
 
+      /* No glow under this any more. The old fill was a mid-saturation orange on a purple track and
+         needed a 10px bloom to be perceptible at 3%; against a sunken track this is the brightest
+         object on the page at 17:1, so the sliver reads on its own. */
       .fill {
         height: 100%;
         border-radius: 2px;
-        background: linear-gradient(90deg, #fbbf24, #f97316);
-        box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
+        background: ${EMPHASIS};
         transition: width 400ms ease;
       }
     }
@@ -849,18 +877,19 @@ export const style = css`
       display: flex;
       flex-wrap: wrap;
       gap: 3px 14px;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
 
-      /* a ceiling is a setting rather than a measurement, so it is marked off from the live numbers
-         beside it instead of reading as another one of them */
+      /* A ceiling is a setting rather than a measurement, so it is marked off from the live numbers
+         beside it instead of reading as another one of them. The chrome does that now, not the
+         colour: same text as its neighbours, sitting in a box they do not have. */
       .limit {
         padding: 0 6px;
         border-radius: 4px;
-        color: #d9b38c;
-        background: rgba(249, 115, 22, 0.12);
-        border: 1px solid rgba(249, 115, 22, 0.22);
+        color: ${TEXT_MUTED};
+        background: ${CONTROL_BG};
+        border: 1px solid ${BORDER};
       }
     }
 
@@ -876,19 +905,21 @@ export const style = css`
       height: 26px;
       align-self: center;
 
-      .down-fill { fill: rgba(249, 115, 22, 0.18); }
+      .down-fill { fill: ${CHART_PRIMARY_FILL}; }
 
       .down-line {
         fill: none;
-        stroke: #f97316;
+        stroke: ${CHART_PRIMARY};
         stroke-width: 1.2;
         vector-effect: non-scaling-stroke;
       }
 
-      /* thinner and cooler than the download line, so the two are told apart at 26px without a key */
+      /* Thinner and dimmer than the download line, so the two are told apart at 26px without a key.
+         Hue used to be the first of those cues and is gone; what is left is three redundant ones,
+         brightness, stroke width, and the fact that only download carries a filled area. */
       .up-line {
         fill: none;
-        stroke: #7dd3a0;
+        stroke: ${CHART_SECONDARY};
         stroke-width: 1;
         vector-effect: non-scaling-stroke;
       }
@@ -947,13 +978,13 @@ export const style = css`
          for an action already reachable by clicking the row. Same shape, same fill, same border. */
       .primary,
       button {
-        border: 1px solid #3a3447;
+        border: 1px solid ${BORDER};
         background: ${CONTROL_BG};
-        color: #f4f2f8;
+        color: ${TEXT};
 
         &:hover {
           background: ${CONTROL_HOVER_BG};
-          border-color: rgba(249, 115, 22, 0.35);
+          border-color: ${BORDER_STRONG};
         }
 
         &:disabled {
@@ -966,13 +997,13 @@ export const style = css`
     .detail {
       summary {
         cursor: pointer;
-        color: #a39db3;
+        color: ${TEXT_MUTED};
         font-size: 0.8rem;
         user-select: none;
         transition: color 120ms ease;
 
         &:hover {
-          color: #c9c4d4;
+          color: ${TEXT};
         }
       }
 
@@ -982,7 +1013,7 @@ export const style = css`
         margin: 10px 0 8px;
         padding: 3px;
         border-radius: 6px;
-        background: rgba(22, 19, 28, 0.8);
+        background: ${SUNKEN_BG};
         width: fit-content;
         max-width: 100%;
         flex-wrap: wrap;
@@ -991,7 +1022,7 @@ export const style = css`
           border: none;
           border-radius: 4px;
           background: none;
-          color: #a39db3;
+          color: ${TEXT_MUTED};
           padding: 4px 12px;
           font-size: 0.75rem;
           font-weight: 700;
@@ -1000,22 +1031,35 @@ export const style = css`
           gap: 6px;
 
           &:hover {
-            color: #f4f2f8;
+            color: ${TEXT};
           }
 
           /* The selected tab, which has to stand out from the three beside it and no further. It was
              solid white, and once Watch and Add stopped being white it was the only such thing left
              on the page, which read as something that had been missed. A raised surface separates it
-             from the sunken track behind it without shouting. */
+             from the sunken track behind it without shouting, and it cannot be confused with a hover
+             because hover here declares no fill at all: it only brightens the label, so the selected
+             tab owns the only filled box in the strip. */
           &[data-on] {
-            background: ${CONTROL_HOVER_BG};
-            color: #f4f2f8;
+            background: ${CONTROL_ACTIVE_BG};
+            color: ${TEXT};
           }
 
+          /*
+           * Dimmed rather than given a colour of its own, so it tracks whatever state the tab is
+           * in instead of pinning one value and being wrong in two of the three.
+           *
+           * 0.7 stopped being survivable when the strip went to SUNKEN_BG and the label to
+           * TEXT_MUTED: 0.7 of that over #0f0f0f composites to #6e6e6e, 3.76:1 on a 0.75rem badge,
+           * under the 4.5 this palette holds normal text to. 0.85 gives #828282 and 4.99:1. Hovered
+           * (12.4:1) and selected (8.1:1) were never the problem and keep their margin.
+           *
+           * The same badge, with the same value, exists in torrent-detail.tsx. Both were moved.
+           */
           .count {
             font-variant-numeric: tabular-nums;
             font-weight: 600;
-            opacity: 0.7;
+            opacity: 0.85;
           }
         }
       }
@@ -1030,7 +1074,7 @@ export const style = css`
 
       .none {
         margin: 6px 0 2px;
-        color: #8b8499;
+        color: ${TEXT_MUTED};
         font-size: 0.8rem;
       }
 
@@ -1046,19 +1090,19 @@ export const style = css`
         justify-content: space-between;
         gap: 12px;
         padding: 5px 0;
-        border-bottom: 1px solid rgba(44, 39, 55, 0.9);
+        border-bottom: 1px solid ${BORDER};
         font-size: 0.8rem;
 
         label {
           flex: none;
-          color: #8b8499;
+          color: ${TEXT_MUTED};
         }
 
         span {
           min-width: 0;
           overflow-wrap: anywhere;
           text-align: right;
-          color: #d6d1e0;
+          color: ${TEXT};
           font-variant-numeric: tabular-nums;
         }
       }
@@ -1078,26 +1122,28 @@ export const style = css`
         align-items: center;
         gap: 12px;
         padding: 7px 0;
-        border-top: 1px solid rgba(44, 39, 55, 0.9);
+        border-top: 1px solid ${BORDER};
         font-size: 0.8rem;
 
         &:first-of-type {
           border-top: none;
         }
 
-        /* sticky so a long swarm keeps its column names while it scrolls */
+        /* Sticky so a long swarm keeps its column names while it scrolls, and opaque because rows
+           pass underneath it. It takes the card's own fill, so on an unselected row it is invisible
+           except for the words, which is what a column header should be. */
         &.head {
           position: sticky;
           top: 0;
           z-index: 1;
-          background: #1c1826;
+          background: ${SURFACE_BG};
           border-top: none;
           padding-top: 2px;
           font-size: 0.65rem;
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: #8b8499;
+          color: ${TEXT_MUTED};
         }
 
         .name {
@@ -1108,27 +1154,29 @@ export const style = css`
           gap: 8px;
           flex-wrap: wrap;
           overflow-wrap: anywhere;
-          color: #b6b0c4;
+          /* the name is what the row is about, so it takes the top tier and everything else in the
+             row sits a step below it */
+          color: ${TEXT};
 
           .dim {
-            color: #6f6980;
+            color: ${TEXT_FAINT};
           }
         }
 
         .client {
           flex: none;
           width: 130px;
-          color: #8b8499;
+          color: ${TEXT_MUTED};
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
 
           &.ok {
-            color: #7dd3a0;
+            color: ${OK};
           }
 
           &.warn {
-            color: #ef4444;
+            color: ${DANGER};
           }
         }
 
@@ -1136,7 +1184,7 @@ export const style = css`
           flex: none;
           width: 74px;
           text-align: right;
-          color: #8b8499;
+          color: ${TEXT_MUTED};
           font-variant-numeric: tabular-nums;
         }
 
@@ -1151,22 +1199,22 @@ export const style = css`
           padding: 1px 7px;
           font-size: 0.62rem;
           font-weight: 700;
-          color: #a39db3;
-          background: rgba(58, 52, 71, 0.6);
+          color: ${TEXT_MUTED};
+          background: ${CONTROL_BG};
         }
 
         button {
           flex: none;
-          border: 1px solid #3a3447;
+          border: 1px solid ${BORDER};
           border-radius: 4px;
           background: ${CONTROL_BG};
-          color: #f4f2f8;
+          color: ${TEXT};
           padding: 4px 12px;
           font-size: 0.75rem;
 
           &:hover {
             background: ${CONTROL_HOVER_BG};
-            border-color: rgba(249, 115, 22, 0.35);
+            border-color: ${BORDER_STRONG};
           }
 
           &:disabled {
@@ -1182,51 +1230,31 @@ export const style = css`
     position: relative;
     margin: auto;
     text-align: center;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
     font-size: 0.95rem;
     line-height: 1.7;
     padding: 24px;
 
-    &::before, &::after {
-      content: '';
-      position: absolute;
-      border-radius: 999px;
-      filter: blur(70px);
-      pointer-events: none;
-    }
-
-    &::before {
-      width: 280px;
-      height: 280px;
-      top: -80px;
-      left: -60px;
-      background: #f59e0b;
-      opacity: 0.14;
-    }
-
-    &::after {
-      width: 320px;
-      height: 320px;
-      bottom: -100px;
-      right: -80px;
-      background: #7c3aed;
-      opacity: 0.16;
-    }
-
+    /**
+     * The headline, at the top text tier across both halves.
+     *
+     * The emphasised half used to be gradient text against plain white, so the gradient was what
+     * marked "this is the point" of the sentence. Nothing sits above TEXT to hand the em instead, and
+     * dimming the lead-in to manufacture a step would put the largest headline in the app on the same
+     * tier as the paragraph under it, which is the one thing this block must not do: the .empty
+     * wrapper is already TEXT_MUTED, so the h1 would then contribute no brightness step at all. Both
+     * halves are TEXT and the em is left only cancelling the browser italic.
+     */
     h1 {
       margin: 0 0 12px;
       font-size: clamp(1.7rem, 4.5vw, 2.6rem);
       font-weight: 900;
       letter-spacing: -0.01em;
       line-height: 1.15;
-      color: #f4f2f8;
+      color: ${TEXT};
 
       em {
         font-style: normal;
-        background: linear-gradient(90deg, #fbbf24, #f97316, #c084fc);
-        background-clip: text;
-        -webkit-background-clip: text;
-        color: transparent;
       }
     }
 
@@ -1240,20 +1268,22 @@ export const style = css`
       span {
         padding: 6px 14px;
         border-radius: 4px;
-        border: 1px solid #2c2737;
-        background: rgba(30, 26, 40, 0.66);
+        border: 1px solid ${BORDER};
+        background: ${SURFACE_BG};
         font-size: 0.78rem;
-        color: #a39db3;
+        color: ${TEXT_MUTED};
       }
     }
   }
 
   /**
-   * A frame with the message sitting in it, rather than a page-sized amber flood.
+   * A frame with the message sitting in it, rather than a page-sized flood of colour.
    *
-   * The wash is gone from the fill and lives on the message alone: the frame is what says WHERE the
-   * drop lands, and it can say that at the edge of the window without tinting everything the person
-   * is looking at.
+   * Nothing tints the page: the frame is what says WHERE the drop lands, and it can say that at the
+   * edge of the window without covering everything the person is looking at. The dashed edge is the
+   * half of the cue that never depended on a hue, which is why it survives intact here; what changed
+   * is that it is now drawn at full brightness rather than at an alpha of the accent, since a dim
+   * neutral hairline at the very edge of a viewport is not something anyone would notice.
    */
   .drop {
     position: fixed;
@@ -1261,19 +1291,20 @@ export const style = css`
     z-index: 20;
     display: grid;
     place-items: center;
-    border: 2px dashed rgba(249, 115, 22, 0.55);
+    border: 2px dashed ${EMPHASIS};
     border-radius: 8px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 150ms ease;
 
+    /* opaque and edged rather than lifted on a shadow: it floats over the library, so it takes the
+       floating pair of tokens */
     span {
       padding: 10px 22px;
       border-radius: 8px;
-      background: rgba(22, 19, 28, 0.92);
-      border: 1px solid rgba(249, 115, 22, 0.35);
-      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
-      color: #fbbf24;
+      background: ${ELEVATED_BG};
+      border: 1px solid ${BORDER_STRONG};
+      color: ${TEXT};
       font-size: 1rem;
       font-weight: 800;
       letter-spacing: 0.02em;
@@ -1291,18 +1322,18 @@ export const style = css`
     flex-wrap: wrap;
     gap: 6px 18px;
     padding: 8px 16px;
-    background: rgba(30, 26, 40, 0.6);
-    border-top: 1px solid rgba(44, 39, 55, 0.9);
-    backdrop-filter: blur(12px) saturate(1.2);
+    /* opaque for the same reason the header is: the list scrolls under it */
+    background: ${SURFACE_BG};
+    border-top: 1px solid ${BORDER};
     font-size: 0.78rem;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
 
     a {
-      color: #8b8499;
+      color: ${TEXT_MUTED};
       transition: color 120ms ease;
 
       &:hover {
-        color: #c9c4d4;
+        color: ${TEXT};
       }
     }
 
@@ -1330,19 +1361,34 @@ export const style = css`
         font-size: 0.75rem;
         padding: 4px 12px;
         border-radius: 4px;
-        border: 1px solid #2c2737;
+        border: 1px solid ${BORDER};
         background: ${CONTROL_BG};
-        color: #8b8499;
+        color: ${TEXT_MUTED};
 
         &:hover {
           background: ${CONTROL_HOVER_BG};
-          color: #c9c4d4;
-          border-color: #3a3447;
+          color: ${TEXT};
+          border-color: ${BORDER_STRONG};
         }
 
+        /* The only thing saying a limit is set or a folder is live. It used to be an accent border,
+           which was one cue; a toggle with nothing else to identify it gets all three the palette
+           has, the active fill, the top text tier and the interactive outline, because "on" and
+           "hovered" are one step apart otherwise. */
         &.on {
-          color: #f4f2f8;
-          border-color: #f97316;
+          background: ${CONTROL_ACTIVE_BG};
+          color: ${TEXT};
+          border-color: ${BORDER_INTERACTIVE};
+        }
+
+        /* The hover rule above and the .on rule weigh the same, and .on is written last, so it wins
+           every property it declares and an on-toggle would otherwise answer the cursor with
+           nothing. It cannot simply fall back to that rule either: CONTROL_HOVER_BG is darker than
+           CONTROL_ACTIVE_BG, so an active toggle would appear to dim under the pointer. The outline
+           is the cue with somewhere left to go, and every one of these buttons opens a dialog or
+           flips a setting, so it owes the pointer an answer. */
+        &.on:hover {
+          border-color: ${TEXT};
         }
       }
     }
@@ -1353,15 +1399,14 @@ export const style = css`
     bottom: 52px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(30, 26, 40, 0.85);
-    border: 1px solid rgba(58, 52, 71, 0.9);
+    /* Fully opaque, which it was not before. It is fixed over the live torrent list, so at 85% with
+       no blur behind it rows would visibly slide past under its own text; the border is what says it
+       is floating now that the shadow is gone. */
+    background: ${ELEVATED_BG};
+    border: 1px solid ${BORDER_STRONG};
     border-radius: 8px;
     padding: 11px 20px;
     font-size: 0.85rem;
-    backdrop-filter: blur(12px) saturate(1.2);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.04),
-      0 10px 34px rgba(0, 0, 0, 0.45);
     z-index: 30;
     animation: slide-up 200ms ease-out;
   }
@@ -1444,13 +1489,9 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
   if (!points) return null
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="speed-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#f97316" stopOpacity="0.3"/>
-          <stop offset="100%" stopColor="#f97316" stopOpacity="0.02"/>
-        </linearGradient>
-      </defs>
-      <polygon fill="url(#speed-fill)" points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
+      {/* A flat fill, the same token RowGraph uses. This area used to fade out with a gradient;
+          gradients are gone, and one shared token keeps the two graphs reading as one thing. */}
+      <polygon fill={CHART_PRIMARY_FILL} points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
       <polyline points={points}/>
     </svg>
   )
@@ -1465,9 +1506,11 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
  * working hard. Download is the filled area, upload the plain line over it, and both are scaled to
  * the same peak so the two can be read against each other.
  *
- * A flat fill rather than the page graph's gradient, deliberately: a gradient needs a `<defs>` with
- * an id, and an id repeated once per row is invalid in the document and resolves to whichever copy
- * came first. At 26 pixels tall the gradient was not visible anyway.
+ * A flat fill, which the page graph now uses too. It used to be the odd one out here: the page graph
+ * faded its area with a gradient, and this one could not, because a gradient needs a `<defs>` with an
+ * id, and an id repeated once per row is invalid in the document and resolves to whichever copy came
+ * first. The gradient is gone from both, so the constraint no longer forces anything, but it still
+ * holds for any per-row SVG filter, mask or clipPath somebody adds later: those want an id too.
  */
 const RowGraph = ({ down, up }: { down: number[], up: number[] }) => {
   const w = 100

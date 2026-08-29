@@ -5,7 +5,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { EmbedMode } from '../router/file-selection'
 
-import { CONTROL_BG, CONTROL_HOVER_BG } from '../theme'
+import {
+  BORDER,
+  BORDER_INTERACTIVE,
+  BORDER_STRONG,
+  CONTROL_ACTIVE_BG,
+  CONTROL_BG,
+  CONTROL_HOVER_BG,
+  EMPHASIS,
+  EMPHASIS_HOVER,
+  FOCUS_RING,
+  HOVER_WASH,
+  SUNKEN_BG,
+  SURFACE_BG,
+  TEXT,
+  TEXT_FAINT,
+  TEXT_MUTED,
+  TEXT_ON_LIGHT,
+  WARN,
+} from '../theme'
 import { embedIframe, embedPath, embedUrl } from '../router/embed-link'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -40,17 +58,19 @@ const style = css`
     max-height: calc(100vh - 48px);
     display: flex;
     flex-direction: column;
-    background: #17141d;
-    border: 1px solid #2c2737;
+    background: ${SURFACE_BG};
+    /* The strong border rather than the hairline the flat surfaces take. This card used to float on
+       a 64px drop shadow; with that gone the edge is the only thing left saying it sits above the
+       scrimmed library rather than in it. */
+    border: 1px solid ${BORDER_STRONG};
     border-radius: 8px;
-    color: #f4f2f8;
+    color: ${TEXT};
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   }
 
   header {
     padding: 20px 24px 14px;
-    border-bottom: 1px solid #221e2b;
+    border-bottom: 1px solid ${BORDER};
 
     h2 {
       margin: 0;
@@ -63,7 +83,7 @@ const style = css`
       max-width: 62ch;
       font-size: 0.8rem;
       line-height: 1.55;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
     }
   }
 
@@ -83,21 +103,26 @@ const style = css`
     input {
       flex: 1;
       min-width: 0;
-      background: rgba(22, 19, 28, 0.8);
-      border: 1px solid #2c2737;
+      background: ${SUNKEN_BG};
+      /* The interactive outline, not the hairline: with no fill of its own to speak of against the
+         card, this border is the whole reason the field reads as a field. */
+      border: 1px solid ${BORDER_INTERACTIVE};
       border-radius: 6px;
       padding: 9px 14px;
-      color: #f4f2f8;
+      color: ${TEXT};
       font-family: inherit;
       font-size: 0.85rem;
       outline: none;
       transition: border-color 120ms ease, box-shadow 120ms ease;
 
-      &::placeholder { color: #6b6579; }
+      &::placeholder { color: ${TEXT_MUTED}; }
 
+      /* The dialog opens with focus in here, so this is the first thing a keyboard user has to see,
+         and the outline: none above means it is the only thing there is to see. Full opacity, not a
+         wash: brightness is all that carries it now that the ring cannot be a colour. */
       &:focus {
-        border-color: #f97316;
-        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+        border-color: ${FOCUS_RING};
+        box-shadow: 0 0 0 3px ${FOCUS_RING};
       }
     }
   }
@@ -106,7 +131,7 @@ const style = css`
     display: flex;
     align-items: center;
     gap: 12px;
-    color: #6b6579;
+    color: ${TEXT_FAINT};
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -115,7 +140,7 @@ const style = css`
       content: '';
       flex: 1;
       height: 1px;
-      background: #221e2b;
+      background: ${BORDER};
     }
   }
 
@@ -125,17 +150,23 @@ const style = css`
     align-items: center;
     gap: 12px;
     padding: 26px 16px;
-    border: 2px dashed rgba(58, 52, 71, 0.9);
+    border: 2px dashed ${BORDER_INTERACTIVE};
     border-radius: 8px;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
     font-size: 0.85rem;
     text-align: center;
     transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 
+    /*
+     * The drag-over state, and it is the only confirmation the app gives that the file about to be
+     * dropped will be taken (the zone deliberately has no drop handler of its own, see below). It
+     * used to be three amber declarations at once; it is three brightness steps at once now, all of
+     * them moving together so the shift stays unmistakable without a hue to shout with.
+     */
     &[data-drop] {
-      border-color: #fbbf24;
-      background: rgba(249, 115, 22, 0.06);
-      color: #fbbf24;
+      border-color: ${EMPHASIS};
+      background: ${HOVER_WASH};
+      color: ${TEXT};
     }
   }
 
@@ -158,7 +189,7 @@ const style = css`
 
   .waiting {
     font-size: 0.85rem;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 
   .subject {
@@ -179,7 +210,7 @@ const style = css`
     .size {
       flex: none;
       font-size: 0.8rem;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
     }
   }
@@ -188,19 +219,21 @@ const style = css`
     flex: 1;
     min-width: 0;
     max-width: 420px;
-    background: rgba(22, 19, 28, 0.8);
-    border: 1px solid #2c2737;
+    background: ${SUNKEN_BG};
+    /* Same argument as the magnet field: the outline is the whole control. */
+    border: 1px solid ${BORDER_INTERACTIVE};
     border-radius: 6px;
     padding: 7px 14px;
-    color: #f4f2f8;
+    color: ${TEXT};
     font-family: inherit;
     font-size: 0.8rem;
     outline: none;
     cursor: pointer;
 
+    /* outline: none above, so this ring is the only focus indicator this control has. */
     &:focus {
-      border-color: #f97316;
-      box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+      border-color: ${FOCUS_RING};
+      box-shadow: 0 0 0 3px ${FOCUS_RING};
     }
   }
 
@@ -217,7 +250,7 @@ const style = css`
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #8b8499;
+      color: ${TEXT_MUTED};
     }
   }
 
@@ -225,24 +258,32 @@ const style = css`
     display: flex;
     gap: 4px;
     padding: 3px;
-    border: 1px solid #2c2737;
+    border: 1px solid ${BORDER};
     border-radius: 6px;
-    background: rgba(22, 19, 28, 0.8);
+    background: ${SUNKEN_BG};
 
     button {
       border: none;
       border-radius: 4px;
       background: none;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       padding: 5px 14px;
       font-size: 0.78rem;
       font-weight: 700;
 
-      &:hover { color: #f4f2f8; }
+      &:hover { color: ${TEXT}; }
 
-      &[data-on] {
-        background: ${CONTROL_HOVER_BG};
-        color: #f4f2f8;
+      /*
+       * Which mode the link is being built in, so the fill has to survive a hover on itself. It is
+       * written for the hovered case too because the generic button:hover rule further down ties the
+       * bare [data-on] on specificity and comes later in the sheet, so on its own it would paint
+       * CONTROL_HOVER_BG over the selected fill and leave the pair reading as neither one selected.
+       * Breaking that tie here keeps the fill as the whole state cue, with nothing stacked under it.
+       */
+      &[data-on],
+      &[data-on]:hover {
+        background: ${CONTROL_ACTIVE_BG};
+        color: ${TEXT};
       }
     }
   }
@@ -251,7 +292,7 @@ const style = css`
     flex: 1;
     min-width: 160px;
     font-size: 0.75rem;
-    color: #8b8499;
+    color: ${TEXT_MUTED};
   }
 
   .files {
@@ -259,11 +300,12 @@ const style = css`
 
     summary {
       cursor: pointer;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-size: 0.8rem;
       user-select: none;
       padding: 4px 0;
-      &:hover { color: #c9c4d4; }
+      /* the only feedback the disclosure triangle gives, so it goes all the way to full text */
+      &:hover { color: ${TEXT}; }
     }
 
     .list {
@@ -278,24 +320,30 @@ const style = css`
       align-items: center;
       gap: 10px;
       padding: 5px 0;
-      border-top: 1px solid rgba(44, 39, 55, 0.9);
+      border-top: 1px solid ${BORDER};
       font-size: 0.8rem;
 
       input {
         flex: none;
-        accent-color: #f97316;
+        /*
+         * A LIGHT accent, deliberately. The UA paints the checked box in this colour and picks the
+         * tick's own colour for contrast against it, so a dark neutral here would give a dark box
+         * with a pale tick on a dark row, which is barely a checked state at all. This list decides
+         * which files the link covers, so reading it wrong changes the link silently.
+         */
+        accent-color: ${EMPHASIS};
       }
 
       .name {
         flex: 1;
         min-width: 0;
         overflow-wrap: anywhere;
-        color: #b6b0c4;
+        color: ${TEXT};
       }
 
       .size {
         flex: none;
-        color: #8b8499;
+        color: ${TEXT_MUTED};
         font-variant-numeric: tabular-nums;
       }
     }
@@ -317,11 +365,12 @@ const style = css`
       min-width: 0;
       overflow-x: auto;
       white-space: nowrap;
-      background: rgba(22, 19, 28, 0.8);
-      border: 1px solid #2c2737;
+      background: ${SUNKEN_BG};
+      border: 1px solid ${BORDER};
       border-radius: 6px;
       padding: 8px 16px;
-      color: #b6b0c4;
+      /* the link is the whole point of the dialog, so it is read at full text brightness */
+      color: ${TEXT};
       font-size: 0.78rem;
     }
 
@@ -332,21 +381,23 @@ const style = css`
       font-size: 0.8rem;
       font-weight: 700;
       text-decoration: none;
-      border: 1px solid #2c2737;
+      border: 1px solid ${BORDER};
       background: ${CONTROL_BG};
-      color: #c9c4d4;
+      color: ${TEXT_MUTED};
 
-      &:hover { background: ${CONTROL_HOVER_BG}; border-color: #3a3447; color: #f4f2f8; }
+      /* fill and label together, the same two steps every other button here takes on hover */
+      &:hover { background: ${CONTROL_HOVER_BG}; color: ${TEXT}; }
     }
   }
 
   .snippet {
     summary {
       cursor: pointer;
-      color: #a39db3;
+      color: ${TEXT_MUTED};
       font-size: 0.8rem;
       user-select: none;
-      &:hover { color: #c9c4d4; }
+      /* as above: hover is the only sign this disclosure is a control */
+      &:hover { color: ${TEXT}; }
     }
 
     .out { margin-top: 8px; }
@@ -356,24 +407,30 @@ const style = css`
       min-width: 0;
       margin: 0;
       overflow-x: auto;
-      background: rgba(22, 19, 28, 0.8);
-      border: 1px solid #2c2737;
+      background: ${SUNKEN_BG};
+      border: 1px solid ${BORDER};
       border-radius: 6px;
       padding: 10px 14px;
-      color: #b6b0c4;
+      color: ${TEXT};
       font-size: 0.72rem;
       line-height: 1.5;
     }
   }
 
+  /*
+   * The two blocking conditions: no magnet to link, or no file picked. Warm is the one hue this
+   * design still spends, and it is spent here because these sit in the same column and the same
+   * size class as the .note captions above them, so a neutral would file an "there is no link"
+   * message alongside the explanations of a link that exists.
+   */
   .warn {
     font-size: 0.8rem;
-    color: #fbbf24;
+    color: ${WARN};
   }
 
   footer {
     padding: 14px 24px 18px;
-    border-top: 1px solid #221e2b;
+    border-top: 1px solid ${BORDER};
     display: flex;
     align-items: center;
     gap: 10px;
@@ -387,21 +444,36 @@ const style = css`
     font-size: 0.85rem;
     padding: 8px 18px;
     border-radius: 6px;
-    border: 1px solid #2c2737;
+    border: 1px solid ${BORDER};
     background: ${CONTROL_BG};
-    color: #c9c4d4;
+    color: ${TEXT_MUTED};
     cursor: pointer;
 
-    &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: #3a3447; color: #f4f2f8; }
+    /* Fill and label both lift. The border used to lift with them and no longer does: a button is
+       identified by its label, so its edge stays on the hairline in every state and the hover signal
+       is carried by the two things that can afford to be loud. */
+    &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; color: ${TEXT}; }
     &:disabled { opacity: 0.45; cursor: default; }
 
+    /*
+     * The emphasis button, inverted rather than coloured: a near-white fill with a dark label, which
+     * is the loudest thing this palette can make and keeps a primary and a default sitting next to
+     * each other (Copy beside Open) obviously different rather than differing by font-weight.
+     *
+     * Hover moves DOWN, because nothing in the palette sits above the emphasis fill. Which grey it
+     * moves to is not a choice made here: EMPHASIS_HOVER is calibrated to stay clear of what this
+     * fill composites to under the 45% opacity of the disabled rule above, so a hovered enabled
+     * button can never be mistaken for the disabled one it toggles into. The label colour is set
+     * again in the hover rule because the generic button:hover above out-specifies the plain
+     * .primary block, so without it the cursor would put that rule's light label on this light fill.
+     */
     &.primary {
-      background: #f97316;
-      border-color: #f97316;
-      color: #1a1020;
+      background: ${EMPHASIS};
+      border-color: ${EMPHASIS};
+      color: ${TEXT_ON_LIGHT};
       font-weight: 600;
 
-      &:hover:not(:disabled) { background: #fb8a3c; }
+      &:hover:not(:disabled) { background: ${EMPHASIS_HOVER}; border-color: ${EMPHASIS_HOVER}; color: ${TEXT_ON_LIGHT}; }
     }
 
     &.small { padding: 5px 12px; font-size: 0.78rem; }

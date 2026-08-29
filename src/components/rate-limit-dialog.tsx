@@ -16,9 +16,26 @@ import { useMemo, useRef, useState } from 'react'
 
 import { Modal } from './modal'
 import { UNLIMITED, formatLimit, limitInputValue, parseLimit } from '../torrent/rate-limits'
+import {
+  BORDER,
+  BORDER_INTERACTIVE,
+  BORDER_STRONG,
+  CONTROL_BG,
+  CONTROL_HOVER_BG,
+  DANGER,
+  EMPHASIS,
+  EMPHASIS_HOVER,
+  FOCUS_RING,
+  SUNKEN_BG,
+  SURFACE_BG,
+  TEXT,
+  TEXT_MUTED,
+  TEXT_ON_LIGHT,
+  WARN,
+} from '../theme'
 
 const style = css`
-  color: #f4f2f8;
+  color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   max-width: min(460px, calc(100vw - 32px));
   width: 100%;
@@ -28,9 +45,11 @@ const style = css`
     width: 100%;
     padding: 20px;
     border-radius: 8px;
-    background: #1e1a28;
-    border: 1px solid rgba(68, 60, 86, 0.9);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    background: ${SURFACE_BG};
+    /* The strong border, not the hairline every other surface takes. This card used to float on a
+       60px drop shadow; with that gone the edge is the only thing left saying the card sits above
+       the scrimmed page rather than in it. */
+    border: 1px solid ${BORDER_STRONG};
   }
 
   h2 {
@@ -42,7 +61,9 @@ const style = css`
   .subject {
     margin: 0 0 14px;
     font-size: 0.82rem;
-    color: #8f88a0;
+    /* Muted rather than faint, even though this is the quietest line on the card: it names WHICH
+       torrent is about to be capped, so it is content, not a footnote. */
+    color: ${TEXT_MUTED};
     /* a torrent name can be arbitrarily long with no spaces in it */
     overflow-wrap: anywhere;
   }
@@ -58,23 +79,25 @@ const style = css`
       width: 9rem;
       padding: 8px 10px;
       border-radius: 6px;
-      border: 1px solid rgba(68, 60, 86, 0.9);
-      background: #171320;
-      color: #f4f2f8;
+      /* The interactive border, not the hairline. Nothing but its outline says a text field is
+         here, and the hairline is 1.2:1 on this card, which is a decoration rather than an edge. */
+      border: 1px solid ${BORDER_INTERACTIVE};
+      background: ${SUNKEN_BG};
+      color: ${TEXT};
 
       &:disabled {
         opacity: 0.45;
       }
 
       &:focus-visible {
-        outline: 2px solid #fbbf24;
+        outline: 2px solid ${FOCUS_RING};
         outline-offset: 1px;
       }
     }
 
     .unit {
       font-size: 0.85rem;
-      color: #b9b2c8;
+      color: ${TEXT_MUTED};
     }
   }
 
@@ -84,28 +107,37 @@ const style = css`
     gap: 8px;
     margin-top: 12px;
     font-size: 0.82rem;
-    color: #b9b2c8;
+    color: ${TEXT_MUTED};
     cursor: pointer;
     user-select: none;
 
     input {
       cursor: pointer;
-      accent-color: #fbbf24;
+      /* Set, never dropped. This is a native checkbox, and with the property gone the UA paints the
+         checked state in the platform accent, which under color-scheme: dark is blue. A near-white
+         accent also gives the tick a dark-on-light rendering, the highest contrast the control has. */
+      accent-color: ${EMPHASIS};
     }
   }
 
+  /* Hue is restricted to status, and this is a caution ("the session limit will override what you
+     type here") sitting directly above an error line with the same size, weight and margins, so
+     amber against the red below it is what keeps "this may not take effect" from reading as "this
+     is wrong". Amber is safe to reuse here despite having been the brand colour, because nothing on
+     this card is coloured DECORATIVELY any more: the only two hues left on it are this caution and
+     the error below, so a warm value now reads as a status rather than as a logo. */
   .note {
     margin: 12px 0 0;
     font-size: 0.8rem;
     line-height: 1.5;
-    color: #fbbf24;
+    color: ${WARN};
   }
 
   .problem {
     margin: 12px 0 0;
     font-size: 0.8rem;
     line-height: 1.5;
-    color: #f87171;
+    color: ${DANGER};
   }
 
   .actions {
@@ -121,22 +153,41 @@ const style = css`
       padding: 8px 14px;
       border-radius: 6px;
       cursor: pointer;
-      border: 1px solid rgba(68, 60, 86, 0.9);
-      background: #2a2436;
-      color: #f4f2f8;
+      border: 1px solid ${BORDER};
+      background: ${CONTROL_BG};
+      color: ${TEXT};
       transition: background 120ms ease, border-color 120ms ease;
 
       &:hover {
-        background: #332c42;
+        background: ${CONTROL_HOVER_BG};
       }
 
+      /**
+       * Inverted rather than tinted: a near-white fill with a near-black label.
+       *
+       * It used to be an orange fill beside a dark Cancel, and the emphasis has to survive losing
+       * the orange, because these two buttons sit side by side and only one of them applies the
+       * number that was just typed. Brightness is the only tool left, so the primary takes the
+       * loudest fill in the palette and keeps the dark-text-on-bright-fill relationship it had.
+       *
+       * The hover steps DOWN, to EMPHASIS_HOVER, because nothing in the palette is brighter than
+       * EMPHASIS to step up into. It needs its own hover: this block and the neutral button:hover
+       * above have equal specificity, so the primary keeps its resting fill under the cursor purely
+       * by sitting later in the file, and the button that applies the number the user just typed
+       * was the one control on the card answering the cursor with nothing at all.
+       *
+       * :not(:disabled) so a disabled primary stays at its resting fill, and the label colour is
+       * repeated so the hover states its own pairing rather than leaning on the block above it.
+       */
       &.primary {
-        background: #f97316;
-        border-color: #f97316;
-        color: #1a1420;
+        background: ${EMPHASIS};
+        border-color: ${EMPHASIS};
+        color: ${TEXT_ON_LIGHT};
 
-        &:hover {
-          background: #fb923c;
+        &:hover:not(:disabled) {
+          background: ${EMPHASIS_HOVER};
+          border-color: ${EMPHASIS_HOVER};
+          color: ${TEXT_ON_LIGHT};
         }
       }
 
@@ -146,7 +197,7 @@ const style = css`
       }
 
       &:focus-visible {
-        outline: 2px solid #fbbf24;
+        outline: 2px solid ${FOCUS_RING};
         outline-offset: 2px;
       }
     }

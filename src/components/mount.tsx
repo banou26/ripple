@@ -6,6 +6,7 @@ import { destroyTorrentClient } from '../torrent/client'
 import { hasWebLocks } from '../torrent/engine-protocol'
 import { useActiveWindow } from '../utils/active-window-effect'
 import { useShellUpdate } from '../torrent/use-shell-update'
+import { BORDER_STRONG, ELEVATED_BG, EMPHASIS, EMPHASIS_HOVER, TEXT, TEXT_ON_LIGHT } from '../theme'
 
 const style = css`
   display: flex;
@@ -54,14 +55,25 @@ const banner = css`
   gap: 14px;
   max-width: calc(100vw - 32px);
   padding: 11px 14px 11px 18px;
-  border: 1px solid #3a3447;
+  /* This border is now the whole separation between the banner and whatever it is floating over. It
+     used to share that job with a 48px drop shadow, so a hairline was enough; alone it is not,
+     because ELEVATED_BG is 1.05:1 against the surfaces underneath it and carries no depth by
+     itself. Hence BORDER_STRONG, which is what every floating thing in this app takes now. */
+  border: 1px solid ${BORDER_STRONG};
   border-radius: 8px;
-  background: #17141d;
-  color: #f4f2f8;
+  background: ${ELEVATED_BG};
+  color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 0.85rem;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 
+  /* The banner's only action, and it has to keep looking like one. A neutral fill would leave it a
+     bright label in a line of bright banner text, so it stays the loudest object here: a light fill
+     with the dark label that fill demands. The label was a near-black before too, but only because
+     the fill was bright orange; carried onto any neutral fill it would have gone black on black.
+     Hover steps the fill down to EMPHASIS_HOVER and keeps the dark label, which is what every
+     primary button in the app does: a light fill has nowhere brighter to go, and flipping it to a
+     dark fill would make the loudest control on the page read as switching off under the cursor.
+     The border follows the fill so the step down stays one flat surface rather than growing a ring. */
   button {
     flex: none;
     font: inherit;
@@ -69,12 +81,16 @@ const banner = css`
     font-weight: 600;
     padding: 6px 14px;
     border-radius: 6px;
-    border: 1px solid #f97316;
-    background: #f97316;
-    color: #1a1020;
+    border: 1px solid ${EMPHASIS};
+    background: ${EMPHASIS};
+    color: ${TEXT_ON_LIGHT};
     cursor: pointer;
 
-    &:hover { background: #fb8a3c; }
+    &:hover:not(:disabled) {
+      background: ${EMPHASIS_HOVER};
+      border-color: ${EMPHASIS_HOVER};
+      color: ${TEXT_ON_LIGHT};
+    }
   }
 `
 
