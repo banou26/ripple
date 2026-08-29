@@ -129,11 +129,37 @@ try {
     window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
   }, fixtureB64)
 
+  /*
+   * The link names the fixture, read out of whichever parameter the dialog wrote.
+   *
+   * `m` is the packed form, and its infohash sits in the HEADER as raw bytes: [count][kind][20
+   * bytes]. So this reads the hash without inflating anything and without knowing the compression
+   * dictionary, which is what keeps this check from breaking every time that table is versioned.
+   * The dictionary is frozen precisely so links stay readable, and a check that had to be revised
+   * alongside it would be the wrong shape.
+   *
+   * `magnet` is the published base64 form, still read forever, still what a legacy link carries.
+   */
   const linked = await drop
     .waitForFunction((want) => {
       const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
-      const magnet = new URLSearchParams(url.slice(url.indexOf('?'))).get('magnet')
-      return !!magnet && atob(magnet).includes(want)
+      if (!url.includes('?')) return false
+      const params = new URLSearchParams(url.slice(url.indexOf('?')))
+
+      const packed = params.get('m')
+      if (packed) {
+        try {
+          const binary = atob(packed.replace(/-/g, '+').replace(/_/g, '/'))
+          // [0] is the hash count, [1] the kind (0 = 20-byte v1 infohash), then the bytes themselves
+          if (binary.charCodeAt(1) !== 0) return false
+          let hex = ''
+          for (let i = 2; i < 22; i++) hex += binary.charCodeAt(i).toString(16).padStart(2, '0')
+          return hex === want
+        } catch { return false }
+      }
+
+      const legacy = params.get('magnet')
+      try { return !!legacy && atob(legacy).includes(want) } catch { return false }
     }, fixtureHash, { timeout: 15_000 })
     .then(() => true).catch(() => false)
 
