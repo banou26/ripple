@@ -78,44 +78,53 @@ export type EmbedLink = {
 export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview }: EmbedLink): string | null => {
   const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
-  // spread rather than a computed key so the two parameter names stay distinguishable to the type
-  // checker, and so the torrent leads the query as every published example shows it
+  // spread rather than a computed key, so the two parameter names stay distinguishable to the type
+  // checker rather than collapsing into one `string`
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
-  const rest: { mode?: EmbedMode, files?: string, fileIndex?: string, f?: string } = {}
+  /**
+   * The query is ordered by how READABLE each part is, shortest and plainest first.
+   *
+   * `options` leads, then the packed torrent, then `f` last. The torrent used to lead, back when it
+   * was the only thing in the link; now that everything around it is either base64url or an index,
+   * putting it first buried the one part of the URL a person can actually parse behind forty
+   * characters of noise. A link is read left to right, and truncated from the right.
+   */
+  const options: { mode: EmbedMode, files?: string, fileIndex?: string } = { mode }
+  const trailing: { f?: string } = {}
   /*
-   * Written out even for `watch`, which an absent `mode` already means.
+   * `mode` is written out even for `watch`, which an absent `mode` already means.
    *
    * It costs 11 characters on a watch link and buys back the one thing packing the magnet took away:
    * a person holding the link can see what it is going to do. A download link said so and a watch
    * link said nothing, so the two were told apart by an ABSENCE, which is not something anybody
-   * reads. Everything else in the query is now compressed or an index, so this is the only part of
-   * the URL that is still meant for a human.
+   * reads.
    *
    * Reading is untouched and must stay that way: absent still parses as watch, because every link
    * published before this omits it and the one shipped consumer (@banou/stub-plugin) passes only
    * `magnet`. See parseMode in file-selection.ts, which is tested for exactly that.
    */
-  rest.mode = mode
   if (mode === 'download') {
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
-    if (files) rest.files = files
+    if (files) options.files = files
     /*
      * Download links only. The player reads `fileIndex` and renders no list, so a preview there
      * would be bytes nothing looks at.
      *
-     * Last in the query on purpose: it is the longest parameter and the one a reader cares least
-     * about, so everything that identifies the link stays visible in a truncated paste.
+     * Last in the query, behind even the torrent: it is the longest parameter by far and the one a
+     * reader cares least about, so everything that identifies the link stays visible in a truncated
+     * paste.
      */
     if (preview?.length) {
       const list = encodeFileList(preview)
-      if (list) rest.f = list
+      if (list) trailing.f = list
     }
   } else if (fileIndex != null && fileIndex > 0) {
     // fileIndex=0 is what an absent one already means
-    rest.fileIndex = String(fileIndex)
+    options.fileIndex = String(fileIndex)
   }
 
-  return getRoutePath(Route.EMBED, { ...source, ...rest })
+  // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
+  return getRoutePath(Route.EMBED, { ...options, ...source, ...trailing })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */

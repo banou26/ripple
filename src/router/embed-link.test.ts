@@ -92,7 +92,7 @@ describe('compile then parse round trip', () => {
 describe('embedPath', () => {
   it('carries the magnet and the mode for a plain watch link, and nothing else', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}&mode=watch`)
+    expect(path).toBe(`/embed?mode=watch&m=${encodeMagnetParam(MAGNET)!.value}`)
     expect(magnetOf(path)).toBe(MAGNET)
   })
 
@@ -195,7 +195,7 @@ describe('embedPath', () => {
    */
   it('writes the packed form with nothing a query string has to escape', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+&mode=watch$/)
+    expect(path).toMatch(/^\/embed\?mode=watch&m=[A-Za-z0-9\-_]+$/)
   })
 })
 
@@ -228,7 +228,7 @@ describe('a magnet that btoa cannot take', () => {
 
   it('builds a link for it instead of throwing mid-render', () => {
     expect(() => embedPath({ magnet: UNICODE, mode: 'watch' })).not.toThrow()
-    expect(embedPath({ magnet: UNICODE, mode: 'watch' })).toContain('/embed?m=')
+    expect(embedPath({ magnet: UNICODE, mode: 'watch' })).toContain('&m=')
   })
 
   /** null rather than a throw, so the caller renders its no-link branch */
@@ -243,7 +243,7 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value + '&mode=watch')
+      .toBe('https://torrent.fkn.app/embed?mode=watch&m=' + encodeMagnetParam(MAGNET)!.value)
   })
 
   /**
@@ -302,10 +302,17 @@ describe('the preview file list', () => {
     expect(withHuge).toBe(embedPath({ magnet: MAGNET, mode: 'download' }))
   })
 
-  it('leaves the torrent leading the query, with the long parameter last', () => {
+  /**
+   * The query is ordered plainest first: what the link DOES, then the packed torrent, then the long
+   * preview blob. A URL is read left to right and truncated from the right, so the readable half
+   * has to lead. The torrent used to, from when it was the only thing in the link.
+   */
+  it('leads with what the link does, then the torrent, then the long parameter', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'download', preview: FILES })!
-    expect(path.indexOf('m=')).toBeLessThan(path.indexOf('f='))
-    expect(path).toMatch(/^\/embed\?m=/)
+    expect(path).toMatch(/^\/embed\?mode=download/)
+    // `&m=` rather than `m=`, which would also match inside `mode=`
+    expect(path.indexOf('&m=')).toBeLessThan(path.indexOf('&f='))
+    expect(path.indexOf('mode=')).toBeLessThan(path.indexOf('&m='))
   })
 
   it('keeps a 12-episode season inside what a chat message will carry', () => {

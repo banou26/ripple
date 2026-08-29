@@ -38,6 +38,22 @@ Ripple writes whichever of the two is shorter, which is almost always `m`. The d
 the table it compresses against can never be edited, so if it ever needs to change the parameter
 becomes `m2` and `m` keeps decoding the way it always did.
 
+### Parameter order
+
+Order never matters when READING a link. When writing one, Ripple puts the plainest parts first:
+
+```
+/embed?mode=watch&fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/embed?mode=download&files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/embed?mode=download&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
+```
+
+What the link does, then the packed torrent, then `f`. The torrent used to lead, from when it was
+the only thing in the link; now that everything around it is base64url or an index, leading with it
+buried the one part a person can read behind forty characters of noise. A URL is read from the left
+and truncated from the right, so `f`, the longest parameter and the one a reader cares least about,
+goes last.
+
 ### `f`, the file list
 
 A magnet names a torrent and nothing else, so a download link normally opens on "Reading the torrent
