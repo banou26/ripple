@@ -5,7 +5,9 @@
 // grammar can be checked without a browser, a torrent or an engine.
 
 import type { EmbedMode } from './file-selection'
+import type { PreviewFile } from './file-list-codec'
 
+import { encodeFileList } from './file-list-codec'
 import { encodeMagnetParam } from './magnet-codec'
 import { getRoutePath, Route } from './path'
 
@@ -51,6 +53,18 @@ export type EmbedLink = {
   fileCount?: number
   /** The single file a watch link opens. Ignored in download mode, which uses `indices`. */
   fileIndex?: number
+  /**
+   * The whole file list, so the recipient can see what they were sent before the swarm answers.
+   *
+   * Carried on DOWNLOAD links only, and only when the sender actually has it, which is when a
+   * `.torrent` was read in the page or the torrent is already in the library. A magnet on its own
+   * cannot supply one, and a watch link has no list to show.
+   *
+   * Left off when it would not fit, so the preview never costs the link its usability. Paths are
+   * full paths in engine order, because the index a `files=` selection names is a position in this
+   * list.
+   */
+  preview?: readonly PreviewFile[]
 }
 
 /**
@@ -61,18 +75,29 @@ export type EmbedLink = {
  * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
  * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
-export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string | null => {
+export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview }: EmbedLink): string | null => {
   const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
   // spread rather than a computed key so the two parameter names stay distinguishable to the type
   // checker, and so the torrent leads the query as every published example shows it
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
-  const rest: { mode?: 'download', files?: string, fileIndex?: string } = {}
+  const rest: { mode?: 'download', files?: string, fileIndex?: string, f?: string } = {}
   // `watch` is the default, so saying it adds length and no meaning
   if (mode === 'download') {
     rest.mode = 'download'
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
     if (files) rest.files = files
+    /*
+     * Download links only. The player reads `fileIndex` and renders no list, so a preview there
+     * would be bytes nothing looks at.
+     *
+     * Last in the query on purpose: it is the longest parameter and the one a reader cares least
+     * about, so everything that identifies the link stays visible in a truncated paste.
+     */
+    if (preview?.length) {
+      const list = encodeFileList(preview)
+      if (list) rest.f = list
+    }
   } else if (fileIndex != null && fileIndex > 0) {
     // fileIndex=0 is what an absent one already means
     rest.fileIndex = String(fileIndex)

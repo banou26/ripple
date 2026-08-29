@@ -17,6 +17,9 @@ export enum Route {
  * The torrent arrives as either `m` (the packed form, see magnet-codec) or `magnet` (base64 of the
  * magnet URI, which is what README publishes and what every link written before the packed form
  * exists still carries). Both are read; only the shorter one is ever written.
+ *
+ * `f` is an optional file list for the download page to show while the swarm is still delivering
+ * the real one (see file-list-codec). It is a preview and never decides what gets downloaded.
  */
 /**
  * What /add accepts, which is deliberately almost nothing.
@@ -28,7 +31,7 @@ export enum Route {
 type AddOptions = { magnet: string, name?: string }
 
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
-type EmbedOptions = EmbedSource & { fileIndex?: string, mode?: 'watch' | 'download', files?: string }
+type EmbedOptions = EmbedSource & { fileIndex?: string, mode?: 'watch' | 'download', files?: string, f?: string }
 
 const Routes = {
   [Route.HOME]: () => '/',

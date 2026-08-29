@@ -559,9 +559,25 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   // a subject that turns out to hold nothing playable must not be left on a watch link
   useEffect(() => { if (!watchable) setMode('download') }, [watchable])
 
+  /**
+   * The whole file list for the link to carry, so the recipient sees the release instead of
+   * "Reading the torrent from the network" for as long as metadata takes.
+   *
+   * The WHOLE list, never the selection: `files=` names positions in it, so a trimmed list would
+   * renumber every index and the preview would show the wrong episodes. `ShareSubject.files[].name`
+   * is already the full path, in the torrent's own order, which is the engine's index order too.
+   *
+   * Null files is a magnet whose metadata nobody in this page has, which is exactly the case there
+   * is nothing to preview.
+   */
+  const preview = useMemo(
+    () => files?.map((file) => ({ path: file.name, size: file.size })),
+    [files],
+  )
+
   const link = useMemo(
-    () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount, fileIndex } : null),
-    [torrent?.magnet, mode, indices, fileCount, fileIndex],
+    () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount, fileIndex, preview } : null),
+    [torrent?.magnet, mode, indices, fileCount, fileIndex, preview],
   )
 
   const empty = mode === 'download' && fileCount > 0 && indices.length === 0

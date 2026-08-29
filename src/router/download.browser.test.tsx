@@ -1,5 +1,6 @@
 import type { DownloadTorrent } from '../torrent/use-download-torrent'
 import type { SaveEntry } from '../torrent/save-file'
+import { encodeFileList } from './file-list-codec'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -259,5 +260,92 @@ describe('the embed route in download mode', () => {
     ;(screen.container.querySelector('.files summary') as HTMLElement).click()
     await screen.getByRole('button', { name: 'Download E03.mkv', exact: true }).click()
     expect(claimed).toEqual([2])
+  })
+})
+
+/**
+ * The file list a LINK carries, which the page shows while the swarm is still delivering the real
+ * one.
+ *
+ * The whole design rests on one property: a preview can be looked at and never acted on. It is
+ * written by whoever built the link, so it can name anything, and `start` writes files to disk BY
+ * INDEX. So these tests are mostly about what stays impossible, not about what appears.
+ */
+describe('a file list carried by the link', () => {
+  const PREVIEW = [
+    { path: 'Pack.Name/E01.mkv', size: 1_400_000_000 },
+    { path: 'Pack.Name/E02.mkv', size: 1_500_000_000 },
+    { path: 'Pack.Name/E03.mkv', size: 1_600_000_000 },
+    { path: 'Pack.Name/notes.txt', size: 2_048 },
+  ]
+  const withoutMetadata = () => torrent({ snapshot: { ...torrent().snapshot!, files: null }, handle: null })
+
+  /* this block sits outside the suite above, so it needs its own reset: without one the engine
+     state and the recorded saves leak in from whichever test ran last */
+  beforeEach(() => {
+    state.current = torrent()
+    saved.zip = []
+    saved.file = []
+    claimed.length = 0
+  })
+
+  it('shows the files before metadata arrives, where there used to be nothing', async () => {
+    state.current = withoutMetadata()
+    const screen = await mount(`&mode=download&f=${encodeFileList(PREVIEW)}`)
+    await expect.element(screen.getByText('4 files from the link')).toBeInTheDocument()
+    // and the total, which a magnet alone cannot know
+    await expect.element(screen.getByText(/4\.5 GB/)).toBeInTheDocument()
+  })
+
+  it('says the list is the link talking, not the torrent', async () => {
+    state.current = withoutMetadata()
+    const screen = await mount(`&mode=download&f=${encodeFileList(PREVIEW)}`)
+    // the subject line specifically: the summary below it says so too, and either alone is enough
+    await expect.poll(() => screen.container.querySelector('.subject .meta')?.textContent)
+      .toContain('from the link')
+  })
+
+  it('still refuses to download anything until real metadata lands', async () => {
+    state.current = withoutMetadata()
+    const screen = await mount(`&mode=download&f=${encodeFileList(PREVIEW)}`)
+    await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeDisabled()
+    expect(saved.zip).toEqual([])
+    expect(saved.file).toEqual([])
+  })
+
+  /**
+   * Not merely disabled: absent. A disabled button would be enough today and would stop being
+   * enough the first moment somebody loosened the readiness check, and its onClick names an index
+   * the LINK chose.
+   */
+  it('offers no per-file download button while the list is only what the link claims', async () => {
+    state.current = withoutMetadata()
+    const screen = await mount(`&mode=download&f=${encodeFileList(PREVIEW)}`)
+    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
+    expect(screen.container.querySelectorAll('.files button').length).toBe(0)
+  })
+
+  it('lets the real list replace a lying one as soon as the engine has it', async () => {
+    const lie = [{ path: 'Totally.Different.Thing.iso', size: 700_000_000 }]
+    const screen = await mount(`&mode=download&f=${encodeFileList(lie)}`)
+    // metadata is present in this mount, so the torrent wins immediately
+    await expect.element(screen.getByRole('button', { name: 'Download 4 files as .zip' })).toBeEnabled()
+    expect(screen.container.textContent).not.toContain('Totally.Different.Thing.iso')
+  })
+
+  it('downloads what the ENGINE has, never what the link described', async () => {
+    const lie = [{ path: 'Wrong.mkv', size: 1 }, { path: 'Also.Wrong.mkv', size: 2 }]
+    const screen = await mount(`&mode=download&f=${encodeFileList(lie)}&files=0`)
+    await screen.getByRole('button', { name: 'Download', exact: true }).click()
+    await expect.poll(() => saved.file.length + saved.zip.length).toBeGreaterThan(0)
+    // index 0 of the real torrent, whose path the link never mentioned
+    expect(saved.file[0]?.path).toBe('Pack.Name/E01.mkv')
+  })
+
+  it('ignores an unreadable list instead of breaking the page', async () => {
+    state.current = withoutMetadata()
+    const screen = await mount('&mode=download&f=!!!not-base64!!!')
+    await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeDisabled()
+    await expect.element(screen.getByText(/Reading the torrent from the network/)).toBeInTheDocument()
   })
 })

@@ -14,6 +14,7 @@ chosen by `mode`.
 | `mode` | `watch` (default) or `download` | which page to render |
 | `fileIndex` | a file index | the file `watch` plays; the fallback `download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `download` delivers |
+| `f` | a packed file list | optional preview, `download` only |
 
 One of `m` or `magnet` is required. `m` wins if both are present.
 
@@ -36,6 +37,28 @@ match against and still comes out around 42% shorter, on the strength of the pac
 Ripple writes whichever of the two is shorter, which is almost always `m`. The digit is a version:
 the table it compresses against can never be edited, so if it ever needs to change the parameter
 becomes `m2` and `m` keeps decoding the way it always did.
+
+### `f`, the file list
+
+A magnet names a torrent and nothing else, so a download link normally opens on "Reading the torrent
+from the network" for as long as metadata takes. `f` closes that gap by carrying the file list the
+sender already had, and the page shows it immediately, marked **from the link**.
+
+It is a preview and Ripple treats it as one. It never decides what gets downloaded: the button stays
+disabled until real metadata arrives, the download itself is resolved against that metadata, and the
+per-file buttons are not rendered at all while the list is only the link's claim. A link that
+describes a torrent inaccurately therefore costs a reader a wrong line on screen for a few seconds,
+and can never cost them the wrong file on disk.
+
+Ripple writes it only on `mode=download`, only when it has the list, and only when it fits: a
+12-episode season costs about 172 characters and a 48-file season about 416. Past a budget it is
+left off entirely rather than pushing the link past what a chat message will carry. Absent, `f`
+changes nothing, so a link without it behaves exactly as it always has.
+
+Putting the whole `.torrent` in the URL instead does not work, and the reason is arithmetic rather
+than encoding: piece hashes are around 94% of a torrent and are 20 bytes of SHA1 per piece, so they
+are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676. The
+file list is the part that is both small and worth having.
 
 ### `mode=watch`
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { compileFileSelection, embedIframe, embedPath, embedUrl } from './embed-link'
 import { parseFileSelection, resolveSelection } from './file-selection'
+import { decodeFileList } from './file-list-codec'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 
 /** What a built path actually names, read back the way /embed reads it. */
@@ -228,5 +229,58 @@ describe('embedUrl and embedIframe', () => {
     // both still need their own origin, or the engine cannot reach its storage
     expect(download).toContain('allow-same-origin')
     expect(watch).toContain('allow-same-origin')
+  })
+})
+
+/**
+ * The file list a download link can carry, so the recipient sees the release before the swarm
+ * answers. Everything here is about when it is NOT written, because the failure that costs anything
+ * is a link that got longer or lost its meaning, not one that skipped a preview.
+ */
+describe('the preview file list', () => {
+  const FILES = Array.from({ length: 12 }, (_, i) => ({
+    path: `Show.S01/Show.S01E${String(i + 1).padStart(2, '0')}.1080p.mkv`, size: (350 + i) * 1024 ** 2,
+  }))
+
+  it('rides along on a download link and reads back as the same list', () => {
+    const path = embedPath({ magnet: MAGNET, mode: 'download', preview: FILES })!
+    const value = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('f')
+    expect(value).not.toBeNull()
+    expect(decodeFileList(value!)).toEqual(FILES)
+  })
+
+  /** The player reads `fileIndex` and renders no list, so a preview there is bytes nothing looks at. */
+  it('is never put on a watch link', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'watch', preview: FILES })).not.toContain('f=')
+  })
+
+  it('is simply absent when the sender has no file list, which is every plain magnet', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'download' })).not.toContain('&f=')
+    expect(embedPath({ magnet: MAGNET, mode: 'download', preview: [] })).not.toContain('&f=')
+  })
+
+  /**
+   * The preview is a convenience and the link is not. A list too big to encode has to cost the
+   * preview, never the link, so this pins that the rest of the URL is untouched by its absence.
+   */
+  it('drops itself rather than bloating the link past what a chat will carry', () => {
+    const enormous = Array.from({ length: 3000 }, (_, i) => ({
+      path: `${i}-${(i * 2654435761 % 4294967296).toString(36)}${'zqx'.repeat(14)}.mkv`, size: i,
+    }))
+    const withHuge = embedPath({ magnet: MAGNET, mode: 'download', preview: enormous })!
+    expect(withHuge).not.toContain('&f=')
+    expect(withHuge).toBe(embedPath({ magnet: MAGNET, mode: 'download' }))
+  })
+
+  it('leaves the torrent leading the query, with the long parameter last', () => {
+    const path = embedPath({ magnet: MAGNET, mode: 'download', preview: FILES })!
+    expect(path.indexOf('m=')).toBeLessThan(path.indexOf('f='))
+    expect(path).toMatch(/^\/embed\?m=/)
+  })
+
+  it('keeps a 12-episode season inside what a chat message will carry', () => {
+    const url = embedUrl({ magnet: MAGNET, mode: 'download', preview: FILES }, 'https://torrent.fkn.app')!
+    // Discord refuses a message over 2000 characters outright, the tightest real ceiling here
+    expect(url.length).toBeLessThan(2000)
   })
 })
