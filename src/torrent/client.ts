@@ -161,7 +161,12 @@ const workerTransport: TransportFactory = (host: TransportHost): Transport => {
   const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
   // the abort on destroy is load-bearing: a leaked relay neuters MessagePorts meant for the next worker
   const relayAbort = new AbortController()
+  // relayWorker returns a promise, and this is the ONE call that bridges the worker's osra
+  // transport to the broker. Dropping its rejection leaves a worker whose every socket call parks
+  // with no listening, no error and nothing on screen, which is precisely the state that made a
+  // missing relay port present as a transport fault and cost a long diagnosis.
   relayWorker(worker, { unregisterSignal: relayAbort.signal })
+    .catch((e: unknown) => host.error(`relayWorker: ${e instanceof Error ? e.message : String(e)}`, true))
   const onError = (e: ErrorEvent) => host.error(`${e.message} (${e.filename}:${e.lineno})`, false)
   const onMessage = (e: MessageEvent) => host.message(e.data)
   worker.addEventListener('error', onError)
