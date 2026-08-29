@@ -78,12 +78,5 @@
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.4",
     "vite-plus": "0.2.4",
     "vitest-browser-react": "^2.2.0"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": "12.0.2",
-      "onFail": "download"
-    }
   }
 }
