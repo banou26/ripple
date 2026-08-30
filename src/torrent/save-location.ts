@@ -27,6 +27,28 @@ import { isNativeSavePath, nativeSavePathFor } from './hybrid-storage'
  * from the same constraint, and it means the intended location and the current one are separate
  * facts about a torrent rather than one.
  *
+ * RE-MEASURED 2026-08-30 on Chrome 151, against a real picker-granted directory, because
+ * `createWritable` gained a `mode` option since the above was written and `exclusive` reads like it
+ * would remove every objection in it. It does not. The conclusion is unchanged and the reasons are
+ * now stronger, so do not reopen this without new evidence:
+ *
+ *  - **`mode: 'exclusive'` still writes a `.crswap`.** Seen twice, by the page and by a process
+ *    outside the browser watching the same directory, with siloed mode as the control proving the
+ *    detection works. `mode` governs LOCKING, not swap files: a second writable on an already-open
+ *    file throws `NoModificationAllowedError`, and that is the whole of what it does.
+ *  - **The target still reads 0 bytes mid-stream**, in both modes, which is the objection that
+ *    actually made this unusable.
+ *  - **Sync access handles are still OPFS only**, re-confirmed in a WORKER (the only realm that
+ *    exposes them) with an OPFS handle created by the same worker on the same run as the control:
+ *    `InvalidStateError: Access Handles may only be created on temporary file systems`.
+ *  - **Checkpointing by reopening costs 3.48 ms per MiB** at 64 MiB and grows with file size, with
+ *    `keepExistingData: false` flat at ~70 ms as the control proving the copy is real. Checkpointing
+ *    a 1.4 GB episode every 64 MiB is around 50 seconds of pure copying and doubles the writes.
+ *
+ * What DID come back positive, and is not enough on its own: random positional writes land correctly
+ * at 209 MB/s, writes past EOF zero fill exactly as OPFS does, 30 concurrent writables can be held
+ * open, and a worker can write through a structured-cloned handle. Speed was never the blocker.
+ *
  * Everything in this file is a decision with no IO in it, so the rules can be tested on their own.
  * `move-files.ts` carries them out.
  */

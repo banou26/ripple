@@ -32,6 +32,17 @@ import type { MeasurableStorage } from './opfs-storage'
  * throws `InvalidStateError: Access Handles may only be created on temporary file systems`, measured
  * against an OPFS control that succeeded in the same worker on the same run. So a torrent backed by
  * this must never be asked to write, which means adding it with `TORRENT_FLAG.uploadMode`.
+ *
+ * Re-measured on Chrome 151, 2026-08-30, same result and same control. `createWritable`'s newer
+ * `mode: 'exclusive'` does not change it: that option governs locking, not swap files. Full detail
+ * in save-location.ts.
+ *
+ * PER-FILE routing was considered and rejected, since read and write both take a `fileIndex` and the
+ * table could perfectly well be keyed on one, which would let a finished file leave OPFS while the
+ * rest of a pack downloads. What stops it is that PIECES SPAN FILE BOUNDARIES: a piece straddling a
+ * moved file and a downloading one has to write to both, the moved half is read only by the finding
+ * above, and libtorrent stops a torrent on a single failed disk operation (see opfs-storage.ts). The
+ * payoff would be bounding a pack to one file, with nothing at all for a single large file.
  */
 
 /** Save paths under here mean "the files are in the user's folder", not in OPFS. */
