@@ -366,16 +366,25 @@ describe('a library row', () => {
       expect(card.getAttribute('aria-current')).toBe('true')
     })
 
-    /** Right-click selects first, so the menu and the dock can never disagree about the subject. */
-    it('selects before opening the menu on right-click', async () => {
+    /**
+     * The right button opens the menu and leaves the dock alone.
+     *
+     * It used to select first, so the menu and the dock could not disagree about the subject, and
+     * that meant asking for a menu also opened the detail panel or swapped what an open one showed.
+     * The menu never needed it: it is given its own torrent and opens at the pointer on that row.
+     */
+    it('opens the menu on right-click without opening the detail panel', async () => {
       thumbnail.current = null
       const t = torrent()
       const { screen, props } = await inPage(t)
       screen.container.querySelector('.torrent')!.dispatchEvent(
         new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
       )
-      expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: t.id }))
-      expect(props.onOptions).toHaveBeenCalled()
+      expect(props.onOptions).toHaveBeenCalledWith(expect.objectContaining({ id: t.id }), { x: 10, y: 10 })
+      // the control for this negative is the first case in this block: the LEFT button on the same
+      // element does still call onSelect, so an onSelect that never fires means the button, not a
+      // handler this test failed to reach
+      expect(props.onSelect).not.toHaveBeenCalled()
     })
   })
 

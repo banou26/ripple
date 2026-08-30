@@ -1601,7 +1601,7 @@ const MissingRow = ({
     onContextMenu={(e) => {
       if (e.shiftKey || e.ctrlKey) return
       e.preventDefault()
-      onSelect(t)
+      // no onSelect: see the live row's handler for why the right button leaves the dock alone
       onOptions(t, { x: e.clientX, y: e.clientY })
     }}
   >
@@ -1709,8 +1709,16 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
         // says which keys in its own footer, so the escape hatch is not left to be discovered.
         if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
-        // right-clicking a row selects it first, so the menu and the dock always agree on subject
-        onSelect(t)
+        /*
+         * The right button opens the menu and NOTHING else. It used to select the row first, so the
+         * menu and the dock would agree on subject, but that made one gesture do two things: asking
+         * for a menu also opened the detail panel, or swapped what an already open one was showing,
+         * neither of which was asked for.
+         *
+         * Nothing needs the selection anyway. The menu carries its own subject (`menu.id`, not
+         * `selectedId`), it opens at the pointer on the row it belongs to, and it names that torrent
+         * in its own label, so there is no ambiguity left for a selection to resolve.
+         */
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
