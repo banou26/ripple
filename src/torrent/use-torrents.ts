@@ -76,6 +76,21 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
   return retrying ? 'retrying' : base
 }
 
+/**
+ * Whether the session is moving bytes for this torrent, which is what the strip's ACTIVE counts.
+ *
+ * Downloading and SEEDING. It used to be downloading alone, so a library seeding at a quarter of a
+ * megabyte per second read `Active 0 / 1`, which is the strip stating that nothing is happening
+ * while something plainly is. That reading cost a real diagnosis: the torrent was uploading to forty
+ * peers and the only three numbers a person looks at first (`Download 0 B/s`, `Peak 0 B/s`,
+ * `Active 0 / 1`) all agreed that it was idle.
+ *
+ * Deliberately NOT `checking`, which is work that moves no bytes and already announces itself on the
+ * row, and not `starting` or `retrying`, which are waiting rather than transferring.
+ */
+export const isActive = (state: TorrentState): boolean =>
+  state === 'downloading' || state === 'seeding'
+
 export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
   const st = s.status
   const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'

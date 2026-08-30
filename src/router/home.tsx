@@ -12,7 +12,7 @@ import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
 
 import { magnetInfoHash } from '../torrent/magnet'
-import { useTorrents } from '../torrent/use-torrents'
+import { isActive, useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
@@ -2577,7 +2577,7 @@ const Home = () => {
   const totalDown = torrents.reduce((n, t) => n + t.down, 0)
   const totalUp = torrents.reduce((n, t) => n + t.up, 0)
   const peak = Math.max(...history, 0)
-  const active = torrents.filter((t) => t.state === 'downloading').length
+  const active = torrents.filter((t) => isActive(t.state)).length
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
@@ -2852,8 +2852,12 @@ const Home = () => {
               <label>Upload</label>
               <strong>{speed(totalUp)}</strong>
             </div>
+            {/* Which direction this is has to be said. `history` samples download alone, so a
+                library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
+                ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
+                forty peers. */}
             <div className="stat">
-              <label>Peak</label>
+              <label>Peak down</label>
               <strong>{speed(peak)}</strong>
             </div>
             <div className="stat">

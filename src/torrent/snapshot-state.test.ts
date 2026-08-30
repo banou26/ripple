@@ -2,7 +2,7 @@ import type { TorrentSnapshot } from './client'
 
 import { describe, expect, it } from 'vitest'
 
-import { snapshotState } from './use-torrents'
+import { isActive, snapshotState } from './use-torrents'
 
 /**
  * What a row CALLS a torrent, which is the only description of it most people ever read.
@@ -80,5 +80,38 @@ describe('the state a torrent row shows', () => {
     // layout but no status: known to exist, not known to be doing anything
     expect(snapshotState(snap(null))).toBe('queued')
     expect(snapshotState(snap(null, { files: null } as Partial<TorrentSnapshot>))).toBe('downloading')
+  })
+})
+
+/**
+ * What the strip's ACTIVE counts.
+ *
+ * Measured against a real library on 2026-08-30: one torrent, complete, uploading at 264 kB/s to
+ * more than forty peers that had dialled in, and the readout said `Active 0 / 1`. Seeding was not
+ * counted. Next to `Download 0 B/s` and a `Peak` that samples download alone, all three of the first
+ * numbers a person reads agreed that nothing was happening.
+ */
+describe('which torrents count as active', () => {
+  it('counts seeding, which is the whole point of the fix', () => {
+    expect(isActive('seeding')).toBe(true)
+  })
+
+  it('counts downloading, as it always did', () => {
+    expect(isActive('downloading')).toBe(true)
+  })
+
+  /** the control: if this counted everything, the readout would be a torrent count with extra steps */
+  it('does not count states that move no bytes', () => {
+    for (const state of ['paused', 'queued', 'done', 'error', 'missing', 'retrying', 'checking', 'starting'] as const) {
+      expect(isActive(state), `${state} should not be active`).toBe(false)
+    }
+  })
+
+  /** the two readouts have to agree: a snapshot that reads as seeding must also count as active */
+  it('agrees with snapshotState, so a seeding row is never counted idle', () => {
+    expect(isActive(snapshotState(snap({ state: 5 })))).toBe(true)
+    expect(isActive(snapshotState(snap({ state: 3 })))).toBe(true)
+    // and a complete torrent the engine parked is genuinely not transferring
+    expect(isActive(snapshotState(snap({ state: 5, paused: true })))).toBe(false)
   })
 })
