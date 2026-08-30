@@ -70,17 +70,14 @@ describe('the inbound stat', () => {
   })
 
   describe('against a current engine', () => {
-    it('names the port and how many have dialled in', async () => {
+    it('names the port and what has arrived on it, split by transport', async () => {
       const screen = await mount(current())
-      expect(text(screen)).toBe(':41337 · 2 utp · 1 tcp dialled in')
+      expect(text(screen)).toBe(':41337 · 2 utp · 1 tcp')
     })
 
     /**
-     * The bug this wording exists for. It read `41337 · 2 utp · 1 tcp` with no unit, which was taken
-     * for a live peer count and reported as wrong against a torrent connected to one peer.
-     *
-     * The split itself is NOT the problem and must stay: which of uTP and TCP is getting through is
-     * the whole point of this readout. What was missing is what the numbers COUNT.
+     * The split itself must stay: which of uTP and TCP is getting through is the whole point of this
+     * readout, and it was moved to the tooltip once and had to be moved back.
      */
     it('keeps the transport split, which is what the readout is for', async () => {
       const screen = await mount(current())
@@ -88,9 +85,16 @@ describe('the inbound stat', () => {
       expect(text(screen)).toContain('1 tcp')
     })
 
-    it('never leaves the split without a unit, which is what read as a peer count', async () => {
+    /**
+     * The label carries no explanation, so the TOOLTIP is the only place a reader can learn that
+     * these are totals rather than current peers. That makes the next test load bearing rather than
+     * decorative: without it this readout is a number anybody would misread, which is what happened
+     * twice.
+     */
+    it('keeps the label to the numbers, with no unit words on the strip', async () => {
       const screen = await mount(current())
-      expect(text(screen)).toMatch(/dialled in$/)
+      expect(text(screen)).not.toMatch(/dialled/)
+      expect(text(screen)).toMatch(/^:41337 /)
     })
 
     it('says outright in the tooltip that it is a running total', async () => {

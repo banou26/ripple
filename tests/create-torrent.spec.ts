@@ -103,6 +103,7 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   // the junk file is left out, and the dialog says so rather than quietly shrinking the torrent
   await expect(dialog.getByText('1 left out')).toBeVisible()
 
+  await page.screenshot({ path: 'test-results/create-review.png' })
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
 
   // Published, and named for the folder it came from
@@ -110,7 +111,11 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   const infoHash = await dialog.locator('code').first().textContent()
   expect(infoHash).toMatch(/^[0-9a-f]{40}$/)
 
-  await dialog.getByRole('button', { name: 'Done' }).click()
+  // the card shell: a bordered surface with its own header and footer, matching the other dialogs
+  await expect(dialog.locator('.card')).toBeVisible()
+  await page.screenshot({ path: 'test-results/create-dialog.png' })
+
+  await dialog.getByRole('button', { name: 'Close' }).click()
 
   /*
    * THE ASSERTION THAT MATTERS. libtorrent hashed the same files itself and has to agree with every

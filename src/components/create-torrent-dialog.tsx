@@ -7,6 +7,7 @@ import type { UseCreateTorrent } from '../torrent/use-create-torrent'
 import {
   BORDER,
   BORDER_INTERACTIVE,
+  BORDER_STRONG,
   CONTROL_BG,
   CONTROL_HOVER_BG,
   EMPHASIS,
@@ -39,26 +40,82 @@ import { Modal } from './modal'
  * once, plainly, is the honest amount.
  */
 
+/*
+ * The same card shell as torrent-options-dialog and add-torrent-dialog: a bordered surface inside
+ * Ripple's Modal, with its own header and footer and only the middle scrolling.
+ *
+ * Worth stating why the border rather than a shadow. Neither card carries a drop shadow, so the
+ * border is the ONLY thing separating the surface from the scrim; without it this read as content
+ * floating on a dark backdrop rather than as a dialog, which is exactly how it was reported.
+ */
 const style = css`
-  display: flex;
-  flex-direction: column;
-  gap: 1.2rem;
-  width: min(52rem, 92vw);
   color: ${TEXT};
+  width: 100%;
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
 
-  h2 { margin: 0; font-size: 1.6rem; font-weight: 600; }
-  p { margin: 0; color: ${TEXT_MUTED}; line-height: 1.5; }
-  .faint { color: ${TEXT_FAINT}; font-size: 1.2rem; }
+  .card {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 64px);
+    border-radius: 8px;
+    border: 1px solid ${BORDER_STRONG};
+    background: ${SURFACE_BG};
+  }
 
-  .picks { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+  header {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid ${BORDER};
+
+    h2 {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      font-size: 1.05rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 18px 16px;
+  }
+
+  footer {
+    flex: none;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+    border-top: 1px solid ${BORDER};
+  }
+
+  p { margin: 0; color: ${TEXT_MUTED}; line-height: 1.5; font-size: 0.85rem; }
+  .faint { color: ${TEXT_FAINT}; font-size: 0.8rem; }
+
+  .picks { display: flex; gap: 8px; flex-wrap: wrap; }
 
   button {
     font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
     color: ${TEXT};
     background: ${CONTROL_BG};
     border: 1px solid ${BORDER};
-    border-radius: 0.6rem;
-    padding: 0.7rem 1.1rem;
+    border-radius: 6px;
+    padding: 6px 18px;
     cursor: pointer;
     &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_INTERACTIVE}; }
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
@@ -74,45 +131,58 @@ const style = css`
 
   .facts {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-    gap: 0.8rem;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 10px;
     background: ${SUNKEN_BG};
     border: 1px solid ${BORDER};
-    border-radius: 0.6rem;
-    padding: 1rem;
+    border-radius: 6px;
+    padding: 12px;
   }
-  .fact { display: flex; flex-direction: column; gap: 0.2rem; }
-  .fact .label { color: ${TEXT_FAINT}; font-size: 1.1rem; }
-  .fact .value { font-variant-numeric: tabular-nums; }
+  .fact { display: flex; flex-direction: column; gap: 2px; }
+  .fact .label {
+    color: ${TEXT_MUTED};
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .fact .value { font-variant-numeric: tabular-nums; font-size: 0.95rem; }
 
-  label.field { display: flex; flex-direction: column; gap: 0.4rem; }
-  label.field > span { color: ${TEXT_FAINT}; font-size: 1.2rem; }
+  label.field { display: flex; flex-direction: column; gap: 4px; }
+  label.field > span {
+    color: ${TEXT_MUTED};
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
   input[type=text], textarea {
     font: inherit;
+    font-size: 0.85rem;
     color: ${TEXT};
-    background: ${SURFACE_BG};
+    background: ${SUNKEN_BG};
     border: 1px solid ${BORDER};
-    border-radius: 0.5rem;
-    padding: 0.6rem 0.8rem;
+    border-radius: 6px;
+    padding: 8px 10px;
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 1px; }
   }
-  textarea { resize: vertical; min-height: 5.4rem; font-size: 1.2rem; }
+  textarea { resize: vertical; min-height: 4.6rem; font-size: 0.8rem; }
 
-  label.check { display: flex; gap: 0.6rem; align-items: baseline; cursor: pointer; }
+  label.check { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 0.85rem; }
 
   .bar {
-    height: 0.6rem;
+    height: 6px;
     background: ${SUNKEN_BG};
-    border-radius: 0.3rem;
+    border-radius: 3px;
     overflow: hidden;
     > div { height: 100%; background: ${EMPHASIS}; transition: width 0.2s linear; }
   }
 
   .warn { color: ${WARN}; }
-  .row { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .grow { flex: 1; }
-  .skipped { max-height: 8rem; overflow-y: auto; font-size: 1.2rem; color: ${TEXT_FAINT}; }
-  code { font-size: 1.2rem; word-break: break-all; }
+  .skipped { max-height: 8rem; overflow-y: auto; font-size: 0.8rem; color: ${TEXT_FAINT}; }
+  code { font-size: 0.8rem; word-break: break-all; }
 `
 
 type Props = {
@@ -148,130 +218,152 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   return (
     <Modal labelledBy="create-torrent-title" onClose={working ? create.cancel : onClose} initialFocus={first}>
       <div css={style}>
-        <h2 id="create-torrent-title">Create a torrent</h2>
+      <div className="card">
+        <header>
+          <h2 id="create-torrent-title">Create a torrent</h2>
+        </header>
 
-        {state.stage === 'idle' && (
-          <>
+        <div className="body">
+          {state.stage === 'idle' && (
             <p>
               Pick a file or a folder on this device. Ripple reads it where it is, builds the torrent,
               and shares it from there. Nothing is copied and nothing is moved.
             </p>
-            <div className="picks">
-              <button ref={first} type="button" onClick={() => void create.pickFolder()}>Choose a folder</button>
-              <button type="button" onClick={() => void create.pickFile()}>Choose a file</button>
-            </div>
-          </>
-        )}
+          )}
 
-        {state.stage === 'reading' && (
-          <>
+          {state.stage === 'reading' && (
             <p>Reading the folder{state.filesFound ? `, ${state.filesFound} files so far` : ''}…</p>
-            <button type="button" onClick={create.cancel}>Cancel</button>
-          </>
-        )}
+          )}
 
-        {(state.stage === 'ready' || state.stage === 'error') && state.plan && (
-          <>
-            <div className="facts">
-              <div className="fact">
-                <span className="label">Files</span>
-                <span className="value">{state.plan.files.length}</span>
+          {(state.stage === 'ready' || state.stage === 'error') && state.plan && (
+            <>
+              <div className="facts">
+                <div className="fact">
+                  <span className="label">Files</span>
+                  <span className="value">{state.plan.files.length}</span>
+                </div>
+                <div className="fact">
+                  <span className="label">Total size</span>
+                  <span className="value">{getHumanReadableByteString(state.plan.totalBytes)}</span>
+                </div>
+                <div className="fact">
+                  <span className="label">Pieces</span>
+                  <span className="value">
+                    {state.plan.pieceCount} × {getHumanReadableByteString(state.plan.pieceLength)}
+                  </span>
+                </div>
               </div>
-              <div className="fact">
-                <span className="label">Total size</span>
-                <span className="value">{getHumanReadableByteString(state.plan.totalBytes)}</span>
-              </div>
-              <div className="fact">
-                <span className="label">Pieces</span>
-                <span className="value">
-                  {state.plan.pieceCount} × {getHumanReadableByteString(state.plan.pieceLength)}
+
+              {state.truncated && (
+                <p className="warn">
+                  That folder holds more files than Ripple will put in one torrent. Pick a smaller
+                  folder, or nothing here will describe all of it.
+                </p>
+              )}
+              {state.skipped.length > 0 && (
+                <details>
+                  <summary className="faint">{state.skipped.length} left out</summary>
+                  <div className="skipped">{state.skipped.map((path) => <div key={path}>{path}</div>)}</div>
+                </details>
+              )}
+
+              <label className="field">
+                <span>Name</span>
+                <input type="text" value={name} onChange={(event) => setName(event.target.value)}/>
+              </label>
+
+              <label className="field">
+                <span>Trackers, one per line</span>
+                <textarea value={trackerText} onChange={(event) => setTrackerText(event.target.value)}/>
+              </label>
+              <p className="faint">Leave the trackers empty to rely on the DHT alone.</p>
+
+              <label className="check">
+                <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)}/>
+                <span>
+                  Private
+                  <span className="faint"> · keeps it to the trackers above, with no DHT and no peer exchange</span>
                 </span>
-              </div>
-            </div>
+              </label>
 
-            {state.truncated && (
-              <p className="warn">
-                That folder holds more files than Ripple will put in one torrent. Pick a smaller
-                folder, or nothing here will describe all of it.
+              {state.error && <p className="warn">{state.error}</p>}
+
+              <p className="faint">
+                Sharing means anyone with the link can download these files while this tab is open.
+                The files stay where they are and Ripple never writes to them.
               </p>
-            )}
-            {state.skipped.length > 0 && (
-              <details>
-                <summary className="faint">{state.skipped.length} left out</summary>
-                <div className="skipped">{state.skipped.map((path) => <div key={path}>{path}</div>)}</div>
-              </details>
-            )}
+            </>
+          )}
 
-            <label className="field">
-              <span>Name</span>
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)}/>
-            </label>
+          {(state.stage === 'hashing' || state.stage === 'checking') && (
+            <>
+              <p>
+                {state.stage === 'checking'
+                  ? 'Checking the files did not change while that ran…'
+                  : 'Reading and hashing the files…'}
+              </p>
+              <div className="bar"><div style={{ width: `${Math.round(done * 100)}%` }}/></div>
+              <p className="faint">
+                {state.progress
+                  ? `${getHumanReadableByteString(state.progress.hashedBytes)} of ${getHumanReadableByteString(state.progress.totalBytes)}`
+                    + (eta === undefined ? '' : ` · about ${eta}s left`)
+                    + ` · ${state.progress.path}`
+                  : 'starting…'}
+              </p>
+            </>
+          )}
 
-            <label className="field">
-              <span>Trackers, one per line. Leave it empty to rely on the DHT alone.</span>
-              <textarea value={trackerText} onChange={(event) => setTrackerText(event.target.value)}/>
-            </label>
+          {state.stage === 'adding' && <p>Handing it to the engine…</p>}
 
-            <label className="check">
-              <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)}/>
-              <span>
-                Private
-                <span className="faint"> · keeps it to the trackers above, with no DHT and no peer exchange</span>
-              </span>
-            </label>
+          {state.stage === 'done' && state.built && (
+            <>
+              <p>
+                <strong>{state.built.plan.name}</strong> is being shared from where it sits on this
+                device.
+              </p>
+              <p className="faint">Info hash <code>{state.built.infoHash}</code></p>
+              <p className="faint">
+                It keeps sharing while Ripple is open. After a reload the browser asks for access to
+                those files again before it can carry on.
+              </p>
+            </>
+          )}
 
-            {state.error && <p className="warn">{state.error}</p>}
+          {state.stage === 'error' && !state.plan && <p className="warn">{state.error}</p>}
+        </div>
 
-            <div className="row">
+        {/* The footer is where the action lives in every other dialog here, so it is where somebody
+            looks for it. Its contents change with the stage; its position does not. */}
+        <footer>
+          {state.stage === 'idle' && (
+            <>
+              <button type="button" onClick={onClose}>Cancel</button>
+              <button type="button" onClick={() => void create.pickFile()}>Choose a file</button>
+              <button ref={first} className="go" type="button" onClick={() => void create.pickFolder()}>
+                Choose a folder
+              </button>
+            </>
+          )}
+
+          {state.stage === 'reading' && <button ref={first} type="button" onClick={create.cancel}>Cancel</button>}
+
+          {(state.stage === 'ready' || state.stage === 'error') && state.plan && (
+            <>
+              <button type="button" onClick={create.reset}>Pick something else</button>
               <button ref={first} className="go" type="button" onClick={() => void create.publish(options)}>
                 Create and start sharing
               </button>
-              <button type="button" onClick={create.reset}>Pick something else</button>
-            </div>
-            <p className="faint">
-              Sharing means anyone with the link can download these files while this tab is open. The
-              files stay where they are and Ripple never writes to them.
-            </p>
-          </>
-        )}
+            </>
+          )}
 
-        {(state.stage === 'hashing' || state.stage === 'checking') && (
-          <>
-            <p>
-              {state.stage === 'checking'
-                ? 'Checking the files did not change while that ran…'
-                : 'Reading and hashing the files…'}
-            </p>
-            <div className="bar"><div style={{ width: `${Math.round(done * 100)}%` }}/></div>
-            <p className="faint">
-              {state.progress
-                ? `${getHumanReadableByteString(state.progress.hashedBytes)} of ${getHumanReadableByteString(state.progress.totalBytes)}`
-                  + (eta === undefined ? '' : ` · about ${eta}s left`)
-                  + ` · ${state.progress.path}`
-                : 'starting…'}
-            </p>
-            <button type="button" onClick={create.cancel}>Cancel</button>
-          </>
-        )}
+          {(state.stage === 'hashing' || state.stage === 'checking') && (
+            <button ref={first} type="button" onClick={create.cancel}>Cancel</button>
+          )}
 
-        {state.stage === 'adding' && <p>Handing it to the engine…</p>}
-
-        {state.stage === 'done' && state.built && (
-          <>
-            <p>
-              <strong>{state.built.plan.name}</strong> is being shared from where it sits on this
-              device.
-            </p>
-            <p className="faint">Info hash <code>{state.built.infoHash}</code></p>
-            <div className="row">
-              <button
-                ref={first}
-                className="go"
-                type="button"
-                onClick={() => { onShare(state.built!.magnet); onClose() }}
-              >
-                Get a share link
-              </button>
+          {state.stage === 'done' && state.built && (
+            <>
+              <button type="button" onClick={onClose}>Close</button>
+              <button type="button" onClick={create.reset}>Create another</button>
               <button
                 type="button"
                 onClick={() => {
@@ -282,23 +374,22 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               >
                 Copy magnet
               </button>
-              <button type="button" onClick={create.reset}>Create another</button>
-              <span className="grow"/>
-              <button type="button" onClick={onClose}>Done</button>
-            </div>
-            <p className="faint">
-              It keeps sharing while Ripple is open. After a reload the browser asks for access to
-              those files again before it can carry on.
-            </p>
-          </>
-        )}
+              <button
+                ref={first}
+                className="go"
+                type="button"
+                onClick={() => { onShare(state.built!.magnet); onClose() }}
+              >
+                Get a share link
+              </button>
+            </>
+          )}
 
-        {state.stage === 'error' && !state.plan && (
-          <>
-            <p className="warn">{state.error}</p>
+          {state.stage === 'error' && !state.plan && (
             <button ref={first} type="button" onClick={create.reset}>Try again</button>
-          </>
-        )}
+          )}
+        </footer>
+      </div>
       </div>
     </Modal>
   )

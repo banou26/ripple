@@ -208,15 +208,20 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
   // naming a dead number with exactly the confidence it had when the number worked.
   const healing = !!port && !portOpen && listeners.some((l) => l.healing)
   /**
-   * `:41337`, the way a port is written everywhere else, and the count SAID rather than implied.
+   * `:41337 · 1 utp · 22 tcp`: the port written the way it is everywhere else, then what has arrived
+   * on it, split by transport.
    *
-   * This used to read `41337 · 69 tcp · 19 utp`, which anybody would take for a live peer count, and
-   * did: it was reported as a bug against a torrent connected to one peer. `inbound` is cumulative,
-   * every connection accepted since this session started.
+   * `inbound` is CUMULATIVE, every connection accepted since this session started, which is not the
+   * same number as how many peers a torrent has right now. That has been read as a live peer count
+   * and reported as a bug twice, once against a torrent connected to one peer. Two attempts to fix
+   * it in the label itself both failed: moving the split into the tooltip removed the one thing the
+   * readout is for, and appending `dialled in` put a unit on it that still did not say the number was
+   * a total, while making the strip's widest cell wider again.
    *
-   * The split STAYS on the strip. It was moved to the tooltip first and that was the wrong fix: the
-   * numbers were never the problem, the missing unit was, and which of uTP and TCP is getting
-   * through is the one thing this readout is for. Two words carry the meaning instead.
+   * So the label is the numbers and the tooltip is the sentence. It states outright that this is a
+   * running total and not how many peers are connected now, which is the actual thing a reader needs
+   * and is too long to live on a strip. The split stays: which of uTP and TCP is getting through is
+   * what somebody checking their connection came here to see.
    */
   const label =
     failed ? 'Failed'
@@ -224,7 +229,7 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
     : healing ? `:${port} · reconnecting`
     : !portOpen ? `:${port} · closed`
     : inbound === 0 ? `:${port}`
-    : `:${port} · ${detail} dialled in`
+    : `:${port} · ${detail}`
   const title =
     failed ? listenFailed.join('\n')
     : healing ? 'The connection carrying this port dropped. Reclaiming it.'
