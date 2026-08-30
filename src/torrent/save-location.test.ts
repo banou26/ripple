@@ -155,3 +155,61 @@ describe('what the user is told', () => {
     expect(locationLabel('browser', 'Downloads')).toBe('Browser storage')
   })
 })
+
+/**
+ * The rules that keep somebody's own files where they put them.
+ *
+ * A source-backed torrent is one created FROM a picked file or folder, so its bytes are the person's
+ * originals. The hazard is not exotic: the ordinary global default is `browser`, an entry that never
+ * set `saveTo` reads as wanting the default, and the effect in home.tsx that carries out pending
+ * moves would then copy the whole picked folder into OPFS. Nobody asked for it, it is the largest
+ * copy the app can make, and on a folder past the origin's quota it cannot even finish.
+ */
+describe('a torrent backed by the user\'s own files', () => {
+  it('is recognised from its save path', () => {
+    expect(currentLocation('/source/abc')).toBe('source')
+    expect(currentLocation('/native/abc')).toBe('folder')
+    expect(currentLocation('/dl')).toBe('browser')
+    expect(currentLocation(undefined)).toBe('browser')
+  })
+
+  it('wants to stay put whatever the global default says', () => {
+    expect(intendedLocation({ saveTo: 'source' }, 'browser')).toBe('source')
+    expect(intendedLocation({ saveTo: 'source' }, 'folder')).toBe('source')
+  })
+
+  it('never moves, in either direction, even when the two locations disagree', () => {
+    const ready = { complete: true, folderReady: true }
+    // the exact combination an entry written before this rule produces
+    expect(moveReadiness({ current: 'source', intended: 'browser', ...ready }).move).toBe(false)
+    expect(moveReadiness({ current: 'source', intended: 'folder', ...ready }).move).toBe(false)
+    expect(moveReadiness({ current: 'browser', intended: 'source', ...ready }).move).toBe(false)
+    expect(moveReadiness({ current: 'folder', intended: 'source', ...ready }).move).toBe(false)
+  })
+
+  /** The control: an ordinary torrent in the same shape DOES move, so the negatives above mean the rule. */
+  it('leaves an ordinary torrent free to move', () => {
+    const ready = { complete: true, folderReady: true }
+    expect(moveReadiness({ current: 'browser', intended: 'folder', ...ready })).toEqual({ move: true, to: 'folder' })
+    expect(moveReadiness({ current: 'folder', intended: 'browser', ...ready })).toEqual({ move: true, to: 'browser' })
+  })
+
+  it('says nothing is pending, since there is nothing to wait for', () => {
+    expect(pendingLabel(moveReadiness({ current: 'source', intended: 'browser', complete: true, folderReady: false }), 'Downloads')).toBeNull()
+  })
+
+  it('cannot be the global default, however the setting got written', () => {
+    expect(readGlobalDefault(() => 'source')).toBe('browser')
+    expect(readGlobalDefault(() => 'folder')).toBe('folder')
+  })
+
+  it('names its save path from its infohash, and refuses to guess one', () => {
+    expect(savePathIn('source', 'abc')).toBe('/source/abc')
+    expect(() => savePathIn('source', null)).toThrow(/needs its infohash/)
+  })
+
+  it('says whose files they are, rather than naming a place', () => {
+    expect(locationLabel('source', 'Downloads')).toBe('Your own files')
+    expect(locationLabel('folder', 'Downloads')).toBe('Downloads')
+  })
+})

@@ -1,12 +1,12 @@
 import type { SaveLocation } from './library'
 
 import { SHARED_ROOT, savePathFor } from './library'
-import { isNativeSavePath, nativeSavePathFor } from './hybrid-storage'
+import { isNativeSavePath, isSourceSavePath, nativeSavePathFor, sourceSavePathFor } from './hybrid-storage'
 
 /**
  * Where a torrent's files are meant to live, and where they actually are.
  *
- * Two places exist, and they are not interchangeable:
+ * Three places exist, and they are not interchangeable:
  *
  *  - `browser`, which is OPFS. The only place a download can be WRITTEN. libtorrent writes pieces at
  *    arbitrary offsets as they arrive, and OPFS is the only backend that takes an in-place random
@@ -14,6 +14,11 @@ import { isNativeSavePath, nativeSavePathFor } from './hybrid-storage'
  *  - `folder`, a directory the user granted. Readable, so a torrent can be shared out of it, but a
  *    write there can only go through `createWritable`, which publishes by renaming a `.crswap`
  *    sibling over the target at close.
+ *  - `source`, a file or folder the person picked in order to CREATE a torrent from it. Read only in
+ *    the same way `folder` is, and unlike either of the others it is not somewhere a torrent can be
+ *    put: Ripple never wrote those bytes, so nothing here may copy, move or delete them. The rules
+ *    that keep it still are written out one at a time below rather than left to the type, because
+ *    widening the union compiles on its own and every existing `=== 'folder'` test has an else.
  *
  * MEASURED, because "you cannot download into a folder" would be too strong and is not what the
  * browser does. One long-lived writable taking random positional writes runs at 51 MB/s against the
@@ -58,29 +63,61 @@ export type { SaveLocation }
 export const SAVE_LOCATION_KEY = 'ripple:save-location'
 
 export const isSaveLocation = (value: unknown): value is SaveLocation =>
-  value === 'browser' || value === 'folder'
+  value === 'browser' || value === 'folder' || value === 'source'
 
-/** What a torrent with no preference of its own gets. */
+/**
+ * A torrent whose bytes are the user's own originals, picked to create it from.
+ *
+ * Every rule below that could copy, move or delete asks this first. It is a function rather than an
+ * inline comparison so that there is one place to read when the question is "what protects the
+ * files somebody pointed at".
+ */
+export const isSourceBacked = (location: SaveLocation): boolean => location === 'source'
+
+/**
+ * What a torrent with no preference of its own gets.
+ *
+ * `source` can never be the global default: it is not a place to put things, it is a statement about
+ * where a particular torrent's files already are. A stored value saying otherwise is treated as
+ * absent rather than honoured, since it could only have come from a bug or a hand-edited store.
+ */
 export const readGlobalDefault = (read: (key: string) => string | null): SaveLocation => {
   const stored = read(SAVE_LOCATION_KEY)
-  return isSaveLocation(stored) ? stored : 'browser'
+  return stored === 'browser' || stored === 'folder' ? stored : 'browser'
 }
 
-/** Where the user WANTS this torrent: its own choice, else the global default. */
+/**
+ * Where the user WANTS this torrent: its own choice, else the global default.
+ *
+ * A source-backed entry always wants to stay where it is, whatever the global default says. Without
+ * that the ordinary default of `browser` would read as "this torrent belongs in browser storage",
+ * and the effect in home.tsx that carries out pending moves would copy the person's entire picked
+ * folder into OPFS: the largest, least wanted copy the app could possibly make, started by nobody.
+ */
 export const intendedLocation = (
   entry: { saveTo?: SaveLocation } | null | undefined,
   globalDefault: SaveLocation,
-): SaveLocation => (isSaveLocation(entry?.saveTo) ? entry.saveTo : globalDefault)
+): SaveLocation => {
+  if (entry?.saveTo === 'source') return 'source'
+  return entry?.saveTo === 'browser' || entry?.saveTo === 'folder' ? entry.saveTo : globalDefault
+}
 
 /** Where the bytes are RIGHT NOW, read off the save path libtorrent was given. */
 export const currentLocation = (savePath: string | undefined): SaveLocation =>
-  isNativeSavePath(savePath) ? 'folder' : 'browser'
+  isSourceSavePath(savePath) ? 'source' : isNativeSavePath(savePath) ? 'folder' : 'browser'
 
 /** The save path to hand libtorrent for a torrent living in `location`. */
-export const savePathIn = (location: SaveLocation, infoHash: string | null): string =>
-  location === 'folder'
+export const savePathIn = (location: SaveLocation, infoHash: string | null): string => {
+  if (location === 'source') {
+    // A source torrent's path is its identity, not a directory anything writes to, so there is no
+    // sensible fallback: a shared root would put two people's picked folders behind one path.
+    if (!infoHash) throw new Error('a source-backed torrent needs its infohash to name its save path')
+    return sourceSavePathFor(infoHash)
+  }
+  return location === 'folder'
     ? (infoHash ? nativeSavePathFor(infoHash) : SHARED_ROOT)
     : savePathFor(infoHash)
+}
 
 export type MoveReadiness =
   /** already where it should be */
@@ -110,6 +147,16 @@ export const moveReadiness = (
     folderReady: boolean
   },
 ): MoveReadiness => {
+  /*
+   * Nothing moves a source-backed torrent, in either direction, ever.
+   *
+   * Checked before `current === intended` rather than relying on it, because the two can disagree
+   * for an ordinary reason: an entry written before this rule existed, or one whose `saveTo` was
+   * never set, reads as intending `browser` while sitting at a `/source` path. That combination is
+   * exactly the one that would start a copy of somebody's whole picked folder into OPFS, so it is
+   * answered here rather than left to whether two other values happen to match.
+   */
+  if (current === 'source' || intended === 'source') return { move: false, reason: 'settled' }
   if (current === intended) return { move: false, reason: 'settled' }
   // needed in BOTH directions: moving out of a folder has to read from it, and moving into one has
   // to write to it, so neither can happen while the grant is missing
@@ -128,4 +175,6 @@ export const pendingLabel = (readiness: MoveReadiness, folderName: string | unde
 }
 
 export const locationLabel = (location: SaveLocation, folderName: string | undefined): string =>
-  location === 'folder' ? (folderName ?? 'your folder') : 'Browser storage'
+  location === 'source'
+    ? 'Your own files'
+    : location === 'folder' ? (folderName ?? 'your folder') : 'Browser storage'

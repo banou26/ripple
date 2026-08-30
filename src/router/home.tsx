@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, RefreshCw, X } from 'react-feather'
+import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, RefreshCw, Upload, X } from 'react-feather'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -53,6 +53,8 @@ import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useRippleUpdate } from '../utils/use-ripple-update'
 import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
+import { CreateTorrentDialog } from '../components/create-torrent-dialog'
+import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
 import { AccountWidget } from '../components/account-widget'
@@ -1838,7 +1840,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
 }
 
 const Home = () => {
-  const { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
+  const { torrents, list, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -2240,6 +2242,19 @@ const Home = () => {
    * something in it is a completely ordinary thing to do. Closing is its own gesture, so it has its
    * own controls, the header button and Escape.
    */
+  /**
+   * Creating a torrent from something on this device.
+   *
+   * The hook owns the pickers, the hashing and the durable handle; this page owns when the dialog is
+   * on screen. Closing it does NOT cancel a pass in flight, which is deliberate: hashing a large
+   * folder takes minutes and the dialog is not the only thing somebody wants to look at while it
+   * runs. Cancel is its own button.
+   */
+  const create = useCreateTorrent(client)
+  const [createOpen, setCreateOpen] = useState(false)
+  const closeCreate = useCallback(() => setCreateOpen(false), [])
+  const { waiting: waitingSources, allow: allowSource } = useCreatedSources(client, list, client.owns())
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const onSelect = useCallback((t: Torrent) => setSelectedId(t.id), [])
 
@@ -2511,6 +2526,15 @@ const Home = () => {
     const now = Date.now()
     for (const t of torrents) {
       if (t.state !== 'done' && t.state !== 'seeding') continue
+      /*
+       * A created torrent is never mirrored.
+       *
+       * Its bytes ARE the user's own files, already sitting where they chose. Copying them into the
+       * auto-save folder would duplicate an entire folder on their disk to produce a second copy of
+       * something they already had, and the copy would then be the one Ripple offered to remove.
+       * `moveReadiness` refuses the other half of this, the move into OPFS; this is the mirror.
+       */
+      if (t.saveTo === 'source') continue
       if (!t.files?.length || syncingRef.current.has(t.id)) continue
       const attempt = syncAtRef.current.get(t.id)
       if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
@@ -2898,6 +2922,18 @@ const Home = () => {
           <Link2/>
           Share a torrent
         </button>
+        {create.supported && (
+          <button
+            className="share"
+            type="button"
+            aria-expanded={createOpen}
+            title="Make a torrent from a file or folder on this device, and share it from where it is"
+            onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
+          >
+            <Upload/>
+            Create a torrent
+          </button>
+        )}
         {showSetup && (
           <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
             Open torrents with Ripple
@@ -2916,6 +2952,48 @@ const Home = () => {
           onClose={closeEmbed}
           onToast={showToast}
         />
+      )}
+
+      {createOpen && (
+        <CreateTorrentDialog
+          create={create}
+          onClose={closeCreate}
+          onShare={(magnet) => { closeCreate(); shareMagnet(magnet) }}
+          onToast={showToast}
+        />
+      )}
+
+      {waitingSources.length > 0 && (
+        <div className="storage-warning surface" role="status">
+          <strong>
+            {waitingSources.length === 1
+              ? 'A torrent you created needs access to its files again'
+              : `${waitingSources.length} torrents you created need access to their files again`}
+          </strong>
+          <span>
+            Browsers forget folder access when a page reloads, so these stopped sharing. Nothing was
+            lost and the files were not touched.
+          </span>
+          <div className="actions">
+            {/* One button per source, and one press each. `requestPermission` consumes the transient
+                activation, so a loop over several folders shows one prompt and silently fails for the
+                rest, which reads as a button that does nothing. */}
+            {waitingSources.map(({ entry, name }) => (
+              <button
+                key={entry.infoHash}
+                type="button"
+                onClick={() => {
+                  void allowSource(entry.infoHash).then((ok) => {
+                    if (ok) showToast(`Sharing ${entry.name ?? name} again`)
+                    else showToast(`Ripple still cannot read ${name}`)
+                  })
+                }}
+              >
+                Allow {name}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {storageUnavailable && (

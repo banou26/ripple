@@ -213,6 +213,8 @@ const startingToTorrent = (e: Persisted): Torrent => ({
 
 export type UseTorrents = {
   torrents: Torrent[]
+  /** The library as stored, which carries entries no engine row exists for. */
+  list: Persisted[]
   addMagnet: (magnet: string) => void
   addTorrentFile: (bytes: Uint8Array) => void
   pause: (handle: number) => void
@@ -302,8 +304,23 @@ export const useTorrents = (): UseTorrents => {
         : t
     })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
+    /*
+     * A torrent created from this device's own files is represented by NEITHER of the two kinds of
+     * row below while it is out of the engine.
+     *
+     * It is not a ghost: a ghost is something this device does not have and can be offered
+     * "Download to this device", and pressing that here would start downloading the person's own
+     * files into browser storage from strangers. And it is not starting: the restore loop
+     * deliberately does not add these, so a row saying it is on its way would say so forever.
+     *
+     * What it is waiting for is a permission grant, which needs a click, so it is surfaced as
+     * something to click rather than as a row pretending to be busy. `useCreatedSources` in
+     * use-create-torrent.ts does that, and the torrent appears here as an ordinary live row the
+     * moment the grant is back.
+     */
+    const created = (e: Persisted) => e.saveTo === 'source'
     const ghosts = list
-      .filter((e) => e.started === false && !liveHashes.has(e.infoHash))
+      .filter((e) => e.started === false && !created(e) && !liveHashes.has(e.infoHash))
       .sort((a, b) => a.addedAt - b.addedAt)
       .map(ghostToTorrent)
     /**
@@ -318,7 +335,7 @@ export const useTorrents = (): UseTorrents => {
      * way, so they are never offered "Download to this device".
      */
     const starting = list
-      .filter((e) => e.started !== false && !liveHashes.has(e.infoHash))
+      .filter((e) => e.started !== false && !created(e) && !liveHashes.has(e.infoHash))
       .sort((a, b) => a.addedAt - b.addedAt)
       .map(startingToTorrent)
     return [...live, ...starting, ...ghosts]
@@ -333,5 +350,5 @@ export const useTorrents = (): UseTorrents => {
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
+  return { torrents, list, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
 }

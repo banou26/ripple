@@ -37,6 +37,13 @@ import type { MeasurableStorage } from './opfs-storage'
  * `mode: 'exclusive'` does not change it: that option governs locking, not swap files. Full detail
  * in save-location.ts.
  *
+ * IT ALSO SERVES TORRENTS THE USER CREATED, out of the file or folder they picked to make one from.
+ * Same reads, same read-only rule, and one difference that decides how they are resolved: those
+ * handles are kept per torrent and looked up by `fileIndex` rather than by walking a reported path.
+ * `SourceLookup` below says why at length; the short version is that the granted handle IS that
+ * torrent's root directory, so a path-based resolver looks for `Pack/Pack/a.mkv` and finds nothing
+ * while reporting no error.
+ *
  * PER-FILE routing was considered and rejected, since read and write both take a `fileIndex` and the
  * table could perfectly well be keyed on one, which would let a finished file leave OPFS while the
  * rest of a pack downloads. What stops it is that PIECES SPAN FILE BOUNDARIES: a piece straddling a
@@ -53,10 +60,55 @@ export const nativeSavePathFor = (infoHash: string) => `${NATIVE_ROOT}/${infoHas
 export const isNativeSavePath = (savePath: string | undefined): boolean =>
   savePath === NATIVE_ROOT || !!savePath?.startsWith(NATIVE_ROOT + '/')
 
+/**
+ * Save paths under here mean "these are the files somebody picked to MAKE this torrent from".
+ *
+ * Separate from `/native` even though both read out of a granted handle, because the two differ in
+ * what may be done to the files rather than in how they are read. A `/native` torrent's files are a
+ * download Ripple wrote into the user's folder, so moving it back into browser storage is a
+ * reasonable thing to offer. A `/source` torrent's files are the person's own originals that Ripple
+ * has never written a byte of, and every copy, move, mirror, eviction and delete has to leave them
+ * exactly where they are. Sharing one root would make that distinction a comment instead of a fact.
+ */
+export const SOURCE_ROOT = '/source'
+
+export const sourceSavePathFor = (infoHash: string) => `${SOURCE_ROOT}/${infoHash}`
+
+export const isSourceSavePath = (savePath: string | undefined): boolean =>
+  savePath === SOURCE_ROOT || !!savePath?.startsWith(SOURCE_ROOT + '/')
+
+/** Neither backend is OPFS, so neither is charged to the origin or reclaimed by the budget pass. */
+export const isGrantedSavePath = (savePath: string | undefined): boolean =>
+  isNativeSavePath(savePath) || isSourceSavePath(savePath)
+
 /** Where the user's folder is right now, or null. A function because the grant comes and goes. */
 export type FolderSource = () => FileSystemDirectoryHandle | null
 
+/**
+ * The files a created torrent was made from, one handle per file, INDEXED BY fileIndex.
+ *
+ * By index and not by path, which is the single most important decision in this file. Two reasons,
+ * and either alone would settle it:
+ *
+ *  - libtorrent SANITISES path elements before reporting them, so the path in `session.files(h)` is
+ *    not reliably the path that went into the info dict. Resolving a read by re-walking a reported
+ *    path therefore works for ordinary names and fails for exactly the ones that need it most.
+ *  - a created torrent's granted handle IS its own root directory, while every `/native` torrent has
+ *    its root as a CHILD of the granted folder. So the same path string means different things in
+ *    the two cases, and a resolver shared between them looks for `Pack/Pack/a.mkv`.
+ *
+ * That second mistake fails by reporting success, which is what makes it worth this much comment:
+ * the file is simply not found, `check()` sees no file holding bytes, answers "nothing to verify",
+ * and the torrent is added with an EMPTY have-set. It has no error, its row looks healthy, and it
+ * serves nothing to anybody, forever.
+ *
+ * A `fileIndex` cannot drift like that. It is the position in the info dict's `files` list, which is
+ * the order the metainfo was written in and the order the walk produced.
+ */
+export type SourceLookup = (savePath: string) => FileSystemFileHandle[] | null
+
 type NativeStorage = { savePath: string, files: Array<{ path: string, size: number }> }
+type SourceStorage = NativeStorage & { handles: FileSystemFileHandle[] | null }
 
 const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<File> => {
   const parts = path.split('/').filter(Boolean)
@@ -69,8 +121,13 @@ const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<Fi
   return (await dir.getFileHandle(name)).getFile()
 }
 
-export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSource): MeasurableStorage => {
+export const createHybridStorage = (
+  opfs: MeasurableStorage,
+  folder: FolderSource,
+  sources: SourceLookup = () => null,
+): MeasurableStorage => {
   const native = new Map<number, NativeStorage>()
+  const source = new Map<number, SourceStorage>()
 
   const rootOr = (what: string): FileSystemDirectoryHandle => {
     const root = folder()
@@ -82,24 +139,56 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
     return root
   }
 
+  /** The one place a source read resolves a file, so the index rule above has a single home. */
+  const sourceFileAt = async (entry: SourceStorage, fileIndex: number): Promise<File> => {
+    // A source torrent is only ever added once its handles are registered, so this is a construction
+    // error rather than a missing grant. Loud, because the alternative shape of this bug is a torrent
+    // that reports nothing wrong and serves nothing.
+    if (!entry.handles) throw new Error(`hybrid storage: ${entry.savePath} has no source handles registered`)
+    if (entry.handles.length !== entry.files.length) {
+      throw new Error(`hybrid storage: ${entry.savePath} has ${entry.handles.length} handles for ${entry.files.length} files`)
+    }
+    const handle = entry.handles[fileIndex]
+    if (!handle) throw new Error(`hybrid storage: no source handle ${fileIndex} in ${entry.savePath}`)
+    return handle.getFile()
+  }
+
   return {
     usageOf: async (savePath) => {
       // the origin is not charged for the user's own files, and reporting their size as OPFS usage
       // would have the budget pass trying to reclaim space that was never taken
-      if (isNativeSavePath(savePath)) return 0
+      if (isGrantedSavePath(savePath)) return 0
       return opfs.usageOf(savePath)
     },
 
     onNewStorage: (id, savePath, files) => {
+      if (isSourceSavePath(savePath)) {
+        source.set(id, { savePath, files, handles: sources(savePath) })
+        return
+      }
       if (!isNativeSavePath(savePath)) return opfs.onNewStorage(id, savePath, files)
       native.set(id, { savePath, files })
     },
 
     onRemoveStorage: (id) => {
+      if (source.delete(id)) return
       if (!native.delete(id)) return opfs.onRemoveStorage(id)
     },
 
     read: (id, fileIndex, offset, len) => {
+      const picked = source.get(id)
+      if (picked) {
+        return (async () => {
+          const file = await sourceFileAt(picked, fileIndex)
+          const chunk = await file.slice(offset, offset + len).arrayBuffer()
+          // same rule as the folder case below: a short read means the person's file is not what the
+          // torrent says it is, and zeros would be served to a peer as real data
+          if (chunk.byteLength < len) {
+            throw new Error(`hybrid storage: source file ${fileIndex} of ${picked.savePath} ended early, wanted ${len} at ${offset}, got ${chunk.byteLength}`)
+          }
+          return new Uint8Array(chunk)
+        })()
+      }
       const entry = native.get(id)
       if (!entry) return opfs.read(id, fileIndex, offset, len)
       const meta = entry.files[fileIndex]
@@ -120,6 +209,12 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
     },
 
     write: (id, fileIndex, offset, bytes) => {
+      const picked = source.get(id)
+      // Even louder than the folder case below. These are files somebody else made and pointed at,
+      // and the only way to write to one is to rename a swap file over it.
+      if (picked) {
+        throw new Error(`hybrid storage: ${picked.savePath} is somebody's own files, refusing a write of ${bytes.length} at ${offset} in file ${fileIndex}`)
+      }
       const entry = native.get(id)
       if (!entry) return opfs.write(id, fileIndex, offset, bytes)
       // Unreachable by construction, and loud rather than silent if the construction ever slips. A
@@ -144,6 +239,19 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
      * Same rule the OPFS backend uses, deliberately: any file holding bytes means check it.
      */
     check: async (id) => {
+      const picked = source.get(id)
+      if (picked) {
+        /*
+         * NEED_FULL_CHECK whatever happens, including when the handles are missing.
+         *
+         * The other answer, NO_ERROR, means "there is nothing to verify" and yields an EMPTY
+         * have-set, so a torrent that got it would be added, look perfectly healthy, and serve
+         * nothing. Asking for the check instead means the first read runs, and a read that cannot
+         * be answered throws with a named reason and stops the torrent visibly. A loud stop beats a
+         * quiet nothing, and the files were hashed a moment ago so the check is reads alone.
+         */
+        return STORAGE_NEED_FULL_CHECK
+      }
       const entry = native.get(id)
       if (!entry) return opfs.check!(id)
       try {
@@ -159,6 +267,9 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
     },
 
     deleteFiles: async (id, flags) => {
+      // Nothing to say about it and nothing to do: the whole point of a source torrent is that these
+      // bytes were never Ripple's. `removeTorrent(handle, true)` reaches here on an ordinary remove.
+      if (source.has(id)) return
       const entry = native.get(id)
       if (!entry) return opfs.deleteFiles!(id, flags)
       // THE USER'S FILES ARE NOT OURS TO DELETE. This backend exists because their copy is the one
@@ -168,7 +279,7 @@ export const createHybridStorage = (opfs: MeasurableStorage, folder: FolderSourc
       // deliberate: throwing would surface as a disk error on a torrent that is being removed anyway.
     },
 
-    release: async (id) => { if (!native.has(id)) await opfs.release!(id) },
-    stop: async (id) => { if (!native.has(id)) await opfs.stop!(id) },
+    release: async (id) => { if (!native.has(id) && !source.has(id)) await opfs.release!(id) },
+    stop: async (id) => { if (!native.has(id) && !source.has(id)) await opfs.stop!(id) },
   }
 }

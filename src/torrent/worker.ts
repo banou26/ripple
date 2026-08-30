@@ -19,14 +19,14 @@ import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from './library'
-import { createHybridStorage } from './hybrid-storage'
+import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-source', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -55,6 +55,14 @@ export type TorrentDetail = {
 
 const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
+/**
+ * The handle a created torrent is read from. WRITTEN AND READ BY THE PAGE, never by this worker.
+ *
+ * Named here because `removeFromList` has to delete it, and a key that only one side knows about is
+ * a key that outlives the thing it belongs to: a stale handle in IndexedDB holds a permission
+ * reference to a folder for a torrent nobody has any more.
+ */
+const sourceKey = (ih: string) => 'ripple:source:' + ih
 // started === false is a torrent synced from another device and NOT added to the session; both flags are device-local and deliberately left out of the cloud backup
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
@@ -77,6 +85,17 @@ let storage: MeasurableStorage | null = null
  * per session and comes back needing a gesture after every reload.
  */
 let folderHandle: FileSystemDirectoryHandle | null = null
+/**
+ * The files each created torrent is served from, keyed by its save path, one handle per fileIndex.
+ *
+ * Kept here rather than in the storage backend for the same reason `folderHandle` is: a handle
+ * arrives in a message and the backend is built once, before any of them exist. `hybrid-storage.ts`
+ * explains at length why these are indexed rather than resolved by path.
+ *
+ * Not persisted from this side. The page owns the durable copy, because regaining a lapsed grant
+ * needs a user gesture and a worker has none.
+ */
+const sourceHandles = new Map<string, FileSystemFileHandle[]>()
 let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
@@ -163,6 +182,7 @@ const removeFromList = async (ih: string) => {
   await update<Persisted[]>(LIST_KEY, (prev) => (list = (prev ?? []).filter((e) => e.infoHash !== ih)))
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
+  await del(sourceKey(ih)).catch(() => {})
   post({ type: 'list', list })
 }
 
@@ -229,7 +249,7 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
-  limitsByHandle.delete(h); pendingLimits.delete(h)
+  limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
@@ -293,6 +313,29 @@ const limitsByHandle = new Map<number, { down?: number, up?: number }>()
 const pendingLimits = new Set<number>()
 
 /**
+ * Flag words to set once the engine has actually registered the handle.
+ *
+ * MEASURED IN THE ENGINE'S OWN SOURCE, because this reads like belt and braces and is not. In
+ * `libtorrent-wasm`'s `wrapper.cpp`, `lt_torrent_set_flags` calls `lookup_handle(id)` and returns
+ * -1 doing nothing when the id is not there, `register_handle` has exactly ONE call site, inside
+ * `lt_session_pump_alerts` on `add_torrent_alert`, and the JS wrapper discards the return value. So
+ * `setFlags` immediately after an add is a SILENT no-op: no throw, no console line, nothing.
+ *
+ * The same rule `pendingLimits` above exists for, and the same rule stated at `wantPaused`. It
+ * matters most for `uploadMode`, which is the one thing standing between a read-only backend and a
+ * write it must refuse, and a refused write reaches libtorrent as a fatal disk error.
+ */
+const pendingFlags = new Map<number, { flags: number, mask: number }>()
+
+const wantFlags = (h: number, flags: number, mask: number) => {
+  const already = pendingFlags.get(h)
+  // merged rather than replaced, so two callers before the first pump do not silently cancel
+  pendingFlags.set(h, already
+    ? { flags: (already.flags & ~mask) | (flags & mask), mask: already.mask | mask }
+    : { flags: flags & mask, mask })
+}
+
+/**
  * Remember what this torrent should be held to, and apply it as soon as the engine will accept it.
  *
  * Returns whether anything was recorded, so a caller can tell "nothing to do" from "done".
@@ -340,6 +383,16 @@ const resumeInFlight = new Set<number>()
 const persistResume = async (h: number): Promise<boolean> => {
   const ih = infoHashByHandle.get(h)
   if (!ih || !session || resumeInFlight.has(h)) return false
+  /*
+   * A created torrent never gets a resume blob.
+   *
+   * It has nothing to remember: it holds every byte from the moment it is added, and the have-set is
+   * rediscovered by hashing the source, which is reads alone. What a blob WOULD carry is a paused
+   * flag and a piece map describing somebody's own files, and both are liabilities. The restore path
+   * for one of these is a fresh add behind a fresh permission grant, so a blob could only ever be
+   * consulted in the one case it must not be: after the source moved.
+   */
+  if (isSourceSavePath(savePathByHandle.get(h))) return false
   resumeInFlight.add(h)
   try {
     const blob = await session.saveResumeData(h)
@@ -588,10 +641,28 @@ const anchorSequential = (viewer: string | undefined, h: number, fileIndex: numb
 }
 
 // the directory existing is the signal, not what is inside it: OPFS creates the save path on add but its files only on the first write; on any error assume data is present
+/**
+ * Whether the origin still holds the bytes the library says it does, used to notice that a browser
+ * cleared OPFS out from under the app.
+ *
+ * ONLY OPFS PATHS COUNT, and "no OPFS paths at all" is not evidence of anything. A `/native` or
+ * `/source` path never exists in OPFS by construction: those bytes are in the user's own folder, or
+ * are their own files that Ripple only reads. So a library made entirely of those would report
+ * false, the restore loop would read that as cleared storage, and it would delete every resume blob
+ * and set every entry to `started: false`: a whole library switched off by a check that was right
+ * about OPFS and wrong about the question.
+ *
+ * That is reachable today with a library of folder-located torrents, and becomes the ordinary first
+ * run once somebody can create a torrent from their own files and have nothing else. Returning true
+ * when there is nothing to ask about is the safe direction: the cost of a false "not cleared" is one
+ * torrent that has to recheck, and the cost of a false "cleared" is the library.
+ */
 const opfsHasData = async (savePaths: string[]): Promise<boolean> => {
+  const opfsPaths = savePaths.filter((sp) => !isGrantedSavePath(sp))
+  if (!opfsPaths.length) return true
   try {
     const root = await navigator.storage.getDirectory()
-    for (const sp of new Set(savePaths)) {
+    for (const sp of new Set(opfsPaths)) {
       let dir: FileSystemDirectoryHandle | null = root
       for (const seg of sp.split('/').filter(Boolean)) {
         dir = dir ? await dir.getDirectoryHandle(seg).catch(() => null) : null
@@ -750,12 +821,42 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // Upload only, for a folder. There is no way to write there that is safe for the user's own files,
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
-  if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+  // Recorded rather than set, for the reason `pendingFlags` gives: a flag word set before the engine
+  // has pumped the add alert is discarded, silently. This line used to call setFlags directly and
+  // therefore never applied, which left a folder-located torrent free to request a piece and ask a
+  // read-only backend to write it.
+  if (to === 'folder') wantFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
   // handle, so every tab learns about the move through the two channels it already watches
   await patchList(ih, { savePath, saveTo: to, started: true })
+}
+
+/**
+ * Add a torrent that is served from the user's own files, and make it upload only.
+ *
+ * The order matters in two places. The handles are registered BEFORE the add, because the engine
+ * constructs the torrent's storage inside that call and `onNewStorage` looks them up there. And
+ * `uploadMode` is set immediately after, before the first alert pump, exactly as `relocate` does it:
+ * this backend refuses every write by construction, so a torrent that could still request a piece
+ * would eventually ask it to write and be refused, and a refused write reaches libtorrent as a fatal
+ * disk error rather than as a skipped piece.
+ */
+const addSource = (
+  live: Session,
+  { infoHash, magnet, bytes, handles, paused }:
+  { infoHash: string, magnet: string, bytes: Uint8Array, handles: FileSystemFileHandle[], paused: boolean },
+): number | null => {
+  const savePath = sourceSavePathFor(infoHash)
+  sourceHandles.set(savePath, handles)
+  const h = live.addTorrentFile(bytes, savePath)
+  if (addFailed(h)) { sourceHandles.delete(savePath); return null }
+  track(h, magnet, infoHash, savePath, false)
+  wantFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+  if (paused) { userPaused.add(h); wantPause(h) }
+  recovery.hold(h, Date.now())
+  return h
 }
 
 const collectCandidates = async (list: Persisted[], now: number): Promise<EvictionCandidate[]> => {
@@ -922,7 +1023,7 @@ const init = async () => {
   ])
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  storage = createHybridStorage(createResilientStorage(), () => folderHandle)
+  storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null)
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
@@ -939,6 +1040,21 @@ const init = async () => {
     let changed = false
     for (const e of list) {
       if (e.started === false) continue
+      /*
+       * A created torrent is NOT added here, whatever its entry says.
+       *
+       * It can only be read through a permission grant that does not survive a reload, and regaining
+       * one needs a user gesture, which a worker does not have. Adding it before the grant is back
+       * would not degrade, it would go actively wrong: the first read throws, and native reads do not
+       * pass through the retry guard in `createResilientStorage` (that wraps the OPFS delegate only),
+       * so the throw reaches libtorrent as a FATAL disk error. `recovery` then latches that error
+       * text and renders a red retrying row on a backoff up to five minutes, about a torrent where
+       * nothing is wrong except that nobody has clicked Allow yet.
+       *
+       * So the page owns starting these: it holds the stored handle, it can ask for the grant, and it
+       * sends `start-source` once it has one.
+       */
+      if (e.saveTo === 'source') continue
       const savePath = e.savePath || SHARED_ROOT
       const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
       const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
@@ -1024,6 +1140,14 @@ const init = async () => {
       pendingLimits.delete(h)
       applyLimits(h)
     }
+    // Same gate, same reason, and see `pendingFlags` for why a flag set at add time never landed.
+    // Safe to arrive a pump late: a torrent whose files are already on disk spends that pump
+    // checking them, and a check neither downloads nor writes.
+    for (const [h, want] of [...pendingFlags]) {
+      if (!session.status(h)) continue
+      pendingFlags.delete(h)
+      session.setFlags(h, want.flags >>> 0, want.mask >>> 0)
+    }
 
     /*
      * Metadata lands here, once, and is written to the library entry.
@@ -1061,7 +1185,16 @@ const init = async () => {
 
     for (const h of wantPaused) {
       const st = session.status(h)
-      if (!st) continue
+      /*
+       * A CHECK reports itself paused, and that is not the pause being asked for here.
+       *
+       * Without this guard the want is satisfied by the check and dropped, so nothing pauses the
+       * torrent when the check finishes and it starts up: somebody's stopped torrent quietly begins
+       * uploading again. Every restored torrent that has no resume blob checks, so this is not an
+       * exotic path. Same reading of the same flag as `CHECKING_STATES` in recovery.ts, which is
+       * where the constant lives.
+       */
+      if (!st || CHECKING_STATES.has(st.state)) continue
       if (st.paused) wantPaused.delete(h)
       else session.pauseTorrent(h)
     }
@@ -1219,6 +1352,92 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'added', handle: h, magnet: m.magnet })
         void runStorageBudget()
       }
+    } else if (m.type === 'create-source') {
+      /*
+       * A torrent the person just made from their own file or folder.
+       *
+       * The metainfo arrives finished: the page walked the pick, hashed it, built the bencode and
+       * checked the result back through the share dialog's own decoder before sending it. Nothing
+       * here re-derives any of that, and nothing here writes to the source.
+       *
+       * The `.torrent` bytes are stored, and they are the only copy of this torrent's metadata that
+       * will ever exist: a created torrent has no swarm to fetch metadata from, so a magnet alone
+       * could never resolve it on the next load.
+       */
+      const ih: string = m.infoHash
+      // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
+      const fileHandles = (m.handles ?? []) as FileSystemFileHandle[]
+      const bytes = m.bytes as Uint8Array
+      if (typeof ih !== 'string' || !ih || !fileHandles.length || !bytes?.byteLength) {
+        post({ type: 'add-failed', message: 'That torrent could not be created' })
+        return
+      }
+      if (fileHandles.some((handle) => !handle)) {
+        post({ type: 'add-failed', message: 'Some of those files could not be opened' })
+        return
+      }
+      // The handle count is NOT compared against `m.files` here: that list is capped when it is
+      // written, so it is not the whole of the torrent. The comparison that matters happens in
+      // hybrid-storage against libtorrent's own file list, which is authoritative and complete.
+      await set(torrentKey(ih), bytes)
+      const h = addSource(session, { infoHash: ih, magnet: m.magnet, bytes, handles: fileHandles, paused: false })
+      if (h === null) {
+        await del(torrentKey(ih)).catch(() => {})
+        post({ type: 'add-failed', message: 'The engine refused the torrent that was just built' })
+        return
+      }
+      const at = Date.now()
+      await upsertList({
+        infoHash: ih,
+        magnet: m.magnet,
+        savePath: sourceSavePathFor(ih),
+        addedAt: at,
+        lastUsedAt: at,
+        // never cache, never evicted, and never moved: `saveTo: 'source'` is what says so
+        ephemeral: false,
+        started: true,
+        paused: false,
+        saveTo: 'source',
+        ...syncedMetadata({ name: m.name, size: m.size, files: m.files }),
+      })
+      post({ type: 'added', handle: h, magnet: m.magnet })
+    } else if (m.type === 'start-source') {
+      /*
+       * The same torrent on a later load, once the page has a live read grant again.
+       *
+       * The page drives this rather than the restore loop, because a picker grant does not survive a
+       * reload and getting it back needs a user gesture that a worker cannot make. See the restore
+       * loop for what adding one without a grant does, which is worse than not adding it.
+       */
+      const ih: string = m.infoHash
+      // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
+      const fileHandles = (m.handles ?? []) as FileSystemFileHandle[]
+      if (typeof ih !== 'string' || !ih || !fileHandles.length) return
+      if (fileHandles.some((handle) => !handle)) {
+        post({ type: 'add-failed', message: 'Some of those files could not be opened' })
+        return
+      }
+      // Already running is not an error. Every tab holding the stored handle regains the grant on
+      // its own and asks, so the second and third asks are ordinary; answering with the handle it
+      // already has lets the caller carry on without a special case.
+      const running = [...infoHashByHandle.entries()].find(([, hash]) => hash === ih)
+      if (running) { post({ type: 'added', handle: running[0], magnet: magnetByHandle.get(running[0]) ?? '' }); return }
+      const bytes = (await get(torrentKey(ih))) as Uint8Array | undefined
+      if (!bytes?.byteLength) {
+        post({ type: 'add-failed', message: 'The torrent this was built from is no longer stored' })
+        return
+      }
+      const entry = (await loadList()).find((e) => e.infoHash === ih)
+      const h = addSource(session, {
+        infoHash: ih,
+        magnet: entry?.magnet ?? m.magnet ?? '',
+        bytes,
+        handles: fileHandles,
+        paused: entry?.paused === true,
+      })
+      if (h === null) { post({ type: 'add-failed', message: 'The engine refused that torrent' }); return }
+      await patchList(ih, { started: true, lastUsedAt: Date.now() })
+      post({ type: 'added', handle: h, magnet: entry?.magnet ?? '' })
     } else if (m.type === 'add-torrent-file') {
       // A .torrent only reveals its infohash after the add, so this one cannot be given a directory
       // of its own. It is a deliberate user action, so it is never a cache entry and the budget pass

@@ -85,6 +85,26 @@ export type TorrentClient = {
    */
   addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean }) => void
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
+  /**
+   * Publish a torrent the page just built from the user's own file or folder, and seed it from
+   * there. `handles` is one file handle per file, in the torrent's own file order, which is what the
+   * storage backend indexes reads by; see `SourceLookup` in hybrid-storage.ts for why not by path.
+   */
+  createSource: (torrent: {
+    infoHash: string
+    magnet: string
+    bytes: Uint8Array
+    handles: FileSystemFileHandle[]
+    name: string
+    size: number
+    files: { name: string, size: number }[]
+  }) => void
+  /**
+   * Start a created torrent that is already in the library, on a later load, now that its source is
+   * readable again. A picker grant does not survive a reload and regaining one needs a user gesture,
+   * so this is the page's job rather than the restore loop's.
+   */
+  startSource: (infoHash: string, handles: FileSystemFileHandle[]) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string) => Promise<Uint8Array>
@@ -398,6 +418,10 @@ const createTorrentClient = (): EngineClient => {
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
     addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
+    // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
+    // offer the .torrent as a download afterwards, and a transferred buffer would be detached.
+    createSource: (torrent) => send({ type: 'create-source', ...torrent }),
+    startSource: (infoHash, handles) => send({ type: 'start-source', infoHash, handles }),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
     read: (handle, fileIndex, offset, len, prioritize = true, viewer) => {

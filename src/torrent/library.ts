@@ -42,7 +42,24 @@ export type Persisted = {
  * Device-local, like `started` and `paused`: a folder belongs to one machine, so it has no business
  * being mirrored to another. The cloud backup allowlists four fields, so it stays out for free.
  */
-export type SaveLocation = 'browser' | 'folder'
+/**
+ * Where a torrent's bytes live.
+ *
+ * `browser` is OPFS and `folder` is the directory the user granted for finished downloads. Those two
+ * are interchangeable in one direction or the other and `move-files.ts` carries a torrent between
+ * them.
+ *
+ * `source` is neither, and is not a destination anything can be moved to or from. It means the bytes
+ * are a file or folder the person picked in order to CREATE a torrent from it: Ripple did not write
+ * them, does not own them, and has no business copying or deleting them.
+ *
+ * Adding it to this union compiles on its own, which is worth knowing rather than assuming: every
+ * existing reader tests for `'folder'` and has an else, so a third value silently takes the else and
+ * a source-backed torrent reads as "in browser storage". The rules that keep it still are therefore
+ * written out one at a time in `save-location.ts` and tested there, and the type is a name for the
+ * idea rather than a guarantee about the callers.
+ */
+export type SaveLocation = 'browser' | 'folder' | 'source'
 
 /**
  * The save root every torrent used before per-torrent directories.

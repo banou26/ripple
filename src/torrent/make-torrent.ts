@@ -1,0 +1,339 @@
+/**
+ * Building a `.torrent` from files the user picked, with no engine involved.
+ *
+ * `libtorrent-wasm` exposes no torrent-creation call: the three add functions take a magnet, a
+ * `.torrent` or a resume blob, and nothing builds metainfo. So the metainfo is assembled here, in
+ * JavaScript, and handed to `addTorrentFile` like any other torrent.
+ *
+ * Everything in this file is pure. The reading and hashing live in `hash-pieces.ts`, which is the
+ * part that needs a disk and a clock; the rules that decide what the torrent SAYS are here so they
+ * can be tested on their own, which is how the rest of this directory is arranged.
+ *
+ * The encoder is deliberately separate from the decoder in `torrent-file.ts` rather than sharing a
+ * value type with it. The decoder's job is to survive whatever a stranger's file contains, so it is
+ * permissive; an encoder's job is to emit exactly one canonical form. Merging them would mean one
+ * of the two giving up its reason for existing. `make-torrent.test.ts` closes the loop by decoding
+ * everything this produces with the OTHER file's decoder, which is worth more than shared code.
+ */
+
+const encoder = new TextEncoder()
+
+/**
+ * Bytes that are ALREADY bencoded and get spliced in exactly as they are.
+ *
+ * This exists for one value, `info`, and it is what keeps the torrent honest. The infohash is the
+ * SHA-1 of the encoded `info`, and the reader on the other side does not re-encode anything: it
+ * finds that value's byte range in the file and hashes what is there. So the bytes that were hashed
+ * and the bytes that were embedded have to be the same bytes, not two encodings of one object that
+ * ought to agree.
+ *
+ * Without it a `Uint8Array` holding an encoded dict is indistinguishable from a byte string, and
+ * gets a length prefix: `4:info306:d5:files...`, a torrent whose `info` is a string rather than a
+ * dictionary. Every reader rejects it. `make-torrent.test.ts` caught exactly that by decoding the
+ * output with the share dialog's decoder, which is the whole reason that test decodes rather than
+ * comparing strings.
+ */
+const RAW = Symbol('already bencoded')
+export type Raw = { [RAW]: Uint8Array }
+export const raw = (encoded: Uint8Array): Raw => ({ [RAW]: encoded })
+
+export type Bencodable =
+  | number
+  | string
+  | Uint8Array
+  | Raw
+  | Bencodable[]
+  | { [key: string]: Bencodable | undefined }
+
+const INT = encoder.encode('i')
+const END = encoder.encode('e')
+const LIST = encoder.encode('l')
+const DICT = encoder.encode('d')
+const COLON = encoder.encode(':')
+
+/**
+ * Dictionary keys are ordered as RAW BYTE STRINGS, which is not the same as a locale comparison and
+ * not always the same as JavaScript's `<` on strings either.
+ *
+ * It matters more than a formatting detail. The infohash is the SHA-1 of the bencoded `info` value,
+ * so a single pair in the wrong order produces a different infohash for the same content: every
+ * peer computes one number and this client another, and the torrent simply never connects to
+ * anything. Comparing the encoded bytes is the definition, so that is what this does.
+ */
+const compareKeys = (a: Uint8Array, b: Uint8Array): number => {
+  const shared = Math.min(a.length, b.length)
+  for (let i = 0; i < shared; i++) {
+    const d = a[i]! - b[i]!
+    if (d !== 0) return d
+  }
+  return a.length - b.length
+}
+
+const concat = (parts: Uint8Array[]): Uint8Array => {
+  let total = 0
+  for (const part of parts) total += part.length
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) { out.set(part, at); at += part.length }
+  return out
+}
+
+const bytes = (value: string | Uint8Array): Uint8Array =>
+  typeof value === 'string' ? encoder.encode(value) : value
+
+const string = (value: string | Uint8Array): Uint8Array => {
+  const raw = bytes(value)
+  // the length prefix counts BYTES, not characters, which is the whole reason this goes through
+  // TextEncoder rather than String.length
+  return concat([encoder.encode(String(raw.length)), COLON, raw])
+}
+
+const integer = (value: number): Uint8Array => {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`bencode: ${value} is not an integer, and bencode has no float`)
+  }
+  // A torrent over 9 petabytes is not the case worth handling; a SILENT wrong length is. Above
+  // 2^53 an ordinary number stops being able to hold a file size exactly, and the encoded value
+  // would be quietly off.
+  if (!Number.isSafeInteger(value)) throw new Error(`bencode: ${value} is past exact integer range`)
+  return concat([INT, encoder.encode(String(value)), END])
+}
+
+export const bencode = (value: Bencodable): Uint8Array => {
+  if (typeof value === 'number') return integer(value)
+  if (typeof value === 'string' || value instanceof Uint8Array) return string(value)
+  if (Array.isArray(value)) return concat([LIST, ...value.map(bencode), END])
+  // before the dictionary branch, since a Raw is an object and its one entry is not a key to encode
+  if (RAW in value) return (value as Raw)[RAW]
+
+  // undefined entries are dropped rather than encoded, so an optional field is expressed by simply
+  // not passing it and every caller does not need its own conditional spread
+  const pairs = Object.entries(value)
+    .filter((entry): entry is [string, Bencodable] => entry[1] !== undefined)
+    .map(([key, item]) => ({ key: encoder.encode(key), item }))
+    .sort((a, b) => compareKeys(a.key, b.key))
+
+  return concat([DICT, ...pairs.flatMap((pair) => [string(pair.key), bencode(pair.item)]), END])
+}
+
+/** A file to put in the torrent: its path BELOW the chosen folder, and its size. */
+export type SourceFile = {
+  /** Path segments below the picked directory. One segment for a file sitting directly in it. */
+  path: string[]
+  size: number
+}
+
+export const MIN_PIECE_LENGTH = 16 * 1024
+/** Above this many clients refuse a torrent outright, so it is a ceiling rather than a preference. */
+export const MAX_PIECE_LENGTH = 16 * 1024 * 1024
+
+/**
+ * Around this many pieces, which is the count other clients aim for too.
+ *
+ * The tradeoff runs both ways and neither end is free. Larger pieces make a smaller `.torrent`,
+ * because `pieces` is 20 bytes per piece and nothing compresses it, and they make hashing and
+ * verification cheaper. Smaller pieces make a stream start sooner: `stream-plan.ts` sizes its
+ * deadline window from the piece length, so the first frame waits on one piece arriving, and they
+ * also waste less on a piece that fails its hash.
+ */
+const TARGET_PIECES = 1500
+
+const nextPowerOfTwo = (value: number): number => {
+  let size = MIN_PIECE_LENGTH
+  while (size < value && size < MAX_PIECE_LENGTH) size *= 2
+  return size
+}
+
+/**
+ * The piece length for a torrent of this size: a power of two, in range, aiming at TARGET_PIECES.
+ *
+ * A power of two is not required by BEP 3, and is required in practice. Enough clients and trackers
+ * assume one that a torrent with, say, a 1.5 MB piece length is a torrent that some people cannot
+ * use, for no benefit at all.
+ */
+export const pieceLengthFor = (totalBytes: number): number => {
+  if (totalBytes <= 0) return MIN_PIECE_LENGTH
+  return Math.min(MAX_PIECE_LENGTH, Math.max(MIN_PIECE_LENGTH, nextPowerOfTwo(Math.ceil(totalBytes / TARGET_PIECES))))
+}
+
+export const isValidPieceLength = (value: number): boolean =>
+  Number.isInteger(value)
+  && value >= MIN_PIECE_LENGTH
+  && value <= MAX_PIECE_LENGTH
+  && (value & (value - 1)) === 0
+
+/**
+ * Path segments compare byte by byte, SEGMENT BY SEGMENT, rather than on the joined string.
+ *
+ * Joining first gets the order wrong wherever a separator sorts against a filename character:
+ * `a/b.mkv` against `a.mkv/b`, for instance, orders differently depending on whether the `/` is
+ * part of the comparison. The file order in `files` is what fixes every file's offset inside the
+ * torrent, so it is part of the content rather than a presentation choice, and a rule that is
+ * almost right produces a torrent whose offsets nobody else agrees with.
+ */
+export const compareSourceFiles = (a: SourceFile, b: SourceFile): number => {
+  const shared = Math.min(a.path.length, b.path.length)
+  for (let i = 0; i < shared; i++) {
+    const d = compareKeys(encoder.encode(a.path[i]!), encoder.encode(b.path[i]!))
+    if (d !== 0) return d
+  }
+  return a.path.length - b.path.length
+}
+
+export type TorrentPlan = {
+  /** The torrent's `name`: the picked folder, or the picked file. */
+  name: string
+  /** In the order their offsets follow, which is the order they are encoded in. */
+  files: SourceFile[]
+  totalBytes: number
+  pieceLength: number
+  pieceCount: number
+  /** A lone file directly in the picked folder still gets the multi-file shape; see `plan`. */
+  single: boolean
+}
+
+export type PlanRequest = {
+  name: string
+  files: SourceFile[]
+  /** One picked FILE rather than a folder, which is the only case that takes the single-file shape. */
+  single?: boolean
+  /** Overrides the automatic choice. Rejected unless it is a power of two in range. */
+  pieceLength?: number
+}
+
+/**
+ * What the torrent will contain, decided before a single byte is read.
+ *
+ * Everything the progress display and the confirmation need comes from here, so the person sees the
+ * file count, the total and the piece count before agreeing to anything, rather than after a hashing
+ * pass has already run.
+ *
+ * SINGLE VERSUS MULTI is about what was PICKED, not about how many files turned up. A folder holding
+ * one file is a multi-file torrent whose `files` has one entry, so that unpacking it recreates the
+ * folder; collapsing it to the single-file shape would silently drop the directory the person chose.
+ * Only picking a file itself gives the single-file shape.
+ */
+export const plan = ({ name, files, single = false, pieceLength }: PlanRequest): TorrentPlan => {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('a torrent needs a name')
+  // `/` in a name is how a malicious or careless torrent escapes its own directory on extraction.
+  // Nothing in the picker produces one, so this is about never being the client that emits it.
+  if (trimmed.includes('/') || trimmed === '.' || trimmed === '..') {
+    throw new Error(`${trimmed} is not usable as a torrent name`)
+  }
+  if (!files.length) throw new Error('a torrent needs at least one file')
+  for (const file of files) {
+    if (!file.path.length) throw new Error('a file with no path')
+    if (file.path.some((segment) => !segment || segment === '.' || segment === '..' || segment.includes('/'))) {
+      throw new Error(`${file.path.join('/')} is not a usable path inside a torrent`)
+    }
+    if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error(`${file.path.join('/')} has no usable size`)
+  }
+  if (single && files.length !== 1) throw new Error('a single-file torrent holds exactly one file')
+
+  const sorted = single ? files : [...files].sort(compareSourceFiles)
+  const totalBytes = sorted.reduce((sum, file) => sum + file.size, 0)
+  const chosen = pieceLength ?? pieceLengthFor(totalBytes)
+  if (!isValidPieceLength(chosen)) {
+    throw new Error(`${chosen} is not a usable piece length: wants a power of two from ${MIN_PIECE_LENGTH} to ${MAX_PIECE_LENGTH}`)
+  }
+
+  return {
+    name: trimmed,
+    files: sorted,
+    totalBytes,
+    pieceLength: chosen,
+    // Zero total is a real case: a folder of empty files. It has no pieces, and `Math.ceil(0 / n)`
+    // is already 0, so this needs no special case, only the note that it is not an oversight.
+    pieceCount: Math.ceil(totalBytes / chosen),
+    single,
+  }
+}
+
+export type MetainfoRequest = {
+  plan: TorrentPlan
+  /** The concatenated raw 20-byte SHA-1 digests, in piece order. Not hex. */
+  pieces: Uint8Array
+  /** Announce urls, in the order the user gave them. Empty means a torrent that relies on the DHT. */
+  trackers?: string[]
+  /** Keeps the torrent to its trackers: no DHT, no peer exchange, no local discovery. */
+  private?: boolean
+  /** Unix SECONDS. Omitted entirely when not passed, and the caller decides whether to. */
+  createdAt?: number
+  createdBy?: string
+  comment?: string
+}
+
+export const PIECE_HASH_BYTES = 20
+
+/**
+ * The `info` dictionary, encoded. Kept separate from the whole file because the infohash is the
+ * SHA-1 of exactly these bytes, so the thing that gets hashed and the thing that gets embedded have
+ * to be one value rather than two encodings that ought to agree.
+ */
+export const encodeInfo = (
+  { plan: p, pieces, private: isPrivate }: Pick<MetainfoRequest, 'plan' | 'pieces' | 'private'>,
+): Uint8Array => {
+  if (pieces.length !== p.pieceCount * PIECE_HASH_BYTES) {
+    throw new Error(`expected ${p.pieceCount} piece hashes, got ${pieces.length / PIECE_HASH_BYTES}`)
+  }
+  const shared = {
+    name: p.name,
+    'piece length': p.pieceLength,
+    pieces,
+    // 1 rather than true, because bencode has no boolean. Absent rather than 0 when public: a
+    // `private: 0` key is legal and changes the info dict, so two clients making "the same" public
+    // torrent would disagree on its infohash over a field that means nothing.
+    private: isPrivate ? 1 : undefined,
+  }
+  return bencode(
+    p.single
+      ? { ...shared, length: p.files[0]!.size }
+      : { ...shared, files: p.files.map((file) => ({ length: file.size, path: file.path })) },
+  )
+}
+
+/**
+ * The whole `.torrent`.
+ *
+ * `announce` carries the first tracker as well as `announce-list` holding all of them, which looks
+ * redundant and is not: `announce` is the only one BEP 3 defines, and `announce-list` is an
+ * extension, so a client that reads only the first still works.
+ *
+ * ONE TIER PER TRACKER, matching what other clients emit. Worth knowing what that means rather than
+ * copying it blindly: under BEP 12 a tier is tried in order and the next tier is only reached if the
+ * one before it fails, so extra trackers are redundancy and not extra reach. Putting them all in one
+ * tier does not change that either, since a client stops at the first that answers.
+ */
+export const encodeTorrent = (request: MetainfoRequest): Uint8Array => {
+  const { trackers = [], createdAt, createdBy, comment } = request
+  const clean = [...new Set(trackers.map((url) => url.trim()).filter(Boolean))]
+  return bencode({
+    announce: clean[0],
+    'announce-list': clean.length ? clean.map((url) => [url]) : undefined,
+    comment: comment?.trim() || undefined,
+    'created by': createdBy?.trim() || undefined,
+    'creation date': createdAt,
+    // raw, so these are the same bytes `infoHashOf` is given; see `Raw`
+    info: raw(encodeInfo(request)),
+  })
+}
+
+const hex = (buffer: ArrayBuffer): string =>
+  [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+
+/** The v1 infohash: SHA-1 over the encoded `info` value. */
+export const infoHashOf = async (info: Uint8Array): Promise<string> =>
+  hex(await crypto.subtle.digest('SHA-1', info as unknown as ArrayBuffer))
+
+/**
+ * A magnet for a torrent this device already holds in full.
+ *
+ * No `tr` beyond what the torrent itself carries and no web seed, because the point of this link is
+ * to reach the metadata that is already in the library rather than to describe the swarm.
+ */
+export const magnetFor = ({ infoHash, name, trackers = [] }: { infoHash: string, name: string, trackers?: string[] }): string => {
+  const parts = [`xt=urn:btih:${infoHash}`, `dn=${encodeURIComponent(name)}`]
+  for (const url of trackers) parts.push(`tr=${encodeURIComponent(url)}`)
+  return `magnet:?${parts.join('&')}`
+}
