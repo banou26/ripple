@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
+import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from './library'
 import type { Persisted } from './library'
 
 const HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
@@ -210,5 +210,44 @@ describe('the metadata carried between devices', () => {
     for (const files of ['[]', 3, {}, null] as unknown[]) {
       expect(syncedMetadata({ files: files as { name: string, size: number }[] }).files, String(files)).toBeUndefined()
     }
+  })
+})
+
+/**
+ * The rule the ENGINE has to apply, and the reason it is a named export rather than an expression
+ * inside mergeEntry.
+ *
+ * The list side above was already correct, and tested, and it did not help: the engine's add path
+ * decided from the incoming flag alone, so opening a torrent the user owns through a watch link put
+ * its handle in `ephemeralHandles` while the list kept `ephemeral: false`. `applyViewing` reads the
+ * engine's set, so it idle-parked a torrent out of the user's own library the moment the player
+ * closed. It stopped seeding and the row went on saying it was finished and fine.
+ *
+ * So the property worth pinning is not the rule on its own, it is that ONE rule serves both.
+ */
+describe('staysEphemeral', () => {
+  it('agrees with mergeEntry on every combination, which is the whole point of it existing', () => {
+    for (const was of [undefined, null, entry({ ephemeral: true }), entry({ ephemeral: false }), entry({ ephemeral: undefined })]) {
+      for (const adding of [true, false]) {
+        const merged = mergeEntry(was, anAdd({ ephemeral: adding })).ephemeral === true
+        expect(staysEphemeral(was, adding), `was=${JSON.stringify(was?.ephemeral)} adding=${adding}`).toBe(merged)
+      }
+    }
+  })
+
+  /** the bug, stated directly: a watch link on a torrent you own must not make it cache */
+  it('keeps a torrent the user owns out of the cache when a page opens it', () => {
+    expect(staysEphemeral(entry({ ephemeral: false }), true)).toBe(false)
+    expect(staysEphemeral(entry({ ephemeral: undefined }), true)).toBe(false)
+  })
+
+  it('leaves a torrent nothing knows about as whatever the add says', () => {
+    expect(staysEphemeral(undefined, true)).toBe(true)
+    expect(staysEphemeral(undefined, false)).toBe(false)
+  })
+
+  it('keeps cache as cache while both sides agree', () => {
+    expect(staysEphemeral(entry({ ephemeral: true }), true)).toBe(true)
+    expect(staysEphemeral(entry({ ephemeral: true }), false)).toBe(false)
   })
 })

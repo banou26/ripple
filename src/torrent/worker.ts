@@ -17,7 +17,7 @@ import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, syncedMetadata } from './library'
+import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from './library'
 import { createHybridStorage } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -702,6 +702,11 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   const magnet = magnetByHandle.get(h) ?? ''
   const savePath = savePathIn(to, ih)
   const wasPaused = userPaused.has(h)
+  // Carried across the re-add for the same reason `wasPaused` is. `track` defaults it to false, so
+  // a moved cache torrent used to come back as a library one in the engine while the list still had
+  // it as cache: it stopped being idle-parked, and the budget pass went on treating it as an
+  // eviction candidate, which is a torrent that looks kept and is deleted anyway.
+  const wasEphemeral = ephemeralHandles.has(h)
 
   failReads(h, 'files moved')
   live.removeTorrent(h, from === 'browser')
@@ -714,7 +719,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
     await patchList(ih, { savePath, saveTo: to, started: false })
     return
   }
-  track(next, magnet, ih, savePath)
+  track(next, magnet, ih, savePath, wasEphemeral)
   // Upload only, for a folder. There is no way to write there that is safe for the user's own files,
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
@@ -1098,7 +1103,11 @@ const handleMessage = async (session: Session, m: any) => {
         // a fresh directory and orphans the old one
         const known = ih ? (await loadList()).find((e) => e.infoHash === ih) : undefined
         const savePath = m.savePath || known?.savePath || savePathFor(ih)
-        const ephemeral = m.ephemeral === true
+        // `known`, not the incoming flag alone: a torrent already in the library is not cache,
+        // whatever opened it. The list has always applied this rule through mergeEntry; the engine
+        // did not, so a watch link on a torrent the user owns used to hand its handle to
+        // ephemeralHandles and get it idle-parked the moment the player closed.
+        const ephemeral = staysEphemeral(known, m.ephemeral === true)
         const h = session.addMagnet(m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
         track(h, m.magnet, ih, savePath, ephemeral)

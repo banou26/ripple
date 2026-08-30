@@ -82,11 +82,25 @@ export const ownsItsDirectory = (savePath: string | undefined, infoHash: string)
  *   let this torrent work their connection, and re-adding a torrent is no reason to quietly uncap
  *   it. An add that names a limit still wins, so the add dialog stays authoritative.
  */
+/**
+ * Whether an add of `adding` onto `was` leaves the torrent in the reclaimable cache.
+ *
+ * The AND from `mergeEntry`, pulled out and named so the ENGINE can apply the identical rule at the
+ * same moment the list does. It could not before, and the two drifted apart: the add path decided
+ * from the incoming flag alone, so opening a torrent the user already OWNS through a watch or
+ * download link put its handle in `ephemeralHandles` while the list correctly kept
+ * `ephemeral: false`. Nothing reconciled them, and `applyViewing` reads the engine's set, so it
+ * idle-parked a torrent out of the user's own library as soon as the player closed. It stopped
+ * seeding, the row went on looking finished and healthy, and no message anywhere said why.
+ */
+export const staysEphemeral = (was: Persisted | null | undefined, adding: boolean): boolean =>
+  adding && (was ? was.ephemeral === true : true)
+
 export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): Persisted =>
   was
     ? {
       ...next,
-      ephemeral: was.ephemeral === true && next.ephemeral === true,
+      ephemeral: staysEphemeral(was, next.ephemeral === true),
       addedAt: Math.min(was.addedAt, next.addedAt),
       lastUsedAt: Math.max(was.lastUsedAt ?? 0, next.lastUsedAt ?? next.addedAt),
       savePath: was.savePath || next.savePath,
