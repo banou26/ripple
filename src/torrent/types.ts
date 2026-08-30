@@ -57,6 +57,23 @@ export type Torrent = {
   seeds: number
   eta: string
   /**
+   * When this torrent was added, in MILLISECONDS, or absent where nothing recorded it.
+   *
+   * Taken from the library entry rather than from `stats.addedAt`, which is unix SECONDS, is 0 for
+   * something that never happened, and is null for a ghost. The entry has it for every row a person
+   * can see, which is what a sort needs: a key that exists for live rows and not for ghosts would
+   * quietly bunch every ghost together at one end for a reason nobody could read off the screen.
+   */
+  addedAt?: number
+  /**
+   * The same answer as `eta`, as a NUMBER, or absent when there is nothing to estimate.
+   *
+   * `eta` is formatted for a person and sorts like nonsense: as text, "10m 00s" comes before "9s".
+   * Absent for anything complete, paused or stalled, which is correct rather than a gap; those sort
+   * last on this key because "no estimate" is not "arriving soon".
+   */
+  etaSeconds?: number
+  /**
    * libtorrent's flag word for this torrent, read through `TORRENT_FLAG` from libtorrent-wasm.
    *
    * 0 for a library ghost, which is a torrent this device knows about but has not added to the

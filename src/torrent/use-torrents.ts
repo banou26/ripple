@@ -34,6 +34,20 @@ const CHECKING = new Set([1, 7])
  */
 const COMPLETE = new Set([4, 5])
 
+/**
+ * Seconds remaining, or undefined where there is nothing to estimate.
+ *
+ * The same arithmetic `fmtEta` formats, kept beside it so the two can never disagree about whether
+ * an estimate exists. Undefined rather than 0 or Infinity for "no estimate": a sort has to be able
+ * to put those last rather than treat them as arriving instantly or never.
+ */
+const etaSecondsOf = (status: TorrentSnapshot['status']): number | undefined => {
+  if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return undefined
+  const remain = status.totalWanted - status.totalDone
+  if (remain <= 0 || status.downloadRate <= 0) return undefined
+  return Math.round(remain / status.downloadRate)
+}
+
 const fmtEta = (status: TorrentSnapshot['status']): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
@@ -109,6 +123,9 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
     eta: fmtEta(st),
+    etaSeconds: etaSecondsOf(st),
+    // seconds off the engine, milliseconds everywhere a person sees a date; 0 means never happened
+    addedAt: st?.addedAt ? st.addedAt * 1000 : undefined,
     flags: st?.flags ?? 0,
     queuePosition: st?.queuePosition ?? -1,
     stats: st
@@ -170,6 +187,7 @@ export const ghostToTorrent = (e: Persisted): Torrent => ({
   peers: 0,
   seeds: 0,
   eta: '-',
+  addedAt: e.addedAt,
   // a ghost is not in the session, so it has no flags, no queue position and no stats to have
   flags: 0,
   queuePosition: -1,
@@ -272,6 +290,10 @@ export const useTorrents = (): UseTorrents => {
           ...t,
           saveTo: entry.saveTo,
           ephemeral: entry.ephemeral === true,
+          // the entry's clock wins over the engine's: it survives a restart, it is already in
+          // milliseconds, and it is the one a ghost row has too, so a sort on it is not comparing
+          // two different clocks depending on whether the engine has got to a row yet
+          addedAt: entry.addedAt ?? t.addedAt,
           wantedFiles: entry.wantedFiles,
           firstLast: entry.firstLast === true,
           downloadLimit: entry.downloadLimit,
