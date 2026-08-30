@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
+import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, RefreshCw, X } from 'react-feather'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -40,6 +40,7 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG,
   CHART_PRIMARY, CHART_PRIMARY_FILL, CHART_SECONDARY,
   CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
+  EMPHASIS_HOVER, TEXT_ON_LIGHT,
   DANGER, ELEVATED_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, OK,
   PAGE_BG, SUNKEN_BG, SURFACE_BG,
   TEXT, TEXT_FAINT, TEXT_MUTED, WARN,
@@ -49,6 +50,7 @@ import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
+import { useRippleUpdate } from '../utils/use-ripple-update'
 import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { TorrentDetailDock } from './torrent-detail'
@@ -472,6 +474,7 @@ export const style = css`
 
     /* header-level actions, outside the add form: the header itself wraps, so these can drop a line */
     .setup,
+    .update,
     .share {
       flex: none;
       display: inline-flex;
@@ -490,6 +493,20 @@ export const style = css`
       &:hover {
         background: ${CONTROL_HOVER_BG};
         border-color: ${BORDER_STRONG};
+      }
+    }
+
+    /* The one header action that is news rather than furniture, and it only exists while there is
+       something to take, so it can afford the brightest fill the palette has. */
+    .update {
+      border-color: ${EMPHASIS};
+      background: ${EMPHASIS};
+      color: ${TEXT_ON_LIGHT};
+
+      &:hover {
+        background: ${EMPHASIS_HOVER};
+        border-color: ${EMPHASIS_HOVER};
+        color: ${TEXT_ON_LIGHT};
       }
     }
   }
@@ -1820,6 +1837,29 @@ const Home = () => {
   const [offline, setOffline] = useState(() => navigator.onLine === false)
   const toastTimer = useRef<number | undefined>(undefined)
   const { confirm, confirmElement, confirmOpen } = useConfirm()
+  const rippleUpdate = useRippleUpdate()
+
+  /**
+   * Taking an update reloads every open page, and a reload costs exactly one thing.
+   *
+   * Torrent progress is never at risk: it is in OPFS and resumes on its own. A save-to-disk export
+   * is, because it is written by the PAGE, so a reload cuts the file off half written with nothing
+   * to resume from. That is the only case worth interrupting somebody for, so it is the only one
+   * that asks.
+   */
+  const onTakeUpdate = async () => {
+    if (Object.keys(saving).length > 0) {
+      const ok = await confirm({
+        title: 'Update now?',
+        body: 'A file is being saved to your disk right now. Updating reloads every Ripple page, and'
+          + ' that save will stop part way with nothing to resume from. Downloads themselves are safe'
+          + ' and pick up where they left off.',
+        confirmLabel: 'Update anyway',
+      })
+      if (!ok) return
+    }
+    rippleUpdate.update()
+  }
   const navigate = useNavigate()
 
   const fieldRef = useRef<HTMLInputElement>(null)
@@ -2824,6 +2864,22 @@ const Home = () => {
           * a row that cannot wrap was taking its width out of the magnet field. The header wraps, so
           * out here it drops to its own line instead of squeezing the field.
           */}
+        {/**
+          * Only once a newer build is installed and waiting, so the header carries nothing until
+          * there is something to take. Left of Share, which is where the owner asked for it, and it
+          * is the more urgent of the two while it exists.
+          */}
+        {rippleUpdate.ready && (
+          <button
+            className="update"
+            type="button"
+            title="A newer Ripple is ready. Taking it reloads every open Ripple page."
+            onClick={onTakeUpdate}
+          >
+            <RefreshCw/>
+            Update Ripple
+          </button>
+        )}
         <button
           className="share"
           type="button"

@@ -151,3 +151,108 @@ describe('service worker', () => {
     expect((await cancelled).type).toBe('cancel')
   })
 })
+
+/**
+ * The caching half, booted from the STAMPED worker rather than the source.
+ *
+ * That distinction is the whole value of these tests. `src/sw.js` ships three placeholder lines that
+ * the build replaces, and a stamp that silently failed to match would produce a worker with an empty
+ * manifest and a BUILD that never changes: it would cache nothing and announce no updates, while
+ * every test against the raw source still passed. So these run `stamp()` first, exactly as the build
+ * does, and boot the result.
+ */
+const bootStamped = (opts: { mode: string, build: string, manifest: [string, string][] }, caches: any) => {
+  const src = source
+    .replace(/^const MODE = .*\/\/ @stamp:mode$/m, `const MODE = ${JSON.stringify(opts.mode)}    // @stamp:mode`)
+    .replace(/^const BUILD = .*\/\/ @stamp:build$/m, `const BUILD = ${JSON.stringify(opts.build)}   // @stamp:build`)
+    .replace(/^const MANIFEST = .*\/\/ @stamp:manifest$/m, `const MANIFEST = ${JSON.stringify(opts.manifest)} // @stamp:manifest`)
+  // the marker must have MATCHED, or every assertion below would be measuring the dev defaults
+  if (src.includes("= 'dev'")) throw new Error('the stamp did not replace the placeholders')
+  const on: Record<string, Handler> = {}
+  const skipped: boolean[] = []
+  const self = {
+    location: { href: `${ORIGIN}/sw.js`, origin: ORIGIN },
+    addEventListener: (type: string, cb: Handler) => { on[type] = cb },
+    skipWaiting: () => skipped.push(true),
+    clients: { claim: () => Promise.resolve() },
+    caches,
+  }
+  new Function('self', 'caches', 'fetch', 'URL', src)(
+    self, caches, (self as any).__fetch ?? (() => Promise.reject(new Error('no fetch'))), URL,
+  )
+  return { on, skipped }
+}
+
+const fakeCaches = () => {
+  const stores = new Map<string, Map<string, Response>>()
+  const api = {
+    open: async (name: string) => {
+      if (!stores.has(name)) stores.set(name, new Map())
+      const store = stores.get(name)!
+      return {
+        match: async (k: string) => store.get(k),
+        put: async (k: string, v: Response) => { store.set(k, v) },
+        addAll: async (keys: string[]) => { for (const k of keys) store.set(k, new Response('x')) },
+      }
+    },
+    keys: async () => [...stores.keys()],
+    delete: async (name: string) => stores.delete(name),
+    _stores: stores,
+  }
+  return api
+}
+
+describe('the caching half of the worker', () => {
+  const MANIFEST: [string, string][] = [['/assets/worker-AAAA1111.js', 'h1'], ['/assets/libtorrent-BBBB2222.js', 'h2']]
+
+  it('does not take over on install, so an open page keeps the build it loaded with', () => {
+    const caches = fakeCaches()
+    const { on, skipped } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
+    on.install?.({ waitUntil: () => {} })
+    expect(skipped).toHaveLength(0)
+  })
+
+  it('takes over the moment a page presses Update, which is what reloads every tab', () => {
+    const caches = fakeCaches()
+    const { on, skipped } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
+    on.message?.({ data: { type: 'take-over' } })
+    expect(skipped).toHaveLength(1)
+  })
+
+  /** the kill switch: one committed word, and the next deploy's worker stands aside at once */
+  it('takes over immediately and caches nothing in purge mode', async () => {
+    const caches = fakeCaches()
+    const { on, skipped } = bootStamped({ mode: 'purge', build: 'b1', manifest: MANIFEST }, caches)
+    on.install?.({ waitUntil: () => {} })
+    expect(skipped).toHaveLength(1)
+    const taken = requestFor(`${ORIGIN}/assets/worker-AAAA1111.js`)
+    on.fetch?.(taken.event)
+    expect(taken.taken(), 'purge mode must answer nothing from cache').toBeNull()
+  })
+
+  it('leaves everything that is not a hashed chunk on the network', () => {
+    const caches = fakeCaches()
+    const { on } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
+    for (const path of ['/', '/embed', '/index.js', '/sw.js', '/assets/logo.png', '/jassub-worker.js']) {
+      const r = requestFor(ORIGIN + path)
+      on.fetch?.({ ...r.event, request: { url: ORIGIN + path, method: 'GET' } })
+      expect(r.taken(), `${path} must not be intercepted`).toBeNull()
+    }
+  })
+
+  it('still serves a streamed download, which shares this worker', async () => {
+    const caches = fakeCaches()
+    const { on } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
+    openStream(on, 'abc', 'file.mkv', 10)
+    const r = requestFor(`${ORIGIN}/__ripple-stream/abc`)
+    on.fetch?.({ ...r.event, request: { url: `${ORIGIN}/__ripple-stream/abc`, method: 'GET' } })
+    expect(r.taken(), 'the download path must still be answered').not.toBeNull()
+  })
+
+  it('names its cache after the build, so generations cannot collide', () => {
+    const caches = fakeCaches()
+    const { on } = bootStamped({ mode: 'cache', build: 'deadbeef', manifest: MANIFEST }, caches)
+    on.install?.({ waitUntil: (p: Promise<unknown>) => p })
+    expect(source).toContain("'ripple-assets-' + BUILD")
+  })
+})
