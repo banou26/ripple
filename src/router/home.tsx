@@ -59,7 +59,7 @@ import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
 import { badgeRules } from './badge-style'
-import { STATE_LABEL, relativeDay, speed } from './torrent-format'
+import { STATE_LABEL, relativeDay, retryLine, speed } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
@@ -92,18 +92,6 @@ const droppable = (data: DataTransfer | null): boolean => {
   return [...types].some((t) => t === 'Files' || t === 'text/uri-list')
 }
 
-const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => {
-  const stalled = retry.reason === 'stalled'
-    ? (t.peers > 0 ? 'Peers stopped sending data' : 'Not connected to any peers')
-    : 'Stopped by an error'
-  const reason = retry.message ?? stalled
-  const wait = retry.retryInSeconds <= 0
-    ? 'retrying now'
-    : retry.retryInSeconds < 60
-      ? `retrying in ${retry.retryInSeconds}s`
-      : `retrying in ${Math.ceil(retry.retryInSeconds / 60)}m`
-  return `${reason} · ${wait}`
-}
 
 const rate = (bytesPerSecond: number): string => {
   const mbs = bytesPerSecond / 1_000_000
