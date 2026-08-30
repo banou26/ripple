@@ -142,8 +142,15 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
         numConnections: st.numConnections,
         connectionsLimit: st.connectionsLimit,
         availability: st.availability,
-        activeSeconds: st.activeSeconds,
-        seedingSeconds: st.seedingSeconds,
+        /*
+         * The ACCUMULATED totals, not the engine's session-only counters.
+         *
+         * libtorrent's own numbers restart whenever a torrent is added without a resume blob that
+         * carries them, which for a finished torrent is every reload: its blob is written once and
+         * never again. `uptime.ts` keeps the running totals in the library entry instead.
+         */
+        activeSeconds: s.uptime?.activeSeconds ?? st.activeSeconds,
+        seedingSeconds: s.uptime?.seedingSeconds ?? st.seedingSeconds,
         addedAt: st.addedAt,
         completedAt: st.completedAt,
         lastSeenComplete: st.lastSeenComplete,

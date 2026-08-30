@@ -57,6 +57,7 @@ import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
+import { formatDuration } from '../torrent/uptime'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
 import { AccountWidget } from '../components/account-widget'
@@ -1772,6 +1773,17 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               <span>↑ {speed(t.up)}</span>
               <span>{t.peers} peers</span>
               {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+              {/* Only once there is something to have seeded, and only where it means something: a
+                  torrent still downloading has an ETA in this slot, which is the more useful number,
+                  and a row carrying both reads as two competing answers to "how long". */}
+              {(t.state === 'seeding' || t.state === 'done') && (t.stats?.seedingSeconds ?? 0) > 0 && (
+                <span
+                  className="seeded"
+                  title={`Sharing this torrent for ${formatDuration(t.stats!.seedingSeconds)}, and running for ${formatDuration(t.stats!.activeSeconds)}, added up across every session`}
+                >
+                  seeded for {formatDuration(t.stats!.seedingSeconds)}
+                </span>
+              )}
               {/* Only when this torrent has been given one of its own. The session ceiling lives in
                   the footer and would be the same on every row, which is noise rather than news. */}
               {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (

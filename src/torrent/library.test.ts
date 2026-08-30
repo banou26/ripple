@@ -251,3 +251,30 @@ describe('staysEphemeral', () => {
     expect(staysEphemeral(entry({ ephemeral: true }), false)).toBe(false)
   })
 })
+
+/**
+ * Run time survives a re-add.
+ *
+ * `mergeEntry` spreads the incoming entry, and an add carries no run time at all, so without a rule
+ * here every re-add would silently reset a torrent's accumulated hours to nothing. Exactly the trap
+ * the metadata fields above are guarded against, on a field added later.
+ */
+describe('accumulated run time', () => {
+  const stored = (over: Partial<Persisted> = {}): Persisted =>
+    ({ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', savePath: '/dl/abc', addedAt: 1, ...over })
+
+  it('keeps what was stored when an add carries none', () => {
+    const merged = mergeEntry(stored({ activeSeconds: 900, seedingSeconds: 300 }), stored())
+    expect(merged.activeSeconds).toBe(900)
+    expect(merged.seedingSeconds).toBe(300)
+  })
+
+  it('takes the incoming value when there is one, which is how it is ever written', () => {
+    const merged = mergeEntry(stored({ activeSeconds: 900 }), stored({ activeSeconds: 960 }))
+    expect(merged.activeSeconds).toBe(960)
+  })
+
+  it('is absent for a torrent that has never run', () => {
+    expect(mergeEntry(stored(), stored()).activeSeconds).toBeUndefined()
+  })
+})

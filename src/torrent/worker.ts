@@ -16,6 +16,9 @@ import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-pla
 import { createResilientStorage } from './opfs-storage'
 import { CHECKING_STATES, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
+import type { Uptime } from './uptime'
+
+import { NO_UPTIME, totalUptime, worthWriting } from './uptime'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
@@ -31,6 +34,8 @@ const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-s
 
 export type TorrentSnapshot = {
   handle: number
+  /** Accumulated across sessions, unlike the engine's own counters on `status`. See uptime.ts. */
+  uptime: Uptime
   magnet: string
   files: TorrentFiles | null
   status: TorrentStatus | null
@@ -141,8 +146,24 @@ const snapshot = (): TorrentSnapshot[] =>
       bitfield: bf ? { numPieces: bf.numPieces, pieceLength: bf.pieceLength, length: bf.length, pieces: bf.pieces } : null,
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
+      // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
+      uptime: uptimeOf(h),
     }
   })
+
+/**
+ * This torrent's run time across every session: what was stored, plus what this session has added.
+ *
+ * Computed on every broadcast rather than kept as a counter, because the engine's reading is the one
+ * moving part and reading it is free. Written back to the library on a much slower cadence, since
+ * the number on screen comes from here and only a crash can lose the difference.
+ */
+const uptimeOf = (h: number) => {
+  const now = session?.status(h)
+  const atAdd = uptimeAtAdd.get(h)
+  if (!now || !atAdd) return uptimeStored.get(h) ?? NO_UPTIME
+  return totalUptime(uptimeStored.get(h), atAdd, now)
+}
 
 // update() keeps each read-modify-write in one IDB transaction, so interleaved async handlers can't drop entries
 const loadList = async (): Promise<Persisted[]> => (await get(LIST_KEY)) ?? []
@@ -267,6 +288,7 @@ const untrack = (h: number) => {
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
+  uptimeAtAdd.delete(h); uptimeStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
@@ -343,6 +365,16 @@ const pendingLimits = new Set<number>()
  * write it must refuse, and a refused write reaches libtorrent as a fatal disk error.
  */
 const pendingFlags = new Map<number, { flags: number, mask: number }>()
+
+/**
+ * What the engine's own run timers read when each torrent was added, and the totals last written.
+ *
+ * The first is what makes the accumulation a DELTA rather than a sum: a torrent restored from a
+ * resume blob starts this session with libtorrent's counters already advanced, and the stored total
+ * already contains those seconds. `uptime.ts` carries the argument.
+ */
+const uptimeAtAdd = new Map<number, { activeSeconds: number, seedingSeconds: number }>()
+const uptimeStored = new Map<number, { activeSeconds: number, seedingSeconds: number }>()
 
 const wantFlags = (h: number, flags: number, mask: number) => {
   const already = pendingFlags.get(h)
@@ -1093,6 +1125,7 @@ const init = async () => {
       // deletes the blob on a recheck and on the cleared-storage path, and falls back to addMagnet
       // when there is none, so the entry is the only record that is always there
       wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
+      uptimeStored.set(h, { activeSeconds: e.activeSeconds ?? 0, seedingSeconds: e.seedingSeconds ?? 0 })
       /*
        * The ENTRY decides, both ways.
        *
@@ -1157,6 +1190,20 @@ const init = async () => {
       pendingLimits.delete(h)
       applyLimits(h)
     }
+    /*
+     * The engine's run timers as they were when this torrent joined the session.
+     *
+     * Captured here rather than at the add, for the reason `pendingLimits` above is: a status does
+     * not exist until the alert pump registers the handle. Everything after this is a delta against
+     * it, which is what keeps a resume-restored counter from being counted a second time.
+     */
+    for (const h of handles) {
+      if (uptimeAtAdd.has(h)) continue
+      const st = session.status(h)
+      if (!st) continue
+      uptimeAtAdd.set(h, { activeSeconds: st.activeSeconds, seedingSeconds: st.seedingSeconds })
+    }
+
     // Same gate, same reason, and see `pendingFlags` for why a flag set at add time never landed.
     // Safe to arrive a pump late: a torrent whose files are already on disk spends that pump
     // checking them, and a check neither downloads nor writes.
@@ -1301,6 +1348,28 @@ const init = async () => {
       const st = session.status(h)
       if (st && st.state === 3) persistResume(h)
     }
+    /*
+     * Fold this session's run time into the library, and REBASE.
+     *
+     * Both halves matter. Writing the total without moving the base would count the same seconds
+     * again on the next write, and moving the base without writing would lose them. Done together
+     * the invariant holds either side of it: total is always stored plus the delta since the last
+     * rebase.
+     *
+     * Quiet, because a run time nobody is looking at changing by thirty seconds is not news any tab
+     * needs re-rendering for, and every `list` broadcast arms a debounced cloud write.
+     */
+    for (const h of handles) {
+      const st = session.status(h)
+      const ih = infoHashByHandle.get(h)
+      const atAdd = uptimeAtAdd.get(h)
+      if (!st || !ih || !atAdd) continue
+      const total = totalUptime(uptimeStored.get(h), atAdd, st)
+      if (!worthWriting(uptimeStored.get(h), total)) continue
+      uptimeStored.set(h, total)
+      uptimeAtAdd.set(h, { activeSeconds: st.activeSeconds, seedingSeconds: st.seedingSeconds })
+      void patchList(ih, { activeSeconds: total.activeSeconds, seedingSeconds: total.seedingSeconds }, true).catch(() => {})
+    }
   }, 15000)
 
   setInterval(() => { void runStorageBudget() }, EVICT_INTERVAL_MS)
@@ -1376,6 +1445,7 @@ const handleMessage = async (session: Session, m: any) => {
         // a re-add of something this device already knows keeps the ceiling it was given, matching
         // mergeEntry, which carries the limit forward rather than letting an add quietly uncap it
         wantLimits(h, { down: known?.downloadLimit, up: known?.uploadLimit })
+        uptimeStored.set(h, { activeSeconds: known?.activeSeconds ?? 0, seedingSeconds: known?.seedingSeconds ?? 0 })
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
@@ -1467,6 +1537,7 @@ const handleMessage = async (session: Session, m: any) => {
         paused: entry?.paused === true,
       })
       if (h === null) { post({ type: 'add-failed', message: 'The engine refused that torrent' }); return }
+      uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
       await patchList(ih, { started: true, lastUsedAt: Date.now() })
       post({ type: 'added', handle: h, magnet: entry?.magnet ?? '' })
     } else if (m.type === 'add-torrent-file') {

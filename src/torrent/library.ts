@@ -31,6 +31,20 @@ export type Persisted = {
    * means to a reader.
    */
   name?: string, size?: number, files?: { name: string, size: number }[],
+  /**
+   * How long this torrent has run, and of that how long it has seeded, across every session.
+   *
+   * Kept here rather than left to libtorrent's own counters, which do survive in resume data and in
+   * practice do not survive at all: a finished torrent's blob is written once and never again, and a
+   * torrent created from the user's own files has no blob by design. `uptime.ts` has the detail and
+   * the rule that stops the two mechanisms counting the same seconds twice.
+   *
+   * Device-local, like `started` and `paused`. Time spent running is a fact about this browser, not
+   * about the torrent, so it has no business being mirrored to another machine. The cloud backup
+   * builds an explicit projection of seven named fields rather than sending an entry whole, so these
+   * stay out of it by construction rather than by anyone remembering to exclude them.
+   */
+  activeSeconds?: number, seedingSeconds?: number,
 }
 
 /**
@@ -130,6 +144,10 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       files: next.files ?? was.files,
       downloadLimit: next.downloadLimit ?? was.downloadLimit,
       uploadLimit: next.uploadLimit ?? was.uploadLimit,
+      // Same reason as the metadata above, and the same trap: an add carries no run time, so letting
+      // the spread through would reset a torrent's accumulated hours every time it was re-added.
+      activeSeconds: next.activeSeconds ?? was.activeSeconds,
+      seedingSeconds: next.seedingSeconds ?? was.seedingSeconds,
     }
     : next
 
