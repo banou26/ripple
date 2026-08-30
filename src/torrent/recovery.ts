@@ -25,8 +25,12 @@ const ACTION_GRACE_MS = 10_000
 const HEALTHY_MS = 60_000
 // Downloading metadata (2) or downloading (3): only these can be stalled.
 const ACTIVE_STATES = new Set([2, 3])
-// Checking files (1) and checking resume data (7), which libtorrent reports as paused while they run.
-const CHECKING_STATES = new Set([1, 7])
+/**
+ * Checking files (1) and checking resume data (7), which libtorrent reports as PAUSED while they
+ * run. Exported because anything driving the pause flag has to know that, not just this tracker: a
+ * loop that reads `paused` as something to correct would fight a check for its whole run.
+ */
+export const CHECKING_STATES = new Set([1, 7])
 
 type Entry = RecoveryState & {
   healthySince: number | null

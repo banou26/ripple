@@ -14,7 +14,7 @@ import type { Persisted, SaveLocation } from './library'
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
-import { createRecoveryTracker } from './recovery'
+import { CHECKING_STATES, createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
@@ -82,10 +82,26 @@ const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
 const infoHashByHandle = new Map<number, string>()
 const savePathByHandle = new Map<number, string>()
-const resumeSaved = new Set<number>()
+// The paused flag of the blob last written for each handle, so a settled torrent is snapshotted
+// once per pause state rather than once per torrent. See the pump for why that distinction matters.
+const resumeSaved = new Map<number, boolean>()
 const userPaused = new Set<number>()
-// libtorrent only takes commands for handles it has registered, which happens the first time its alerts are pumped, so a pause issued during the restore is silently discarded
+/*
+ * What Ripple wants the engine's pause flag to be, for torrents it has not been able to tell yet.
+ *
+ * libtorrent only takes commands for handles it has registered, which happens the first time its
+ * alerts are pumped, so anything issued during the restore is silently discarded. Both directions
+ * are recorded, because a resume blob carries libtorrent's `paused` flag and restores it on add:
+ * without `wantStarted`, a torrent that was paused when its blob was written comes back stopped
+ * with nothing in Ripple recording that it should be, and ten seconds later `recovery` reads that
+ * as a failure. The library entry is the record of what the user chose, so it is what decides here
+ * and the blob never does.
+ */
 const wantPaused = new Set<number>()
+const wantStarted = new Set<number>()
+// the two are opposites, so recording one always withdraws the other
+const wantPause = (h: number) => { wantStarted.delete(h); wantPaused.add(h) }
+const wantStart = (h: number) => { wantPaused.delete(h); wantStarted.add(h) }
 const resumeRetry = new Map<number, { tries: number, at: number }>()
 const recovery = createRecoveryTracker()
 
@@ -211,7 +227,7 @@ const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
-  wantPaused.delete(h); resumeRetry.delete(h)
+  wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   limitsByHandle.delete(h); pendingLimits.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
@@ -221,7 +237,7 @@ const untrack = (h: number) => {
 // to work. Without this a paused torrent would park a read on pieces that can never arrive.
 const wake = (h: number) => {
   if (!cacheIdle.delete(h)) return
-  wantPaused.delete(h)
+  wantStart(h)
   session?.resumeTorrent(h)
   recovery.hold(h, Date.now())
 }
@@ -445,7 +461,7 @@ const applyViewing = (h: number) => {
     // exists does not, and that is the one that would have hung the page it was protecting.
     if (ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
-      wantPaused.add(h)
+      wantPause(h)
       session.pauseTorrent(h)
       void persistResume(h)
     }
@@ -735,7 +751,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
   if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
-  if (wasPaused) { userPaused.add(next); wantPaused.add(next) }
+  if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
   // handle, so every tab learns about the move through the two channels it already watches
@@ -944,7 +960,23 @@ const init = async () => {
       // deletes the blob on a recheck and on the cleared-storage path, and falls back to addMagnet
       // when there is none, so the entry is the only record that is always there
       wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
-      if (e.paused) { userPaused.add(h); wantPaused.add(h) }
+      /*
+       * The ENTRY decides, both ways.
+       *
+       * A resume blob carries libtorrent's own `paused` flag and `addTorrentWithResume` restores
+       * it, so a torrent that was stopped when its blob was written comes back stopped. That is
+       * right for a pause the user asked for and wrong for every other kind: an idle-parked cache
+       * torrent, or one parked and later kept, has `paused: false` in the list and a paused blob on
+       * disk, and nothing here used to reconcile the two. Ten seconds later, exactly the hold
+       * placed below, `recovery` read that as a torrent that had stopped on its own.
+       *
+       * Ephemeral entries are started too rather than left as they are. `applyViewing` re-parks
+       * them on the first pump that has their layout, which costs a fraction of a second of
+       * downloading, and it needs them running to get that layout at all: a paused torrent
+       * connects to nobody, so one restored paused with no metadata could never fetch any and
+       * would sit stopped for the life of the session.
+       */
+      if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
       recovery.hold(h, Date.now())
     }
     if (changed) await set(LIST_KEY, list)
@@ -1033,6 +1065,30 @@ const init = async () => {
       if (st.paused) wantPaused.delete(h)
       else session.pauseTorrent(h)
     }
+    for (const h of wantStarted) {
+      // Stopped on purpose since the want was recorded, so the want is stale. Asked here rather
+      // than withdrawn at every pause site, so this reads from the same two sets `recovery.observe`
+      // is given below and cannot drift from them.
+      if (userPaused.has(h) || cacheIdle.has(h)) { wantStarted.delete(h); continue }
+      const st = session.status(h)
+      // nothing can be told to a handle the engine has not registered yet, and a check reports
+      // itself paused without that being something to correct: wait it out rather than resuming
+      // twice a second for as long as the hashing takes
+      if (!st || CHECKING_STATES.has(st.state)) continue
+      if (!st.paused) { wantStarted.delete(h); continue }
+      /*
+       * Auto-management off and no error is the shape a stale blob comes back in, MEASURED: a
+       * torrent restored from a blob written while it was parked reports `paused` with
+       * `autoManaged` false and an empty error. Only that shape is corrected here.
+       *
+       * The other two are not Ripple's to undo. libtorrent's queue parks whatever sits past its
+       * active limits and starts it again itself, so resuming that would fight it every half second
+       * and jump the queue. An errored torrent belongs to `recovery`, which retries it on a growing
+       * backoff rather than twice a second against a disk that is already refusing.
+       */
+      if (st.autoManaged || st.errorCode) { wantStarted.delete(h); continue }
+      session.resumeTorrent(h)
+    }
 
     // a stalled torrent needs the stop first, since that is what makes libtorrent announce to its trackers again instead of waiting out the interval
     recovery.retain(new Set(handles))
@@ -1053,11 +1109,22 @@ const init = async () => {
     post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
       const st = session.status(h)
-      if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.has(h) || resumeInFlight.has(h)) continue
+      /*
+       * Once per pause state, not once per torrent.
+       *
+       * A finished torrent's PIECES never change, which is what made one snapshot and then silence
+       * look safe. Its `paused` flag does change, and the blob carries that too, so a torrent
+       * parked as cache and then kept by the user had a blob still saying paused with nothing left
+       * that would ever rewrite it: the 15s saver below is for state 3 alone. Every later reload
+       * brought it back stopped, which is what made this bug repeat on every single refresh rather
+       * than once.
+       */
+      if (!st || (st.state !== 4 && st.state !== 5) || resumeSaved.get(h) === st.paused || resumeInFlight.has(h)) continue
       const retry = resumeRetry.get(h)
       if (retry && now < retry.at) continue
+      const pausedNow = st.paused
       void persistResume(h).then((saved) => {
-        if (saved) { resumeSaved.add(h); resumeRetry.delete(h); return }
+        if (saved) { resumeSaved.set(h, pausedNow); resumeRetry.delete(h); return }
         const tries = (resumeRetry.get(h)?.tries ?? 0) + 1
         resumeRetry.set(h, { tries, at: Date.now() + Math.min(1_000 * 2 ** tries, 60_000) })
       })
@@ -1398,7 +1465,7 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
       cacheIdle.delete(m.handle)
-      wantPaused.delete(m.handle)
+      wantStart(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
       recovery.hold(m.handle, Date.now())
@@ -1411,9 +1478,12 @@ const handleMessage = async (session: Session, m: any) => {
       // lets the finished torrent snapshot itself again after the check, rather than leaving the resume key deleted for good
       resumeSaved.delete(m.handle)
       failReads(m.handle, 'torrent rechecking')
-      // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go too
+      // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go
+      // too. Neither want is recorded in its place: forceRecheck clears the pause itself, and a
+      // check reports itself paused while it runs, so wantStarted would fight it for its whole run.
       userPaused.delete(m.handle)
       wantPaused.delete(m.handle)
+      wantStarted.delete(m.handle)
       cacheIdle.delete(m.handle)
       recovery.forget(m.handle)
       session.forceRecheck(m.handle)
