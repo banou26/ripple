@@ -60,7 +60,7 @@ describe('the inbound stat', () => {
       const screen = await mount(legacy())
       expect(text(screen)).not.toContain('closed')
       expect(text(screen)).not.toContain('reconnecting')
-      expect(text(screen)).toContain('41337')
+      expect(text(screen)).toContain(':41337')
     })
 
     it('still shows a listen failure, which every version has always sent', async () => {
@@ -70,9 +70,34 @@ describe('the inbound stat', () => {
   })
 
   describe('against a current engine', () => {
-    it('names the port and the inbound split', async () => {
+    it('names the port and how many have dialled in', async () => {
       const screen = await mount(current())
-      expect(text(screen)).toBe('41337 · 2 utp · 1 tcp')
+      expect(text(screen)).toBe(':41337 · 3 dialled in')
+    })
+
+    /**
+     * The bug this wording exists for. It read `41337 · 2 utp · 1 tcp`, which was taken for a live
+     * peer count and reported as wrong against a torrent connected to one peer. `inbound` is every
+     * connection accepted since the session started, so the strip has to say so in words and leave
+     * the transport split to the tooltip.
+     */
+    it('never puts a bare transport split on the strip, which reads as a peer count', async () => {
+      const screen = await mount(current())
+      expect(text(screen)).not.toMatch(/\d+ utp/)
+      expect(text(screen)).not.toMatch(/\d+ tcp/)
+    })
+
+    it('keeps the split, and says it is a running total, in the tooltip', async () => {
+      const screen = await mount(current())
+      const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
+      expect(title).toContain('2 utp')
+      expect(title).toContain('1 tcp')
+      expect(title).toMatch(/running total, not how many peers are connected now/)
+    })
+
+    it('writes the port the way a port is written', async () => {
+      const screen = await mount(current())
+      expect(text(screen)).toMatch(/^:41337/)
     })
 
     it('says the port is being reclaimed while its socket heals', async () => {
@@ -80,7 +105,7 @@ describe('the inbound stat', () => {
         portOpen: false,
         listeners: [{ transport: 'udp', port: 41337, up: false, healing: true, attempts: 1 }],
       }))
-      expect(text(screen)).toBe('Port 41337 · reconnecting')
+      expect(text(screen)).toBe(':41337 · reconnecting')
     })
 
     /** Healed onto a different number: nothing is in an error state and the announce is now wrong. */
@@ -89,7 +114,7 @@ describe('the inbound stat', () => {
         portOpen: false,
         listeners: [{ transport: 'udp', port: 45678, up: true, healing: false, attempts: 3 }],
       }))
-      expect(text(screen)).toBe('Port 41337 · closed')
+      expect(text(screen)).toBe(':41337 · closed')
     })
 
     it('shows nothing at all before the first reading', async () => {

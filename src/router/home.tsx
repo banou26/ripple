@@ -215,17 +215,28 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
   // dropped tunnel the acceptor heals itself, and until it does this readout would otherwise keep
   // naming a dead number with exactly the confidence it had when the number worked.
   const healing = !!port && !portOpen && listeners.some((l) => l.healing)
+  /**
+   * `:41337`, the way a port is written everywhere else, and the count SAID rather than implied.
+   *
+   * This used to read `41337 · 69 tcp · 19 utp`, which anybody would take for a live peer count, and
+   * did: it was reported as a bug against a torrent connected to one peer. `inbound` is cumulative,
+   * every connection that has ever been accepted this session, and the transport split is diagnostic
+   * detail about which of uTP and TCP is getting through. So the strip says how many have dialled
+   * in, in words, and the split moves to the tooltip where detail belongs.
+   */
   const label =
     failed ? 'Failed'
     : !port ? 'Unreachable'
-    : healing ? `Port ${port} · reconnecting`
-    : !portOpen ? `Port ${port} · closed`
-    : inbound === 0 ? `Port ${port}`
-    : `${port} · ${detail}`
+    : healing ? `:${port} · reconnecting`
+    : !portOpen ? `:${port} · closed`
+    : inbound === 0 ? `:${port}`
+    : `:${port} · ${inbound} dialled in`
   const title =
     failed ? listenFailed.join('\n')
     : healing ? 'The connection carrying this port dropped. Reclaiming it.'
     : port && !portOpen ? `Peers were told to dial ${port} and nothing is holding it any more. Reload to take a new one.`
+    : inbound > 0 ? `${inbound} connections have been accepted on port ${port} since this session started: ${detail}. This is a running total, not how many peers are connected now.`
+    : port ? `Peers are told to dial port ${port}. None has yet.`
     : undefined
   return (
     <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} title={title}>
