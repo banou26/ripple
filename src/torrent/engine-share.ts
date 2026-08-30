@@ -151,6 +151,7 @@ export const serveFollowers = (client: EngineClient): () => void => {
           type: 'state',
           torrents: state,
           reachable: client.latestReachable() ?? undefined,
+          inboundNow: client.latestInboundNow() ?? undefined,
           rateLimits: client.latestRateLimits() ?? undefined,
         })
       }

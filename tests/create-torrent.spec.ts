@@ -42,6 +42,8 @@ const install = (pack: typeof PACK) => {
       this.addEventListener('message', (event: MessageEvent) => {
         const data = event.data as any
         if (data?.type !== 'state') return
+        // the live inbound count rides this message; absent means the strip silently shows no count
+        w.__inbound = data.inboundNow
         w.__states.push((data.torrents ?? []).map((t: any) => ({
           name: (t.files?.files?.[0]?.path ?? '').split('/')[0] || '',
           progress: t.status?.progress ?? 0,
@@ -154,6 +156,21 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
     for await (const [name] of (root as any).entries()) names.push(name)
     return names
   })
+  /*
+   * The live inbound count has to ARRIVE, shaped. If the field is missing the strip falls back to
+   * "nobody connected" and stays there for the life of the session, which looks exactly like a quiet
+   * connection rather than like a broken readout.
+   *
+   * Zero is the right value here: this torrent has no swarm, and every peer Ripple dials out to is
+   * deliberately not counted. What cannot be checked without a second machine dialling in is a
+   * NON-zero count; the counting rule itself is unit-tested in inbound.test.ts, both directions.
+   */
+  const inbound = await page.evaluate(() => (window as any).__inbound)
+  console.log('[inboundNow]', JSON.stringify(inbound))
+  expect(inbound, 'the state message carried no inboundNow, so the strip can only ever say nothing').toBeTruthy()
+  expect(typeof inbound.total).toBe('number')
+  expect(inbound.byTransport).toBeTruthy()
+
   console.log('[opfs roots]', JSON.stringify(opfs))
   expect(opfs, 'a copy of the source folder was made in browser storage').not.toContain('source')
 })

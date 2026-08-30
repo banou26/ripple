@@ -15,6 +15,7 @@ import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { CHECKING_STATES, createRecoveryTracker } from './recovery'
+import { NO_INBOUND, countInbound } from './inbound'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
@@ -207,6 +208,22 @@ let trackersPolledAt = 0
 // Trackers move on the announce interval, which is minutes, so re-asking twice a second would be
 // pure waste. Peers ride the ordinary 500ms broadcast because they genuinely change that fast.
 const TRACKER_POLL_MS = 5_000
+
+/**
+ * How often every torrent is asked for its peer list, for the live inbound count on the strip.
+ *
+ * Not the 500ms broadcast, which is what the INSPECTED torrent's peers ride. This asks every torrent
+ * in the library, and a peer list is fifteen fields per peer: a library of thirty torrents with forty
+ * peers each is over a thousand records crossing the wasm boundary per pass, to produce two small
+ * integers. Two seconds is far inside how fast anybody reads a strip cell, and the last answer is
+ * held between polls so the number never blinks.
+ *
+ * `peers()` posts a request and the answer lands with the next alert pump, so this is a post per
+ * torrent rather than a synchronous read; `lastPeers` below reads whatever arrived.
+ */
+const PEER_POLL_MS = 2_000
+let peersPolledAt = 0
+let inboundNow = NO_INBOUND
 
 /**
  * The detail for the inspected torrent, or null.
@@ -1107,7 +1124,7 @@ const init = async () => {
   // would otherwise spend that half second on screen as a row with no numbers in it. The alerts have
   // not been pumped yet, so some statuses are still null here; that is exactly the state a row is
   // built to render, and the next tick fills them in.
-  post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), rateLimits: { ...sessionLimits } })
+  post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
 
   setInterval(() => {
     if (!session) return
@@ -1239,7 +1256,21 @@ const init = async () => {
     // the limits ride the existing broadcast rather than getting a channel of their own, so every
     // tab renders the value actually in force. idb-keyval has no change notification, so without
     // this two settings panels would silently disagree.
-    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
+    /*
+     * The live inbound count, which the engine cannot be asked for directly.
+     *
+     * `Reachability.inbound` is a running total since the session started, by its own definition, and
+     * it was read as a live peer count and reported as a bug twice. There is no session-level live
+     * figure, so it is counted off the peer lists here, in the one place that already has every
+     * handle.
+     */
+    if (now - peersPolledAt >= PEER_POLL_MS) {
+      peersPolledAt = now
+      for (const h of handles) void session.peers(h)
+    }
+    inboundNow = countInbound(handles.map((h) => session!.lastPeers(h)))
+
+    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
       const st = session.status(h)
       /*

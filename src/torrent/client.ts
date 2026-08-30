@@ -1,5 +1,8 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
 import type { RateLimits } from './rate-limits'
+import type { InboundNow } from './inbound'
+
+import { NO_INBOUND } from './inbound'
 
 import { normalizeLimits } from './rate-limits'
 import type { SaveLocation } from './library'
@@ -30,6 +33,14 @@ export type TorrentClient = {
   onAddFailed: (cb: (message: string) => void) => () => void
   /** Where inbound peers can reach this session. Latched, so a late subscriber gets the last value. */
   onReachable: (cb: (reachable: Reachability) => void) => () => void
+  /**
+   * How many peers are dialled IN right now, split by transport.
+   *
+   * Separate from `onReachable` rather than a field on it, because `Reachability` is the engine's own
+   * type and every number on it is a running total since the session started. This one is counted in
+   * the worker off the peer lists and is a different kind of fact, so it travels as one.
+   */
+  onInboundNow: (cb: (inbound: InboundNow) => void) => () => void
   /**
    * Peers and trackers for the one torrent {@link inspect} named, on every state broadcast.
    *
@@ -180,6 +191,7 @@ export type EngineClient = TorrentClient & {
   latestList: () => Persisted[] | null
   latestState: () => WorkerTorrentSnapshot[] | null
   latestReachable: () => Reachability | null
+  latestInboundNow: () => InboundNow | null
   /** For the leader replaying state to a follower that just joined. Null before the first broadcast. */
   latestRateLimits: () => RateLimits | null
   started: () => boolean
@@ -222,6 +234,8 @@ const createTorrentClient = (): EngineClient => {
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
   const reachableCbs = new Set<(r: Reachability) => void>()
+  const inboundNowCbs = new Set<(i: InboundNow) => void>()
+  let lastInboundNow: InboundNow | null = null
   const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
   const detailCbs = new Set<(d: TorrentDetail | null) => void>()
   const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
@@ -326,6 +340,9 @@ const createTorrentClient = (): EngineClient => {
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
+        // absent rather than empty when an older engine or a synthesized reply omits it, so the strip
+        // keeps the last real count instead of blinking to nothing
+        if (m.inboundNow) { lastInboundNow = m.inboundNow; inboundNowCbs.forEach((cb) => cb(m.inboundNow)) }
         // absent rather than unlimited when a synthesized state reply omits it, so a tab that has
         // just joined keeps showing the last real answer instead of flashing "Unlimited"
         if (m.rateLimits) {
@@ -381,6 +398,7 @@ const createTorrentClient = (): EngineClient => {
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
+    onInboundNow: (cb) => { inboundNowCbs.add(cb); cb(lastInboundNow ?? NO_INBOUND); return () => { inboundNowCbs.delete(cb) } },
     onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
     inspect: (handle) => send({ type: 'inspect', handle }),
     setFlags: (handle, flags, mask) => send({ type: 'set-flags', handle, flags, mask }),
@@ -395,6 +413,7 @@ const createTorrentClient = (): EngineClient => {
     latestList: () => lastList,
     latestState: () => lastRawState,
     latestReachable: () => lastReachable,
+    latestInboundNow: () => lastInboundNow,
     latestRateLimits: () => lastRateLimits,
     started: () => started,
     owns: () => owned,

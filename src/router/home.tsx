@@ -31,6 +31,7 @@ import type { AddChoices } from '../torrent/add-options'
 import {
   currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
+import type { InboundNow } from '../torrent/inbound'
 import type { SaveLocation } from '../torrent/library'
 import { ownsItsDirectory } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
@@ -55,6 +56,7 @@ import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
+import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
 import { AccountWidget } from '../components/account-widget'
@@ -180,9 +182,13 @@ const SyncStat = ({ state }: { state: SyncState }) => {
  * uTP arrives through the DHT's implied port while TCP depends on the announced number being real.
  */
 /** Exported for its own test: a stat that throws takes the whole route with it. */
-export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }) => {
+export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
+  reachable: Reachability | null
+  /** Peers dialled in RIGHT NOW. Defaults to none so an older engine renders the port and no count. */
+  inboundNow?: InboundNow
+}) => {
   if (!reachable) return null
-  const { port, inbound, inboundByTransport, listenFailed } = reachable
+  const { port, inbound, listenFailed } = reachable
   /**
    * An engine older than 0.3.13 sends neither of these, and this component has to survive that.
    *
@@ -199,44 +205,55 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
   const listeners = reachable.listeners ?? []
   const portOpen = reachable.portOpen ?? true
   const failed = listenFailed.length > 0
-  const detail = Object.entries(inboundByTransport)
-    .map(([transport, n]) => `${n} ${transport}`)
-    .join(' · ')
+  const detail = inboundLabel(inboundNow)
   // The announced port is fixed for the session and the sockets holding it are not, so a reserved
   // port is not by itself evidence anyone can still reach it. `portOpen` is the live half: after a
   // dropped tunnel the acceptor heals itself, and until it does this readout would otherwise keep
   // naming a dead number with exactly the confidence it had when the number worked.
   const healing = !!port && !portOpen && listeners.some((l) => l.healing)
   /**
-   * `:41337 · 1 utp · 22 tcp`: the port written the way it is everywhere else, then what has arrived
-   * on it, split by transport.
+   * `:41337 · 2 tcp · 1 utp`: the port written the way it is everywhere else, then who is dialled in
+   * THROUGH it right now, split by transport.
    *
-   * `inbound` is CUMULATIVE, every connection accepted since this session started, which is not the
-   * same number as how many peers a torrent has right now. That has been read as a live peer count
-   * and reported as a bug twice, once against a torrent connected to one peer. Two attempts to fix
-   * it in the label itself both failed: moving the split into the tooltip removed the one thing the
-   * readout is for, and appending `dialled in` put a unit on it that still did not say the number was
-   * a total, while making the strip's widest cell wider again.
+   * The count used to be `reachable.inbound`, which is a running total of every connection accepted
+   * since the session started. That is the right number for "does inbound work at all" and the wrong
+   * one for a strip cell read beside a torrent's peer count, and it was reported as a bug twice: once
+   * as `69 tcp · 19 utp` against a torrent connected to one peer, and again as `3 tcp` after a unit
+   * was appended to it. Two attempts to fix the WORDING both failed, because the number itself was
+   * answering a different question from the one being asked of it.
    *
-   * So the label is the numbers and the tooltip is the sentence. It states outright that this is a
-   * running total and not how many peers are connected now, which is the actual thing a reader needs
-   * and is too long to live on a strip. The split stays: which of uTP and TCP is getting through is
-   * what somebody checking their connection came here to see.
+   * So it is a live count now, from `inbound.ts`, counted off the peer lists because the engine has
+   * no session-level live figure. The running total moves to the tooltip, where it is still worth
+   * having: a port that has accepted connections is proven reachable even when nobody is on it this
+   * second, and that is what the highlight below is keyed to rather than the live count.
+   *
+   * The split stays either way: which of uTP and TCP is carrying is what somebody checking their
+   * connection came here to see.
    */
   const label =
     failed ? 'Failed'
     : !port ? 'Unreachable'
     : healing ? `:${port} · reconnecting`
     : !portOpen ? `:${port} · closed`
-    : inbound === 0 ? `:${port}`
+    : !detail ? `:${port}`
     : `:${port} · ${detail}`
+  /*
+   * The tooltip carries what the label cannot: the live count in words, and the session total.
+   *
+   * Both matter and they are different facts. "Nobody is connected in right now" is not the same as
+   * "nothing has ever reached this port", and only the second is a reason to go looking at a router.
+   */
+  const total = inbound > 0
+    ? ` ${inbound} in total have been accepted on it since this session started, so the port itself works.`
+    : ''
   const title =
     failed ? listenFailed.join('\n')
     : healing ? 'The connection carrying this port dropped. Reclaiming it.'
     : port && !portOpen ? `Peers were told to dial ${port} and nothing is holding it any more. Reload to take a new one.`
-    : inbound > 0 ? `${inbound} connections have been accepted on port ${port} since this session started: ${detail}. This is a running total, not how many peers are connected now.`
-    : port ? `Peers are told to dial port ${port}. None has yet.`
-    : undefined
+    : !port ? undefined
+    : inboundNow.total > 0
+      ? `${inboundNow.total} ${inboundNow.total === 1 ? 'peer is' : 'peers are'} connected in on port ${port} right now: ${detail}.${total}`
+      : `Nobody is connected in on port ${port} right now.${total || ' Peers are told to dial it and none has yet.'}`
   return (
     <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} title={title}>
       <label>Inbound</label>
@@ -1845,7 +1862,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
 }
 
 const Home = () => {
-  const { torrents, list, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
+  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -3064,7 +3081,7 @@ const Home = () => {
               <label>Active</label>
               <strong>{active} / {torrents.length}</strong>
             </div>
-            <ConnectionStat reachable={reachable}/>
+            <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
             {quota && <QuotaStat quota={quota}/>}
             {/* beside the quota, because both answer "is FKN doing anything for me right now" */}

@@ -1,3 +1,4 @@
+import type { InboundNow } from '../torrent/inbound'
 import type { Reachability } from '../torrent/client'
 
 import { describe, expect, it } from 'vitest'
@@ -36,10 +37,21 @@ const current = (over: Partial<Reachability> = {}): Reachability => ({
   ...over,
 })
 
-const mount = async (reachable: Reachability | null) => {
+/**
+ * `inboundNow` is what the strip COUNTS, and it comes from the worker rather than from the engine's
+ * `Reachability`: everything on that type is a running total since the session started.
+ *
+ * Omitting it is the older-engine case and has to render, which is why the prop is optional.
+ */
+const mount = async (reachable: Reachability | null, inboundNow?: InboundNow) => {
   const { ConnectionStat } = await import('./home')
-  return render(<ConnectionStat reachable={reachable}/>)
+  return render(<ConnectionStat reachable={reachable} inboundNow={inboundNow}/>)
 }
+
+const live = (byTransport: Record<string, number>): InboundNow => ({
+  total: Object.values(byTransport).reduce((sum, n) => sum + n, 0),
+  byTransport,
+})
 
 const text = (screen: Awaited<ReturnType<typeof mount>>) =>
   screen.container.querySelector('.stat strong')?.textContent
@@ -70,9 +82,26 @@ describe('the inbound stat', () => {
   })
 
   describe('against a current engine', () => {
-    it('names the port and what has arrived on it, split by transport', async () => {
-      const screen = await mount(current())
-      expect(text(screen)).toBe(':41337 · 2 utp · 1 tcp')
+    it('names the port and who is connected in through it right now', async () => {
+      const screen = await mount(current(), live({ tcp: 2, utp: 1 }))
+      expect(text(screen)).toBe(':41337 · 2 tcp · 1 utp')
+    })
+
+    /**
+     * THE BUG THIS READOUT KEPT CAUSING. `reachable.inbound` is every connection accepted since the
+     * session started, and it was read as a live peer count and reported twice: once as
+     * `69 tcp · 19 utp` beside a torrent with one peer, and again as `3 tcp` after a unit was
+     * appended. The label counts the live figure now, so a session with a long history and nobody
+     * on it says so.
+     */
+    it('shows no count when nobody is connected in, however long the history is', async () => {
+      const screen = await mount(current({ inbound: 91, inboundByTransport: { tcp: 72, utp: 19 } }), live({}))
+      expect(text(screen)).toBe(':41337')
+    })
+
+    it('ignores the running total entirely when counting', async () => {
+      const screen = await mount(current({ inbound: 91, inboundByTransport: { tcp: 72, utp: 19 } }), live({ tcp: 1 }))
+      expect(text(screen)).toBe(':41337 · 1 tcp')
     })
 
     /**
@@ -80,7 +109,7 @@ describe('the inbound stat', () => {
      * readout, and it was moved to the tooltip once and had to be moved back.
      */
     it('keeps the transport split, which is what the readout is for', async () => {
-      const screen = await mount(current())
+      const screen = await mount(current(), live({ tcp: 1, utp: 2 }))
       expect(text(screen)).toContain('2 utp')
       expect(text(screen)).toContain('1 tcp')
     })
@@ -92,15 +121,40 @@ describe('the inbound stat', () => {
      * twice.
      */
     it('keeps the label to the numbers, with no unit words on the strip', async () => {
-      const screen = await mount(current())
+      const screen = await mount(current(), live({ tcp: 1 }))
       expect(text(screen)).not.toMatch(/dialled/)
       expect(text(screen)).toMatch(/^:41337 /)
     })
 
-    it('says outright in the tooltip that it is a running total', async () => {
-      const screen = await mount(current())
+    /**
+     * The tooltip carries both facts, because they are different questions and only one of them is a
+     * reason to go looking at a router. Nobody connected right now is ordinary; nothing ever having
+     * reached the port is not.
+     */
+    it('says in the tooltip how many are connected in now', async () => {
+      const screen = await mount(current(), live({ tcp: 2, utp: 1 }))
       const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
-      expect(title).toMatch(/running total, not how many peers are connected now/)
+      expect(title).toMatch(/3 peers are connected in on port 41337 right now/)
+      expect(title).toMatch(/2 tcp · 1 utp/)
+    })
+
+    it('still says in the tooltip that the port itself has worked', async () => {
+      const screen = await mount(current({ inbound: 91 }), live({}))
+      const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
+      expect(title).toMatch(/Nobody is connected in on port 41337 right now/)
+      expect(title).toMatch(/91 in total .* so the port itself works/)
+    })
+
+    it('says nothing has reached it yet when nothing has', async () => {
+      const screen = await mount(current({ inbound: 0, inboundByTransport: {} }), live({}))
+      const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
+      expect(title).toMatch(/none has yet/)
+    })
+
+    it('counts one connection in the singular', async () => {
+      const screen = await mount(current(), live({ tcp: 1 }))
+      const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
+      expect(title).toMatch(/1 peer is connected in/)
     })
 
     it('writes the port the way a port is written', async () => {

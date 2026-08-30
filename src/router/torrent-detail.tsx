@@ -11,6 +11,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
 
+import { isInbound, peerTransport } from '../torrent/inbound'
+
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { getHumanReadableByteString } from '../utils/bytes'
 
@@ -183,10 +185,12 @@ const Files = ({
  */
 const peerTags = (p: PeerInfo): string[] => {
   const tags: string[] = []
-  tags.push(p.flags & PEER_FLAG.utpSocket ? 'uTP' : 'TCP')
-  // the source is what libtorrent actually recorded; the flag is how the socket was opened, and the
-  // two can disagree for a peer we later reconnected to
-  if (!(p.flags & PEER_FLAG.localConnection) || p.source & PEER_SOURCE.incoming) tags.push('incoming')
+  // Both of these go through `inbound.ts`, which the strip's live inbound count also uses. Two copies
+  // of this rule would put two numbers about one thing on screen, disagreeing, with nothing to say
+  // which was right: the strip counting `localConnection` alone and this tagging the pair would
+  // differ for every peer we dialled after it first reached us.
+  tags.push(peerTransport(p) === 'utp' ? 'uTP' : 'TCP')
+  if (isInbound(p)) tags.push('incoming')
   if (p.flags & (PEER_FLAG.rc4Encrypted | PEER_FLAG.plaintextEncrypted)) tags.push('encrypted')
   if (p.flags & PEER_FLAG.seed) tags.push('seed')
   if (p.source & PEER_SOURCE.dht) tags.push('DHT')

@@ -1,10 +1,12 @@
 import type { Torrent, TorrentState } from './types'
+import type { InboundNow } from './inbound'
 import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
+import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
 
@@ -228,6 +230,8 @@ export type UseTorrents = {
   workerError: string | null
   /** Null until the engine has reported once; see ConnectionStat for what the fields mean. */
   reachable: Reachability | null
+  /** Peers dialled IN right now, which is not the running total `reachable` carries. */
+  inboundNow: InboundNow
   client: TorrentClient
 }
 
@@ -252,8 +256,10 @@ export const useTorrents = (): UseTorrents => {
   const [storageUnavailable, setStorageUnavailable] = useState(false)
   const [workerError, setWorkerError] = useState<string | null>(null)
   const [reachable, setReachable] = useState<Reachability | null>(null)
+  const [inboundNow, setInboundNow] = useState<InboundNow>(NO_INBOUND)
   useEffect(() => {
     const offReachable = client.onReachable(setReachable)
+    const offInbound = client.onInboundNow(setInboundNow)
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
     const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false) })
@@ -275,7 +281,7 @@ export const useTorrents = (): UseTorrents => {
           } catch { }
         })
     })
-    return () => { offReachable(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
+    return () => { offReachable(); offInbound(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
   const torrents = useMemo(() => {
@@ -350,5 +356,5 @@ export const useTorrents = (): UseTorrents => {
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, list, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
+  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
 }
