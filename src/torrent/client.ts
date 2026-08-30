@@ -125,6 +125,15 @@ export type TorrentClient = {
    */
   setLocation: (infoHash: string, to: SaveLocation) => void
   /**
+   * Whether Ripple may delete this torrent's bytes to make room, which is what "temporary" means.
+   *
+   * Keyed by infoHash rather than handle, like `setLocation` and unlike the flag calls: this is a
+   * property of the library entry, and it has to be settable on a torrent whose handle this tab has
+   * not seen yet. The engine moves its own record in the same handler, so the two halves cannot be
+   * observed disagreeing.
+   */
+  setTemporary: (infoHash: string, temporary: boolean) => void
+  /**
    * How this torrent should be downloaded when nobody is watching it: which files, and whether to
    * take the head and tail of each ahead of the middle.
    *
@@ -410,6 +419,7 @@ const createTorrentClient = (): EngineClient => {
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
     relocate: (handle, to) => send({ type: 'relocate', handle, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
+    setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,

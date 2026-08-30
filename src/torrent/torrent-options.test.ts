@@ -83,6 +83,7 @@ const actions = () => ({
   embed: vi.fn(),
   retryNow: vi.fn(),
   start: vi.fn(),
+  setKept: vi.fn(),
 })
 
 const flat = (t: Torrent, a = actions(), saved = false) =>
@@ -497,5 +498,66 @@ describe('the torrent option list', () => {
     for (const item of flat(torrent({ queuePosition: 0 }))) {
       expect(item.hint.length, item.id).toBeGreaterThan(10)
     }
+  })
+})
+
+/**
+ * Keeping a download, which is the only user-facing control over whether Ripple may delete it.
+ *
+ * Worded in the positive direction because the two directions are not symmetrical: keeping is safe
+ * and reversible, while un-keeping loses data LATER, silently, with no further interaction. The
+ * caller confirms that direction; what is pinned here is that the control reports the true state,
+ * offers both directions, and never says "ephemeral" or "cache" to anybody.
+ */
+describe('keeping a download', () => {
+  it('reads as ON for a torrent the user owns', () => {
+    const item = find(torrent({ ephemeral: false }), 'keep')
+    expect(item?.kind).toBe('toggle')
+    expect(item && 'checked' in item && item.checked).toBe(true)
+  })
+
+  it('reads as OFF for one Ripple fetched to play a link', () => {
+    const item = find(torrent({ ephemeral: true }), 'keep')
+    expect(item && 'checked' in item && item.checked).toBe(false)
+  })
+
+  /** the flag is absent on rows whose library entry never joined; those are not deletable */
+  it('reads as ON when the flag never arrived, rather than offering to delete it', () => {
+    const item = find(torrent({}), 'keep')
+    expect(item && 'checked' in item && item.checked).toBe(true)
+  })
+
+  it('sends both directions', () => {
+    const a = actions()
+    const on = find(torrent({ ephemeral: true }), 'keep', a)
+    if (on && 'apply' in on) on.apply(true)
+    expect(a.setKept).toHaveBeenCalledWith(true)
+
+    const off = find(torrent({ ephemeral: false }), 'keep', a)
+    if (off && 'apply' in off) off.apply(false)
+    expect(a.setKept).toHaveBeenCalledWith(false)
+  })
+
+  /** the message names a torrent by infohash, so without one the control would do nothing at all */
+  it('is disabled, with a reason, when there is no infohash to name', () => {
+    const item = find(torrent({ infoHash: undefined }), 'keep')
+    expect(item?.disabled).toBeTruthy()
+  })
+
+  it('is offered on every torrent, not only the deletable ones', () => {
+    expect(find(torrent({ ephemeral: false }), 'keep')).toBeTruthy()
+    expect(find(torrent({ ephemeral: true }), 'keep')).toBeTruthy()
+  })
+
+  it('never says ephemeral or cache where a person can read it', () => {
+    for (const t of [torrent({ ephemeral: true }), torrent({ ephemeral: false })]) {
+      const item = find(t, 'keep')!
+      expect(item.label + ' ' + ('hint' in item ? item.hint : '')).not.toMatch(/ephemeral|cache|evict/i)
+    }
+  })
+
+  it('says what turning it off actually costs', () => {
+    const item = find(torrent({ ephemeral: false }), 'keep')!
+    expect('hint' in item && item.hint).toMatch(/delete/)
   })
 })

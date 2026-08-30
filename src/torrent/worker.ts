@@ -25,7 +25,7 @@ import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -1261,6 +1261,34 @@ const handleMessage = async (session: Session, m: any) => {
       // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
       // wins, deliberately, because the newest offer is the one whose grant was checked most recently.
       folderHandle = (m.handle as FileSystemDirectoryHandle | null) ?? null
+    } else if (m.type === 'set-temporary') {
+      /**
+       * The one place a PERSON changes this, and the only writer that has to move both halves.
+       *
+       * The list entry and the engine's `ephemeralHandles` are two records of one fact, and the last
+       * two bugs here were both of them drifting apart. So this writes both, in one handler, with no
+       * await between them that a page could observe half of.
+       *
+       * `staysEphemeral` cannot serve this and must not be wired into it. That function answers
+       * "does an ADD leave this in the cache", so it can clear the flag and can never set it:
+       * routing a demote through it would be a silent no-op that looks like a working button.
+       */
+      if (typeof m.infoHash === 'string') {
+        const temporary = m.temporary === true
+        const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
+        if (h !== undefined) {
+          if (temporary) ephemeralHandles.add(h)
+          else {
+            ephemeralHandles.delete(h)
+            // Kept, so the reason it was parked no longer applies. `wake` is what a read or a viewer
+            // already uses for this: it clears the idle pause, resumes, and holds off recovery.
+            // Without it a promoted torrent would sit paused for a rule it is no longer under, which
+            // is the exact state this whole feature exists to make visible.
+            wake(h)
+          }
+        }
+        await patchList(m.infoHash, { ephemeral: temporary })
+      }
     } else if (m.type === 'set-location') {
       // intent only. The move that follows is decided by a page, which is the realm that can see
       // whether the torrent has finished and whether the folder is reachable right now.

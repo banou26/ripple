@@ -32,6 +32,7 @@ import {
   currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
 import type { SaveLocation } from '../torrent/library'
+import { ownsItsDirectory } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
 import { NO_LIMITS, formatLimit, isLimit, limitNote } from '../torrent/rate-limits'
 import type { RateLimits } from '../torrent/rate-limits'
@@ -2231,6 +2232,7 @@ const Home = () => {
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
     setLocation: (location) => { void onSetLocation(t, location) },
+    setKept: (kept) => { void onSetKept(t, kept) },
     setFirstLast: (on) => client.setPlan(Number(t.id), { wanted: t.wantedFiles, firstLast: on }),
     pickFolder,
     limitRate: (direction) => setRateEdit({ scope: { torrent: t.id }, direction }),
@@ -2350,6 +2352,34 @@ const Home = () => {
       return
     }
     await runMove(t, location)
+  }
+
+  /**
+   * Keep this download, or hand it back to the space Ripple may reclaim.
+   *
+   * Only ONE direction asks first. Keeping is safe and reversible. Un-keeping does not delete
+   * anything now, it makes the bytes deletable LATER, without warning and without another click,
+   * which is the kind of consequence a person cannot see coming from the switch itself.
+   *
+   * The two bodies differ because the promise differs: a torrent in its own directory really is what
+   * the budget pass takes, while one still on the shared save path is never auto-deleted at all, so
+   * saying it would be is a threat the app does not carry out.
+   */
+  const onSetKept = async (t: Torrent, kept: boolean) => {
+    if (!t.infoHash) return
+    if (!kept) {
+      const ownsDirectory = ownsItsDirectory(t.stats?.savePath, t.infoHash)
+      const ok = await confirm({
+        title: `Let Ripple delete ${t.name}?`,
+        body: ownsDirectory
+          ? 'It stops being part of your library. Ripple can delete its files to free space when storage runs low, without asking again. You can download it again at any time.'
+          : 'It stops being part of your library. Its files are stored where Ripple does not delete on its own, so nothing is removed until you remove it.',
+        confirmLabel: 'Let Ripple delete it',
+      })
+      if (!ok) return
+    }
+    client.setTemporary(t.infoHash, !kept)
+    showToast(kept ? `${t.name} is yours to keep` : `${t.name} can be deleted to free space`)
   }
 
   /** In-flight moves, so the effect below and a click cannot start the same one twice. */

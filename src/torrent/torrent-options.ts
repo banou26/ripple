@@ -114,6 +114,14 @@ export interface TorrentOptionActions {
   removeWithFiles: () => void
   /** Choose where this torrent's files belong. The move itself follows when it can. */
   setLocation: (location: SaveLocation) => void
+  /**
+   * Whether Ripple may delete this torrent's bytes to make room.
+   *
+   * `true` means keep it, which is the direction the control is worded in. Turning it OFF makes the
+   * data auto-deletable later with no further interaction, so the caller is expected to confirm that
+   * direction; this module only declares the control.
+   */
+  setKept: (kept: boolean) => void
   /** Fetch the head and tail of each wanted file ahead of the middle. */
   setFirstLast: (on: boolean) => void
   /** Choose or change the folder, which is the picker qBittorrent's Set location opens. */
@@ -279,6 +287,37 @@ export const buildTorrentOptions = (
       ],
     })
   }
+
+  /**
+   * Whether this download survives, worded as KEEPING rather than as its opposite.
+   *
+   * Positive direction on purpose: promoting is the safe, common action and reads as switching
+   * something on. The off direction is the one that can lose data, and it loses it LATER, silently,
+   * with no further interaction, so the hint has to say that plainly and the caller confirms it.
+   *
+   * Shown for every torrent, not only temporary ones. A control that appears the moment a torrent
+   * becomes deletable would be a control nobody ever finds, and the state it reports is worth
+   * reading in both positions.
+   */
+  groups.push({
+    id: 'keep',
+    label: 'Storage',
+    items: [
+      {
+        kind: 'toggle',
+        id: 'keep',
+        label: 'Keep this download',
+        hint: t.ephemeral === true
+          ? 'Ripple downloaded this to play a link and can delete it to free space. Keep it and only you can remove it.'
+          : 'Only you can remove this. Turn it off and Ripple may delete it to free space when storage runs low.',
+        checked: t.ephemeral !== true,
+        // keyed by infohash rather than handle, like the location controls, so it works on a torrent
+        // this device is not running. Without one there is nothing to name in the message.
+        disabled: t.infoHash ? undefined : 'This torrent has not reported an infohash yet.',
+        apply: (on) => a.setKept(on),
+      },
+    ],
+  })
 
   groups.push(
     {
