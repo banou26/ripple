@@ -16,6 +16,7 @@ import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-pla
 import { createResilientStorage } from './opfs-storage'
 import { createRecoveryTracker } from './recovery'
 import { evictionFloor, planEviction } from './storage-budget'
+import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from './library'
 import { createHybridStorage } from './hybrid-storage'
@@ -636,8 +637,18 @@ const measureSpace = async (): Promise<Space | null> => {
   try {
     const estimate = await navigator.storage.estimate()
     // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
-    if (estimate.usage === undefined || !estimate.quota) return null
-    return { usedBytes: estimate.usage, limitBytes: estimate.quota }
+    if (!estimate.quota) return null
+    /**
+     * The browser's own usage figure cannot be trusted here, and this is the reader that matters
+     * most: `planEviction` decides from it. Measured on Chrome 151, `usageDetails.fileSystem` came
+     * back as 752 bytes for a verified 1.78 GB of torrent data, which would have the budget pass
+     * conclude there is room forever. What happens then is not a full disk, it is a write failing
+     * with QuotaExceededError, which opfs-storage classifies as fatal and stops the torrent.
+     */
+    const measured = await measureOpfsBytes(await navigator.storage.getDirectory()).catch(() => null)
+    const usedBytes = correctedUsage(estimate, measured)
+    if (usedBytes === null) return null
+    return { usedBytes, limitBytes: estimate.quota }
   } catch { return null }
 }
 

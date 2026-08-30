@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
+import { correctedUsage, measureOpfsBytes } from './opfs-usage'
+
 export type StorageUsage = {
   usedBytes: number
   /**
@@ -49,9 +51,25 @@ export const useStorageUsage = (refreshKey: unknown): StorageUsage | null => {
           storage.estimate(),
           storage.persisted?.() ?? Promise.resolve(false),
         ])
-        if (cancelled || estimate.usage === undefined || !estimate.quota) return
-        setUsage({ usedBytes: estimate.usage, limitBytes: estimate.quota, persisted })
-        if (!persisted && !requested && estimate.usage > 0 && storage.persist) {
+        if (cancelled || !estimate.quota) return
+        /**
+         * Measured rather than believed. Chrome 151 reported 752 bytes of file system against a
+         * verified 1.78 GB of torrent data, which put "2 MB / 10.74 GB" on screen above a library
+         * plainly holding more than that. See opfs-usage.ts for the numbers and the reasoning.
+         *
+         * Once every 30 seconds and only while the tab is visible, which is the cadence this poll
+         * already ran at, so the walk costs nothing anyone can perceive.
+         */
+        const measured = await storage.getDirectory?.()
+          .then((root) => measureOpfsBytes(root))
+          .catch(() => null) ?? null
+        const usedBytes = correctedUsage(estimate, measured)
+        if (cancelled || usedBytes === null) return
+        setUsage({ usedBytes, limitBytes: estimate.quota, persisted })
+        // the corrected figure, not the browser's: the guard exists so the prompt is not raised at
+        // somebody with nothing stored, and the browser's own answer can be six orders of magnitude
+        // short of what is actually here
+        if (!persisted && !requested && usedBytes > 0 && storage.persist) {
           requested = true
           await storage.persist().catch(() => false)
         }
