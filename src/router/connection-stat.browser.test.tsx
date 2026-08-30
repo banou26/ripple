@@ -72,26 +72,30 @@ describe('the inbound stat', () => {
   describe('against a current engine', () => {
     it('names the port and how many have dialled in', async () => {
       const screen = await mount(current())
-      expect(text(screen)).toBe(':41337 · 3 dialled in')
+      expect(text(screen)).toBe(':41337 · 2 utp · 1 tcp dialled in')
     })
 
     /**
-     * The bug this wording exists for. It read `41337 · 2 utp · 1 tcp`, which was taken for a live
-     * peer count and reported as wrong against a torrent connected to one peer. `inbound` is every
-     * connection accepted since the session started, so the strip has to say so in words and leave
-     * the transport split to the tooltip.
+     * The bug this wording exists for. It read `41337 · 2 utp · 1 tcp` with no unit, which was taken
+     * for a live peer count and reported as wrong against a torrent connected to one peer.
+     *
+     * The split itself is NOT the problem and must stay: which of uTP and TCP is getting through is
+     * the whole point of this readout. What was missing is what the numbers COUNT.
      */
-    it('never puts a bare transport split on the strip, which reads as a peer count', async () => {
+    it('keeps the transport split, which is what the readout is for', async () => {
       const screen = await mount(current())
-      expect(text(screen)).not.toMatch(/\d+ utp/)
-      expect(text(screen)).not.toMatch(/\d+ tcp/)
+      expect(text(screen)).toContain('2 utp')
+      expect(text(screen)).toContain('1 tcp')
     })
 
-    it('keeps the split, and says it is a running total, in the tooltip', async () => {
+    it('never leaves the split without a unit, which is what read as a peer count', async () => {
+      const screen = await mount(current())
+      expect(text(screen)).toMatch(/dialled in$/)
+    })
+
+    it('says outright in the tooltip that it is a running total', async () => {
       const screen = await mount(current())
       const title = screen.container.querySelector('.stat')?.getAttribute('title') ?? ''
-      expect(title).toContain('2 utp')
-      expect(title).toContain('1 tcp')
       expect(title).toMatch(/running total, not how many peers are connected now/)
     })
 

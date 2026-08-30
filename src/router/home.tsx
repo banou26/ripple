@@ -208,9 +208,11 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
    *
    * This used to read `41337 · 69 tcp · 19 utp`, which anybody would take for a live peer count, and
    * did: it was reported as a bug against a torrent connected to one peer. `inbound` is cumulative,
-   * every connection that has ever been accepted this session, and the transport split is diagnostic
-   * detail about which of uTP and TCP is getting through. So the strip says how many have dialled
-   * in, in words, and the split moves to the tooltip where detail belongs.
+   * every connection accepted since this session started.
+   *
+   * The split STAYS on the strip. It was moved to the tooltip first and that was the wrong fix: the
+   * numbers were never the problem, the missing unit was, and which of uTP and TCP is getting
+   * through is the one thing this readout is for. Two words carry the meaning instead.
    */
   const label =
     failed ? 'Failed'
@@ -218,7 +220,7 @@ export const ConnectionStat = ({ reachable }: { reachable: Reachability | null }
     : healing ? `:${port} · reconnecting`
     : !portOpen ? `:${port} · closed`
     : inbound === 0 ? `:${port}`
-    : `:${port} · ${inbound} dialled in`
+    : `:${port} · ${detail} dialled in`
   const title =
     failed ? listenFailed.join('\n')
     : healing ? 'The connection carrying this port dropped. Reclaiming it.'
