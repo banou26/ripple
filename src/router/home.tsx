@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
+import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, X } from 'react-feather'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -58,6 +58,16 @@ import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
+import { badgeRules } from './badge-style'
+import { STATE_LABEL, relativeDay, speed } from './torrent-format'
+import { TorrentTable } from './torrent-table'
+import { useOrderedTorrents } from './use-ordered-torrents'
+import { ListToolbar } from '../components/list-toolbar'
+import {
+  LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
+  isTemporary, readFilter, readSort, readView, writeSort,
+} from '../torrent/list-view'
+import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
@@ -82,19 +92,6 @@ const droppable = (data: DataTransfer | null): boolean => {
   return [...types].some((t) => t === 'Files' || t === 'text/uri-list')
 }
 
-const STATE_LABEL: Record<Torrent['state'], string> = {
-  downloading: 'Downloading',
-  seeding: 'Seeding',
-  paused: 'Paused',
-  queued: 'Queued',
-  done: 'Done',
-  error: 'Error',
-  missing: 'Files missing',
-  retrying: 'Retrying',
-  checking: 'Checking',
-  starting: 'Starting',
-}
-
 const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => {
   const stalled = retry.reason === 'stalled'
     ? (t.peers > 0 ? 'Peers stopped sending data' : 'Not connected to any peers')
@@ -107,8 +104,6 @@ const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): string => 
       : `retrying in ${Math.ceil(retry.retryInSeconds / 60)}m`
   return `${reason} · ${wait}`
 }
-
-const speed = (bps: number) => `${getHumanReadableByteString(bps, true)}/s`
 
 const rate = (bytesPerSecond: number): string => {
   const mbs = bytesPerSecond / 1_000_000
@@ -776,83 +771,8 @@ export const style = css`
       }
     }
 
-    .badge {
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.65rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      padding: 3px 10px;
-      border-radius: 4px;
-      /**
-       * One chip, eight states, and the words do the telling.
-       *
-       * Every state used to have a hue of its own: amber downloading, teal seeding, blue checking,
-       * purple done. The badge prints the state in words either way, so the colour was saying
-       * nothing the label was not, and the giveaway is that STARTING and MISSING were already the
-       * same grey and nobody ever noticed. What is left is brightness for "is this doing something",
-       * the pulse on the dot for "and it is still going", and a hue on exactly the two states that
-       * are outcomes rather than progress.
-       */
-      background: ${CONTROL_BG};
-      border: 1px solid ${BORDER};
-      color: ${TEXT_MUTED};
-
-      &::before {
-        content: '';
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: currentColor;
-        opacity: 0.7;
-      }
-
-      &.downloading {
-        color: ${TEXT};
-
-        &::before {
-          animation: pulse 1.6s ease-in-out infinite;
-        }
-      }
-      &.seeding { color: ${TEXT}; }
-
-      /* Working, not waiting: the progress bar tracks the check while this runs. */
-      &.checking {
-        color: ${TEXT};
-
-        &::before {
-          animation: pulse 1.6s ease-in-out infinite;
-        }
-      }
-
-      /* Connecting rather than idle, so it pulses like the other in-progress states. Quiet, because
-         it says nothing yet about whether this torrent is downloading, seeding or finished. */
-      &.starting {
-        color: ${TEXT_MUTED};
-
-        &::before {
-          animation: pulse 1.6s ease-in-out infinite;
-        }
-      }
-
-      /* the two outcomes, and the only badges that still spend a hue */
-      &.done { color: ${OK}; }
-      &.error { color: ${DANGER}; }
-
-      /* stated rather than inherited from the base: this state is deliberately the quiet one */
-      &.missing { color: ${TEXT_MUTED}; }
-
-      &.retrying {
-        color: ${TEXT};
-
-        &::before {
-          animation: pulse 1.6s ease-in-out infinite;
-        }
-      }
-    }
+    /* the state chip, shared with the table view so there is one source for it */
+    ${badgeRules}
 
     /* why a torrent stalled and when it tries again, brighter than the meta numbers it sits among so
        it does not read as one more of them */
@@ -894,6 +814,28 @@ export const style = css`
       color: ${TEXT_MUTED};
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
+
+      /* The temporary marker, in the same box the limit chip uses: both are properties of the
+         torrent rather than live numbers, so they read as one kind of thing. No hue, because the
+         palette spends colour on exactly two states and a third claimant breaks the only rule it
+         still enforces. */
+      .temp {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 6px;
+        border-radius: 4px;
+        border: 1px solid ${BORDER};
+        background: ${CONTROL_BG};
+        color: ${TEXT_MUTED};
+        font: inherit;
+        font-size: inherit;
+        cursor: pointer;
+
+        svg { width: 11px; height: 11px; }
+
+        &:hover { color: ${TEXT}; border-color: ${BORDER_STRONG}; }
+      }
 
       /* A ceiling is a setting rather than a measurement, so it is marked off from the live numbers
          beside it instead of reading as another one of them. The chrome does that now, not the
@@ -1240,6 +1182,27 @@ export const style = css`
     }
   }
 
+  /* a plain word that behaves like a link, for the two places an action sits inside a sentence */
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    margin-left: 8px;
+    font: inherit;
+    font-size: inherit;
+    color: ${TEXT};
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .hidden-note {
+    flex: none;
+    margin-top: 4px;
+    padding: 8px 2px;
+    color: ${TEXT_MUTED};
+    font-size: 0.8rem;
+  }
+
   .empty {
     position: relative;
     margin: auto;
@@ -1434,11 +1397,6 @@ export const style = css`
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 0.25; }
   }
 
   @media (max-width: 700px) {
@@ -1636,6 +1594,16 @@ const MissingRow = ({
         <div className="body">
           <div className="title"><strong>{t.name}</strong></div>
           <div className="meta">
+            {t.ephemeral === true && (
+              <button
+                type="button" className="temp"
+                onClick={() => onOptions(t, null)}
+                aria-label={'Temporary download: options for ' + t.name}
+                title={TEMPORARY_GONE_HINT}
+              >
+                <Clock aria-hidden="true"/>Temporary
+              </button>
+            )}
             <span>Files aren't on this device · download to fetch them</span>
           </div>
         </div>
@@ -1736,6 +1704,19 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               <strong>{t.name}</strong>
             </div>
             <div className="meta">
+              {/* First, before the numbers, because it changes what all of them mean: these bytes
+                  are ones Ripple may take back. A button rather than a chip, so a touch device can
+                  reach the explanation at all; `title` alone is invisible without a pointer. */}
+              {t.ephemeral === true && (
+                <button
+                  type="button" className="temp"
+                  onClick={() => onOptions(t, null)}
+                  aria-label={'Temporary download: options for ' + t.name}
+                  title={TEMPORARY_HINT}
+                >
+                  <Clock aria-hidden="true"/>Temporary
+                </button>
+              )}
               <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
               <span>↓ {speed(t.down)}</span>
               <span>↑ {speed(t.up)}</span>
@@ -2293,6 +2274,31 @@ const Home = () => {
   const [defaultLocation, setDefaultLocation] = useState<SaveLocation>(() => {
     try { return readGlobalDefault((k) => localStorage.getItem(k)) } catch { return 'browser' }
   })
+  /**
+   * How the list is shown: what is in it, in what order, and in which shape.
+   *
+   * Page preferences, so localStorage, read through validating readers that fall back rather than
+   * trusting a stored value. The temporary flag deliberately does NOT live here: that is engine
+   * state, owned by whichever tab won the election, and a second copy in this tab would be the
+   * same drift that has already caused two bugs in this file's neighbours.
+   */
+  const [listFilter, setListFilter] = useState<ListFilter>(() => readFilter((k) => localStorage.getItem(k)))
+  const [listView, setListView] = useState<ViewMode>(() => readView((k) => localStorage.getItem(k)))
+  const [listSort, setListSort] = useState(() => readSort((k) => localStorage.getItem(k)))
+
+  const chooseFilter = (filter: ListFilter) => {
+    setListFilter(filter)
+    try { localStorage.setItem(LIST_FILTER_KEY, filter) } catch {}
+  }
+  const chooseView = (view: ViewMode) => {
+    setListView(view)
+    try { localStorage.setItem(LIST_VIEW_KEY, view) } catch {}
+  }
+  const chooseSort = (key: SortKey, dir: SortDir) => {
+    setListSort({ key, dir })
+    try { localStorage.setItem(LIST_SORT_KEY, writeSort(key, dir)) } catch {}
+  }
+
   const [params, setParams] = useSearchParams()
 
   const chooseDefaultLocation = (location: SaveLocation) => {
@@ -2609,6 +2615,22 @@ const Home = () => {
   const peak = Math.max(...history, 0)
   const active = torrents.filter((t) => isActive(t.state)).length
 
+  /**
+   * What the list actually shows, filtered and arranged, with the ORDER held still for a moment at a
+   * time so rows do not swap under a cursor while somebody aims at a button.
+   *
+   * The stats strip above deliberately keeps counting `torrents`, not this. The strip describes what
+   * this device's engine is doing and the list describes the library; a filter is a question about
+   * the second one, and letting it silence the first would make the app report 0 B/s while it is
+   * plainly downloading.
+   */
+  const temporaryCount = torrents.filter(isTemporary).length
+  const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
+  const hiddenByFilter = torrents.length - visibleRows.length
+  const hiddenBytes = listFilter === 'library'
+    ? torrents.filter(isTemporary).reduce((n, t) => n + t.size, 0)
+    : 0
+
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
   const syncState = useCloudBackup()
@@ -2905,7 +2927,16 @@ const Home = () => {
         </section>
       )}
 
-      <main>
+      {torrents.length > 0 && (
+        <ListToolbar
+          filter={listFilter} onFilter={chooseFilter}
+          sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
+          view={listView} onView={chooseView}
+          temporaryCount={temporaryCount}
+        />
+      )}
+
+      <main {...interaction}>
         {torrents.length === 0
           ? (
             <div className="empty">
@@ -2918,7 +2949,37 @@ const Home = () => {
               </div>
             </div>
           )
-          : torrents.map((t) => (
+          : visibleRows.length === 0
+            ? (
+              /**
+               * A filter matched nothing. Emphatically NOT the hero above, which says "Ripple is a
+               * torrent client that runs entirely in your browser" and would tell somebody with a
+               * full library that it is empty. It names the filter as the reason and offers the way
+               * back, because a control the person set two seconds ago is still the least obvious
+               * thing on the page once the list it emptied is gone.
+               */
+              <div className="empty">
+                {listFilter === 'temporary'
+                  ? 'No temporary downloads. Everything here is yours to keep.'
+                  : 'Nothing to show with this filter.'}
+                <div className="hints">
+                  <button type="button" className="link" onClick={() => chooseFilter('all')}>
+                    Show everything
+                  </button>
+                </div>
+              </div>
+            )
+          : listView === 'table'
+            ? (
+              <TorrentTable
+                torrents={visibleRows}
+                sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onOptions={onOptions}
+              />
+            )
+            : visibleRows.map((t) => (
             <TorrentRow
               key={t.id}
               t={t}
@@ -2938,6 +2999,20 @@ const Home = () => {
               rates={rowRates[t.id]}
             />
           ))}
+        {/**
+          * Hiding is only honest if it says so. A persisted filter outlives the session that set it,
+          * so without this a person comes back to a library missing gigabytes they can see in the
+          * storage readout and cannot see in the list.
+          */}
+        {/* not while the list is empty: the empty state above already explains it and offers the
+            same way back, and two Show buttons is one too many */}
+        {hiddenByFilter > 0 && visibleRows.length > 0 && (
+          <div className="hidden-note" role="status">
+            {hiddenByFilter} temporary {hiddenByFilter === 1 ? 'download' : 'downloads'} hidden
+            {hiddenBytes > 0 && ` · ${getHumanReadableByteString(hiddenBytes, true)}`}
+            <button type="button" className="link" onClick={() => chooseFilter('all')}>Show</button>
+          </div>
+        )}
       </main>
 
       {/* Docked below the list rather than inside a row: one place, one subject, and the engine
