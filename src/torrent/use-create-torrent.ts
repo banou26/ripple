@@ -103,6 +103,8 @@ export type UseCreateTorrent = {
   pickFile: () => Promise<void>
   /** Hash, assemble, check, and hand it to the engine. */
   publish: (options: CreateOptions) => Promise<void>
+  /** Re-plan under a different piece length, so the piece count beside the selector is the real one. */
+  replan: (pieceLength?: number) => void
   cancel: () => void
   reset: () => void
 }
@@ -137,7 +139,8 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       if (!read.files.length) throw new Error('There are no files in there to put in a torrent')
       source.current = { root, files: read.files, single: read.single }
       // planned here rather than at publish time so the file count, the total and the piece count
-      // are on screen BEFORE anybody agrees to anything
+      // are on screen BEFORE anybody agrees to anything. No piece length yet: the dialog re-plans
+      // through `replan` below once somebody chooses one.
       const built = plan({
         name: root.name,
         files: read.files.map(({ path, size }) => ({ path, size })),
@@ -185,10 +188,18 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
     abort.current = controller
     setState((prev) => ({ ...prev, stage: 'hashing', error: null, progress: null }))
     try {
+      /*
+       * The SAME options the review showed, piece length included.
+       *
+       * `buildTorrent` plans again from these, so a piece length threaded into only one of the two
+       * would have the pass hash one geometry and the encoder describe another: the piece count would
+       * not match the hashes and every peer would reject the torrent.
+       */
       const built = plan({
         name: options.name,
         files: pick.files.map(({ path, size }) => ({ path, size })),
         single: pick.single,
+        pieceLength: options.pieceLength,
       })
       const pieces = await hashPieces(built, (file, offset, length) => {
         const match = pick.files.find((candidate) => candidate.path.join('/') === file.path.join('/'))
@@ -242,10 +253,30 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
     } catch (error) { fail(error) }
   }, [client])
 
+  /**
+   * Re-plan the pick under a different piece length, for the readout beside the selector.
+   *
+   * Cheap and synchronous: the walk is already done and `plan()` reads no disk, so the piece count
+   * beside the control is the real one rather than an estimate computed a second way.
+   */
+  const replan = useCallback((pieceLength?: number) => {
+    const pick = source.current
+    if (!pick) return
+    try {
+      const built = plan({
+        name: pick.root.name,
+        files: pick.files.map(({ path, size }) => ({ path, size })),
+        single: pick.single,
+        pieceLength,
+      })
+      setState((prev) => (prev.stage === 'ready' || prev.stage === 'error' ? { ...prev, plan: built } : prev))
+    } catch { /* an invalid choice is reported by optionsError, not by throwing here */ }
+  }, [])
+
   const cancel = useCallback(() => { abort.current?.abort() }, [])
   const reset = useCallback(() => { abort.current?.abort(); source.current = null; setState(IDLE) }, [])
 
-  return { supported: createSupported(), state, suggestedName, pickFolder, pickFile, publish, cancel, reset }
+  return { supported: createSupported(), state, suggestedName, pickFolder, pickFile, publish, replan, cancel, reset }
 }
 
 export type WaitingSource = { entry: Persisted, name: string }

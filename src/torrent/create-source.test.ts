@@ -2,7 +2,7 @@ import type { PickedFile } from './walk-source'
 
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
+import { DEFAULT_TRACKERS, buildTorrent, normalizeWebSeeds, optionsError } from './create-source'
 import { PIECE_HASH_BYTES, plan } from './make-torrent'
 import { readTorrentFile } from './torrent-file'
 
@@ -128,5 +128,85 @@ describe('assembling the torrent', () => {
       options: options(),
       single: false,
     })).rejects.toThrow(/piece hashes/)
+  })
+})
+
+/**
+ * The fields qBittorrent's creator offers, and the one that changes the torrent's identity.
+ */
+describe('the rest of the metainfo', () => {
+  const files = [picked(['E01.mkv'], 700_000_000)]
+
+  /*
+   * The pieces have to be hashed at the SAME piece length the build will use, or the count will not
+   * match and the encoder refuses it. That refusal is correct and is tested elsewhere; here it would
+   * just be the helper being wrong.
+   */
+  const build = async (over: Partial<Parameters<typeof optionsError>[0]> = {}, single = false) => {
+    const built = plan({
+      name: 'Pack',
+      files: files.map(({ path, size }) => ({ path, size })),
+      single,
+      pieceLength: over.pieceLength,
+    })
+    const pieces = new Uint8Array(built.pieceCount * PIECE_HASH_BYTES).fill(3)
+    return buildTorrent({ picked: files, pieces, options: options(over), single })
+  }
+
+  it('carries a comment, and omits the key entirely when empty', async () => {
+    expect(new TextDecoder().decode((await build({ comment: 'ripped from the disc' })).bytes)).toContain('ripped from the disc')
+    expect(new TextDecoder().decode((await build()).bytes)).not.toContain('comment')
+  })
+
+  /**
+   * `source` is INSIDE the info dict, which is its entire purpose: the same files with a different
+   * source are a different torrent, so a private tracker can keep its swarm to itself. It follows
+   * that it must reach the encoding that gets HASHED, and this file previously encoded the info dict
+   * twice, which is exactly the shape where a new field reaches one and not the other.
+   */
+  it('makes source change the infohash, not just the file', async () => {
+    const plain = await build()
+    const tagged = await build({ source: 'SOMETRACKER' })
+    expect(tagged.infoHash).not.toBe(plain.infoHash)
+    expect(new TextDecoder().decode(tagged.bytes)).toContain('SOMETRACKER')
+  })
+
+  /** The read-back check is what proves the hashed bytes and the shipped bytes are the same ones. */
+  it('still reads back as the torrent it claims to be with a source set', async () => {
+    const tagged = await build({ source: 'SOMETRACKER' })
+    const read = await readTorrentFile(tagged.bytes)
+    expect(read!.magnet).toContain(`xt=urn:btih:${tagged.infoHash}`)
+  })
+
+  it('writes web seeds as url-list, and refuses one that is not http', async () => {
+    expect(new TextDecoder().decode((await build({ webSeeds: ['https://example.test/files'] })).bytes)).toContain('url-list')
+    expect(optionsError(options({ webSeeds: ['udp://example.test'] }))).toMatch(/web seed/)
+    expect(optionsError(options({ webSeeds: ['https://example.test/files'] }))).toBeNull()
+  })
+
+  it('takes a piece size and refuses one no torrent can use', async () => {
+    expect((await build({ pieceLength: 1 << 22 })).plan.pieceLength).toBe(1 << 22)
+    expect(optionsError(options({ pieceLength: 1_500_000 }))).toMatch(/piece size/)
+  })
+})
+
+/**
+ * BEP 19 makes a web seed url mean different things in the two torrent shapes, and getting it wrong
+ * fails silently: the client builds a url nobody serves and the seed contributes nothing, which
+ * looks exactly like a seed that is down.
+ */
+describe('web seed urls', () => {
+  it('gives a multi-file torrent a trailing slash, since the name is appended to it', () => {
+    expect(normalizeWebSeeds(['https://e.test/files'], false)).toEqual(['https://e.test/files/'])
+    expect(normalizeWebSeeds(['https://e.test/files/'], false)).toEqual(['https://e.test/files/'])
+  })
+
+  it('takes the slash OFF a single-file torrent, where the url names the file itself', () => {
+    expect(normalizeWebSeeds(['https://e.test/movie.mkv/'], true)).toEqual(['https://e.test/movie.mkv'])
+    expect(normalizeWebSeeds(['https://e.test/movie.mkv'], true)).toEqual(['https://e.test/movie.mkv'])
+  })
+
+  it('drops blank lines', () => {
+    expect(normalizeWebSeeds(['', '  ', 'https://e.test/a'], true)).toEqual(['https://e.test/a'])
   })
 })

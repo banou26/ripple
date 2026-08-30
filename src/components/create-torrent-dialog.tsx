@@ -22,6 +22,7 @@ import {
   WARN,
 } from '../theme'
 import { DEFAULT_TRACKERS } from '../torrent/create-source'
+import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH } from '../torrent/make-torrent'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { hashEta } from '../torrent/hash-pieces'
 import { Modal } from './modal'
@@ -170,6 +171,20 @@ const style = css`
 
   label.check { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 0.85rem; }
 
+  select {
+    font: inherit;
+    font-size: 0.85rem;
+    color: ${TEXT};
+    background: ${SUNKEN_BG};
+    border: 1px solid ${BORDER};
+    border-radius: 6px;
+    padding: 8px 10px;
+    &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 1px; }
+  }
+
+  details > summary { cursor: pointer; }
+  .more { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+
   .bar {
     height: 6px;
     background: ${SUNKEN_BG};
@@ -185,6 +200,21 @@ const style = css`
   code { font-size: 0.8rem; word-break: break-all; }
 `
 
+/**
+ * Every power of two the encoder accepts, so the list cannot drift from `isValidPieceLength`.
+ *
+ * BINARY units on purpose. `getHumanReadableByteString` is SI, where k is 1000, so it renders 16384
+ * as `16.4 kB`: correct, and absurd beside a control whose whole vocabulary is powers of two.
+ */
+const PIECE_CHOICES = (() => {
+  const out: number[] = []
+  for (let size = MIN_PIECE_LENGTH; size <= MAX_PIECE_LENGTH; size *= 2) out.push(size)
+  return out
+})()
+
+const binaryBytes = (bytes: number): string =>
+  bytes >= 1024 * 1024 ? `${bytes / (1024 * 1024)} MiB` : `${bytes / 1024} KiB`
+
 type Props = {
   create: UseCreateTorrent
   onClose: () => void
@@ -198,6 +228,11 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   const [name, setName] = useState('')
   const [trackerText, setTrackerText] = useState(DEFAULT_TRACKERS.join('\n'))
   const [isPrivate, setPrivate] = useState(false)
+  const [webSeedText, setWebSeedText] = useState('')
+  const [comment, setComment] = useState('')
+  const [sourceTag, setSourceTag] = useState('')
+  /** Empty string is Auto, which means `plan()` picks from the total size. */
+  const [pieceChoice, setPieceChoice] = useState('')
   const [startedAt, setStartedAt] = useState(0)
   const first = useRef<HTMLButtonElement>(null)
 
@@ -208,8 +243,12 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   const options: CreateOptions = useMemo(() => ({
     name,
     trackers: trackerText.split('\n'),
+    webSeeds: webSeedText.split('\n'),
+    comment,
+    source: sourceTag,
+    pieceLength: pieceChoice ? Number(pieceChoice) : undefined,
     private: isPrivate,
-  }), [name, trackerText, isPrivate])
+  }), [name, trackerText, webSeedText, comment, sourceTag, pieceChoice, isPrivate])
 
   const working = state.stage === 'reading' || state.stage === 'hashing' || state.stage === 'checking' || state.stage === 'adding'
   const eta = state.progress && startedAt ? hashEta(state.progress, Date.now() - startedAt) : undefined
@@ -248,11 +287,29 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 </div>
                 <div className="fact">
                   <span className="label">Pieces</span>
-                  <span className="value">
-                    {state.plan.pieceCount} × {getHumanReadableByteString(state.plan.pieceLength)}
-                  </span>
+                  {/* The count comes from the same `plan()` the encoder uses, re-run on every
+                      change, rather than from a second `ceil(size / length)` here. Two copies of
+                      that look impossible to get wrong until one is fed the size before
+                      exclusions and the screen and the torrent disagree. */}
+                  <span className="value">{state.plan.pieceCount}</span>
                 </div>
               </div>
+
+              <label className="field">
+                <span>Piece size</span>
+                <select
+                  value={pieceChoice}
+                  onChange={(event) => {
+                    setPieceChoice(event.target.value)
+                    create.replan(event.target.value ? Number(event.target.value) : undefined)
+                  }}
+                >
+                  <option value="">Auto ({binaryBytes(state.plan.pieceLength)})</option>
+                  {PIECE_CHOICES.map((size) => (
+                    <option key={size} value={size}>{binaryBytes(size)}</option>
+                  ))}
+                </select>
+              </label>
 
               {state.truncated && (
                 <p className="warn">
@@ -277,6 +334,33 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 <textarea value={trackerText} onChange={(event) => setTrackerText(event.target.value)}/>
               </label>
               <p className="faint">Leave the trackers empty to rely on the DHT alone.</p>
+
+              <details>
+                <summary className="faint">Web seeds, comment, source</summary>
+                <div className="more">
+                  <label className="field">
+                    <span>Web seed URLs, one per line</span>
+                    <textarea value={webSeedText} onChange={(event) => setWebSeedText(event.target.value)}/>
+                  </label>
+                  <p className="faint">
+                    Http addresses the same files can also be fetched from. Ripple writes them into
+                    the torrent for other clients; it does not download from them itself.
+                  </p>
+                  <label className="field">
+                    <span>Comment</span>
+                    <input type="text" value={comment} onChange={(event) => setComment(event.target.value)}/>
+                  </label>
+                  <label className="field">
+                    <span>Source</span>
+                    <input type="text" value={sourceTag} onChange={(event) => setSourceTag(event.target.value)}/>
+                  </label>
+                  <p className="faint">
+                    Source goes inside the torrent's identity, so setting it makes a different
+                    torrent out of the same files. Private trackers ask for a particular value;
+                    leave it empty unless you were given one, or nobody you share with will find you.
+                  </p>
+                </div>
+              </details>
 
               <label className="check">
                 <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)}/>

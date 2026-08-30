@@ -245,7 +245,7 @@ export const plan = ({ name, files, single = false, pieceLength }: PlanRequest):
     pieceLength: chosen,
     // Zero total is a real case: a folder of empty files. It has no pieces, and `Math.ceil(0 / n)`
     // is already 0, so this needs no special case, only the note that it is not an oversight.
-    pieceCount: Math.ceil(totalBytes / chosen),
+    pieceCount: pieceCountFor(totalBytes, chosen),
     single,
   }
 }
@@ -258,11 +258,33 @@ export type MetainfoRequest = {
   trackers?: string[]
   /** Keeps the torrent to its trackers: no DHT, no peer exchange, no local discovery. */
   private?: boolean
+  /**
+   * A private tracker's tag, and the ONLY optional field that goes inside the info dict.
+   *
+   * That placement is the whole point of it rather than a detail: being inside means it changes the
+   * infohash, so the same files with a different source are a different torrent and a tracker can
+   * keep its swarm to itself. It also means somebody who sets it casually gets a torrent that shares
+   * with nobody, so the interface has to say what it does rather than name it.
+   */
+  source?: string
+  /** BEP 19 `url-list`: http sources the whole torrent can be fetched from. Top level, not in info. */
+  webSeeds?: string[]
   /** Unix SECONDS. Omitted entirely when not passed, and the caller decides whether to. */
   createdAt?: number
   createdBy?: string
   comment?: string
 }
+
+/**
+ * How many pieces a torrent of this size gets at this piece length.
+ *
+ * Exported and shared rather than inlined, because the dialog shows this number before anything is
+ * hashed and `plan()` computes the one the encoder uses. Two copies of `ceil(a / b)` look impossible
+ * to get wrong until one of them is fed the size before exclusions and the other after, and then the
+ * screen and the torrent disagree with nothing to say which is real.
+ */
+export const pieceCountFor = (totalBytes: number, pieceLength: number): number =>
+  pieceLength > 0 ? Math.ceil(Math.max(0, totalBytes) / pieceLength) : 0
 
 export const PIECE_HASH_BYTES = 20
 
@@ -272,7 +294,7 @@ export const PIECE_HASH_BYTES = 20
  * to be one value rather than two encodings that ought to agree.
  */
 export const encodeInfo = (
-  { plan: p, pieces, private: isPrivate }: Pick<MetainfoRequest, 'plan' | 'pieces' | 'private'>,
+  { plan: p, pieces, private: isPrivate, source }: Pick<MetainfoRequest, 'plan' | 'pieces' | 'private' | 'source'>,
 ): Uint8Array => {
   if (pieces.length !== p.pieceCount * PIECE_HASH_BYTES) {
     throw new Error(`expected ${p.pieceCount} piece hashes, got ${pieces.length / PIECE_HASH_BYTES}`)
@@ -285,6 +307,7 @@ export const encodeInfo = (
     // `private: 0` key is legal and changes the info dict, so two clients making "the same" public
     // torrent would disagree on its infohash over a field that means nothing.
     private: isPrivate ? 1 : undefined,
+    source: source?.trim() || undefined,
   }
   return bencode(
     p.single
@@ -305,9 +328,21 @@ export const encodeInfo = (
  * one before it fails, so extra trackers are redundancy and not extra reach. Putting them all in one
  * tier does not change that either, since a client stops at the first that answers.
  */
-export const encodeTorrent = (request: MetainfoRequest): Uint8Array => {
-  const { trackers = [], createdAt, createdBy, comment } = request
+export const encodeTorrent = (request: MetainfoRequest): Uint8Array => encodeTorrentWithInfo(request, encodeInfo(request))
+
+/**
+ * The whole file, given an info dict that has ALREADY been encoded.
+ *
+ * The caller passes the very bytes it hashed, so the infohash it publishes and the info dict it ships
+ * cannot be two encodings of nearly the same object. That is not hypothetical tidiness: this file
+ * previously encoded the info dict twice, once for the hash and once inside the torrent, and a field
+ * added to only one of the two calls produces a torrent whose advertised infohash matches nothing in
+ * it. `source` is exactly such a field, and it is the one whose whole purpose is to change the hash.
+ */
+export const encodeTorrentWithInfo = (request: MetainfoRequest, info: Uint8Array): Uint8Array => {
+  const { trackers = [], webSeeds = [], createdAt, createdBy, comment } = request
   const clean = [...new Set(trackers.map((url) => url.trim()).filter(Boolean))]
+  const seeds = [...new Set(webSeeds.map((url) => url.trim()).filter(Boolean))]
   return bencode({
     announce: clean[0],
     'announce-list': clean.length ? clean.map((url) => [url]) : undefined,
@@ -315,7 +350,9 @@ export const encodeTorrent = (request: MetainfoRequest): Uint8Array => {
     'created by': createdBy?.trim() || undefined,
     'creation date': createdAt,
     // raw, so these are the same bytes `infoHashOf` is given; see `Raw`
-    info: raw(encodeInfo(request)),
+    info: raw(info),
+    // BEP 19. A list even for one, which every client accepts, unlike the bare-string form.
+    'url-list': seeds.length ? seeds : undefined,
   })
 }
 

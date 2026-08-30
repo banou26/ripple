@@ -1,7 +1,7 @@
 import type { PickedFile } from './walk-source'
 import type { TorrentPlan } from './make-torrent'
 
-import { encodeInfo, encodeTorrent, infoHashOf, magnetFor, plan } from './make-torrent'
+import { encodeInfo, encodeTorrentWithInfo, infoHashOf, isValidPieceLength, magnetFor, plan } from './make-torrent'
 import { readTorrentFile } from './torrent-file'
 
 /**
@@ -33,16 +33,31 @@ export const DEFAULT_TRACKERS = [
 /**
  * What goes in the metainfo beyond the files themselves.
  *
- * No `created by`, no `creation date` and no `comment`, and not for the reason it first looks like:
- * those three are TOP-LEVEL keys, siblings of `info`, so they are outside the bytes the infohash is
- * computed over and cannot split a swarm. They are left out because a `.torrent` is a file that gets
- * passed around, and each of them is a string about the person and the moment rather than about the
- * files. A date says when somebody's folder was on their disk. None of it helps anyone download.
+ * `created by` and `creation date` are left out, and not for the reason it first looks like: they are
+ * TOP-LEVEL keys, siblings of `info`, so they sit outside the bytes the infohash is computed over and
+ * cannot split a swarm. They are omitted because a `.torrent` gets passed around and each is a string
+ * about the person and the moment rather than about the files. A date says when somebody's folder was
+ * on their disk, and it helps nobody download.
+ *
+ * `comment` is offered, unlike those two, because it is the one of the three that somebody writes ON
+ * PURPOSE and about the content. Empty by default and omitted entirely when empty, so a torrent says
+ * nothing unless its maker chose to.
  */
 export type CreateOptions = {
   /** Editable, defaults to the picked folder or file name. */
   name: string
   trackers: string[]
+  /** Http sources the whole torrent can also be fetched from. BEP 19 `url-list`. */
+  webSeeds?: string[]
+  /** Free text carried in the file. Left out entirely when empty. */
+  comment?: string
+  /**
+   * A private tracker's tag. INSIDE the info dict, so it changes the infohash: the same files with a
+   * different source are a different torrent, which is the point of it and also the trap.
+   */
+  source?: string
+  /** Overrides the automatic choice. A power of two from 16 KiB to 16 MiB. */
+  pieceLength?: number
   /**
    * Keeps the torrent to its trackers: no DHT, no peer exchange, no local discovery.
    *
@@ -53,7 +68,9 @@ export type CreateOptions = {
   private: boolean
 }
 
-export const optionsError = ({ name, trackers, private: isPrivate }: CreateOptions): string | null => {
+export const optionsError = (
+  { name, trackers, webSeeds = [], private: isPrivate, pieceLength }: CreateOptions,
+): string | null => {
   const clean = trackers.map((url) => url.trim()).filter(Boolean)
   if (!name.trim()) return 'Give the torrent a name'
   if (name.includes('/')) return 'A torrent name cannot contain a slash'
@@ -63,8 +80,31 @@ export const optionsError = ({ name, trackers, private: isPrivate }: CreateOptio
     // saying so, which reads as a tracker that never answers.
     if (!/^(https?|udp|ws|wss):\/\/[^\s/]+/.test(url)) return `${url} is not a tracker address`
   }
+  // A web seed is fetched over http by a client, so unlike a tracker it is those two schemes only
+  for (const url of webSeeds.map((u) => u.trim()).filter(Boolean)) {
+    if (!/^https?:\/\/[^\s/]+/.test(url)) return `${url} is not a web seed address: it has to be http or https`
+  }
+  if (pieceLength !== undefined && !isValidPieceLength(pieceLength)) {
+    return 'That piece size is not one a torrent can use'
+  }
   return null
 }
+
+/**
+ * A web seed for a MULTI-FILE torrent needs a trailing slash, and one for a single file must not
+ * have one.
+ *
+ * BEP 19 makes the url mean different things in the two shapes: for a multi-file torrent it names a
+ * directory that the torrent's own name and paths are appended to, and for a single file it names
+ * the file itself. Getting it wrong does not fail loudly; the client builds a url nobody serves and
+ * the web seed silently contributes nothing, which is indistinguishable from a seed that is merely
+ * down.
+ */
+export const normalizeWebSeeds = (urls: string[], single: boolean): string[] =>
+  urls
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .map((url) => (single ? url.replace(/\/+$/, '') : url.endsWith('/') ? url : url + '/'))
 
 export type Built = {
   infoHash: string
@@ -91,11 +131,32 @@ export const buildTorrent = async (
   { picked, pieces, options, single }:
   { picked: PickedFile[], pieces: Uint8Array, options: CreateOptions, single: boolean },
 ): Promise<Built> => {
-  const built = plan({ name: options.name, files: picked.map(({ path, size }) => ({ path, size })), single })
+  const built = plan({
+    name: options.name,
+    files: picked.map(({ path, size }) => ({ path, size })),
+    single,
+    pieceLength: options.pieceLength,
+  })
   const trackers = options.trackers.map((url) => url.trim()).filter(Boolean)
-  const info = encodeInfo({ plan: built, pieces, private: options.private })
+  const request = {
+    plan: built,
+    pieces,
+    trackers,
+    webSeeds: normalizeWebSeeds(options.webSeeds ?? [], single),
+    private: options.private,
+    source: options.source,
+    comment: options.comment,
+  }
+  /*
+   * ONE info encoding, hashed and embedded.
+   *
+   * `source` lives inside the info dict, so a second encoding that did not receive it would produce
+   * a torrent whose advertised infohash matches nothing in the file. That is not a hypothetical: the
+   * two calls that used to be here were exactly the shape that makes it happen.
+   */
+  const info = encodeInfo(request)
   const infoHash = await infoHashOf(info)
-  const bytes = encodeTorrent({ plan: built, pieces, trackers, private: options.private })
+  const bytes = encodeTorrentWithInfo(request, info)
 
   const read = await readTorrentFile(bytes)
   if (!read) throw new Error('the torrent that was just built could not be read back')

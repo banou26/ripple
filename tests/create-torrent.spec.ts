@@ -105,6 +105,15 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   // the junk file is left out, and the dialog says so rather than quietly shrinking the torrent
   await expect(dialog.getByText('1 left out')).toBeVisible()
 
+  // the piece size selector re-plans through the same plan() the encoder uses, so the count beside
+  // it is the real one rather than a second arithmetic
+  const pieces = () => dialog.locator('.fact').filter({ hasText: 'Pieces' }).locator('.value').textContent()
+  const autoCount = Number(await pieces())
+  await dialog.getByLabel('Piece size').selectOption(String(1024 * 1024))
+  await expect.poll(async () => Number(await pieces())).toBeLessThan(autoCount)
+  await dialog.getByLabel('Piece size').selectOption('')
+  await expect.poll(async () => Number(await pieces())).toBe(autoCount)
+
   await page.screenshot({ path: 'test-results/create-review.png' })
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
 
