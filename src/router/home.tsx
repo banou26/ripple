@@ -16,6 +16,8 @@ import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
+import { storageRelief } from '../torrent/storage-relief'
+import { StorageWarning } from '../components/storage-warning'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
@@ -2584,6 +2586,37 @@ const Home = () => {
   const storage = useStorageUsage(torrents.length)
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
+  /** What the storage warning can offer, and what its button does. See storage-relief.ts. */
+  const relief = storageRelief({
+    supported: folderSupported,
+    folderName: folder?.name,
+    permitted,
+    defaultLocation,
+  })
+
+  /**
+   * Choosing a folder and choosing to MOVE into it are one intent here, unlike in the footer.
+   *
+   * The footer keeps them apart deliberately: picking a folder there means "also keep a copy over
+   * there", which is a reasonable thing to want. Pressed from a warning that downloads are about to
+   * stop, it is not: a second copy of everything writes MORE bytes into the budget that just ran
+   * out, so the button would make the reported problem worse. Hence both halves, and a label that
+   * says both halves.
+   *
+   * The location is only set when a folder was actually picked, which is why `pick` reports it.
+   */
+  const takeRelief = async () => {
+    if (relief.kind === 'choose') {
+      if (await pickFolder()) chooseDefaultLocation('folder')
+      return
+    }
+    if (relief.kind === 'allow') { await allowFolder(); return }
+    // 'move': the folder is live and permitted, so flipping the default is the whole action. The
+    // move effect re-reads `intended` every state tick, so torrents that are ALREADY finished drain
+    // on the next tick rather than waiting for something new to complete.
+    if (relief.kind === 'move') chooseDefaultLocation('folder')
+  }
+
   /**
    * The ONE surface that announces the drop, chosen in `dropTarget` and read from nowhere else.
    *
@@ -2804,18 +2837,8 @@ const Home = () => {
         </div>
       )}
 
-      {/* role=status rather than alert: the browser's budget drifts on its own, so this can appear and clear without the user doing anything */}
       {storage && lowStorage && !storageUnavailable && (
-        <div className="storage-warning surface" role="status">
-          <strong>Running out of room</strong>
-          <span>
-            Ripple has used {getHumanReadableByteString(storage.usedBytes, true)} of the
-            {' '}{getHumanReadableByteString(storage.limitBytes, true)} your browser allows this
-            site, counting everything it keeps here. Downloads stop when that runs out.
-            Removing a torrent frees its files.
-            {!storage.persisted && ' Storage here is best effort, so the browser can also clear it on its own when the device gets tight.'}
-          </span>
-        </div>
+        <StorageWarning storage={storage} relief={relief} onAct={() => void takeRelief()}/>
       )}
 
       {torrents.length > 0 && (

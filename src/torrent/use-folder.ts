@@ -34,7 +34,14 @@ export type UseFolder = {
   supported: boolean
   folder: FileSystemDirectoryHandle | null
   permitted: boolean
-  pick: () => Promise<void>
+  /**
+   * True when a folder was actually chosen, false when the picker was dismissed.
+   *
+   * The storage warning needs the difference: it turns one press into "choose a folder AND move
+   * finished downloads into it", and setting the second half after a cancelled pick would change a
+   * setting the person never agreed to and surprise them later.
+   */
+  pick: () => Promise<boolean>
   allow: () => Promise<void>
   clear: () => Promise<void>
 }
@@ -55,10 +62,11 @@ export const useFolder = (): UseFolder => {
 
   const pick = useCallback(async () => {
     const handle = await pickDirectory()
-    if (!handle) return
+    if (!handle) return false
     await set(KEY, handle)
     setFolder(handle)
     setPermitted(true)
+    return true
   }, [])
 
   const allow = useCallback(async () => {

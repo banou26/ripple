@@ -4,9 +4,23 @@ import { useEffect, useState } from 'react'
 
 export type StorageUsage = {
   usedBytes: number
-  // a browser-computed budget, not free disk: Chromium derives it from a share of free space and moves it as unrelated files come and go, Firefox reports a
-  // flat per-origin ceiling. That is why the UI copy says "of the N your browser allows this site" rather than anything about disk, and why the low-storage
-  // notice is role=status and not role=alert
+  /**
+   * A browser-chosen budget, and NOT a share of free disk.
+   *
+   * This used to say Chromium derives it from free space. Measured 2026-08-30 on Chrome 151 and it
+   * does not: exactly 10 GiB (10737418240 bytes, a round power of two) on a machine with 2.8 TiB
+   * free, the same number for torrent.fkn.app and for example.com, and the same with the browser
+   * profile on two different paths. Other machines report 2 GiB and 12 GiB, so it varies by
+   * something, but nothing observed here tracks the disk.
+   *
+   * It also cannot be raised. `navigator.storage.persist()` asks for protection from EVICTION, not
+   * for room, and it was refused on every attempt here (plain, after granting notifications, and
+   * after a CDP durableStorage grant), so its effect on the number was never even observable.
+   *
+   * That is why the copy says "of the N your browser allows this site" rather than anything about
+   * disk, why the low-storage notice is role=status and not role=alert, and why the only way out it
+   * offers is moving bytes off the origin. See storage-relief.ts.
+   */
   limitBytes: number
   // false means a best-effort origin, which can be evicted wholesale
   persisted: boolean
