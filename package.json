@@ -39,7 +39,7 @@
     "verify:live": "node tests/live-watch.mjs"
   },
   "dependencies": {
-    "@banou/media-player": "^0.8.18",
+    "@banou/media-player": "^0.8.19",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.24",
     "ass-compiler": "^0.1.15",
