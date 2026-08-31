@@ -3,11 +3,19 @@ import type { SaveLocation } from './library'
 /**
  * What a person can actually DO about a full origin, and the words for it.
  *
- * The browser's budget is not raisable. `navigator.storage.persist()` asks for protection from
- * eviction, not for more room, and the number itself is a flat cap rather than a share of the disk:
- * measured 2026-08-30 at exactly 10 GiB on a machine with 2.8 TiB free, identical for two unrelated
- * origins. So every route out of this warning is about moving bytes OFF the origin, and there is
- * exactly one place they can go, which is the folder the user granted.
+ * On CHROMIUM the browser's budget is a flat cap rather than a share of the disk: measured
+ * 2026-08-30 at exactly 10 GiB on a machine with 2.8 TiB free, identical for two unrelated origins,
+ * and `navigator.storage.persist()` was refused on every attempt there without ever raising a
+ * prompt. Nothing this module offers changes that number, and nothing else can either.
+ *
+ * On FIREFOX that same call is not the same thing. Measured 2026-09-01 on torrent.fkn.app: granting
+ * its "Store data in persistent storage" doorhanger moved the reported quota from 12 GB to 3.97 TB
+ * on an 8.03 TB device. That route is deliberately NOT part of this module, because it is a prompt
+ * the person may never be shown and that Chromium answers no to; it lives beside this one in
+ * storage-permission.ts and use-persistent-storage.ts.
+ *
+ * So every route THIS module offers is about moving bytes OFF the origin, which works on every
+ * engine, and there is exactly one place they can go, which is the folder the user granted.
  *
  * WHY THIS EXISTS AT ALL. Choosing a folder does not free anything. It turns on the auto-save
  * MIRROR, which copies finished downloads into the folder and keeps Ripple's own copy, so usage goes
@@ -57,7 +65,12 @@ export const storageRelief = (
  *
  * Kept here rather than in the component so the copy is covered by the same table-driven test as the
  * rules. Every one of these has to say what the limit IS before offering a way round it, because the
- * first thing people try is to look for a setting that raises it, and there isn't one.
+ * first thing people try is to look for a setting that raises it.
+ *
+ * On Chromium there is no such setting. On Firefox there is a prompt, and it is a SEPARATE offer
+ * with its own copy in storage-permission.ts. These sentences are about the folder, which moves
+ * bytes out from under the limit and never moves the limit itself, so nothing here may be reworded
+ * into a promise the folder cannot keep. That is what the last test in storage-relief.test.ts pins.
  */
 export const reliefOffer = (relief: StorageRelief): { detail: string, action: string | null } => {
   switch (relief.kind) {
@@ -66,8 +79,12 @@ export const reliefOffer = (relief: StorageRelief): { detail: string, action: st
       return { detail: 'Removing a torrent frees its files.', action: null }
     case 'choose':
       return {
-        detail: 'Your browser sets that limit and Ripple cannot raise it. Finished downloads can move'
-          + ' to a folder on your computer instead, where only your own disk space applies.',
+        // "on its own" rather than a flat "cannot raise it", because since 2026-09-01 Ripple can ASK,
+        // and on Firefox that ask is what sets the limit. It still cannot raise it unasked, and on
+        // Chromium the ask is refused, so this sentence stays true on both engines and stays honest
+        // beside the separate persistent-storage offer that may be on screen with it.
+        detail: 'Your browser sets that limit and Ripple cannot raise it on its own. Finished downloads'
+          + ' can move to a folder on your computer instead, where only your own disk space applies.',
         action: 'Choose a folder and move finished downloads there',
       }
     case 'move':

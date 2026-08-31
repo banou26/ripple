@@ -79,14 +79,26 @@ describe('what to offer when the origin is filling up', () => {
   })
 
   /**
-   * The limit is not raisable and the copy must not imply otherwise: measured 2026-08-30, a flat
-   * 10 GiB on 2.8 TiB free, and persist() only asks for eviction protection. Anyone rewording this
-   * towards "request more storage" is describing an API that does not exist.
+   * The FOLDER route must never sell itself as a way to raise the limit, because choosing a folder
+   * does not move the browser's number on any engine. It moves bytes out from under it.
+   *
+   * This comment used to say the limit is not raisable at all. That was Chromium only: measured
+   * 2026-08-30, a flat 10 GiB on 2.8 TiB free, with persist() refused on every attempt and no prompt
+   * ever shown, so what a success does was never observable there. Firefox does raise it, and by a
+   * lot: granting its persistent-storage prompt moved the quota from 12 GB to 3.97 TB on an 8.03 TB
+   * device, measured 2026-09-01 on torrent.fkn.app.
+   *
+   * That ask is a separate offer with its own copy and its own table test, in storage-permission.ts.
+   * These two strings are about the folder, so anyone rewording them towards "request more storage"
+   * is describing the other module.
    */
-  it('never suggests the limit itself can be raised', () => {
+  it('never sells the folder route as a way to raise the limit', () => {
     for (const s of [{ kind: 'choose' }, { kind: 'move', folderName: 'd' }] as const) {
       expect(reliefOffer(s).detail).not.toMatch(/more (storage|space|room)|increase|raise the limit/i)
     }
-    expect(reliefOffer({ kind: 'choose' }).detail).toMatch(/cannot raise it/)
+    // "on its own" is load bearing and was added 2026-09-01: Ripple CAN now ask, and this sentence
+    // can end up on screen directly beside that ask, so a flat "cannot raise it" would read as a
+    // contradiction on Firefox
+    expect(reliefOffer({ kind: 'choose' }).detail).toMatch(/cannot raise it on its own/)
   })
 })
