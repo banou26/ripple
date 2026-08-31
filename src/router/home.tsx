@@ -58,6 +58,7 @@ import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
+import { hint } from '../components/hint'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
@@ -168,7 +169,7 @@ const SyncStat = ({ state }: { state: SyncState }) => {
   if (status === 'off') return null
   const label = status === 'syncing' ? 'Syncing…' : status === 'error' ? 'Sync failed' : 'Synced'
   return (
-    <div className={'stat sync' + (status === 'error' ? ' error' : '')} title={reason ? SYNC_DETAIL[reason] : undefined}>
+    <div className={'stat sync' + (status === 'error' ? ' error' : '')} {...hint(reason ? SYNC_DETAIL[reason] : undefined)}>
       <label>Library</label>
       <strong className={status === 'synced' ? 'ok' : undefined}>{label}</strong>
     </div>
@@ -257,7 +258,7 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
       ? `${inboundNow.total} ${inboundNow.total === 1 ? 'peer is' : 'peers are'} connected in on port ${port} right now: ${detail}.${total}`
       : `Nobody is connected in on port ${port} right now.${total || ' Peers are told to dial it and none has yet.'}`
   return (
-    <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} title={title}>
+    <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
       <label>Inbound</label>
       {/* the port stays visible once peers arrive: it is what a user checks against a router or a
           firewall, and hiding it exactly when the feature starts working is the wrong trade */}
@@ -1661,7 +1662,7 @@ const MissingRow = ({
                 type="button" className="temp"
                 onClick={() => onOptions(t, null)}
                 aria-label={'Temporary download: options for ' + t.name}
-                title={TEMPORARY_GONE_HINT}
+                {...hint(TEMPORARY_GONE_HINT)}
               >
                 <Clock aria-hidden="true"/>Temporary
               </button>
@@ -1677,7 +1678,7 @@ const MissingRow = ({
             <button
               className="primary"
               onClick={() => onStart(t)}
-              title="Download to this device"
+              {...hint('Download to this device')}
               aria-label={`Download ${t.name}`}
             >
               <Download size={16} aria-hidden="true"/>
@@ -1686,7 +1687,7 @@ const MissingRow = ({
               className="more"
               aria-haspopup="dialog"
               aria-label={`Options for ${t.name}`}
-              title="Options"
+              {...hint('Options')}
               onClick={() => onOptions(t, null)}
             >
               <MoreHorizontal size={16} aria-hidden="true"/>
@@ -1782,7 +1783,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                   type="button" className="temp"
                   onClick={() => onOptions(t, null)}
                   aria-label={'Temporary download: options for ' + t.name}
-                  title={TEMPORARY_HINT}
+                  {...hint(TEMPORARY_HINT)}
                 >
                   <Clock aria-hidden="true"/>Temporary
                 </button>
@@ -1798,7 +1799,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               {(t.state === 'seeding' || t.state === 'done') && (t.stats?.seedingSeconds ?? 0) > 0 && (
                 <span
                   className="seeded"
-                  title={`Sharing this torrent for ${formatDuration(t.stats!.seedingSeconds)}, and running for ${formatDuration(t.stats!.activeSeconds)}, added up across every session`}
+                  {...hint(`Sharing this torrent for ${formatDuration(t.stats!.seedingSeconds)}, and running for ${formatDuration(t.stats!.activeSeconds)}, added up across every session`)}
                 >
                   seeded for {formatDuration(t.stats!.seedingSeconds)}
                 </span>
@@ -1806,12 +1807,12 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               {/* Only when this torrent has been given one of its own. The session ceiling lives in
                   the footer and would be the same on every row, which is noise rather than news. */}
               {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (
-                <span className="limit" title={`This torrent will not download faster than ${formatLimit(t.downloadLimit)}`}>
+                <span className="limit" {...hint(`This torrent will not download faster than ${formatLimit(t.downloadLimit)}`)}>
                   ↓ max {formatLimit(t.downloadLimit)}
                 </span>
               )}
               {isLimit(t.uploadLimit) && t.uploadLimit > 0 && (
-                <span className="limit" title={`This torrent will not upload faster than ${formatLimit(t.uploadLimit)}`}>
+                <span className="limit" {...hint(`This torrent will not upload faster than ${formatLimit(t.uploadLimit)}`)}>
                   ↑ max {formatLimit(t.uploadLimit)}
                 </span>
               )}
@@ -1846,7 +1847,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               */}
             <div className="actions">
               {href && (
-                <Link className="primary" to={href} title="Watch" aria-label={`Watch ${t.name}`}>
+                <Link className="primary" to={href} {...hint('Watch')} aria-label={`Watch ${t.name}`}>
                   <PlayCircle size={16} aria-hidden="true"/>
                 </Link>
               )}
@@ -1857,7 +1858,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                 <button
                   onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)}
                   disabled={mainSaving != null}
-                  title={multi ? 'Save as a zip' : 'Save to disk'}
+                  {...hint(multi ? 'Save as a zip' : 'Save to disk')}
                   aria-label={multi ? `Save ${t.name} as a zip` : `Save ${t.name} to disk`}
                 >
                   {mainSaving != null
@@ -1868,7 +1869,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
               {t.state !== 'checking' && (
                 <button
                   onClick={() => onToggle(t)}
-                  title={running ? 'Pause' : t.state === 'retrying' ? 'Try again now' : 'Resume'}
+                  {...hint(running ? 'Pause' : t.state === 'retrying' ? 'Try again now' : 'Resume')}
                   aria-label={`${running ? 'Pause' : 'Resume'} ${t.name}`}
                 >
                   {running ? <Pause size={16} aria-hidden="true"/> : <Play size={16} aria-hidden="true"/>}
@@ -1878,7 +1879,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                 className="more"
                 aria-haspopup="dialog"
                 aria-label={`Options for ${t.name}`}
-                title="Options"
+                {...hint('Options')}
                 onClick={() => onOptions(t, null)}
               >
                 <MoreHorizontal size={16} aria-hidden="true"/>
@@ -2887,7 +2888,7 @@ const Home = () => {
               <button
                 className="icon"
                 type="button"
-                title="Clear"
+                {...hint('Clear')}
                 aria-label="Clear"
                 onClick={() => { setInput(''); fieldRef.current?.focus() }}
               >
@@ -2907,7 +2908,7 @@ const Home = () => {
               */}
             <label
               className="icon file-button"
-              title="Open a .torrent file"
+              {...hint('Open a .torrent file')}
               aria-label="Open a .torrent file"
               aria-disabled={storageUnavailable || undefined}
             >
@@ -2930,7 +2931,7 @@ const Home = () => {
             <button
               className="icon go"
               type="submit"
-              title="Add this magnet link"
+              {...hint('Add this magnet link')}
               aria-label="Add"
               disabled={storageUnavailable || !input.trim()}
             >
@@ -2959,7 +2960,7 @@ const Home = () => {
           <button
             className="update"
             type="button"
-            title="A newer Ripple is ready. Taking it reloads every open Ripple page."
+            {...hint('A newer Ripple is ready. Taking it reloads every open Ripple page.')}
             onClick={onTakeUpdate}
           >
             <RefreshCw/>
@@ -2970,7 +2971,7 @@ const Home = () => {
           className="share"
           type="button"
           aria-expanded={embedOpen}
-          title="Make a link that plays or downloads a torrent on any device, with no account"
+          {...hint('Make a link that plays or downloads a torrent on any device, with no account')}
           onClick={() => (embedOpen ? closeEmbed() : openEmbed(null))}
         >
           <Link2/>
@@ -2981,7 +2982,7 @@ const Home = () => {
             className="share"
             type="button"
             aria-expanded={createOpen}
-            title="Make a torrent from a file or folder on this device, and share it from where it is"
+            {...hint('Make a torrent from a file or folder on this device, and share it from where it is')}
             onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
           >
             <Upload/>
@@ -3276,7 +3277,7 @@ const Home = () => {
           href={`https://github.com/Banou26/ripple/commit/${__COMMIT_HASH__}`}
           target="_blank"
           rel="noreferrer"
-          title={`commit ${__COMMIT_HASH__}`}
+          {...hint(`commit ${__COMMIT_HASH__}`)}
         >
           v{__APP_VERSION__} · {__COMMIT_HASH__.slice(0, 7)}
         </a>
@@ -3288,14 +3289,14 @@ const Home = () => {
             <button
               className={sessionLimits.down > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
-              title="The most Ripple will download in total, across every torrent at once."
+              {...hint('The most Ripple will download in total, across every torrent at once.')}
             >
               {formatLimit(sessionLimits.down)} down
             </button>
             <button
               className={sessionLimits.up > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
-              title="The most Ripple will upload in total. Sharing back is what keeps a torrent alive, so leaving room here helps everyone on it."
+              {...hint('The most Ripple will upload in total. Sharing back is what keeps a torrent alive, so leaving room here helps everyone on it.')}
             >
               {formatLimit(sessionLimits.up)} up
             </button>
@@ -3305,11 +3306,9 @@ const Home = () => {
             <button
               className={addDialog ? 'on' : undefined}
               onClick={() => chooseAddDialog(!addDialog)}
-              title={
-                addDialog
+              {...hint(addDialog
                   ? 'Adding a magnet opens a dialog first, so you can pick which files to download and where they go.'
-                  : 'A magnet you add starts straight away with every file. Torrents sent from other sites always ask, whatever this says.'
-              }
+                  : 'A magnet you add starts straight away with every file. Torrents sent from other sites always ask, whatever this says.')}
             >
               {addDialog ? 'Ask what to download' : 'Start straight away'}
             </button>
@@ -3331,11 +3330,9 @@ const Home = () => {
                 <button
                   className={defaultLocation === 'folder' ? 'on' : undefined}
                   onClick={() => chooseDefaultLocation(defaultLocation === 'folder' ? 'browser' : 'folder')}
-                  title={
-                    defaultLocation === 'folder'
+                  {...hint(defaultLocation === 'folder'
                       ? `New torrents download into browser storage and move into ${folder.name} once they finish. Ripple keeps sharing them from there.`
-                      : `New torrents stay in browser storage. Ripple can still copy them into ${folder.name}, and keeps its own copy as well.`
-                  }
+                      : `New torrents stay in browser storage. Ripple can still copy them into ${folder.name}, and keeps its own copy as well.`)}
                 >
                   {defaultLocation === 'folder' ? `Files go to ${folder.name}` : 'Files stay in the browser'}
                 </button>

@@ -99,7 +99,7 @@ describe('the torrent table', () => {
     const { screen } = mount({ torrents: [t({ ephemeral: true, name: 'cached one' })] })
     const marker = (await screen).container.querySelector('.temp')
     expect(marker).not.toBeNull()
-    expect(marker?.getAttribute('title')).toMatch(/delete it to free space/)
+    expect(marker?.getAttribute('data-tooltip-content')).toMatch(/delete it to free space/)
     expect(marker?.getAttribute('aria-label')).toBe('Temporary download')
   })
 

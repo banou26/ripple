@@ -8,6 +8,7 @@ import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '..
 import { badgeRules } from './badge-style'
 import { STATE_LABEL, relativeDay, speed } from './torrent-format'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { hint } from '../components/hint'
 import {
   BORDER, CONTROL_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
@@ -196,7 +197,7 @@ export const TorrentTable = (
                     // clicking the column already sorted flips it, a different column starts at the
                     // direction that answers the question it was clicked to ask
                     onClick={() => onSort(c.key!, sorted ? (sortDir === 'asc' ? 'desc' : 'asc') : NATURAL_DIR[c.key!])}
-                    title={`Sort by ${SORT_LABEL[c.key]}`}
+                    {...hint(`Sort by ${SORT_LABEL[c.key]}`)}
                   >
                     {c.label}
                     {sorted && <span className="arrow" aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>}
@@ -215,7 +216,7 @@ export const TorrentTable = (
           onClick={() => onSelect(t)}
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >
-          <td className="name" title={t.name}>
+          <td className="name" {...hint(t.name)}>
             <div className="cell-name">
               {/*
                 * A span rather than a button here, unlike the card view. A button per row would add
@@ -225,7 +226,7 @@ export const TorrentTable = (
               {t.ephemeral === true && (
                 <span
                   className="temp" role="img" aria-label="Temporary download"
-                  title={t.state === 'missing' ? TEMPORARY_GONE_HINT : TEMPORARY_HINT}
+                  {...hint(t.state === 'missing' ? TEMPORARY_GONE_HINT : TEMPORARY_HINT)}
                 >
                   <Clock size={13} aria-hidden="true"/>
                 </span>

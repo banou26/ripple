@@ -121,7 +121,7 @@ describe('the VPN stat', () => {
 
   it('explains what Off means for downloads, since nothing else on screen does', async () => {
     const { container } = await mount(reach({ port: null, listeners: [] }))
-    expect(container.querySelector('.stat.vpn')?.getAttribute('title')).toMatch(/Loading torrent/)
+    expect(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toMatch(/Loading torrent/)
   })
 
   /**
@@ -133,14 +133,14 @@ describe('the VPN stat', () => {
     const { container } = await mount(reach())
     const info = container.querySelector('.stat.vpn .info')
     expect(info, 'no info affordance at all').not.toBeNull()
-    expect(info?.getAttribute('title')).toMatch(/WebVPN/)
+    expect(info?.getAttribute('data-tooltip-content')).toMatch(/WebVPN/)
     // and it is not simply repeating the state line above it
-    expect(info?.getAttribute('title')).not.toBe(container.querySelector('.stat.vpn')?.getAttribute('title'))
+    expect(info?.getAttribute('data-tooltip-content')).not.toBe(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content'))
   })
 
   it('keeps the explainer in the Off state too, where it is needed most', async () => {
     const { container } = await mount(reach({ port: null, listeners: [] }))
-    expect(container.querySelector('.stat.vpn .info')?.getAttribute('title')).toMatch(/WebVPN/)
+    expect(container.querySelector('.stat.vpn .info')?.getAttribute('data-tooltip-content')).toMatch(/WebVPN/)
   })
 
   /**

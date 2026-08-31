@@ -452,7 +452,8 @@ describe('a library row', () => {
       const screen = await mount(torrent({ progress: 1 }))
       for (const el of screen.container.querySelectorAll('.actions a, .actions button')) {
         expect(el.getAttribute('aria-label')).toBeTruthy()
-        expect(el.getAttribute('title')).toBeTruthy()
+        // the hover text now rides a hint rather than the native title; see components/hint.tsx
+        expect(el.getAttribute('data-tooltip-content')).toBeTruthy()
         expect(el.querySelector('svg, .saving')).not.toBeNull()
       }
     })

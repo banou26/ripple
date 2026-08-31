@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { ArrowDown, ArrowUp, Grid, List as ListIcon } from 'react-feather'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT } from '../torrent/list-view'
+import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
   FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
@@ -144,16 +145,16 @@ export const ListToolbar = (
       <div className="seg" role="group" aria-label="Show">
         <button
           type="button" data-on={filter === 'all' || undefined} aria-pressed={filter === 'all'}
-          onClick={() => onFilter('all')} title="Everything in your library."
+          onClick={() => onFilter('all')} {...hint('Everything in your library.')}
         >All</button>
         <button
           type="button" data-on={filter === 'library' || undefined} aria-pressed={filter === 'library'}
           onClick={() => onFilter('library')}
-          title="Only the downloads you keep. Ripple never deletes these on its own."
+          {...hint('Only the downloads you keep. Ripple never deletes these on its own.')}
         >Kept</button>
         <button
           type="button" data-on={filter === 'temporary' || undefined} aria-pressed={filter === 'temporary'}
-          onClick={() => onFilter('temporary')} title={TEMPORARY_HINT}
+          onClick={() => onFilter('temporary')} {...hint(TEMPORARY_HINT)}
         >Temporary <span className="count">{temporaryCount}</span></button>
       </div>
     )}
@@ -184,7 +185,7 @@ export const ListToolbar = (
     <button
       type="button" className="dir"
       aria-label={sortDir === 'asc' ? 'Sorted ascending, click for descending' : 'Sorted descending, click for ascending'}
-      title={sortDir === 'asc' ? 'Smallest first' : 'Largest first'}
+      {...hint(sortDir === 'asc' ? 'Smallest first' : 'Largest first')}
       onClick={() => onSort(sortKey, sortDir === 'asc' ? 'desc' : 'asc')}
     >
       {sortDir === 'asc' ? <ArrowUp/> : <ArrowDown/>}
@@ -193,11 +194,11 @@ export const ListToolbar = (
     <div className="seg views" role="group" aria-label="View">
       <button
         type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
-        onClick={() => onView('cards')} title="One card per torrent, with artwork."
+        onClick={() => onView('cards')} {...hint('One card per torrent, with artwork.')}
       ><Grid/>Cards</button>
       <button
         type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
-        onClick={() => onView('table')} title="A dense table, for a lot of torrents at once."
+        onClick={() => onView('table')} {...hint('A dense table, for a lot of torrents at once.')}
       ><ListIcon/>Table</button>
     </div>
   </div>

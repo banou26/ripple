@@ -6,6 +6,7 @@ import Embed from './embed'
 import Home from './home'
 import Legal from './legal'
 import Privacy from './privacy'
+import { Hints } from '../components/hint'
 import { getRouterRoutePath, Route } from './path'
 
 const router = createBrowserRouter([
@@ -32,6 +33,12 @@ const router = createBrowserRouter([
 ])
 
 export const RouterMount = () => {
-  return <RouterProvider router={router}/>
+  return (
+    <>
+      <RouterProvider router={router}/>
+      {/* One instance for every route, outside every scrolling and clipping container; see hint.tsx */}
+      <Hints/>
+    </>
+  )
 }
 export default RouterMount

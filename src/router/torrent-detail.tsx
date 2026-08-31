@@ -16,6 +16,7 @@ import { isInbound, peerTransport } from '../torrent/inbound'
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { contentFiles } from '../torrent/types'
+import { hint } from '../components/hint'
 
 /**
  * Everything about the selected torrent, docked along the bottom of the page.
@@ -223,7 +224,7 @@ const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
             <span className="tags">{peerTags(p).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</span>
           </span>
           {/* arbitrary text a stranger chose, so it is rendered as text and never as markup */}
-          <span className="client" title={p.client}>{p.client || 'unknown'}</span>
+          <span className="client" {...hint(p.client)}>{p.client || 'unknown'}</span>
           <span className="num">{pct(p.progress)}</span>
           <span className="num">{p.downloadRate ? speed(p.downloadRate) : '-'}</span>
           <span className="num">{p.uploadRate ? speed(p.uploadRate) : '-'}</span>
@@ -272,8 +273,8 @@ const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boole
         const state = trackerState(tr)
         return (
           <div className="row" key={tr.url}>
-            <span className="name mono" title={tr.url}>{tr.url}</span>
-            <span className={`client ${state.tone}`} title={tr.message || undefined}>{state.label}</span>
+            <span className="name mono" {...hint(tr.url)}>{tr.url}</span>
+            <span className={`client ${state.tone}`} {...hint(tr.message || undefined)}>{state.label}</span>
             <span className="num">{tr.tier}</span>
             {/* -1 means never scraped: a 0 there would read as a tracker that answered and knows of nobody */}
             <span className="num">{tr.seeders < 0 ? '-' : tr.seeders}</span>
@@ -704,7 +705,7 @@ export const TorrentDetailDock = ({
         aria-label="Resize the details panel"
       />
       <header>
-        <span className="title" title={t.name}>{t.name}</span>
+        <span className="title" {...hint(t.name)}>{t.name}</span>
         <button type="button" className="close" onClick={onClose}>Close</button>
       </header>
       <div className="tabs" role="group" aria-label="Torrent details">

@@ -4,6 +4,7 @@ import { Info } from 'react-feather'
 import type { Reachability } from '../torrent/client'
 import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
 import { OK, TEXT, TEXT_MUTED, WARN } from '../theme'
+import { hint } from './hint'
 
 /**
  * The WebVPN readout, in the shape the library strip and the download page header both use.
@@ -98,14 +99,14 @@ export const VpnStat = ({ reachable }: { reachable: Reachability | null }) => {
   const on = status.state === 'on'
 
   return (
-    <div css={style} className={'stat vpn' + (on ? '' : ' error')} title={status.detail}>
+    <div css={style} className={'stat vpn' + (on ? '' : ' error')} {...hint(status.detail)}>
       <label>VPN</label>
       <div className="value">
         <strong className={on ? 'ok' : undefined}>{status.label}</strong>
         {/* The glyph carries its OWN title, so it wins over the state title on the wrapper: hovering
             the icon asks what this readout is, hovering anywhere else asks what it currently says.
             Two questions, and the nearest title is the one a browser shows. */}
-        <span className="info" title={VPN_EXPLAINER} aria-label={VPN_EXPLAINER} role="img">
+        <span className="info" {...hint(VPN_EXPLAINER)} aria-label={VPN_EXPLAINER} role="img">
           <Info />
         </span>
       </div>
