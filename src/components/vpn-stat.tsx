@@ -65,11 +65,16 @@ const style = css`
     /*
      * flex and min-width are stated, not just the size.
      *
-     * home's stats strip carries a rule sizing the speed graph (flex: 1, min-width: 120px), and its
-     * selector is ".stats svg", which reaches every svg in the panel, this glyph included. A width
-     * alone loses to that min-width, so the 13px icon was laid out in a 120px box and drew itself
-     * centred in it: a lone info glyph floating 60px away from the word it belongs to, on the
-     * library page only. Overriding the size was not enough; the box has to be taken back too.
+     * home's stats panel used to size its speed graph with a bare "svg" selector, which reached
+     * every glyph in the panel including this one, and a width alone loses to its min-width: the
+     * 13px icon was laid out in a 120px box and drew itself centred in it. That rule is now scoped
+     * to "svg.graph", so this no longer has anything to fight.
+     *
+     * Kept anyway, because this component is mounted on two pages by design and states its own
+     * appearance rather than leaning on either parent. The parent rule was only half the problem;
+     * the other half was that emotion inserts rules in RENDER order, so two equally specific rules
+     * swap winners depending on which page somebody arrived from. An icon that names its own size
+     * cannot be caught by that whichever way round the sheet ends up.
      *
      * No backticks anywhere in this block. It sits inside a css template literal, so one would end
      * the string and the whole module stops parsing.

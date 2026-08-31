@@ -676,7 +676,25 @@ export const style = css`
          of these rules exist, so it cannot lean on them here either */
     }
 
-    svg {
+    /*
+     * A CLASS, not a bare element selector, and the class exists for this rule alone.
+     *
+     * This panel holds several readouts that carry their own glyphs, so a bare element selector here reached
+     * all of them and laid a 13px icon out in the graph's 120px box. That is not a hypothetical
+     * either: it was reported as the VPN readout's info icon "becoming massive", and it only showed
+     * up when arriving from the download page.
+     *
+     * WHY THE ROUTE MATTERED, because that is the part worth remembering. Emotion inserts a
+     * component's rules the first time it renders, so the stylesheet order follows the order pages
+     * were visited. This rule and the VPN readout's own override have EQUAL specificity, so whichever was
+     * inserted last wins. On a direct load home renders first and the override wins; the download
+     * page mounts the same VPN readout with none of these rules present, so arriving from there
+     * inserts them the other way round and this rule wins instead.
+     *
+     * Overriding harder would have worked and would have left the trap set for the next glyph added
+     * to this panel. Naming what the rule is actually for removes it.
+     */
+    svg.graph {
       flex: 1;
       min-width: 120px;
       height: 52px;
@@ -1504,7 +1522,7 @@ const SpeedGraph = ({ history }: { history: number[] }) => {
     .join(' ')
   if (!points) return null
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+    <svg className="graph" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
       {/* A flat fill, the same token RowGraph uses. This area used to fade out with a gradient;
           gradients are gone, and one shared token keeps the two graphs reading as one thing. */}
       <polygon fill={CHART_PRIMARY_FILL} points={`${((offset / (HISTORY - 1)) * w).toFixed(2)},${h} ${points} ${w},${h}`}/>
