@@ -246,8 +246,25 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   const [startedAt, setStartedAt] = useState(0)
   const first = useRef<HTMLButtonElement>(null)
 
-  // the pick decides the default name, and only the pick: a later edit is the person's
-  useEffect(() => { setName(suggestedName) }, [suggestedName])
+  /*
+   * A NEW PICK resets the controls, and it has to reset ALL of them.
+   *
+   * `take()` re-plans from the pick alone, so the plan that lands is v1 at the automatic piece
+   * length. Leaving the selects showing a previous choice made the review facts describe a torrent
+   * that would not be created: the grid read 19 pieces and no padding while the button was about to
+   * build a hybrid with 300 pieces and four megabytes of pad files, because `options` still carried
+   * the old format. What is on screen and what the button makes now come from the same pick.
+   *
+   * `startedAt` goes with them. It is the clock the hashing estimate divides by, and it was only
+   * ever assigned while still zero, so a second torrent created in the same dialog measured its rate
+   * from the FIRST pass and reported an ETA tens of times too long.
+   */
+  useEffect(() => {
+    setName(suggestedName)
+    setFormat('v1')
+    setPieceChoice('')
+    setStartedAt(0)
+  }, [suggestedName])
   useEffect(() => { if (state.stage === 'hashing' && !startedAt) setStartedAt(Date.now()) }, [state.stage, startedAt])
 
   const options: CreateOptions = useMemo(() => ({
@@ -346,8 +363,13 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   ? 'The original format. Every client can download it.'
                   : format === 'hybrid'
                     ? 'Carries both formats in one torrent, so older clients use the v1 half and newer '
-                      + 'ones can verify each file on its own. Each file is padded up to a piece '
-                      + 'boundary, which is where the padding above comes from.'
+                      + 'ones can verify each file on its own.'
+                      + (state.plan.paddedBytes > state.plan.totalBytes
+                        // only when there IS some. A single file, or a folder whose files already end
+                        // on a piece boundary, pays nothing and should not be told it does.
+                        ? ' Each file is padded up to a piece boundary, which is where the padding'
+                          + ' above comes from.'
+                        : ' These files already end on piece boundaries, so this one costs no padding.')
                     : 'Smaller and verifiable file by file, and invisible to any client that has not '
                       + 'implemented it, which is still most of them. Choose this only if you know who '
                       + 'is downloading.'}
