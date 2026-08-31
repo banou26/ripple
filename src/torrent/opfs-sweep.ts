@@ -12,8 +12,26 @@
  * the engine's own leftover probe files, matched by a name Ripple picked.
  */
 
-/** v1 and v2 infohashes, as `savePathFor` writes them. */
-const HEX_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+/**
+ * Every shape of torrent id `savePathFor` writes: 40 hex for v1, 64 for v2, 32 base32 for a v1
+ * infohash that arrived base32 encoded.
+ *
+ * Exported so `magnet.ts` can assert that what it produces is a name this recognises, because the
+ * two have to agree and twice they did not. Both failures were the same one and both lost data: an
+ * id this does not recognise is not a hash directory, so it falls through to the catch-all and the
+ * torrent's whole save directory is deleted about a minute after the page loads, while the library
+ * goes on listing it.
+ *
+ *  - a v2 magnet's id kept its `1220` multihash prefix and came to 68 characters;
+ *  - a base32 `btih` magnet, which is ordinary and which `magnet-codec.test.ts` has always carried a
+ *    case for, gives 32 characters of `[a-z2-7]` and matched nothing here either.
+ *
+ * The base32 form is ACCEPTED rather than normalised to hex. Normalising would be tidier and would
+ * change the id of every torrent already added that way, orphaning the bytes it currently points at,
+ * which is the one outcome this whole comment is about.
+ */
+export const TORRENT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64}|[a-z2-7]{32})$/i
+const HEX_ID = TORRENT_ID_PATTERN
 
 /** Left by `opfsAvailable` when a tab dies between opening the probe and removing it. */
 export const PROBE_PREFIX = '.ripple-probe-'
