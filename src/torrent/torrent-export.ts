@@ -136,3 +136,38 @@ export const torrentFileFor = async (
   }
   return info ? buildTorrentFile(info, magnetExtras(magnet)) : null
 }
+
+/** What a save attempt did, so each caller can word it for its own surface. */
+export type SaveResult = 'saved' | 'no-metadata' | 'failed'
+
+/**
+ * Build the file and hand it to the browser, in one place for every surface that offers it.
+ *
+ * The download page, the row's context menu and its settings all want exactly this, and the part
+ * worth not writing three times is not the fetch but the handover: an anchor that has to be in the
+ * document to be clickable, and an object URL that must outlive the click. Revoking it in the same
+ * task races the navigation the click just started, which fails as a download that silently never
+ * arrives.
+ */
+export const saveTorrentFile = async (
+  { infoHash, magnet, name, flush }: { infoHash: string, magnet: string, name: string, flush: () => void },
+): Promise<SaveResult> => {
+  try {
+    const bytes = await torrentFileFor({ infoHash, magnet, flush })
+    if (!bytes) return 'no-metadata'
+
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/x-bittorrent' }))
+    const link = document.createElement('a')
+    link.href = url
+    // a torrent name is a filename already, but it came off a magnet somebody else wrote, so the
+    // separators go: a `dn` of `../../x` would otherwise choose the directory this lands in
+    link.download = `${name.replace(/[/\\]/g, '_')}.torrent`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    return 'saved'
+  } catch {
+    return 'failed'
+  }
+}

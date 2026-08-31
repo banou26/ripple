@@ -37,7 +37,7 @@ import { getHumanReadableByteString } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { magnetInfoHash, magnetParam } from '../torrent/magnet'
-import { torrentFileFor } from '../torrent/torrent-export'
+import { saveTorrentFile } from '../torrent/torrent-export'
 import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { embedPath } from './embed-link'
@@ -579,24 +579,15 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * takes it out of the resume blob, which libtorrent is already asked to write with `save_info_dict`.
    * Nothing here touches torrent storage, so a page that has deliberately written nothing still has.
    */
-  const saveTorrentFile = useCallback(() => {
+  const onSaveTorrentFile = useCallback(() => {
     if (!magnet || !infoHash || savingTorrent) return
     setSavingTorrent(true)
-    void torrentFileFor({ infoHash, magnet, flush: () => client.flushResume() })
-      .then((bytes) => {
-        if (!bytes) { say('The metadata has not arrived yet, so there is no .torrent to save'); return }
-        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/x-bittorrent' }))
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${torrentName}.torrent`
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        // revoked on a later task: revoking in the same one races the navigation the click started
-        window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
-        say('Saved the .torrent')
-      })
-      .catch(() => say('The .torrent could not be built'))
+    void saveTorrentFile({ infoHash, magnet, name: torrentName, flush: () => client.flushResume() })
+      .then((result) => say(
+        result === 'saved' ? 'Saved the .torrent'
+          : result === 'no-metadata' ? 'The metadata has not arrived yet, so there is no .torrent to save'
+            : 'The .torrent could not be built',
+      ))
       .finally(() => setSavingTorrent(false))
   }, [magnet, infoHash, savingTorrent, client, torrentName, say])
 
@@ -789,7 +780,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
                 <Link2 />
                 <span>Copy magnet</span>
               </button>
-              <button type="button" onClick={saveTorrentFile} disabled={savingTorrent || !infoHash} {...hint('Save the .torrent file for this torrent')}>
+              <button type="button" onClick={onSaveTorrentFile} disabled={savingTorrent || !infoHash} {...hint('Save the .torrent file for this torrent')}>
                 <FileIcon />
                 <span>{savingTorrent ? 'Building…' : 'Save .torrent'}</span>
               </button>

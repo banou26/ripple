@@ -81,6 +81,7 @@ import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-vie
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
+import { saveTorrentFile } from '../torrent/torrent-export'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
@@ -2327,6 +2328,26 @@ const Home = () => {
       showToast(`Asking ${t.name}'s trackers for peers again`)
     },
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
+    copyMagnet: () => {
+      if (!t.magnet) return
+      navigator.clipboard.writeText(t.magnet)
+        .then(() => showToast(`Copied ${t.name}'s magnet`))
+        .catch(() => showToast('This page was not allowed to use the clipboard'))
+    },
+    saveTorrentFile: () => {
+      if (!t.magnet || !t.infoHash) return
+      /*
+       * Rebuilt from the resume blob, which is the only copy of the info dictionary outside
+       * libtorrent's own memory. `flushResume` is what makes one exist for a torrent the engine has
+       * not got round to persisting yet; it writes to IndexedDB, not to torrent storage.
+       */
+      void saveTorrentFile({ infoHash: t.infoHash, magnet: t.magnet, name: t.name, flush: () => client.flushResume() })
+        .then((result) => showToast(
+          result === 'saved' ? `Saved ${t.name}.torrent`
+            : result === 'no-metadata' ? `${t.name} has no metadata yet, so there is no .torrent to save`
+              : `The .torrent for ${t.name} could not be built`,
+        ))
+    },
     recheck: () => onRecheck(t),
     pause: () => pause(Number(t.id)),
     resume: () => resume(Number(t.id)),

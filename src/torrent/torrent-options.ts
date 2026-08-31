@@ -135,6 +135,10 @@ export interface TorrentOptionActions {
   save: () => void
   /** Open the embed builder for this torrent. */
   embed: () => void
+  /** Put this torrent's magnet on the clipboard. */
+  copyMagnet: () => void
+  /** Write this torrent's .torrent out, rebuilt from the metadata the engine has. */
+  saveTorrentFile: () => void
   /** Stop waiting out the recovery backoff and try again now. */
   retryNow: () => void
   /** Add a library entry back to the session, for a torrent this device knows and is not running. */
@@ -224,6 +228,34 @@ export const buildTorrentOptions = (
       label: 'Get a share link',
       hint: 'Makes a link that plays or downloads this torrent on any device.',
       run: a.embed,
+    })
+    actions.push({
+      kind: 'action',
+      id: 'copy-magnet',
+      // the magnet IS the torrent's name, so this asks nothing of the engine and works on a ghost
+      label: 'Copy magnet',
+      hint: 'Puts this torrent\'s magnet link on the clipboard.',
+      run: a.copyMagnet,
+    })
+    actions.push({
+      kind: 'action',
+      id: 'save-torrent-file',
+      label: 'Save .torrent',
+      hint: 'Writes out the .torrent file for this torrent, wherever you choose.',
+      /*
+       * Needs the METADATA, which is a different question from having bytes on disk.
+       *
+       * There is no copy of it to hand back: a magnet carries an infohash and the engine fetches the
+       * rest from the swarm, after which the info dictionary lives only in the resume blob. A torrent
+       * whose swarm has not answered yet has no blob to read, and one this device is not running
+       * cannot be asked to write one.
+       */
+      disabled: !t.files?.length
+        ? (isGhost(t)
+          ? 'This torrent is not running on this device, so its metadata cannot be read.'
+          : 'The metadata has not arrived yet.')
+        : undefined,
+      run: a.saveTorrentFile,
     })
   }
 

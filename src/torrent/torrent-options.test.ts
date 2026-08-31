@@ -81,6 +81,8 @@ const actions = () => ({
   watch: vi.fn(),
   save: vi.fn(),
   embed: vi.fn(),
+  copyMagnet: vi.fn(),
+  saveTorrentFile: vi.fn(),
   retryNow: vi.fn(),
   start: vi.fn(),
   setKept: vi.fn(),
@@ -559,5 +561,55 @@ describe('keeping a download', () => {
   it('says what turning it off actually costs', () => {
     const item = find(torrent({ ephemeral: false }), 'keep')!
     expect('hint' in item && item.hint).toMatch(/delete/)
+  })
+})
+
+/*
+ * Both offered from ONE list, which is what puts them in the right-click menu and in the torrent's
+ * settings at once: `home.tsx` builds both surfaces from `buildTorrentOptions`.
+ */
+describe('taking the torrent itself away', () => {
+  it('offers both wherever there is a magnet', () => {
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] })
+    expect(find(t, 'copy-magnet')?.label).toBe('Copy magnet')
+    expect(find(t, 'save-torrent-file')?.label).toBe('Save .torrent')
+  })
+
+  it('offers neither without one, because a magnet is the whole of what they act on', () => {
+    const t = torrent({ magnet: '' })
+    expect(find(t, 'copy-magnet')).toBeUndefined()
+    expect(find(t, 'save-torrent-file')).toBeUndefined()
+  })
+
+  it('runs the action it was given', () => {
+    const a = actions()
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] })
+    const copy = find(t, 'copy-magnet', a)!
+    const save = find(t, 'save-torrent-file', a)!
+    if (copy.kind === 'action') copy.run()
+    if (save.kind === 'action') save.run()
+    expect(a.copyMagnet).toHaveBeenCalled()
+    expect(a.saveTorrentFile).toHaveBeenCalled()
+  })
+
+  /*
+   * Copying needs NOTHING from the engine and saving needs the metadata, so they disable differently.
+   * There is no copy of an info dictionary to hand back: a magnet carries an infohash and the engine
+   * fetches the rest, after which it lives only in the resume blob.
+   */
+  it('keeps Copy magnet live on a torrent this device is not running', () => {
+    const ghost = torrent({ state: 'missing', flags: 0, files: [] })
+    expect(find(ghost, 'copy-magnet')?.disabled, 'a magnet is known without the engine').toBeUndefined()
+  })
+
+  it('disables Save .torrent until the metadata is there, and says which reason', () => {
+    const waiting = find(torrent({ files: [] }), 'save-torrent-file')
+    expect(waiting?.disabled).toMatch(/metadata has not arrived/)
+
+    const ghost = find(torrent({ state: 'missing', flags: 0, files: [] }), 'save-torrent-file')
+    expect(ghost?.disabled, 'a ghost cannot be asked to write a resume blob').toMatch(/not running on this device/)
+
+    const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] }), 'save-torrent-file')
+    expect(ready?.disabled, 'this is the case the whole feature is for').toBeUndefined()
   })
 })
