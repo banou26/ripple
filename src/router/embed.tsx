@@ -251,22 +251,30 @@ const Player = () => {
         {vpn && (
           <TooltipDisplay
             id="vpn"
+            /* The row is at the TOP of the picture, so a chip placed above it has nowhere to go and
+               floating-ui rescues it by flipping to the SIDE, which lands the two rightmost chips
+               150 to 220px away from the item they belong to. Naming the placement it would flip to
+               anyway keeps every chip under its own item. */
+            tooltipPlace="bottom-end"
             text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
             toolTipText={<span>VPN: {vpn.label}<br />{VPN_EXPLAINER}</span>}
           />
         )}
         <TooltipDisplay
           id="peers"
+          tooltipPlace="bottom-end"
           text={<div className="item"><User /><span>{info.peers}</span></div>}
           toolTipText={<span>Peers: {info.peers}<br />Computers connected to you</span>}
         />
         <TooltipDisplay
           id="download-speed"
+          tooltipPlace="bottom-end"
           text={<div className="item"><ArrowDown /><span>{getHumanReadableByteString(info.downloadSpeed, true)}/s</span></div>}
           toolTipText={<span>Download speed: {getHumanReadableByteString(info.downloadSpeed)}/s</span>}
         />
         <TooltipDisplay
           id="upload-speed"
+          tooltipPlace="bottom-end"
           text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
           toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
         />
