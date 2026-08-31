@@ -278,7 +278,24 @@ export const useTorrents = (): UseTorrents => {
     const offInbound = client.onInboundNow(setInboundNow)
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
-    const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false) })
+    /*
+     * The engine snapshots go too, not just the error flags.
+     *
+     * Every live row is keyed by a HANDLE, and a handle is a counter inside the session that minted
+     * it, so once that session is gone the numbers on screen name whatever the next one happens to
+     * assign them. `client.ts` refuses to send a handle command across that boundary, which makes the
+     * buttons safe, but leaving them on screen still offers actions that quietly do nothing.
+     *
+     * Dropping the snapshots hands every started library entry to the `starting` branch below, which
+     * is the presentation the app already uses at boot while the engine is coming up: the row keeps
+     * its name and its place and says Connecting, with no button to press, and turns back into a live
+     * row the moment the new engine posts state. A handover therefore looks like a fresh start, which
+     * is what it is.
+     *
+     * `list` is deliberately NOT cleared. It comes from IndexedDB, it does not belong to any engine,
+     * and clearing it would blank the library instead of showing it reconnecting.
+     */
+    const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false); setSnaps([]) })
     let checkedDemo = false
     const libraryCount = { current: 0 }
     const offList = client.onList((l) => { libraryCount.current = l.length; setList(l) })
