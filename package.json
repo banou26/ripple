@@ -46,7 +46,7 @@
     "fflate": "^0.8.3",
     "idb-keyval": "^6.2.1",
     "libav-wasm": "^0.8.6",
-    "libtorrent-wasm": "^0.3.16",
+    "libtorrent-wasm": "^0.3.17",
     "osra": "^0.6.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
