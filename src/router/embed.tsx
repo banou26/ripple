@@ -123,6 +123,64 @@ const playerStyle = css`
     }
   }
 
+  /*
+   * The two links out, at the head of the row.
+   *
+   * First rather than last because they are the only two things here anybody presses, and the row
+   * reads left to right: what you can DO, then what you are watching, then how it is going. It also
+   * takes them out of the group that shrinks. Every figure to the right is as wide as whatever it
+   * currently reads, so the readouts compete for whatever the filename leaves, and a link that lost
+   * that competition used to be pushed off the right edge where it could not be reached or even
+   * seen. Nothing at the head of the row can be pushed anywhere.
+   *
+   * ICONS ONLY, with the sentence in the hover. A word beside each glyph bought nothing the tooltip
+   * does not say better, and it spent width on the one part of this row that is not information
+   * about the video.
+   */
+  .player-links {
+    flex: none;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    /* wider than the row's own gap so the two pills below do not touch */
+    gap: calc(1.6 * var(--mp-unit));
+
+    .item.link {
+      display: flex;
+      align-items: center;
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
+
+      /*
+       * A translucent pill under the cursor, which is the player's own idiom for a pressable control
+       * and the only feedback a glyph with no fill can give now that there is no word to underline.
+       *
+       * The negative margin cancels the padding, so the pill exists without the row growing 8px
+       * taller than the readouts beside it.
+       */
+      padding: 4px;
+      margin: -4px;
+      border-radius: 4px;
+      transition: background-color 120ms ease;
+
+      &:hover,
+      &:focus-visible {
+        background-color: rgba(255, 255, 255, 0.16);
+      }
+
+      /* keyboard users get a ring; the row sits on arbitrary footage, so it carries its own contrast */
+      &:focus-visible {
+        outline: 2px solid ${TEXT};
+        outline-offset: 2px;
+      }
+    }
+
+    svg {
+      flex-shrink: 0;
+    }
+  }
+
   /* the slot itself takes no pointer events, so the tooltip anchors ask for them back */
   .media-information {
     pointer-events: auto;
@@ -131,18 +189,22 @@ const playerStyle = css`
     gap: calc(1.2 * var(--mp-unit));
 
     /*
-     * THE NUMBERS GIVE WAY BEFORE THE LINKS DO.
+     * THE NUMBERS GIVE WAY FIRST.
      *
      * Every figure here is as wide as whatever it currently reads, and the range is large: a speed
      * runs from 0 B/s to three digits and a unit, and a peer count from one digit to five. Folding
      * the words was enough for the values this was measured at and not for the widest ones, and the
-     * way it failed is the part that matters: the row simply overflowed, so the two links, which are
-     * the only things here anybody presses, went off the right edge where they could not be reached
-     * or even seen. Nothing errored.
+     * way it failed is the part that matters: the row simply overflowed and whatever was last went
+     * off the right edge where it could not be reached or even seen. Nothing errored.
      *
      * So the shrinking is aimed rather than left to the default. Allowing an item to go below its
-     * content width lets a long speed ellipsize, and pinning the pressable ones keeps them on screen
-     * whatever the numbers do. A truncated speed is still a speed; an unreachable link is not a link.
+     * content width lets a long speed ellipsize. A truncated speed is still a speed.
+     *
+     * The two links used to end this row and were the things that got pushed off it. They are at the
+     * head of the row now, outside this group and outside the competition entirely, which is a
+     * better answer than pinning them was. The pin below stays because it is written against what an
+     * item IS rather than against a list of ids, so anything pressable dropped in here later is
+     * already covered.
      */
     min-width: 0;
 
@@ -164,7 +226,7 @@ const playerStyle = css`
     }
 
     /* whatever is pressable holds its size, matched on what it IS rather than on a list of ids that
-       the next link added here would have to be remembered into */
+       the next one added here would have to be remembered into */
     > [data-tooltip-id]:has(.item.link),
     > [data-tooltip-id]:has(.item.state) {
       flex-shrink: 0;
@@ -202,33 +264,6 @@ const playerStyle = css`
     }
 
     /*
-     * The two links out, drawn as part of the row rather than as buttons on top of it.
-     *
-     * They take the row's own colour and weight, so the header stays one line of information with two
-     * of its items pressable, rather than growing a toolbar over somebody's video. Underline on hover
-     * is what says they are links: colour alone would have to compete with the VPN warning beside
-     * them, which is the one thing in this row allowed to stand out.
-     */
-    .item.link {
-      color: inherit;
-      text-decoration: none;
-      cursor: pointer;
-
-      &:hover span,
-      &:focus-visible span {
-        text-decoration: underline;
-      }
-
-      /* keyboard users get a ring; the row sits on arbitrary footage, so it carries its own contrast */
-      &:focus-visible {
-        outline: 2px solid ${TEXT};
-        outline-offset: 2px;
-        border-radius: 3px;
-      }
-
-    }
-
-    /*
      * The WORDS go when the row runs out of room, never the icons.
      *
      * Same threshold and same reasoning as the downloaded counter above: on a phone this row is
@@ -246,7 +281,6 @@ const playerStyle = css`
      * The torrent state folds with them for the plainer reason that Downloading is the longest word
      * in the row, with Retrying not far behind.
      */
-    .item.link span,
     .item.state span,
     .item.vpn span {
       display: none;
@@ -399,6 +433,53 @@ const Player = () => {
 
   const overlay = (
     <div className="ripple-overlay-content">
+      {/* The way back to the whole torrent, and to its files. At the head of the row, and drawn as
+          glyphs alone: the tooltip carries the sentence, which is more than a one word label said. */}
+      <div className="player-links">
+        {libraryHref && (
+          <TooltipDisplay
+            id="open-in-ripple"
+            /* start aligned, not end: these sit against the left edge, and a chip anchored to its
+               end would hang off it. The readouts on the right take bottom-end for the mirror
+               reason. */
+            tooltipPlace="bottom-start"
+            text={
+              <a
+                className="item link"
+                href={libraryHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="open-in-ripple"
+                /* The glyph carries no text, and react-tooltip never wires aria-describedby, so the
+                   tooltip is invisible to a screen reader. The name has to be stated. */
+                aria-label="Open this torrent in Ripple"
+              >
+                <ExternalLink />
+              </a>
+            }
+            toolTipText={<span>Open this torrent in Ripple<br />Opens a new tab</span>}
+          />
+        )}
+        {downloadHref && (
+          <TooltipDisplay
+            id="open-download-page"
+            tooltipPlace="bottom-start"
+            text={
+              <a
+                className="item link"
+                href={downloadHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="open-download-page"
+                aria-label={`Download ${fileName ?? 'this torrent'}`}
+              >
+                <Download />
+              </a>
+            }
+            toolTipText={<span>Download {fileName ?? 'this torrent'}<br />Opens a new tab</span>}
+          />
+        )}
+      </div>
       {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
       <div className="file-name">{fileName}</div>
       {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
@@ -444,32 +525,6 @@ const Player = () => {
           text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
           toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
         />
-        {/* The way back to the whole torrent, and to its files. Last in the row because they are the
-            only two things here somebody presses rather than reads. */}
-        {libraryHref && (
-          <TooltipDisplay
-            id="open-in-ripple"
-            tooltipPlace="bottom-end"
-            text={
-              <a className="item link" href={libraryHref} target="_blank" rel="noopener noreferrer" data-testid="open-in-ripple">
-                <ExternalLink /><span>Ripple</span>
-              </a>
-            }
-            toolTipText={<span>Open this torrent in Ripple<br />Opens a new tab</span>}
-          />
-        )}
-        {downloadHref && (
-          <TooltipDisplay
-            id="open-download-page"
-            tooltipPlace="bottom-end"
-            text={
-              <a className="item link" href={downloadHref} target="_blank" rel="noopener noreferrer" data-testid="open-download-page">
-                <Download /><span>Download</span>
-              </a>
-            }
-            toolTipText={<span>Download {fileName ?? 'this torrent'}<br />Opens a new tab</span>}
-          />
-        )}
         {/* audio and subtitle pickers live in the player's own settings menu now */}
       </div>
     </div>

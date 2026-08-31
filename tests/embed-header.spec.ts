@@ -107,25 +107,42 @@ test.describe('the embedded player header', () => {
         if (span && widths[index]) span.textContent = widths[index]!
       })
 
-      const last = document.querySelector('[data-testid="open-download-page"]')
-      const first = document.querySelector('.file-name')
-      if (!last || !first) return null
+      /*
+       * The LAST item is the rightmost readout, not a link.
+       *
+       * The links used to end the row and were what this measured. They are at its head now, so
+       * reading the download link here would measure something 40px from the left edge and pass
+       * whatever the row did on the right, which is a check that cannot fail.
+       */
+      const readouts = document.querySelectorAll('.media-information .item')
+      const last = readouts[readouts.length - 1]
+      const links = document.querySelector('.player-links')
+      const name = document.querySelector('.file-name')
+      if (!last || !links || !name) return null
       return {
         lastRight: last.getBoundingClientRect().right,
-        firstLeft: first.getBoundingClientRect().left,
+        linksLeft: links.getBoundingClientRect().left,
+        linksRight: links.getBoundingClientRect().right,
+        nameLeft: name.getBoundingClientRect().left,
         width: window.innerWidth,
       }
     })
     expect(edges, 'the row is missing the items this measures').not.toBeNull()
-    expect(edges!.lastRight, 'the last item hangs off the right edge').toBeLessThanOrEqual(edges!.width)
-    expect(edges!.firstLeft, 'the row starts off the left edge').toBeGreaterThanOrEqual(0)
+    expect(edges!.lastRight, 'the last readout hangs off the right edge').toBeLessThanOrEqual(edges!.width)
+    expect(edges!.linksLeft, 'the row starts off the left edge').toBeGreaterThanOrEqual(0)
+    // at the HEAD of the row, which is what keeps them out of the group that shrinks
+    expect(edges!.linksRight, 'the links are not in front of the filename').toBeLessThanOrEqual(edges!.nameLeft)
 
-    // the words fold at this width and the icons stay, which is what makes it fit
+    // the readouts fold their words at this width and their icons stay, which is what makes it fit
     await expect(page.getByTestId('torrent-state').locator('span')).toBeHidden()
-    await expect(page.getByTestId('open-in-ripple').locator('span')).toBeHidden()
-    // and they come back when there is room
+    // the links never carry a word at any width: the glyph is the control and the tooltip is the label
+    await expect(page.getByTestId('open-in-ripple').locator('span')).toHaveCount(0)
+    await expect(page.getByTestId('open-in-ripple')).toHaveAttribute('aria-label', /Ripple/)
+    await expect(page.getByTestId('open-download-page')).toHaveAttribute('aria-label', /Download/)
+    // and the readouts get their words back when there is room
     await page.setViewportSize({ width: 1280, height: 720 })
-    await expect(page.getByTestId('open-in-ripple').locator('span')).toBeVisible()
+    await expect(page.getByTestId('torrent-state').locator('span')).toBeVisible()
+    await expect(page.getByTestId('open-in-ripple').locator('span')).toHaveCount(0)
   })
 
   test('the header survives inside a cross-origin frame', async ({ page }) => {
