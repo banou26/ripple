@@ -25,31 +25,58 @@ const style = (size: buttonSize) => css`
   --rt-opacity: 1;
 
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 
-  border-radius: 6px;
+  /*
+   * Bounded, and allowed to wrap. Two rules, and BOTH are load bearing.
+   *
+   * react-tooltip's own chip rule carries width of max-content, so with nothing opposing it the chip
+   * grows to the widest UNWRAPPED line of its content: measured at 1884px for the VPN explainer, in
+   * a 1920px window, and at 1618px in a 720px one with 903px of it off screen. The chip is drawn in
+   * place rather than portaled, so it is a descendant of the overlay row and inherits that row's
+   * nowrap as well, which is why a bound on its own would only move the overflow inside a narrow
+   * box instead of wrapping in it.
+   */
+  max-width: min(calc(32 * var(--mp-unit)), calc(100vw - calc(2.4 * var(--mp-unit))));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+
+  /*
+   * The radius carries !important for exactly the reason the padding below does, and the note above
+   * explains: react-tooltip's sheet lands after emotion's at equal specificity, so its own 3px wins
+   * every tie and the chip was drawn square.
+   */
+  border-radius: calc(0.6 * var(--mp-unit))!important;
   user-select: none;
 
   z-index: 3;
 
+  /*
+   * Sized in the player's own unit, not in rem.
+   *
+   * This chip only ever appears inside the player, whose whole chrome scales from that variable,
+   * while rem is root relative and belongs to whatever page is embedding this. At ripple's 16px root
+   * the rem version drew 22.4px of tooltip text against a row drawn at 14px.
+   */
   * {
     font-weight: 400;
-    font-size: 1.2rem;
-    line-height: 1.7rem;
+    font-size: calc(1.2 * var(--mp-unit));
+    line-height: calc(1.7 * var(--mp-unit));
     @media (min-width: 960px) {
-      font-size: 1.4rem;
-      line-height: 2rem;
+      font-size: calc(1.4 * var(--mp-unit));
+      line-height: calc(2 * var(--mp-unit));
     }
   }
 
   ${size === buttonSize.sm && css`
-    padding: 0.4rem!important;
+    padding: calc(0.4 * var(--mp-unit))!important;
   `}
   ${size === buttonSize.md && css`
-    padding: 0.6rem!important;
+    padding: calc(0.6 * var(--mp-unit))!important;
   `}
   ${size === buttonSize.lg && css`
-    padding: 1.2rem!important;
+    padding: calc(1.2 * var(--mp-unit))!important;
   `}
 `
 
@@ -77,7 +104,7 @@ export const TooltipDisplay = ({
   text,
   delayShow = 0,
   closeDelay = 0,
-  offset = 27.5,
+  offset = 10,
   tooltipPlace = 'top',
   disabled = false,
   size = buttonSize.md
