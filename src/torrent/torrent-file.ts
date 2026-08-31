@@ -131,7 +131,7 @@ const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr'))
  * byte range is found rather than the value re-encoded. Bencode is canonical and any normalisation
  * on the way through changes the number, which would then match nothing the engine ever computed.
  */
-const infoRange = (b: Uint8Array): [number, number] | null => {
+export const infoRange = (b: Uint8Array): [number, number] | null => {
   if (b[0] !== DICT) return null
   let at = 1
   while (at < b.length && b[at] !== END) {

@@ -22,7 +22,7 @@ import { NO_UPTIME, totalUptime, worthWriting } from './uptime'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from './library'
+import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -59,7 +59,6 @@ export type TorrentDetail = {
   trackers: TrackerInfo[]
 }
 
-const resumeKey = (ih: string) => 'ripple:resume:' + ih
 const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 /**
  * The handle a created torrent is read from. WRITTEN AND READ BY THE PAGE, never by this worker.

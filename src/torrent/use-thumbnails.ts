@@ -37,7 +37,7 @@ const libavPaths = () => {
  * is dropped on the way to the UI type. Reading it here is also what keeps every read inside bytes
  * that already exist, so generation never competes with a download.
  */
-export const useThumbnailGeneration = (client: TorrentClient) => {
+export const useThumbnailGeneration = (client: TorrentClient, only?: string) => {
   /**
    * Show the pictures already on this device WITHOUT waiting for the engine.
    *
@@ -54,17 +54,27 @@ export const useThumbnailGeneration = (client: TorrentClient) => {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const list = (await get<Persisted[]>(LIST_KEY).catch(() => undefined)) ?? []
-      const hashes = list.map((e) => e.infoHash).filter(Boolean)
+      /*
+       * `only` narrows this to one torrent, for the download page.
+       *
+       * That page is usually an embed on somebody else's site showing a single release, and the
+       * visitor's library is none of its business: reading the whole list there would load and hold
+       * an object URL for every picture on the device to draw one. The library page passes nothing
+       * and still gets all of them.
+       */
+      const hashes = only
+        ? [only]
+        : ((await get<Persisted[]>(LIST_KEY).catch(() => undefined)) ?? []).map((e) => e.infoHash).filter(Boolean)
       if (!cancelled && hashes.length) await loadCachedThumbnails(hashes).catch(() => {})
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [only])
 
   useEffect(() => {
     const paths = libavPaths()
     let cached = new Set<string>()
-    return client.onState((snapshots) => {
+    return client.onState((all) => {
+      const snapshots = only ? all.filter((snapshot) => magnetInfoHash(snapshot.magnet) === only) : all
       // a reload has pictures on disk long before it has the bytes to remake them
       const fresh = snapshots
         .map((snapshot) => magnetInfoHash(snapshot.magnet))
@@ -75,7 +85,7 @@ export const useThumbnailGeneration = (client: TorrentClient) => {
       }
       considerThumbnails(client, snapshots, paths)
     })
-  }, [client])
+  }, [client, only])
 }
 
 /** The object URL for a torrent's picture, or null while there is not one. */

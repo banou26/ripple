@@ -25,8 +25,18 @@ const FILES = [
 const claimed: number[] = []
 
 const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
-  // the page subscribes to engine resets to stop an export holding a handle the reset invalidated
-  client: { onEngineReset: () => () => {} } as unknown as DownloadTorrent['client'],
+  /*
+   * The page subscribes to engine resets, to stop an export holding a handle the reset invalidated,
+   * and to state, because the card draws a frame of the release where the file glyph used to be and
+   * thumbnail generation watches the engine for the bytes to make one from.
+   *
+   * `onState` never fires here: with no snapshot arriving there is nothing to make a picture out of,
+   * so these tests see the glyph, which is what they were written against.
+   */
+  client: {
+    onEngineReset: () => () => {},
+    onState: () => () => {},
+  } as unknown as DownloadTorrent['client'],
   claim: (fileIndex: number) => { claimed.push(fileIndex) },
   snapshot: {
     handle: 7,

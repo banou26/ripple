@@ -29,6 +29,22 @@ export const magnetInfoHash = (magnet: string): string | null => {
   return multihash.startsWith('1220') && multihash.length === 68 ? multihash.slice(4) : multihash
 }
 
+/**
+ * EVERY value of a repeated magnet key, decoded and in order.
+ *
+ * `tr` and `ws` are lists by design, so the single-value reader below answers with the first one and
+ * quietly loses the rest. A .torrent rebuilt from a magnet that kept one tracker out of five is a
+ * worse torrent than the magnet was.
+ */
+export const magnetParams = (magnet: string, key: string): string[] => {
+  const out: string[] = []
+  for (const m of magnet.matchAll(new RegExp('[?&]' + key + '=([^&]+)', 'g'))) {
+    const raw = m[1]!
+    try { out.push(decodeURIComponent(raw.replace(/\+/g, ' '))) } catch { out.push(raw) }
+  }
+  return [...new Set(out)]
+}
+
 /** One query key out of a magnet link, decoded. `dn` is the display name a tracker suggested. */
 export const magnetParam = (magnet: string, key: string): string | undefined => {
   const m = magnet.match(new RegExp('[?&]' + key + '=([^&]+)'))

@@ -164,6 +164,15 @@ export type TorrentClient = {
    * sent the epoch matches and the engine has listed its torrents, so it looks like any ordinary
    * command, and the number in it names whatever the new session assigned it.
    */
+  /**
+   * Ask the engine to write every torrent's resume blob now.
+   *
+   * Already sent on pagehide, and public because a resume blob is the only copy of a torrent's info
+   * dictionary outside libtorrent's own memory, so rebuilding a .torrent needs one to exist. Cheap,
+   * idempotent, and it writes to IndexedDB rather than to torrent storage, so it does not disturb a
+   * page that has deliberately written nothing.
+   */
+  flushResume: () => void
   relocate: (infoHash: string, to: SaveLocation) => void
   /**
    * Record where a torrent's files belong, without moving anything.
@@ -533,6 +542,7 @@ export const createTorrentClient = (): EngineClient => {
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
+    flushResume: () => send({ type: 'flush-resume' }),
     relocate: (infoHash, to) => send({ type: 'relocate', infoHash, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),

@@ -214,3 +214,14 @@ export const syncedMetadata = (e: Partial<Persisted>): Pick<Persisted, 'name' | 
  * the pictures had been lost.
  */
 export const LIST_KEY = 'ripple:torrents'
+
+/**
+ * Where a torrent's resume blob lives, shared because two realms read it.
+ *
+ * The worker writes it, and the page reads it to rebuild a .torrent: `lt_torrent_save_resume_data`
+ * asks libtorrent with `save_info_dict`, so the blob carries the whole info dictionary, which is the
+ * only copy of the metadata that exists anywhere outside the engine's own memory. Two spellings of
+ * this prefix would mean the page looking somewhere the worker never writes, and finding nothing
+ * looks exactly like a torrent with no metadata yet.
+ */
+export const resumeKey = (infoHash: string) => 'ripple:resume:' + infoHash

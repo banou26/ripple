@@ -21,7 +21,7 @@ import {
   TEXT_MUTED,
   TEXT_ON_LIGHT,
 } from '../theme'
-import { ArrowDown, Download, File as FileIcon, Folder, Play, User } from 'react-feather'
+import { ArrowDown, Download, File as FileIcon, Folder, Link2, Play, User } from 'react-feather'
 
 import type { SaveEntry } from '../torrent/save-file'
 import type { FileSelection } from './file-selection'
@@ -31,12 +31,15 @@ import {
   saveTorrentEntriesAsZipToDisk,
   saveTorrentFileToDisk,
 } from '../torrent/save-file'
-import { magnetParam } from '../torrent/magnet'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
+import { magnetInfoHash, magnetParam } from '../torrent/magnet'
+import { torrentFileFor } from '../torrent/torrent-export'
+import { hint } from '../components/hint'
+import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
 
@@ -140,6 +143,21 @@ const style = css`
       svg { width: 22px; height: 22px; }
     }
 
+    /* A frame of the release fills the tile it replaces, cropped rather than letterboxed: the tile is
+       square and a video frame is not, and a picture the same size as the glyph says more than a
+       correctly proportioned thumbnail too small to make anything out. */
+    .glyph.poster {
+      overflow: hidden;
+      padding: 0;
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+    }
+
     .about {
       flex: 1;
       min-width: 0;
@@ -222,6 +240,41 @@ const style = css`
 
     &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_INTERACTIVE}; }
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
+  }
+
+  /*
+   * The two things somebody can take away from this page besides the files.
+   *
+   * Side by side and quieter than the download button, because neither is what the page is for: they
+   * are for the person who wants the torrent itself, to seed it elsewhere or to keep the link. Equal
+   * width so neither reads as the primary of the two.
+   */
+  .share {
+    display: flex;
+    gap: 8px;
+
+    button {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid ${BORDER};
+      border-radius: 6px;
+      background: ${CONTROL_BG};
+      color: ${TEXT};
+      font-size: 0.8rem;
+      font-weight: 700;
+
+      svg { width: 15px; height: 15px; flex: none; }
+      span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
+      &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
+      &:disabled { opacity: 0.55; }
+    }
   }
 
   .cancel {
@@ -456,6 +509,78 @@ const DownloadPage = ({ magnet, selection }: Props) => {
 
   const single = entries.length === 1 ? entries[0]! : null
 
+  const infoHash = useMemo(() => (magnet ? magnetInfoHash(magnet) ?? undefined : undefined), [magnet])
+
+  /*
+   * A picture of the release instead of a file glyph.
+   *
+   * Narrowed to THIS torrent: the page is usually an embed on somebody else's site showing one
+   * release, and reading the visitor's whole library to draw one picture is not its business.
+   *
+   * It cannot appear before the button is pressed, and that is deliberate rather than a gap. A frame
+   * is made from the file's first bytes, and this page writes NOTHING until somebody asks it to,
+   * which `embed-download.spec.ts` measures with a positive control. So the picture shows when there
+   * is one already on the device, and otherwise arrives once a download is under way and the head
+   * has landed. `considerThumbnails` only ever reads bytes that already exist, so mounting this
+   * cannot start a transfer.
+   */
+  useThumbnailGeneration(client, infoHash)
+  const poster = useThumbnail(infoHash)
+
+  /*
+   * The two ways to take the torrent itself away, rather than its files.
+   *
+   * `share` is one piece of state for both, so a message from one replaces the other's rather than
+   * stacking two lines under the buttons.
+   */
+  const [share, setShare] = useState<string | null>(null)
+  const [savingTorrent, setSavingTorrent] = useState(false)
+  const shareTimer = useRef<number | undefined>(undefined)
+  const say = useCallback((message: string) => {
+    setShare(message)
+    window.clearTimeout(shareTimer.current)
+    shareTimer.current = window.setTimeout(() => setShare(null), 4_000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(shareTimer.current), [])
+
+  const copyMagnet = useCallback(() => {
+    if (!magnet) return
+    // A cross-origin frame can be refused the clipboard outright, and the refusal is the whole
+    // outcome from where the person is sitting, so it is said rather than swallowed.
+    navigator.clipboard.writeText(magnet)
+      .then(() => say('Magnet copied'))
+      .catch(() => say('This page was not allowed to use the clipboard'))
+  }, [magnet, say])
+
+  /*
+   * The .torrent is REBUILT rather than fetched, because there is nothing to fetch.
+   *
+   * A magnet carries an infohash and the engine gets the rest from the swarm, so afterwards the info
+   * dictionary lives only inside libtorrent, which exposes no way to read it back. `torrentFileFor`
+   * takes it out of the resume blob, which libtorrent is already asked to write with `save_info_dict`.
+   * Nothing here touches torrent storage, so a page that has deliberately written nothing still has.
+   */
+  const saveTorrentFile = useCallback(() => {
+    if (!magnet || !infoHash || savingTorrent) return
+    setSavingTorrent(true)
+    void torrentFileFor({ infoHash, magnet, flush: () => client.flushResume() })
+      .then((bytes) => {
+        if (!bytes) { say('The metadata has not arrived yet, so there is no .torrent to save'); return }
+        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/x-bittorrent' }))
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${torrentName}.torrent`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        // revoked on a later task: revoking in the same one races the navigation the click started
+        window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+        say('Saved the .torrent')
+      })
+      .catch(() => say('The .torrent could not be built'))
+      .finally(() => setSavingTorrent(false))
+  }, [magnet, infoHash, savingTorrent, client, torrentName, say])
+
   /*
    * Whether this torrent has anything to watch, asked of the files the LINK named rather than of the
    * whole torrent: a link for the subtitles of a release should not offer to play the video it did
@@ -599,7 +724,11 @@ const DownloadPage = ({ magnet, selection }: Props) => {
       <main>
         <div className="card">
           <div className="subject">
-            <div className="glyph">{single ? <FileIcon /> : <Folder />}</div>
+            <div className={'glyph' + (poster ? ' poster' : '')}>
+              {poster
+                ? <img src={poster} alt="" />
+                : single ? <FileIcon /> : <Folder />}
+            </div>
             <div className="about">
               <div className="name">{subjectName}</div>
               <div className="meta">
@@ -632,6 +761,22 @@ const DownloadPage = ({ magnet, selection }: Props) => {
               {watchLabel}
             </Link>
           )}
+
+          {/* Offered whenever there is a magnet at all, which is before metadata: copying a link
+              never needed the swarm, and Save says for itself when the metadata has not landed. */}
+          {magnet && (
+            <div className="share">
+              <button type="button" onClick={copyMagnet} {...hint('Copy this torrent\'s magnet link')}>
+                <Link2 />
+                <span>Copy magnet</span>
+              </button>
+              <button type="button" onClick={saveTorrentFile} disabled={savingTorrent || !infoHash} {...hint('Save the .torrent file for this torrent')}>
+                <FileIcon />
+                <span>{savingTorrent ? 'Building…' : 'Save .torrent'}</span>
+              </button>
+            </div>
+          )}
+          {share && <div className="note" data-testid="share-note">{share}</div>}
 
           {busy && (
             <div className="progress">
