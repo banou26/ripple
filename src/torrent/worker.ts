@@ -101,7 +101,15 @@ let folderHandle: FileSystemDirectoryHandle | null = null
  * Not persisted from this side. The page owns the durable copy, because regaining a lapsed grant
  * needs a user gesture and a worker has none.
  */
-const sourceHandles = new Map<string, FileSystemFileHandle[]>()
+/**
+ * Per created torrent, one entry per file in the TORRENT's order, `null` at every pad file.
+ *
+ * The nulls hold their positions rather than being filtered out. libtorrent indexes a read by
+ * position in its own file list, which carries the pads a hybrid or v2 torrent inserts, so a dense
+ * array of real handles would serve one file's bytes for another from the first pad onward, with
+ * nothing reporting an error and every piece failing.
+ */
+const sourceHandles = new Map<string, (FileSystemFileHandle | null)[]>()
 let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
@@ -895,7 +903,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
 const addSource = (
   live: Session,
   { infoHash, magnet, bytes, handles, paused }:
-  { infoHash: string, magnet: string, bytes: Uint8Array, handles: FileSystemFileHandle[], paused: boolean },
+  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (FileSystemFileHandle | null)[], paused: boolean },
 ): number | null => {
   const savePath = sourceSavePathFor(infoHash)
   sourceHandles.set(savePath, handles)
@@ -1467,13 +1475,15 @@ const handleMessage = async (session: Session, m: any) => {
        */
       const ih: string = m.infoHash
       // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
-      const fileHandles = (m.handles ?? []) as FileSystemFileHandle[]
+      const fileHandles = (m.handles ?? []) as (FileSystemFileHandle | null)[]
       const bytes = m.bytes as Uint8Array
       if (typeof ih !== 'string' || !ih || !fileHandles.length || !bytes?.byteLength) {
         post({ type: 'add-failed', message: 'That torrent could not be created' })
         return
       }
-      if (fileHandles.some((handle) => !handle)) {
+      // a `null` here is a PAD FILE and is expected; the page throws before sending if a real file
+      // is missing, so what this guards against is a message with nothing usable in it at all
+      if (!fileHandles.some((handle) => handle)) {
         post({ type: 'add-failed', message: 'Some of those files could not be opened' })
         return
       }
@@ -1499,6 +1509,9 @@ const handleMessage = async (session: Session, m: any) => {
         started: true,
         paused: false,
         saveTo: 'source',
+        // the format decides where the pads fall, and a later load has to rebuild the same file
+        // list to keep the handle array index-aligned with libtorrent's
+        format: m.format ?? 'v1',
         ...syncedMetadata({ name: m.name, size: m.size, files: m.files }),
       })
       post({ type: 'added', handle: h, magnet: m.magnet })
@@ -1512,9 +1525,10 @@ const handleMessage = async (session: Session, m: any) => {
        */
       const ih: string = m.infoHash
       // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
-      const fileHandles = (m.handles ?? []) as FileSystemFileHandle[]
+      const fileHandles = (m.handles ?? []) as (FileSystemFileHandle | null)[]
       if (typeof ih !== 'string' || !ih || !fileHandles.length) return
-      if (fileHandles.some((handle) => !handle)) {
+      // as in create-source above, a `null` is a pad file rather than a file that failed to open
+      if (!fileHandles.some((handle) => handle)) {
         post({ type: 'add-failed', message: 'Some of those files could not be opened' })
         return
       }

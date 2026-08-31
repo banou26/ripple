@@ -22,7 +22,9 @@ import {
   WARN,
 } from '../theme'
 import { DEFAULT_TRACKERS } from '../torrent/create-source'
-import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH } from '../torrent/make-torrent'
+import type { TorrentFormat } from '../torrent/make-torrent'
+
+import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH, contentFiles } from '../torrent/make-torrent'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { hashEta } from '../torrent/hash-pieces'
 import { Modal } from './modal'
@@ -233,6 +235,14 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   const [sourceTag, setSourceTag] = useState('')
   /** Empty string is Auto, which means `plan()` picks from the total size. */
   const [pieceChoice, setPieceChoice] = useState('')
+  /**
+   * v1 by default, because it is the only format every client understands.
+   *
+   * Hybrid is the better torrent and is not the safe default: it costs one piece of padding per file
+   * and a client that has not implemented BEP 52 still reads the v1 half, so nobody is shut out, but
+   * the padding is real and somebody sharing a thousand small files should choose it knowingly.
+   */
+  const [format, setFormat] = useState<TorrentFormat>('v1')
   const [startedAt, setStartedAt] = useState(0)
   const first = useRef<HTMLButtonElement>(null)
 
@@ -247,8 +257,16 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
     comment,
     source: sourceTag,
     pieceLength: pieceChoice ? Number(pieceChoice) : undefined,
+    format,
     private: isPrivate,
-  }), [name, trackerText, webSeedText, comment, sourceTag, pieceChoice, isPrivate])
+  }), [name, trackerText, webSeedText, comment, sourceTag, pieceChoice, format, isPrivate])
+
+  /** Both controls re-plan, and each has to pass the OTHER's current value or it would undo it. */
+  const replanWith = (next: { pieceLength?: number, format?: TorrentFormat }) => create.replan({
+    pieceLength: pieceChoice ? Number(pieceChoice) : undefined,
+    format,
+    ...next,
+  })
 
   const working = state.stage === 'reading' || state.stage === 'hashing' || state.stage === 'checking' || state.stage === 'adding'
   const eta = state.progress && startedAt ? hashEta(state.progress, Date.now() - startedAt) : undefined
@@ -279,7 +297,9 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               <div className="facts">
                 <div className="fact">
                   <span className="label">Files</span>
-                  <span className="value">{state.plan.files.length}</span>
+                  {/* the person's own files. A hybrid torrent's plan also holds the pad files, which
+                      are zeroes Ripple inserted and nobody picked. */}
+                  <span className="value">{contentFiles(state.plan).length}</span>
                 </div>
                 <div className="fact">
                   <span className="label">Total size</span>
@@ -293,7 +313,45 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                       exclusions and the screen and the torrent disagree. */}
                   <span className="value">{state.plan.pieceCount}</span>
                 </div>
+                {state.plan.paddedBytes > state.plan.totalBytes && (
+                  <div className="fact">
+                    <span className="label">Padding</span>
+                    {/* Named rather than folded into the total, because it is bytes the swarm carries
+                        that nobody asked for. One piece per file at worst, so a pick of many small
+                        files can pay a real fraction and this is where somebody would notice. */}
+                    <span className="value">
+                      {getHumanReadableByteString(state.plan.paddedBytes - state.plan.totalBytes)}
+                    </span>
+                  </div>
+                )}
               </div>
+
+              <label className="field">
+                <span>Format</span>
+                <select
+                  value={format}
+                  onChange={(event) => {
+                    const chosen = event.target.value as TorrentFormat
+                    setFormat(chosen)
+                    replanWith({ format: chosen })
+                  }}
+                >
+                  <option value="v1">v1, which every client understands</option>
+                  <option value="hybrid">Hybrid, v1 and v2 in one torrent</option>
+                  <option value="v2">v2 only</option>
+                </select>
+              </label>
+              <p className="faint">
+                {format === 'v1'
+                  ? 'The original format. Every client can download it.'
+                  : format === 'hybrid'
+                    ? 'Carries both formats in one torrent, so older clients use the v1 half and newer '
+                      + 'ones can verify each file on its own. Each file is padded up to a piece '
+                      + 'boundary, which is where the padding above comes from.'
+                    : 'Smaller and verifiable file by file, and invisible to any client that has not '
+                      + 'implemented it, which is still most of them. Choose this only if you know who '
+                      + 'is downloading.'}
+              </p>
 
               <label className="field">
                 <span>Piece size</span>
@@ -301,7 +359,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   value={pieceChoice}
                   onChange={(event) => {
                     setPieceChoice(event.target.value)
-                    create.replan(event.target.value ? Number(event.target.value) : undefined)
+                    replanWith({ pieceLength: event.target.value ? Number(event.target.value) : undefined })
                   }}
                 >
                   <option value="">Auto ({binaryBytes(state.plan.pieceLength)})</option>
@@ -406,6 +464,11 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 device.
               </p>
               <p className="faint">Info hash <code>{state.built.infoHash}</code></p>
+              {/* only when it is a SECOND name for the same torrent. A v2-only torrent's identity IS
+                  its v2 hash, so a second line would print the same string twice. */}
+              {state.built.infoHashV2 && state.built.infoHashV2 !== state.built.infoHash && (
+                <p className="faint">v2 info hash <code>{state.built.infoHashV2}</code></p>
+              )}
               <p className="faint">
                 It keeps sharing while Ripple is open. After a reload the browser asks for access to
                 those files again before it can carry on.

@@ -105,10 +105,15 @@ export type FolderSource = () => FileSystemDirectoryHandle | null
  * A `fileIndex` cannot drift like that. It is the position in the info dict's `files` list, which is
  * the order the metainfo was written in and the order the walk produced.
  */
-export type SourceLookup = (savePath: string) => FileSystemFileHandle[] | null
+export type SourceLookup = (savePath: string) => (FileSystemFileHandle | null)[] | null
 
 type NativeStorage = { savePath: string, files: Array<{ path: string, size: number }> }
-type SourceStorage = NativeStorage & { handles: FileSystemFileHandle[] | null }
+/**
+ * `null` for the WHOLE array means no handles are registered for this torrent. `null` for one ENTRY
+ * means that index is a PAD FILE: zeroes a hybrid or v2 torrent inserts to push the next file onto a
+ * piece boundary, which has no file behind it and never had.
+ */
+type SourceStorage = NativeStorage & { handles: (FileSystemFileHandle | null)[] | null }
 
 const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<File> => {
   const parts = path.split('/').filter(Boolean)
@@ -139,8 +144,14 @@ export const createHybridStorage = (
     return root
   }
 
-  /** The one place a source read resolves a file, so the index rule above has a single home. */
-  const sourceFileAt = async (entry: SourceStorage, fileIndex: number): Promise<File> => {
+  /**
+   * The one place a source read resolves a file, so the index rule above has a single home.
+   *
+   * Returns `null` for a PAD, which is not an error and not a missing file: a pad is zeroes by
+   * definition, it is never written anywhere, and the caller answers the read with zeroes. That the
+   * index space includes them is the whole reason the handle array carries a slot for each.
+   */
+  const sourceFileAt = async (entry: SourceStorage, fileIndex: number): Promise<File | null> => {
     // A source torrent is only ever added once its handles are registered, so this is a construction
     // error rather than a missing grant. Loud, because the alternative shape of this bug is a torrent
     // that reports nothing wrong and serves nothing.
@@ -148,9 +159,10 @@ export const createHybridStorage = (
     if (entry.handles.length !== entry.files.length) {
       throw new Error(`hybrid storage: ${entry.savePath} has ${entry.handles.length} handles for ${entry.files.length} files`)
     }
-    const handle = entry.handles[fileIndex]
-    if (!handle) throw new Error(`hybrid storage: no source handle ${fileIndex} in ${entry.savePath}`)
-    return handle.getFile()
+    if (fileIndex < 0 || fileIndex >= entry.handles.length) {
+      throw new Error(`hybrid storage: no source handle ${fileIndex} in ${entry.savePath}`)
+    }
+    return entry.handles[fileIndex]?.getFile() ?? null
   }
 
   return {
@@ -180,6 +192,15 @@ export const createHybridStorage = (
       if (picked) {
         return (async () => {
           const file = await sourceFileAt(picked, fileIndex)
+          /*
+           * A pad reads as zeroes, and is answered here rather than left to the engine.
+           *
+           * libtorrent's own storage returns zeroes for a pad without touching a disk, and Ripple's
+           * engine replaces that storage wholesale, so the answer has to come from somewhere on this
+           * side. Answering it here means a hybrid torrent is correct against whatever engine build
+           * happens to be loaded rather than only against a fixed one.
+           */
+          if (!file) return new Uint8Array(len)
           const chunk = await file.slice(offset, offset + len).arrayBuffer()
           // same rule as the folder case below: a short read means the person's file is not what the
           // torrent says it is, and zeros would be served to a peer as real data

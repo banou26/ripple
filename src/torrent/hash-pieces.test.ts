@@ -42,7 +42,7 @@ describe('hashing pieces', () => {
   it('produces the published digest for a single short piece', async () => {
     const contents = { 'a.txt': new TextEncoder().encode('abc') }
     const built = plan({ name: 'a.txt', files: [{ path: ['a.txt'], size: 3 }], single: true })
-    const pieces = await hashPieces(built, disk(contents).read)
+    const { pieces } = await hashPieces(built, disk(contents).read)
     expect(built.pieceCount).toBe(1)
     expect(digestAt(pieces, 0)).toBe('a9993e364706816aba3e25717850c26c9cd0d89d')
   })
@@ -66,7 +66,7 @@ describe('hashing pieces', () => {
     })
     // the plan's own piece length is far larger than the data, so override the walk with a tiny one
     const small = { ...built, pieceLength: 4, pieceCount: 4 }
-    const pieces = await hashPieces(small, disk(contents).read)
+    const { pieces } = await hashPieces(small, disk(contents).read)
 
     const whole = new Uint8Array([...contents.a!, ...contents.b!, ...contents.c!])
     expect(digestAt(pieces, 0)).toBe(await sha1(whole.subarray(0, 4)))
@@ -79,7 +79,7 @@ describe('hashing pieces', () => {
   it('writes exactly one digest per piece, in order', async () => {
     const contents = { 'a': filled(10, 1) }
     const built = { ...plan({ name: 'P', files: [{ path: ['a'], size: 10 }] }), pieceLength: 4, pieceCount: 3 }
-    const pieces = await hashPieces(built, disk(contents).read)
+    const { pieces } = await hashPieces(built, disk(contents).read)
     expect(pieces.length).toBe(3 * PIECE_HASH_BYTES)
   })
 
@@ -92,7 +92,7 @@ describe('hashing pieces', () => {
       pieceCount: 2,
     }
     // plan sorts, so the order is a, b, empty
-    const pieces = await hashPieces(built, disk(contents).read)
+    const { pieces } = await hashPieces(built, disk(contents).read)
     expect(digestAt(pieces, 0)).toBe(await sha1(filled(4, 1)))
     expect(digestAt(pieces, 1)).toBe(await sha1(filled(4, 2)))
   })
@@ -100,7 +100,7 @@ describe('hashing pieces', () => {
   it('hashes nothing at all for a torrent of only empty files', async () => {
     const built = plan({ name: 'P', files: [{ path: ['a'], size: 0 }] })
     const { read, reads } = disk({ 'a': new Uint8Array(0) })
-    const pieces = await hashPieces(built, read)
+    const { pieces } = await hashPieces(built, read)
     expect(built.pieceCount).toBe(0)
     expect(pieces.length).toBe(0)
     expect(reads).toHaveLength(0)

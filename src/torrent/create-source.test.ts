@@ -59,7 +59,7 @@ describe('assembling the torrent', () => {
 
   it('produces bytes another reader agrees with', async () => {
     const { pieces } = hashesFor(files, 'Pack')
-    const out = await buildTorrent({ picked: files, pieces, options: options(), single: false })
+    const out = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options(), single: false })
     const read = await readTorrentFile(out.bytes)
     expect(read!.name).toBe('Pack')
     expect(read!.size).toBe(700_040_000)
@@ -68,7 +68,7 @@ describe('assembling the torrent', () => {
 
   it('names its files the way the rest of the library does', async () => {
     const { pieces } = hashesFor(files, 'Pack')
-    const out = await buildTorrent({ picked: files, pieces, options: options(), single: false })
+    const out = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options(), single: false })
     expect(out.files.map((f) => f.name)).toEqual(['Pack/E01.mkv', 'Pack/Subs/E01.ass'])
   })
 
@@ -81,14 +81,14 @@ describe('assembling the torrent', () => {
   it('reorders the handles to the torrent order, not the order they were walked in', async () => {
     const walked = [picked(['z.mkv'], 10), picked(['a.mkv'], 10)]
     const { pieces } = hashesFor(walked, 'Pack')
-    const out = await buildTorrent({ picked: walked, pieces, options: options(), single: false })
+    const out = await buildTorrent({ picked: walked, hashed: { pieces, fileHashes: [] }, options: options(), single: false })
     expect(out.plan.files.map((f) => f.path.join('/'))).toEqual(['a.mkv', 'z.mkv'])
-    expect(out.handles.map((h) => h.name)).toEqual(['a.mkv', 'z.mkv'])
+    expect(out.handles.map((h) => h!.name)).toEqual(['a.mkv', 'z.mkv'])
   })
 
   it('carries the trackers into both the file and the magnet', async () => {
     const { pieces } = hashesFor(files, 'Pack')
-    const out = await buildTorrent({ picked: files, pieces, options: options({ trackers: ['udp://t.example:1337'] }), single: false })
+    const out = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options({ trackers: ['udp://t.example:1337'] }), single: false })
     expect(out.magnet).toContain(encodeURIComponent('udp://t.example:1337'))
     const read = await readTorrentFile(out.bytes)
     expect(read!.magnet).toContain(encodeURIComponent('udp://t.example:1337'))
@@ -96,14 +96,14 @@ describe('assembling the torrent', () => {
 
   it('gives a private torrent a different infohash from the same files public', async () => {
     const { pieces } = hashesFor(files, 'Pack')
-    const open = await buildTorrent({ picked: files, pieces, options: options(), single: false })
-    const closed = await buildTorrent({ picked: files, pieces, options: options({ private: true }), single: false })
+    const open = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options(), single: false })
+    const closed = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options({ private: true }), single: false })
     expect(open.infoHash).not.toBe(closed.infoHash)
   })
 
   it('says nothing about who made it or when', async () => {
     const { pieces } = hashesFor(files, 'Pack')
-    const out = await buildTorrent({ picked: files, pieces, options: options(), single: false })
+    const out = await buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options(), single: false })
     const text = new TextDecoder().decode(out.bytes)
     expect(text).not.toContain('created by')
     expect(text).not.toContain('creation date')
@@ -113,7 +113,7 @@ describe('assembling the torrent', () => {
   it('builds the single-file shape for one picked file', async () => {
     const one = [picked(['Movie.mkv'], 5_000_000)]
     const { pieces } = hashesFor(one, 'Movie.mkv', true)
-    const out = await buildTorrent({ picked: one, pieces, options: options({ name: 'Movie.mkv' }), single: true })
+    const out = await buildTorrent({ picked: one, hashed: { pieces, fileHashes: [] }, options: options({ name: 'Movie.mkv' }), single: true })
     const read = await readTorrentFile(out.bytes)
     expect(read!.files!.map((f) => f.name)).toEqual(['Movie.mkv'])
     expect(out.plan.single).toBe(true)
@@ -124,7 +124,7 @@ describe('assembling the torrent', () => {
     const { pieces } = hashesFor(files, 'Pack')
     await expect(buildTorrent({
       picked: files,
-      pieces: pieces.subarray(0, pieces.length - PIECE_HASH_BYTES),
+      hashed: { pieces: pieces.subarray(0, pieces.length - PIECE_HASH_BYTES), fileHashes: [] },
       options: options(),
       single: false,
     })).rejects.toThrow(/piece hashes/)
@@ -150,7 +150,7 @@ describe('the rest of the metainfo', () => {
       pieceLength: over.pieceLength,
     })
     const pieces = new Uint8Array(built.pieceCount * PIECE_HASH_BYTES).fill(3)
-    return buildTorrent({ picked: files, pieces, options: options(over), single })
+    return buildTorrent({ picked: files, hashed: { pieces, fileHashes: [] }, options: options(over), single })
   }
 
   it('carries a comment, and omits the key entirely when empty', async () => {

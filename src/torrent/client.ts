@@ -6,6 +6,7 @@ import { NO_INBOUND } from './inbound'
 
 import { normalizeLimits } from './rate-limits'
 import type { SaveLocation } from './library'
+import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 
 import { relayWorker } from '@fkn/lib'
@@ -98,16 +99,22 @@ export type TorrentClient = {
   addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
   /**
    * Publish a torrent the page just built from the user's own file or folder, and seed it from
-   * there. `handles` is one file handle per file, in the torrent's own file order, which is what the
+   * there. `handles` is one entry per file, in the torrent's own file order, which is what the
    * storage backend indexes reads by; see `SourceLookup` in hybrid-storage.ts for why not by path.
+   *
+   * `null` marks a PAD FILE, which a hybrid or v2 torrent inserts between the person's files to push
+   * each one onto a piece boundary. A pad has no file behind it and reads as zeroes. The nulls
+   * occupy their positions rather than being filtered out, because libtorrent's file list carries
+   * the pads and a dense array would serve one file's bytes for another from the first pad onward.
    */
   createSource: (torrent: {
     infoHash: string
     magnet: string
     bytes: Uint8Array
-    handles: FileSystemFileHandle[]
+    handles: (FileSystemFileHandle | null)[]
     name: string
     size: number
+    format?: TorrentFormat
     files: { name: string, size: number }[]
   }) => void
   /**
@@ -115,7 +122,7 @@ export type TorrentClient = {
    * readable again. A picker grant does not survive a reload and regaining one needs a user gesture,
    * so this is the page's job rather than the restore loop's.
    */
-  startSource: (infoHash: string, handles: FileSystemFileHandle[]) => void
+  startSource: (infoHash: string, handles: (FileSystemFileHandle | null)[]) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string) => Promise<Uint8Array>

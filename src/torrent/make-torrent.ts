@@ -16,6 +16,8 @@
  * everything this produces with the OTHER file's decoder, which is worth more than shared code.
  */
 
+import type { FileHashes } from './merkle'
+
 const encoder = new TextEncoder()
 
 /**
@@ -44,6 +46,12 @@ export type Bencodable =
   | Raw
   | Bencodable[]
   | { [key: string]: Bencodable | undefined }
+  /**
+   * A dictionary whose keys are BYTES rather than text, which `piece layers` needs and no v1 field
+   * does: its keys are raw 32-byte SHA-256 roots, and putting one through `TextEncoder` would mangle
+   * every byte above 0x7f into a replacement character.
+   */
+  | Map<string | Uint8Array, Bencodable | undefined>
 
 const INT = encoder.encode('i')
 const END = encoder.encode('e')
@@ -106,6 +114,14 @@ export const bencode = (value: Bencodable): Uint8Array => {
   // before the dictionary branch, since a Raw is an object and its one entry is not a key to encode
   if (RAW in value) return (value as Raw)[RAW]
 
+  if (value instanceof Map) {
+    const binary = [...value.entries()]
+      .filter((entry): entry is [string | Uint8Array, Bencodable] => entry[1] !== undefined)
+      .map(([key, item]) => ({ key: bytes(key), item }))
+      .sort((a, b) => compareKeys(a.key, b.key))
+    return concat([DICT, ...binary.flatMap((entry) => [string(entry.key), bencode(entry.item)]), END])
+  }
+
   // undefined entries are dropped rather than encoded, so an optional field is expressed by simply
   // not passing it and every caller does not need its own conditional spread
   const pairs = Object.entries(value)
@@ -121,7 +137,35 @@ export type SourceFile = {
   /** Path segments below the picked directory. One segment for a file sitting directly in it. */
   path: string[]
   size: number
+  /**
+   * A PAD FILE: not the person's data, but zeroes a v2-aware torrent inserts to push the next file
+   * onto a piece boundary. Nothing reads it, nothing shows it, and nobody downloads it.
+   *
+   * Carried in the same list as real files rather than kept apart, because it occupies a real range
+   * of the byte stream the v1 piece hashes cover, and because libtorrent reports it as an ordinary
+   * file with an ordinary index. A separate list would mean two orderings that have to agree, which
+   * is the shape that silently serves one file's bytes for another.
+   */
+  pad?: true
 }
+
+/**
+ * Which of the two metainfo formats a torrent speaks.
+ *
+ * `v1` is BEP 3, SHA-1 over pieces that straddle file boundaries, and what every client understands.
+ * `v2` is BEP 52: SHA-256 merkle trees per file, so a file can be verified on its own and identical
+ * files are recognised across torrents. `hybrid` carries both, in one file, with one set of bytes,
+ * and is what qBittorrent creates by default.
+ *
+ * Hybrid costs padding. Each file is pushed to a piece boundary so the two views agree on where
+ * pieces fall, which adds up to one piece per file, so a pick of many small files pays real overhead
+ * and the dialog says so before anybody agrees to it.
+ */
+export type TorrentFormat = 'v1' | 'hybrid' | 'v2'
+
+/** Both v2 formats carry `meta version`, `file tree` and `piece layers`; only `v2` drops the v1 half. */
+export const hasV2 = (format: TorrentFormat): boolean => format !== 'v1'
+export const hasV1 = (format: TorrentFormat): boolean => format !== 'v2'
 
 export const MIN_PIECE_LENGTH = 16 * 1024
 /** Above this many clients refuse a torrent outright, so it is a ceiling rather than a preference. */
@@ -183,14 +227,26 @@ export const compareSourceFiles = (a: SourceFile, b: SourceFile): number => {
 export type TorrentPlan = {
   /** The torrent's `name`: the picked folder, or the picked file. */
   name: string
-  /** In the order their offsets follow, which is the order they are encoded in. */
+  format: TorrentFormat
+  /**
+   * In the order their offsets follow, which is the order they are encoded in.
+   *
+   * INCLUDES the pad files for a v2-aware format, because that is the order libtorrent indexes by.
+   * Anything wanting the person's own files wants `contentFiles`.
+   */
   files: SourceFile[]
+  /** What the person picked. Pads are not content, so they are not counted here. */
   totalBytes: number
+  /** What the pieces cover: `totalBytes` plus every pad. The same number for a v1 torrent. */
+  paddedBytes: number
   pieceLength: number
   pieceCount: number
   /** A lone file directly in the picked folder still gets the multi-file shape; see `plan`. */
   single: boolean
 }
+
+/** The person's own files, without the padding a hybrid torrent inserts between them. */
+export const contentFiles = (plan: TorrentPlan): SourceFile[] => plan.files.filter((file) => !file.pad)
 
 export type PlanRequest = {
   name: string
@@ -199,6 +255,44 @@ export type PlanRequest = {
   single?: boolean
   /** Overrides the automatic choice. Rejected unless it is a power of two in range. */
   pieceLength?: number
+  /** Defaults to `v1`, so every existing caller keeps the torrent it was making. */
+  format?: TorrentFormat
+}
+
+/**
+ * The zeroes that carry the offset to the next piece boundary, or 0 when it is already on one.
+ *
+ * Its own function because it is the arithmetic a hybrid torrent lives or dies by: a pad one byte
+ * out shifts every file after it, so libtorrent's two file lists no longer describe the same bytes
+ * and the torrent is refused at add time with `torrent_inconsistent_files`.
+ */
+export const padLengthFor = (offsetAfterFile: number, pieceLength: number): number =>
+  (pieceLength - (offsetAfterFile % pieceLength)) % pieceLength
+
+/**
+ * Where the pads go, which is a rule about the FILE COUNT and not about the torrent's shape.
+ *
+ * A pad follows every non-empty file that does not already end on a piece boundary, the last one
+ * included, and only when the torrent holds more than one file. That last clause is the one worth
+ * measuring rather than assuming: a FOLDER holding a single unaligned file gets no pad at all, even
+ * though it takes the multi-file shape, which was checked against libtorrent's own creator
+ * (`folder-one-file` in the reference cases) rather than read off the condition.
+ */
+const withPads = (files: SourceFile[], pieceLength: number): SourceFile[] => {
+  if (files.length <= 1) return files
+  const out: SourceFile[] = []
+  let offset = 0
+  for (const file of files) {
+    out.push(file)
+    offset += file.size
+    const pad = file.size > 0 ? padLengthFor(offset, pieceLength) : 0
+    if (pad > 0) {
+      // two pads of one size collide on this path, legally: nothing ever opens them by name
+      out.push({ path: ['.pad', String(pad)], size: pad, pad: true })
+      offset += pad
+    }
+  }
+  return out
 }
 
 /**
@@ -213,7 +307,7 @@ export type PlanRequest = {
  * folder; collapsing it to the single-file shape would silently drop the directory the person chose.
  * Only picking a file itself gives the single-file shape.
  */
-export const plan = ({ name, files, single = false, pieceLength }: PlanRequest): TorrentPlan => {
+export const plan = ({ name, files, single = false, pieceLength, format = 'v1' }: PlanRequest): TorrentPlan => {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('a torrent needs a name')
   // `/` in a name is how a malicious or careless torrent escapes its own directory on extraction.
@@ -238,22 +332,42 @@ export const plan = ({ name, files, single = false, pieceLength }: PlanRequest):
     throw new Error(`${chosen} is not a usable piece length: wants a power of two from ${MIN_PIECE_LENGTH} to ${MAX_PIECE_LENGTH}`)
   }
 
+  /*
+   * The pads are decided HERE, with the rest of the file list, and not later.
+   *
+   * They change every offset after the first of them, so they change which bytes each piece covers
+   * and therefore every piece hash. A pass that hashed the unpadded stream and an encoder that
+   * described the padded one would produce a torrent that is internally consistent, publishes
+   * without complaint, and fails every piece any peer ever asks for.
+   */
+  const laid = hasV2(format) ? withPads(sorted, chosen) : sorted
+  const paddedBytes = laid.reduce((sum, file) => sum + file.size, 0)
+
   return {
     name: trimmed,
-    files: sorted,
+    format,
+    files: laid,
     totalBytes,
+    paddedBytes,
     pieceLength: chosen,
     // Zero total is a real case: a folder of empty files. It has no pieces, and `Math.ceil(0 / n)`
     // is already 0, so this needs no special case, only the note that it is not an oversight.
-    pieceCount: pieceCountFor(totalBytes, chosen),
+    pieceCount: pieceCountFor(paddedBytes, chosen),
     single,
   }
 }
 
 export type MetainfoRequest = {
   plan: TorrentPlan
-  /** The concatenated raw 20-byte SHA-1 digests, in piece order. Not hex. */
-  pieces: Uint8Array
+  /** The concatenated raw 20-byte SHA-1 digests, in piece order. Not hex. Absent for `v2`. */
+  pieces?: Uint8Array
+  /**
+   * One merkle tree per CONTENT file, in plan order. Required for `hybrid` and `v2`, unused for `v1`.
+   *
+   * Content files, so the list skips the pads: a pad in the `file tree` is not merely pointless, it
+   * is rejected outright as `torrent_invalid_pad_file`.
+   */
+  fileHashes?: FileHashes[]
   /** Announce urls, in the order the user gave them. Empty means a torrent that relies on the DHT. */
   trackers?: string[]
   /** Keeps the torrent to its trackers: no DHT, no peer exchange, no local discovery. */
@@ -289,31 +403,97 @@ export const pieceCountFor = (totalBytes: number, pieceLength: number): number =
 export const PIECE_HASH_BYTES = 20
 
 /**
+ * The v2 `file tree`: the same files as `files`, arranged as nested dictionaries by path segment.
+ *
+ * A file's own entry sits under the EMPTY STRING key, which is what lets a directory and a file
+ * share a namespace without ambiguity. A zero-length file gets its `length` and no `pieces root`,
+ * because it has no blocks and takes part in no piece.
+ *
+ * Built on null-prototype objects rather than `{}` on purpose. A path segment is whatever the
+ * operating system handed over, and assigning `__proto__` on an ordinary object literal sets the
+ * prototype instead of adding a key, so a file with that name would vanish from the torrent while
+ * every count still agreed.
+ */
+const fileTree = (plan: TorrentPlan, hashes: FileHashes[]): Bencodable => {
+  const root = Object.create(null) as Record<string, Bencodable>
+  contentFiles(plan).forEach((file, index) => {
+    let node = root
+    for (const segment of file.path.slice(0, -1)) {
+      if (!(segment in node)) node[segment] = Object.create(null) as Record<string, Bencodable>
+      node = node[segment] as Record<string, Bencodable>
+    }
+    const tree = hashes[index]
+    if (!tree) throw new Error(`no merkle tree for ${file.path.join('/')}`)
+    node[file.path[file.path.length - 1]!] = {
+      '': { length: file.size, 'pieces root': tree.root ?? undefined },
+    }
+  })
+  return root
+}
+
+/**
+ * The top-level `piece layers`: one entry per file of MORE THAN ONE PIECE, keyed by its own root.
+ *
+ * Both mistakes here are worth naming because only one of them says anything. An entry no file's
+ * root matches is a hard parse failure. A MISSING entry for a multi-piece file parses cleanly, marks
+ * the hashes as present, and produces a torrent that looks healthy and can never verify a byte.
+ *
+ * Always written for a v2-aware torrent even when it is empty, matching what libtorrent emits, and
+ * the empty dictionary is a real difference in the file rather than a formatting choice.
+ */
+const pieceLayers = (hashes: FileHashes[]): Map<string | Uint8Array, Bencodable> => {
+  const out = new Map<string, { key: Uint8Array, value: Uint8Array }>()
+  for (const tree of hashes) {
+    if (!tree.root || !tree.layer.length) continue
+    // two identical files share a root and therefore one entry, which is correct: the value is the
+    // same bytes either way, and a dictionary cannot hold the key twice
+    out.set(hexOf(tree.root), { key: tree.root, value: concat(tree.layer) })
+  }
+  return new Map([...out.values()].map((entry) => [entry.key, entry.value]))
+}
+
+/**
  * The `info` dictionary, encoded. Kept separate from the whole file because the infohash is the
  * SHA-1 of exactly these bytes, so the thing that gets hashed and the thing that gets embedded have
  * to be one value rather than two encodings that ought to agree.
  */
 export const encodeInfo = (
-  { plan: p, pieces, private: isPrivate, source }: Pick<MetainfoRequest, 'plan' | 'pieces' | 'private' | 'source'>,
+  { plan: p, pieces, fileHashes, private: isPrivate, source }:
+  Pick<MetainfoRequest, 'plan' | 'pieces' | 'fileHashes' | 'private' | 'source'>,
 ): Uint8Array => {
-  if (pieces.length !== p.pieceCount * PIECE_HASH_BYTES) {
-    throw new Error(`expected ${p.pieceCount} piece hashes, got ${pieces.length / PIECE_HASH_BYTES}`)
-  }
-  const shared = {
+  const shared: Record<string, Bencodable | undefined> = {
     name: p.name,
     'piece length': p.pieceLength,
-    pieces,
     // 1 rather than true, because bencode has no boolean. Absent rather than 0 when public: a
     // `private: 0` key is legal and changes the info dict, so two clients making "the same" public
     // torrent would disagree on its infohash over a field that means nothing.
     private: isPrivate ? 1 : undefined,
     source: source?.trim() || undefined,
   }
-  return bencode(
-    p.single
-      ? { ...shared, length: p.files[0]!.size }
-      : { ...shared, files: p.files.map((file) => ({ length: file.size, path: file.path })) },
-  )
+
+  if (hasV1(p.format)) {
+    if (!pieces || pieces.length !== p.pieceCount * PIECE_HASH_BYTES) {
+      throw new Error(`expected ${p.pieceCount} piece hashes, got ${(pieces?.length ?? 0) / PIECE_HASH_BYTES}`)
+    }
+    shared['pieces'] = pieces
+    if (p.single) shared['length'] = p.files[0]!.size
+    // the pads belong HERE and only here: they describe the v1 byte stream, and the v2 file tree
+    // rejects one outright
+    else shared['files'] = p.files.map((file) => (file.pad
+      ? { attr: 'p', length: file.size, path: file.path }
+      : { length: file.size, path: file.path }))
+  }
+
+  if (hasV2(p.format)) {
+    const content = contentFiles(p)
+    if (!fileHashes || fileHashes.length !== content.length) {
+      throw new Error(`expected ${content.length} merkle trees, got ${fileHashes?.length ?? 0}`)
+    }
+    shared['meta version'] = 2
+    shared['file tree'] = fileTree(p, fileHashes)
+  }
+
+  return bencode(shared)
 }
 
 /**
@@ -340,7 +520,7 @@ export const encodeTorrent = (request: MetainfoRequest): Uint8Array => encodeTor
  * it. `source` is exactly such a field, and it is the one whose whole purpose is to change the hash.
  */
 export const encodeTorrentWithInfo = (request: MetainfoRequest, info: Uint8Array): Uint8Array => {
-  const { trackers = [], webSeeds = [], createdAt, createdBy, comment } = request
+  const { plan: p, fileHashes = [], trackers = [], webSeeds = [], createdAt, createdBy, comment } = request
   const clean = [...new Set(trackers.map((url) => url.trim()).filter(Boolean))]
   const seeds = [...new Set(webSeeds.map((url) => url.trim()).filter(Boolean))]
   return bencode({
@@ -351,17 +531,36 @@ export const encodeTorrentWithInfo = (request: MetainfoRequest, info: Uint8Array
     'creation date': createdAt,
     // raw, so these are the same bytes `infoHashOf` is given; see `Raw`
     info: raw(info),
+    /*
+     * OUTSIDE the info dict, which is the point of it.
+     *
+     * The tree roots are inside and so are covered by the infohash; the layers below them are
+     * verifiable against those roots, so they need no protection of their own and would otherwise
+     * make the infohash depend on how much of the tree happened to be shipped.
+     */
+    'piece layers': hasV2(p.format) ? pieceLayers(fileHashes) : undefined,
     // BEP 19. A list even for one, which every client accepts, unlike the bare-string form.
     'url-list': seeds.length ? seeds : undefined,
   })
 }
 
-const hex = (buffer: ArrayBuffer): string =>
-  [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+const hexOf = (bytes: Uint8Array): string =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 
-/** The v1 infohash: SHA-1 over the encoded `info` value. */
+/** The v1 infohash: SHA-1 over the encoded `info` value. 40 hex characters. */
 export const infoHashOf = async (info: Uint8Array): Promise<string> =>
-  hex(await crypto.subtle.digest('SHA-1', info as unknown as ArrayBuffer))
+  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(info).buffer as ArrayBuffer)))
+
+/**
+ * The v2 infohash: SHA-256 over the SAME bytes. 64 hex characters.
+ *
+ * A hybrid torrent has both, and they are two names for one thing rather than two torrents. Ripple
+ * uses the v1 one as its own identity wherever a torrent has one, because every path in the app
+ * already keys on that string and because it is the name the v1 swarm answers to. The v2 hash is
+ * still published in the magnet, so a v2-only client can find the same swarm.
+ */
+export const infoHashV2Of = async (info: Uint8Array): Promise<string> =>
+  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(info).buffer as ArrayBuffer)))
 
 /**
  * A magnet for a torrent this device already holds in full.
@@ -369,8 +568,23 @@ export const infoHashOf = async (info: Uint8Array): Promise<string> =>
  * No `tr` beyond what the torrent itself carries and no web seed, because the point of this link is
  * to reach the metadata that is already in the library rather than to describe the swarm.
  */
-export const magnetFor = ({ infoHash, name, trackers = [] }: { infoHash: string, name: string, trackers?: string[] }): string => {
-  const parts = [`xt=urn:btih:${infoHash}`, `dn=${encodeURIComponent(name)}`]
+export const magnetFor = (
+  { infoHash, infoHashV2, name, trackers = [] }:
+  { infoHash?: string, infoHashV2?: string, name: string, trackers?: string[] },
+): string => {
+  /*
+   * `btih` FIRST for a hybrid, and that order is load bearing rather than cosmetic.
+   *
+   * A reader that takes the first `xt` it recognises gets the v1 hash, which is the one every client
+   * understands and the one Ripple keys everything on. Ripple's own `magnetInfoHash` is such a
+   * reader. Putting the v2 hash first would silently change a hybrid torrent's identity depending on
+   * which end of the link somebody read.
+   */
+  const parts: string[] = []
+  if (infoHash) parts.push(`xt=urn:btih:${infoHash}`)
+  // `1220` is the multihash prefix: sha2-256, 32 bytes long. Part of the urn, never part of the id.
+  if (infoHashV2) parts.push(`xt=urn:btmh:1220${infoHashV2}`)
+  parts.push(`dn=${encodeURIComponent(name)}`)
   for (const url of trackers) parts.push(`tr=${encodeURIComponent(url)}`)
   return `magnet:?${parts.join('&')}`
 }

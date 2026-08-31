@@ -96,6 +96,37 @@ const hex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 
 /**
+ * The v2 `file tree`, flattened back into the same list the v1 `files` key gives.
+ *
+ * A file's own entry sits under the EMPTY STRING key, so a node holding one is a file and anything
+ * else is a directory. Pads never appear here: a pad inside a file tree is a hard parse failure in
+ * libtorrent, so a tree that has one is not a torrent worth describing.
+ */
+const fromFileTree = (tree: Bencode, name: string): { name: string, size: number }[] => {
+  const out: { name: string, size: number }[] = []
+  const walk = (node: Bencode, prefix: string[]) => {
+    if (!(node instanceof Map)) return
+    const own = node.get('')
+    if (own instanceof Map) {
+      const length = own.get('length')
+      if (typeof length === 'number') out.push({ name: [name, ...prefix].join('/'), size: length })
+      return
+    }
+    for (const [key, child] of node) walk(child, [...prefix, key])
+  }
+  walk(tree, [])
+  return out
+}
+
+/**
+ * A BEP 47 pad file: zeroes a v2-aware torrent inserts to push the next file onto a piece boundary.
+ *
+ * Skipped everywhere a person sees a file list or a total, because they are not anybody's data.
+ * `attr` is a string of flag letters rather than a single value, so this tests for the letter.
+ */
+const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
+
+/**
  * The infohash is the SHA-1 of the bencoded `info` value EXACTLY as it appears in the file, so its
  * byte range is found rather than the value re-encoded. Bencode is canonical and any normalisation
  * on the way through changes the number, which would then match nothing the engine ever computed.
@@ -129,20 +160,31 @@ const trackers = (root: Map<string, Bencode>): string[] => {
 /** Null for anything that is not a torrent; the caller shows its own message. */
 export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject | null> => {
   try {
-    const range = infoRange(bytes)
-    if (!range) return null
-    const [start, end] = range
+    const found = infoRange(bytes)
+    if (!found) return null
+    const [start, end] = found
     // sliced into its own buffer: subtle.digest wants a BufferSource, and a view over a
     // SharedArrayBuffer is not one, which is reachable here because ripple is cross-origin isolated
-    const digest = await crypto.subtle.digest('SHA-1', new Uint8Array(bytes.slice(start, end)).buffer as ArrayBuffer)
-    const infoHash = hex(digest)
+    const range = new Uint8Array(bytes.slice(start, end))
+    const infoHash = hex(await crypto.subtle.digest('SHA-1', range.buffer as ArrayBuffer))
 
     const [root] = decode(bytes, 0)
     if (!(root instanceof Map)) return null
     const info = root.get('info')
     if (!(info instanceof Map)) return null
 
-    const name = text(info.get('name')) ?? infoHash
+    /*
+     * v1, v2 or both, decided by what the info dict actually carries rather than by `meta version`.
+     *
+     * A hybrid has all of it and is one torrent with two names, so both go in the link and the v1
+     * one goes FIRST: every client understands it, and a reader taking the first `xt` it recognises
+     * then agrees with Ripple about which torrent this is.
+     */
+    const hasV1 = info.has('pieces')
+    const hasV2 = info.get('meta version') === 2 && info.has('file tree')
+    const infoHashV2 = hasV2 ? hex(await crypto.subtle.digest('SHA-256', range.buffer as ArrayBuffer)) : null
+
+    const name = text(info.get('name')) ?? (hasV1 ? infoHash : infoHashV2 ?? infoHash)
     const fileList = info.get('files')
 
     let files: { name: string, size: number }[]
@@ -150,22 +192,34 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
       // a multi-file torrent: each entry carries its path as a list of components under the name
       files = fileList.flatMap((entry) => {
         if (!(entry instanceof Map)) return []
+        // a pad is not one of the person's files: counting one inflates the size and shows a
+        // `.pad/64536` row nobody put there
+        if (isPad(entry)) return []
         const path = entry.get('path')
         const length = entry.get('length')
         if (!Array.isArray(path) || typeof length !== 'number') return []
         const parts = path.map((p) => text(p)).filter((p): p is string => !!p)
         return [{ name: [name, ...parts].join('/'), size: length }]
       })
+    } else if (typeof info.get('length') === 'number') {
+      files = [{ name, size: info.get('length') as number }]
+    } else if (hasV2) {
+      // a v2-only torrent has neither key, and its whole file list lives in the tree
+      files = fromFileTree(info.get('file tree')!, name)
     } else {
-      const length = info.get('length')
-      files = typeof length === 'number' ? [{ name, size: length }] : []
+      files = []
     }
 
     const size = files.reduce((total, file) => total + file.size, 0)
     const params = new URLSearchParams()
     params.set('dn', name)
     for (const tracker of trackers(root)) params.append('tr', tracker)
-    const magnet = `magnet:?xt=urn:btih:${infoHash}&${params.toString()}`
+    const urns = [
+      ...(hasV1 ? [`xt=urn:btih:${infoHash}`] : []),
+      // `1220` is the multihash prefix, sha2-256 of 32 bytes. Part of the urn, not part of the id.
+      ...(infoHashV2 ? [`xt=urn:btmh:1220${infoHashV2}`] : []),
+    ]
+    const magnet = `magnet:?${(urns.length ? urns : [`xt=urn:btih:${infoHash}`]).join('&')}&${params.toString()}`
 
     return { magnet, name, size, files: files.length ? files : null }
   } catch {

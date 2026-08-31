@@ -1,3 +1,5 @@
+import type { TorrentFormat } from './make-torrent'
+
 /**
  * The shape of a library entry, and the one rule for combining two of them.
  *
@@ -31,6 +33,17 @@ export type Persisted = {
    * means to a reader.
    */
   name?: string, size?: number, files?: { name: string, size: number }[],
+  /**
+   * Which metainfo format this torrent was CREATED in, for a torrent Ripple made.
+   *
+   * Needed on a later load and only for a `source` torrent, because rebuilding its handle array
+   * means knowing where the pad files fall, and a pad's position depends on the format. Absent means
+   * v1, which is what every torrent in the library before this field was one.
+   *
+   * Not in the cloud projection, and that is not an oversight: a source torrent is the person's own
+   * files on one machine, so another device can never start one and has no use for the field.
+   */
+  format?: TorrentFormat,
   /**
    * How long this torrent has run, and of that how long it has seeded, across every session.
    *
@@ -142,6 +155,7 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       name: next.name ?? was.name,
       size: next.size ?? was.size,
       files: next.files ?? was.files,
+      format: next.format ?? was.format,
       downloadLimit: next.downloadLimit ?? was.downloadLimit,
       uploadLimit: next.uploadLimit ?? was.uploadLimit,
       // Same reason as the metadata above, and the same trap: an add carries no run time, so letting

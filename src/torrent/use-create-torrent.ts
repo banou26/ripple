@@ -6,7 +6,7 @@ import type { HashProgress } from './hash-pieces'
 import type { Persisted } from './library'
 import type { PickedFile } from './walk-source'
 import type { TorrentClient } from './client'
-import type { TorrentPlan } from './make-torrent'
+import type { TorrentFormat, TorrentPlan } from './make-torrent'
 
 import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
 import { HashCancelled, hashPieces } from './hash-pieces'
@@ -103,8 +103,14 @@ export type UseCreateTorrent = {
   pickFile: () => Promise<void>
   /** Hash, assemble, check, and hand it to the engine. */
   publish: (options: CreateOptions) => Promise<void>
-  /** Re-plan under a different piece length, so the piece count beside the selector is the real one. */
-  replan: (pieceLength?: number) => void
+  /**
+   * Re-plan under a different piece length or format, so the numbers beside the controls are real.
+   *
+   * The format belongs here as much as the piece length: a hybrid torrent pads every file up to a
+   * piece boundary, so the piece count and the padded size both move when it changes, and a screen
+   * that recomputed only one of the two would disagree with the torrent it is about to make.
+   */
+  replan: (options?: { pieceLength?: number, format?: TorrentFormat }) => void
   cancel: () => void
   reset: () => void
 }
@@ -200,8 +206,9 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         files: pick.files.map(({ path, size }) => ({ path, size })),
         single: pick.single,
         pieceLength: options.pieceLength,
+        format: options.format,
       })
-      const pieces = await hashPieces(built, (file, offset, length) => {
+      const hashed = await hashPieces(built, (file, offset, length) => {
         const match = pick.files.find((candidate) => candidate.path.join('/') === file.path.join('/'))
         if (!match) throw new Error(`no handle for ${file.path.join('/')}`)
         return readPicked(match, offset, length)
@@ -227,7 +234,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         )
       }
 
-      const out = await buildTorrent({ picked: pick.files, pieces, options, single: pick.single })
+      const out = await buildTorrent({ picked: pick.files, hashed, options, single: pick.single })
 
       setState((prev) => ({ ...prev, stage: 'adding' }))
       /*
@@ -247,6 +254,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         handles: out.handles,
         name: out.plan.name,
         size: out.plan.totalBytes,
+        format: out.format,
         files: out.files,
       })
       setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan }))
@@ -259,7 +267,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
    * Cheap and synchronous: the walk is already done and `plan()` reads no disk, so the piece count
    * beside the control is the real one rather than an estimate computed a second way.
    */
-  const replan = useCallback((pieceLength?: number) => {
+  const replan = useCallback(({ pieceLength, format }: { pieceLength?: number, format?: TorrentFormat } = {}) => {
     const pick = source.current
     if (!pick) return
     try {
@@ -268,6 +276,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         files: pick.files.map(({ path, size }) => ({ path, size })),
         single: pick.single,
         pieceLength,
+        format,
       })
       setState((prev) => (prev.stage === 'ready' || prev.stage === 'error' ? { ...prev, plan: built } : prev))
     } catch { /* an invalid choice is reported by optionsError, not by throwing here */ }
@@ -298,10 +307,19 @@ export const useCreatedSources = (
 
   const startFrom = useCallback(async (entry: Persisted, root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
     const read = await readPick(root, {})
+    /*
+     * Planned in the format it was CREATED in, not in the default.
+     *
+     * The pads are part of the file list, so replanning a hybrid torrent as v1 produces a handle
+     * array shorter than the one libtorrent indexes reads by, and every read past the first pad
+     * would serve one file's bytes for another. Absent means v1, which is what every entry written
+     * before the field existed is.
+     */
     const built = plan({
       name: entry.name ?? root.name,
       files: read.files.map(({ path, size }) => ({ path, size })),
       single: read.single,
+      format: entry.format ?? 'v1',
     })
     /*
      * The files have to be the SAME files, not merely present.
@@ -317,6 +335,8 @@ export const useCreatedSources = (
     }
     const byPath = new Map(read.files.map((file) => [file.path.join('/'), file]))
     const handles = built.files.map((file) => {
+      // a pad occupies its index and has no file; see `Built.handles` in create-source.ts
+      if (file.pad) return null
       const match = byPath.get(file.path.join('/'))
       if (!match) throw new Error(`${file.path.join('/')} is no longer in ${root.name}`)
       return match.handle
