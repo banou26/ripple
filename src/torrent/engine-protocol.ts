@@ -60,3 +60,33 @@ export const ENGINE_RESET = 'engine-reset'
 // Firefox does throttle it hard, which is worth knowing when a test that watches the engine looks flaky. Deciding a leader is gone is cheap, since any later
 // broadcast marks it up again; the expensive mistake is posting a command into a gap where nobody is listening.
 export const LEADER_SILENCE_MS = 5_000
+
+/**
+ * The commands whose `handle` only means anything inside the ONE session that issued it.
+ *
+ * A handle is not an identifier for a torrent, it is a counter inside a libtorrent session:
+ * `id_for_hash` hands out `next_handle_id++` the first time it sees an info hash, so what a number
+ * maps to is decided by the order that session happened to meet its torrents in. Two engines
+ * restoring the same library agree only while the list and the order are identical, and neither is
+ * stable across a handover: the restore loop skips entries with `started === false`, and torrents
+ * added or removed during one engine's life are met in a completely different order by the next.
+ * Flip one torrent off and every id after it shifts by one.
+ *
+ * So a command held across an engine replacement and delivered to its successor is not merely stale,
+ * it can address a DIFFERENT TORRENT than the one the person clicked on, and `remove` carries
+ * `deleteFiles`. The follower transport already refuses these by stamping a generation on what it
+ * sends and having the leader drop anything that does not match, but a command parked in the client's
+ * own gate is re-stamped with the new generation on the way out and walks straight past that guard.
+ * These are therefore dropped rather than carried.
+ *
+ * The rest are safe to carry and MUST be: they name a torrent by info hash or carry no target at all,
+ * and dropping them reintroduces the bug `gate.ts` exists to describe, where `/embed` loses the
+ * `add-magnet` it issues during its own election and waits forever on metadata.
+ */
+export const SESSION_SCOPED = new Set([
+  'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'relocate', 'remove', 'resume',
+  'retry', 'set-flags', 'set-folder', 'set-limits', 'set-plan', 'watch',
+])
+
+export const isSessionScoped = (type: unknown): boolean =>
+  typeof type === 'string' && SESSION_SCOPED.has(type)

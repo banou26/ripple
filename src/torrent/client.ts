@@ -14,7 +14,7 @@ import { relayWorker } from '@fkn/lib'
 import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
-import { ENGINE_RESET, hasWebLocks, newClientId } from './engine-protocol'
+import { ENGINE_RESET, hasWebLocks, isSessionScoped, newClientId } from './engine-protocol'
 import { createGate } from './gate'
 
 export type { Persisted, Reachability, TorrentDetail }
@@ -232,7 +232,12 @@ const workerTransport: TransportFactory = (host: TransportHost): Transport => {
   }
 }
 
-const createTorrentClient = (): EngineClient => {
+/**
+ * Exported for tests ONLY. The app takes its client from `getTorrentClient`, which keeps exactly one
+ * per browser because a libtorrent session holds an exclusive OPFS lock on every file it writes.
+ * A second client built here talks to whatever transport the test hands it and opens no session.
+ */
+export const createTorrentClient = (): EngineClient => {
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
   const listCbs = new Set<(l: Persisted[]) => void>()
   const storageUnavailableCbs = new Set<() => void>()
@@ -290,9 +295,32 @@ const createTorrentClient = (): EngineClient => {
     failReads(error)
   }
 
+  /*
+   * Which engine this command was written for.
+   *
+   * Every reset bumps it, so a command that parked in the gate before a handover can see that it
+   * woke up talking to a different engine than the one whose handle it is holding.
+   */
+  let epoch = 0
+
+  /*
+   * Whether THIS engine has named its torrents yet.
+   *
+   * A handle exists only because some engine listed it, so before the current one has said anything
+   * every handle on screen was minted by its predecessor. That window is not a flicker: the rows are
+   * held by `use-torrents`, which clears only the error flags on a reset, so they keep rendering with
+   * their old handles and live buttons for however long the new engine takes to open a session and
+   * restore the library. Seconds, not frames.
+   */
+  let listed = false
+
   // clearing `fatal` is the load-bearing part: without it a tab that saw one leader fail stays dead for good
   const resetEngineState = (reason: string) => {
     failReads(new Error(reason))
+    // Bumped before anything else, so a command parked in the gate can tell that the engine it was
+    // aimed at is gone by the time the gate lets it through.
+    epoch++
+    listed = false
     started = false
     fatal = null
     fatalMessage = null
@@ -316,9 +344,32 @@ const createTorrentClient = (): EngineClient => {
 
   // waits on the gate again rather than once: a command caught mid-handover has to reach the new engine, not the gap between them
   const send = (msg: any, transfer?: Transferable[]) => {
+    /*
+     * Both halves are taken HERE, when the caller had the handle in its hand, rather than in
+     * `attempt` below, which runs after the handover it is trying to survive.
+     *
+     * A session-scoped command is safe only if the engine that minted its handle is the engine that
+     * will receive it. That fails in two ways and they need separate answers: the command was written
+     * for this engine and then the engine was replaced under it, which `epoch` catches; or the engine
+     * was already replaced and the number came off a row the page had not repainted yet, which only
+     * `listed` catches, because by then the epoch has already settled on the new one.
+     */
+    const issued = epoch
+    const aimed = listed
     const attempt = () => {
       if (fatal) return
       if (!started) { gate.wait(attempt); return }
+      /*
+       * Dropping this loses a click. Sending it acts on whatever torrent the new session happened to
+       * give that number to, and `remove` carries `deleteFiles`. See SESSION_SCOPED.
+       */
+      if ((epoch !== issued || !aimed) && isSessionScoped(msg?.type)) {
+        // A read is the one command somebody is awaiting, so dropping it in silence parks that caller
+        // for the whole 120s timeout. Every caller already retries a failed read; none survives a
+        // promise that never settles.
+        if (msg?.type === 'read') settleRead(msg.id)?.reject(new Error('the engine was replaced while this read was waiting'))
+        return
+      }
       transport?.post(msg, transfer ?? [])
     }
     gate.wait(attempt)
@@ -362,6 +413,7 @@ const createTorrentClient = (): EngineClient => {
         detailCbs.forEach((cb) => cb(m.detail ?? null))
         const handles = new Set<number>()
         const at = performance.now()
+        listed = true
         lastRawState = m.torrents as WorkerTorrentSnapshot[]
         const torrents = lastRawState.map((torrent): TorrentSnapshot => {
           handles.add(torrent.handle)
@@ -379,7 +431,7 @@ const createTorrentClient = (): EngineClient => {
         recentRate.retain(handles)
         lastState = torrents
         stateCbs.forEach((cb) => cb(torrents))
-      } else if (m.type === 'list') { lastList = m.list; listCbs.forEach((cb) => cb(m.list)) }
+      } else if (m.type === 'list') { listed = true; lastList = m.list; listCbs.forEach((cb) => cb(m.list)) }
       else if (m.type === 'read-result') settleRead(m.id)?.resolve(m.data)
       else if (m.type === 'read-error') settleRead(m.id)?.reject(new Error(m.error))
       else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(m.message))
@@ -440,7 +492,9 @@ const createTorrentClient = (): EngineClient => {
       owned = owns
       previous?.destroy()
       ownershipCbs.forEach((cb) => cb(owned))
-      for (const msg of carried) transport.post(msg, [])
+      // Same rule as `send`: the backlog was written for the engine this call is replacing, so
+      // anything holding one of its handles is dropped rather than re-aimed at the new one.
+      for (const msg of carried) if (!isSessionScoped(msg?.type)) transport.post(msg, [])
     },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
