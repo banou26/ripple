@@ -151,7 +151,53 @@ describe('the order of a move', () => {
     })
     calls.push('relocate')
     expect(calls).toEqual(['copy', 'relocate'])
-    expect(client.relocate).toHaveBeenCalledWith(3, 'browser')
+    expect(client.relocate).toHaveBeenCalledWith('abc', 'browser')
+  })
+
+  /*
+   * The move is the one command here that cannot be named by a handle.
+   *
+   * `torrent.id` is a handle read off the row when the move started, and everything before this line
+   * takes minutes: the copy out of a folder never touches the engine at all, so it runs happily
+   * through a handover. A handle that crosses one names whatever the next session assigned that
+   * number, and relocate removes the torrent it names, deletes its resume blob and re-adds it
+   * somewhere else. So it goes by hash, and this fixture keeps the two different on purpose.
+   */
+  it('names the torrent by hash, never by the row id it started with', async () => {
+    const client = fakeClient()
+    const torrent = torrentOf([{ name: 'a.bin', size: 4 }])
+    expect(String((torrent as unknown as { id: unknown }).id), 'the fixture stopped telling the two apart')
+      .not.toBe(torrent.infoHash)
+
+    await moveTorrentFiles({
+      client,
+      torrent,
+      folder: fakeDir({ 'a.bin': bytes(4, 1) }),
+      opfsRoot: fakeDir({}),
+      to: 'browser',
+    })
+
+    const [named] = client.relocate.mock.calls[0] as [unknown, unknown]
+    expect(named).toBe('abc')
+    expect(named, 'a handle reached the engine, which can name a different torrent there').not.toBe(3)
+  })
+
+  /*
+   * The folder direction, deliberately. Going the other way `copyFolderIntoBrowserStorage` already
+   * refuses a torrent with no infohash before anything is copied, but the mirror into a folder has
+   * no such check, so this is the one path where the guard in front of relocate is what stops a move
+   * that cannot be named from being finished by guesswork.
+   */
+  it('refuses to finish a move it cannot name, rather than guessing', async () => {
+    const client = fakeClient()
+    // copy-first, so throwing here costs nothing: the copy is done and nothing has been dropped
+    await expect(moveTorrentFiles({
+      client,
+      torrent: torrentOf([{ name: 'a.bin', size: 4 }], { infoHash: undefined }),
+      folder: fakeDir({}),
+      to: 'folder',
+    })).rejects.toThrow(/info hash/)
+    expect(client.relocate).not.toHaveBeenCalled()
   })
 
   it('never tells the engine when the copy failed, so nothing is deleted', async () => {
@@ -177,6 +223,6 @@ describe('the order of a move', () => {
       to: 'folder',
     })
     expect(client.read).toHaveBeenCalled()
-    expect(client.relocate).toHaveBeenCalledWith(3, 'folder')
+    expect(client.relocate).toHaveBeenCalledWith('abc', 'folder')
   })
 })

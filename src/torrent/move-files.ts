@@ -112,5 +112,12 @@ export const moveTorrentFiles = async (
     const root = opfsRoot ?? await navigator.storage.getDirectory()
     await copyFolderIntoBrowserStorage({ torrent, folder, opfsRoot: root, onProgress })
   }
-  client.relocate(Number(torrent.id), to)
+  /*
+   * By hash, and never by `torrent.id`. That id is a handle read off the row when the move STARTED,
+   * and everything above this line takes minutes, so by now it may belong to a different session
+   * than the one about to act on it. Copy-first means throwing here costs nothing: the copy is done
+   * and nothing has been dropped, so the torrent is exactly where it was and this is a retry.
+   */
+  if (!torrent.infoHash) throw new Error('the torrent has no info hash, so the move cannot be finished safely')
+  client.relocate(torrent.infoHash, to)
 }

@@ -1747,9 +1747,17 @@ const handleMessage = async (session: Session, m: any) => {
       // whether the torrent has finished and whether the folder is reachable right now.
       if (typeof m.infoHash === 'string') await patchList(m.infoHash, { saveTo: m.to === 'folder' ? 'folder' : 'browser' })
     } else if (m.type === 'relocate') {
-      const ih = infoHashByHandle.get(m.handle)
+      /*
+       * The lookup runs THIS WAY ROUND deliberately. It used to read the info hash out of the handle
+       * it was sent, which resolves a stale number to whatever torrent this session gave it, and
+       * then removed that torrent, deleted its resume blob and re-added it somewhere else. Resolving
+       * the handle from the hash instead cannot name the wrong torrent: an absent one means the
+       * torrent is not in this session, and doing nothing is the correct answer to that.
+       */
+      const ih = typeof m.infoHash === 'string' ? m.infoHash : null
       const to: SaveLocation = m.to === 'folder' ? 'folder' : 'browser'
-      if (ih) await relocate(session, m.handle, ih, to)
+      const h = ih ? handles.find((x) => infoHashByHandle.get(x) === ih) : undefined
+      if (ih && h !== undefined) await relocate(session, h, ih, to)
     } else if (m.type === 'import-list') {
       const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
       let list: Persisted[] = []

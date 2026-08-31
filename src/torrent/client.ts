@@ -154,7 +154,17 @@ export type TorrentClient = {
    * half: drop the old copy where dropping it is ours to do, forget the resume data, and re-add
    * against the new path so the storage is asked what it holds.
    */
-  relocate: (handle: number, to: SaveLocation) => void
+  /**
+   * Named by INFO HASH, unlike its neighbours, and that is the whole point.
+   *
+   * Every other command here is issued the instant somebody clicks, so the handle in it is at most
+   * milliseconds old and the guard in `send` covers the rest. A move is not: the copy in front of
+   * this runs in the page and takes MINUTES, and the out-of-folder direction never touches the
+   * engine at all, so it sails through a handover the guard has no way to see. By the time this is
+   * sent the epoch matches and the engine has listed its torrents, so it looks like any ordinary
+   * command, and the number in it names whatever the new session assigned it.
+   */
+  relocate: (infoHash: string, to: SaveLocation) => void
   /**
    * Record where a torrent's files belong, without moving anything.
    *
@@ -523,7 +533,7 @@ export const createTorrentClient = (): EngineClient => {
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),
-    relocate: (handle, to) => send({ type: 'relocate', handle, to }),
+    relocate: (infoHash, to) => send({ type: 'relocate', infoHash, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
