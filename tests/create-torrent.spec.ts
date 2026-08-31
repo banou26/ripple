@@ -203,3 +203,46 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   console.log('[opfs roots]', JSON.stringify(opfs))
   expect(opfs, 'a copy of the source folder was made in browser storage').not.toContain('source')
 })
+
+/*
+ * The one shape the v2 format cannot describe. libtorrent's `extract_files2` picks between a file in
+ * a folder and a file on its own with
+ *
+ *     bool const single_file = leaf_node && !has_files && tree.dict_size() == 1;
+ *
+ * so a v2-only tree of one leaf drops the torrent name, and a hybrid of the same content keeps it
+ * because its v1 `files` list makes `has_files` true. Ripple's bytes here are identical to native
+ * libtorrent's, so this is said in the dialog rather than encoded around.
+ */
+const LONE = [{ path: ['only.mkv'], bytes: 100_000, fill: 0x55 }]
+const LOSS = /cannot carry a folder/
+
+test('a v2 torrent says up front that a folder holding one file will not survive', async ({ page }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+  await page.addInitScript(install, LONE)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  await page.getByRole('button', { name: 'Choose a folder' }).click()
+
+  const dialog = page.getByRole('dialog')
+  const format = dialog.getByLabel('Format')
+  await expect(format).toBeVisible({ timeout: 60_000 })
+
+  // the default carries a v1 half, so the folder survives and there is nothing to say
+  await expect(dialog.getByText(LOSS)).toHaveCount(0)
+
+  await format.selectOption('v2')
+  await expect(dialog.getByText(LOSS), 'v2 drops the folder and the dialog never said so').toBeVisible()
+  // it names the folder that is about to be lost, rather than describing the problem in the abstract
+  await expect(dialog.getByText(LOSS)).toContainText('ripple-test-source')
+
+  await format.selectOption('hybrid')
+  await expect(dialog.getByText(LOSS), 'hybrid keeps the folder, so the warning must go').toHaveCount(0)
+  await format.selectOption('v1')
+  await expect(dialog.getByText(LOSS)).toHaveCount(0)
+
+  expect(pageErrors).toEqual([])
+})

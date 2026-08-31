@@ -24,7 +24,7 @@ import {
 import { DEFAULT_TRACKERS } from '../torrent/create-source'
 import type { TorrentFormat } from '../torrent/make-torrent'
 
-import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH, contentFiles } from '../torrent/make-torrent'
+import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH, contentFiles, dropsFolderName } from '../torrent/make-torrent'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { hashEta } from '../torrent/hash-pieces'
 import { Modal } from './modal'
@@ -374,6 +374,20 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                       + 'implemented it, which is still most of them. Choose this only if you know who '
                       + 'is downloading.'}
               </p>
+
+              {/*
+                * Said here rather than left to be discovered, because the torrent is correct and the
+                * loss happens at the other end. See `dropsFolderName`: a v2 file tree holding one file
+                * at its root has nowhere to put the folder name, and every libtorrent client reads it
+                * the same way. Hybrid carries the same content and keeps the folder.
+                */}
+              {dropsFolderName(state.plan) && (
+                <p className="warn">
+                  A v2 torrent cannot carry a folder that holds a single file, so
+                  {' '}<strong>{state.plan.name}</strong>{' '}
+                  will not survive: whoever downloads this gets the file on its own. Hybrid keeps it.
+                </p>
+              )}
 
               <label className="field">
                 <span>Piece size</span>

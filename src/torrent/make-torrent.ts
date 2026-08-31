@@ -265,6 +265,34 @@ export type TorrentPlan = {
 /** The person's own files, without the padding a hybrid torrent inserts between them. */
 export const contentFiles = (plan: TorrentPlan): SourceFile[] => plan.files.filter((file) => !file.pad)
 
+/**
+ * Whether the folder the person picked will NOT survive this torrent, through no fault of the bytes.
+ *
+ * A v2 `file tree` cannot express "one file, inside a folder called this". libtorrent decides between
+ * the two shapes in `extract_files2`:
+ *
+ *     bool const single_file = leaf_node && !has_files && tree.dict_size() == 1;
+ *     std::string path = single_file ? std::string() : root_dir;
+ *
+ * `root_dir` is the torrent's `name`, and `has_files` is whether a v1 `files` list is present. So a
+ * top level holding exactly one leaf, with no v1 half to say otherwise, DISCARDS the name and the
+ * file lands on its own. A hybrid of the same content keeps the folder purely because its `files`
+ * list makes `has_files` true.
+ *
+ * This is not something Ripple can encode its way out of. The reference matrix pins that our bytes
+ * for this shape are identical to the ones native libtorrent writes, so every libtorrent client will
+ * read it the same way, and nesting the folder into the tree makes libtorrent join it to the name and
+ * emit `Pack/Pack/only.mkv` instead. The honest move is to say so before the torrent is made.
+ *
+ * A file in a SUBfolder is unaffected: the top level entry is then a directory rather than a leaf, so
+ * `leaf_node` is false and the name is kept.
+ */
+export const dropsFolderName = (plan: TorrentPlan): boolean => {
+  if (plan.format !== 'v2' || plan.single) return false
+  const content = contentFiles(plan)
+  return content.length === 1 && content[0]!.path.length === 1
+}
+
 export type PlanRequest = {
   name: string
   files: SourceFile[]

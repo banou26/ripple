@@ -8,6 +8,7 @@ import {
   PIECE_HASH_BYTES,
   bencode,
   compareSourceFiles,
+  dropsFolderName,
   encodeInfo,
   encodeTorrent,
   infoHashOf,
@@ -455,3 +456,49 @@ describe('the piece sizes on offer', () => {
   })
 })
 
+
+/*
+ * The rule is libtorrent's, not Ripple's. `extract_files2` decides the shape with
+ *
+ *     bool const single_file = leaf_node && !has_files && tree.dict_size() == 1;
+ *     std::string path = single_file ? std::string() : root_dir;
+ *
+ * so a v2-only tree holding ONE leaf at its root throws away the torrent name. `folder-one-file` in
+ * the reference matrix is exactly that shape, and its stored v2 bytes come from native libtorrent, so
+ * this is not a Ripple quirk to encode around: it is what the format can say.
+ */
+describe('the folder a v2 torrent cannot carry', () => {
+  const one = [{ path: ['only.mkv'], size: 100_000 }]
+
+  it('warns for one file at the root of a picked folder, in v2 only', () => {
+    expect(dropsFolderName(plan({ name: 'Pack', files: one, format: 'v2' }))).toBe(true)
+  })
+
+  it('says nothing for the formats that carry a v1 files list', () => {
+    // has_files is true for both, so libtorrent keeps root_dir and the folder survives
+    expect(dropsFolderName(plan({ name: 'Pack', files: one, format: 'hybrid' }))).toBe(false)
+    expect(dropsFolderName(plan({ name: 'Pack', files: one, format: 'v1' }))).toBe(false)
+  })
+
+  it('says nothing when the person picked the file itself, which has no folder to lose', () => {
+    expect(dropsFolderName(plan({ name: 'only.mkv', files: one, single: true, format: 'v2' }))).toBe(false)
+  })
+
+  it('says nothing when the one file sits in a subfolder', () => {
+    // the top level entry is then a directory rather than a leaf, so leaf_node is false
+    const nested = [{ path: ['season', 'only.mkv'], size: 100_000 }]
+    expect(dropsFolderName(plan({ name: 'Pack', files: nested, format: 'v2' }))).toBe(false)
+  })
+
+  it('says nothing once a second file makes the tree bigger than one entry', () => {
+    const two = [{ path: ['a.mkv'], size: 100_000 }, { path: ['b.mkv'], size: 100_000 }]
+    expect(dropsFolderName(plan({ name: 'Pack', files: two, format: 'v2' }))).toBe(false)
+  })
+
+  it('counts CONTENT files, so the pads a v2 plan inserts cannot hide the shape', () => {
+    // withPads adds a pad for a lone file in v2, so plan.files is longer than the person's own list
+    const built = plan({ name: 'Pack', files: one, format: 'v2' })
+    expect(built.files.length, 'this test is pointless if no pad was inserted').toBeGreaterThan(1)
+    expect(dropsFolderName(built)).toBe(true)
+  })
+})
