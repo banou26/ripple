@@ -4,18 +4,24 @@ import { css } from '@emotion/react'
 import {
   BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, EMPHASIS, EMPHASIS_HOVER, HOVER_WASH,
   SURFACE_BG,
-  TEXT, TEXT_MUTED, TEXT_ON_LIGHT,
+  TEXT, TEXT_MUTED, TEXT_ON_LIGHT, WARN,
 } from '../theme'
 
 import { Modal } from './modal'
+import { PersistOffer } from './persist-offer'
 
 import type { AddChoices } from '../torrent/add-options'
 import type { SaveLocation } from '../torrent/library'
+import type { PersistState } from '../torrent/storage-permission'
+import type { StorageRelief } from '../torrent/storage-relief'
 import type { TorrentFile } from '../torrent/types'
+import type { StorageUsage } from '../torrent/use-storage-usage'
 
 import {
   choicesProblem, selectAll, selectedBytes, selectNone, toggleFile,
 } from '../torrent/add-options'
+import { persistOffer } from '../torrent/storage-permission'
+import { reliefOffer } from '../torrent/storage-relief'
 import { getHumanReadableByteString } from '../utils/bytes'
 
 /**
@@ -181,6 +187,25 @@ const style = css`
     color: ${TEXT_MUTED};
   }
 
+  /* Outside .body on purpose. The body scrolls, and a torrent big enough to raise this notice is
+     usually a torrent with a file list long enough to push it out of sight. It sits against the
+     confirm row instead, where the figures are next to the button they are about. The margin
+     matches the body's 24px so the notice lines up with everything above it. */
+  .fit {
+    margin: 0 24px 2px;
+    padding: 12px 14px;
+    border: 1px solid ${WARN};
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85rem;
+
+    strong { color: ${WARN}; font-weight: 600; }
+    span { color: ${TEXT_MUTED}; line-height: 1.5; }
+    button { align-self: flex-start; }
+  }
+
   .problem {
     font-size: 0.85rem;
     color: ${DANGER};
@@ -251,6 +276,7 @@ const FilePath = ({ path }: { path: string }) => {
 
 export const AddTorrentDialog = ({
   name, from, files, choices, onChoices, folderName, folderReady, external, onConfirm, onCancel, onNeverAsk,
+  storage, relief, persist, onAskPersist,
 }: {
   name: string
   /** the origin that linked here, for a torrent arriving from another site */
@@ -266,6 +292,20 @@ export const AddTorrentDialog = ({
   onCancel: () => void
   /** absent for an external add, where switching the step off is not on offer */
   onNeverAsk?: () => void
+  /**
+   * What the browser has measured, so the selection can be compared against the room left.
+   *
+   * OPTIONAL, and ABSENT HIDES THE NOTICE rather than guessing. `useStorageUsage` reports null until
+   * its first read comes back, and there is no safe default for a limit: a made-up one tells someone
+   * their download does not fit when nothing measured that, or stays silent while it does not. A
+   * caller with no reading has nothing to say, so this says nothing.
+   */
+  storage?: StorageUsage | null
+  /** The folder route, for the case where there is nothing left to ask the browser for. */
+  relief?: StorageRelief
+  persist?: PersistState
+  /** Asks the browser for persistent storage. Runs on a press, never on a render. */
+  onAskPersist?: () => void
 }) => {
   const cancelRef = useRef<HTMLButtonElement>(null)
   const [neverAsk, setNeverAsk] = useState(false)
@@ -275,6 +315,23 @@ export const AddTorrentDialog = ({
   const problem = ready ? choicesProblem(choices) : null
   const total = files.reduce((n, f) => n + f.size, 0)
   const selected = selectedBytes(choices, files)
+
+  /**
+   * Does what they have picked fit in what the browser is still allowing?
+   *
+   * Clamped at zero because a full origin can read back further used than its own limit: the used
+   * figure is a walk of the file system (see opfs-usage.ts) and the limit is what the engine says it
+   * allows, and the two are separate readings that can cross. Negative room is not a thing to put on
+   * screen.
+   *
+   * Reported and never enforced. Confirm stays live below: eviction can free best-effort bytes, the
+   * folder route moves finished downloads out, and on Firefox the ask beside this can raise the
+   * limit itself. Someone who knows all that and adds it anyway is not making a mistake.
+   */
+  const room = storage ? Math.max(0, storage.limitBytes - storage.usedBytes) : null
+  const shortfall = room !== null && selected > room ? { room } : null
+  /** whether the offer below has a button, which is what decides if the folder route is shown here */
+  const canAsk = !!persist && !!onAskPersist && persistOffer(persist).kind === 'ask'
 
   const set = (patch: Partial<AddChoices>) => onChoices({ ...choices, ...patch })
 
@@ -395,6 +452,25 @@ export const AddTorrentDialog = ({
             </div>
           </div>
         </div>
+
+        {/* `role=status` for the same reason the home page notice has it: the figures move on their
+            own as downloads run, and ticking a file off the list can clear this without anybody
+            acting on it. */}
+        {shortfall && (
+          <div className="fit" role="status">
+            <strong>Bigger than the room left</strong>
+            <span>
+              This selection is {getHumanReadableByteString(selected, true)} and your browser is
+              allowing Ripple {getHumanReadableByteString(shortfall.room, true)} more here. It can
+              still be added: the download stops if the room runs out before it finishes.
+            </span>
+            {persist && onAskPersist && <PersistOffer persist={persist} onAsk={onAskPersist}/>}
+            {/* The folder route takes the place of the button where there is no button to have,
+                which is a browser that already answered. Never both: one route to read is the point
+                of a notice sitting on top of a confirm row. */}
+            {!canAsk && relief && <span>{reliefOffer(relief).detail}</span>}
+          </div>
+        )}
 
         <footer>
           {onNeverAsk && (

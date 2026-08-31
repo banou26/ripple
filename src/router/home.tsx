@@ -17,6 +17,7 @@ import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
 import { storageRelief } from '../torrent/storage-relief'
+import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import { StorageWarning } from '../components/storage-warning'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
@@ -2793,7 +2794,16 @@ const Home = () => {
   const quota = useQuota(hasLive)
   const syncState = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
-  const storage = useStorageUsage(torrents.length)
+  /**
+   * The persistent-storage ask, and the reason its key is folded into the reading below.
+   *
+   * A grant MOVES THE LIMIT on Firefox: from 12 GB to 3.97 TB on an 8.03 TB device, measured
+   * 2026-09-01 on torrent.fkn.app. The poll would pick that up on its own within 30 seconds, so
+   * without the fold the figure on screen is not wrong, only late. Folding `refreshKey` in is what
+   * makes it change while the person is still looking at the button they just pressed.
+   */
+  const persistence = usePersistentStorage()
+  const storage = useStorageUsage(`${torrents.length}:${persistence.refreshKey}`)
   const lowStorage = !!storage && storage.limitBytes - storage.usedBytes < LOW_STORAGE_BYTES
 
   /** What the storage warning can offer, and what its button does. See storage-relief.ts. */
@@ -3118,7 +3128,13 @@ const Home = () => {
       )}
 
       {storage && lowStorage && !storageUnavailable && (
-        <StorageWarning storage={storage} relief={relief} onAct={() => void takeRelief()}/>
+        <StorageWarning
+          storage={storage}
+          relief={relief}
+          onAct={() => void takeRelief()}
+          persist={persistence}
+          onAskPersist={() => void persistence.request()}
+        />
       )}
 
       {torrents.length > 0 && (
@@ -3266,6 +3282,12 @@ const Home = () => {
           onChoices={setChoices}
           folderName={folder?.name}
           folderReady={!!folder && permitted}
+          // the same figures and the same two routes the warning above gets, so "this will not fit"
+          // can be said where the decision is made rather than after the download has stopped
+          storage={storage}
+          relief={relief}
+          persist={persistence}
+          onAskPersist={() => void persistence.request()}
           onConfirm={confirmAdd}
           onCancel={cancelAdd}
           // switching the step off is offered only for their OWN adds: a setting that could silence
