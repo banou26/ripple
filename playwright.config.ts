@@ -20,6 +20,16 @@ const BASE_URL = process.env.RIPPLE_TEST_BASE_URL
 
 export default defineConfig({
   testDir: './tests',
+  /*
+   * ONLY the .spec.ts files, because the unit tests moved in here too.
+   *
+   * Playwright's default testMatch takes BOTH suffixes, spec and test alike, so with both kinds of
+   * test under one directory it would pick up all 72 vitest files and fail them on an import of
+   * vitest.
+   * The two suites are told apart by their suffix: .spec.ts is driven through a browser here,
+   * .test.ts runs under vitest.
+   */
+  testMatch: '**/*.spec.ts',
   workers: 1,
   timeout: 120_000,
   expect: { timeout: 10_000 },

@@ -48,13 +48,13 @@ test('a row holds its layout as its own figures change', async ({ page }) => {
 
     const pairs = ['0 B / 1.2 GB', '129.2 MB / 1.2 GB', '999.9 MB / 999.9 MB', '1.23 GB / 1.23 GB']
     const counts = ['0 peers', '9 peers', '999 peers']
-    const out: Record<string, number[]> = { afterPair: [], afterRate: [], afterPeers: [] }
+    const out = { afterPair: [] as number[], afterRate: [] as number[], afterPeers: [] as number[] }
 
-    for (const value of pairs) { pair.textContent = value; out.afterPair!.push(Math.round(down.getBoundingClientRect().left)) }
+    for (const value of pairs) { pair.textContent = value; out.afterPair.push(Math.round(down.getBoundingClientRect().left)) }
     pair.textContent = pairs[0]!
-    for (const value of speeds) { down.textContent = `↓ ${value}`; out.afterRate!.push(Math.round(peers.getBoundingClientRect().left)) }
+    for (const value of speeds) { down.textContent = `↓ ${value}`; out.afterRate.push(Math.round(peers.getBoundingClientRect().left)) }
     down.textContent = '↓ 0 B/s'
-    for (const value of counts) { peers.textContent = value; out.afterPeers!.push(Math.round(last.getBoundingClientRect().left)) }
+    for (const value of counts) { peers.textContent = value; out.afterPeers.push(Math.round(last.getBoundingClientRect().left)) }
     return out
   }, SPEEDS)
 
