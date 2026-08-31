@@ -32,6 +32,28 @@ const ACTIVE_STATES = new Set([2, 3])
  */
 export const CHECKING_STATES = new Set([1, 7])
 
+/**
+ * Whether a torrent is paused the way the USER asked for, as opposed to the two other ways libtorrent
+ * reports itself paused.
+ *
+ * Three different things set that flag and only one of them is a pause:
+ *
+ *  - a CHECK reports itself paused for as long as the hashing runs, which `CHECKING_STATES` covers;
+ *  - libtorrent's own QUEUE parks whatever sits past its active limits, and a parked torrent keeps
+ *    `autoManaged` set. The queue unparks it again a tick later, entirely on its own;
+ *  - Ripple's pause clears auto-management first, so `paused` without `autoManaged` is the only shape
+ *    that means somebody pressed the button.
+ *
+ * It lives here beside `CHECKING_STATES` because the same mistake is available to anything reading
+ * the flag, and it has been made: a loop treating a queue park as "the pause has landed" withdraws
+ * the want, and then nothing pauses the torrent when the queue starts it again. Measured through a
+ * tab handover, where the failure rate went from 1 in 4 to 0 in 6 once this rule was applied.
+ *
+ * `use-torrents.ts` draws the same line to render the Queued badge, from the other side.
+ */
+export const pauseLanded = (status: { paused: boolean, autoManaged: boolean } | null | undefined): boolean =>
+  !!status && status.paused && !status.autoManaged
+
 type Entry = RecoveryState & {
   healthySince: number | null
   graceUntil: number

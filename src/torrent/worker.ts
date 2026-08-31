@@ -14,7 +14,7 @@ import type { Persisted, SaveLocation } from './library'
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
-import { CHECKING_STATES, createRecoveryTracker } from './recovery'
+import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
 import type { Uptime } from './uptime'
 
@@ -1274,7 +1274,20 @@ const init = async () => {
        * where the constant lives.
        */
       if (!st || CHECKING_STATES.has(st.state)) continue
-      if (st.paused) wantPaused.delete(h)
+      /*
+       * QUEUED IS NOT PAUSED, and reading it as such loses the pause.
+       *
+       * libtorrent's own queue parks whatever sits past its active limits, and a parked torrent
+       * reports `paused` with `autoManaged` still set. Ripple's pause clears auto-management, so
+       * `paused && !autoManaged` is the shape being asked for while `paused && autoManaged` is the
+       * queue, which libtorrent unparks again a tick later. `snapshotState` draws that exact line to
+       * render the Queued badge.
+       *
+       * Treating a queue park as satisfying the want drops it, and then nothing pauses the torrent
+       * when the queue starts it again: the row goes back to Downloading on its own. Same shape as
+       * the check above, where a torrent reporting itself paused mid-hash is not the pause either.
+       */
+      if (pauseLanded(st)) wantPaused.delete(h)
       else session.pauseTorrent(h)
     }
     for (const h of wantStarted) {
@@ -1818,6 +1831,23 @@ const handleMessage = async (session: Session, m: any) => {
       userPaused.add(m.handle)
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
       cacheIdle.delete(m.handle)
+      /*
+       * RECORDED as well as sent, because the send can be a silent no-op.
+       *
+       * `lt_torrent_pause` starts with `lookup_handle`, and that registry is written in exactly one
+       * place: `register_handle`, on `add_torrent_alert`, inside the alert pump. So a pause aimed at
+       * a torrent whose add has not been pumped yet returns -1 and does nothing at all, and the JS
+       * binding discards the return.
+       *
+       * MEASURED, and not exotic: when the tab hosting the engine closes, another is promoted and
+       * restores the library, and a command from a THIRD tab arrives while that add is still in
+       * flight. The trace at that instant reads `tracked=true hasStatus=false`, which is exactly the
+       * window. Ripple knew about the handle, the engine did not, and the torrent went on downloading
+       * with the row reading Downloading and nothing anywhere saying why.
+       *
+       * The want is what makes the pump try again once the handle exists.
+       */
+      wantPause(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, 'torrent paused')

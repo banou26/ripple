@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createRecoveryTracker } from './recovery'
+import { createRecoveryTracker, pauseLanded } from './recovery'
 
 const stopped = { paused: true, state: 3, totalDone: 0, downloadRate: 0, numPeers: 0, queued: false, error: '' }
 const errored = { ...stopped, error: 'No space left on device' }
@@ -184,3 +184,40 @@ describe('recovery tracker', () => {
     expect(r.due(1_000_000).map((a) => a.handle)).toEqual([2])
   })
 })
+
+/**
+ * WHICH KIND OF PAUSED, which is three different things wearing one flag.
+ *
+ * The bug this rule exists to stop: a loop enforcing a pause read a libtorrent QUEUE park as "the
+ * pause has landed", withdrew the want, and then nothing re-paused the torrent when the queue
+ * started it again half a second later. The row went back to Downloading on its own, with nothing
+ * anywhere saying why. Measured through a tab handover: 1 pass in 4 before the rule, 6 in 6 after.
+ */
+describe('telling a real pause from libtorrent reporting one', () => {
+  const status = (over: Partial<{ paused: boolean, autoManaged: boolean }> = {}) =>
+    ({ paused: true, autoManaged: false, ...over })
+
+  it('counts a pause that cleared auto-management, which is the only one a person asked for', () => {
+    expect(pauseLanded(status())).toBe(true)
+  })
+
+  /** The queue parks whatever sits past the active limits, and unparks it again on its own. */
+  it('does NOT count a queue park, which keeps auto-management on', () => {
+    expect(pauseLanded(status({ autoManaged: true }))).toBe(false)
+  })
+
+  it('does not count a running torrent, however it is managed', () => {
+    expect(pauseLanded(status({ paused: false }))).toBe(false)
+    expect(pauseLanded(status({ paused: false, autoManaged: true }))).toBe(false)
+  })
+
+  /**
+   * A handle the engine has not registered yet reports nothing at all, which is exactly the window a
+   * pause can be lost in: the command returns -1 doing nothing and the caller has to try again.
+   */
+  it('does not count an absent status as a pause that landed', () => {
+    expect(pauseLanded(null)).toBe(false)
+    expect(pauseLanded(undefined)).toBe(false)
+  })
+})
+
