@@ -5,6 +5,56 @@ import { downloadedFraction, pickThumbnailSource, rangeIsDownloaded, readableKey
 let nextIndex = 0
 const file = (name: string, size: number) => ({ name, size, progress: 0, index: nextIndex++ })
 
+/*
+ * The narrowing the download page needs, and the trap in doing it the obvious way.
+ *
+ * A cover image outranks a video, and an image needs every byte where a video needs its first 512
+ * KiB. A link naming one episode never fetches the cover, so the page waited on a file it was not
+ * downloading while the video it WAS downloading sat there ready. Measured: a picture that never
+ * appeared at 58 per cent, on two browsers, which read as a browser difference and was not one.
+ */
+describe('narrowing which files may supply the picture', () => {
+  const pack = () => {
+    nextIndex = 0
+    return [
+      file('Pack/cover.jpg', 46_115),
+      file('Pack/E01.mkv', 1_000_000_000),
+      file('Pack/E02.mkv', 2_000_000_000),
+    ]
+  }
+
+  it('still prefers the cover when the link asked for everything', () => {
+    const source = pickThumbnailSource(pack(), () => true)
+    expect(source?.kind).toBe('image')
+    expect(source?.index).toBe(0)
+  })
+
+  it('falls to the video the link actually asked for when the cover is not among them', () => {
+    // files=2, which is E02 alone: the cover is never downloaded, so it can never supply a picture
+    const source = pickThumbnailSource(pack(), (index) => index === 2)
+    expect(source?.kind).toBe('video')
+    expect(source?.index).toBe(2)
+  })
+
+  /*
+   * THE INDEX IS A POSITION IN THE ARRAY, so narrowing must never be done by filtering the list.
+   * A filtered array renumbers everything after the first gap and the source then names a different
+   * file than the one it measured, which is the mistake the Watch button made once already.
+   */
+  it('keeps the engine index, which filtering the list beforehand would not', () => {
+    const files = pack()
+    const viaPredicate = pickThumbnailSource(files, (index) => index === 2)
+    const viaFilteredList = pickThumbnailSource(files.filter((_, index) => index === 2))
+    expect(viaPredicate?.index).toBe(2)
+    expect(viaFilteredList?.index, 'a filtered list renumbers, which is why the predicate exists').toBe(0)
+    expect(viaPredicate?.name).toBe(viaFilteredList?.name)
+  })
+
+  it('finds nothing when the link asked only for files that cannot be pictured', () => {
+    expect(pickThumbnailSource(pack(), (index) => index === 999)).toBeNull()
+  })
+})
+
 describe('pickThumbnailSource', () => {
   it('finds nothing in a torrent with no media', () => {
     expect(pickThumbnailSource([file('readme.txt', 100), file('setup.exe', 9e8)])).toBeNull()

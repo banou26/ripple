@@ -524,7 +524,26 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * has landed. `considerThumbnails` only ever reads bytes that already exist, so mounting this
    * cannot start a transfer.
    */
-  useThumbnailGeneration(client, infoHash)
+  /*
+   * Only the files this link ASKED for may supply the picture.
+   *
+   * `pickThumbnailSource` prefers a cover image over a video, and a cover it never fetches can never
+   * be read, so without this the page reconsiders a file it is not downloading on every state tick
+   * for as long as it is open. Measured: a link naming one episode still had no picture at 58 per
+   * cent, waiting on an image at index 10 with no bytes at all.
+   *
+   * This is not enough on its own to PRODUCE a picture, and that is worth saying plainly. A video
+   * source needs 512 KiB of contiguous head and a header libav can read from it, and a file whose
+   * moov sits at the end has neither: Sintel fails with "Invalid data found when processing input"
+   * every time. So the picture here is mostly the one already on the device, from the library or an
+   * earlier visit, and a fresh embed usually keeps the glyph.
+   */
+  const eligible = useMemo(() => {
+    const wanted = new Set(indices)
+    return (index: number) => wanted.has(index)
+  }, [indices])
+
+  useThumbnailGeneration(client, infoHash, eligible)
   const poster = useThumbnail(infoHash)
 
   /*

@@ -39,12 +39,32 @@ const MAX_IMAGE_BYTES = 16 * 1024 * 1024
  * the largest wins, which is the same rule the Watch button uses to find the feature rather than a
  * sample or a trailer.
  */
-export const pickThumbnailSource = (files?: TorrentFile[]): ThumbnailSource | null => {
+/**
+ * `eligible` narrows the candidates WITHOUT narrowing the list, and the difference is load bearing.
+ *
+ * The index this returns is the file's POSITION in the array it was handed, which every caller passes
+ * as the torrent's whole file list so that position is the engine's own index. Filtering the array
+ * before the call would renumber everything after the first gap, and the source would then name a
+ * different file than the one it measured. That is the same mistake the Watch button made.
+ *
+ * The download page needs this because it may be fetching a SELECTION. A cover image outranks a video
+ * below, and a cover the link never asked for is never downloaded, so without this the page
+ * reconsiders a file with no bytes on every state tick for as long as it is open.
+ *
+ * It does not follow that the video then works: it needs a header libav can read out of its first
+ * 512 KiB, which a file with its moov at the end does not have. This narrows the question to a file
+ * the page is actually fetching; whether that file can be pictured is a separate matter.
+ */
+export const pickThumbnailSource = (
+  files?: TorrentFile[],
+  eligible?: (index: number) => boolean,
+): ThumbnailSource | null => {
   if (!files?.length) return null
 
   let image: ThumbnailSource | null = null
   let video: ThumbnailSource | null = null
   files.forEach((file, index) => {
+    if (eligible && !eligible(index)) return
     if (IMAGE_RE.test(file.name)) {
       if (file.size > MAX_IMAGE_BYTES) return
       // the largest image, on the assumption that cover art outweighs an icon or a screenshot strip

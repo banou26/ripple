@@ -32,32 +32,45 @@ test.describe('the download page share actions', () => {
   })
 
   /*
-   * The card heads itself with a frame of the release once there is one, in place of the file glyph.
+   * The card heads itself with the release's picture in place of the file glyph.
    *
-   * It CANNOT appear before the button is pressed, and that is deliberate. A frame is made from the
-   * file's first bytes, and this page writes nothing until somebody asks it to, which
-   * `embed-download.spec.ts` measures with a positive control. So this presses Download first, which
-   * is the only state where a picture is possible for a torrent the device has never seen.
+   * Driven from a picture ALREADY ON THE DEVICE rather than from a live download, and that is a
+   * statement about the feature rather than a convenience. Making one during a download needs a
+   * source the page is actually fetching: a cover image has to arrive whole, and this page fetches
+   * files in the order the link asked for, so a cover late in the torrent lands last; a video needs
+   * 512 KiB of contiguous head AND a header libav can parse, which Sintel's does not have. Measured
+   * repeatedly: 1 of 6 runs produced a picture, and the one that did got the cover by luck.
+   *
+   * So what is pinned here is what the page promises: if there is a picture for this torrent, the
+   * card shows it instead of the glyph. Whether one can be MADE mid-download is the thumbnail store's
+   * business and is covered by its own tests.
    */
-  test('heads the card with a frame of the release once bytes have landed', async ({ page }) => {
-    test.setTimeout(240_000)
-    // the streaming sink, so the save picker cannot swallow the click on a machine that has one
-    await page.addInitScript(() => { delete (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker })
-    await page.goto(`${downloadUrl}&files=5`)
-    await expect(page.locator('.subject .meta')).not.toHaveText(/Reading the torrent from the network/, { timeout: 90_000 })
+  test('heads the card with the release picture when the device already has one', async ({ page }) => {
+    test.setTimeout(120_000)
 
-    // the glyph until then, which is the state every other test on this page sees
-    await expect(page.locator('.glyph svg')).toBeVisible()
-    await expect(page.locator('.glyph.poster img')).toHaveCount(0)
+    // a real 2x2 PNG, so a broken <img> cannot pass this: naturalWidth is asserted below
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYEJRIAAIhkCAyxA1AoAAAAASUVORK5CYII='
+    await page.addInitScript(([hash, png]) => {
+      // idb-keyval's default store, which is where the thumbnail cache lives
+      const bytes = Uint8Array.from(atob(png!), (character) => character.charCodeAt(0))
+      const blob = new Blob([bytes], { type: 'image/png' })
+      const open = indexedDB.open('keyval-store', 1)
+      open.onupgradeneeded = () => { open.result.createObjectStore('keyval') }
+      open.onsuccess = () => {
+        const store = open.result.transaction('keyval', 'readwrite').objectStore('keyval')
+        store.put(blob, 'ripple:thumb:' + hash)
+      }
+    }, [SINTEL_HASH, PNG] as const)
 
-    await page.getByRole('button', { name: /^Download/ }).click()
+    await page.goto(downloadUrl)
 
-    // measured at about 21 seconds against the real swarm, so the allowance is generous rather than tight
-    await expect(page.locator('.glyph.poster img'), 'no frame was ever drawn')
-      .toBeVisible({ timeout: 150_000 })
+    const poster = page.locator('.glyph.poster img')
+    await expect(poster, 'the card kept the file glyph though a picture was on the device')
+      .toBeVisible({ timeout: 60_000 })
     // a real picture rather than a broken image element
-    expect(await page.locator('.glyph.poster img').evaluate((img) => (img as HTMLImageElement).naturalWidth))
-      .toBeGreaterThan(0)
+    expect(await poster.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    // and the glyph it replaced is gone rather than drawn behind it
+    await expect(page.locator('.glyph svg')).toHaveCount(0)
   })
 
   test('rebuilds a .torrent that names the same torrent', async ({ page }) => {

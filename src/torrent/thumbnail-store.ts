@@ -234,13 +234,20 @@ const run = async (client: TorrentClient, paths: LibavPaths, job: Job) => {
  * Called from the state tick, so it has to be cheap and idempotent: everything that would cost
  * anything is behind a check that the bytes already exist.
  */
-export const considerThumbnails = (client: TorrentClient, snapshots: TorrentSnapshot[], paths: LibavPaths) => {
+export const considerThumbnails = (
+  client: TorrentClient,
+  snapshots: TorrentSnapshot[],
+  paths: LibavPaths,
+  /** Which file indices may be used as the picture. Absent means any, which is what the library wants. */
+  eligible?: (index: number) => boolean,
+) => {
   for (const snapshot of snapshots) {
     const infoHash = magnetInfoHash(snapshot.magnet)
     if (!infoHash || !snapshot.files) continue
 
     const source = pickThumbnailSource(
       snapshot.files.files.map((file, index) => ({ name: file.path, size: file.size, progress: 0, index, pad: file.pad })),
+      eligible,
     )
     if (!source) continue
 

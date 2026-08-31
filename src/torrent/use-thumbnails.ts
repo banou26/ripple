@@ -37,7 +37,12 @@ const libavPaths = () => {
  * is dropped on the way to the UI type. Reading it here is also what keeps every read inside bytes
  * that already exist, so generation never competes with a download.
  */
-export const useThumbnailGeneration = (client: TorrentClient, only?: string) => {
+export const useThumbnailGeneration = (
+  client: TorrentClient,
+  only?: string,
+  /** Which files may supply the picture; see pickThumbnailSource. The library passes nothing. */
+  eligible?: (index: number) => boolean,
+) => {
   /**
    * Show the pictures already on this device WITHOUT waiting for the engine.
    *
@@ -83,9 +88,9 @@ export const useThumbnailGeneration = (client: TorrentClient, only?: string) => 
         cached = new Set([...cached, ...fresh])
         void loadCachedThumbnails(fresh)
       }
-      considerThumbnails(client, snapshots, paths)
+      considerThumbnails(client, snapshots, paths, eligible)
     })
-  }, [client, only])
+  }, [client, only, eligible])
 }
 
 /** The object URL for a torrent's picture, or null while there is not one. */
