@@ -631,6 +631,22 @@ export const style = css`
         white-space: nowrap;
       }
 
+      /*
+       * A rate holds its width, so the readouts beside it stop being shoved sideways.
+       *
+       * The tabular-nums above already stops digits from jittering, and it is not enough on its own:
+       * what moves the row is the STRING changing length, 9.9 MB/s to 10.2 MB/s to 999.9 kB/s, which
+       * happens several times a second while anything is downloading and drags Peak down, Active and
+       * the connection readout along with it.
+       *
+       * In em units so one rule covers both sizes: the widest value this holds, 999.9 MB/s, measured
+       * 146px at the big 27.2px and 90px at the small 16.8px, which is 5.37em both times. A pixel
+       * pair would have to be re-measured the next time either font size moves.
+       */
+      &.rate strong {
+        min-width: 5.4em;
+      }
+
       /* the number is identical in both states, so without a colour the low state would be the same
          pixels as the healthy one; this is a caution and it keeps the caution hue */
       &.storage.low strong {
@@ -880,6 +896,23 @@ export const style = css`
       color: ${TEXT_MUTED};
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
+
+      /*
+       * The live figures hold their widths, so the rest of the line stops sliding about.
+       *
+       * These four change several times a second on anything downloading, and each one that grows a
+       * character shoves everything after it along: the pair moves the speeds, the speeds move the
+       * peer count, the peer count moves the time left. The tabular figures above keep DIGITS from
+       * jittering and do nothing about the string getting longer, which is the part that moves a row.
+       *
+       * Sized in em from the widest each can actually hold, measured at this font rather than
+       * guessed: 999.9 MB / 999.9 MB is 9.69em, an arrow plus 999.9 MB/s is 6.02em, and 999 peers is
+       * 4.69em. A min-width rather than a width, so a value that somehow exceeds the measurement
+       * still renders in full instead of being clipped.
+       */
+      .pair { min-width: 9.8em; }
+      .rate { min-width: 6.1em; }
+      .peers { min-width: 4.8em; }
 
       /* The temporary marker, in the same box the limit chip uses: both are properties of the
          torrent rather than live numbers, so they read as one kind of thing. No hue, because the
@@ -1791,10 +1824,10 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
                   <Clock aria-hidden="true"/>Temporary
                 </button>
               )}
-              <span>{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
-              <span>↓ {speed(t.down)}</span>
-              <span>↑ {speed(t.up)}</span>
-              <span>{t.peers} peers</span>
+              <span className="pair">{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
+              <span className="rate">↓ {speed(t.down)}</span>
+              <span className="rate">↑ {speed(t.up)}</span>
+              <span className="peers">{t.peers} peers</span>
               {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
@@ -3162,11 +3195,11 @@ const Home = () => {
       {torrents.length > 0 && (
         <section className="stats surface">
           <div className="readouts">
-            <div className="stat big">
+            <div className="stat big rate">
               <label>Download</label>
               <strong>{speed(totalDown)}</strong>
             </div>
-            <div className="stat">
+            <div className="stat rate">
               <label>Upload</label>
               <strong>{speed(totalUp)}</strong>
             </div>
@@ -3174,7 +3207,7 @@ const Home = () => {
                 library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
                 ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
                 forty peers. */}
-            <div className="stat">
+            <div className="stat rate">
               <label>Peak down</label>
               <strong>{speed(peak)}</strong>
             </div>
