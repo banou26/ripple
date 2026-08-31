@@ -143,6 +143,17 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         onFound: (filesFound) => setState((prev) => (prev.stage === 'reading' ? { ...prev, filesFound } : prev)),
       })
       if (!read.files.length) throw new Error('There are no files in there to put in a torrent')
+      /*
+       * A torrent of nothing is refused by libtorrent, in every format, so it is refused HERE.
+       *
+       * `plan()` allows a zero total on purpose, because a folder of empty files is a real thing to
+       * describe. What cannot happen is publishing one: the engine answers the add with a refusal
+       * and the flow ends on "The engine refused the torrent that was just built", after the whole
+       * folder has been walked and hashed, saying nothing about the actual reason.
+       */
+      if (!read.files.reduce((sum, file) => sum + file.size, 0)) {
+        throw new Error('Every file in there is empty, and a torrent needs something to share')
+      }
       source.current = { root, files: read.files, single: read.single }
       // planned here rather than at publish time so the file count, the total and the piece count
       // are on screen BEFORE anybody agrees to anything. No piece length yet: the dialog re-plans
@@ -255,6 +266,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         name: out.plan.name,
         size: out.plan.totalBytes,
         format: out.format,
+        pieceLength: out.plan.pieceLength,
         files: out.files,
       })
       setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan }))
@@ -320,6 +332,8 @@ export const useCreatedSources = (
       files: read.files.map(({ path, size }) => ({ path, size })),
       single: read.single,
       format: entry.format ?? 'v1',
+      // and at the SAME piece length, which is what fixes where the pads fall
+      pieceLength: entry.pieceLength,
     })
     /*
      * The files have to be the SAME files, not merely present.

@@ -1240,14 +1240,21 @@ const init = async () => {
       void patchList(ih, {
         rootEntry: name,
         name,
-        size: files?.totalSize,
+        /*
+         * CONTENT bytes. `totalSize` is what the pieces cover, pads included, and this used to
+         * write that over the content total `create-source` had already stored. A created hybrid
+         * torrent then failed its own size check on the next load, threw inside `startFrom`, and sat
+         * at "needs access" forever with the Allow button doing nothing and saying nothing.
+         */
+        size: files?.contentSize,
         /*
          * Capped, because this is mirrored into ONE json blob holding the whole library and a
          * torrent with thousands of files would dominate it. A reader must therefore treat a list
          * of exactly the cap as possibly incomplete, which is why `size` is stored separately
          * rather than summed from the list: the total stays right even when the list is cut.
          */
-        files: files?.files.slice(0, SYNCED_FILE_CAP).map((f) => ({ name: f.path, size: f.size })),
+        // pads excluded: this list is read by people and by other devices, never by index
+        files: files?.files.filter((f) => !f.pad).slice(0, SYNCED_FILE_CAP).map((f) => ({ name: f.path, size: f.size })),
         // Announced, not quiet. It was quiet while this wrote only rootEntry, which nothing renders
         // and no other device reads. It now carries the name, size and file list, and the cloud
         // write is scheduled off this broadcast: without it the metadata sits on disk until the
@@ -1512,6 +1519,7 @@ const handleMessage = async (session: Session, m: any) => {
         // the format decides where the pads fall, and a later load has to rebuild the same file
         // list to keep the handle array index-aligned with libtorrent's
         format: m.format ?? 'v1',
+        pieceLength: typeof m.pieceLength === 'number' ? m.pieceLength : undefined,
         ...syncedMetadata({ name: m.name, size: m.size, files: m.files }),
       })
       post({ type: 'added', handle: h, magnet: m.magnet })
@@ -1575,8 +1583,27 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'add-failed', message: 'Could not read that torrent' })
         return
       }
-      // the synthesized magnet is the torrent's identity everywhere (list, /embed URL, player match)
-      const magnet = 'magnet:?xt=urn:btih:' + ih
+      /*
+       * The synthesized magnet is the torrent's identity everywhere (list, /embed URL, player match),
+       * and it has to be a magnet a client can actually resolve.
+       *
+       * `session.infohash` answers with the v1 hash when there is one and the v2 hash otherwise, so a
+       * V2-ONLY torrent comes back as 64 hex characters. Pasting those after `urn:btih:` produces a
+       * string libtorrent's own parser rejects (`parse_magnet_uri` takes 40 hex or 32 base32 and
+       * nothing else), which is silent until something feeds the magnet back in: moving the torrent
+       * to a folder, which removes it and re-adds it from this string, and pressing Download on a
+       * second device, which has the list and no `.torrent` bytes. Both answer "could not be read",
+       * permanently, and the move has already deleted the browser copy by then.
+       *
+       * The v1 form is left EXACTLY as it was, because every entry already in somebody's library
+       * carries that string and it is compared, not re-derived.
+       */
+      const v2 = session.infohashV2(h)
+      const magnet = 'magnet:?' + [
+        ...(ih.length === 40 ? [`xt=urn:btih:${ih}`] : []),
+        // `1220` is the multihash prefix, sha2-256 of 32 bytes: part of the urn, never of the id
+        ...(v2 ? [`xt=urn:btmh:1220${v2}`] : []),
+      ].join('&')
       track(h, magnet, ih, savePath)
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()

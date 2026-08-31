@@ -115,6 +115,8 @@ export type TorrentClient = {
     name: string
     size: number
     format?: TorrentFormat
+    /** The chosen piece length, which decides where the pads fall and so must survive a reload. */
+    pieceLength?: number
     files: { name: string, size: number }[]
   }) => void
   /**

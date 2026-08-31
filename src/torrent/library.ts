@@ -45,6 +45,16 @@ export type Persisted = {
    */
   format?: TorrentFormat,
   /**
+   * The piece length this torrent was CREATED at, for a torrent Ripple made.
+   *
+   * Needed for the same reason as `format`, and it is the half that was missed: the pads are laid
+   * out against the piece length, so a later load that recomputed it from the automatic rule would
+   * produce a different file list for the same folder. Where the counts happen to match, the nulls
+   * land at different indices and reads past the first pad serve one file's bytes for another, with
+   * nothing reporting an error. Absent means the automatic choice, which is what it was.
+   */
+  pieceLength?: number,
+  /**
    * How long this torrent has run, and of that how long it has seeded, across every session.
    *
    * Kept here rather than left to libtorrent's own counters, which do survive in resume data and in
@@ -156,6 +166,7 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       size: next.size ?? was.size,
       files: next.files ?? was.files,
       format: next.format ?? was.format,
+      pieceLength: next.pieceLength ?? was.pieceLength,
       downloadLimit: next.downloadLimit ?? was.downloadLimit,
       uploadLimit: next.uploadLimit ?? was.uploadLimit,
       // Same reason as the metadata above, and the same trap: an add carries no run time, so letting
