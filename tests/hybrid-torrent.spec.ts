@@ -276,3 +276,96 @@ test('a v2 torrent keeps a 64 character identity the rest of the app recognises'
   expect(verified.savePath).toBe(`/source/${infoHash}`)
   expect(pageErrors).toEqual([])
 })
+
+/*
+ * A created hybrid torrent COMES BACK after a reload, which it did not.
+ *
+ * Two things have to survive, and each was wrong on its own:
+ *
+ *  - the library's `size`. The metadata pump patched the entry with libtorrent's `total_size()`,
+ *    which counts every pad, over the content total `create-source` had already written. On the next
+ *    load `startFrom` replans the same folder, gets the content total back, compares it against the
+ *    padded one and throws. The throw is swallowed into "still waiting", so the row sits at needs
+ *    access forever and the Allow button does nothing and says nothing.
+ *  - the chosen `pieceLength`. Pads are laid out against it, so a reload that recomputed it from the
+ *    automatic rule produced a different file list for the same folder, and the handle array no
+ *    longer lined up with libtorrent's.
+ *
+ * The reload is the only way to see either: everything is correct until the page is loaded again.
+ */
+test('a created hybrid torrent restarts after a reload', async ({ page }) => {
+  test.setTimeout(240_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+  await page.addInitScript(install, PACK)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Format')).toBeVisible({ timeout: 30_000 })
+  // a NON-automatic piece length, so the reload has something to get wrong
+  await dialog.getByLabel('Piece size').selectOption(String(PIECE))
+  await dialog.getByLabel('Format').selectOption('hybrid')
+  await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+  await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+  const infoHash = (await dialog.locator('code').first().textContent())!
+  await dialog.getByRole('button', { name: 'Close' }).click()
+
+  await page.waitForFunction(
+    () => {
+      const frames = (window as any).__states as Row[][]
+      const rows = frames[frames.length - 1] ?? []
+      return (rows.find((t) => (t.savePath ?? '').startsWith('/source/'))?.progress ?? 0) >= 1
+    },
+    undefined,
+    { timeout: 150_000 },
+  )
+
+  /*
+   * The library has to describe the person's files, not the padded stream. Polled rather than read
+   * once, because the metadata pump writes this entry a second time a tick after the create does,
+   * and it is that second write that used to be wrong.
+   */
+  const stored = () => page.evaluate((ih: string) => new Promise<any>((resolve) => {
+    const request = indexedDB.open('keyval-store')
+    request.onerror = () => resolve(null)
+    request.onsuccess = () => {
+      const read = request.result.transaction('keyval', 'readonly').objectStore('keyval').get('ripple:torrents')
+      read.onsuccess = () => resolve((read.result as any[] ?? []).find((e) => e.infoHash === ih) ?? null)
+      read.onerror = () => resolve(null)
+    }
+  }), infoHash)
+
+  await expect.poll(async () => (await stored())?.name, { timeout: 60_000 }).toBeTruthy()
+  const entry = await stored()
+  console.log('[library]', JSON.stringify({ size: entry?.size, format: entry?.format, pieceLength: entry?.pieceLength, files: entry?.files?.length }))
+  expect(entry.size, 'the library recorded the PADDED total, so the reload will refuse it').toBe(TOTAL)
+  expect(entry.format).toBe('hybrid')
+  expect(entry.pieceLength, 'the chosen piece length was not kept, so the pads move on reload').toBe(PIECE)
+  // pads are not the person's files and have no business in a list another device reads
+  expect(entry.files.every((f: { name: string }) => !f.name.includes('.pad/'))).toBe(true)
+
+  await page.reload()
+
+  const after = await page
+    .waitForFunction(
+      () => {
+        const frames = (window as any).__states as Row[][]
+        const rows = frames[frames.length - 1] ?? []
+        const row = rows.find((t) => (t.savePath ?? '').startsWith('/source/'))
+        return row && (row.error || row.progress >= 1) ? row : null
+      },
+      undefined,
+      { timeout: 150_000 },
+    )
+    .then((handle) => handle.jsonValue() as Promise<Row>)
+
+  console.log('[after reload]', JSON.stringify(after))
+  expect(after.error, 'the torrent came back with a disk error, so the file lists disagree').toBeUndefined()
+  expect(after.progress).toBe(1)
+  expect(after.savePath).toBe(`/source/${infoHash}`)
+  expect(after.numFiles).toBe(PACK.length + expectedPads().pads.length)
+  expect(pageErrors).toEqual([])
+})
+
