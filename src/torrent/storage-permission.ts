@@ -105,3 +105,31 @@ export const persistOffer = ({ persisted, permission, attempted, granted }: Pers
     action: 'Ask for more room',
   }
 }
+
+/**
+ * The same question as a standing control in the footer, rather than a notice that appears when
+ * something is already wrong.
+ *
+ * WHY BOTH EXIST. `persistOffer` answers "is this worth raising right now", so it says nothing at
+ * all in the two dead-end states: inside a notice about running out of room, "you already have
+ * persistent storage" is an aside nobody asked for. A footer control is the opposite kind of thing.
+ * It sits beside Speed, On add and Auto-save, which all report their state whether or not anything
+ * is wrong, so this one has to as well, and the dead ends become the answer instead of silence.
+ *
+ * `actionable` is false for every state where pressing could not raise a prompt, and the caller is
+ * expected to disable rather than hide: a control that vanishes once it is answered leaves somebody
+ * hunting for a setting that is simply already decided. The hint carries the long sentence from
+ * `persistOffer`, so the two surfaces cannot end up describing the same call differently.
+ */
+export type PersistControl = { label: string, hint: string, on: boolean, actionable: boolean }
+
+export const persistControl = (state: PersistState): PersistControl => {
+  const offer = persistOffer(state)
+  // 'on' means the good state is in effect, matching the footer's other controls, where the class
+  // marks a limit that is set or a folder that is live rather than merely a button that was pressed
+  if (state.persisted) return { label: 'Persistent', hint: offer.detail, on: true, actionable: false }
+  if (state.permission === 'denied') return { label: 'Blocked', hint: offer.detail, on: false, actionable: false }
+  if (offer.kind === 'asked-and-refused') return { label: 'Not granted', hint: offer.detail, on: false, actionable: false }
+  return { label: offer.action ?? 'Ask for more room', hint: offer.detail, on: false, actionable: true }
+}
+

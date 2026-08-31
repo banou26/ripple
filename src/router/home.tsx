@@ -60,6 +60,7 @@ import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torre
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
+import { PersistControl } from '../components/persist-control'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
@@ -3386,6 +3387,10 @@ const Home = () => {
               {addDialog ? 'Ask what to download' : 'Start straight away'}
             </button>
           </div>
+          {/* Beside the other footer controls on purpose: this is the one place somebody can raise the
+              storage prompt deliberately, rather than meeting it when a download is already too big
+              to fit. It reports its state even when there is nothing to press. */}
+          <PersistControl persist={persistence} onAsk={() => void persistence.request()}/>
           {folderSupported && (
             <div className="folder">
               <span>Auto-save</span>
