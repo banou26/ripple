@@ -238,7 +238,13 @@ test('a v2 torrent keeps a 64 character identity the rest of the app recognises'
   expect(hashes[0]).toMatch(/^[0-9a-f]{64}$/)
   const infoHash = hashes[0]!
 
-  const magnet = await page.evaluate(async () => {
+  /*
+   * POLLED, not read once. The dialog says the torrent is being shared as soon as the page has
+   * handed it to the worker, and the library entry is written after that, asynchronously. Reading
+   * once wins the race on a quiet machine and loses it on a busy one, which is a test that fails for
+   * a reason that has nothing to do with what it is checking.
+   */
+  const readMagnet = () => page.evaluate(async () => {
     const request = indexedDB.open('keyval-store')
     return new Promise<string>((resolve) => {
       request.onerror = () => resolve('')
@@ -249,6 +255,9 @@ test('a v2 torrent keeps a 64 character identity the rest of the app recognises'
       }
     })
   })
+  await expect.poll(readMagnet, { timeout: 60_000, message: 'the library never recorded a magnet for this torrent' })
+    .toContain('xt=urn:btmh:')
+  const magnet = await readMagnet()
   console.log('[magnet]', magnet)
   // `1220` is the multihash prefix and belongs in the urn, never in the id
   expect(magnet).toContain(`xt=urn:btmh:1220${infoHash}`)
