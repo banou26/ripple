@@ -9,6 +9,15 @@ import { defineConfig, devices } from '@playwright/test'
  */
 const PORT = process.env.RIPPLE_TEST_PORT || '4560'
 
+/**
+ * A full base URL to run against instead of a locally served build, for verifying a DEPLOY.
+ *
+ * The point is that a build marker changing proves bytes arrived and nothing else. Pointing the real
+ * specs at the deployed origin is what proves the change is reachable, and it needs no webServer,
+ * so setting this turns that off rather than leaving a server nothing talks to.
+ */
+const BASE_URL = process.env.RIPPLE_TEST_BASE_URL
+
 export default defineConfig({
   testDir: './tests',
   workers: 1,
@@ -17,15 +26,17 @@ export default defineConfig({
   reporter: 'line',
   outputDir: 'test-results/ramp',
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: BASE_URL ?? `http://127.0.0.1:${PORT}`,
     trace: process.env.RIPPLE_BENCH_TRACE === '1' ? 'retain-on-failure' : 'off',
   },
-  webServer: {
-    command: `npx serve -s -C -p ${PORT} build`,
-    url: `http://127.0.0.1:${PORT}`,
-    reuseExistingServer: false,
-    timeout: 30_000,
-  },
+  webServer: BASE_URL
+    ? undefined
+    : {
+      command: `npx serve -s -C -p ${PORT} build`,
+      url: `http://127.0.0.1:${PORT}`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
   projects: [
     {
       name: 'chromium',
