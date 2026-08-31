@@ -390,6 +390,16 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   ))}
                 </select>
               </label>
+              {state.plan.pieceLength >= 32 * 1024 * 1024 && (
+                <p className="faint">
+                  {/* only for the large end, where it stops being a detail. A piece is the smallest
+                      thing a peer can hand over, so this is what a stream waits for before it can
+                      start and what a failed hash check costs to fetch again. */}
+                  A piece is the smallest thing a peer can send, so at {binaryBytes(state.plan.pieceLength)}
+                  {' '}a stream waits that long for its first frame and one failed check costs that
+                  much to fetch again.
+                </p>
+              )}
 
               {state.truncated && (
                 <p className="warn">

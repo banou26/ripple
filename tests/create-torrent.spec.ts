@@ -114,6 +114,26 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   await dialog.getByLabel('Piece size').selectOption('')
   await expect.poll(async () => Number(await pieces())).toBe(autoCount)
 
+  /*
+   * THE RANGE ON OFFER, which was capped at 16 MiB on a belief that turned out to be wrong: that
+   * larger pieces are refused outright. libtorrent's own limit is about 512 MiB and qBittorrent has
+   * offered up to 128 MiB for years. Asserted here rather than only in a unit test, because what the
+   * selector renders is what somebody can actually choose.
+   */
+  const sizes = await dialog.getByLabel('Piece size').locator('option').evaluateAll(
+    (options) => options.map((option) => (option as HTMLOptionElement).value).filter(Boolean),
+  )
+  expect(sizes[0]).toBe(String(16 * 1024))
+  expect(sizes[sizes.length - 1]).toBe(String(128 * 1024 * 1024))
+  // 16 KiB to 128 MiB doubling, and nothing skipped in between
+  expect(sizes.length).toBe(14)
+
+  // and the largest ones say what they cost, since a piece is the smallest thing a peer can send
+  await dialog.getByLabel('Piece size').selectOption(String(64 * 1024 * 1024))
+  await expect(dialog.getByText('smallest thing a peer can send')).toBeVisible()
+  await dialog.getByLabel('Piece size').selectOption('')
+  await expect(dialog.getByText('smallest thing a peer can send')).toHaveCount(0)
+
   await page.screenshot({ path: 'test-results/create-review.png' })
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
 

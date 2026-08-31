@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { blocksPerPiece, paddedLeafCount } from './merkle'
+
 import {
   MAX_PIECE_LENGTH,
   MIN_PIECE_LENGTH,
@@ -404,6 +406,52 @@ describe('renaming a single-file torrent', () => {
     const text = new TextDecoder('latin1').decode(encodeTorrent({ plan: p, pieces, fileHashes }))
     expect(text).toContain('a.bin')
     expect(text).toContain('b.bin')
+  })
+})
+
+/**
+ * The piece size range, which is a product decision and was based on a wrong belief.
+ *
+ * The ceiling was 16 MiB because a comment said larger is refused outright. libtorrent's own limit is
+ * about 512 MiB and qBittorrent offers up to 128 MiB, so the ceiling now matches qBittorrent. What
+ * gates it is not the format but whether Ripple's engine can hold a piece that big, which was
+ * measured rather than assumed: see the constant.
+ */
+describe('the piece sizes on offer', () => {
+  it('runs from 16 KiB to 128 MiB, the same range qBittorrent offers', () => {
+    expect(MIN_PIECE_LENGTH).toBe(16 * 1024)
+    expect(MAX_PIECE_LENGTH).toBe(128 * 1024 * 1024)
+  })
+
+  it('accepts every power of two in between and nothing outside it', () => {
+    const offered: number[] = []
+    for (let size = MIN_PIECE_LENGTH; size <= MAX_PIECE_LENGTH; size *= 2) offered.push(size)
+    // 16K to 128M doubling is 14 choices, which is what the selector renders
+    expect(offered.length).toBe(14)
+    for (const size of offered) expect(isValidPieceLength(size)).toBe(true)
+    expect(isValidPieceLength(MIN_PIECE_LENGTH / 2)).toBe(false)
+    expect(isValidPieceLength(MAX_PIECE_LENGTH * 2)).toBe(false)
+    // still a power of two, whatever the range
+    expect(isValidPieceLength(48 * 1024 * 1024)).toBe(false)
+  })
+
+  /**
+   * The automatic choice does not suddenly leap to the new ceiling. It aims at TARGET_PIECES, so
+   * 128 MiB is only reached by a torrent of about 192 GB, and every ordinary pick is unaffected.
+   */
+  it('leaves the automatic choice where it was for anything of a sane size', () => {
+    expect(pieceLengthFor(700 * 1024 * 1024)).toBeLessThanOrEqual(1024 * 1024)
+    expect(pieceLengthFor(20 * 1024 * 1024 * 1024)).toBeLessThanOrEqual(16 * 1024 * 1024)
+    expect(pieceLengthFor(1e15)).toBe(MAX_PIECE_LENGTH)
+  })
+
+  /** A 128 MiB piece is 8192 v2 blocks, which is what the merkle padding rules are computed over. */
+  it('keeps the v2 block arithmetic exact at the new ceiling', () => {
+    expect(blocksPerPiece(MAX_PIECE_LENGTH)).toBe(8192)
+    expect(paddedLeafCount(MAX_PIECE_LENGTH, MAX_PIECE_LENGTH)).toBe(8192)
+    expect(paddedLeafCount(MAX_PIECE_LENGTH + 1, MAX_PIECE_LENGTH)).toBe(16384)
+    // a small file in a huge-piece torrent still pads to its OWN next power of two, not to 8192
+    expect(paddedLeafCount(1000, MAX_PIECE_LENGTH)).toBe(1)
   })
 })
 

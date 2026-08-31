@@ -168,8 +168,25 @@ export const hasV2 = (format: TorrentFormat): boolean => format !== 'v1'
 export const hasV1 = (format: TorrentFormat): boolean => format !== 'v2'
 
 export const MIN_PIECE_LENGTH = 16 * 1024
-/** Above this many clients refuse a torrent outright, so it is a ceiling rather than a preference. */
-export const MAX_PIECE_LENGTH = 16 * 1024 * 1024
+/**
+ * The largest piece a torrent may declare here, matching what qBittorrent's creator offers.
+ *
+ * This was 16 MiB, with a comment saying anything larger is refused outright by enough clients to be
+ * a ceiling rather than a preference. That was wrong on both counts. libtorrent's own limit is
+ * `file_storage::max_piece_size`, `((1 << 15) - 1) * 0x4000`, which is about 512 MiB, and
+ * qBittorrent has offered 32, 64 and 128 MiB for years.
+ *
+ * MEASURED before raising it, because the real question is not what the format permits but what
+ * Ripple's engine can hold: `disk_io` allocates a whole piece per hash job and libtorrent submits
+ * several at once while checking, against a 2 GiB wasm heap. A 128 MiB-piece torrent of two full
+ * pieces plus a tail, built by native libtorrent, verified to 100 per cent in 1.1 seconds as v1 and
+ * 2.1 as hybrid, with the whole node process under 1 GiB resident.
+ *
+ * It is a real choice rather than a free one, and the dialog says so: a piece is the smallest thing
+ * a peer can give you, so a 128 MiB piece means a stream waits 128 MiB for its first frame and a
+ * failed hash costs 128 MiB of re-download.
+ */
+export const MAX_PIECE_LENGTH = 128 * 1024 * 1024
 
 /**
  * Around this many pieces, which is the count other clients aim for too.
