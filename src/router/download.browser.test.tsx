@@ -260,3 +260,63 @@ describe('the embed route in download mode', () => {
     expect(claimed).toEqual([2])
   })
 })
+
+/**
+ * The way OUT of the download page, for a link whose torrent turns out to be watchable.
+ *
+ * Somebody handed a download link may not know Ripple can play it in the same tab, and the page had
+ * no way of telling them. Offered only once the ENGINE has said there is something to play, because
+ * the link itself says nothing about the files: a link that claimed a video would be a link choosing
+ * what the page offers.
+ */
+describe('offering to watch instead', () => {
+  beforeEach(() => { state.current = torrent() })
+
+  it('offers Watch when the requested files include a video', async () => {
+    const screen = await mount('&mode=download')
+    const watch = screen.container.querySelector('a.watch') as HTMLAnchorElement
+    expect(watch, 'no Watch link was offered for a pack of mkv files').toBeTruthy()
+    expect(watch.getAttribute('href')).toContain('mode=watch')
+  })
+
+  /**
+   * The LARGEST video, addressed by its ENGINE index rather than its position in the list on screen.
+   *
+   * `files=1-3` is what makes this a real check: it selects E02, E03 and notes.txt, so the biggest
+   * video is E03, at engine index 2 but position 1. Code that passed the position would send
+   * `fileIndex=1` and play the wrong episode, and every number would still look plausible. Without
+   * the selection the two coincide and the test would pass either way.
+   */
+  it('opens the largest video, by the torrent index and not the position on screen', async () => {
+    const screen = await mount('&mode=download&files=1-3')
+    const href = (screen.container.querySelector('a.watch') as HTMLAnchorElement).getAttribute('href')!
+    expect(href).toContain('fileIndex=2')
+    expect(href, 'the position was used instead of the engine index').not.toContain('fileIndex=1')
+  })
+
+  /** A link naming the subtitles should not offer to play the video it did not ask for. */
+  it('asks only about the files the link named', async () => {
+    const screen = await mount('&mode=download&files=3')
+    expect(screen.container.querySelector('a.watch')).toBeNull()
+  })
+
+  it('names the file when there is more than one to choose between', async () => {
+    const screen = await mount('&mode=download')
+    expect(screen.container.querySelector('a.watch')!.textContent).toContain('E03.mkv')
+    const one = await mount('&mode=download&files=0')
+    expect(one.container.querySelector('a.watch')!.textContent?.trim()).toBe('Watch')
+  })
+
+  /**
+   * Nothing to offer before metadata, which is the case the file list used to paper over. The link
+   * carries no description of the torrent any more, so the page has nothing to go on until the
+   * engine answers, and says so rather than guessing.
+   */
+  it('offers nothing until the engine has said what is in there', async () => {
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } as never })
+    const screen = await mount('&mode=download')
+    expect(screen.container.querySelector('a.watch')).toBeNull()
+    await expect.element(screen.getByText('Reading the torrent from the network')).toBeVisible()
+  })
+})
+

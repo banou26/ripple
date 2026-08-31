@@ -4,12 +4,14 @@ import { Link } from 'react-router-dom'
 
 import {
   BORDER,
+  BORDER_INTERACTIVE,
   BORDER_STRONG,
   CONTROL_BG,
   CONTROL_HOVER_BG,
   DANGER,
   EMPHASIS,
   EMPHASIS_HOVER,
+  FOCUS_RING,
   OK,
   PAGE_BG,
   SUNKEN_BG,
@@ -19,7 +21,7 @@ import {
   TEXT_MUTED,
   TEXT_ON_LIGHT,
 } from '../theme'
-import { ArrowDown, Download, File as FileIcon, Folder, User } from 'react-feather'
+import { ArrowDown, Download, File as FileIcon, Folder, Play, User } from 'react-feather'
 
 import type { SaveEntry } from '../torrent/save-file'
 import type { FileSelection } from './file-selection'
@@ -34,6 +36,8 @@ import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
+import { canOfferWatch, pickVideoFile } from '../torrent/watch'
+import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
 
 const style = css`
@@ -189,6 +193,35 @@ const style = css`
        card and the disabled state stays readable, which matters: this button spends the entire
        metadata-loading phase disabled with "Loading torrent…" written on it */
     &:disabled { opacity: 0.55; }
+  }
+
+  /*
+   * The SECOND action, and deliberately not a second primary one.
+   *
+   * Downloading is what this page is for and what the link asked for, so it keeps the filled button.
+   * Watching is an alternative somebody may not have known they had, which is worth offering and not
+   * worth competing with the thing they came here to do. Outlined, full width under the primary, so
+   * it reads as the same decision rather than as a control belonging to something else.
+   */
+  .watch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 11px 20px;
+    border: 1px solid ${BORDER_STRONG};
+    border-radius: 6px;
+    background: ${CONTROL_BG};
+    color: ${TEXT};
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-decoration: none;
+
+    svg { width: 17px; height: 17px; }
+
+    &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_INTERACTIVE}; }
+    &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
   }
 
   .cancel {
@@ -423,7 +456,36 @@ const DownloadPage = ({ magnet, selection }: Props) => {
 
   const single = entries.length === 1 ? entries[0]! : null
 
+  /*
+   * Whether this torrent has anything to watch, asked of the files the LINK named rather than of the
+   * whole torrent: a link for the subtitles of a release should not offer to play the video it did
+   * not ask for.
+   *
+   * `pickVideoFile` reads `name` and `size`, and an engine path is a full path, so the entries are
+   * mapped rather than passed through. Its index is a position in THAT array, so it is turned back
+   * into the engine's own index before it can name a file.
+   */
+  const watchable = useMemo(() => {
+    if (!files || !entries.length) return null
+    const named = entries.map((entry) => ({ name: entry.path, size: entry.size }))
+    // `canOfferWatch` also answers true for an UNKNOWN list, which cannot happen here: `named` is
+    // built from entries and the guard above requires at least one
+    if (!canOfferWatch(named)) return null
+    const chosen = entries[pickVideoFile(named)]
+    return chosen ?? null
+  }, [files, entries])
+
+  const watchHere = useMemo(() => {
+    if (!magnet || !watchable) return null
+    // null when the magnet cannot be encoded at all, which is the same answer as having no link
+    return embedPath({ magnet, mode: 'watch', fileIndex: watchable.index })
+  }, [magnet, watchable])
+
+  // libtorrent reports a path relative to the torrent root, so a multi-file release repeats its
+  // folder in front of every entry; the folder is already the heading here
   const leaf = (path: string) => path.split('/').pop() || path
+  /* named only when there is a choice to have got wrong; a single file needs no restating */
+  const watchLabel = watchable && entries.length > 1 ? `Watch ${leaf(watchable.path)}` : 'Watch'
 
   const subjectName = single ? leaf(single.path) : torrentName
   const framed = useMemo(framedByAnotherOrigin, [])
@@ -555,6 +617,21 @@ const DownloadPage = ({ magnet, selection }: Props) => {
             {label}
           </button>
 
+          {/**
+            * Offered only once the ENGINE has said there is something to play.
+            *
+            * Not from the link, which says nothing about the files, and not while a download is
+            * running, where the two would compete for the same bytes and the same screen. The file
+            * it opens is the largest video among the ones this link asked for, which is the same
+            * rule the library row uses, so a season pack opens on an episode rather than on a
+            * sample.
+            */}
+          {watchHere && !busy && (
+            <Link className="watch" to={watchHere}>
+              <Play />
+              {watchLabel}
+            </Link>
+          )}
 
           {busy && (
             <div className="progress">
