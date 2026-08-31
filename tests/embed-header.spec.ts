@@ -118,20 +118,32 @@ test.describe('the embedded player header', () => {
       const last = readouts[readouts.length - 1]
       const links = document.querySelector('.player-links')
       const name = document.querySelector('.file-name')
-      if (!last || !links || !name) return null
+      const counter = document.querySelector('.downloaded') ?? document.querySelector('.loading-information')
+      const group = document.querySelector('.media-information')
+      if (!last || !links || !name || !group) return null
       return {
         lastRight: last.getBoundingClientRect().right,
         linksLeft: links.getBoundingClientRect().left,
         linksRight: links.getBoundingClientRect().right,
-        nameLeft: name.getBoundingClientRect().left,
+        nameRight: name.getBoundingClientRect().right,
+        counterLeft: counter ? counter.getBoundingClientRect().left : null,
+        groupLeft: group.getBoundingClientRect().left,
         width: window.innerWidth,
       }
     })
     expect(edges, 'the row is missing the items this measures').not.toBeNull()
     expect(edges!.lastRight, 'the last readout hangs off the right edge').toBeLessThanOrEqual(edges!.width)
-    expect(edges!.linksLeft, 'the row starts off the left edge').toBeGreaterThanOrEqual(0)
-    // at the HEAD of the row, which is what keeps them out of the group that shrinks
-    expect(edges!.linksRight, 'the links are not in front of the filename').toBeLessThanOrEqual(edges!.nameLeft)
+    expect(edges!.linksLeft, 'the links start off the left edge').toBeGreaterThanOrEqual(0)
+    /*
+     * The links lead the RIGHT-HAND side of the row: after the filename, in front of everything the
+     * torrent is reporting. Both bounds, because only having one lets them drift to either end and
+     * still pass, and they have been at both ends already.
+     */
+    expect(edges!.linksLeft, 'the links are not after the filename').toBeGreaterThanOrEqual(edges!.nameRight)
+    if (edges!.counterLeft !== null) {
+      expect(edges!.linksRight, 'the links are not in front of the byte counter').toBeLessThanOrEqual(edges!.counterLeft)
+    }
+    expect(edges!.linksRight, 'the links are not in front of the readouts').toBeLessThanOrEqual(edges!.groupLeft)
 
     // the readouts fold their words at this width and their icons stay, which is what makes it fit
     await expect(page.getByTestId('torrent-state').locator('span')).toBeHidden()

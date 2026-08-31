@@ -53,12 +53,15 @@ const playerStyle = css`
     /* longhands per breakpoint: a shorthand inside a media query is hoisted after the rule above it
        and would silently drop the safe-area inset, which clears a notch in fullscreen */
     padding-top: calc(calc(1.2 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
-    padding-bottom: calc(1.2 * var(--mp-unit));
+    /* deeper than the top, and it is not spacing: it is the room the gradient below needs to reach
+       transparent. The row's content is centred between the two, so this also keeps the text up in
+       the dark end of the fade where it is protected. */
+    padding-bottom: calc(3.6 * var(--mp-unit));
     padding-left: calc(calc(1.6 * var(--mp-unit)) + env(safe-area-inset-left, 0px));
     padding-right: calc(calc(1.6 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
     @media (min-width: 768px) {
       padding-top: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
-      padding-bottom: calc(2.4 * var(--mp-unit));
+      padding-bottom: calc(6 * var(--mp-unit));
       padding-left: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-left, 0px));
       padding-right: calc(calc(2.4 * var(--mp-unit)) + env(safe-area-inset-right, 0px));
     }
@@ -86,10 +89,11 @@ const playerStyle = css`
      * mounts. That leaves this band plus the per-glyph shadow above as the entire reason the
      * filename, the peer count and an engine failure stay readable over arbitrary footage.
      *
-     * It used to fade out down the row; flat, it ends on a hard edge instead. That is the honest
-     * trade for a flat palette: the band stays translucent so the picture still reads through it,
-     * and the row is hidden with the rest of the controls once the player goes idle, so it is not
-     * sitting over the video the whole time.
+     * The token is a gradient, and it is the player's own, mirrored from the control bar at the
+     * other end of the picture. It was a flat fill until somebody had to watch something behind it:
+     * a flat band ends on a hard edge, and an edge across a picture reads as a border on the frame,
+     * so the eye goes to the line instead of to the video. The two ends of the picture now fade the
+     * same way.
      */
     background: ${VIDEO_SCRIM};
   }
@@ -124,14 +128,14 @@ const playerStyle = css`
   }
 
   /*
-   * The two links out, at the head of the row.
+   * The two links out, in front of everything the torrent is reporting.
    *
-   * First rather than last because they are the only two things here anybody presses, and the row
-   * reads left to right: what you can DO, then what you are watching, then how it is going. It also
-   * takes them out of the group that shrinks. Every figure to the right is as wide as whatever it
-   * currently reads, so the readouts compete for whatever the filename leaves, and a link that lost
-   * that competition used to be pushed off the right edge where it could not be reached or even
-   * seen. Nothing at the head of the row can be pushed anywhere.
+   * They belong with the readouts rather than with the filename, so they sit at the head of that
+   * side of the row: what you can DO, then what the download is doing. They stay their OWN group
+   * rather than joining the readouts, which is what keeps them out of the competition for width.
+   * Every figure to their right is as wide as whatever it currently reads, so the readouts shrink
+   * against each other, and a link that lost that competition used to be pushed off the right edge
+   * where it could not be reached or even seen.
    *
    * ICONS ONLY, with the sentence in the hover. A word beside each glyph bought nothing the tooltip
    * does not say better, and it spent width on the one part of this row that is not information
@@ -142,8 +146,8 @@ const playerStyle = css`
     pointer-events: auto;
     display: flex;
     align-items: center;
-    /* wider than the row's own gap so the two pills below do not touch */
-    gap: calc(1.6 * var(--mp-unit));
+    /* wide enough that the two pills below, which overhang their glyphs by 8px a side, do not touch */
+    gap: calc(2.4 * var(--mp-unit));
 
     .item.link {
       display: flex;
@@ -159,8 +163,13 @@ const playerStyle = css`
        * The negative margin cancels the padding, so the pill exists without the row growing 8px
        * taller than the readouts beside it.
        */
-      padding: 4px;
-      margin: -4px;
+      /*
+       * A 40px target around a 24px glyph, which is the smallest thing in this row anybody has to
+       * hit. The negative margin cancels it, so the pill and the hit area both exist without the row
+       * growing taller than the readouts beside it.
+       */
+      padding: 8px;
+      margin: -8px;
       border-radius: 4px;
       transition: background-color 120ms ease;
 
@@ -433,16 +442,17 @@ const Player = () => {
 
   const overlay = (
     <div className="ripple-overlay-content">
+      {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
+      <div className="file-name">{fileName}</div>
       {/* The way back to the whole torrent, and to its files. At the head of the row, and drawn as
           glyphs alone: the tooltip carries the sentence, which is more than a one word label said. */}
       <div className="player-links">
         {libraryHref && (
           <TooltipDisplay
             id="open-in-ripple"
-            /* start aligned, not end: these sit against the left edge, and a chip anchored to its
-               end would hang off it. The readouts on the right take bottom-end for the mirror
-               reason. */
-            tooltipPlace="bottom-start"
+            /* end aligned, like every readout to the right of them: these sit in the right half of
+               the row now, so a chip anchored to its start would grow towards the edge it is nearest. */
+            tooltipPlace="bottom-end"
             text={
               <a
                 className="item link"
@@ -463,7 +473,7 @@ const Player = () => {
         {downloadHref && (
           <TooltipDisplay
             id="open-download-page"
-            tooltipPlace="bottom-start"
+            tooltipPlace="bottom-end"
             text={
               <a
                 className="item link"
@@ -480,8 +490,6 @@ const Player = () => {
           />
         )}
       </div>
-      {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
-      <div className="file-name">{fileName}</div>
       {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
       {status
         ? <div className="loading-information">{status}</div>

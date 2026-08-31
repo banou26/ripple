@@ -171,8 +171,17 @@ export const OVERLAY_BG = 'rgba(0, 0, 0, 0.75)'
  * The one place a wash is not decoration. Video is arbitrary content, so no fixed text colour is
  * safe on it, and the embed overlay has no other protection: this plus the per-glyph text shadow is
  * the whole system. It stays translucent so the picture still reads underneath.
+ *
+ * A GRADIENT, not a flat fill, and it is the same one the player draws under its own control bar at
+ * the other end of the picture. A flat band protects the text just as well and ends on a hard edge,
+ * which draws a line across somebody's video and reads as a border on the frame: the eye goes to the
+ * edge rather than to the picture. Fading it out costs nothing, since the text sits in the darkest
+ * part at the top, and it leaves nothing for the eye to catch on.
+ *
+ * The stops are the player's, mirrored. Keeping the numbers rather than inventing gentler ones is
+ * what makes the two ends of the picture look like one thing.
  */
-export const VIDEO_SCRIM = 'rgba(0, 0, 0, 0.45)'
+export const VIDEO_SCRIM = 'linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.45) 20%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0.15) 70%, transparent 100%)'
 
 /**
  * The per-glyph half of the same problem, and the only blur left in the app.
