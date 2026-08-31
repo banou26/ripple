@@ -3,12 +3,14 @@ import type { MediaPlayerSource } from '@banou/media-player'
 import { useEffect, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowDown, ArrowUp, Shield, User } from 'react-feather'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'react-feather'
 import { MediaPlayer } from '@banou/media-player'
 
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
+import { magnetInfoHash } from '../torrent/magnet'
+import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { useReachability } from '../torrent/use-reachability'
 import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
@@ -16,6 +18,8 @@ import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection, parseMode } from './file-selection'
 import { decodeMagnetParam } from './magnet-codec'
+import { Route, getRoutePath, getRouterRoutePath } from './path'
+import { STATE_LABEL } from './torrent-format'
 
 const playerStyle = css`
   height: 100%;
@@ -126,10 +130,62 @@ const playerStyle = css`
     align-items: center;
     gap: calc(1.2 * var(--mp-unit));
 
+    /*
+     * THE NUMBERS GIVE WAY BEFORE THE LINKS DO.
+     *
+     * Every figure here is as wide as whatever it currently reads, and the range is large: a speed
+     * runs from 0 B/s to three digits and a unit, and a peer count from one digit to five. Folding
+     * the words was enough for the values this was measured at and not for the widest ones, and the
+     * way it failed is the part that matters: the row simply overflowed, so the two links, which are
+     * the only things here anybody presses, went off the right edge where they could not be reached
+     * or even seen. Nothing errored.
+     *
+     * So the shrinking is aimed rather than left to the default. Allowing an item to go below its
+     * content width lets a long speed ellipsize, and pinning the pressable ones keeps them on screen
+     * whatever the numbers do. A truncated speed is still a speed; an unreachable link is not a link.
+     */
+    min-width: 0;
+
+    /*
+     * The rules go on the ANCHOR, which is what is actually laid out here.
+     *
+     * Every item in this row is wrapped by TooltipDisplay in a div of its own carrying
+     * data-tooltip-id, so the flex children of this row are those wrappers and not the items inside
+     * them. Three passes of shrink rules written against .item changed the measured overflow by
+     * exactly zero pixels, which is the tell: a rule that has no effect at all is usually on the
+     * wrong element rather than the wrong property.
+     *
+     * The chain needs min-width at every level, because a flex item's automatic minimum is its own
+     * content: leave it out anywhere and everything below is pinned to the text it is refusing to
+     * shrink for.
+     */
+    > [data-tooltip-id] {
+      min-width: 0;
+    }
+
+    /* whatever is pressable holds its size, matched on what it IS rather than on a list of ids that
+       the next link added here would have to be remembered into */
+    > [data-tooltip-id]:has(.item.link),
+    > [data-tooltip-id]:has(.item.state) {
+      flex-shrink: 0;
+    }
+
     .item {
       display: flex;
       align-items: center;
       gap: 4px;
+      min-width: 0;
+
+      span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+
+    /* an icon never shrinks: it is the whole label once the words fold */
+    svg {
+      flex-shrink: 0;
     }
 
     /*
@@ -143,6 +199,60 @@ const playerStyle = css`
     .item.vpn[data-state='off'],
     .item.vpn[data-state='healing'] {
       color: ${WARN};
+    }
+
+    /*
+     * The two links out, drawn as part of the row rather than as buttons on top of it.
+     *
+     * They take the row's own colour and weight, so the header stays one line of information with two
+     * of its items pressable, rather than growing a toolbar over somebody's video. Underline on hover
+     * is what says they are links: colour alone would have to compete with the VPN warning beside
+     * them, which is the one thing in this row allowed to stand out.
+     */
+    .item.link {
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
+
+      &:hover span,
+      &:focus-visible span {
+        text-decoration: underline;
+      }
+
+      /* keyboard users get a ring; the row sits on arbitrary footage, so it carries its own contrast */
+      &:focus-visible {
+        outline: 2px solid ${TEXT};
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+
+    }
+
+    /*
+     * The WORDS go when the row runs out of room, never the icons.
+     *
+     * Same threshold and same reasoning as the downloaded counter above: on a phone this row is
+     * competing with the filename, and an icon still says which one is which where a truncated word
+     * does not. The tooltip carries the full sentence at every width.
+     *
+     * Three items fold, and the VPN one is here for a reason worth writing down. Its label is the
+     * WIDEST thing in the row and it is only wide TRANSIENTLY: VPN On measures 72px and
+     * VPN Reconnecting about 140, which is exactly the state a player is in while it starts. So the
+     * row fit every time it was measured settled and overflowed by 35px when measured during
+     * startup, with the two links pushed off the right edge where nobody can press them. Folding the
+     * word costs nothing that is not already said twice: the icon keeps its colour, which is what
+     * carries off and reconnecting, and the tooltip carries the sentence.
+     *
+     * The torrent state folds with them for the plainer reason that Downloading is the longest word
+     * in the row, with Retrying not far behind.
+     */
+    .item.link span,
+    .item.state span,
+    .item.vpn span {
+      display: none;
+      @media (min-width: 560px) {
+        display: inline;
+      }
     }
   }
 `
@@ -239,6 +349,54 @@ const Player = () => {
   // size", which is neither arm, and both halves have to travel together.
   const source: MediaPlayerSource = fileSize ? { read, size: fileSize } : {}
 
+  /*
+   * What the engine is doing with the torrent, which is not the same question as what the player is
+   * doing with the file.
+   *
+   * The row already says why there is nothing to watch YET, and how many bytes have landed. Neither
+   * answers "is this still downloading", and the two look identical from the outside once playback
+   * starts: a torrent that finished and is now seeding, and one still fetching ahead of the
+   * playhead, both play. Read through the same `snapshotState` and `STATE_LABEL` the library rows
+   * use, so a player and a row never disagree about a word.
+   */
+  const stateLabel = snapshot ? STATE_LABEL[snapshotState(snapshot)] : null
+
+  /*
+   * The two ways out of an embedded player, and the reason they exist.
+   *
+   * This component is usually running inside somebody else's page, where the person watching has no
+   * address bar for it and no other route to the torrent: not to the rest of its files, not to the
+   * download page, not to Ripple. Both open in a NEW TAB, because navigating the frame would replace
+   * the embedder's player with a page they did not ask for, and both carry `rel="noopener"` so the
+   * opened tab gets no handle on this one.
+   *
+   * Absolute, built from this document's own origin rather than left relative: the href is read by an
+   * embedder's page in some contexts, and a bare path there resolves against THEIR origin.
+   */
+  const libraryHref = useMemo(() => {
+    // an INFO HASH, never the row id: a row id is a libtorrent handle and names a different torrent
+    // in the next engine, so a link carrying one would open whatever got that number later
+    const infoHash = magnet ? magnetInfoHash(magnet) : null
+    return infoHash ? new URL(getRoutePath(Route.HOME, { torrent: infoHash }), origin).toString() : null
+  }, [magnet, origin])
+
+  /*
+   * This page's own URL with `mode` swapped, rather than a link built from scratch.
+   *
+   * That conversion is the one `EmbedOptions` describes: adding `&mode=download` to a watch URL
+   * downloads what that URL was playing. Doing it this way carries the file being watched across for
+   * free, keeps whichever magnet encoding the embedder used rather than re-packing it, and needs no
+   * metadata, so the link is right from the first paint instead of appearing once the file list
+   * lands. `embedPath` cannot do it: in download mode it writes a `files` selection and drops
+   * `fileIndex`, so it would need a file COUNT this page may not have yet.
+   */
+  const downloadHref = useMemo(() => {
+    if (!magnet) return null
+    const params = new URLSearchParams(searchParams)
+    params.set('mode', 'download')
+    return new URL(`${getRouterRoutePath(Route.EMBED)}?${params.toString()}`, origin).toString()
+  }, [magnet, searchParams, origin])
+
   const overlay = (
     <div className="ripple-overlay-content">
       {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
@@ -248,6 +406,14 @@ const Player = () => {
         ? <div className="loading-information">{status}</div>
         : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
       <div className="media-information" data-testid="media-information">
+        {stateLabel && (
+          <TooltipDisplay
+            id="torrent-state"
+            tooltipPlace="bottom-end"
+            text={<div className="item state" data-testid="torrent-state"><Activity /><span>{stateLabel}</span></div>}
+            toolTipText={<span>Torrent: {stateLabel}<br />What the engine is doing with this torrent</span>}
+          />
+        )}
         {vpn && (
           <TooltipDisplay
             id="vpn"
@@ -278,6 +444,32 @@ const Player = () => {
           text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
           toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
         />
+        {/* The way back to the whole torrent, and to its files. Last in the row because they are the
+            only two things here somebody presses rather than reads. */}
+        {libraryHref && (
+          <TooltipDisplay
+            id="open-in-ripple"
+            tooltipPlace="bottom-end"
+            text={
+              <a className="item link" href={libraryHref} target="_blank" rel="noopener noreferrer" data-testid="open-in-ripple">
+                <ExternalLink /><span>Ripple</span>
+              </a>
+            }
+            toolTipText={<span>Open this torrent in Ripple<br />Opens a new tab</span>}
+          />
+        )}
+        {downloadHref && (
+          <TooltipDisplay
+            id="open-download-page"
+            tooltipPlace="bottom-end"
+            text={
+              <a className="item link" href={downloadHref} target="_blank" rel="noopener noreferrer" data-testid="open-download-page">
+                <Download /><span>Download</span>
+              </a>
+            }
+            toolTipText={<span>Download {fileName ?? 'this torrent'}<br />Opens a new tab</span>}
+          />
+        )}
         {/* audio and subtitle pickers live in the player's own settings menu now */}
       </div>
     </div>

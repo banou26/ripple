@@ -2420,6 +2420,36 @@ const Home = () => {
 
   const [params, setParams] = useSearchParams()
 
+  /*
+   * `?torrent=<info hash>` opens that torrent when the page loads, which is how the embedded player
+   * links back here for the release somebody is watching inside another site.
+   *
+   * An INFO HASH, resolved to a row id here rather than carried as one: a row id is a libtorrent
+   * handle, a counter inside one session, so a link holding one would open a different torrent in the
+   * next engine. See HomeOptions.
+   *
+   * IT FOLLOWS THE ROW ACROSS ITS ID CHANGING, which a one-shot version got wrong. A torrent the
+   * engine has not reached yet is a `starting` row under `starting:<hash>`, and the same torrent a
+   * second later is a live row under its handle. Selecting the first one silently loses the selection
+   * when it becomes the second, and `StartingRow` draws no selected state anyway, so the page just
+   * sat there looking untouched. Which of the two a link landed on was pure timing.
+   *
+   * `applied` is what keeps that from fighting the person: it holds the id this put there last, and
+   * the moment the selection is anything else, because they closed the panel or opened another row,
+   * this stops touching it.
+   */
+  const applied = useRef<string | null>(null)
+  const wanted = params.get('torrent')
+  useEffect(() => {
+    if (!wanted) return
+    const row = torrents.find((t) => t.infoHash === wanted)
+    if (!row || applied.current === row.id) return
+    // they have moved the selection since, so it is theirs now
+    if (applied.current !== null && selectedId !== applied.current) return
+    applied.current = row.id
+    setSelectedId(row.id)
+  }, [wanted, torrents, selectedId])
+
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}

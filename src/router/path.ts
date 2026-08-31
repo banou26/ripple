@@ -35,8 +35,21 @@ type AddOptions = { magnet: string, name?: string }
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
 type EmbedOptions = EmbedSource & { fileIndex?: string, mode?: 'watch' | 'download', files?: string, f?: string }
 
+/**
+ * What the library page accepts, which is one torrent to open when it loads.
+ *
+ * `torrent` is an INFO HASH rather than a row id. A row id is a libtorrent handle, which is a counter
+ * inside one session and names a different torrent in the next one, so a link carrying one would open
+ * whatever the engine happened to assign that number to by the time somebody clicked it.
+ *
+ * Written by the embedded player, so a viewer watching a release inside somebody else's page has a
+ * way back to the whole torrent in Ripple itself.
+ */
+type HomeOptions = { torrent?: string }
+
 const Routes = {
-  [Route.HOME]: () => '/',
+  [Route.HOME]: (options?: HomeOptions) =>
+    (options?.torrent ? `/?${new URLSearchParams({ torrent: options.torrent }).toString()}` : '/'),
   [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
   [Route.EMBED]: (options: EmbedOptions) => `/embed?${new URLSearchParams(options).toString()}`,
   [Route.LEGAL]: () => '/legal',
