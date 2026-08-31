@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { compileFileSelection, embedIframe, embedPath, embedUrl } from './embed-link'
 import { parseFileSelection, parseMode, resolveSelection } from './file-selection'
-import { decodeFileList } from './file-list-codec'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 
 /** What a built path actually names, read back the way /embed reads it. */
@@ -263,61 +262,41 @@ describe('embedUrl and embedIframe', () => {
 })
 
 /**
- * The file list a download link can carry, so the recipient sees the release before the swarm
- * answers. Everything here is about when it is NOT written, because the failure that costs anything
- * is a link that got longer or lost its meaning, not one that skipped a preview.
+ * WHAT A LINK IS ALLOWED TO SAY, which is the smaller half of what it used to.
+ *
+ * A link asks for a torrent and for files within it. It carries nothing describing those files: no
+ * names, no sizes, no count. That was a deliberate removal rather than something never built, so it
+ * is pinned here, because the shape of a URL is the kind of thing that grows back.
  */
-describe('the preview file list', () => {
-  const FILES = Array.from({ length: 12 }, (_, i) => ({
-    path: `Show.S01/Show.S01E${String(i + 1).padStart(2, '0')}.1080p.mkv`, size: (350 + i) * 1024 ** 2,
-  }))
-
-  it('rides along on a download link and reads back as the same list', () => {
-    const path = embedPath({ magnet: MAGNET, mode: 'download', preview: FILES })!
-    const value = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('f')
-    expect(value).not.toBeNull()
-    expect(decodeFileList(value!)).toEqual(FILES)
-  })
-
-  /** The player reads `fileIndex` and renders no list, so a preview there is bytes nothing looks at. */
-  it('is never put on a watch link', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch', preview: FILES })).not.toContain('f=')
-  })
-
-  it('is simply absent when the sender has no file list, which is every plain magnet', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'download' })).not.toContain('&f=')
-    expect(embedPath({ magnet: MAGNET, mode: 'download', preview: [] })).not.toContain('&f=')
+describe('a link describes no files, only which ones it wants', () => {
+  it('carries no file list on a download link', () => {
+    const path = embedPath({ magnet: MAGNET, mode: 'download', indices: [0, 2], fileCount: 5 })!
+    // the comma is percent encoded by URLSearchParams, which is what actually ships
+    expect(path).toContain('files=0%2C2')
+    expect(path).not.toContain('&f=')
   })
 
   /**
-   * The preview is a convenience and the link is not. A list too big to encode has to cost the
-   * preview, never the link, so this pins that the rest of the URL is untouched by its absence.
+   * The two cases that need no selection at all, which is most links: every file picked, and a
+   * torrent with one file, where those are the same statement.
    */
-  it('drops itself rather than bloating the link past what a chat will carry', () => {
-    const enormous = Array.from({ length: 3000 }, (_, i) => ({
-      path: `${i}-${(i * 2654435761 % 4294967296).toString(36)}${'zqx'.repeat(14)}.mkv`, size: i,
-    }))
-    const withHuge = embedPath({ magnet: MAGNET, mode: 'download', preview: enormous })!
-    expect(withHuge).not.toContain('&f=')
-    expect(withHuge).toBe(embedPath({ magnet: MAGNET, mode: 'download' }))
+  it('says nothing about files when the link wants all of them', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'download', indices: [0, 1, 2], fileCount: 3 })!)
+      .not.toContain('files=')
+    expect(embedPath({ magnet: MAGNET, mode: 'download', indices: [0], fileCount: 1 })!)
+      .not.toContain('files=')
+    expect(embedPath({ magnet: MAGNET, mode: 'download' })!).not.toContain('files=')
   })
 
   /**
-   * The query is ordered plainest first: what the link DOES, then the packed torrent, then the long
-   * preview blob. A URL is read left to right and truncated from the right, so the readable half
-   * has to lead. The torrent used to, from when it was the only thing in the link.
+   * A whole-torrent download link is now the same length as the watch link for the same torrent,
+   * give or take the mode. It used to be about 60 per cent longer on a single-file release, and all
+   * of that difference was a file list the page threw away the moment metadata arrived.
    */
-  it('leads with what the link does, then the torrent, then the long parameter', () => {
-    const path = embedPath({ magnet: MAGNET, mode: 'download', preview: FILES })!
-    expect(path).toMatch(/^\/embed\?mode=download/)
-    // `&m=` rather than `m=`, which would also match inside `mode=`
-    expect(path.indexOf('&m=')).toBeLessThan(path.indexOf('&f='))
-    expect(path.indexOf('mode=')).toBeLessThan(path.indexOf('&m='))
-  })
-
-  it('keeps a 12-episode season inside what a chat message will carry', () => {
-    const url = embedUrl({ magnet: MAGNET, mode: 'download', preview: FILES }, 'https://torrent.fkn.app')!
-    // Discord refuses a message over 2000 characters outright, the tightest real ceiling here
-    expect(url.length).toBeLessThan(2000)
+  it('is no longer than the watch link for the same torrent', () => {
+    const download = embedPath({ magnet: MAGNET, mode: 'download' })!
+    const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    expect(download.length - watch.length).toBeLessThanOrEqual('download'.length - 'watch'.length)
   })
 })
+

@@ -5,9 +5,7 @@
 // grammar can be checked without a browser, a torrent or an engine.
 
 import type { EmbedMode } from './file-selection'
-import type { PreviewFile } from './file-list-codec'
 
-import { encodeFileList } from './file-list-codec'
 import { encodeMagnetParam } from './magnet-codec'
 import { getRoutePath, Route } from './path'
 
@@ -53,18 +51,6 @@ export type EmbedLink = {
   fileCount?: number
   /** The single file a watch link opens. Ignored in download mode, which uses `indices`. */
   fileIndex?: number
-  /**
-   * The whole file list, so the recipient can see what they were sent before the swarm answers.
-   *
-   * Carried on DOWNLOAD links only, and only when the sender actually has it, which is when a
-   * `.torrent` was read in the page or the torrent is already in the library. A magnet on its own
-   * cannot supply one, and a watch link has no list to show.
-   *
-   * Left off when it would not fit, so the preview never costs the link its usability. Paths are
-   * full paths in engine order, because the index a `files=` selection names is a position in this
-   * list.
-   */
-  preview?: readonly PreviewFile[]
 }
 
 /**
@@ -75,7 +61,7 @@ export type EmbedLink = {
  * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
  * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
-export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview }: EmbedLink): string | null => {
+export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string | null => {
   const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
   // spread rather than a computed key, so the two parameter names stay distinguishable to the type
@@ -90,7 +76,6 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview
    * characters of noise. A link is read left to right, and truncated from the right.
    */
   const options: { mode: EmbedMode, files?: string, fileIndex?: string } = { mode }
-  const trailing: { f?: string } = {}
   /*
    * `mode` is written out even for `watch`, which an absent `mode` already means.
    *
@@ -104,27 +89,27 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, preview
    * `magnet`. See parseMode in file-selection.ts, which is tested for exactly that.
    */
   if (mode === 'download') {
+    /*
+     * The selection and NOTHING about the files themselves.
+     *
+     * A link used to carry a compressed copy of the file list so the download page had something to
+     * draw before metadata arrived. It is gone: it was advisory, so the page needed a second list
+     * that could be drawn but never acted on, and on the common case, a single-file release, it cost
+     * 38 per cent of the link to add a file extension. A link now asks for files and says nothing
+     * about what they are.
+     *
+     * `compileFileSelection` already emits nothing for the two cases that need no parameter: every
+     * file picked, and a torrent with one file, where those are the same thing.
+     */
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
     if (files) options.files = files
-    /*
-     * Download links only. The player reads `fileIndex` and renders no list, so a preview there
-     * would be bytes nothing looks at.
-     *
-     * Last in the query, behind even the torrent: it is the longest parameter by far and the one a
-     * reader cares least about, so everything that identifies the link stays visible in a truncated
-     * paste.
-     */
-    if (preview?.length) {
-      const list = encodeFileList(preview)
-      if (list) trailing.f = list
-    }
   } else if (fileIndex != null && fileIndex > 0) {
     // fileIndex=0 is what an absent one already means
     options.fileIndex = String(fileIndex)
   }
 
   // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
-  return getRoutePath(Route.EMBED, { ...options, ...source, ...trailing })
+  return getRoutePath(Route.EMBED, { ...options, ...source })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */

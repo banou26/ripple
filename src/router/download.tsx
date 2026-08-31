@@ -34,7 +34,6 @@ import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
-import type { PreviewFile } from './file-list-codec'
 import { resolveSelection } from './file-selection'
 
 const style = css`
@@ -362,20 +361,17 @@ type Job = { fraction: number, label: string, total: number } | null
 
 type Props = {
   magnet: string | undefined
-  selection: FileSelection
   /**
-   * The file list the LINK claims, shown while the swarm is still delivering the real one.
+   * Which files the link asked for, as a grammar rather than a list.
    *
-   * Advisory, and treated that way throughout: it is written by whoever built the link, so it can
-   * say anything. What keeps that safe is that it never reaches `entries`, which is what the button
-   * downloads and which stays bound to engine metadata. The button is disabled until that metadata
-   * arrives, so a preview cannot be acted on, only looked at, and by the time anything can be
-   * pressed the real list has replaced it on screen.
+   * Nothing here describes the torrent: `all` when the link said nothing, and otherwise the indices
+   * it named. What those indices MEAN is resolved against engine metadata once it lands, so a link
+   * can ask for files and can never assert what they are.
    */
-  preview?: PreviewFile[]
+  selection: FileSelection
 }
 
-const DownloadPage = ({ magnet, selection, preview }: Props) => {
+const DownloadPage = ({ magnet, selection }: Props) => {
   const { client, snapshot, handle, viewer, claim, engineError, storageFull } = useDownloadTorrent(magnet)
   /**
    * Whether anything is carrying peer traffic, which is the one explanation this page never had.
@@ -398,30 +394,23 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
     () => (files ? indices.map((index) => ({ index, path: files[index]!.path, size: files[index]!.size })) : []),
     [files, indices],
   )
-  /**
-   * What the page SHOWS, which is the real list once there is one and the link's claim until then.
+  /*
+   * The page shows what the ENGINE reports and nothing else, so there is one list rather than two.
    *
-   * Deliberately separate from `entries`. Everything below this line that decides what happens reads
-   * `entries`; everything that decides what is drawn reads `shown`. Collapsing the two would let a
-   * link's own description of a torrent choose which files get written to somebody's disk.
+   * A link used to be able to carry its own copy of the file list, drawn while the swarm delivered
+   * the real one. It was advisory, it could say anything, and keeping it safe meant a second list
+   * that everything drawing had to read and nothing acting on could. It also cost 38 per cent of a
+   * single-file link to add a file extension. Until metadata lands the page now says so, which is
+   * what it already said whenever the sender only had a magnet.
    */
-  const previewEntries: SaveEntry[] = useMemo(() => {
-    if (files || !preview?.length) return []
-    return resolveSelection(selection, preview.length)
-      .filter((index) => preview[index] !== undefined)
-      .map((index) => ({ index, path: preview[index]!.path, size: preview[index]!.size }))
-  }, [files, preview, selection])
-
-  const showingPreview = !files && previewEntries.length > 0
-  const shown = files ? entries : previewEntries
-  const totalBytes = shown.reduce((n, e) => n + e.size, 0)
+  const totalBytes = entries.reduce((n, e) => n + e.size, 0)
 
   /*
    * `||` throughout rather than `??`, and spelled out rather than chained.
    *
    * A path of "" or "/x" splits to an EMPTY STRING, which `??` accepts as a real answer, so the card
-   * would head itself with nothing at all. A preview path is written by whoever built the link, so
-   * that is reachable on purpose rather than by accident.
+   * would head itself with nothing at all. A path arriving from the engine is not attacker written,
+   * but the magnet's display name is, so the guard stays.
    *
    * Written as statements because mixing `??` and `||` in one chain is a syntax error, and the
    * version of this that tried it parsed as nothing and took out every module importing this file.
@@ -429,18 +418,14 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
   const torrentName = useMemo(() => {
     const fromMagnet = magnet ? magnetParam(magnet, 'dn') : undefined
     const fromFiles = files?.[0]?.path.split('/')[0]
-    const fromPreview = preview?.[0]?.path.split('/')[0]
-    return fromMagnet || fromFiles || fromPreview || 'this torrent'
-  }, [magnet, files, preview])
+    return fromMagnet || fromFiles || 'this torrent'
+  }, [magnet, files])
 
   const single = entries.length === 1 ? entries[0]! : null
-  /* the same question asked of whatever is on screen, so a one-file preview reads as one file */
-  const singleShown = shown.length === 1 ? shown[0]! : null
-  // libtorrent reports a path relative to the torrent root, so a multi-file release repeats its
-  // folder in front of every entry; the folder is already the heading here
+
   const leaf = (path: string) => path.split('/').pop() || path
 
-  const subjectName = singleShown ? leaf(singleShown.path) : torrentName
+  const subjectName = single ? leaf(single.path) : torrentName
   const framed = useMemo(framedByAnotherOrigin, [])
   const openHere = typeof window === 'undefined'
     ? null
@@ -552,18 +537,15 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
       <main>
         <div className="card">
           <div className="subject">
-            <div className="glyph">{singleShown ? <FileIcon /> : <Folder />}</div>
+            <div className="glyph">{single ? <FileIcon /> : <Folder />}</div>
             <div className="about">
               <div className="name">{subjectName}</div>
               <div className="meta">
-                {shown.length === 0
+                {entries.length === 0
                   ? files
                     ? 'None of the requested files are in this torrent'
                     : 'Reading the torrent from the network'
-                  : `${getHumanReadableByteString(totalBytes)}${singleShown ? '' : ` · ${shown.length} files`}`}
-                {/* said out loud, because until metadata lands this is the link's word and not the
-                    torrent's, and the two can disagree */}
-                {showingPreview && ' · from the link'}
+                  : `${getHumanReadableByteString(totalBytes)}${single ? '' : ` · ${entries.length} files`}`}
               </div>
             </div>
           </div>
@@ -572,6 +554,7 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
             {!busy && <Download />}
             {label}
           </button>
+
 
           {busy && (
             <div className="progress">
@@ -603,11 +586,11 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
             </div>
           )}
 
-          {shown.length > 1 && (
+          {entries.length > 1 && (
             <details className="files">
-              <summary>{shown.length} files{showingPreview && ' from the link'}</summary>
+              <summary>{entries.length} files</summary>
               <div className="list">
-                {shown.map((entry) => (
+                {entries.map((entry) => (
                   <div className="file" key={entry.index}>
                     <span className="name">{leaf(entry.path)}</span>
                     <span className="size">{getHumanReadableByteString(entry.size)}</span>
@@ -618,11 +601,6 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
                       * the same word. The visible text stays a prefix of the accessible name, so
                       * "click Download" still addresses this button by voice.
                       */}
-                    {/* no per-file button while this list is the link's claim rather than the
-                        torrent's: its indices are the link's too, and `start` writes files to disk by
-                        index. Disabling the button would be enough today and would stop being enough
-                        the first time somebody loosens `ready`. Not rendering it cannot rot that way. */}
-                    {!showingPreview && (
                     <button
                       aria-label={`Download ${leaf(entry.path)}`}
                       onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)}
@@ -630,7 +608,6 @@ const DownloadPage = ({ magnet, selection, preview }: Props) => {
                     >
                       Download
                     </button>
-                    )}
                   </div>
                 ))}
               </div>

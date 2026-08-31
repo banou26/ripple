@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
-import { decodeFileList } from '../router/file-list-codec'
 import { SYNCED_FILE_CAP } from '../torrent/library'
 import { decodeMagnetParam } from '../router/magnet-codec'
 import { ShareLinkDialog } from './share-link-dialog'
@@ -269,51 +268,3 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 })
 
-/**
- * The dialog's half of the file-list preview.
- *
- * Worth its own block because nothing else in the repo would notice this being disconnected: the
- * codec has thorough tests of its own and the download page has tests for rendering a preview, so
- * both ends can be green while the link that joins them carries no `f=` at all. That is the exact
- * shape of the miss that shipped a broken script earlier in this work.
- */
-describe('the file list the link carries', () => {
-  it('puts the whole list on a download link', async () => {
-    const { query } = await mount(SINTEL)
-    const value = query().get('f')
-    expect(value, 'the download link carries no file list').not.toBeNull()
-    expect(decodeFileList(value!)).toEqual(SINTEL.files!.map((f) => ({ path: f.name, size: f.size })))
-  })
-
-  it('carries the WHOLE list, not just the selection, because files= indexes into it', async () => {
-    const { query } = await mount(SINTEL)
-    await userEvent.click(dialog().querySelector('details.files summary') as HTMLElement)
-    const boxes = [...dialog().querySelectorAll('details.files input[type="checkbox"]')] as HTMLInputElement[]
-    // drop one file from the selection, so files= becomes a strict subset
-    if (boxes.length > 1) await userEvent.click(boxes[0]!)
-    await expect.poll(() => query().get('files')).not.toBeNull()
-    expect(decodeFileList(query().get('f')!)).toHaveLength(SINTEL.files!.length)
-  })
-
-  it('leaves it off a magnet with no file list, which is every plain paste', async () => {
-    const { query } = await mount({ ...SINTEL, files: null })
-    expect(query().get('f')).toBeNull()
-  })
-
-  /**
-   * A library entry's list is truncated at SYNCED_FILE_CAP, and a truncated list cannot be told
-   * apart from a complete one of that length. Emitting it would state a wrong count and a wrong
-   * total as fact, so the preview is dropped instead.
-   */
-  it('says nothing rather than something short when the list may be truncated', async () => {
-    const many = Array.from({ length: SYNCED_FILE_CAP }, (_, i) => file(`Pack/E${i}.mkv`, 1_000 + i))
-    const capped = await mount({ ...SINTEL, files: many })
-    expect(capped.query().get('f'), 'a possibly-truncated list was published as fact').toBeNull()
-  })
-
-  it('keeps the preview one file under the cap, where the list is knowably complete', async () => {
-    const fewer = Array.from({ length: SYNCED_FILE_CAP - 1 }, (_, i) => file(`Pack/E${i}.mkv`, 1_000 + i))
-    const { query } = await mount({ ...SINTEL, files: fewer })
-    expect(query().get('f')).not.toBeNull()
-  })
-})

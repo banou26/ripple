@@ -18,8 +18,10 @@ export enum Route {
  * magnet URI, which is what README publishes and what every link written before the packed form
  * exists still carries). Both are read; only the shorter one is ever written.
  *
- * `f` is an optional file list for the download page to show while the swarm is still delivering
- * the real one (see file-list-codec). It is a preview and never decides what gets downloaded.
+ * Nothing else. A link ASKS for a torrent and for files within it; it never describes them. It used
+ * to carry `f`, a compressed copy of the file list for the download page to draw before metadata
+ * arrived, which meant a second list that could be shown and never acted on, and on a single-file
+ * release cost 38 per cent of the URL to add a file extension.
  */
 /**
  * What /add accepts, which is deliberately almost nothing.

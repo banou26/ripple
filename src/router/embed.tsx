@@ -15,7 +15,6 @@ import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection, parseMode } from './file-selection'
-import { decodeFileList } from './file-list-codec'
 import { decodeMagnetParam } from './magnet-codec'
 
 const playerStyle = css`
@@ -324,12 +323,8 @@ const Embed = () => {
    * The link's own description of the torrent, for the download page to show until the swarm sends
    * the real one. Undefined for anything unreadable, which is the same as it never being there.
    */
-  const preview = useMemo(() => {
-    const raw = searchParams.get('f')
-    return raw ? decodeFileList(raw) ?? undefined : undefined
-  }, [searchParams])
 
-  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} preview={preview} />
+  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} />
   return <Player />
 }
 
