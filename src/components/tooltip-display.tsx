@@ -1,6 +1,6 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import { css } from '@emotion/react'
-import { PlacesType, Tooltip } from 'react-tooltip'
+import { PlacesType, Tooltip, TooltipRefProps } from 'react-tooltip'
 
 import { CONTROL_BG, TEXT } from '../theme'
 
@@ -80,6 +80,24 @@ const style = (size: buttonSize) => css`
   `}
 `
 
+/**
+ * Where the pointer is, shared by every anchor rather than tracked once per tooltip.
+ *
+ * Installed on the first mount rather than at module scope, so importing this does nothing to the
+ * document on its own.
+ */
+const pointer = { x: -1, y: -1, anchors: 0 }
+const trackPointer = (event: PointerEvent) => { pointer.x = event.clientX; pointer.y = event.clientY }
+
+const watchPointer = () => {
+  if (pointer.anchors++ === 0) {
+    window.addEventListener('pointermove', trackPointer, { capture: true, passive: true })
+  }
+  return () => {
+    if (--pointer.anchors === 0) window.removeEventListener('pointermove', trackPointer, { capture: true })
+  }
+}
+
 interface TooltipDisplayProps {
   id: string
   toolTipText: ReactNode
@@ -108,28 +126,68 @@ export const TooltipDisplay = ({
   tooltipPlace = 'top',
   disabled = false,
   size = buttonSize.md
-}: TooltipDisplayProps) => (
-  <>
-    <div
-      data-tooltip-id={id}
-      data-open={true}
-      data-tooltip-offset={offset}
-      data-tooltip-delay-show={delayShow}
-      data-tooltip-delay-hide={closeDelay}
-      data-tooltip-place={tooltipPlace}
-    >
-      {text}
-    </div>
-    {
-      !disabled && (
-        <Tooltip
-          css={style(size)}
-          id={id}
-          noArrow={true}
-        >
-          {toolTipText}
-        </Tooltip>
-      )
+}: TooltipDisplayProps) => {
+  const anchor = useRef<HTMLDivElement>(null)
+  const tooltip = useRef<TooltipRefProps>(null)
+
+  /**
+   * Close on a fullscreen transition, unless the pointer really is still on the anchor.
+   *
+   * Going fullscreen relays the whole row out from under a pointer that never moved, and the browser
+   * recomputes the hover chain for that silently: the hover flag flips a frame later, but no
+   * boundary event is dispatched at all. react-tooltip closes on mouseout and on nothing else, so it
+   * never learns the pointer left and the chip stays painted for the rest of the session, surviving
+   * both pointer movement and the player hiding its own controls.
+   *
+   * Tested against the anchor's rect rather than closed outright, because a player that already
+   * fills the window moves nothing, and the tooltip under the pointer is then legitimately open.
+   * The rect is already the post-transition one when fullscreenchange fires.
+   *
+   * The player carries the same fix for its own chips, in @banou/media-player's TooltipDisplay. This
+   * one is a separate component drawing the overlay row, so it needs its own.
+   */
+  useEffect(() => {
+    const untrack = watchPointer()
+    const closeIfPointerLeft = () => {
+      const element = anchor.current
+      if (!element) return
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      if (pointer.x >= left && pointer.x < right && pointer.y >= top && pointer.y < bottom) return
+      tooltip.current?.close()
     }
-  </>
-)
+    const changeEvents: string[] = ['fullscreenchange', 'webkitfullscreenchange']
+    for (const type of changeEvents) document.addEventListener(type, closeIfPointerLeft)
+    return () => {
+      untrack()
+      for (const type of changeEvents) document.removeEventListener(type, closeIfPointerLeft)
+    }
+  }, [])
+
+  return (
+    <>
+      <div
+        ref={anchor}
+        data-tooltip-id={id}
+        data-open={true}
+        data-tooltip-offset={offset}
+        data-tooltip-delay-show={delayShow}
+        data-tooltip-delay-hide={closeDelay}
+        data-tooltip-place={tooltipPlace}
+      >
+        {text}
+      </div>
+      {
+        !disabled && (
+          <Tooltip
+            ref={tooltip}
+            css={style(size)}
+            id={id}
+            noArrow={true}
+          >
+            {toolTipText}
+          </Tooltip>
+        )
+      }
+    </>
+  )
+}
