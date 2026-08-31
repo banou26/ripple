@@ -179,7 +179,18 @@ print(json.dumps({
    */
   test('renders inside a cross-origin frame and offers a way out of it', async ({ page }) => {
     await page.goto('/')
-    const url = `http://127.0.0.1:4560${downloadUrl(`files=${SUBTITLE}`)}`
+    /*
+     * The origin is taken from the page rather than written down.
+     *
+     * `localhost` and `127.0.0.1` are different origins to a browser while being the same server,
+     * which is what makes this a genuine cross-origin frame with no second deployment. The PORT has
+     * to follow whatever the run is using though: it was hardcoded, and the moment a run could pick
+     * its own port this framed an address nothing was serving and waited sixty seconds for a button
+     * on a blank page.
+     */
+    const here = new URL(page.url())
+    test.skip(!/^(127\.0\.0\.1|localhost)$/.test(here.hostname), 'needs the loopback pair, so it is local only')
+    const url = `http://127.0.0.1:${here.port}${downloadUrl(`files=${SUBTITLE}`)}`
 
     await page.evaluate((src) => {
       const frame = document.createElement('iframe')
