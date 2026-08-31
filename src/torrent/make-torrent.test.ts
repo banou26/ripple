@@ -298,3 +298,112 @@ describe('the magnet for something already held', () => {
     expect(link).toContain(`tr=${encodeURIComponent('udp://t.example:1337')}`)
   })
 })
+
+/**
+ * WHERE THE PADS GO, and the one case where hybrid and v2 disagree.
+ *
+ * Every number below was read off libtorrent's own PARSER, `torrent_info(...).files()`, over the
+ * reference torrents, not off its source and not off the specification. That matters because the
+ * disagreement is invisible in the metainfo: a v2 info dict carries no file list at all, so Ripple's
+ * bytes are identical either way, and the difference only shows up one layer down where reads are
+ * served by index into libtorrent's parsed list.
+ *
+ * Getting it wrong is not subtle once it happens. A v2 torrent of a folder holding one file died
+ * with `hybrid storage: /source/... has 1 handles for 2 files`, an I/O error and no progress.
+ */
+describe('where the pads go', () => {
+  const padsFor = (files: { path: string[], size: number }[], format: 'v1' | 'hybrid' | 'v2') =>
+    plan({ name: 'Pack', files, pieceLength: 65536, format }).files.filter((f) => f.pad).map((f) => f.size)
+
+  const ONE_UNALIGNED = [{ path: ['only.mkv'], size: 100_000 }]
+
+  it('puts none in a v1 torrent, whatever it holds', () => {
+    expect(padsFor(ONE_UNALIGNED, 'v1')).toEqual([])
+    expect(padsFor([{ path: ['a'], size: 1000 }, { path: ['b'], size: 2000 }], 'v1')).toEqual([])
+  })
+
+  it('follows every unaligned file, the LAST one included', () => {
+    // 1000 -> 64536, then 2000 -> 63536: libtorrent emits the trailing pad since 2.0.8
+    expect(padsFor([{ path: ['a'], size: 1000 }, { path: ['b'], size: 2000 }], 'hybrid'))
+      .toEqual([64536, 63536])
+  })
+
+  it('emits none after a file that already ends on a boundary', () => {
+    expect(padsFor([{ path: ['a'], size: 65536 }, { path: ['b'], size: 65536 }], 'hybrid')).toEqual([])
+  })
+
+  it('emits none after an EMPTY file, which cannot move the offset', () => {
+    expect(padsFor([{ path: ['a-empty'], size: 0 }, { path: ['z'], size: 100_000 }], 'hybrid'))
+      .toEqual([31_072])
+  })
+
+  /**
+   * THE ONE THAT DIFFERS. A hybrid's file list is read straight out of the v1 `files` key, which
+   * libtorrent's creator leaves unpadded for a single file; a v2 torrent has no such key, so the
+   * parser builds the list itself and pads unconditionally.
+   */
+  it('pads a lone unaligned file for v2 and NOT for hybrid', () => {
+    expect(padsFor(ONE_UNALIGNED, 'hybrid')).toEqual([])
+    expect(padsFor(ONE_UNALIGNED, 'v2')).toEqual([31_072])
+  })
+
+  it('pads a lone file for neither when it already lands on a boundary', () => {
+    const aligned = [{ path: ['exact.bin'], size: 65536 }]
+    expect(padsFor(aligned, 'hybrid')).toEqual([])
+    expect(padsFor(aligned, 'v2')).toEqual([])
+  })
+
+  /** Padding fills a piece to its boundary, so it can never add one. The screen shows the same count. */
+  it('never changes the piece count', () => {
+    for (const format of ['hybrid', 'v2'] as const) {
+      expect(plan({ name: 'Pack', files: ONE_UNALIGNED, pieceLength: 65536, format }).pieceCount)
+        .toBe(plan({ name: 'Pack', files: ONE_UNALIGNED, pieceLength: 65536, format: 'v1' }).pieceCount)
+    }
+  })
+})
+
+/**
+ * A SINGLE-FILE torrent renamed in the dialog, which is one gesture away and used to be refused.
+ *
+ * The name box is free text and its own comment says a later edit is the person's. In the v1 form
+ * that renames the file, because `name` IS the filename. A hybrid describes the same file twice, so
+ * the v2 file tree has to be keyed by the same string or libtorrent compares the two lists index by
+ * index, finds different names and refuses the whole torrent with `torrent_inconsistent_files`,
+ * after the entire file has been hashed.
+ */
+describe('renaming a single-file torrent', () => {
+  const build = async (name: string) => {
+    const p = plan({ name, files: [{ path: ['one.bin'], size: 40 }], single: true, pieceLength: 65536, format: 'hybrid' })
+    const pieces = new Uint8Array(p.pieceCount * PIECE_HASH_BYTES).fill(7)
+    const fileHashes = [{ root: new Uint8Array(32).fill(9), layer: [] }]
+    return new TextDecoder('latin1').decode(encodeTorrent({ plan: p, pieces, fileHashes }))
+  }
+
+  it('names the file tree entry after the torrent, not after the file that was picked', async () => {
+    const renamed = await build('Renamed.bin')
+    // once as `name`, once as the file tree's only key
+    expect(renamed.split('11:Renamed.bin').length - 1).toBe(2)
+    expect(renamed).not.toContain('one.bin')
+  })
+
+  it('leaves an unedited name describing the same file it always did', async () => {
+    const same = await build('one.bin')
+    expect(same.split('7:one.bin').length - 1).toBe(2)
+  })
+
+  /** A multi-file torrent has no such constraint: its tree is relative to the name. */
+  it('does not rewrite paths in a multi-file torrent', async () => {
+    const p = plan({
+      name: 'Renamed',
+      files: [{ path: ['a.bin'], size: 40 }, { path: ['b.bin'], size: 40 }],
+      pieceLength: 65536,
+      format: 'hybrid',
+    })
+    const pieces = new Uint8Array(p.pieceCount * PIECE_HASH_BYTES).fill(7)
+    const fileHashes = [0, 1].map(() => ({ root: new Uint8Array(32).fill(9), layer: [] }))
+    const text = new TextDecoder('latin1').decode(encodeTorrent({ plan: p, pieces, fileHashes }))
+    expect(text).toContain('a.bin')
+    expect(text).toContain('b.bin')
+  })
+})
+

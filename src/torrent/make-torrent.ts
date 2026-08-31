@@ -270,16 +270,30 @@ export const padLengthFor = (offsetAfterFile: number, pieceLength: number): numb
   (pieceLength - (offsetAfterFile % pieceLength)) % pieceLength
 
 /**
- * Where the pads go, which is a rule about the FILE COUNT and not about the torrent's shape.
+ * Where the pads go, which is TWO rules, because the writer and the reader do not use the same one.
  *
  * A pad follows every non-empty file that does not already end on a piece boundary, the last one
- * included, and only when the torrent holds more than one file. That last clause is the one worth
- * measuring rather than assuming: a FOLDER holding a single unaligned file gets no pad at all, even
- * though it takes the multi-file shape, which was checked against libtorrent's own creator
- * (`folder-one-file` in the reference cases) rather than read off the condition.
+ * included. What differs is the single-file case, and it differs by format:
+ *
+ *  - **hybrid**: no pads at all when the torrent holds ONE file, even a folder holding one unaligned
+ *    file. That is what libtorrent's creator writes into the v1 `files` list, and a hybrid's file
+ *    list is read straight back out of it, so Ripple has to match it exactly or the torrent is
+ *    refused as inconsistent.
+ *  - **v2**: a pad even for one file. A v2-only torrent carries no `files` list, so libtorrent
+ *    SYNTHESIZES the list from the file tree on parse, and that path pads unconditionally.
+ *
+ * The distinction is invisible in the metainfo, which is what made it expensive: Ripple's v2 output
+ * is byte-identical to libtorrent's either way, because a v2 info dict has no file list to disagree
+ * about. It shows up one layer down, where reads are served BY INDEX into libtorrent's parsed list.
+ * Getting it wrong left a v2 torrent of a one-file folder dead on arrival with
+ * `has 1 handles for 2 files`, an I/O error and no progress, measured in the browser.
+ *
+ * Both halves were read off libtorrent's own parser rather than its source: `folder-one-file`,
+ * `one-byte` and `single-file` all report one file as hybrid and two as v2, while
+ * `single-file-exact`, which lands on a boundary and needs no pad, reports one either way.
  */
-const withPads = (files: SourceFile[], pieceLength: number): SourceFile[] => {
-  if (files.length <= 1) return files
+const withPads = (files: SourceFile[], pieceLength: number, format: TorrentFormat): SourceFile[] => {
+  if (files.length <= 1 && format !== 'v2') return files
   const out: SourceFile[] = []
   let offset = 0
   for (const file of files) {
@@ -340,7 +354,7 @@ export const plan = ({ name, files, single = false, pieceLength, format = 'v1' }
    * described the padded one would produce a torrent that is internally consistent, publishes
    * without complaint, and fails every piece any peer ever asks for.
    */
-  const laid = hasV2(format) ? withPads(sorted, chosen) : sorted
+  const laid = hasV2(format) ? withPads(sorted, chosen, format) : sorted
   const paddedBytes = laid.reduce((sum, file) => sum + file.size, 0)
 
   return {
@@ -417,14 +431,26 @@ export const PIECE_HASH_BYTES = 20
 const fileTree = (plan: TorrentPlan, hashes: FileHashes[]): Bencodable => {
   const root = Object.create(null) as Record<string, Bencodable>
   contentFiles(plan).forEach((file, index) => {
+    /*
+     * A SINGLE-FILE torrent's tree is keyed by the torrent's NAME, not by the picked file's name.
+     *
+     * In the single-file shape those are the same thing: the v1 half writes `length` and `name`, and
+     * `name` IS the filename. So a person editing the name in the dialog renames the file, which is
+     * what the v1 form has always done. Keying the tree by the ORIGINAL filename instead makes the
+     * two halves describe files with different names, and libtorrent compares them index by index
+     * and refuses the whole torrent with `torrent_inconsistent_files`. Measured against the real
+     * engine: identical names add cleanly, a rename returns -2, after the entire file has been
+     * hashed and with nothing on screen naming the cause.
+     */
+    const path = plan.single ? [plan.name] : file.path
     let node = root
-    for (const segment of file.path.slice(0, -1)) {
+    for (const segment of path.slice(0, -1)) {
       if (!(segment in node)) node[segment] = Object.create(null) as Record<string, Bencodable>
       node = node[segment] as Record<string, Bencodable>
     }
     const tree = hashes[index]
-    if (!tree) throw new Error(`no merkle tree for ${file.path.join('/')}`)
-    node[file.path[file.path.length - 1]!] = {
+    if (!tree) throw new Error(`no merkle tree for ${path.join('/')}`)
+    node[path[path.length - 1]!] = {
       '': { length: file.size, 'pieces root': tree.root ?? undefined },
     }
   })
