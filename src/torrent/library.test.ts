@@ -277,4 +277,23 @@ describe('accumulated run time', () => {
   it('is absent for a torrent that has never run', () => {
     expect(mergeEntry(stored(), stored()).activeSeconds).toBeUndefined()
   })
+
+  /*
+   * The byte counters take the same guard as the seconds, and the trap is the same one.
+   *
+   * An add carries no counters at all, so without naming them here the spread puts `undefined` over
+   * a torrent's whole upload history every time it is re-added, and the erased version is what the
+   * next cloud write publishes. That is a silent loss of the exact thing this feature exists to keep.
+   */
+  it('keeps the byte counters an add does not carry', () => {
+    const merged = mergeEntry(stored({ downloaded: 3_000, uploaded: 9_000, wasted: 12 }), stored())
+    expect(merged.downloaded).toBe(3_000)
+    expect(merged.uploaded).toBe(9_000)
+    expect(merged.wasted).toBe(12)
+  })
+
+  it('takes an incoming byte counter, which is how the persist loop writes one', () => {
+    const merged = mergeEntry(stored({ uploaded: 9_000 }), stored({ uploaded: 9_500 }))
+    expect(merged.uploaded).toBe(9_500)
+  })
 })

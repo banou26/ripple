@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { NO_UPTIME, WRITE_EVERY_SECONDS, formatDuration, totalUptime, worthWriting } from './uptime'
+import type { Totals } from './uptime'
+
+import { NO_UPTIME, WRITE_EVERY_SECONDS, accumulate, formatDuration, mergeTotals, sessionTotals, totalUptime, worthWriting } from './uptime'
 
 const at = (activeSeconds: number, seedingSeconds = 0) => ({ activeSeconds, seedingSeconds })
 
@@ -90,5 +92,85 @@ describe('saying how long', () => {
   it('treats nonsense as nothing rather than rendering NaN', () => {
     expect(formatDuration(NaN)).toBe('0s')
     expect(formatDuration(-10)).toBe('0s')
+  })
+})
+
+/*
+ * The same delta rule over more counters, plus the merge that reconciles two devices.
+ *
+ * The bytes are here for the reason the seconds are: libtorrent counts them and writes them into
+ * resume data, and a finished torrent's blob is written once and never again, so a library left
+ * seeding reports whatever it had uploaded seconds after it finished. That is the most visible way
+ * this goes wrong, because it looks like the upload total resetting on every reload.
+ */
+describe('accumulating every counter, not just the seconds', () => {
+  const engine = (over: Partial<Totals> = {}): Totals =>
+    ({ activeSeconds: 0, seedingSeconds: 0, downloaded: 0, uploaded: 0, wasted: 0, ...over })
+
+  it('adds this session to what was stored, key by key', () => {
+    const stored = engine({ activeSeconds: 100, downloaded: 1_000, uploaded: 500 })
+    const atAdd = engine({ activeSeconds: 40, downloaded: 200 })
+    const now = engine({ activeSeconds: 90, downloaded: 900, uploaded: 300 })
+    expect(accumulate(stored, atAdd, now)).toEqual({
+      activeSeconds: 150, seedingSeconds: 0, downloaded: 1_700, uploaded: 800, wasted: 0,
+    })
+  })
+
+  /*
+   * A recheck resets libtorrent's counters, and so does re-adding a torrent whose resume blob was
+   * deleted. Time and bytes already counted are not something to give back, so the delta floors at
+   * zero rather than subtracting.
+   */
+  it('never gives back what a reset took, in any counter', () => {
+    const stored = engine({ activeSeconds: 500, uploaded: 9_000 })
+    const atAdd = engine({ activeSeconds: 400, uploaded: 8_000 })
+    const now = engine({ activeSeconds: 0, uploaded: 0 })
+    expect(accumulate(stored, atAdd, now)).toEqual({
+      activeSeconds: 500, seedingSeconds: 0, downloaded: 0, uploaded: 9_000, wasted: 0,
+    })
+  })
+
+  it('reports the session delta on its own, which is what sits beside the total', () => {
+    expect(sessionTotals(engine({ activeSeconds: 40, uploaded: 100 }), engine({ activeSeconds: 90, uploaded: 700 })))
+      .toEqual({ activeSeconds: 50, seedingSeconds: 0, downloaded: 0, uploaded: 600, wasted: 0 })
+  })
+})
+
+describe('reconciling two devices', () => {
+  const totals = (over: Partial<Totals> = {}): Totals =>
+    ({ activeSeconds: 0, seedingSeconds: 0, downloaded: 0, uploaded: 0, wasted: 0, ...over })
+
+  it('takes the highest of each, so a laptop on 3 GB and a desktop on 2 GB both end on 3 GB', () => {
+    const laptop = totals({ downloaded: 3_000_000_000, activeSeconds: 100 })
+    const desktop = totals({ downloaded: 2_000_000_000, activeSeconds: 400 })
+    expect(mergeTotals(laptop, desktop)).toEqual(totals({ downloaded: 3_000_000_000, activeSeconds: 400 }))
+  })
+
+  /*
+   * The three properties that make this safe to run in any order, any number of times, on either
+   * device. Without them a merge could move a number backwards, and a write lost to a race would
+   * stay lost rather than being republished by the next one.
+   */
+  it('is commutative, associative and idempotent, which is what makes it converge', () => {
+    const a = totals({ downloaded: 10, uploaded: 5, activeSeconds: 7 })
+    const b = totals({ downloaded: 4, uploaded: 9, activeSeconds: 2 })
+    const c = totals({ downloaded: 6, uploaded: 1, activeSeconds: 11 })
+    expect(mergeTotals(a, b)).toEqual(mergeTotals(b, a))
+    expect(mergeTotals(mergeTotals(a, b), c)).toEqual(mergeTotals(a, mergeTotals(b, c)))
+    expect(mergeTotals(mergeTotals(a, b), b)).toEqual(mergeTotals(a, b))
+  })
+
+  it('never moves a counter backwards, whatever it is merged with', () => {
+    const mine = totals({ downloaded: 500, activeSeconds: 60 })
+    for (const other of [undefined, totals(), totals({ downloaded: 1 }), totals({ activeSeconds: 59 })]) {
+      const merged = mergeTotals(mine, other)
+      expect(merged.downloaded).toBeGreaterThanOrEqual(mine.downloaded)
+      expect(merged.activeSeconds).toBeGreaterThanOrEqual(mine.activeSeconds)
+    }
+  })
+
+  it('treats a missing side as zero rather than throwing', () => {
+    expect(mergeTotals(undefined, undefined)).toEqual(totals())
+    expect(mergeTotals(totals({ uploaded: 8 }), undefined)).toEqual(totals({ uploaded: 8 }))
   })
 })

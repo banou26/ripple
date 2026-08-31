@@ -7,6 +7,7 @@ import { account, cloud } from '@fkn/lib'
 import { getTorrentClient } from './client'
 import { DEMO_SEEDED_KEY } from './constants'
 import { retryMissedThumbnails, syncThumbnails } from './thumbnail-sync'
+import { mergeTotals } from './uptime'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
 const ACCOUNT_KEY = 'ripple:sync-account'
@@ -179,7 +180,22 @@ export const useCloudBackup = (): SyncState => {
       try { return localStorage.getItem(ACCOUNT_KEY) } catch { return null }
     }
 
-    const writeNow = () => {
+    /**
+     * The cloud's current list, or null when it cannot be read.
+     *
+     * Deliberately much simpler than `restore` below, which has to tell an absent backup from an
+     * unreadable one from a starved broker because it DECIDES something on the answer. This one only
+     * feeds the merge, where every one of those cases has the same correct response: publish this
+     * device's own view, which still moves every number forwards.
+     */
+    const readBackup = async (): Promise<Persisted[] | null> => {
+      const text = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
+      if (text === null) return null
+      const parsed = JSON.parse(text) as unknown
+      return Array.isArray(parsed) ? parsed as Persisted[] : null
+    }
+
+    const writeNow = async () => {
       pending = false
       window.clearTimeout(timer)
       /*
@@ -194,8 +210,52 @@ export const useCloudBackup = (): SyncState => {
       const portable = latest.map((e) => ({
         infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
         name: e.name, size: e.size, files: e.files,
+        // the accumulated counters, which unlike everything above describe what has HAPPENED to this
+        // torrent rather than what this browser is holding. Merged by maximum on the way in and on
+        // the way out; see `mergeTotals` in uptime.ts
+        activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
+        downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
       }))
-      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(portable), { contentType: 'application/json' })
+
+      /*
+       * READ, MERGE, THEN WRITE. The blind overwrite this replaces is what made syncing a counter
+       * impossible.
+       *
+       * The cloud is read exactly once per mount, so without this a long-lived tab holds another
+       * device's totals as of its own start and erases everything that device has counted since,
+       * every time it writes. There is no compare-and-swap in the storage layer, so this is still a
+       * race, but a maximum is self-healing where a blind write is not: the window shrinks from days
+       * to one round trip, and anything lost to it is republished in full by the next write, because
+       * each device always holds its own true totals locally.
+       *
+       * A failure to read is not a failure to write. The catch falls back to publishing this device's
+       * own view, which is exactly the old behaviour and still moves every number forwards.
+       */
+      const existing = await readBackup().catch(() => null)
+      const theirs = new Map((existing ?? []).map((e) => [e.infoHash, e]))
+      const merged = portable.map((e) => {
+        const other = theirs.get(e.infoHash)
+        return other ? { ...e, ...mergeTotals(e, other) } : e
+      })
+      /*
+       * An entry only the cloud has stays there: this device may simply not have restored it yet, and
+       * dropping it would delete another machine's torrent as a side effect of a stats write.
+       *
+       * Projected through the same shape rather than pushed whole, so a foreign entry cannot smuggle
+       * a device-local field back into the document the projection above exists to keep out.
+       */
+      const mine = new Set(merged.map((e) => e.infoHash))
+      for (const [infoHash, e] of theirs) {
+        if (mine.has(infoHash)) continue
+        merged.push({
+          infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
+          name: e.name, size: e.size, files: e.files,
+          activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
+          downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
+        })
+      }
+
+      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(merged), { contentType: 'application/json' })
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return

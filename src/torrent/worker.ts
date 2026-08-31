@@ -16,9 +16,9 @@ import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-pla
 import { createResilientStorage } from './opfs-storage'
 import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
-import type { Uptime } from './uptime'
+import type { Totals, Uptime } from './uptime'
 
-import { NO_UPTIME, sessionUptime, totalUptime, worthWriting } from './uptime'
+import { NO_TOTALS, NO_UPTIME, TOTAL_KEYS, accumulate, mergeTotals, sessionUptime, totalUptime, worthWriting } from './uptime'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
@@ -38,6 +38,8 @@ export type TorrentSnapshot = {
   uptime: Uptime
   /** Of that total, what THIS session contributed. Shown beside it, the way bytes already are. */
   sessionUptime: Uptime
+  /** Every counter accumulated across sessions, bytes included. See uptime.ts. */
+  totals: Totals
   magnet: string
   files: TorrentFiles | null
   status: TorrentStatus | null
@@ -159,6 +161,9 @@ const snapshot = (): TorrentSnapshot[] =>
       uptime: uptimeOf(h),
       // and what this session put into them, so the panel can read "total (x this session)"
       sessionUptime: sessionUptimeOf(h),
+      // the accumulated byte counters, for the same reason the seconds are accumulated: libtorrent's
+      // own survive only in a resume blob a finished torrent stops being given
+      totals: totalsOf(h),
     }
   })
 
@@ -313,6 +318,7 @@ const untrack = (h: number) => {
   viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
+  totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
 }
 
@@ -397,8 +403,55 @@ const pendingFlags = new Map<number, { flags: number, mask: number }>()
  * resume blob starts this session with libtorrent's counters already advanced, and the stored total
  * already contains those seconds. `uptime.ts` carries the argument.
  */
+/**
+ * How often the accumulated counters are allowed to reach the cloud.
+ *
+ * Not a display cadence: the numbers on screen come from the snapshot twice a second either way.
+ * This only decides how often a whole-library upload is armed on behalf of figures that changed
+ * without anything else changing. See the broadcast at the end of the persist loop.
+ */
+const COUNTER_BROADCAST_MS = 5 * 60_000
+let lastCounterBroadcast = 0
+
 const uptimeAtAdd = new Map<number, { activeSeconds: number, seedingSeconds: number }>()
 const uptimeStored = new Map<number, { activeSeconds: number, seedingSeconds: number }>()
+
+/*
+ * The same two maps for the BYTE counters, kept apart from the seconds only because the seconds were
+ * here first and are read by more places.
+ *
+ * `readingOf` is what makes the two comparable: libtorrent names these `allTimeDownload` and
+ * `allTimeUpload` on its status, and the accumulator wants them under the names the library entry
+ * uses, so the rename happens once here rather than at each of the four call sites.
+ */
+const totalsAtAdd = new Map<number, Totals>()
+const totalsStored = new Map<number, Totals>()
+
+const readingOf = (st: {
+  activeSeconds: number, seedingSeconds: number, allTimeDownload: number, allTimeUpload: number, wasted: number,
+}): Totals => ({
+  activeSeconds: st.activeSeconds,
+  seedingSeconds: st.seedingSeconds,
+  downloaded: st.allTimeDownload,
+  uploaded: st.allTimeUpload,
+  wasted: st.wasted,
+})
+
+/** What an entry has stored, in the accumulator's shape. Absent fields are zero, not unknown. */
+const storedTotals = (e: Partial<Persisted> | undefined): Totals => ({
+  activeSeconds: e?.activeSeconds ?? 0,
+  seedingSeconds: e?.seedingSeconds ?? 0,
+  downloaded: e?.downloaded ?? 0,
+  uploaded: e?.uploaded ?? 0,
+  wasted: e?.wasted ?? 0,
+})
+
+const totalsOf = (h: number): Totals => {
+  const now = session?.status(h)
+  const atAdd = totalsAtAdd.get(h)
+  if (!now || !atAdd) return totalsStored.get(h) ?? NO_TOTALS
+  return accumulate(totalsStored.get(h), atAdd, readingOf(now))
+}
 
 const wantFlags = (h: number, flags: number, mask: number) => {
   const already = pendingFlags.get(h)
@@ -1150,6 +1203,7 @@ const init = async () => {
       // when there is none, so the entry is the only record that is always there
       wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
       uptimeStored.set(h, { activeSeconds: e.activeSeconds ?? 0, seedingSeconds: e.seedingSeconds ?? 0 })
+      totalsStored.set(h, storedTotals(e))
       /*
        * The ENTRY decides, both ways.
        *
@@ -1226,6 +1280,9 @@ const init = async () => {
       const st = session.status(h)
       if (!st) continue
       uptimeAtAdd.set(h, { activeSeconds: st.activeSeconds, seedingSeconds: st.seedingSeconds })
+      // the byte counters rebase on the same pump and for the same reason: without a reading from
+      // the moment this torrent joined, everything it moves before the first persist is lost
+      totalsAtAdd.set(h, readingOf(st))
     }
 
     // Same gate, same reason, and see `pendingFlags` for why a flag set at add time never landed.
@@ -1403,16 +1460,52 @@ const init = async () => {
      * Quiet, because a run time nobody is looking at changing by thirty seconds is not news any tab
      * needs re-rendering for, and every `list` broadcast arms a debounced cloud write.
      */
+    let wroteCounters = false
     for (const h of handles) {
       const st = session.status(h)
       const ih = infoHashByHandle.get(h)
       const atAdd = uptimeAtAdd.get(h)
       if (!st || !ih || !atAdd) continue
+      wroteCounters = true
       const total = totalUptime(uptimeStored.get(h), atAdd, st)
       if (!worthWriting(uptimeStored.get(h), total)) continue
       uptimeStored.set(h, total)
       uptimeAtAdd.set(h, { activeSeconds: st.activeSeconds, seedingSeconds: st.seedingSeconds })
-      void patchList(ih, { activeSeconds: total.activeSeconds, seedingSeconds: total.seedingSeconds }, true).catch(() => {})
+      /*
+       * The bytes ride the SAME gate, which is why there is no second threshold to pick.
+       * `worthWriting` asks whether thirty seconds of running have gone by, and a torrent that is not
+       * accumulating seconds is not moving bytes either, so one question answers both.
+       */
+      const reading = readingOf(st)
+      const totals = accumulate(totalsStored.get(h), totalsAtAdd.get(h) ?? reading, reading)
+      totalsStored.set(h, totals)
+      totalsAtAdd.set(h, reading)
+      void patchList(ih, {
+        activeSeconds: total.activeSeconds,
+        seedingSeconds: total.seedingSeconds,
+        downloaded: totals.downloaded,
+        uploaded: totals.uploaded,
+        wasted: totals.wasted,
+      }, true).catch(() => {})
+    }
+
+    /*
+     * One LOUD broadcast every few minutes, which is the only thing that gets a counter into the cloud.
+     *
+     * The writes above are quiet on purpose: a run time nobody is looking at is not worth re-rendering
+     * for, and every `list` message arms a debounced full-library upload. But the cloud hook only ever
+     * learns the list from a `list` message, so with every counter write quiet it uploads whatever the
+     * numbers were at the last add or pause. A torrent left seeding for a week would publish the
+     * totals it had when it was added, and would go on doing so forever.
+     *
+     * Rare rather than never: a whole-library upload every five minutes while something is running is
+     * a cost worth paying to have the figures agree between devices, where one per thirty seconds per
+     * torrent is not. Nothing here is lost by the delay, because the numbers are on disk locally
+     * either way and the merge that receives them takes a maximum.
+     */
+    if (wroteCounters && Date.now() - lastCounterBroadcast >= COUNTER_BROADCAST_MS) {
+      lastCounterBroadcast = Date.now()
+      void loadList().then((list) => post({ type: 'list', list })).catch(() => {})
     }
   }, 15000)
 
@@ -1490,6 +1583,7 @@ const handleMessage = async (session: Session, m: any) => {
         // mergeEntry, which carries the limit forward rather than letting an add quietly uncap it
         wantLimits(h, { down: known?.downloadLimit, up: known?.uploadLimit })
         uptimeStored.set(h, { activeSeconds: known?.activeSeconds ?? 0, seedingSeconds: known?.seedingSeconds ?? 0 })
+        totalsStored.set(h, storedTotals(known))
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
@@ -1589,6 +1683,7 @@ const handleMessage = async (session: Session, m: any) => {
       })
       if (h === null) { post({ type: 'add-failed', message: 'The engine refused that torrent' }); return }
       uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
+      totalsStored.set(h, storedTotals(entry))
       await patchList(ih, { started: true, lastUsedAt: Date.now() })
       post({ type: 'added', handle: h, magnet: entry?.magnet ?? '' })
     } else if (m.type === 'add-torrent-file') {
@@ -1798,10 +1893,31 @@ const handleMessage = async (session: Session, m: any) => {
             if (mine.name === undefined && meta.name !== undefined) { mine.name = meta.name; changed = true }
             if (mine.size === undefined && meta.size !== undefined) { mine.size = meta.size; changed = true }
             if (mine.files === undefined && meta.files !== undefined) { mine.files = meta.files; changed = true }
+            /*
+             * THE COUNTERS ARE THE SECOND EXCEPTION, and they are merged rather than filled.
+             *
+             * Local-wins is right for everything that describes what this browser is doing, and wrong
+             * for a total that both machines have been adding to: whichever device mounted last would
+             * discard the other's count and then publish that discard, which is worse than not
+             * syncing at all because there would be something to lose.
+             *
+             * `mergeTotals` takes the HIGHEST of each, which is the merge the owner asked for and the
+             * only one that survives this pipeline: read-once-per-mount and a blind whole-file write
+             * make ordering unreliable, and a maximum is commutative, associative and idempotent, so
+             * a write lost to a race is republished in full by the next one. See uptime.ts.
+             */
+            const merged = mergeTotals(storedTotals(mine), storedTotals(e))
+            for (const key of TOTAL_KEYS) {
+              if ((mine[key] ?? 0) === merged[key]) continue
+              mine[key] = merged[key]
+              changed = true
+            }
             continue
           }
           // a library entry from another device, never a cache one: the cache is device-local and is not backed up
-          const entry: Persisted = { infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false, ...meta }
+          // ...including the counters it arrives with: this device has never run it, so the other
+          // machine's totals are the whole of what is known about it
+          const entry: Persisted = { infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false, ...meta, ...storedTotals(e) }
           list.push(entry)
           byHash.set(entry.infoHash, entry)
           changed = true

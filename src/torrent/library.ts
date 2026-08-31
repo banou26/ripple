@@ -68,6 +68,20 @@ export type Persisted = {
    * stay out of it by construction rather than by anyone remembering to exclude them.
    */
   activeSeconds?: number, seedingSeconds?: number,
+  /**
+   * Bytes moved across every session, accumulated here for the reason the seconds above are.
+   *
+   * libtorrent counts `all_time_download` and `all_time_upload` itself and rides them in resume data,
+   * and they come back exactly as unreliably: a finished torrent's blob is written once and then
+   * never again, so a library left seeding reports whatever it had uploaded seconds after it
+   * finished. That reads as the upload total resetting on every reload.
+   *
+   * Unlike the seconds, these DO travel between devices. The owner asked for stats that agree across
+   * their machines, and the merge is a maximum rather than a sum: a laptop on 3 GB and a desktop on
+   * 2 GB both end on 3 GB. See `mergeTotals` in uptime.ts for why a maximum is the one merge that can
+   * be run in any order, any number of times, without moving a number backwards.
+   */
+  downloaded?: number, uploaded?: number, wasted?: number,
 }
 
 /**
@@ -173,6 +187,11 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       // the spread through would reset a torrent's accumulated hours every time it was re-added.
       activeSeconds: next.activeSeconds ?? was.activeSeconds,
       seedingSeconds: next.seedingSeconds ?? was.seedingSeconds,
+      // and the byte counters with them, for exactly the same reason: an add carries none, so the
+      // spread would put `undefined` over a torrent's whole upload history every time it was re-added
+      downloaded: next.downloaded ?? was.downloaded,
+      uploaded: next.uploaded ?? was.uploaded,
+      wasted: next.wasted ?? was.wasted,
     }
     : next
 

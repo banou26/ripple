@@ -137,11 +137,14 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     queuePosition: st?.queuePosition ?? -1,
     stats: st
       ? {
-        allTimeDownload: st.allTimeDownload,
-        allTimeUpload: st.allTimeUpload,
+        // the ACCUMULATED totals win over the engine's own, exactly as activeSeconds does below:
+        // libtorrent's ride in a resume blob a finished torrent stops being given, so a library left
+        // seeding reported its upload resetting on every reload
+        allTimeDownload: s.totals?.downloaded ?? st.allTimeDownload,
+        allTimeUpload: s.totals?.uploaded ?? st.allTimeUpload,
         sessionDownload: st.sessionDownload,
         sessionUpload: st.sessionUpload,
-        wasted: st.wasted,
+        wasted: s.totals?.wasted ?? st.wasted,
         swarmSeeds: st.swarmSeeds,
         swarmPeers: st.swarmPeers,
         numConnections: st.numConnections,

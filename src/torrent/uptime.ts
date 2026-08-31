@@ -26,6 +26,33 @@ export type Uptime = {
 
 export const NO_UPTIME: Uptime = { activeSeconds: 0, seedingSeconds: 0 }
 
+/**
+ * The counters that accumulate, seconds and bytes alike, kept together because the argument for
+ * keeping them is one argument.
+ *
+ * The header above is about time, and every word of it applies to the BYTES without change.
+ * libtorrent counts `all_time_download` and `all_time_upload` itself and writes them into resume
+ * data, and they come back exactly as unreliably: a finished torrent's blob is written once and then
+ * never again, so a torrent that has been seeding for a week reports whatever it had uploaded a few
+ * seconds after it finished. Somebody who leaves a library seeding sees their upload total reset on
+ * every reload, which is the most visible way this goes wrong.
+ *
+ * So the same delta rule carries them: stored plus what this session added, rebased on every write.
+ */
+export type Totals = Uptime & {
+  /** Bytes moved across every session, as opposed to libtorrent's per-session counters. */
+  downloaded: number
+  uploaded: number
+  /** Bytes that arrived and could not be used: failed hashes plus data already held. */
+  wasted: number
+}
+
+export const TOTAL_KEYS = ['activeSeconds', 'seedingSeconds', 'downloaded', 'uploaded', 'wasted'] as const
+
+export const NO_TOTALS: Totals = {
+  activeSeconds: 0, seedingSeconds: 0, downloaded: 0, uploaded: 0, wasted: 0,
+}
+
 const clamp = (n: number | undefined): number =>
   typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
 
@@ -68,6 +95,35 @@ export const totalUptime = (stored: Uptime | undefined, atAdd: Uptime, now: Upti
     seedingSeconds: clamp(stored?.seedingSeconds) + session.seedingSeconds,
   }
 }
+
+/** Every counter's delta for this session, the same subtraction as `sessionUptime` over more keys. */
+export const sessionTotals = (atAdd: Partial<Totals>, now: Partial<Totals>): Totals =>
+  Object.fromEntries(TOTAL_KEYS.map((key) =>
+    [key, Math.max(0, clamp(now[key]) - clamp(atAdd[key]))])) as Totals
+
+/** Stored plus this session's delta, for every counter. Rebase `atAdd` after storing the result. */
+export const accumulate = (stored: Partial<Totals> | undefined, atAdd: Partial<Totals>, now: Partial<Totals>): Totals => {
+  const session = sessionTotals(atAdd, now)
+  return Object.fromEntries(TOTAL_KEYS.map((key) =>
+    [key, clamp(stored?.[key]) + session[key]])) as Totals
+}
+
+/**
+ * Two devices' totals reconciled, taking the HIGHEST of each.
+ *
+ * The merge the owner asked for: a laptop on 3 GB and a desktop on 2 GB both end on 3 GB, rather
+ * than on 5 GB. Summing would be right only if the two never ran at the same time, and wrong in a
+ * way nobody can see afterwards, where a maximum is merely conservative.
+ *
+ * The property that makes this safe to run anywhere, in any order, any number of times: maximum is
+ * commutative, associative and idempotent, and every device's own total only ever grows. So a merge
+ * can never move a number backwards, a write lost to a race is republished in full by the next one,
+ * and two devices that keep syncing converge. A plain last-writer-wins on the same fields has none
+ * of those properties and loses whatever the other device counted.
+ */
+export const mergeTotals = (a: Partial<Totals> | undefined, b: Partial<Totals> | undefined): Totals =>
+  Object.fromEntries(TOTAL_KEYS.map((key) =>
+    [key, Math.max(clamp(a?.[key]), clamp(b?.[key]))])) as Totals
 
 /**
  * Whether the totals have moved enough to be worth writing to disk again.
