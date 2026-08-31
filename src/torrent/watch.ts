@@ -2,6 +2,7 @@ import type { Torrent, TorrentFile } from './types'
 
 import { encodeMagnetParam } from '../router/magnet-codec'
 import { getRoutePath, Route } from '../router/path'
+import { contentFiles } from './types'
 
 const VIDEO_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|wmv|mpg|mpeg|ogv)$/i
 
@@ -32,10 +33,10 @@ export const pickVideoFile = (files?: readonly { name: string, size: number }[])
 }
 
 export const hasPlayableFile = (t: Torrent): boolean =>
-  !!t.magnet && !!t.files?.some((f) => VIDEO_RE.test(f.name))
+  !!t.magnet && !!contentFiles(t.files).some((f) => VIDEO_RE.test(f.name))
 
 export const watchHref = (t: Torrent): string | null => {
-  if (!t.magnet || !t.files?.length) return null
+  if (!t.magnet || !contentFiles(t.files).length) return null
   // runs once per row inside a render, which is why the codec is synchronous, and returns null
   // rather than throwing on a magnet no encoding can hold
   const encoded = encodeMagnetParam(t.magnet)

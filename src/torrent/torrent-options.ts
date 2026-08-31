@@ -6,6 +6,7 @@ import { TORRENT_FLAG } from 'libtorrent-wasm'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
 import { limitLabel } from './rate-limits'
+import { contentFiles } from './types'
 
 /**
  * What a user may change about one torrent, defined once and rendered twice.
@@ -172,7 +173,7 @@ export const buildTorrentOptions = (
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
-  const multi = (t.files?.length ?? 0) > 1
+  const multi = contentFiles(t.files).length > 1
   const sessionLimits = context.sessionLimits ?? { down: 0, up: 0 }
 
   /**
@@ -204,7 +205,7 @@ export const buildTorrentOptions = (
       run: a.start,
     })
   }
-  if (!!t.files?.length && complete && !isGhost(t)) {
+  if (!!contentFiles(t.files).length && complete && !isGhost(t)) {
     actions.push({
       kind: 'action',
       id: 'save',

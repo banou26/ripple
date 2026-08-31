@@ -58,6 +58,7 @@ import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
+import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
 import { AccountWidget } from '../components/account-widget'
@@ -1700,7 +1701,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, 
   }
   const href = watchHref(t)
   const mainIndex = pickVideoFile(t.files)
-  const multi = (t.files?.length ?? 0) > 1
+  const multi = contentFiles(t.files).length > 1
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
   const complete = t.progress >= 1
   // 'retrying' is not stopped, it is waiting out a backoff, so the control still offers to pause it
@@ -2103,7 +2104,8 @@ const Home = () => {
     magnet: t.magnet ?? '',
     name: t.name,
     size: t.size,
-    files: t.files ? t.files.map((f) => ({ name: f.name, size: f.size })) : null,
+    // pads are not the person's files, and a share link listing one would offer a `.pad` to watch
+    files: t.files ? contentFiles(t.files).map((f) => ({ name: f.name, size: f.size })) : null,
   }), [])
 
   useEffect(() => {
@@ -2317,7 +2319,7 @@ const Home = () => {
     limitRate: (direction) => setRateEdit({ scope: { torrent: t.id }, direction }),
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
-    save: () => ((t.files?.length ?? 0) > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
+    save: () => (contentFiles(t.files).length > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
     embed: () => openEmbed(subjectOf(t)),
     retryNow: () => retry(Number(t.id)),
     start: () => { if (t.infoHash) start(t.infoHash) },
@@ -2351,10 +2353,10 @@ const Home = () => {
   }
 
   const onSaveZip = (t: Torrent) => {
-    if (!t.files?.length) return
+    if (!contentFiles(t.files).length) return
     const key = savingKey(t.id, -1)
     setSaving((s) => ({ ...s, [key]: 0 }))
-    saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files, (f) => setSaving((s) => ({ ...s, [key]: f })))
+    saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files ?? [], (f) => setSaving((s) => ({ ...s, [key]: f })))
       .catch((error) => { if (!isSaveCancelled(error)) showToast(`Saving ${t.name} failed`) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }

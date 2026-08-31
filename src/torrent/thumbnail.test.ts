@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { downloadedFraction, pickThumbnailSource, rangeIsDownloaded, readableKeyframes } from './thumbnail'
 
-const file = (name: string, size: number) => ({ name, size, progress: 0 })
+let nextIndex = 0
+const file = (name: string, size: number) => ({ name, size, progress: 0, index: nextIndex++ })
 
 describe('pickThumbnailSource', () => {
   it('finds nothing in a torrent with no media', () => {

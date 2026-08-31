@@ -51,8 +51,9 @@ const fakeRoot = (files: Map<string, Uint8Array>) => {
   return root
 }
 
-const torrentOf = (files: { name: string, size: number }[]): Torrent =>
-  ({ id: 1, name: 'a torrent', files } as unknown as Torrent)
+/** `index` is the engine's file index, which the mirror reads by; here it is the position. */
+const torrentOf = (files: { name: string, size: number, pad?: boolean }[]): Torrent =>
+  ({ id: 1, name: 'a torrent', files: files.map((f, index) => ({ ...f, progress: 0, index })) } as unknown as Torrent)
 
 /** an engine holding `truth` for file 0, counting how many bytes the mirror asked it for */
 const fakeClient = (truth: Uint8Array[]) => {

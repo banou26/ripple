@@ -3,6 +3,8 @@
 
 import type { TorrentClient } from './client'
 import type { TorrentFile } from './types'
+
+import { contentFiles } from './types'
 import type { Sink } from './stream-download'
 import { openStreamSink } from './stream-download'
 import { writeZip } from './zip'
@@ -300,7 +302,9 @@ export const saveTorrentAsZipToDisk = async (
     client,
     handle,
     torrentName,
-    files.map((f, index) => ({ index, path: f.name, size: f.size })),
+    // pads are zeroes libtorrent synthesizes, and an archive holding a `.pad` folder of them is a
+    // file the person did not ask for; `index` is the engine's, so filtering here is safe
+    contentFiles(files).map((f) => ({ index: f.index, path: f.name, size: f.size })),
     onProgress,
     options,
   )

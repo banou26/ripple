@@ -15,6 +15,7 @@ import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { contentFiles } from '../torrent/types'
 
 /**
  * Everything about the selected torrent, docked along the bottom of the page.
@@ -127,7 +128,7 @@ const General = ({ t }: { t: Torrent }) => {
           <Fact label="Added on" value={s ? when(s.addedAt) : '-'}/>
           <Fact label="Completed on" value={s ? when(s.completedAt) : '-'}/>
           <Fact label="Last seen complete" value={s ? when(s.lastSeenComplete) : '-'}/>
-          <Fact label="Files" value={String(t.files?.length ?? 0)}/>
+          <Fact label="Files" value={String(contentFiles(t.files).length)}/>
           <Fact label="Save path" value={s?.savePath || '-'} mono/>
           {t.infoHash && <Fact label="Info hash" value={t.infoHash} mono/>}
           {t.retry && (
@@ -717,7 +718,7 @@ export const TorrentDetailDock = ({
           >
             {TAB_LABEL[name]}
             {name === 'peers' && detail.peers.length > 0 && <span className="count">{detail.peers.length}</span>}
-            {name === 'files' && !!t.files?.length && <span className="count">{t.files.length}</span>}
+            {name === 'files' && !!contentFiles(t.files).length && <span className="count">{contentFiles(t.files).length}</span>}
           </button>
         ))}
       </div>
@@ -725,7 +726,7 @@ export const TorrentDetailDock = ({
         {tab === 'general' && <General t={t}/>}
         {/* no handle means no bytes on this device, so Save would name a torrent the engine has
             never heard of and open a browser download that can only sit at zero and abort */}
-        {tab === 'files' && <Files files={t.files ?? []} saving={saving} onSave={handle == null ? null : onSave}/>}
+        {tab === 'files' && <Files files={contentFiles(t.files)} saving={saving} onSave={handle == null ? null : onSave}/>}
         {tab === 'peers' && <Peers peers={detail.peers} loaded={detail.loaded}/>}
         {tab === 'trackers' && <Trackers trackers={detail.trackers} loaded={detail.loaded}/>}
       </div>

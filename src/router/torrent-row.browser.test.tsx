@@ -58,9 +58,9 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     numPiecesHave: 3815,
   },
   files: [
-    { name: 'Pack/E01.mkv', size: 1_400_000_000, progress: 1 },
-    { name: 'Pack/E02.mkv', size: 1_500_000_000, progress: 0.5 },
-    { name: 'Pack/E03.mkv', size: 1_600_000_000, progress: 0 },
+    { name: 'Pack/E01.mkv', size: 1_400_000_000, progress: 1, index: 0 },
+    { name: 'Pack/E02.mkv', size: 1_500_000_000, progress: 0.5, index: 1 },
+    { name: 'Pack/E03.mkv', size: 1_600_000_000, progress: 0, index: 2 },
   ],
   ...over,
 })

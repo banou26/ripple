@@ -240,7 +240,7 @@ export const considerThumbnails = (client: TorrentClient, snapshots: TorrentSnap
     if (!infoHash || !snapshot.files) continue
 
     const source = pickThumbnailSource(
-      snapshot.files.files.map((file) => ({ name: file.path, size: file.size, progress: 0 })),
+      snapshot.files.files.map((file, index) => ({ name: file.path, size: file.size, progress: 0, index, pad: file.pad })),
     )
     if (!source) continue
 

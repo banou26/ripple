@@ -37,7 +37,7 @@ describe('a library row for a torrent that is not on this device', () => {
 
   it('carries the synced file list, with nothing downloaded', () => {
     const t = ghostToTorrent(entry({ files: [{ name: 'a.mkv', size: 10 }, { name: 'b.srt', size: 2 }] }))
-    expect(t.files).toEqual([{ name: 'a.mkv', size: 10, progress: 0 }, { name: 'b.srt', size: 2, progress: 0 }])
+    expect(t.files).toEqual([{ name: 'a.mkv', size: 10, progress: 0, index: 0 }, { name: 'b.srt', size: 2, progress: 0, index: 1 }])
   })
 
   /** the regression, stated as the thing that was on screen */

@@ -2,6 +2,7 @@ import type { TorrentClient } from './client'
 import type { SaveLocation } from './library'
 import type { Torrent } from './types'
 
+import { contentFiles } from './types'
 import { savePathIn } from './save-location'
 import { syncTorrentToDirectory } from './sync'
 
@@ -67,7 +68,8 @@ export const copyFolderIntoBrowserStorage = async (
   },
 ): Promise<number> => {
   if (!torrent.infoHash) throw new Error('move: a torrent with no infohash has nowhere to go')
-  const files = torrent.files ?? []
+  // pads are zeroes libtorrent synthesizes, with no file on either disk to move
+  const files = contentFiles(torrent.files)
   const savePath = savePathIn('browser', torrent.infoHash)
   let written = 0
   for (const [index, file] of files.entries()) {

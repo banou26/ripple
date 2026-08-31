@@ -60,7 +60,7 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     numPieces: 7630,
     numPiecesHave: 3815,
   },
-  files: [{ name: 'a.mkv', size: 1e9, progress: 0.5 }],
+  files: [{ name: 'a.mkv', size: 1e9, progress: 0.5, index: 0 }],
   ...over,
 })
 
@@ -269,12 +269,12 @@ describe('the torrent option list', () => {
      * have worked, which is worse.
      */
     it('does not offer Watch, however playable its synced file list looks', () => {
-      const playable = torrent({ state: 'missing', files: [{ name: 'Sintel.mp4', size: 1, progress: 0 }] })
+      const playable = torrent({ state: 'missing', files: [{ name: 'Sintel.mp4', size: 1, progress: 0, index: 0 }] })
       expect(flat(playable).map((i) => i.id)).not.toContain('watch')
     })
 
     it('still offers Watch for the same file list once the torrent is actually here', () => {
-      const here = torrent({ state: 'downloading', files: [{ name: 'Sintel.mp4', size: 1, progress: 0 }] })
+      const here = torrent({ state: 'downloading', files: [{ name: 'Sintel.mp4', size: 1, progress: 0, index: 0 }] })
       expect(flat(here).map((i) => i.id)).toContain('watch')
     })
   })

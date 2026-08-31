@@ -67,7 +67,7 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     numPieces: 7630,
     numPiecesHave: 3815,
   },
-  files: [{ name: 'Pack/E01.mkv', size: 1e9, progress: 0.5 }],
+  files: [{ name: 'Pack/E01.mkv', size: 1e9, progress: 0.5, index: 0 }],
   ...over,
 })
 
@@ -274,8 +274,8 @@ describe('the docked torrent details', () => {
   it('draws no per-file progress, because there is none to draw', async () => {
     const screen = await mount(torrent({
       files: [
-        { name: 'Pack/E01.mkv', size: 1e9, progress: 0.5 },
-        { name: 'Pack/E02.mkv', size: 1e9, progress: 0.5 },
+        { name: 'Pack/E01.mkv', size: 1e9, progress: 0.5, index: 0 },
+        { name: 'Pack/E02.mkv', size: 1e9, progress: 0.5, index: 1 },
       ],
     }))
     tabButton(screen, 'Content').click()

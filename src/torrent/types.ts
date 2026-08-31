@@ -11,7 +11,27 @@ export type TorrentFile = {
   name: string
   size: number
   progress: number
+  /**
+   * This file's index in the ENGINE's file list, which is what every read is addressed by.
+   *
+   * Carried explicitly rather than left as the array position, because a v2 or hybrid torrent's
+   * list holds pad files that no list a person sees should include. Filtering them out of a copy of
+   * this array is then safe: the entries still know where they are.
+   */
+  index: number
+  /**
+   * A PAD FILE: zeroes a v2 or hybrid torrent inserts to push the next file onto a piece boundary.
+   *
+   * Kept in this list rather than filtered from it, so `files[i]` and the engine's index i stay the
+   * same thing for every caller that already relies on it. Anything a person SEES, anything copied
+   * to their folder and anything put in an archive uses `contentFiles` instead.
+   */
+  pad?: boolean
 }
+
+/** The person's own files: this list without the padding a v2 or hybrid torrent carries. */
+export const contentFiles = (files: TorrentFile[] | undefined): TorrentFile[] =>
+  (files ?? []).filter((file) => !file.pad)
 
 export type TorrentStats = {
   /** Bytes moved across every session. What a share ratio must be computed from. */

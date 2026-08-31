@@ -1,6 +1,8 @@
 import type { TorrentClient } from './client'
 import type { Torrent } from './types'
 
+import { contentFiles } from './types'
+
 const CHUNK = 8 * 1024 * 1024
 
 // What a "this file is already there" check reads from each side before it believes it. Five windows
@@ -81,7 +83,16 @@ export const syncTorrentToDirectory = async (
   root: FileSystemDirectoryHandle,
 ): Promise<number> => {
   let written = 0
-  for (const [index, file] of (torrent.files ?? []).entries()) {
+  for (const file of contentFiles(torrent.files)) {
+    /*
+     * PADS ARE SKIPPED, and not only because they are zeroes nobody asked for.
+     *
+     * libtorrent names a pad after the file it follows, so a v2 torrent of one file has a pad at
+     * `only.mkv/.pad/31072`. Creating that means asking for a DIRECTORY called `only.mkv` when a
+     * file of that name was just written, which throws TypeMismatchError and takes the whole mirror
+     * down with it, so the torrent is never marked as saved to the folder.
+     */
+    const index = file.index
     const handle = await fileHandleAt(root, file.name)
     if (await alreadyThere(client, torrent, index, handle, file.size)) continue
     const writable = await handle.createWritable()

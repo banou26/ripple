@@ -116,7 +116,12 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     magnet: s.magnet,
     infoHash: magnetInfoHash(s.magnet) ?? undefined,
     name,
-    size: s.files?.totalSize ?? s.bitfield?.length ?? 0,
+    /*
+     * CONTENT bytes, not the padded total. `totalSize` is what the pieces cover, which for a v2 or
+     * hybrid torrent includes every pad file, so a row would read a tenth larger than the files it
+     * describes while `downloaded` counted only the real bytes: 512 KiB of 293 KiB, at 100 per cent.
+     */
+    size: s.files?.contentSize ?? s.bitfield?.length ?? 0,
     downloaded: st?.totalDone ?? 0,
     progress,
     state: snapshotState(s),
@@ -161,7 +166,9 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
         numPiecesHave: st.numPiecesHave,
       }
       : null,
-    files: s.files?.files.map((f) => ({ name: f.path, size: f.size, progress })),
+    // pads stay in the array so `files[i]` is still the engine's file i, and carry a flag so nothing
+    // a person sees, saves or archives includes them; see `contentFiles`
+    files: s.files?.files.map((f, index) => ({ name: f.path, size: f.size, progress, index, pad: f.pad })),
     retry: s.recovery && !s.userPaused
       ? {
         reason: s.recovery.reason,
@@ -203,7 +210,9 @@ export const ghostToTorrent = (e: Persisted): Torrent => ({
   stats: null,
   saveTo: e.saveTo,
   // progress 0 for every one: nothing here is downloaded, which is what the row is saying
-  files: e.files?.map((f) => ({ name: f.name, size: f.size, progress: 0 })),
+  // a ghost's list came from `Persisted`, which the writer already stripped of pads, so every entry
+  // here is content and its position is its index
+  files: e.files?.map((f, index) => ({ name: f.name, size: f.size, progress: 0, index })),
 })
 
 /**
