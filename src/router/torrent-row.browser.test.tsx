@@ -48,6 +48,8 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     availability: 2.4,
     activeSeconds: 3600,
     seedingSeconds: 120,
+  sessionActiveSeconds: 0,
+  sessionSeedingSeconds: 0,
     addedAt: 1_755_000_000,
     completedAt: 1_755_003_600,
     lastSeenComplete: 1_755_003_600,

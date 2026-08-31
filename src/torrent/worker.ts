@@ -18,7 +18,7 @@ import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
 import type { Uptime } from './uptime'
 
-import { NO_UPTIME, totalUptime, worthWriting } from './uptime'
+import { NO_UPTIME, sessionUptime, totalUptime, worthWriting } from './uptime'
 import { evictionFloor, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
@@ -36,6 +36,8 @@ export type TorrentSnapshot = {
   handle: number
   /** Accumulated across sessions, unlike the engine's own counters on `status`. See uptime.ts. */
   uptime: Uptime
+  /** Of that total, what THIS session contributed. Shown beside it, the way bytes already are. */
+  sessionUptime: Uptime
   magnet: string
   files: TorrentFiles | null
   status: TorrentStatus | null
@@ -155,6 +157,8 @@ const snapshot = (): TorrentSnapshot[] =>
       userPaused: userPaused.has(h),
       // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
       uptime: uptimeOf(h),
+      // and what this session put into them, so the panel can read "total (x this session)"
+      sessionUptime: sessionUptimeOf(h),
     }
   })
 
@@ -170,6 +174,19 @@ const uptimeOf = (h: number) => {
   const atAdd = uptimeAtAdd.get(h)
   if (!now || !atAdd) return uptimeStored.get(h) ?? NO_UPTIME
   return totalUptime(uptimeStored.get(h), atAdd, now)
+}
+
+/*
+ * What this session has added, sent alongside the total so the panel can show both.
+ *
+ * NO_UPTIME before the torrent has been added, which is honest rather than a placeholder: with no
+ * reading at add time there is no delta to take, and the engine's own figure is not the answer
+ * because a resume blob may have restored seconds that belong to earlier sessions.
+ */
+const sessionUptimeOf = (h: number) => {
+  const now = session?.status(h)
+  const atAdd = uptimeAtAdd.get(h)
+  return now && atAdd ? sessionUptime(atAdd, now) : NO_UPTIME
 }
 
 // update() keeps each read-modify-write in one IDB transaction, so interleaved async handlers can't drop entries

@@ -95,7 +95,9 @@ const General = ({ t }: { t: Torrent }) => {
       <section>
         <h3>Transfer</h3>
         <div className="facts">
-          <Fact label="Time active" value={s ? seconds(s.activeSeconds) : '-'}/>
+          {/* the same shape as Downloaded and Uploaded below: the all-time figure, then what this
+              session put into it. A total on its own cannot say whether anything is happening now. */}
+          <Fact label="Time active" value={s ? `${seconds(s.activeSeconds)} (${seconds(s.sessionActiveSeconds)} this session)` : '-'}/>
           <Fact label="Time left" value={t.state === 'downloading' && t.eta !== '-' ? t.eta : '-'}/>
           <Fact label="Connections" value={s ? `${s.numConnections}${s.connectionsLimit > 0 ? ` of ${s.connectionsLimit}` : ''}` : '-'}/>
           {/* all-time, not this session: a ratio from session figures is wrong for anything ever restarted */}
@@ -109,7 +111,7 @@ const General = ({ t }: { t: Torrent }) => {
           {/* hash failures plus bytes that arrived after we already had them */}
           <Fact label="Wasted" value={s ? bytes(s.wasted) : '-'}/>
           <Fact label="Remaining" value={remaining === 0 ? 'Nothing, it is complete' : bytes(remaining)}/>
-          <Fact label="Seeding for" value={s ? seconds(s.seedingSeconds) : '-'}/>
+          <Fact label="Seeding for" value={s ? `${seconds(s.seedingSeconds)} (${seconds(s.sessionSeedingSeconds)} this session)` : '-'}/>
           {/* Below 1 means no combination of the peers we can see holds a whole copy. Negative is
               libtorrent's "not known yet", which happens before metadata or before any peer has
               sent a bitfield, and printing it as -1.00 reads as a real measurement of nothing. */}

@@ -51,6 +51,8 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     availability: 2.4,
     activeSeconds: 3600,
     seedingSeconds: 120,
+  sessionActiveSeconds: 0,
+  sessionSeedingSeconds: 0,
     addedAt: 1_755_000_000,
     completedAt: 1_755_003_600,
     lastSeenComplete: 1_755_003_600,
@@ -570,7 +572,7 @@ describe('keeping a download', () => {
  */
 describe('taking the torrent itself away', () => {
   it('offers both wherever there is a magnet', () => {
-    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] })
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] })
     expect(find(t, 'copy-magnet')?.label).toBe('Copy magnet')
     expect(find(t, 'save-torrent-file')?.label).toBe('Save .torrent')
   })
@@ -583,7 +585,7 @@ describe('taking the torrent itself away', () => {
 
   it('runs the action it was given', () => {
     const a = actions()
-    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] })
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] })
     const copy = find(t, 'copy-magnet', a)!
     const save = find(t, 'save-torrent-file', a)!
     if (copy.kind === 'action') copy.run()
@@ -609,7 +611,7 @@ describe('taking the torrent itself away', () => {
     const ghost = find(torrent({ state: 'missing', flags: 0, files: [] }), 'save-torrent-file')
     expect(ghost?.disabled, 'a ghost cannot be asked to write a resume blob').toMatch(/not running on this device/)
 
-    const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1 }] }), 'save-torrent-file')
+    const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] }), 'save-torrent-file')
     expect(ready?.disabled, 'this is the case the whole feature is for').toBeUndefined()
   })
 })

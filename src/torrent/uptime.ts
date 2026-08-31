@@ -43,10 +43,31 @@ const clamp = (n: number | undefined): number =>
  * so does re-adding a torrent whose blob was deleted, and time that has already been counted is not
  * something to give back.
  */
-export const totalUptime = (stored: Uptime | undefined, atAdd: Uptime, now: Uptime): Uptime => ({
-  activeSeconds: clamp(stored?.activeSeconds) + Math.max(0, clamp(now.activeSeconds) - clamp(atAdd.activeSeconds)),
-  seedingSeconds: clamp(stored?.seedingSeconds) + Math.max(0, clamp(now.seedingSeconds) - clamp(atAdd.seedingSeconds)),
+/**
+ * What THIS session has contributed, which is the delta the total is built from.
+ *
+ * Factored out rather than written twice because it is the same quantity read two ways: the total
+ * adds it to what was stored, and the detail panel shows it beside that total as "this session", the
+ * way Downloaded and Uploaded already read. Two spellings of one subtraction would eventually
+ * disagree, and the one on screen is the one nobody would check.
+ *
+ * NOT the engine's own reading. When a resume blob restored libtorrent's counters the engine starts
+ * this session at, say, 900 seconds, and 900 of those belong to sessions already counted. Floored at
+ * zero because the delta goes negative for real: a recheck resets libtorrent's timers, and so does
+ * re-adding a torrent whose blob was deleted.
+ */
+export const sessionUptime = (atAdd: Uptime, now: Uptime): Uptime => ({
+  activeSeconds: Math.max(0, clamp(now.activeSeconds) - clamp(atAdd.activeSeconds)),
+  seedingSeconds: Math.max(0, clamp(now.seedingSeconds) - clamp(atAdd.seedingSeconds)),
 })
+
+export const totalUptime = (stored: Uptime | undefined, atAdd: Uptime, now: Uptime): Uptime => {
+  const session = sessionUptime(atAdd, now)
+  return {
+    activeSeconds: clamp(stored?.activeSeconds) + session.activeSeconds,
+    seedingSeconds: clamp(stored?.seedingSeconds) + session.seedingSeconds,
+  }
+}
 
 /**
  * Whether the totals have moved enough to be worth writing to disk again.

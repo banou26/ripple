@@ -58,6 +58,10 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     availability: 2.4,
     activeSeconds: 3600,
     seedingSeconds: 120,
+    // deliberately different from the totals: a session figure that echoed the total would pass
+    // whichever of the two the panel actually rendered
+    sessionActiveSeconds: 900,
+    sessionSeedingSeconds: 60,
     addedAt: 1_755_000_000,
     completedAt: 1_755_003_600,
     lastSeenComplete: 1_755_003_600,
@@ -187,6 +191,21 @@ describe('the docked torrent details', () => {
   it('reports the all-time totals with the session figures beside them', async () => {
     const screen = await mount()
     await expect.element(screen.getByText(/1 GB \(500 MB this session\)/)).toBeInTheDocument()
+  })
+
+  /*
+   * A duration reads the same way the byte counters do.
+   *
+   * The total on its own cannot say whether anything is happening NOW: a torrent that ran for a day
+   * last week and has been idle since shows the same "1d" as one that has been running all along.
+   * The session figure is what separates them, and it is a delta against the engine's reading when
+   * the torrent was added rather than the engine's reading itself, which a resume blob may have
+   * started part way up. See uptime.ts.
+   */
+  it('shows how long a torrent has run in total and in this session', async () => {
+    const screen = await mount()
+    await expect.element(screen.getByText('1h 0m (15m this session)')).toBeInTheDocument()
+    await expect.element(screen.getByText('2m (1m this session)')).toBeInTheDocument()
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {

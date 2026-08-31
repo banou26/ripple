@@ -51,6 +51,15 @@ export type TorrentStats = {
   availability: number
   activeSeconds: number
   seedingSeconds: number
+  /**
+   * Of the two totals above, what THIS session contributed.
+   *
+   * Shown beside them the way `sessionDownload` sits beside `allTimeDownload`, and derived the same
+   * way the totals are: a delta against the engine's reading when the torrent was added, never the
+   * engine's reading itself, which a resume blob may have started part way up. See uptime.ts.
+   */
+  sessionActiveSeconds: number
+  sessionSeedingSeconds: number
   /** Unix seconds, 0 for something that has not happened. */
   addedAt: number
   completedAt: number
