@@ -53,7 +53,19 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         // --mute-audio because the torrent ramp runs headful and plays real video
-        launchOptions: { args: ['--enable-experimental-web-platform-features', '--autoplay-policy=no-user-gesture-required', '--mute-audio'] },
+        launchOptions: {
+          args: ['--enable-experimental-web-platform-features', '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
+          /*
+           * The system Chrome, when one is named, for the same reason vite.config.ts finds one.
+           *
+           * Playwright's own browser download does not work on NixOS, so the browsers come from the
+           * store instead, and a store built for one playwright version carries a build number the
+           * next one does not ask for: 1.58 looks for chromium-1208 beside a store holding 1228 and
+           * fails with "Executable doesn't exist", which reads like a missing install rather than a
+           * version skew. Env-gated, so a runner with its own browsers is untouched.
+           */
+          executablePath: process.env.RIPPLE_CHROME || undefined,
+        },
       },
     },
     {
