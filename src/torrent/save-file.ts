@@ -192,7 +192,9 @@ const readChunk = async (
     if (signal?.aborted) throw abortError(signal)
     if (attempt > 0) await sleep(RETRY_BACKOFF_MS * attempt, signal)
     try {
-      const read = client.read(handle, fileIndex, offset, len, true, viewer)
+      // the signal goes INTO the read: abandoning it here leaves the worker retrying it, and a
+      // stalled retry re-anchors this page's claim, which un-cancels the download it belongs to
+      const read = client.read(handle, fileIndex, offset, len, true, viewer, signal)
       /**
        * Raced rather than simply awaited, because `client.read` takes no signal of its own and sits
        * on its pieces for up to 120s. Awaiting it would make Cancel mean "stop after this chunk",

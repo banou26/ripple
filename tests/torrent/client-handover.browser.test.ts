@@ -143,3 +143,69 @@ describe('a command caught by an engine handover', () => {
     expect(types(rig), 'dropping this is the bug gate.ts was written to fix').toContain('add-magnet')
   })
 })
+
+/**
+ * A cancelled read has to be cancelled in the WORKER, and the reason is not tidiness.
+ *
+ * The worker retries a stalled read for up to eighteen attempts and RE-ANCHORS the viewer between
+ * them, under whatever viewer id the read carried. An export's reads carry the download page's own
+ * viewer id, so a read the page abandoned promoted the page's held claim back to an active one, woke
+ * the torrent and carried on downloading a file somebody had just cancelled. Abandoning the promise
+ * here cannot stop that; only telling the worker can.
+ */
+describe('cancelling a read', () => {
+  it('tells the engine, with the id it is already using', async () => {
+    const rig = makeRig()
+    running(rig)
+
+    const controller = new AbortController()
+    const read = rig.client.read(3, 0, 0, 8, true, 'viewer-1', controller.signal)
+    read.catch(() => {})
+    await Promise.resolve()
+    const sent = rig.posted.find((m) => m.type === 'read')
+    expect(sent, 'no read was ever posted').toBeTruthy()
+
+    controller.abort()
+    await Promise.resolve()
+
+    const cancelled = rig.posted.find((m) => m.type === 'cancel-read')
+    expect(cancelled, 'the worker was never told, so it keeps retrying and re-anchoring').toBeTruthy()
+    expect(cancelled.id, 'a cancel that names a different read cancels nothing').toBe(sent.id)
+    expect(cancelled.handle).toBe(3)
+    await expect(read).rejects.toThrow()
+  })
+
+  /**
+   * One signal, thousands of reads: an export shares its AbortSignal across every 8 MB chunk, so a
+   * listener left attached per read is thousands of retained closures on a large save. This is the
+   * observable half of that: a settled read must no longer answer its signal.
+   */
+  it('stops listening to a signal it shares once the read has settled', async () => {
+    const rig = makeRig()
+    running(rig)
+
+    const controller = new AbortController()
+    const read = rig.client.read(3, 0, 0, 8, true, 'viewer-1', controller.signal)
+    await Promise.resolve()
+    const sent = rig.posted.find((m) => m.type === 'read')
+    rig.say({ type: 'read-result', id: sent.id, data: new Uint8Array(8) })
+    await read
+
+    rig.posted.length = 0
+    controller.abort()
+    await Promise.resolve()
+    expect(rig.posted.filter((m) => m.type === 'cancel-read'), 'a settled read still answered its signal')
+      .toEqual([])
+  })
+
+  it('refuses a read whose signal is already aborted, rather than posting one to cancel', async () => {
+    const rig = makeRig()
+    running(rig)
+
+    const controller = new AbortController()
+    controller.abort()
+    await expect(rig.client.read(3, 0, 0, 8, true, 'viewer-1', controller.signal)).rejects.toThrow()
+    await Promise.resolve()
+    expect(types(rig)).toEqual([])
+  })
+})

@@ -334,33 +334,41 @@ print(json.dumps({
     await first.cancel().catch(() => {})
     await expect(page.getByText(/^Saved /)).toBeVisible({ timeout: 60_000 })
 
-    /*
-     * The negative: the 129 MB video was never asked for.
-     *
-     * Watched for fifteen seconds rather than sampled once, because a torrent that was pulling it
-     * would have written megabytes inside that window: this one is webseeded, so there is no slow
-     * swarm to hide behind. Presence is what is asserted, since a file being written cannot be
-     * measured but cannot be hidden either.
-     */
+    // what the torrent fetched while it was awake and downloading, read before anything else runs
     const held = await payloadReport(page)
-    await page.waitForTimeout(15_000)
-    const still = await payloadReport(page)
+
     /*
-     * SIZE, never presence, and this is why: measured on this torrent, downloading one subtitle
-     * leaves exactly one 128 KiB piece on disk, 131,072 bytes, and the VIDEO's own file is part of
-     * it at 123,188 bytes of its 129 MB. The five subtitles and the head of the video share that
-     * piece, and there is no way to ask a swarm for half of one. So a file existing proves nothing
-     * here, and an assertion written against the file list fails for a torrent behaving perfectly.
+     * The negative, and it is THIS report that carries it rather than any later one.
+     *
+     * `held` was taken the moment the subtitle finished, so it describes what the torrent fetched
+     * while it was awake and downloading: one 128 KiB piece, out of a 129 MB torrent. Nothing else
+     * was asked for. It carries its own control, because the same number has to be non-zero: a probe
+     * that could not see the bytes would report an empty disk and pass this for free.
+     *
+     * Two things that were tried here and are NOT in this test, both removed rather than left as
+     * checks that cannot fail:
+     *
+     *  - Watching for fifteen seconds AFTER a download finished. The page hands its claim back when
+     *    a job ends, which idle-parks a page-added torrent, so nothing is being fetched in that
+     *    window whatever the selection says. It passed with the whole feature deleted.
+     *  - Asserting that no OTHER file gains bytes while a ticked one downloads. A claimed file's own
+     *    boundary pieces write into whatever shares them, at BOTH ends: measured, downloading the
+     *    video put bytes into `Sintel.nl.srt`, which follows it. That is the same "no way to ask for
+     *    half a piece" physics as the head, so the assertion fails against an engine behaving
+     *    correctly, and it did.
      */
-    expect(still.sizes[video!] ?? 0, 'the video was fetched, not merely straddling a piece')
+    expect(held.bytes, 'the probe saw no bytes at all, so it could not have seen too many')
+      .toBeGreaterThan(0)
+    expect(held.bytes, 'the swarm was asked for more than the one file that was ticked')
       .toBeLessThan(4_000_000)
-    expect(still.bytes - held.bytes, 'bytes kept arriving for files nobody ticked').toBeLessThan(1_000_000)
 
     /*
      * The rest of the torrent is still there to take, which is the whole point of taking one file.
      *
-     * A different subtitle, ticked after a download has already finished, through the row's own
-     * button so that the claim has to move rather than be made for the first time.
+     * A different subtitle, after a download has already finished, through the row's own button so
+     * that the claim has to MOVE rather than be made for the first time. This is the half that was
+     * impossible before: the first Download replaced the page's held claim with a live one and
+     * nothing put it back, so the engine stayed anchored on that one file.
      */
     const second = page.getByRole('button', { name: `Download ${subtitles[1]}`, exact: true })
     await expect(second).toBeEnabled({ timeout: 30_000 })
@@ -371,31 +379,13 @@ print(json.dumps({
     expect(next.suggestedFilename()).toBe(subtitles[1])
     await next.cancel().catch(() => {})
 
-    /*
-     * The positive control for the probe above, in the same run.
-     *
-     * Without it "the video was never written" is a claim about the check rather than about the
-     * engine: a walk that could not see the file, or a page that never reached the swarm at all,
-     * reports exactly the same absence. So the video is ticked and started, and the same probe has
-     * to find what it just said was missing. Cancelled as soon as it does, since the point is that
-     * it STARTS, not that 129 MB lands on this machine.
-     */
-    const theVideo = page.getByRole('button', { name: `Download ${video}`, exact: true })
-    await expect(theVideo).toBeEnabled({ timeout: 30_000 })
-    const [big] = await Promise.all([
-      page.waitForEvent('download', { timeout: 120_000 }),
-      theVideo.click(),
-    ])
-    /*
-     * The same probe and the same number as the negative above, answering the other way: measured at
-     * 9,429,300 bytes a few seconds in, against 123,188 while it was unticked. A rig that could not
-     * see the video being written would fail here rather than passing the negative for free.
-     */
-    await expect
-      .poll(async () => (await payloadReport(page)).sizes[video!] ?? 0, { timeout: 120_000 })
-      .toBeGreaterThan(4_000_000)
-    await big.cancel().catch(() => {})
-    await page.getByRole('button', { name: 'Cancel' }).click().catch(() => {})
+    // and still nothing but subtitles: two files taken, and the 129 MB video still not asked for
+    await expect(page.getByText(/^Saved /)).toBeVisible({ timeout: 60_000 })
+    const after = await payloadReport(page)
+    expect(after.bytes, 'the second download pulled more than the file it was for')
+      .toBeLessThan(4_000_000)
+    expect(after.sizes[video!] ?? 0, 'the video was fetched for a subtitle download')
+      .toBeLessThan(4_000_000)
 
     expect(pageErrors).toEqual([])
   })

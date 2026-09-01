@@ -127,7 +127,15 @@ export type TorrentClient = {
   startSource: (infoHash: string, handles: (FileSystemFileHandle | null)[]) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
-  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string) => Promise<Uint8Array>
+  /**
+   * `signal` cancels the read IN THE WORKER, not just here.
+   *
+   * Abandoning a read page-side is not enough and the difference is visible: the worker retries a
+   * stalled read for up to eighteen attempts, and re-anchors the viewer's claim between them, which
+   * silently resurrects a claim the page has already handed back. So a reader that has gone away has
+   * to say so.
+   */
+  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string, signal?: AbortSignal) => Promise<Uint8Array>
   newViewerId: () => string
   /**
    * Move a viewer's anchor. Pass `readLen` when the move came from a read rather than from a user seek:
@@ -271,7 +279,11 @@ export const createTorrentClient = (): EngineClient => {
   let lastInboundNow: InboundNow | null = null
   const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
   const detailCbs = new Set<(d: TorrentDetail | null) => void>()
-  const reads = new Map<number, { resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number }>()
+  const reads = new Map<number, {
+    resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number,
+    /** Removes this read's abort listener from a signal an entire export shares. */
+    off?: AbortController,
+  }>()
   const recentRate = createRecentRateTracker()
   // names this tab to the others, and prefixes the viewer ids its players hand out
   const docId = newClientId()
@@ -297,7 +309,13 @@ export const createTorrentClient = (): EngineClient => {
 
   const settleRead = (id: number) => {
     const pending = reads.get(id)
-    if (pending) { clearTimeout(pending.timer); reads.delete(id) }
+    if (pending) {
+      clearTimeout(pending.timer)
+      // the abort listener is removed with it: an export shares ONE signal across every chunk, so a
+      // listener left behind per read is thousands of retained closures on a large save
+      pending.off?.abort()
+      reads.delete(id)
+    }
     return pending
   }
 
@@ -525,15 +543,22 @@ export const createTorrentClient = (): EngineClient => {
     startSource: (infoHash, handles) => send({ type: 'start-source', infoHash, handles }),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
-    read: (handle, fileIndex, offset, len, prioritize = true, viewer) => {
+    read: (handle, fileIndex, offset, len, prioritize = true, viewer, signal) => {
       if (fatal) return Promise.reject(fatal)
+      if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
       return new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId
         const timer = window.setTimeout(
           () => settleRead(id)?.reject(new Error(`read timed out after ${READ_TIMEOUT}ms`)),
           READ_TIMEOUT,
         )
-        reads.set(id, { resolve, reject, timer })
+        const off = signal ? new AbortController() : undefined
+        reads.set(id, { resolve, reject, timer, off })
+        signal?.addEventListener('abort', () => {
+          // the worker first, because that is the half that has an effect on the engine
+          send({ type: 'cancel-read', id, handle })
+          settleRead(id)?.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+        }, { once: true, signal: off!.signal })
         send({ type: 'read', id, handle, fileIndex, offset, len, prioritize, viewer })
       })
     },

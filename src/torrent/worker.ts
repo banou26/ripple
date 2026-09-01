@@ -30,7 +30,7 @@ import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-source', 'read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -1798,13 +1798,43 @@ const handleMessage = async (session: Session, m: any) => {
             for (const piece of missing.slice(0, CANCEL_PER_STALL)) {
               session.cancelPieceRequests(m.handle, piece)
             }
-            // re-anchoring re-places the deadlines, so the next tick requests the freed blocks from
-            // the fastest peers rather than the ones that just lost them
-            if (m.prioritize !== false && m.viewer) watch(m.viewer, m.handle, m.fileIndex, m.offset)
+            /*
+             * Re-anchoring re-places the deadlines, so the next tick requests the freed blocks from
+             * the fastest peers rather than the ones that just lost them.
+             *
+             * Only for a viewer that is STILL asking for bytes, and this guard is the whole
+             * difference between stopping a download and appearing to. A read outlives the export
+             * that issued it, and the `watch` below writes an entry with no held flag, so an
+             * abandoned read PROMOTED the page's hold back into a live claim, woke the torrent and
+             * carried on fetching the file somebody had just cancelled, for the life of the tab.
+             * On unmount it was worse: it recreated a viewer the page had already unwatched, and a
+             * torrent with a viewer is one the eviction pass may never reclaim.
+             *
+             * The promotion on a read's ENTRY is untouched, in anchorSequential, so a live reader
+             * still turns its own hold into a claim. What cannot happen here is a read overruling a
+             * decision made after it started.
+             */
+            const claim = m.viewer ? viewers.get(m.handle)?.get(m.viewer) : undefined
+            if (m.prioritize !== false && m.viewer && claim && !claim.held) {
+              watch(m.viewer, m.handle, m.fileIndex, m.offset)
+            }
           }
         }
       // the handle check keeps a torrent that was given up mid-read from leaving an entry behind
       } finally { inFlight.delete(m.id); if (handles.includes(m.handle)) lastReadAt.set(m.handle, Date.now()) }
+    } else if (m.type === 'cancel-read') {
+      /**
+       * The reader has gone away, so the read stops rather than going on planning the swarm.
+       *
+       * Dropping the id is the whole mechanism: the read loop above re-checks `inFlight` after every
+       * attempt and returns the moment its id is missing, which happens at most one attempt later.
+       *
+       * What that prevents is not wasted work, it is a claim coming back from the dead. A stalled
+       * read re-anchors its viewer between attempts, and an export's reads travel under the PAGE's
+       * viewer id, so an abandoned read promoted the page's held claim back to an active one and the
+       * torrent carried on downloading a file somebody had already cancelled.
+       */
+      readsByHandle.get(m.handle)?.delete(m.id)
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
       failReads(m.handle, 'torrent removed')
