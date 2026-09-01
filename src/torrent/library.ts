@@ -192,6 +192,23 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       downloaded: next.downloaded ?? was.downloaded,
       uploaded: next.uploaded ?? was.uploaded,
       wasted: next.wasted ?? was.wasted,
+      /*
+       * And the three DECISIONS, which is the same trap wearing different clothes.
+       *
+       * An add carries no file selection, no first-and-last flag and no save location, because none
+       * of them is knowable before the metadata is. So a re-add of a torrent that is in the library
+       * but not in the session, which is what opening a link for a synced or evicted torrent does,
+       * spread `undefined` over all three: the torrent went back to wanting every file, in the
+       * default place, with nothing on screen to say so. The engine kept the selection for that one
+       * session, since `add-magnet` seeds `planByHandle` from the entry BEFORE this runs, so the
+       * loss only appeared on the next load, one step further from the thing that caused it.
+       *
+       * An explicit value still wins, which is what makes a deliberate change land: `set-plan`
+       * writes through `patchList` and states all of them.
+       */
+      saveTo: next.saveTo ?? was.saveTo,
+      wantedFiles: next.wantedFiles ?? was.wantedFiles,
+      firstLast: next.firstLast ?? was.firstLast,
     }
     : next
 

@@ -297,3 +297,39 @@ describe('accumulated run time', () => {
     expect(merged.uploaded).toBe(9_500)
   })
 })
+
+/**
+ * The three DECISIONS survive a re-add, which is the same trap as the counters above.
+ *
+ * An add carries no file selection, no first-and-last flag and no save location, because none of
+ * them is knowable before the metadata is. Opening a link for a torrent that is in the library but
+ * NOT in the session, which is what a synced or evicted torrent is, re-adds it, and the spread put
+ * `undefined` over all three: back to every file, in the default place, with nothing on screen
+ * saying so. The engine keeps the selection for that one session, because add-magnet seeds its plan
+ * from the entry before this runs, so the loss only showed up on the NEXT load.
+ */
+describe('a re-add does not undo what was decided', () => {
+  const stored = (over: Partial<Persisted> = {}): Persisted =>
+    ({ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', savePath: '/dl/abc', addedAt: 1, ...over })
+
+  it('keeps a file selection an add does not carry', () => {
+    const merged = mergeEntry(stored({ wantedFiles: [2, 5], firstLast: true, saveTo: 'folder' }), stored())
+    expect(merged.wantedFiles).toEqual([2, 5])
+    expect(merged.firstLast).toBe(true)
+    expect(merged.saveTo).toBe('folder')
+  })
+
+  it('takes an incoming selection, which is how set-plan ever changes one', () => {
+    const merged = mergeEntry(stored({ wantedFiles: [2, 5], firstLast: true }), stored({ wantedFiles: [0], firstLast: false }))
+    expect(merged.wantedFiles).toEqual([0])
+    // false is a decision and not an absence, so it has to win over a stored true
+    expect(merged.firstLast).toBe(false)
+  })
+
+  it('stays absent for a torrent that has never chosen anything, which means all of it', () => {
+    const merged = mergeEntry(stored(), stored())
+    expect(merged.wantedFiles).toBeUndefined()
+    expect(merged.firstLast).toBeUndefined()
+    expect(merged.saveTo).toBeUndefined()
+  })
+})
