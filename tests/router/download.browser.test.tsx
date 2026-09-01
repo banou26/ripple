@@ -23,6 +23,20 @@ const FILES = [
 
 /** Every file index the page has asked the engine to fetch, in order. Empty means nothing is moving. */
 const claimed: number[] = []
+/** Every plan the page has sent the engine, which is what decides what the swarm is asked for. */
+const planned: { wanted?: number[], firstLast?: boolean }[] = []
+/** How many times the page has handed its claim back, which is what stops the fetching. */
+const released = { count: 0 }
+
+/**
+ * What the library holds for this torrent.
+ *
+ * `ephemeral` is the one field that changes behaviour: it says this row is the page's own cache
+ * entry rather than a torrent the person keeps, and only then may the page write a plan onto it.
+ */
+const listed = {
+  current: [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: true, firstLast: false }],
+}
 
 const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
   /*
@@ -36,8 +50,12 @@ const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
   client: {
     onEngineReset: () => () => {},
     onState: () => () => {},
+    // latched in the real client, so a page that subscribes late is still answered
+    onList: (cb: (list: unknown[]) => void) => { cb(listed.current); return () => {} },
+    setPlan: (_handle: number, plan: { wanted?: number[], firstLast?: boolean }) => { planned.push(plan) },
   } as unknown as DownloadTorrent['client'],
   claim: (fileIndex: number) => { claimed.push(fileIndex) },
+  release: () => { released.count++ },
   snapshot: {
     handle: 7,
     magnet: 'magnet:?xt=urn:btih:abc&dn=Pack.Name',
@@ -61,17 +79,29 @@ vi.mock('../../src/torrent/use-download-torrent', () => ({ useDownloadTorrent: (
 const saved = {
   zip: [] as { name: string, entries: SaveEntry[], viewer?: string }[],
   file: [] as { index: number, path: string, size: number, viewer?: string }[],
+  /**
+   * Leave the export RUNNING instead of resolving it, so a test can act while a job is in flight.
+   *
+   * Everything else in this file wants a save that has already finished, which is why the default
+   * is to resolve on the spot.
+   */
+  holds: false,
+  settle: null as null | { resolve: () => void, reject: (error: unknown) => void },
 }
+
+const held = () => (saved.holds
+  ? new Promise<void>((resolve, reject) => { saved.settle = { resolve, reject } })
+  : Promise.resolve())
 vi.mock('../../src/torrent/save-file', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/save-file')>()),
   saveTorrentEntriesAsZipToDisk: async (
     _client: unknown, _handle: number, name: string, entries: SaveEntry[],
     _onProgress?: unknown, options?: { viewer?: string },
-  ) => { saved.zip.push({ name, entries, viewer: options?.viewer }) },
+  ) => { saved.zip.push({ name, entries, viewer: options?.viewer }); return held() },
   saveTorrentFileToDisk: async (
     _client: unknown, _handle: number, index: number, path: string, size: number,
     _onProgress?: unknown, options?: { viewer?: string },
-  ) => { saved.file.push({ index, path, size, viewer: options?.viewer }) },
+  ) => { saved.file.push({ index, path, size, viewer: options?.viewer }); return held() },
 }))
 
 const sized = () => {
@@ -81,10 +111,18 @@ const sized = () => {
   return { container }
 }
 
+/**
+ * base64 of `magnet:?xt=urn:btih:abc&dn=Pack.Name`, which is the legacy link form README publishes.
+ *
+ * It carries an infohash on purpose: without one the page cannot find its own entry in the library,
+ * and everything that depends on knowing whose torrent this is silently does nothing.
+ */
+const MAGNET = 'bWFnbmV0Oj94dD11cm46YnRpaDphYmMmZG49UGFjay5OYW1l'
+
 const mount = async (search: string) => {
   const { default: Embed } = await import('../../src/router/embed')
   return render(
-    <MemoryRouter initialEntries={[`/embed?magnet=bWFnbmV0Og==${search}`]}>
+    <MemoryRouter initialEntries={[`/embed?magnet=${MAGNET}${search}`]}>
       <Embed />
     </MemoryRouter>,
     sized(),
@@ -96,7 +134,12 @@ describe('the embed route in download mode', () => {
     state.current = torrent()
     saved.zip = []
     saved.file = []
+    saved.holds = false
+    saved.settle = null
     claimed.length = 0
+    planned.length = 0
+    released.count = 0
+    listed.current = [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: true, firstLast: false }]
   })
 
   it('stays the player when no mode is asked for', async () => {
@@ -168,8 +211,7 @@ describe('the embed route in download mode', () => {
     const screen = await mount('&mode=download')
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
 
-    // the <summary> specifically: "4 files" also appears in the size line and on the main button
-    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
+    // no click to open it: the list holds the choice this page is asking for, so it arrives open
     // every row announces its own file, so the list is not read as N identical buttons
     const rows = [...screen.container.querySelectorAll('.files .file button')]
     expect(rows.map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -262,10 +304,218 @@ describe('the embed route in download mode', () => {
     expect(claimed).toEqual([1])
   })
 
+  /**
+   * Choosing what to take.
+   *
+   * The link decides what is on the table and the person decides what comes off it, which are two
+   * different sets: `offered` and `entries` in the page. Nearly every check here is written against
+   * the ENGINE's file indices rather than what is on screen, because that is the one mistake this
+   * whole area makes silently, handing somebody an archive of the right names holding the wrong
+   * episodes.
+   */
+  it('takes the files that are ticked and leaves out the ones that are not', async () => {
+    const screen = await mount('&mode=download')
+    await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
+
+    // addressed by NAME, so a row moving cannot make this tick something other than it meant to
+    await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
+    await screen.getByRole('checkbox', { name: 'notes.txt' }).click()
+
+    // 1.4 GB + 1.6 GB: the size follows the ticks, not the link
+    await expect.element(screen.getByText('3 GB · 2 files')).toBeInTheDocument()
+    await screen.getByRole('button', { name: /Download 2 files as \.zip/ }).click()
+
+    expect(saved.zip[0]!.entries.map((e) => e.index)).toEqual([0, 2])
+  })
+
+  /**
+   * The regression this page has already had once, now reachable from a checkbox.
+   *
+   * `1-3` is E02, E03 and notes.txt, so unticking E03 leaves engine indices 1 and 3 while its
+   * POSITION in the list on screen is 1. Anything that ticks by position exports E02 and E03.
+   */
+  it('ticks in engine indices, not in positions in the list on screen', async () => {
+    const screen = await mount('&mode=download&files=1-3')
+    await screen.getByRole('checkbox', { name: 'E03.mkv' }).click()
+    await screen.getByRole('button', { name: /Download 2 files as \.zip/ }).click()
+
+    expect(saved.zip[0]!.entries.map((e) => e.index)).toEqual([1, 3])
+  })
+
+  it('hands over one ticked file directly rather than as a zip of one', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Select none' }).click()
+    await screen.getByRole('checkbox', { name: 'E03.mkv' }).click()
+
+    await screen.getByRole('button', { name: 'Download', exact: true }).click()
+
+    expect(saved.zip).toEqual([])
+    expect(saved.file.map((f) => f.index)).toEqual([2])
+  })
+
+  /**
+   * An empty selection is refused rather than treated as "everything".
+   *
+   * libtorrent accepts a torrent with every file skipped perfectly happily and then sits at 0 per
+   * cent looking like a stalled download, so the page never sends one. The row buttons stay live
+   * through it, because a row is its own action and Select none must not leave a page with nothing
+   * on it that does anything.
+   */
+  it('refuses an empty selection, and still lets a single row be taken', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Select none' }).click()
+
+    await expect.element(screen.getByRole('button', { name: 'Select at least one file' })).toBeDisabled()
+    await expect.element(screen.getByText('Nothing selected')).toBeInTheDocument()
+
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+    expect(saved.file.map((f) => f.index)).toEqual([0])
+    expect(planned.map((plan) => plan.wanted), 'an empty plan stops the torrent dead').toEqual([[0]])
+  })
+
+  /**
+   * The whole point of taking one file first: the rest are still there afterwards.
+   *
+   * The export resolves immediately in this file, so everything after the first click is the state
+   * a finished download leaves behind. It used to be a state the page could not leave: the claim it
+   * made was never handed back, so the engine kept that one file at normal priority and every other
+   * at skip for as long as the tab was open.
+   */
+  it('lets the rest of the pack be taken after one file has been', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+
+    await expect.element(screen.getByRole('button', { name: 'Download E03.mkv', exact: true })).toBeEnabled()
+    await screen.getByRole('button', { name: 'Download E03.mkv', exact: true }).click()
+
+    expect(saved.file.map((f) => f.index)).toEqual([0, 2])
+    // and the engine was pointed at each in turn, rather than left anchored on the first
+    expect(claimed).toEqual([0, 2])
+  })
+
+  it('says which files have already landed, so somebody coming back knows what is left', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+
+    await expect
+      .poll(() => [...screen.container.querySelectorAll('.files .file')]
+        .filter((row) => row.querySelector('.mark.saved'))
+        .map((row) => row.querySelector('.name')!.textContent))
+      .toEqual(['E01.mkv'])
+  })
+
+  /**
+   * What the SWARM is asked for, which is the half of a selection that is not on screen.
+   *
+   * The plan is what the engine writes over the whole torrent whenever nothing is claiming bytes,
+   * so it is what "only these files" means once the reading stops. It is sent before the claim, and
+   * again when the job ends, because the ticks can move while one runs.
+   */
+  it('tells the engine which files to want, in engine indices', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
+    await screen.getByRole('button', { name: /Download 3 files as \.zip/ }).click()
+
+    expect(planned[0]).toEqual({ wanted: [0, 2, 3], firstLast: false })
+  })
+
+  it('says "all of it" by leaving the list out, rather than by naming every index', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: /Download 4 files/ }).click()
+
+    // absent is what survives a torrent gaining a file it did not have when this was decided
+    expect(planned[0]).toEqual({ wanted: undefined, firstLast: false })
+  })
+
+  /**
+   * An embed on somebody else's site must not narrow a torrent the person keeps.
+   *
+   * A plan rewrites that torrent's file selection and clears its first-and-last flag, nothing in
+   * the app shows either, and nothing offers a way to put them back. The positive control is in the
+   * same test on purpose: this has to be a page that plans nothing, not a page that does nothing.
+   */
+  it('never plans a torrent the person has in their own library', async () => {
+    listed.current = [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: false, firstLast: true }]
+    const screen = await mount('&mode=download')
+    await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
+    await screen.getByRole('button', { name: /Download 3 files as \.zip/ }).click()
+
+    expect(planned, 'an embed narrowed a torrent that is not its own').toEqual([])
+    expect(saved.zip, 'the export must still happen').toHaveLength(1)
+  })
+
+  /**
+   * The claim is given back when the job ends, which is what stops the fetching.
+   *
+   * Without it a cancelled download carries on into browser storage until the tab is closed: the
+   * button says stopped and the engine, which was never told, does not.
+   */
+  it('hands the claim back when a download ends', async () => {
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+
+    await expect.poll(() => released.count).toBe(1)
+  })
+
+  /**
+   * Pad files are not the person's data and belong in nothing they see.
+   *
+   * They are zeroes a v2 or hybrid torrent inserts to push the next file onto a piece boundary. The
+   * page reads the ENGINE's list, which has to keep them so that `files[i]` is still file i, so
+   * every list drawn from it has to drop them by hand. Ticking one, or zipping one, would put a
+   * folder of zeroes in somebody's archive under a name they have never seen.
+   */
+  it('never offers a pad file, and still names the real ones by their engine index', async () => {
+    const base = torrent()
+    state.current = torrent({
+      snapshot: {
+        ...base.snapshot!,
+        files: {
+          ...base.snapshot!.files!,
+          files: [
+            { path: 'Pack.Name/E01.mkv', size: 1_400_000_000, offset: 0, pad: false },
+            { path: 'Pack.Name/.pad/262144', size: 262_144, offset: 1_400_000_000, pad: true },
+            { path: 'Pack.Name/E02.mkv', size: 1_500_000_000, offset: 1_400_262_144, pad: false },
+          ],
+        },
+      },
+    } as never)
+
+    const screen = await mount('&mode=download')
+    await expect.element(screen.getByRole('button', { name: /Download 2 files as \.zip/ })).toBeInTheDocument()
+    expect([...screen.container.querySelectorAll('.files .file .name')].map((n) => n.textContent))
+      .toEqual(['E01.mkv', 'E02.mkv'])
+
+    await screen.getByRole('button', { name: /Download 2 files as \.zip/ }).click()
+    // 2, not 1: the second real file is at engine index 2 with the pad sitting between them
+    expect(saved.zip[0]!.entries.map((e) => e.index)).toEqual([0, 2])
+  })
+
+  /**
+   * Nothing is claimed back for a page that no longer exists.
+   *
+   * An export is aborted on unmount and its promise settles a turn later, after the hook has already
+   * handed every claim back. A hold registered at that point recreates a viewer nothing will ever
+   * remove, and a torrent with a viewer is one the storage budget may not reclaim, so what leaks is
+   * a torrent that can never be evicted rather than a stray message.
+   */
+  it('registers no claim once the page has gone away', async () => {
+    saved.holds = true
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+    await expect.poll(() => saved.file.length, { timeout: 5_000 }).toBe(1)
+
+    screen.unmount()
+    saved.settle!.reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }))
+    // a turn for the rejection to reach the .finally, which is where the claim would be made
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(released.count, 'a claim was handed back for a page that is gone').toBe(0)
+  })
+
   it('claims the row that was pressed, not the head of the page selection', async () => {
     const screen = await mount('&mode=download')
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
-    ;(screen.container.querySelector('.files summary') as HTMLElement).click()
     await screen.getByRole('button', { name: 'Download E03.mkv', exact: true }).click()
     expect(claimed).toEqual([2])
   })

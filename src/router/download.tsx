@@ -21,7 +21,7 @@ import {
   TEXT_MUTED,
   TEXT_ON_LIGHT,
 } from '../theme'
-import { ArrowDown, Download, File as FileIcon, Folder, Link2, Play, User } from 'react-feather'
+import { ArrowDown, Check, Download, File as FileIcon, Folder, Link2, Play, User } from 'react-feather'
 
 import type { SaveEntry } from '../torrent/save-file'
 import type { FileSelection } from './file-selection'
@@ -379,6 +379,28 @@ const style = css`
       &:hover { color: ${TEXT}; }
     }
 
+    /* Above the scroller rather than inside it, so they stay reachable partway down a pack.
+       Carries no size of its own: the card's own subject line already states the SELECTION's size,
+       and the two sat four rows apart saying the same thing in every state, down to "0 bytes". */
+    .bulk {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 8px;
+
+      button {
+        border: 1px solid ${BORDER};
+        border-radius: 4px;
+        background: ${CONTROL_BG};
+        color: ${TEXT};
+        padding: 3px 10px;
+        font-size: 0.75rem;
+
+        &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
+        &:disabled { opacity: 0.5; }
+      }
+    }
+
     /* capped and scrolled: a season pack is 24 rows and would push the button off a phone screen */
     .list {
       max-height: 220px;
@@ -395,6 +417,27 @@ const style = css`
       border-top: 1px solid ${BORDER};
       font-size: 0.8rem;
 
+      /* The tick and the name are ONE target, and the row's own button is deliberately outside it:
+         a label wrapping the whole row would make every press of Download toggle the tick as well,
+         which is the kind of thing that only shows up as a wrong file in somebody's archive. */
+      .pick {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+      }
+
+      /* Native checkbox, so leaving the accent out does not make it neutral: under color-scheme dark
+         the UA paints a checked box in the platform accent, usually blue. Same reasoning, and the
+         same value, as the add dialog's file list. */
+      input {
+        accent-color: ${EMPHASIS};
+        flex: none;
+        margin: 0;
+      }
+
       .name {
         flex: 1;
         min-width: 0;
@@ -402,11 +445,32 @@ const style = css`
         color: ${TEXT_MUTED};
       }
 
+      /* The strike is what carries the meaning, so the colour only steps down rather than fading
+         out: this row is the point of the list, it says what you are NOT taking. */
+      &.off .name { color: ${TEXT_FAINT}; text-decoration: line-through; }
+
       .size {
         flex: none;
         color: ${TEXT_FAINT};
         font-variant-numeric: tabular-nums;
       }
+
+      /* What already landed, and what is landing now. Both live in one slot so a row never grows a
+         second column, and both are words rather than a glyph alone: a tick beside a file name is
+         read as "selected" at least as often as "saved". */
+      .mark {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: ${TEXT_FAINT};
+
+        svg { width: 12px; height: 12px; }
+      }
+
+      .mark.saved { color: ${OK}; }
 
       button {
         flex: none;
@@ -443,7 +507,13 @@ const framedByAnotherOrigin = (): boolean => {
  * Downloading one file out of a season pack from its row would otherwise report its progress against
  * the whole pack, so a finished 1.4 GB episode reads as "1.4 GB of 34 GB" and looks stuck at 4%.
  */
-type Job = { fraction: number, label: string, total: number } | null
+type Job = {
+  fraction: number
+  label: string
+  total: number
+  /** The engine indices this job is reading, so its rows can say so and the plan can keep them. */
+  indices: number[]
+} | null
 
 type Props = {
   magnet: string | undefined
@@ -458,7 +528,7 @@ type Props = {
 }
 
 const DownloadPage = ({ magnet, selection }: Props) => {
-  const { client, snapshot, handle, viewer, claim, engineError, storageFull } = useDownloadTorrent(magnet)
+  const { client, snapshot, handle, viewer, claim, release, engineError, storageFull } = useDownloadTorrent(magnet)
   /**
    * Whether anything is carrying peer traffic, which is the one explanation this page never had.
    *
@@ -471,15 +541,89 @@ const DownloadPage = ({ magnet, selection }: Props) => {
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [finished, setFinished] = useState<string | null>(null)
+  /** Engine indices this page has already written to disk, so the list can say so. */
+  const [saved, setSaved] = useState<ReadonlySet<number>>(() => new Set())
   const abortRef = useRef<AbortController | null>(null)
+  /**
+   * Whether this page is still on screen when a job finally settles.
+   *
+   * An export is aborted on unmount and its promise settles a turn LATER, by which time the hook has
+   * already handed every claim back. Registering a held claim after that would recreate a viewer
+   * nothing will ever remove, and a torrent with a viewer is one the storage budget may not reclaim,
+   * so the leak is a torrent that can never be evicted rather than a stray message.
+   */
+  const mounted = useRef(true)
 
   const files = snapshot?.files?.files
   const indices = useMemo(() => resolveSelection(selection, files?.length ?? 0), [selection, files?.length])
 
-  const entries: SaveEntry[] = useMemo(
-    () => (files ? indices.map((index) => ({ index, path: files[index]!.path, size: files[index]!.size })) : []),
+  /**
+   * What the LINK puts on the table, which is not the same as what is being taken.
+   *
+   * Pad files are dropped here rather than further down: they are zeroes a v2 or hybrid torrent
+   * inserts to push the next file onto a piece boundary, and a list somebody ticks through, a size
+   * total and an archive are all places they must never appear. Every entry keeps the ENGINE's own
+   * index, so dropping some of them cannot shift what a read addresses.
+   */
+  const offered: SaveEntry[] = useMemo(
+    () => (files
+      ? indices
+        .filter((index) => !files[index]!.pad)
+        .map((index) => ({ index, path: files[index]!.path, size: files[index]!.size }))
+      : []),
     [files, indices],
   )
+
+  /**
+   * Which of the offered files are ticked, or null for all of them.
+   *
+   * Null rather than a filled set, because the file list arrives from the SWARM and this state is
+   * created before it: a set built at mount would be empty for good, and one rebuilt in an effect
+   * would throw away a choice every time metadata re-landed. Null is also exactly what the engine's
+   * plan means by an absent `wanted`, so the page and the engine say "all of them" the same way.
+   */
+  const [picked, setPicked] = useState<ReadonlySet<number> | null>(null)
+
+  /** What is about to be taken: the ticked subset of the offer, still in engine indices. */
+  const entries: SaveEntry[] = useMemo(
+    () => (picked ? offered.filter((entry) => picked.has(entry.index)) : offered),
+    [offered, picked],
+  )
+
+  const isPicked = (index: number) => !picked || picked.has(index)
+
+  /**
+   * The ticked set as one string, and then back out of it, so effects depend on WHAT is ticked.
+   *
+   * `entries` is rebuilt on every engine broadcast, because the snapshot it is derived from is a
+   * fresh object each time, so anything keyed on the array itself re-runs once or twice a second
+   * forever. That is how the thumbnail reader used to be torn down and rebuilt on every tick. This
+   * changes only when the selection does.
+   */
+  const chosenKey = entries.map((entry) => entry.index).join(',')
+  const chosenIndices = useMemo(() => (chosenKey ? chosenKey.split(',').map(Number) : []), [chosenKey])
+  /* read from a click handler and from a job that outlives it, where the closure's copy is stale */
+  const chosenRef = useRef<number[]>(chosenIndices)
+  chosenRef.current = chosenIndices
+
+  /**
+   * Ticking is done in ENGINE file indices, never in positions in this list.
+   *
+   * The list is already filtered, of pads and of whatever the link left out, so a position in it
+   * names a different file to the engine on every torrent that has either. That mistake exports the
+   * wrong episodes under the right names, which nothing downstream can catch.
+   */
+  const toggle = useCallback((index: number) => {
+    setPicked((was) => {
+      const next = new Set(was ?? offered.map((entry) => entry.index))
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }, [offered])
+  // back to null rather than to a filled set, so a torrent that gains a file keeps meaning "all"
+  const pickAll = useCallback(() => setPicked(null), [])
+  const pickNone = useCallback(() => setPicked(new Set<number>()), [])
   /*
    * The page shows what the ENGINE reports and nothing else, so there is one list rather than two.
    *
@@ -507,9 +651,78 @@ const DownloadPage = ({ magnet, selection }: Props) => {
     return fromMagnet || fromFiles || 'this torrent'
   }, [magnet, files])
 
+  /** What is about to be taken, when that is one file: a file download rather than a zip of one. */
   const single = entries.length === 1 ? entries[0]! : null
+  /**
+   * What the LINK narrowed to, when that is one file.
+   *
+   * Separate from `single` because the two head different things. The card names the SUBJECT, which
+   * is whatever the link is about and does not change as boxes are ticked; the button describes the
+   * job, which does. Reading the heading off `single` renamed the whole card the moment somebody
+   * ticked their way down to one episode of a pack.
+   */
+  const subject = offered.length === 1 ? offered[0]! : null
 
   const infoHash = useMemo(() => (magnet ? magnetInfoHash(magnet) ?? undefined : undefined), [magnet])
+
+  /**
+   * What the library holds for this torrent, when it holds anything, read for exactly two facts.
+   *
+   * `ephemeral` says whether this is the page's own cache entry or something the person put in
+   * their library themselves, and it decides whether the page may write a download plan at all. A
+   * plan rewrites that entry's file selection and clears its first-and-last flag, no screen in the
+   * app shows either, and nothing offers a way to put them back, so narrowing somebody's own
+   * torrent from an embed on a site they are only visiting would be both silent and permanent.
+   *
+   * `firstLast` is then carried back through unchanged, which is the rule the library's own plan
+   * caller already follows: a plan message states the whole plan, so anything it omits is cleared.
+   *
+   * The list is broadcast to every tab whether or not anyone listens, and the subscription is
+   * latched, so this is a lookup rather than a request.
+   */
+  const [known, setKnown] = useState<{ ephemeral: boolean, firstLast: boolean } | null>(null)
+  useEffect(() => {
+    if (!infoHash) return
+    return client.onList((list) => {
+      const found = list.find((persisted) => persisted.infoHash === infoHash)
+      const next = found ? { ephemeral: found.ephemeral === true, firstLast: found.firstLast === true } : null
+      // compared rather than replaced, so a list broadcast that says nothing new renders nothing new
+      setKnown((was) => (
+        was && next && was.ephemeral === next.ephemeral && was.firstLast === next.firstLast ? was : next
+      ))
+    })
+  }, [client, infoHash])
+
+  /** Files the person could pick, which is the count a full selection has to match to count as one. */
+  const contentCount = files ? files.reduce((n, file) => n + (file.pad ? 0 : 1), 0) : 0
+
+  /**
+   * Tell the engine which files this page wants, so the swarm is never asked for the others.
+   *
+   * This is the plan the engine writes when NOBODY is claiming bytes, and that is the whole of what
+   * it is for. While an export runs the claim owns the priority map and rewrites it whole on every
+   * chunk, so a plan cannot narrow a running download and is not trying to: what it decides is what
+   * the torrent is left wanting once the reading stops, which is the state a page-added torrent
+   * spends almost all of its life in. `release` below is what brings that moment forward from "the
+   * tab was closed" to "the download finished".
+   *
+   * Sent at the two moments the answer changes what the engine will do rather than on every tick of
+   * a checkbox, because a plan is also a write to the shared library entry and, through that, an
+   * upload of the library to the account.
+   */
+  const plan = useCallback((also: number[] = []) => {
+    if (handle == null || !contentCount || !known?.ephemeral) return
+    const wanted = [...new Set([...chosenRef.current, ...also])].sort((a, b) => a - b)
+    // An empty plan is accepted by libtorrent and stops the torrent dead, reporting itself as
+    // finished at 0 per cent rather than as anything wrong, so it is never sent.
+    if (!wanted.length) return
+    client.setPlan(handle, {
+      // absent rather than every index, which is what says "no selection" and survives a torrent
+      // gaining a file it did not have when this was decided
+      wanted: wanted.length >= contentCount ? undefined : wanted,
+      firstLast: known.firstLast,
+    })
+  }, [client, handle, contentCount, known])
 
   /*
    * A picture of the release instead of a file glyph.
@@ -539,9 +752,9 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * earlier visit, and a fresh embed usually keeps the glyph.
    */
   const eligible = useMemo(() => {
-    const wanted = new Set(indices)
+    const wanted = new Set(chosenIndices)
     return (index: number) => wanted.has(index)
-  }, [indices])
+  }, [chosenIndices])
 
   useThumbnailGeneration(client, infoHash, eligible)
   const poster = useThumbnail(infoHash)
@@ -596,19 +809,23 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * whole torrent: a link for the subtitles of a release should not offer to play the video it did
    * not ask for.
    *
+   * The LINK's set and not the ticked one, deliberately. Watching is a different action from taking
+   * a copy, so a box unticked to keep a file out of an archive should not also take away the way to
+   * play it, and Select none should not make this button disappear.
+   *
    * `pickVideoFile` reads `name` and `size`, and an engine path is a full path, so the entries are
    * mapped rather than passed through. Its index is a position in THAT array, so it is turned back
    * into the engine's own index before it can name a file.
    */
   const watchable = useMemo(() => {
-    if (!files || !entries.length) return null
-    const named = entries.map((entry) => ({ name: entry.path, size: entry.size }))
+    if (!files || !offered.length) return null
+    const named = offered.map((entry) => ({ name: entry.path, size: entry.size }))
     // `canOfferWatch` also answers true for an UNKNOWN list, which cannot happen here: `named` is
-    // built from entries and the guard above requires at least one
+    // built from the offer and the guard above requires at least one
     if (!canOfferWatch(named)) return null
-    const chosen = entries[pickVideoFile(named)]
+    const chosen = offered[pickVideoFile(named)]
     return chosen ?? null
-  }, [files, entries])
+  }, [files, offered])
 
   const watchHere = useMemo(() => {
     if (!magnet || !watchable) return null
@@ -619,10 +836,15 @@ const DownloadPage = ({ magnet, selection }: Props) => {
   // libtorrent reports a path relative to the torrent root, so a multi-file release repeats its
   // folder in front of every entry; the folder is already the heading here
   const leaf = (path: string) => path.split('/').pop() || path
-  /* named only when there is a choice to have got wrong; a single file needs no restating */
-  const watchLabel = watchable && entries.length > 1 ? `Watch ${leaf(watchable.path)}` : 'Watch'
+  /*
+   * Named only when there is a choice to have got wrong; a single file needs no restating.
+   *
+   * Counted over the OFFER for the same reason the link itself is: unticking every box is a
+   * statement about what to download, and it used to quietly rename this button to "Watch".
+   */
+  const watchLabel = watchable && offered.length > 1 ? `Watch ${leaf(watchable.path)}` : 'Watch'
 
-  const subjectName = single ? leaf(single.path) : torrentName
+  const subjectName = subject ? leaf(subject.path) : torrentName
   const framed = useMemo(framedByAnotherOrigin, [])
   const openHere = typeof window === 'undefined'
     ? null
@@ -639,13 +861,19 @@ const DownloadPage = ({ magnet, selection }: Props) => {
      * has been told nothing about what this page wants. The reads below re-anchor the window as they
      * advance and would eventually plan it themselves, but the first one is behind a sink handshake
      * that can take seconds, and those are seconds of a pressed button with nothing moving.
+     *
+     * The plan goes FIRST and the claim second. The claim is what moves bytes now; the plan decides
+     * what the torrent is left wanting once the claiming stops, including if this page is closed
+     * halfway through. So it names the ticked files AND the ones this job is about to read, which
+     * are not always the same set: a row's own Download button can name a file nobody ticked.
      */
+    plan(chosen.map((file) => file.index))
     claim(chosen[0]!.index)
     const controller = new AbortController()
     abortRef.current = controller
     setFailure(null)
     setFinished(null)
-    setJob({ fraction: 0, label, total: chosen.reduce((n, e) => n + e.size, 0) })
+    setJob({ fraction: 0, label, total: chosen.reduce((n, e) => n + e.size, 0), indices: chosen.map((e) => e.index) })
 
     const options = { viewer, signal: controller.signal }
     const onProgress = (fraction: number) => setJob((j) => (j ? { ...j, fraction } : j))
@@ -656,7 +884,12 @@ const DownloadPage = ({ magnet, selection }: Props) => {
       : saveTorrentEntriesAsZipToDisk(client, handle, torrentName, chosen, onProgress, options)
 
     run
-      .then(() => setFinished(only ? leaf(only.path) : `${chosen.length} files`))
+      .then(() => {
+        setFinished(only ? leaf(only.path) : `${chosen.length} files`)
+        // so the list can say which files are already on the device, which is the whole of what
+        // somebody coming back for the rest of a pack needs to know
+        setSaved((was) => new Set([...was, ...chosen.map((file) => file.index)]))
+      })
       .catch((error: unknown) => {
         if (isSaveCancelled(error)) return
         setFailure(
@@ -668,8 +901,22 @@ const DownloadPage = ({ magnet, selection }: Props) => {
       .finally(() => {
         abortRef.current = null
         setJob(null)
+        if (!mounted.current) return
+        /*
+         * Hand the claim back, which is the step that used to be missing.
+         *
+         * A claim asks the swarm for one file and skips every other, and it outlives the export that
+         * made it, so a CANCELLED download carried on into browser storage until the tab was closed:
+         * the button said stopped and the engine kept going. Holding instead is also the only state
+         * in which the engine writes the plan above, so this is where "only the ticked files" stops
+         * being about this download and starts being true of the torrent.
+         *
+         * The plan is re-sent first because the ticks may have moved while this was running.
+         */
+        plan()
+        release()
       })
-  }, [client, handle, viewer, claim, torrentName])
+  }, [client, handle, viewer, claim, release, plan, torrentName])
 
   const cancel = () => abortRef.current?.abort(Object.assign(new Error('cancelled'), { name: 'AbortError' }))
 
@@ -680,7 +927,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * an export left running past this point would block on reads that can no longer be served and
    * spend four 120s timeouts finding that out, writing into a sink whose frame is already gone.
    */
-  useEffect(() => () => cancel(), [])
+  useEffect(() => () => { mounted.current = false; cancel() }, [])
 
   /**
    * An engine reset invalidates the handle an export is already holding.
@@ -703,18 +950,29 @@ const DownloadPage = ({ magnet, selection }: Props) => {
   const rate = snapshot?.displayDownloadRate ?? 0
 
   const busy = job !== null
+  /** Enough to run the button at the top, which acts on the ticked set and needs one. */
   const ready = Boolean(files) && entries.length > 0 && handle != null
+  /**
+   * Enough to run a ROW's button, which needs no ticks at all.
+   *
+   * Deliberately not `ready`: a row is its own action, so pressing Download beside a file has to
+   * work with every box unticked, and gating the rows on the main button's precondition would have
+   * turned Select none into a page with nothing on it that does anything.
+   */
+  const listReady = Boolean(files) && handle != null
   const label = !magnet
     ? 'Nothing to download'
     : !files
       ? 'Loading torrent…'
-      : entries.length === 0
-        ? 'No matching files'
-        : busy
-          ? job.label
-          : single
-            ? 'Download'
-            : `Download ${entries.length} files as .zip`
+      : busy
+        ? job.label
+        : offered.length === 0
+          ? 'No matching files'
+          : entries.length === 0
+            ? 'Select at least one file'
+            : single
+              ? 'Download'
+              : `Download ${entries.length} files as .zip`
 
   return (
     <div css={style}>
@@ -737,16 +995,22 @@ const DownloadPage = ({ magnet, selection }: Props) => {
             <div className={'glyph' + (poster ? ' poster' : '')}>
               {poster
                 ? <img src={poster} alt="" />
-                : single ? <FileIcon /> : <Folder />}
+                : subject ? <FileIcon /> : <Folder />}
             </div>
             <div className="about">
               <div className="name">{subjectName}</div>
+              {/* The SELECTION's size, which is what the button is about to take, and which moves
+                  as boxes are ticked. The two empty cases are different facts and read as different
+                  sentences: a link naming files this torrent does not have is the sender's mistake,
+                  where an empty selection is a choice made on this screen a moment ago. */}
               <div className="meta">
-                {entries.length === 0
+                {offered.length === 0
                   ? files
                     ? 'None of the requested files are in this torrent'
                     : 'Reading the torrent from the network'
-                  : `${getHumanReadableByteString(totalBytes)}${single ? '' : ` · ${entries.length} files`}`}
+                  : entries.length === 0
+                    ? 'Nothing selected'
+                    : `${getHumanReadableByteString(totalBytes)}${single ? '' : ` · ${entries.length} files`}`}
               </div>
             </div>
           </div>
@@ -818,30 +1082,69 @@ const DownloadPage = ({ magnet, selection }: Props) => {
             </div>
           )}
 
-          {entries.length > 1 && (
-            <details className="files">
-              <summary>{entries.length} files</summary>
+          {/**
+            * The choice, and the reason this section is open rather than folded away.
+            *
+            * It used to be a disclosure over a list somebody could read, so leaving it shut cost
+            * them nothing. It now holds the decision the page is asking them to make, and a
+            * decision behind a summary is one most people never find. It still folds, because a
+            * pack of forty is a lot of card, and it is only here at all when there is a choice: one
+            * file is not a selection.
+            */}
+          {offered.length > 1 && (
+            <details className="files" open>
+              <summary>
+                {entries.length === offered.length
+                  ? `${offered.length} files`
+                  : `${entries.length} of ${offered.length} files`}
+              </summary>
+              <div className="bulk">
+                <button type="button" onClick={pickAll} disabled={entries.length === offered.length}>
+                  Select all
+                </button>
+                <button type="button" onClick={pickNone} disabled={entries.length === 0}>
+                  Select none
+                </button>
+              </div>
               <div className="list">
-                {entries.map((entry) => (
-                  <div className="file" key={entry.index}>
-                    <span className="name">{leaf(entry.path)}</span>
-                    <span className="size">{getHumanReadableByteString(entry.size)}</span>
-                    {/**
-                      * Shows "Download" and ANNOUNCES the file, because the visible label is only
-                      * unambiguous next to the name in the same row. Read on its own, as a screen
-                      * reader's element list does, a season pack is otherwise 24 buttons that all say
-                      * the same word. The visible text stays a prefix of the accessible name, so
-                      * "click Download" still addresses this button by voice.
-                      */}
-                    <button
-                      aria-label={`Download ${leaf(entry.path)}`}
-                      onClick={() => start([entry], `Downloading ${leaf(entry.path)}`)}
-                      disabled={!ready || busy}
-                    >
-                      Download
-                    </button>
-                  </div>
-                ))}
+                {offered.map((file) => {
+                  const on = isPicked(file.index)
+                  const running = job?.indices.includes(file.index) === true
+                  return (
+                    <div className={on ? 'file' : 'file off'} key={file.index}>
+                      {/* The tick is named by the file, through the label wrapping both, so a
+                          screen reader reads "E01.mkv, checkbox" rather than twenty-four boxes
+                          with nothing to tell them apart. */}
+                      <label className="pick">
+                        <input type="checkbox" checked={on} onChange={() => toggle(file.index)}/>
+                        <span className="name">{leaf(file.path)}</span>
+                      </label>
+                      <span className="size">{getHumanReadableByteString(file.size)}</span>
+                      {running
+                        ? <span className="mark">Downloading</span>
+                        : saved.has(file.index) && <span className="mark saved"><Check/>Saved</span>}
+                      {/**
+                        * Shows "Download" and ANNOUNCES the file, because the visible label is only
+                        * unambiguous next to the name in the same row. Read on its own, as a screen
+                        * reader's element list does, a season pack is otherwise 24 buttons that all say
+                        * the same word. The visible text stays a prefix of the accessible name, so
+                        * "click Download" still addresses this button by voice.
+                        *
+                        * Disabled only while a download is RUNNING, and enabled again the moment it
+                        * ends, which is the whole of "take one file now and come back for the rest".
+                        * One at a time because two exports share this page's single claim on the
+                        * torrent and would re-anchor it away from each other on every chunk.
+                        */}
+                      <button
+                        aria-label={`Download ${leaf(file.path)}`}
+                        onClick={() => start([file], `Downloading ${leaf(file.path)}`)}
+                        disabled={!listReady || busy}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </details>
           )}

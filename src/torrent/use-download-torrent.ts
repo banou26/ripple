@@ -18,6 +18,18 @@ export type DownloadTorrent = {
    * planning starts on the click rather than one sink handshake later.
    */
   claim: (fileIndex: number) => void
+  /**
+   * Stop asking for bytes, while staying on screen.
+   *
+   * The mirror of {@link claim}, and it has to exist because a claim REPLACES the held one: both
+   * travel under this page's single viewer id, so the first Download turns the hold into a real
+   * claim and nothing turns it back. Left alone, the engine keeps the last file at normal priority
+   * with everything else skipped for as long as the page is open, so a download somebody CANCELLED
+   * carries on into browser storage with nothing on screen to say so, and a cache torrent never
+   * parks. Handing the claim back is also what makes the stored plan reach libtorrent: the engine
+   * only writes it when nothing is claiming bytes.
+   */
+  release: () => void
   engineError: string | null
   storageFull: boolean
 }
@@ -115,12 +127,19 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     client.watch(viewerRef.current, handle, fileIndex >= 0 && fileIndex < files ? fileIndex : 0)
   }, [client, handle, files])
 
+  /* The same registration the state subscription makes, which is what makes it a hold again. */
+  const release = useCallback(() => {
+    if (handle == null) return
+    client.watch(viewerRef.current, handle, 0, 0, undefined, true)
+  }, [client, handle])
+
   return {
     client,
     snapshot,
     handle,
     viewer: viewerRef.current,
     claim,
+    release,
     engineError,
     storageFull,
   }

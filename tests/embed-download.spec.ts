@@ -55,6 +55,46 @@ const payloadFiles = (page: import('@playwright/test').Page) =>
   }, SINTEL_SAVE_PATH)
 
 /**
+ * What the engine has actually written for this torrent, per file and in total.
+ *
+ * SIZES rather than presence, which is the opposite of how this was first written. libtorrent
+ * creates a file the moment a piece lands in it and a piece can straddle two files, so downloading
+ * one 1.5 kB subtitle of Sintel creates the 129 MB video as well: measured at 123,188 bytes of it,
+ * off the single 128 KiB piece the five subtitles share with its head. A file EXISTING therefore
+ * says nothing here, and the first version of the test below failed on a torrent behaving perfectly.
+ *
+ * `locked` is the honest gap rather than a curiosity. A file the engine is writing through a sync
+ * access handle refuses `getFile()`, so `bytes` is a floor, short by whatever is open at the time.
+ * Nothing was ever locked across the runs this was built against, including while the video was
+ * actively downloading, so the floor has so far been the true total.
+ */
+const payloadReport = (page: import('@playwright/test').Page) =>
+  page.evaluate(async (path: string) => {
+    const sizes: Record<string, number> = {}
+    const locked: string[] = []
+    let bytes = 0
+    let dir: any = await navigator.storage.getDirectory()
+    for (const segment of path.split('/').filter(Boolean)) {
+      dir = await dir.getDirectoryHandle(segment).catch(() => null)
+      if (!dir) return { sizes, bytes, locked }
+    }
+    const walk = async (handle: any): Promise<void> => {
+      for await (const child of handle.values()) {
+        if (child.kind !== 'file') { await walk(child); continue }
+        try {
+          const size = (await child.getFile()).size
+          sizes[child.name] = size
+          bytes += size
+        } catch {
+          locked.push(child.name)
+        }
+      }
+    }
+    await walk(dir)
+    return { sizes, bytes, locked }
+  }, SINTEL_SAVE_PATH)
+
+/**
  * Chromium exposes showSaveFilePicker, which would open a native dialog no test can answer.
  *
  * Removing it forces the service worker arm, which is also the arm every embedded page takes,
@@ -245,6 +285,119 @@ print(json.dumps({
     await expect
       .poll(() => payloadFiles(page), { timeout: 120_000 })
       .toBeGreaterThan(held)
+  })
+
+  /**
+   * Picking files on the page, which is the half of a download link the sender does not decide.
+   *
+   * Three claims in one run, because they are only worth anything together: what is ticked is what
+   * arrives, what is NOT ticked is not pulled from the swarm, and the ones left behind can still be
+   * taken afterwards. The last is the one that used to be impossible: the first Download replaced
+   * this page's held claim with a real one and nothing put it back, so the engine spent the rest of
+   * the page's life anchored on that one file with every other piece at skip.
+   *
+   * Sintel is a bare link here, so all eleven files are offered and every box starts ticked, which
+   * is the shape somebody actually arrives in.
+   */
+  test('fetches only the ticked files, and lets the rest be taken afterwards', async ({ page }) => {
+    test.setTimeout(300_000)
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(String(error)))
+    await page.addInitScript(forceStreamSink)
+
+    await page.goto(downloadUrl(''))
+    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
+
+    const all = page.getByRole('button', { name: /Download \d+ files as \.zip/ })
+    await expect(all).toBeEnabled({ timeout: 60_000 })
+
+    // read off the page rather than written down: the file list belongs to the torrent
+    const names = await page.locator('.files .file .name').allTextContents()
+    const subtitles = names.filter((name) => name.endsWith('.srt'))
+    const video = names.find((name) => name.endsWith('.mp4'))
+    expect(subtitles.length, 'this torrent no longer has the subtitles this test drives').toBeGreaterThan(1)
+    expect(video, 'this torrent no longer has the video this test avoids').toBeTruthy()
+
+    await page.getByRole('button', { name: 'Select none' }).click()
+    await expect(page.getByRole('button', { name: 'Select at least one file' })).toBeDisabled()
+
+    await page.getByRole('checkbox', { name: subtitles[0]! }).check()
+    const one = page.getByRole('button', { name: 'Download', exact: true })
+    await expect(one).toBeEnabled()
+
+    const [first] = await Promise.all([
+      page.waitForEvent('download', { timeout: 120_000 }),
+      one.click(),
+    ])
+    // the file that was ticked is the file that arrived, by name
+    expect(first.suggestedFilename()).toBe(subtitles[0])
+    await first.cancel().catch(() => {})
+    await expect(page.getByText(/^Saved /)).toBeVisible({ timeout: 60_000 })
+
+    /*
+     * The negative: the 129 MB video was never asked for.
+     *
+     * Watched for fifteen seconds rather than sampled once, because a torrent that was pulling it
+     * would have written megabytes inside that window: this one is webseeded, so there is no slow
+     * swarm to hide behind. Presence is what is asserted, since a file being written cannot be
+     * measured but cannot be hidden either.
+     */
+    const held = await payloadReport(page)
+    await page.waitForTimeout(15_000)
+    const still = await payloadReport(page)
+    /*
+     * SIZE, never presence, and this is why: measured on this torrent, downloading one subtitle
+     * leaves exactly one 128 KiB piece on disk, 131,072 bytes, and the VIDEO's own file is part of
+     * it at 123,188 bytes of its 129 MB. The five subtitles and the head of the video share that
+     * piece, and there is no way to ask a swarm for half of one. So a file existing proves nothing
+     * here, and an assertion written against the file list fails for a torrent behaving perfectly.
+     */
+    expect(still.sizes[video!] ?? 0, 'the video was fetched, not merely straddling a piece')
+      .toBeLessThan(4_000_000)
+    expect(still.bytes - held.bytes, 'bytes kept arriving for files nobody ticked').toBeLessThan(1_000_000)
+
+    /*
+     * The rest of the torrent is still there to take, which is the whole point of taking one file.
+     *
+     * A different subtitle, ticked after a download has already finished, through the row's own
+     * button so that the claim has to move rather than be made for the first time.
+     */
+    const second = page.getByRole('button', { name: `Download ${subtitles[1]}`, exact: true })
+    await expect(second).toBeEnabled({ timeout: 30_000 })
+    const [next] = await Promise.all([
+      page.waitForEvent('download', { timeout: 120_000 }),
+      second.click(),
+    ])
+    expect(next.suggestedFilename()).toBe(subtitles[1])
+    await next.cancel().catch(() => {})
+
+    /*
+     * The positive control for the probe above, in the same run.
+     *
+     * Without it "the video was never written" is a claim about the check rather than about the
+     * engine: a walk that could not see the file, or a page that never reached the swarm at all,
+     * reports exactly the same absence. So the video is ticked and started, and the same probe has
+     * to find what it just said was missing. Cancelled as soon as it does, since the point is that
+     * it STARTS, not that 129 MB lands on this machine.
+     */
+    const theVideo = page.getByRole('button', { name: `Download ${video}`, exact: true })
+    await expect(theVideo).toBeEnabled({ timeout: 30_000 })
+    const [big] = await Promise.all([
+      page.waitForEvent('download', { timeout: 120_000 }),
+      theVideo.click(),
+    ])
+    /*
+     * The same probe and the same number as the negative above, answering the other way: measured at
+     * 9,429,300 bytes a few seconds in, against 123,188 while it was unticked. A rig that could not
+     * see the video being written would fail here rather than passing the negative for free.
+     */
+    await expect
+      .poll(async () => (await payloadReport(page)).sizes[video!] ?? 0, { timeout: 120_000 })
+      .toBeGreaterThan(4_000_000)
+    await big.cancel().catch(() => {})
+    await page.getByRole('button', { name: 'Cancel' }).click().catch(() => {})
+
+    expect(pageErrors).toEqual([])
   })
 
   /**
