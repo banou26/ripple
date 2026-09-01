@@ -428,6 +428,32 @@ describe('the embed route in download mode', () => {
   })
 
   /**
+   * The plan that MATTERS is the one sent when the job ends, and it follows the ticks as they move.
+   *
+   * A download is the only time the ticks and the engine can drift: the plan sent at the start names
+   * what that job needs, and somebody carries on choosing while it runs. What the torrent is left
+   * wanting has to be what is ticked when the reading stops, not what was ticked when it started,
+   * and reading only `planned[0]` would never have noticed the difference.
+   */
+  it('plans what is ticked when a job ENDS, not what was ticked when it began', async () => {
+    saved.holds = true
+    const screen = await mount('&mode=download')
+    await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
+
+    await expect.poll(() => planned.length).toBe(1)
+    // everything is still ticked, and this row is one of them, so the plan says "all of it"
+    expect(planned[0]).toEqual({ wanted: undefined, firstLast: false })
+
+    await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
+    await screen.getByRole('checkbox', { name: 'notes.txt' }).click()
+
+    saved.settle!.resolve()
+    await expect.poll(() => planned.length).toBe(2)
+    expect(planned[1], 'the torrent was left wanting the selection the job started with')
+      .toEqual({ wanted: [0, 2], firstLast: false })
+  })
+
+  /**
    * An embed on somebody else's site must not narrow a torrent the person keeps.
    *
    * A plan rewrites that torrent's file selection and clears its first-and-last flag, nothing in

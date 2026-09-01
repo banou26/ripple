@@ -693,6 +693,17 @@ const DownloadPage = ({ magnet, selection }: Props) => {
     })
   }, [client, infoHash])
 
+  /*
+   * Read through a ref for the same reason the ticks are: a job outlives the render that started it.
+   *
+   * `plan` is captured by the export's `.finally`, so without this it keeps whatever the library
+   * said when Download was pressed. A torrent can stop being the page's own cache entry WHILE an
+   * export runs, by the person adding the same magnet in their library or turning off "temporary",
+   * and a plan written after that narrows a torrent they now own.
+   */
+  const knownRef = useRef(known)
+  knownRef.current = known
+
   /** Files the person could pick, which is the count a full selection has to match to count as one. */
   const contentCount = files ? files.reduce((n, file) => n + (file.pad ? 0 : 1), 0) : 0
 
@@ -711,7 +722,8 @@ const DownloadPage = ({ magnet, selection }: Props) => {
    * upload of the library to the account.
    */
   const plan = useCallback((also: number[] = []) => {
-    if (handle == null || !contentCount || !known?.ephemeral) return
+    const owned = knownRef.current
+    if (handle == null || !contentCount || !owned?.ephemeral) return
     const wanted = [...new Set([...chosenRef.current, ...also])].sort((a, b) => a - b)
     // An empty plan is accepted by libtorrent and stops the torrent dead, reporting itself as
     // finished at 0 per cent rather than as anything wrong, so it is never sent.
@@ -720,9 +732,9 @@ const DownloadPage = ({ magnet, selection }: Props) => {
       // absent rather than every index, which is what says "no selection" and survives a torrent
       // gaining a file it did not have when this was decided
       wanted: wanted.length >= contentCount ? undefined : wanted,
-      firstLast: known.firstLast,
+      firstLast: owned.firstLast,
     })
-  }, [client, handle, contentCount, known])
+  }, [client, handle, contentCount])
 
   /*
    * A picture of the release instead of a file glyph.
