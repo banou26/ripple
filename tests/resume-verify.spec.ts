@@ -1,5 +1,15 @@
 // Removing torrent_flags::no_verify_files once made a restored torrent come back at zero bytes.
 // Needs network, so it skips itself without one. Run with `npm run test:resume`.
+//
+// IN THE SWARM LANE, moved there 2026-09-03, because "needs network" is the whole of what the lanes
+// split on and this was sitting in the one that gates a push. It was observed passing one run and
+// skipping the next on the same machine, which is what a swarm dependency looks like from inside a
+// lane whose rule is "deterministic anywhere": the skip is honest, and its being invisible in a
+// gate is not.
+//
+// It also has to START the demo now. A first run adds it PAUSED since `5a416fa`, so the wait below
+// was for bytes that were never coming, and the test would have skipped every time on a clean
+// profile whatever the network did.
 
 import { expect, test } from '@playwright/test'
 
@@ -33,6 +43,10 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
   })
 
   await page.goto('/')
+
+  // the demo arrives paused since `5a416fa`; nothing downloads until something presses this
+  const resume = page.locator('.torrent').first().getByRole('button', { name: 'Resume' })
+  if (await resume.isVisible().catch(() => false)) await resume.click()
 
   const downloaded = await page
     .waitForFunction(
