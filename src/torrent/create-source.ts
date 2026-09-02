@@ -1,5 +1,5 @@
 import type { HashedContent } from './hash-pieces'
-import type { PickedFile } from './walk-source'
+import type { PickedFile, SourceRef } from './walk-source'
 import type { TorrentFormat, TorrentPlan } from './make-torrent'
 
 import {
@@ -154,7 +154,7 @@ export type Built = {
    * list, which carries the pads, so a dense array of real handles would serve one file's bytes for
    * another from the first pad onward.
    */
-  handles: (FileSystemFileHandle | null)[]
+  handles: (SourceRef | null)[]
   /** For the library entry, in the shape the rest of the app already uses. Pads are not files. */
   files: { name: string, size: number }[]
 }

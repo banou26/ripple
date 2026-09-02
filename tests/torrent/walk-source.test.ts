@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { MAX_DEPTH, MAX_FILES, WalkCancelled, changedSince, isJunk, readPicked, walkDirectory } from '../../src/torrent/walk-source'
+import { MAX_DEPTH, MAX_FILES, WalkCancelled, changedSince, filesFromList, isJunk, readPicked, walkDirectory } from '../../src/torrent/walk-source'
 
 /**
  * An in-memory stand-in for a picked directory.
@@ -186,5 +186,61 @@ describe('noticing the source changed', () => {
     const { files } = await walkDirectory(dirHandle('Pack', { 'a': { bytes: bytes(4) } }))
     const gone = [{ ...files[0]!, handle: fileHandle('a', { bytes: bytes(4), unreadable: true }) }]
     expect(await changedSince(gone)).toEqual([{ path: 'a', was: 4, now: -1 }])
+  })
+})
+
+/*
+ * The input route, which is the whole of what a browser without the handle pickers needs.
+ *
+ * The rule that matters is that it produces the SAME shape the directory walk does, because
+ * everything downstream (`plan`, the hashing, the metainfo) is fed by one of them and cannot tell
+ * which. A path that disagrees by one segment is a different infohash for the same bytes, and
+ * nothing notices until two people compare links.
+ */
+describe('picking through a file input', () => {
+  const file = (name: string, size: number, relative?: string) => {
+    const f = new File([new Uint8Array(size)], name)
+    if (relative !== undefined) Object.defineProperty(f, 'webkitRelativePath', { value: relative })
+    return f
+  }
+
+  it('drops the picked folder name, so paths match what walking that folder gives', () => {
+    const { files } = filesFromList([
+      file('E01.mkv', 3, 'Pack/E01.mkv'),
+      file('E01.ass', 2, 'Pack/Subs/E01.ass'),
+    ])
+    // `Pack/` is the root the person picked, and walkDirectory's paths are relative to its root
+    expect(files.map((f) => f.path)).toEqual([['E01.mkv'], ['Subs', 'E01.ass']])
+    expect(files.map((f) => f.size)).toEqual([3, 2])
+  })
+
+  it('keeps the whole name for a single file, which carries no relative path', () => {
+    const { files } = filesFromList([file('Movie.mkv', 5)])
+    expect(files.map((f) => f.path)).toEqual([['Movie.mkv']])
+  })
+
+  it('applies the same junk and depth rules the walk applies', () => {
+    const deep = Array.from({ length: MAX_DEPTH + 2 }, (_, i) => `d${i}`).join('/')
+    const { files, skipped } = filesFromList([
+      file('good.mkv', 1, 'Pack/good.mkv'),
+      file('.DS_Store', 1, 'Pack/.DS_Store'),
+      file('buried.mkv', 1, `Pack/${deep}/buried.mkv`),
+    ])
+    expect(files.map((f) => f.path)).toEqual([['good.mkv']])
+    expect(skipped).toHaveLength(2)
+  })
+
+  it('reads bytes back through the same helper the walk route uses', async () => {
+    const { files } = filesFromList([file('a.bin', 0, 'Pack/a.bin')])
+    const [picked] = files
+    // a File IS what getFile() returns, which is why nothing downstream had to change
+    expect(await readPicked(picked!, 0, 0)).toEqual(new Uint8Array(0))
+  })
+
+  it('truncates at the same cap rather than building a torrent nobody asked for', () => {
+    const many = Array.from({ length: MAX_FILES + 5 }, (_, i) => file(`f${i}.bin`, 1, `Pack/f${i}.bin`))
+    const { files, truncated } = filesFromList(many)
+    expect(truncated).toBe(true)
+    expect(files).toHaveLength(MAX_FILES)
   })
 })

@@ -28,6 +28,7 @@ import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
+import type { SourceRef } from './walk-source'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
@@ -112,7 +113,7 @@ let folderHandle: FileSystemDirectoryHandle | null = null
  * array of real handles would serve one file's bytes for another from the first pad onward, with
  * nothing reporting an error and every piece failing.
  */
-const sourceHandles = new Map<string, (FileSystemFileHandle | null)[]>()
+const sourceHandles = new Map<string, (SourceRef | null)[]>()
 let readyPosted = false
 const handles: number[] = []
 const magnetByHandle = new Map<number, string>()
@@ -1015,7 +1016,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
 const addSource = (
   live: Session,
   { infoHash, magnet, bytes, handles, paused }:
-  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (FileSystemFileHandle | null)[], paused: boolean },
+  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (SourceRef | null)[], paused: boolean },
 ): number | null => {
   const savePath = sourceSavePathFor(infoHash)
   sourceHandles.set(savePath, handles)
@@ -1652,7 +1653,7 @@ const handleMessage = async (session: Session, m: any) => {
        */
       const ih: string = m.infoHash
       // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
-      const fileHandles = (m.handles ?? []) as (FileSystemFileHandle | null)[]
+      const fileHandles = (m.handles ?? []) as (SourceRef | null)[]
       const bytes = m.bytes as Uint8Array
       if (typeof ih !== 'string' || !ih || !fileHandles.length || !bytes?.byteLength) {
         post({ type: 'add-failed', message: 'That torrent could not be created' })
@@ -1703,7 +1704,7 @@ const handleMessage = async (session: Session, m: any) => {
        */
       const ih: string = m.infoHash
       // named for what it holds: `handles` alone means ENGINE handles everywhere else in this file
-      const fileHandles = (m.handles ?? []) as (FileSystemFileHandle | null)[]
+      const fileHandles = (m.handles ?? []) as (SourceRef | null)[]
       if (typeof ih !== 'string' || !ih || !fileHandles.length) return
       // as in create-source above, a `null` is a pad file rather than a file that failed to open
       if (!fileHandles.some((handle) => handle)) {

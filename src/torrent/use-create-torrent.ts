@@ -11,7 +11,7 @@ import type { TorrentFormat, TorrentPlan } from './make-torrent'
 import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
 import { HashCancelled, hashPieces } from './hash-pieces'
 import { plan } from './make-torrent'
-import { changedSince, pickedFile, readPicked, walkDirectory } from './walk-source'
+import { changedSince, filesFromList, pickedFile, readPicked, walkDirectory } from './walk-source'
 
 /**
  * Creating a torrent from something on this device, and keeping it seeding across loads.
@@ -73,7 +73,26 @@ const queryRead = async (handle: FileSystemHandle): Promise<PermissionState> =>
 const requestRead = async (handle: FileSystemHandle): Promise<boolean> =>
   await (handle as PermissionCapable).requestPermission?.call(handle, READ) === 'granted'
 
-export const createSupported = () =>
+/**
+ * Whether a torrent can be created here at all, which is everywhere.
+ *
+ * Creating needs BYTES, and a plain `<input type="file">` has been able to hand those over in every
+ * browser for as long as there have been browsers. This used to require the handle pickers as well,
+ * so Firefox got no Create button and no reason for its absence, and the gate was stricter than the
+ * feature by a wide margin.
+ */
+export const createSupported = () => typeof window !== 'undefined'
+
+/**
+ * Whether this browser can hand back the SAME files after a reload.
+ *
+ * What a handle buys is not creating, it is re-opening: it survives a reload and can be re-granted,
+ * so a torrent created from one keeps seeding across sessions. A `File` from an input is one
+ * snapshot, readable for the life of the page and gone after it. That difference is the only thing
+ * the two routes disagree about, and the dialog says which one is in force rather than hiding a
+ * control.
+ */
+export const handlePickers = () =>
   typeof window !== 'undefined' && 'showDirectoryPicker' in window && 'showOpenFilePicker' in window
 
 type Picker = {
@@ -101,6 +120,18 @@ export type UseCreateTorrent = {
   suggestedName: string
   pickFolder: () => Promise<void>
   pickFile: () => Promise<void>
+  /**
+   * The input route: a `FileList` from `<input type="file">`, with `folder` true when the input
+   * carried `webkitdirectory`. Synchronous, because the list arrives complete.
+   */
+  pickFiles: (list: ArrayLike<File>, folder: boolean) => void
+  /**
+   * Whether a torrent made here can still be seeded after a reload.
+   *
+   * False on the input route, where the files are one snapshot the page cannot re-open. The dialog
+   * says so before anybody creates anything, rather than after.
+   */
+  durableSources: boolean
   /** Hash, assemble, check, and hand it to the engine. */
   publish: (options: CreateOptions) => Promise<void>
   /**
@@ -119,7 +150,10 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   const [state, setState] = useState<CreateState>(IDLE)
   const [suggestedName, setSuggestedName] = useState('')
   const source = useRef<{
-    root: FileSystemDirectoryHandle | FileSystemFileHandle
+    /** Null on the input route: there is no handle to store, so nothing can re-open it later. */
+    root: FileSystemDirectoryHandle | FileSystemFileHandle | null
+    /** Carried rather than read off `root`, which the input route does not have. */
+    name: string
     files: PickedFile[]
     single: boolean
   } | null>(null)
@@ -132,16 +166,17 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
     setState((prev) => ({ ...prev, stage: 'error', error: String((error as Error)?.message ?? error) }))
   }
 
-  const take = useCallback(async (root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
-    const controller = new AbortController()
-    abort.current = controller
-    setState({ ...IDLE, stage: 'reading' })
-    setSuggestedName(root.name)
-    try {
-      const read = await readPick(root, {
-        signal: controller.signal,
-        onFound: (filesFound) => setState((prev) => (prev.stage === 'reading' ? { ...prev, filesFound } : prev)),
-      })
+  /**
+   * Everything after the pick, shared by both routes.
+   *
+   * Split out of `take` so the handle route and the input route cannot drift: both refusals below,
+   * the plan, and the `ready` state are decided once, whatever handed over the files.
+   */
+  const accept = useCallback((
+    read: { files: PickedFile[], skipped: string[], truncated: boolean, single: boolean },
+    name: string,
+    root: FileSystemDirectoryHandle | FileSystemFileHandle | null,
+  ) => {
       if (!read.files.length) throw new Error('There are no files in there to put in a torrent')
       /*
        * A torrent of nothing is refused by libtorrent, in every format, so it is refused HERE.
@@ -154,12 +189,12 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       if (!read.files.reduce((sum, file) => sum + file.size, 0)) {
         throw new Error('Every file in there is empty, and a torrent needs something to share')
       }
-      source.current = { root, files: read.files, single: read.single }
+      source.current = { root, name, files: read.files, single: read.single }
       // planned here rather than at publish time so the file count, the total and the piece count
       // are on screen BEFORE anybody agrees to anything. No piece length yet: the dialog re-plans
       // through `replan` below once somebody chooses one.
       const built = plan({
-        name: root.name,
+        name,
         files: read.files.map(({ path, size }) => ({ path, size })),
         single: read.single,
       })
@@ -171,8 +206,42 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         truncated: read.truncated,
         filesFound: read.files.length,
       })
-    } catch (error) { fail(error) }
   }, [])
+
+  const take = useCallback(async (root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
+    const controller = new AbortController()
+    abort.current = controller
+    setState({ ...IDLE, stage: 'reading' })
+    setSuggestedName(root.name)
+    try {
+      const read = await readPick(root, {
+        signal: controller.signal,
+        onFound: (filesFound) => setState((prev) => (prev.stage === 'reading' ? { ...prev, filesFound } : prev)),
+      })
+      accept(read, root.name, root)
+    } catch (error) { fail(error) }
+  }, [accept])
+
+  /**
+   * The input route, which is what Firefox uses and what every browser could have used all along.
+   *
+   * `webkitdirectory` hands over a whole folder as a flat list with relative paths, so the folder
+   * case works here too; `filesFromList` applies the same caps and junk rules the walk does. There is
+   * no abort controller because there is nothing to abort: the list arrives complete and the work is
+   * synchronous. `root` is null, which is what later makes this torrent unable to re-open itself.
+   */
+  const pickFiles = useCallback((list: ArrayLike<File>, folder: boolean) => {
+    setState({ ...IDLE, stage: 'reading' })
+    try {
+      const read = filesFromList(list)
+      const first = list[0]
+      const name = folder
+        ? (first?.webkitRelativePath?.split('/')[0] || 'torrent')
+        : (first?.name ?? 'torrent')
+      setSuggestedName(name)
+      accept({ ...read, single: !folder }, name, null)
+    } catch (error) { fail(error) }
+  }, [accept])
 
   const pickFolder = useCallback(async () => {
     const picker = (window as unknown as Picker).showDirectoryPicker
@@ -257,7 +326,8 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * attaches to and what can be re-walked; re-walking also re-checks that the files are still
        * the ones the torrent describes, which storing the file handles would skip.
        */
-      await set(sourceKey(out.infoHash), pick.root)
+      // nothing to store on the input route: a File cannot be re-opened after a reload
+      if (pick.root) await set(sourceKey(out.infoHash), pick.root)
       client.createSource({
         infoHash: out.infoHash,
         magnet: out.magnet,
@@ -284,7 +354,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
     if (!pick) return
     try {
       const built = plan({
-        name: pick.root.name,
+        name: pick.name,
         files: pick.files.map(({ path, size }) => ({ path, size })),
         single: pick.single,
         pieceLength,
@@ -297,7 +367,19 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   const cancel = useCallback(() => { abort.current?.abort() }, [])
   const reset = useCallback(() => { abort.current?.abort(); source.current = null; setState(IDLE) }, [])
 
-  return { supported: createSupported(), state, suggestedName, pickFolder, pickFile, publish, replan, cancel, reset }
+  return {
+    supported: createSupported(),
+    durableSources: handlePickers(),
+    state,
+    suggestedName,
+    pickFolder,
+    pickFile,
+    pickFiles,
+    publish,
+    replan,
+    cancel,
+    reset,
+  }
 }
 
 export type WaitingSource = { entry: Persisted, name: string }

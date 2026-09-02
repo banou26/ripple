@@ -1,6 +1,8 @@
 import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 
 import type { MeasurableStorage } from './opfs-storage'
+import type { SourceRef } from './walk-source'
+import { fileFrom } from './walk-source'
 
 /**
  * Reading a torrent's files back out of the folder the user granted, so it can be shared from there.
@@ -105,7 +107,7 @@ export type FolderSource = () => FileSystemDirectoryHandle | null
  * A `fileIndex` cannot drift like that. It is the position in the info dict's `files` list, which is
  * the order the metainfo was written in and the order the walk produced.
  */
-export type SourceLookup = (savePath: string) => (FileSystemFileHandle | null)[] | null
+export type SourceLookup = (savePath: string) => (SourceRef | null)[] | null
 
 type NativeStorage = { savePath: string, files: Array<{ path: string, size: number }> }
 /**
@@ -113,7 +115,7 @@ type NativeStorage = { savePath: string, files: Array<{ path: string, size: numb
  * means that index is a PAD FILE: zeroes a hybrid or v2 torrent inserts to push the next file onto a
  * piece boundary, which has no file behind it and never had.
  */
-type SourceStorage = NativeStorage & { handles: (FileSystemFileHandle | null)[] | null }
+type SourceStorage = NativeStorage & { handles: (SourceRef | null)[] | null }
 
 const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<File> => {
   const parts = path.split('/').filter(Boolean)
@@ -162,7 +164,8 @@ export const createHybridStorage = (
     if (fileIndex < 0 || fileIndex >= entry.handles.length) {
       throw new Error(`hybrid storage: no source handle ${fileIndex} in ${entry.savePath}`)
     }
-    return entry.handles[fileIndex]?.getFile() ?? null
+    const ref = entry.handles[fileIndex]
+    return ref ? fileFrom(ref) : null
   }
 
   return {

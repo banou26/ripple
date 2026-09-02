@@ -8,6 +8,7 @@ import { normalizeLimits } from './rate-limits'
 import type { SaveLocation } from './library'
 import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
+import type { SourceRef } from './walk-source'
 
 import { relayWorker } from '@fkn/lib'
 
@@ -120,7 +121,7 @@ export type TorrentClient = {
     infoHash: string
     magnet: string
     bytes: Uint8Array
-    handles: (FileSystemFileHandle | null)[]
+    handles: (SourceRef | null)[]
     name: string
     size: number
     format?: TorrentFormat
@@ -133,7 +134,7 @@ export type TorrentClient = {
    * readable again. A picker grant does not survive a reload and regaining one needs a user gesture,
    * so this is the page's job rather than the restore loop's.
    */
-  startSource: (infoHash: string, handles: (FileSystemFileHandle | null)[]) => void
+  startSource: (infoHash: string, handles: (SourceRef | null)[]) => void
   start: (infoHash: string) => void
   removeMissing: (infoHash: string) => void
   /**

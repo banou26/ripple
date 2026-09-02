@@ -40,8 +40,28 @@ export const MAX_DEPTH = 16
 /** Past this the pick was a mistake, and the dialog says so instead of hashing for an hour. */
 export const MAX_FILES = 20_000
 
+/**
+ * Where a picked file's bytes come from, which is not always a handle.
+ *
+ * A `FileSystemFileHandle` is a way to get a FRESH `File` on every read and it survives for as long
+ * as its grant does. A `File` from an `<input type="file">` is ONE snapshot: readable for the life of
+ * the page, and impossible to re-acquire after a reload without another pick.
+ *
+ * Both answer the only question anything downstream actually asks, which is "give me these bytes
+ * now", so the whole create path takes either. The difference shows up in exactly two places and both
+ * say so where they sit: {@link changedSince} cannot see an edit on the File route, and nothing can
+ * re-open a File after a reload, which is what makes such a torrent go `missing`.
+ */
+export type SourceRef = FileSystemFileHandle | File
+
+/** A fresh `File` from either kind of reference. */
+export const fileFrom = (ref: SourceRef): Promise<File> =>
+  typeof (ref as FileSystemFileHandle).getFile === 'function'
+    ? (ref as FileSystemFileHandle).getFile()
+    : Promise.resolve(ref as File)
+
 export type PickedFile = SourceFile & {
-  handle: FileSystemFileHandle
+  handle: SourceRef
   /**
    * Read at walk time and checked again after hashing.
    *
@@ -132,9 +152,46 @@ export const walkDirectory = async (
   return { files, skipped, truncated }
 }
 
+/**
+ * The same walk, from a `FileList` an `<input>` handed over.
+ *
+ * This is the whole of what Firefox needs. `webkitdirectory` gives a flat list of every file under
+ * the picked folder, each carrying a `webkitRelativePath` like `Pack/Subs/E01.ass`, which is the tree
+ * already flattened in exactly the shape {@link walkDirectory} produces. So the rules are applied
+ * here in the same order rather than reimplemented in a different one: cap first, then junk, then
+ * depth, so a pick that trips two of them is reported the same way whichever route it came in by.
+ *
+ * The FIRST segment is dropped, because it is the picked folder's own name and `walkDirectory`'s
+ * paths are relative to the root it was handed. Keeping it would nest every torrent one directory
+ * deeper than the same folder picked in Chromium, which is the kind of difference nothing notices
+ * until two people compare infohashes.
+ *
+ * A single file has no `webkitRelativePath`, so its name is the whole path and nothing is dropped.
+ */
+export const filesFromList = (list: ArrayLike<File>): WalkResult => {
+  const files: PickedFile[] = []
+  const skipped: string[] = []
+  let truncated = false
+
+  for (let i = 0; i < list.length; i++) {
+    const file = list[i]!
+    if (files.length >= MAX_FILES) { truncated = true; break }
+    const relative = file.webkitRelativePath || file.name
+    const segments = relative.split('/').filter(Boolean)
+    // the root's own name, present only on the folder route
+    const path = file.webkitRelativePath && segments.length > 1 ? segments.slice(1) : segments
+    if (!path.length) continue
+    if (isJunk(path[path.length - 1]!)) { skipped.push(path.join('/')); continue }
+    if (path.length > MAX_DEPTH) { skipped.push(`${path.join('/')} (nested too deep)`); continue }
+    files.push({ path, size: file.size, lastModified: file.lastModified, handle: file })
+  }
+
+  return { files, skipped, truncated }
+}
+
 /** The single-file case: a picked file is its own torrent, named after itself. */
-export const pickedFile = async (handle: FileSystemFileHandle): Promise<PickedFile> => {
-  const file = await handle.getFile()
+export const pickedFile = async (handle: SourceRef): Promise<PickedFile> => {
+  const file = await fileFrom(handle)
   return { path: [handle.name], size: file.size, lastModified: file.lastModified, handle }
 }
 
@@ -147,7 +204,7 @@ export const pickedFile = async (handle: FileSystemFileHandle): Promise<PickedFi
  * moved while it was being read.
  */
 export const readPicked = async (file: PickedFile, offset: number, length: number): Promise<Uint8Array> => {
-  const blob = await file.handle.getFile()
+  const blob = await fileFrom(file.handle)
   return new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())
 }
 
@@ -159,11 +216,16 @@ export type Staleness = { path: string, was: number, now: number }
  * The pieces are self-consistent whatever happened, so a torrent built over an edit publishes
  * cleanly and then fails every piece a peer asks for. This is the only point at which that is
  * cheap to catch: two numbers per file, no reading.
+ *
+ * INERT on the File route, by construction rather than by oversight. A `File` from an input is a
+ * snapshot, so its `size` and `lastModified` are the numbers captured at pick time and can never
+ * disagree with themselves. What still catches an edit there is the read itself: slicing a snapshot
+ * whose backing file has moved rejects, which `readPicked` surfaces at the point it happens.
  */
 export const changedSince = async (files: PickedFile[]): Promise<Staleness[]> => {
   const changed: Staleness[] = []
   for (const file of files) {
-    const now = await file.handle.getFile().catch(() => null)
+    const now = await fileFrom(file.handle).catch(() => null)
     if (!now) { changed.push({ path: file.path.join('/'), was: file.size, now: -1 }); continue }
     if (now.size !== file.size || now.lastModified !== file.lastModified) {
       changed.push({ path: file.path.join('/'), was: file.size, now: now.size })
