@@ -8,8 +8,11 @@ import type { PickedFile } from './walk-source'
 import type { TorrentClient } from './client'
 import type { TorrentFormat, TorrentPlan } from './make-torrent'
 
+import type { CopyProgress, CopyRoom } from './copy-source'
+
 import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
 import { HashCancelled, hashPieces } from './hash-pieces'
+import { copyPickIntoBrowserStorage, measureRoomForCopy } from './copy-source'
 import { plan } from './make-torrent'
 import { changedSince, filesFromList, pickedFile, readPicked, walkDirectory } from './walk-source'
 
@@ -30,7 +33,8 @@ import { changedSince, filesFromList, pickedFile, readPicked, walkDirectory } fr
  */
 
 /** Where the flow is. `ready` is a pick that has been read and is waiting to be confirmed. */
-export type CreateStage = 'idle' | 'reading' | 'ready' | 'hashing' | 'checking' | 'adding' | 'done' | 'error'
+export type CreateStage =
+  'idle' | 'reading' | 'ready' | 'hashing' | 'checking' | 'copying' | 'adding' | 'done' | 'error'
 
 export type CreateState = {
   stage: CreateStage
@@ -44,10 +48,30 @@ export type CreateState = {
   /** Set once it is published, for the link and the .torrent download. */
   built: Built | null
   filesFound: number
+  /**
+   * Whether this pick's bytes will be kept in browser storage, and if not, by how much it misses.
+   *
+   * Only ever set for a pick that cannot be re-opened, which is the input route. Measured as soon as
+   * the pick is read, so the dialog can say what will happen BEFORE anybody agrees to it rather than
+   * reporting it afterwards. Null on the handle route, where nothing is copied and the question does
+   * not arise.
+   */
+  room: CopyRoom | null
+  /** Where the copy has got to, while `stage` is `copying`. */
+  copy: CopyProgress | null
 }
 
 const IDLE: CreateState = {
-  stage: 'idle', plan: null, skipped: [], truncated: false, progress: null, error: null, built: null, filesFound: 0,
+  stage: 'idle',
+  plan: null,
+  skipped: [],
+  truncated: false,
+  progress: null,
+  error: null,
+  built: null,
+  filesFound: 0,
+  room: null,
+  copy: null,
 }
 
 const sourceKey = (infoHash: string) => 'ripple:source:' + infoHash
@@ -162,7 +186,11 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   useEffect(() => () => abort.current?.abort(), [])
 
   const fail = (error: unknown) => {
-    if (error instanceof HashCancelled || (error as Error)?.name === 'WalkCancelled') { setState(IDLE); return }
+    // AbortError is the copy answering the same Cancel the other two answer with their own classes;
+    // without it, pressing Cancel during the copy leaves the dialog on a red "the copy was cancelled"
+    // as though something had gone wrong, rather than back where it started
+    const name = (error as Error)?.name
+    if (error instanceof HashCancelled || name === 'WalkCancelled' || name === 'AbortError') { setState(IDLE); return }
     setState((prev) => ({ ...prev, stage: 'error', error: String((error as Error)?.message ?? error) }))
   }
 
@@ -206,6 +234,22 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         truncated: read.truncated,
         filesFound: read.files.length,
       })
+      /*
+       * Asked now, not at publish time, because it changes what the dialog PROMISES.
+       *
+       * A pick that cannot be re-opened has its bytes copied into browser storage so the torrent
+       * survives a reload, and that copy is the largest the app can make. Whether it fits decides
+       * which of two true sentences the screen shows, and somebody deciding whether to start at all
+       * is owed the one that applies to them. `root` is the whole test: handles re-open, snapshots
+       * do not, and that is a property of this pick rather than of the browser.
+       */
+      if (!root) {
+        // the paths as the torrent will carry them: the name is a path element too, for every file
+        const paths = read.single ? [name] : read.files.map((file) => [name, ...file.path].join('/'))
+        void measureRoomForCopy(built.totalBytes, paths).then((room) => {
+          setState((prev) => (prev.stage === 'ready' ? { ...prev, room } : prev))
+        })
+      }
   }, [])
 
   const take = useCallback(async (root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
@@ -315,6 +359,77 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       }
 
       const out = await buildTorrent({ picked: pick.files, hashed, options, single: pick.single })
+
+      /*
+       * A pick that cannot be re-opened has its bytes KEPT, so the torrent goes on seeding.
+       *
+       * This is the whole of what a `FileSystemFileHandle` was buying: not the creating, which an
+       * `<input type="file">` has always been able to do, but the RE-READING afterwards. A `File`
+       * from an input is one snapshot, so a torrent built on it used to seed until the tab reloaded
+       * and then sit in the library with its files gone. Copying into browser storage turns it into
+       * an ordinary download that happens to be complete, with nothing to re-grant.
+       *
+       * Copy first, add second, and nothing in between. If the copy throws, the engine was never
+       * told and the list has no row, so the whole thing is a retry rather than a torrent that
+       * exists and cannot be served. The bytes a half-finished copy leaves under `/dl/<hash>` are
+       * exactly what `runOrphanSweep` reclaims, so an abandoned attempt tidies itself up.
+       *
+       * When it does not FIT, the torrent is still made and still seeds; it seeds for as long as
+       * this page is open, which is what the platform can promise without the copy. That is a
+       * smaller thing than the person asked for and it is said on screen, rather than refusing to
+       * create anything or copying most of a folder and failing at the end.
+       */
+      if (!pick.root) {
+        const room = await measureRoomForCopy(
+          out.plan.totalBytes,
+          out.files.map((file) => file.name),
+        )
+        setState((prev) => ({ ...prev, room }))
+        if (room.kind === 'fits') {
+          setState((prev) => ({ ...prev, stage: 'copying', copy: null }))
+          /*
+           * The sweep is told to leave this directory alone BEFORE the first byte.
+           *
+           * `/dl/<infoHash>` with no list entry and no live handle is exactly what `planSweep`
+           * deletes, recursively, and that is the state a copy-first flow is in for its whole
+           * duration. A first sweep runs a minute after the worker starts and then every ten, plus
+           * one from the budget pass whenever the origin reads full, which a multi-gigabyte copy is
+           * itself the cause of. Minutes of exposure, invisible to any fixture small enough to copy
+           * in milliseconds.
+           *
+           * Released by the WORKER once the entry exists, so there is no gap between the two. What
+           * is released here is the failure path, where no entry is ever going to appear and the
+           * partial directory genuinely is an orphan.
+           */
+          client.reserveStorage(out.infoHash, true)
+          try {
+            const { savePath } = await copyPickIntoBrowserStorage({
+              built: out,
+              signal: controller.signal,
+              onProgress: (copy) => setState((prev) => ({ ...prev, copy })),
+            })
+            setState((prev) => ({ ...prev, stage: 'adding' }))
+            /*
+             * SLICED, because `addTorrentFile` TRANSFERS the buffer it is given.
+             *
+             * `out` is kept in `state.built` and read after this line, and a transferred buffer is
+             * detached: `bytes` becomes a zero-length view, silently, with nothing throwing. Nothing
+             * in the dialog reads it today, which is exactly why this would go unnoticed until
+             * something did. `createSource` on the other branch is documented as not transferring
+             * for the same reason, so this keeps both branches honest about the same hazard.
+             *
+             * `saveTo` travels WITH the add rather than in a `setLocation` after it, because that
+             * handler is unqueued and a following command would run before the entry exists.
+             */
+            client.addTorrentFile(out.bytes.slice(), { savePath, saveTo: 'browser', created: true })
+          } catch (error) {
+            client.reserveStorage(out.infoHash, false)
+            throw error
+          }
+          setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan }))
+          return
+        }
+      }
 
       setState((prev) => ({ ...prev, stage: 'adding' }))
       /*

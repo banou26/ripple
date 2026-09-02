@@ -106,7 +106,29 @@ export type TorrentClient = {
    * request, which should cost them no transfer at all until they ask for it.
    */
   addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean, paused?: boolean }) => void
-  addTorrentFile: (bytes: Uint8Array, options?: { savePath?: string, ephemeral?: boolean, paused?: boolean }) => void
+  addTorrentFile: (
+    bytes: Uint8Array,
+    options?: {
+      savePath?: string
+      ephemeral?: boolean
+      paused?: boolean
+      /**
+       * Where this torrent's files BELONG, written with the entry rather than set after it.
+       *
+       * `setLocation` cannot be used for this. `add-torrent-file` is deliberately unqueued, because
+       * its infohash poll can hold the command lane for ten seconds, so a `set-location` sent after
+       * it runs FIRST, finds no entry to patch, and does nothing at all. Silently: `patchList` on an
+       * absent infohash is a no-op by design.
+       *
+       * It matters for a torrent created from a copied pick, whose bytes were just written into
+       * browser storage. Leaving it unset means the global default applies, and somebody whose
+       * default is a folder would have the app immediately copy the whole thing again.
+       */
+      saveTo?: SaveLocation
+      /** Made on this device from the person's own files. See `Persisted.created`. */
+      created?: boolean
+    },
+  ) => void
   /**
    * Publish a torrent the page just built from the user's own file or folder, and seed it from
    * there. `handles` is one entry per file, in the torrent's own file order, which is what the
@@ -207,6 +229,15 @@ export type TorrentClient = {
    * stored now and carried out when it finishes.
    */
   setLocation: (infoHash: string, to: SaveLocation) => void
+  /**
+   * Keep the orphan sweep off `/dl/<infoHash>` while this page writes into it.
+   *
+   * Needed by exactly one caller: the copy that a created torrent's bytes go through before the
+   * torrent exists. For the whole of that copy the directory has no list entry and no live handle,
+   * which is precisely what the sweep deletes, recursively. Released in a `finally`, and re-asserted
+   * automatically if the engine moves to another tab, whose worker starts with an empty set.
+   */
+  reserveStorage: (infoHash: string, on: boolean) => void
   /**
    * Whether Ripple may delete this torrent's bytes to make room, which is what "temporary" means.
    *
@@ -368,6 +399,15 @@ export const createTorrentClient = (): EngineClient => {
   let listed = false
 
   // clearing `fatal` is the load-bearing part: without it a tab that saw one leader fail stays dead for good
+  /**
+   * Save directories this page has asked the engine not to sweep, so they can be asked again.
+   *
+   * The worker's own set is memory, so a handover to another tab starts with none of them and the
+   * new leader would sweep a copy this page is still writing. Kept here rather than inferred there
+   * because only the page knows it is mid-write.
+   */
+  const reserved = new Set<string>()
+
   const resetEngineState = (reason: string) => {
     failReads(new Error(reason))
     // Bumped before anything else, so a command parked in the gate can tell that the engine it was
@@ -439,7 +479,13 @@ export const createTorrentClient = (): EngineClient => {
     message: (m) => {
       if (!m || typeof m !== 'object') return
       rawCbs.forEach((cb) => cb(m))
-      if (m.type === 'ready') { started = true; resolveReady(); gate.open() }
+      if (m.type === 'ready') {
+        started = true
+        resolveReady()
+        gate.open()
+        // a fresh engine, including one in another tab, holds none of this page's reservations
+        for (const infoHash of reserved) send({ type: 'reserve-storage', infoHash, on: true })
+      }
       else if (m.type === ENGINE_RESET) {
         resetEngineState('the engine was taken over by another tab')
       } else if (m.type === 'storage-unavailable') {
@@ -552,7 +598,7 @@ export const createTorrentClient = (): EngineClient => {
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true, paused: options?.paused === true }),
-    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, paused: options?.paused === true }, [bytes.buffer]),
+    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, paused: options?.paused === true, saveTo: options?.saveTo, created: options?.created === true }, [bytes.buffer]),
     // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
     // offer the .torrent as a download afterwards, and a transferred buffer would be detached.
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),
@@ -586,6 +632,11 @@ export const createTorrentClient = (): EngineClient => {
     flushResume: () => send({ type: 'flush-resume' }),
     relocate: (infoHash, to) => send({ type: 'relocate', infoHash, to }),
     setLocation: (infoHash, to) => send({ type: 'set-location', infoHash, to }),
+    reserveStorage: (infoHash, on) => {
+      if (on) reserved.add(infoHash)
+      else reserved.delete(infoHash)
+      send({ type: 'reserve-storage', infoHash, on })
+    },
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),

@@ -30,7 +30,7 @@ import {
 } from '../torrent/add-options'
 import type { AddChoices } from '../torrent/add-options'
 import {
-  currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
+  currentLocation, intendedLocation, isOwnContent, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
 import type { InboundNow } from '../torrent/inbound'
 import type { SaveLocation } from '../torrent/library'
@@ -2677,8 +2677,14 @@ const Home = () => {
        * auto-save folder would duplicate an entire folder on their disk to produce a second copy of
        * something they already had, and the copy would then be the one Ripple offered to remove.
        * `moveReadiness` refuses the other half of this, the move into OPFS; this is the mirror.
+       *
+       * `created` as well as `saveTo`, since the copy path: a torrent made from a pick that could
+       * not be re-opened lives in BROWSER storage, so it reaches here as an ordinary finished
+       * download while its bytes are still a copy of files the person already has. Testing `saveTo`
+       * alone stopped being enough the moment that existed, and the cost of missing it is the whole
+       * pick written to their disk a third time.
        */
-      if (t.saveTo === 'source') continue
+      if (isOwnContent(t)) continue
       if (!t.files?.length || syncingRef.current.has(t.id)) continue
       const attempt = syncAtRef.current.get(t.id)
       if (attempt !== undefined && (attempt === DONE || now < attempt)) continue

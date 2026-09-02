@@ -1,16 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  currentLocation,
-  intendedLocation,
-  isSaveLocation,
-  locationLabel,
-  moveReadiness,
-  pendingLabel,
-  readGlobalDefault,
-  savePathIn,
-  SAVE_LOCATION_KEY,
-} from '../../src/torrent/save-location'
+import { currentLocation, intendedLocation, isOwnContent, isSaveLocation, locationLabel, moveReadiness, pendingLabel, readGlobalDefault, savePathIn, SAVE_LOCATION_KEY } from '../../src/torrent/save-location'
 import { isNativeSavePath } from '../../src/torrent/hybrid-storage'
 
 /**
@@ -211,5 +201,33 @@ describe('a torrent backed by the user\'s own files', () => {
   it('says whose files they are, rather than naming a place', () => {
     expect(locationLabel('source', 'Downloads')).toBe('Your own files')
     expect(locationLabel('folder', 'Downloads')).toBe('Downloads')
+  })
+})
+
+/**
+ * Whose bytes these are, which is not the same question as where they currently sit.
+ *
+ * The auto-save mirror in home.tsx used to answer it with `saveTo === 'source'`, which was exact for
+ * as long as a created torrent could only be source-backed. Since the copy path it cannot be: a pick
+ * that could not be re-opened is copied into BROWSER storage, so it arrives at the mirror as an
+ * ordinary finished download while the person's originals sit untouched on their disk. Mirroring it
+ * writes a third copy of what they already have twice, which for a picked folder is the whole
+ * folder.
+ */
+describe('isOwnContent', () => {
+  it('covers a source-backed torrent, as the rule always did', () => {
+    expect(isOwnContent({ saveTo: 'source' })).toBe(true)
+  })
+
+  it('covers a created torrent whose copy lives in browser storage, which the old rule missed', () => {
+    expect(isOwnContent({ saveTo: 'browser', created: true })).toBe(true)
+  })
+
+  it('leaves an ordinary download alone, however it is stored', () => {
+    expect(isOwnContent({ saveTo: 'browser' })).toBe(false)
+    expect(isOwnContent({ saveTo: 'folder' })).toBe(false)
+    expect(isOwnContent({})).toBe(false)
+    expect(isOwnContent(null)).toBe(false)
+    expect(isOwnContent(undefined)).toBe(false)
   })
 })

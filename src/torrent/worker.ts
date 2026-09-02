@@ -31,7 +31,7 @@ import type { RateLimits } from './rate-limits'
 import type { SourceRef } from './walk-source'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -1065,6 +1065,25 @@ const reportSpace = (space: Space) => {
 const SWEEP_INTERVAL_MS = 10 * 60_000
 const SWEEP_FIRST_MS = 60_000
 
+/**
+ * Save directories a page is WRITING into and the sweep must not touch.
+ *
+ * The orphan sweep deletes any hash-named child of the save root that no list entry and no live
+ * handle claims (`planSweep`, `opfs-sweep.ts:65`, recursively, with failures swallowed). That is
+ * exactly the state a created torrent's directory is in while its bytes are being copied in: the
+ * copy happens BEFORE the add, so for the whole of it there is no entry and no handle.
+ *
+ * Without this, any pick that takes longer than a minute to copy can have its directory deleted out
+ * from under it mid-write, and a multi-gigabyte copy is also precisely what makes the budget pass
+ * call the origin full and run an extra sweep. The window is minutes, not milliseconds; a small
+ * fixture never sees it.
+ *
+ * IN MEMORY on purpose. A tab that dies mid-copy loses its reservation, and the partial directory it
+ * left behind then IS an orphan and should be reclaimed. Held by the page rather than inferred, and
+ * re-asserted after a handover, because a new leader's worker starts with an empty set.
+ */
+const reservedHashes = new Set<string>()
+
 let sweepRunning = false
 const runOrphanSweep = async (): Promise<number> => {
   if (!session || sweepRunning) return 0
@@ -1072,6 +1091,7 @@ const runOrphanSweep = async (): Promise<number> => {
   try {
     const list = await loadList()
     const listedHashes = new Set(list.map((e) => e.infoHash.toLowerCase()))
+    for (const ih of reservedHashes) listedHashes.add(ih.toLowerCase())
     const claimedNames = new Set<string>()
     let attributable = true
 
@@ -1811,7 +1831,19 @@ const handleMessage = async (session: Session, m: any) => {
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()
       if (m.paused === true) pauseAdded(h)
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true })
+      // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
+      // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
+      const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, ...saveTo, ...(m.created === true ? { created: true } : {}) })
+      /*
+       * Released HERE and not by the page, because the gap is between the two.
+       *
+       * The page cannot know when to let go: this handler is unqueued and spends up to ten seconds
+       * polling for the infohash, so a release sent right after the add runs on the command queue
+       * FIRST, and the directory would sit unclaimed for that whole poll. The entry above is what
+       * makes it claimed, so the reservation ends on the line after it and not before.
+       */
+      reservedHashes.delete(ih)
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
       // The engine reuses a handle number for the same infohash, so a read that arrives after the
@@ -1979,6 +2011,13 @@ const handleMessage = async (session: Session, m: any) => {
           }
         }
         await patchList(m.infoHash, { ephemeral: temporary })
+      }
+    } else if (m.type === 'reserve-storage') {
+      // a page is about to write into `/dl/<infoHash>` before any torrent exists there; see
+      // `reservedHashes`. Idempotent, and releasing one that was never held is not an error.
+      if (typeof m.infoHash === 'string' && m.infoHash) {
+        if (m.on === false) reservedHashes.delete(m.infoHash)
+        else reservedHashes.add(m.infoHash)
       }
     } else if (m.type === 'set-location') {
       // intent only. The move that follows is decided by a page, which is the realm that can see

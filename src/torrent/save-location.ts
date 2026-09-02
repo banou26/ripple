@@ -75,6 +75,23 @@ export const isSaveLocation = (value: unknown): value is SaveLocation =>
 export const isSourceBacked = (location: SaveLocation): boolean => location === 'source'
 
 /**
+ * A torrent whose bytes are the person's OWN content, wherever they currently sit.
+ *
+ * Wider than {@link isSourceBacked} and needed because the two stopped being the same thing. A
+ * torrent created from a pick that could not be re-opened has its bytes copied into browser storage,
+ * so it is `saveTo: 'browser'` and reads as an ordinary finished download, while the originals are
+ * still on the person's disk exactly where they chose.
+ *
+ * The auto-save mirror is the caller that cares. Copying either kind into the save folder writes a
+ * further copy of something the person already has, and for the copied kind it is the THIRD. That
+ * rule was free while `saveTo === 'source'` meant "created", and testing `saveTo` alone silently
+ * stopped covering it.
+ */
+export const isOwnContent = (
+  entry: { saveTo?: SaveLocation, created?: boolean } | null | undefined,
+): boolean => entry?.saveTo === 'source' || entry?.created === true
+
+/**
  * What a torrent with no preference of its own gets.
  *
  * `source` can never be the global default: it is not a place to put things, it is a statement about

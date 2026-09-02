@@ -246,3 +246,193 @@ test('a v2 torrent says up front that a folder holding one file will not survive
 
   expect(pageErrors).toEqual([])
 })
+
+/*
+ * The SAME thing on a browser with no handle pickers, which is Firefox, and the reload that used to
+ * end it.
+ *
+ * Creating never needed a handle: a `<input type="file">` has handed over bytes forever, and
+ * `webkitdirectory` hands over a whole folder with relative paths. What a handle bought was
+ * RE-READING afterwards, and a `File` from an input is one snapshot, so a torrent built on it seeded
+ * until the tab reloaded and then sat in the library with its files gone. The owner's answer is to
+ * copy those bytes into browser storage, and this is the proof it works: the same pack, the same
+ * dialog, no pickers, and a reload in the middle.
+ *
+ * The pickers are DELETED rather than the browser being changed, because `handlePickers()` is
+ * exactly `'showDirectoryPicker' in window && 'showOpenFilePicker' in window`. Removing them puts
+ * Chromium on the input route, which is the code under test; running it on Firefox as well would be
+ * a second proof of the same lines and needs a headful engine to seed at all.
+ */
+/*
+ * Both formats, because the padded one is where the copy could be right and the CHECK still fail.
+ *
+ * A hybrid torrent has libtorrent insert a pad after every file that does not end on a piece
+ * boundary, and those pads are zeroes it synthesizes rather than files anybody writes
+ * (`hybrid-storage.ts:201`). So the layout has to leave them out, which `layoutFor` does, and the
+ * engine then has to verify pieces that span them off a disk where they do not exist. v1 alone would
+ * never exercise that, and hybrid is one selection away in the same dialog.
+ */
+const PICKS = [
+  { label: 'a folder', format: 'v1' as const, folder: true },
+  // hybrid pads, so the engine verifies pieces spanning bytes that are on no disk
+  { label: 'a hybrid folder', format: 'hybrid' as const, folder: true },
+  /*
+   * And ONE FILE, which is the layout trap rather than a second helping of the same case.
+   *
+   * libtorrent writes a single-file torrent at `savePath/<name>` with no directory at all, and
+   * `name` is whatever the dialog was left showing, which is editable. So the path on disk is the
+   * TORRENT's name and has nothing to do with what the file was called when it was picked. Deriving
+   * it from the pick, which is the obvious thing to do, puts the bytes somewhere the engine's check
+   * will not look, and the symptom is a torrent at 0% trying to download what its own author just
+   * made.
+   */
+  { label: 'one file', format: 'v1' as const, folder: false },
+  /*
+   * And the same file as V2, which is a different layout rule again rather than a third helping.
+   *
+   * `dropsFolderName` in make-torrent.ts quotes libtorrent's own line: a v2 file tree whose top
+   * level is a single leaf, with no v1 `files` list to say otherwise, DISCARDS the torrent name and
+   * puts the file on its own. So this is the one shape where the path is neither `name/path` nor
+   * `name`, and getting it wrong writes the bytes where the engine's check will not look.
+   */
+  { label: 'one file as v2', format: 'v2' as const, folder: false },
+]
+
+for (const pick of PICKS) {
+test(`${pick.label} that cannot be re-opened is kept, and still seeds after a reload`, async ({ page }) => {
+  test.setTimeout(240_000)
+  const format = pick.format
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+
+  // real files on disk, because `setInputFiles` with a directory is what produces the
+  // `webkitRelativePath` values the input route reads, and a fake File cannot carry one
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const nodePath = await import('node:path')
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'ripple-input-pick-'))
+  const folder = nodePath.join(root, 'Input Pack')
+  fs.mkdirSync(nodePath.join(folder, 'Subs'), { recursive: true })
+  fs.writeFileSync(nodePath.join(folder, 'E01.mkv'), Buffer.alloc(300_000, 0x11))
+  fs.writeFileSync(nodePath.join(folder, 'E02.mkv'), Buffer.alloc(220_000, 0x22))
+  fs.writeFileSync(nodePath.join(folder, 'Subs', 'E01.ass'), Buffer.alloc(4_000, 0x33))
+  const PICK_TOTAL = pick.folder ? 300_000 + 220_000 + 4_000 : 300_000
+
+  try {
+    await page.addInitScript(() => {
+      const w = window as any
+      w.__states = []
+      const Original = window.Worker
+      class Probe extends Original {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super(url, options)
+          this.addEventListener('message', (event: MessageEvent) => {
+            const data = event.data as any
+            if (data?.type !== 'state') return
+            w.__states.push((data.torrents ?? []).map((t: any) => ({
+              progress: t.status?.progress ?? 0,
+              state: t.status?.state ?? null,
+              savePath: t.status?.savePath,
+              totalDone: t.status?.totalDone ?? 0,
+            })))
+          })
+        }
+      }
+      window.Worker = Probe as unknown as typeof Worker
+      try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+      // what makes this the Firefox path: no pickers, so the dialog offers its inputs instead
+      delete (window as any).showDirectoryPicker
+      delete (window as any).showOpenFilePicker
+    })
+
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Create a torrent' }).click()
+    const dialog = page.getByRole('dialog')
+
+    // the promise made BEFORE anything is picked, which is the one that changed
+    await expect(dialog.getByText('keeps its own copy in browser storage')).toBeVisible()
+
+    if (pick.folder) await dialog.locator('input[webkitdirectory]').setInputFiles(folder)
+    else await dialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles(nodePath.join(folder, 'E01.mkv'))
+
+    // the review step, and the size of the copy it is about to make, quoted before the button
+    await expect(dialog.getByText(pick.folder ? '3' : '1', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(dialog.getByText(/will keep a .* copy in browser storage/)).toBeVisible({ timeout: 30_000 })
+
+    if (format !== 'v1') await dialog.getByLabel('Format').selectOption(format)
+
+    await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+    await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+    await expect(dialog.getByText('Ripple kept its own copy')).toBeVisible()
+    /*
+     * 40 hex OR 64. A v2-ONLY torrent has no v1 hash, so Ripple's identity for it is the v2 one and
+     * every save path is keyed on that: `Built.infoHash` is documented as "the v1 hash wherever
+     * there is one, the v2 hash only for a v2-only torrent".
+     */
+    const infoHash = (await dialog.locator('code').first().textContent())!
+    expect(infoHash).toMatch(format === 'v2' ? /^[0-9a-f]{64}$/ : /^[0-9a-f]{40}$/)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+
+    /*
+     * The engine hashed what was copied and agreed with every piece hash Ripple wrote.
+     *
+     * This is a stronger check here than on the handle route, because the bytes it verifies are a
+     * COPY: a wrong layout puts a file where the check cannot find it, and progress lands at zero
+     * with the engine cheerfully trying to download the torrent its own user just made.
+     */
+    const seeding = (rows: any[]) =>
+      rows.find((t) => (t.savePath ?? '') === `/dl/${infoHash}` && t.progress >= 1 && (t.state === 4 || t.state === 5))
+    const verified = await page
+      .waitForFunction(
+        (hash: string) => {
+          const frames = (window as any).__states as any[][]
+          const rows = frames[frames.length - 1] ?? []
+          const row = rows.find((t: any) => (t.savePath ?? '') === `/dl/${hash}` && t.progress >= 1 && (t.state === 4 || t.state === 5))
+          return row ?? null
+        },
+        infoHash,
+        { timeout: 150_000 },
+      )
+      .then((handle) => handle.jsonValue() as Promise<any>)
+    console.log('[verified, before reload]', JSON.stringify(verified))
+    expect(verified.totalDone, 'the engine hashed a different number of bytes than the torrent describes').toBe(PICK_TOTAL)
+    // in BROWSER storage, not the source tier: nothing here re-reads the person's own files
+    expect(verified.savePath).toBe(`/dl/${infoHash}`)
+
+    /*
+     * THE POINT OF THE WHOLE CHANGE.
+     *
+     * Before this, a reload was the end: the `File` snapshots the torrent was built on cannot be
+     * re-acquired, so the row came back with its files missing and no way to seed. Nothing is
+     * re-picked here and nothing is re-granted.
+     */
+    await page.reload()
+    const survived = await page
+      .waitForFunction(
+        (hash: string) => {
+          const frames = (window as any).__states as any[][]
+          const rows = frames[frames.length - 1] ?? []
+          const row = rows.find((t: any) => (t.savePath ?? '') === `/dl/${hash}` && t.progress >= 1)
+          return row ?? null
+        },
+        infoHash,
+        { timeout: 150_000 },
+      )
+      .then((handle) => handle.jsonValue() as Promise<any>)
+    console.log('[survived the reload]', JSON.stringify(survived))
+    expect(survived.progress, 'a copied pick has to come back complete, with nothing re-granted').toBe(1)
+    expect(survived.totalDone).toBe(PICK_TOTAL)
+    expect([4, 5], 'and it has to be running, not parked as missing').toContain(survived.state)
+
+    // and there is no row waiting for a folder grant, which is the state this replaces
+    await expect(page.getByRole('button', { name: /^Allow / })).toHaveCount(0)
+    expect(seeding(await page.evaluate(() => {
+      const frames = (window as any).__states as any[][]
+      return frames[frames.length - 1] ?? []
+    }))).toBeTruthy()
+    expect(pageErrors).toEqual([])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+}

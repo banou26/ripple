@@ -298,9 +298,11 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
     ...next,
   })
 
-  const working = state.stage === 'reading' || state.stage === 'hashing' || state.stage === 'checking' || state.stage === 'adding'
+  const working = state.stage === 'reading' || state.stage === 'hashing' || state.stage === 'checking'
+    || state.stage === 'copying' || state.stage === 'adding'
   const eta = state.progress && startedAt ? hashEta(state.progress, Date.now() - startedAt) : undefined
   const done = state.progress ? state.progress.hashedBytes / Math.max(1, state.progress.totalBytes) : 0
+  const copied = state.copy ? state.copy.copiedBytes / Math.max(1, state.copy.totalBytes) : 0
 
   return (
     <Modal labelledBy="create-torrent-title" onClose={working ? create.cancel : onClose} initialFocus={first}>
@@ -323,8 +325,8 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   about. */}
               {!create.durableSources && (
                 <p className="faint">
-                  This browser cannot hand those files back to Ripple after a reload, so sharing lasts
-                  as long as this page stays open.
+                  This browser cannot hand those files back to Ripple after a reload, so Ripple keeps
+                  its own copy in browser storage and shares from that. Your files are only read.
                 </p>
               )}
             </>
@@ -505,6 +507,38 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 Sharing means anyone with the link can download these files while this tab is open.
                 The files stay where they are and Ripple never writes to them.
               </p>
+
+              {/* The copy is the largest thing this dialog can set off, so its size is on screen
+                  before the button is pressed rather than after. Only ever shown for a pick that
+                  cannot be re-opened, which is the only pick anything is copied for. `null` is the
+                  measurement not being back yet, and says nothing rather than guessing. */}
+              {state.room?.kind === 'fits' && state.plan && (
+                <p className="faint">
+                  Ripple will keep a {getHumanReadableByteString(state.plan.totalBytes)} copy in browser
+                  storage, so this keeps sharing after a reload. Your own files are left alone.
+                </p>
+              )}
+              {state.room?.kind === 'short' && state.plan && (
+                <p className="warn">
+                  There is not room in browser storage to keep a copy: this needs
+                  {' '}{getHumanReadableByteString(state.plan.totalBytes)} and is
+                  {' '}{getHumanReadableByteString(state.room.shortBy)} short. It will still be shared,
+                  for as long as this tab stays open.
+                </p>
+              )}
+              {state.room?.kind === 'unsafe' && (
+                <p className="warn">
+                  One of these names is too long for the engine to keep as written, so Ripple will not
+                  copy them: it would put the files somewhere the torrent does not point. It will
+                  still be shared, for as long as this tab stays open.
+                </p>
+              )}
+              {state.room?.kind === 'unknown' && (
+                <p className="faint">
+                  This browser will not say how much storage is free, so Ripple will not start a copy
+                  it cannot promise to finish. Sharing lasts as long as this tab stays open.
+                </p>
+              )}
             </>
           )}
 
@@ -521,6 +555,21 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   ? `${getHumanReadableByteString(state.progress.hashedBytes)} of ${getHumanReadableByteString(state.progress.totalBytes)}`
                     + (eta === undefined ? '' : ` · about ${eta}s left`)
                     + ` · ${state.progress.path}`
+                  : 'starting…'}
+              </p>
+            </>
+          )}
+
+          {state.stage === 'copying' && (
+            <>
+              <p>Keeping a copy in browser storage, so this goes on sharing after a reload…</p>
+              <div className="bar">
+                <div style={{ width: `${Math.round(copied * 100)}%` }}/>
+              </div>
+              <p className="faint">
+                {state.copy
+                  ? `${getHumanReadableByteString(state.copy.copiedBytes)} of ${getHumanReadableByteString(state.copy.totalBytes)}`
+                    + (state.copy.name ? ` · ${state.copy.name}` : '')
                   : 'starting…'}
               </p>
             </>
@@ -543,7 +592,9 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               <p className="faint">
                 {create.durableSources
                   ? 'It keeps sharing while Ripple is open. After a reload the browser asks for access to those files again before it can carry on.'
-                  : 'It keeps sharing while this page stays open. A reload ends it, and picking the same files again is what starts it back up.'}
+                  : state.room?.kind === 'fits'
+                    ? 'Ripple kept its own copy, so this keeps sharing across reloads with nothing to grant again. Your files were only read.'
+                    : 'It keeps sharing while this page stays open. A reload ends it, and picking the same files again is what starts it back up.'}
               </p>
             </>
           )}
@@ -616,7 +667,11 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
             </>
           )}
 
-          {(state.stage === 'hashing' || state.stage === 'checking') && (
+          {/* `copying` too: it is the longest step for a large pick, and a dialog that offers no way
+              out of its longest step is the one somebody force-reloads out of. Nothing has been added
+              at this point, so cancelling costs only the bytes written, which the orphan sweep takes
+              back on its own. */}
+          {(state.stage === 'hashing' || state.stage === 'checking' || state.stage === 'copying') && (
             <button ref={first} type="button" onClick={create.cancel}>Cancel</button>
           )}
 

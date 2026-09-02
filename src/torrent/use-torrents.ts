@@ -216,6 +216,7 @@ export const ghostToTorrent = (e: Persisted): Torrent => ({
   queuePosition: -1,
   stats: null,
   saveTo: e.saveTo,
+  created: e.created === true,
   // progress 0 for every one: nothing here is downloaded, which is what the row is saying
   // a ghost's list came from `Persisted`, which the writer already stripped of pads, so every entry
   // here is content and its position is its index
@@ -351,6 +352,7 @@ export const useTorrents = (): UseTorrents => {
         ? {
           ...t,
           saveTo: entry.saveTo,
+          created: entry.created === true,
           ephemeral: entry.ephemeral === true,
           // the entry's clock wins over the engine's: it survives a restart, it is already in
           // milliseconds, and it is the one a ghost row has too, so a sort on it is not comparing

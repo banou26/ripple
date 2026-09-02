@@ -22,6 +22,17 @@ export type Persisted = {
   saveTo?: SaveLocation, wantedFiles?: number[], firstLast?: boolean,
   downloadLimit?: number, uploadLimit?: number,
   /**
+   * True for a torrent MADE on this device from the person's own files.
+   *
+   * Separate from `saveTo === 'source'`, which says where the bytes are read FROM, because since the
+   * copy path a created torrent can live in browser storage like any download and still be one the
+   * person made. The distinction is what the auto-save mirror needs: the originals are still on
+   * their disk, so mirroring a created torrent into their save folder writes a THIRD copy of
+   * something they already have twice. `home.tsx` used to get that right for free by testing
+   * `saveTo`, and stopped the moment a created torrent could be `browser`.
+   */
+  created?: boolean,
+  /**
    * What the torrent IS, written once its metadata lands and then never re-derived.
    *
    * Device-portable on purpose, unlike everything above it that describes what this browser is
