@@ -6,6 +6,20 @@
 // charges a file's extent, so one byte written a gigabyte in is a gigabyte charged, instantly. That
 // is the same accounting that makes a barely watched episode cost its full size on disk, which is
 // what the eviction budget exists to handle.
+//
+// READ THIS BEFORE DEBUGGING A SKIP HERE. On some origins that squeeze CANNOT LAND, and the engine
+// is not at fault when it does not. Chromium reports a quota that FLOATS with usage: measured
+// 2026-09-03, three 512 MiB writes raised it from 10.737 GB to 12.353 GB, by exactly what was
+// written, leaving `quota - usage` at 10,737,418,240 bytes every single time. So `limit - used`
+// is a constant there, the pressure the eviction budget watches for can never appear, and the
+// padding loop chases a target that recedes as fast as it is approached. Firefox on the same machine
+// held its quota still and gave up headroom byte for byte.
+//
+// Every test below that needs pressure MEASURES that through `squeezeTo` and skips with the reason,
+// rather than failing. Four of them were `test.fixme` for months over exactly this. See
+// storage-budget.ts, and scripts/probe-headroom.mjs for the measurement.
+
+import type { Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
@@ -29,8 +43,6 @@ const embedUrl = (magnet: string, fileIndex = SINTEL_VIDEO) =>
   `/embed?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${fileIndex}`
 
 test.use({ headless: false })
-
-type Page = Parameters<Parameters<typeof test>[1]>[0]['page']
 
 const estimate = (page: Page) =>
   page.evaluate(async () => {
@@ -86,50 +98,122 @@ const filesUnder = (page: Page, savePath: string) =>
     return walk(dir)
   }, savePath)
 
+const CHUNK = 256 * 1024 * 1024
+
+/** Written before a headroom that has not moved is a fact about the engine rather than noise. */
+const ELASTIC_AFTER = 4 * CHUNK
+
 /**
- * Charge the origin until only `freeBytes` are left, with sparse writes the engine cannot reclaim.
+ * Why a test below is skipped rather than failed when the origin will not squeeze.
+ *
+ * Not a guess and not a platform assumption: {@link squeezeTo} MEASURES it on the origin the test is
+ * running against, every run, and this sentence is only the explanation attached to the result.
+ */
+const ELASTIC_REASON = 'this origin reports a floating ceiling, so its headroom cannot be squeezed:'
+  + ' the quota rises by whatever is written and `limit - used` never falls. See storage-budget.ts.'
+
+type Squeeze = {
+  used: number
+  quota: number
+  free: number
+  /** The origin really is down to the target, so an assertion after this means something. */
+  reached: boolean
+  /**
+   * The quota rose by what was written, so no amount of padding can create pressure here.
+   *
+   * MEASURED 2026-09-03, one machine with 2.7 TiB free, one origin, three 512 MiB writes per engine:
+   * Chromium's quota rose 10.737 GB to 12.353 GB, exactly what was written, with `quota - usage`
+   * coming back as 10,737,418,240 after every one of them, while Firefox held its quota still and let
+   * the headroom fall by the 1,613,063,025 bytes written, byte for byte. This is the whole reason
+   * four tests here sat failing on `main`: on a floating ceiling the engine is behaving perfectly and
+   * the rig cannot ask it the question.
+   */
+  elastic: boolean
+  written: number
+  headroomMoved: number
+  chunks: number
+}
+
+/** One sparse chunk of padding, which costs nothing to write: the quota charges a file's extent. */
+const padChunk = (page: Page, name: string, size: number) =>
+  page.evaluate(async ([n, bytes]: [string, number]) => {
+    const code = `self.onmessage = async (e) => {
+      const [name, size] = e.data
+      try {
+        const root = await navigator.storage.getDirectory()
+        const file = await root.getFileHandle(name, { create: true })
+        const handle = await file.createSyncAccessHandle()
+        const wrote = handle.write(new Uint8Array(1), { at: size - 1 })
+        handle.flush()
+        const got = handle.getSize()
+        handle.close()
+        postMessage({ wrote, got })
+      } catch (err) { postMessage({ error: String(err) }) }
+    }`
+    const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })))
+    const result = await new Promise((resolve) => {
+      worker.onmessage = (e) => resolve(e.data)
+      worker.postMessage([n, bytes])
+    })
+    worker.terminate()
+    return result
+  }, [name, size] as [string, number])
+
+/**
+ * Charge the origin until only `freeBytes` are left, and SAY what happened.
  *
  * Chunked, and checked after every chunk. One write covering the whole remaining budget comes back
  * SHORT rather than throwing, so a single-shot version reports success having written nothing at
  * all, and every assertion after it then measures an origin under no pressure whatsoever.
+ *
+ * The version this replaced returned an estimate and nothing else, so the two ways it can fail to
+ * squeeze were indistinguishable from success: padding that stops landing, and an origin whose
+ * headroom does not move at all. Both leave every assertion downstream measuring an origin under no
+ * pressure, which is how four tests here came to be failing for a reason that is not about the
+ * engine. Whatever this returns now says which of the three happened.
  */
-const CHUNK = 256 * 1024 * 1024
+const squeezeTo = async (page: Page, freeBytes: number): Promise<Squeeze> => {
+  const first = await estimate(page)
+  const settle = (now: { used: number, quota: number }, chunks: number): Squeeze => {
+    const written = now.used - first.used
+    const headroomMoved = (first.quota - first.used) - (now.quota - now.used)
+    return {
+      used: now.used,
+      quota: now.quota,
+      free: now.quota - now.used,
+      reached: now.quota - now.used <= freeBytes,
+      // a ceiling that rose by what was written, judged only once enough has been written to tell
+      elastic: written >= ELASTIC_AFTER && headroomMoved < written * 0.25,
+      written,
+      headroomMoved,
+      chunks,
+    }
+  }
 
-const squeezeTo = async (page: Page, freeBytes: number) => {
+  let stalled = 0
   for (let chunk = 0; chunk < 64; chunk++) {
     const before = await estimate(page)
     const want = before.quota - before.used - freeBytes
-    if (want <= 0) return before
-    const size = Math.min(want, CHUNK)
-    await page.evaluate(async ([name, bytes]: [string, number]) => {
-      const code = `self.onmessage = async (e) => {
-        const [name, size] = e.data
-        try {
-          const root = await navigator.storage.getDirectory()
-          const file = await root.getFileHandle(name, { create: true })
-          const handle = await file.createSyncAccessHandle()
-          const wrote = handle.write(new Uint8Array(1), { at: size - 1 })
-          handle.flush()
-          const got = handle.getSize()
-          handle.close()
-          postMessage({ wrote, got })
-        } catch (err) { postMessage({ error: String(err) }) }
-      }`
-      const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })))
-      const result = await new Promise((resolve) => {
-        worker.onmessage = (e) => resolve(e.data)
-        worker.postMessage([name, bytes])
-      })
-      worker.terminate()
-      return result
-    }, [`ripple-test-padding-${chunk}.bin`, size] as [string, number])
+    if (want <= 0) return settle(before, chunk)
+    const result = await padChunk(page, `ripple-test-padding-${chunk}.bin`, Math.min(want, CHUNK))
     const after = await estimate(page)
-    if (after.used <= before.used) throw new Error(`padding did not land: ${JSON.stringify({ before, after, size })}`)
+    if (after.used <= before.used) {
+      // A refused write is how an origin that IS full behaves, so it is not an error on its own.
+      // Three in a row with the usage not moving means the padding is going nowhere.
+      console.log('[test] padding did not land', JSON.stringify({ result, before, after }))
+      if (++stalled >= 3) return settle(after, chunk)
+      continue
+    }
+    stalled = 0
+    // Stop as soon as the ceiling is provably floating. Carrying on writes gigabytes to no purpose:
+    // `want` is recomputed from a quota that grows by exactly what the last chunk added, so the
+    // target recedes as fast as it is approached and the loop only ever ends on its own bound.
+    const measured = settle(after, chunk + 1)
+    if (measured.elastic) return measured
   }
-  return estimate(page)
+  return settle(await estimate(page), 64)
 }
 
-/** Wait for the demo torrent to have written a real amount of data. */
 /**
  * Start the bundled demo, which now arrives PAUSED.
  *
@@ -224,20 +308,29 @@ test.describe('orphan sweep', () => {
 })
 
 /*
- * FOUR of the tests below are `test.fixme` because they fail on main, and they are not new.
+ * FOUR of the tests below were `test.fixme` from the day they were written until 2026-09-03, and the
+ * reason turned out to be none of the ones that had been guessed at.
  *
- * The run that found them failed six. Reverting ONE file to its previous commit and re-running the
- * same specs failed four, so four predate that work and only two belonged to it. That control is the
- * only reason this says "known gap" rather than "I broke six", and it is why these are annotated
- * rather than deleted or quietly fixed with an invented explanation.
+ * The two candidate explanations were that the worker's budget pass THROWS somewhere, or that it
+ * COMPLETES and concludes there is room. Those have opposite fixes, so it was left annotated rather
+ * than guessed at. It is neither. The pass completes and correctly reports room, because there IS
+ * room: on Chromium the quota is a ceiling that FLOATS with usage, so `quota - usage` came back as
+ * 10,737,418,240 bytes after each of three 512 MiB writes, unmoved to the byte, while the quota rose
+ * by exactly what was written. `limit - used < floor` is then `10 GiB < 1 GB` however much anybody
+ * pads, and the squeeze every test here depends on cannot land. Firefox on the same machine and
+ * origin held its quota still and gave up headroom byte for byte.
  *
- * The count is pinned in `tests/lanes.test.ts`, so a fifth costs a deliberate edit to a second file.
- * They stay `fixme` rather than `fail` until a nightly run shows each one failing on an ASSERTION
- * inside its budget rather than on the timeout: `fail` would then go red if they started passing,
- * which is the signal actually wanted, and it cannot be claimed before the failure mode is known.
+ * So the engine was right the whole time and the rig could not ask it the question. Each test now
+ * MEASURES that, through `squeezeTo`, and skips with the measured reason rather than failing. Where
+ * the origin does squeeze - Firefox, or a runner short of disk - they run and assert for real.
+ *
+ * The negative ones skip too, and that is the point rather than a concession. "The watched torrent
+ * was not evicted" is true for free on an origin that was never under pressure, so the one test here
+ * that was PASSING was passing for no reason: it is the same shape, and it now skips with the others
+ * instead of reporting a result it never earned.
  */
 test.describe('storage eviction', () => {
-  test.fixme('gives up an embed torrent nobody is watching, and reclaims its bytes', async ({ page }) => {
+  test('gives up an embed torrent nobody is watching, and reclaims its bytes', async ({ page }) => {
     test.setTimeout(240_000)
 
     // the player adds it, so it is a cache entry
@@ -262,6 +355,8 @@ test.describe('storage eviction', () => {
     // the video's size puts the deficit inside one eviction.
     const squeezed = await squeezeTo(page, Math.round(SINTEL_VIDEO_BYTES * 1.6))
     console.log('[test] after squeeze:', squeezed, 'torrent holds', held)
+    test.skip(squeezed.elastic, ELASTIC_REASON)
+    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     await expect.poll(
       async () => (await filesUnder(page, '/dl/' + SINTEL_HASH)).count,
@@ -280,7 +375,7 @@ test.describe('storage eviction', () => {
     expect(after[0].started).toBe(false)
   })
 
-  test.fixme('gives up the least recently watched of two, and only that one', async ({ page }) => {
+  test('gives up the least recently watched of two, and only that one', async ({ page }) => {
     test.setTimeout(300_000)
 
     // watched first, so it is the one that should go
@@ -313,6 +408,8 @@ test.describe('storage eviction', () => {
     const floor = Math.min(1_000_000_000, Math.floor(quota * 0.1))
     const squeezed = await squeezeTo(page, floor - 10_000_000)
     console.log('[test] floor', floor, 'after squeeze', squeezed, { older, newer })
+    test.skip(squeezed.elastic, ELASTIC_REASON)
+    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     await expect.poll(
       async () => (await filesUnder(page, olderPath)).count,
@@ -329,7 +426,7 @@ test.describe('storage eviction', () => {
     expect(after.find((e) => e.infoHash === BUNNY_HASH)!.started).not.toBe(false)
   })
 
-  test.fixme('never gives up a torrent the user added themselves', async ({ page }) => {
+  test('never gives up a torrent the user added themselves', async ({ page }) => {
     test.setTimeout(240_000)
 
     const full: boolean[] = []
@@ -348,20 +445,35 @@ test.describe('storage eviction', () => {
       window.Worker = Probe as unknown as typeof Worker
     })
 
-    // the library seeds the demo itself, through the deliberate .torrent path
+    /*
+     * A torrent the USER added, pasted into the toolbar, which is the whole subject of this test.
+     *
+     * It used to lean on the bundled demo, and the demo stopped being an example of what this
+     * protects: since `5a416fa` a first run adds it TEMPORARY and PAUSED, so it is a cache entry and
+     * a legitimate eviction candidate, and it downloads nothing until something presses Resume. This
+     * test asserted `ephemeral === false` about it and waited for 30 MB that were never coming, so it
+     * had a second reason to fail underneath the one that took the other three, and being `fixme`
+     * is what let that sit unnoticed. Bunny rather than Sintel because the demo already holds
+     * Sintel's infohash and a second add of it answers "Already in your list".
+     */
     await page.goto('/')
     await expect(page.locator('.torrent').first()).toBeVisible()
+    await page.getByPlaceholder('Add a magnet link').fill(BUNNY)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
     await downloadSome(page, 30_000_000)
 
     const entries = await library(page)
-    expect(entries).toHaveLength(1)
-    expect(entries[0].ephemeral, 'a torrent the user added is never a cache entry').toBe(false)
-    const savePath = entries[0].savePath as string
+    const mine = entries.find((entry) => entry.infoHash === BUNNY_HASH)
+    expect(mine, 'the magnet that was pasted has to be in the list').toBeTruthy()
+    expect(mine!.ephemeral, 'a torrent the user added is never a cache entry').not.toBe(true)
+    const savePath = mine!.savePath as string
     const held = await filesUnder(page, savePath)
     expect(held.count).toBeGreaterThan(0)
 
     const squeezed = await squeezeTo(page, 60_000_000)
     console.log('[test] after squeeze:', squeezed, 'library torrent holds', held)
+    test.skip(squeezed.elastic, ELASTIC_REASON)
+    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     // give the budget pass several turns to do the wrong thing
     await page.waitForTimeout(45_000)
@@ -370,8 +482,9 @@ test.describe('storage eviction', () => {
     expect((await filesUnder(page, savePath)).count, 'a library torrent must never be auto-deleted')
       .toBeGreaterThanOrEqual(held.count)
     const after = await library(page)
-    expect(after).toHaveLength(1)
-    expect(after[0].started, 'nothing should have marked it as having lost its files').not.toBe(false)
+    const survivor = after.find((entry) => entry.infoHash === BUNNY_HASH)
+    expect(survivor, 'the row for a torrent the user added must survive').toBeTruthy()
+    expect(survivor!.started, 'nothing should have marked it as having lost its files').not.toBe(false)
 
     // and it says so, rather than stalling with no explanation anywhere
     expect(full, 'a full origin with nothing reclaimable has to be reported').toContain(true)
@@ -408,6 +521,10 @@ test.describe('storage eviction', () => {
 
     const squeezed = await squeezeTo(page, 60_000_000)
     console.log('[test] after squeeze:', squeezed, 'holding', before)
+    // the same skip the arms around this one take, and for a stronger reason: this test asserts that
+    // nothing was evicted, which an origin under no pressure satisfies without the code doing a thing
+    test.skip(squeezed.elastic, ELASTIC_REASON)
+    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     // well past RECENT_USE_MS, which is the only thing that would have covered this by accident
     await page.waitForTimeout(45_000)
@@ -417,7 +534,7 @@ test.describe('storage eviction', () => {
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
   })
 
-  test.fixme('never gives up the torrent being watched', async ({ page }) => {
+  test('never gives up the torrent being watched', async ({ page }) => {
     test.setTimeout(240_000)
 
     await page.goto(embedUrl(SINTEL))
@@ -431,6 +548,8 @@ test.describe('storage eviction', () => {
 
     const squeezed = await squeezeTo(page, 60_000_000)
     console.log('[test] after squeeze:', squeezed)
+    test.skip(squeezed.elastic, ELASTIC_REASON)
+    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     // still on /embed, so this torrent has a viewer for the whole wait
     await page.waitForTimeout(45_000)

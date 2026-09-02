@@ -75,18 +75,69 @@ describe('the e2e lanes', () => {
   })
 
   /**
-   * The four are counted, not merely annotated.
+   * Nothing is annotated away any more, and this is what keeps it that way.
    *
-   * They fail on `main` and predate the work that found them: a run failed six, and reverting one
-   * file to its previous commit and re-running the same specs failed four. So `test.fixme` is an
-   * honest record of a known gap rather than a way to make a suite look green, and pinning the count
-   * is what stops a fifth being quietly added to the pile.
+   * There were four, all in `storage-eviction.spec.ts`, and this used to pin the count at four so a
+   * fifth could not be quietly added to the pile. They are gone: the reason they failed was measured
+   * on 2026-09-03 and was not about the engine at all. On Chromium the storage quota is a ceiling
+   * that FLOATS with usage, so `quota - usage` never falls however much padding a test writes, and
+   * every one of them squeezed the origin to provoke an eviction that therefore could not happen.
+   * They now measure that and skip with the measured reason where it holds.
+   *
+   * So the bar goes back up: zero. A `test.fixme` is a test that fails and says nothing about why,
+   * and the four here cost months of looking like a known gap when they were a rig that could not
+   * ask its question.
    */
-  it('holds exactly the four known-failing eviction tests, and none anywhere else', () => {
-    expect(fixmes('tests/storage-eviction.spec.ts')).toBe(4)
-    const elsewhere = onDisk
-      .filter((path) => path !== 'tests/storage-eviction.spec.ts')
-      .filter((path) => fixmes(path) > 0)
-    expect(elsewhere, 'a spec was skipped with test.fixme outside the known set').toEqual([])
+  it('annotates no test away with test.fixme, in any spec', () => {
+    const annotated = onDisk.filter((path) => fixmes(path) > 0)
+    expect(annotated, 'test.fixme hides a failure without saying why: skip on a measured condition').toEqual([])
+  })
+
+  /**
+   * A skip has to say WHY, on the spot.
+   *
+   * That is the whole difference between a skip and the `fixme` it replaced. `test.skip(condition)`
+   * with no second argument reports as "skipped" in a run and leaves whoever reads the output to go
+   * and find the condition; so does a bare `test.skip()`. Both are a `fixme` under another name.
+   *
+   * `test.skip(true, 'reason')` inside an `if` is NOT one of those and must keep passing: two specs
+   * decide at runtime whether a tool is present and then skip with the reason, which is the honest
+   * shape this is asking for. An earlier version of this test forbade the literal `true` outright and
+   * flagged exactly that, which is the failure mode a rule like this has: refusing the good case.
+   */
+  it('gives every skip a reason, wherever the condition is decided', () => {
+    /**
+     * Every `test.skip(...)` call, and whether it was given a SECOND argument.
+     *
+     * The reason is not always a literal: the eviction spec passes a named constant, so looking for
+     * a quote inside the call reports the well-behaved case as bare. What is actually being asked is
+     * "is there an argument after the condition", which is a comma at the call's own depth.
+     */
+    const skipCalls = (source: string): { text: string, hasReason: boolean }[] => {
+      const out: { text: string, hasReason: boolean }[] = []
+      const marker = /\btest\.skip\(/g
+      for (let found = marker.exec(source); found; found = marker.exec(source)) {
+        let depth = 0
+        let hasReason = false
+        let i = found.index + found[0].length - 1
+        // Balanced on parens alone, which is enough here: the conditions in these specs are regex
+        // literals and calls, and both carry their own parens in pairs.
+        for (; i < source.length; i++) {
+          if (source[i] === '(') depth++
+          else if (source[i] === ',' && depth === 1) hasReason = true
+          else if (source[i] === ')' && --depth === 0) break
+        }
+        out.push({ text: source.slice(found.index, i + 1), hasReason })
+      }
+      return out
+    }
+
+    const bare: string[] = []
+    for (const path of onDisk) {
+      for (const call of skipCalls(sources[path.replace('tests/', './')] ?? '')) {
+        if (!call.hasReason) bare.push(`${path}: ${call.text.replace(/\s+/g, ' ').slice(0, 80)}`)
+      }
+    }
+    expect(bare, 'a skipped test has to carry its reason where the run prints it').toEqual([])
   })
 })
