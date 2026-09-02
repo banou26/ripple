@@ -146,6 +146,16 @@ const General = ({ t }: { t: Torrent }) => {
   )
 }
 
+/**
+ * `f.index`, never the position in this array, for both the save and the percentage.
+ *
+ * This list is `contentFiles`, which drops the pads a v2 or hybrid torrent carries, so its positions
+ * renumber everything after the first pad. Both things done with an index here address the ENGINE:
+ * `onSave` reaches it directly, and `saving` is built in `home.tsx` by walking the UNFILTERED
+ * `t.files`. Using the position saved a different file under the name that was clicked, and drew the
+ * percentage on the wrong row. `TorrentFile.index` exists to make filtering a copy safe; this is the
+ * one list that had forgotten to use it.
+ */
 const Files = ({
   files, saving, onSave,
 }: {
@@ -159,17 +169,17 @@ const Files = ({
     <div className="rows">
       {/* No per-file progress bar on purpose: TorrentFile.progress is the torrent's overall
           progress copied onto every file, so a bar here would claim a precision that is not real. */}
-      {files.map((f, i) => {
+      {files.map((f) => {
         const [dir, name] = splitPath(f.name)
-        const s = saving[i]
+        const s = saving[f.index]
         return (
-          <div className="row file" key={i}>
+          <div className="row file" key={f.index}>
             <span className="name">
               {dir && <span className="dim">{dir}</span>}{name}
             </span>
             <span className="num">{bytes(f.size)}</span>
             {onSave && (
-              <button type="button" onClick={() => onSave(i)} disabled={s != null}>
+              <button type="button" onClick={() => onSave(f.index)} disabled={s != null}>
                 {s != null ? `${Math.round(s * 100)}%` : 'Save'}
               </button>
             )}

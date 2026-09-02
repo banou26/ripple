@@ -118,12 +118,22 @@ const sized = () => {
 
 const onClose = vi.fn()
 
-const mount = async (t: Torrent = torrent(), handle: number | null = 7) => {
+const mount = async (
+  t: Torrent = torrent(),
+  handle: number | null = 7,
+  extra: { saving?: Record<number, number>, onSave?: (index: number) => void } = {},
+) => {
   inspected.length = 0
   detailCb = null
   onClose.mockClear()
   return render(
-    <TorrentDetailDock t={t} handle={handle} saving={{}} onSave={() => {}} onClose={onClose}/>,
+    <TorrentDetailDock
+      t={t}
+      handle={handle}
+      saving={extra.saving ?? {}}
+      onSave={extra.onSave ?? (() => {})}
+      onClose={onClose}
+    />,
     sized(),
   )
 }
@@ -300,6 +310,52 @@ describe('the docked torrent details', () => {
     tabButton(screen, 'Content').click()
     await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
     expect(screen.container.querySelector('.bar')).toBeNull()
+  })
+
+  /*
+   * A PADDED torrent, because an unpadded one cannot tell the two indices apart.
+   *
+   * The Content tab renders `contentFiles`, which drops the pads a v2 or hybrid torrent carries, so a
+   * position in that list is not the engine's file index for anything after the first pad. Both
+   * things this tab does with an index address the engine: `onSave` reaches it, and `saving` is keyed
+   * in `home.tsx` off the UNFILTERED list. Using the position saved the wrong file under the right
+   * name and drew the percentage on the wrong row.
+   *
+   * The pad sits at index 1 deliberately. With it, E02 is engine index 2 and filtered position 1, so
+   * the correct and incorrect answers are different numbers and the test can fail. Without a pad they
+   * coincide and this would pass either way.
+   */
+  const padded = () => torrent({
+    files: [
+      { name: 'Pack/E01.mkv', size: 1e9, progress: 0, index: 0 },
+      { name: 'Pack/.pad/262144', size: 262_144, progress: 0, index: 1, pad: true },
+      { name: 'Pack/E02.mkv', size: 1e9, progress: 0, index: 2 },
+    ],
+  })
+
+  it('saves the file that was clicked, not the one at that position', async () => {
+    const saved: number[] = []
+    const screen = await mount(padded(), 7, { onSave: (index) => saved.push(index) })
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
+
+    const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
+    // the pad is not offered, so E02 is the SECOND row here while being the third file
+    expect(rows.map((r) => r.querySelector('.name')?.textContent)).toEqual(['Pack/E01.mkv', 'Pack/E02.mkv'])
+    rows[1]!.querySelector('button')!.click()
+
+    expect(saved, 'the click saved the pad instead of the episode').toEqual([2])
+  })
+
+  it('shows a save percentage against the file it belongs to', async () => {
+    // keyed the way `home.tsx` keys it: by engine index, so 2 is E02 and nothing is saving E01
+    const screen = await mount(padded(), 7, { saving: { 2: 0.42 } })
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
+
+    const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
+    expect(rows[0]!.querySelector('button')!.textContent, 'E01 is not being saved').toBe('Save')
+    expect(rows[1]!.querySelector('button')!.textContent, 'the percentage landed on the wrong row').toBe('42%')
   })
 
   it('keeps a long swarm inside its own scroll rather than growing the page', async () => {
