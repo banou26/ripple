@@ -94,8 +94,11 @@ describe('the download page hook', () => {
     expect(watched[0]).toEqual(['viewer-1', 7, 0, 0, undefined, true])
 
     page.claim(1)
-    // an ACTIVE claim: no held flag, which is what makes the engine plan the swarm around this file
-    expect(watched[1]).toEqual(['viewer-1', 7, 1])
+    // an ACTIVE claim: held false, which is what makes the engine plan the swarm around this file,
+    // and BULK true, which is what keeps piece deadlines off an export. The whole argument list is
+    // asserted rather than a prefix: the two flags are adjacent booleans, and swapping them still
+    // downloads the file correctly while quietly restoring every deadline and 61% of extra traffic.
+    expect(watched[1]).toEqual(['viewer-1', 7, 1, undefined, undefined, false, true])
 
     page.release()
     expect(watched[2], 'release must hand back a HELD claim, not re-claim file 0').toEqual(
@@ -107,6 +110,6 @@ describe('the download page hook', () => {
   it('clamps a claim to a file the torrent actually has', async () => {
     const page = await mounted()
     page.claim(9)
-    expect(watched[1]).toEqual(['viewer-1', 7, 0])
+    expect(watched[1]).toEqual(['viewer-1', 7, 0, undefined, undefined, false, true])
   })
 })

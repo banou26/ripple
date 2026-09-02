@@ -552,7 +552,16 @@ const filePieceRange = (h: number, fileIndex: number) => {
  * cannot come back from: its add runs once per magnet and the row it was showing simply stops
  * existing.
  */
-type Viewer = { fileIndex: number, fromOffset: number, held?: boolean }
+/**
+ * `bulk` marks a claim that wants THROUGHPUT rather than low latency: a save to disk or a zip, as
+ * opposed to playback. It decides whether this torrent gets piece deadlines, and that is worth far
+ * more than it sounds. A deadline enlists libtorrent's time-critical rescue, which races several
+ * peers for the same block and discards every copy that loses. MEASURED 2026-09-02 on a 1446 MB
+ * torrent through the download page: 879 MB wasted and 1.617x the payload fetched with deadlines,
+ * 8 MB and 1.011x without, the latter being exactly what the same torrent costs as a library add.
+ * On a metered relay the user pays for both copies.
+ */
+type Viewer = { fileIndex: number, fromOffset: number, held?: boolean, bulk?: boolean }
 const viewers = new Map<number, Map<string, Viewer>>()
 // the layout arrives with the torrent-ready record, later than the first watch, so a plan that
 // could not be built yet is retried from the pump instead of being dropped
@@ -656,16 +665,41 @@ const applyViewing = (h: number) => {
   //
   // The window is sized from the piece length, not fixed: the band is picked in shuffled order and
   // the in-order walk skips it, so it wants to be barely wider than one demuxer read.
+  //
+  // Deadlines only when somebody is WAITING on one. `bulk` claims are saves and zips, which want the
+  // priorities and the sequential order and nothing else; see the note on `Viewer`. Every active
+  // claim has to agree, because one player watching the same torrent is enough to make the clock
+  // real, and the priorities the window writes are shared by all of them.
+  const timed = active.some((viewer) => !viewer.bulk)
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
     windowPieces: windowPiecesFor(files.pieceLength),
     deadlineStepMs: deadlineStepMsFor(files.pieceLength, session.status(h)?.downloadRate || 3_000_000),
+    deadlines: timed,
   })
   if (planned) pendingViewing.delete(h)
   else pendingViewing.add(h)
 }
 
-const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false) => {
+/**
+ * Stop a torrent that was just added, the way pressing Pause stops one.
+ *
+ * Writing `paused: true` into the library entry alone is not enough and the gap is not cosmetic: the
+ * entry only decides what a RESTORE does, so until the next reload the torrent would sit there
+ * downloading with a row that says it is stopped. The engine has to be told, `recovery` has to be
+ * told this is a deliberate stop rather than one it should retry, and `wantPause` has to record it
+ * because `lt_torrent_pause` is a silent no-op against a handle the alert pump has not registered
+ * yet, which is exactly the window an add is in.
+ */
+const pauseAdded = (h: number) => {
+  userPaused.add(h)
+  cacheIdle.delete(h)
+  wantPause(h)
+  recovery.forget(h)
+  session?.pauseTorrent(h)
+}
+
+const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false, bulk?: boolean) => {
   // A read is dispatched without waiting on the command queue, so one issued against a torrent the
   // budget pass has just evicted arrives here afterwards. Recreating the entry would resurrect a
   // dead handle, and the engine reuses a handle number for the same infohash, so the entry would
@@ -674,9 +708,18 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
   let watching = viewers.get(h)
   const first = !watching?.size
   if (!watching) viewers.set(h, watching = new Map())
+  // Carried forward when the caller does not say, because the re-anchor path does not: every 8 MiB
+  // chunk of an export calls this through `anchorSequential` with no flag, and a claim that forgot
+  // it was bulk would put the deadlines straight back and take the waste with them.
+  const kind = bulk ?? watching.get(viewer)?.bulk
   // `held: undefined` rather than `false`, so the entry a real claim writes is shaped exactly as it
   // was before holds existed and nothing downstream has to know the difference
-  watching.set(viewer, held ? { fileIndex, fromOffset, held } : { fileIndex, fromOffset })
+  watching.set(viewer, {
+    fileIndex,
+    fromOffset,
+    ...(held ? { held } : {}),
+    ...(kind ? { bulk: kind } : {}),
+  })
   if (first) touchUsed(h)
   applyViewing(h)
 }
@@ -1587,7 +1630,11 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
-        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
+        // `paused` is a deliberate stop, so it takes the same route pressing Pause does rather than
+        // just being written to the entry: the engine has to be told, and `recovery` has to be told
+        // it is not a torrent that stopped on its own.
+        if (m.paused === true) pauseAdded(h)
+        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: m.paused === true })
         post({ type: 'added', handle: h, magnet: m.magnet })
         void runStorageBudget()
       }
@@ -1694,7 +1741,9 @@ const handleMessage = async (session: Session, m: any) => {
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { post({ type: 'add-failed', message: 'That file is not a valid .torrent' }); return }
-      track(h, '', null, savePath)
+      // ephemeral is passed through now: a .torrent added ON THE USER'S BEHALF, as the first-run demo
+      // is, belongs in the cache the budget pass may reclaim rather than in their library for good
+      track(h, '', null, savePath, m.ephemeral === true)
       recovery.hold(h, Date.now())
       // the infohash lands with the add alert, popped by the 500ms loop
       let ih: string | null = null
@@ -1731,7 +1780,8 @@ const handleMessage = async (session: Session, m: any) => {
       track(h, magnet, ih, savePath)
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: false, started: true, paused: false })
+      if (m.paused === true) pauseAdded(h)
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true })
       post({ type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
       // The engine reuses a handle number for the same infohash, so a read that arrives after the
@@ -1762,7 +1812,24 @@ const handleMessage = async (session: Session, m: any) => {
         // Retry in bounded attempts and force the plan forward between them.
         for (let attempt = 0; ; attempt++) {
           try {
-            const data = await session.read(m.handle, m.fileIndex, m.offset, m.len, { timeoutMs: READ_ATTEMPT_MS })
+            /*
+             * `deadlineMs: null` for a bulk reader, and it is the larger half of the fix.
+             *
+             * The default is 0, which asks libtorrent to treat every piece covering this read as due
+             * NOW. An export reads 8 MiB at a time, so that is dozens of pieces marked maximally
+             * urgent at once, and the time-critical rescue answers by requesting them from several
+             * peers each and discarding the copies that arrive second. MEASURED on a 1446 MB torrent:
+             * turning this one option off took the waste from 879 MB to 148 MB. The window ladder
+             * above accounts for the rest.
+             *
+             * A player keeps the deadline. It is reading 2.5 MB at the playhead with a frame due, and
+             * a duplicated block that arrives in time is exactly the trade the rescue exists to make.
+             */
+            const bulk = m.viewer ? viewers.get(m.handle)?.get(m.viewer)?.bulk === true : false
+            const data = await session.read(m.handle, m.fileIndex, m.offset, m.len, {
+              timeoutMs: READ_ATTEMPT_MS,
+              ...(bulk ? { deadlineMs: null } : {}),
+            })
             // failReads may have answered this id already while it was parked on pieces
             if (!inFlight.has(m.id)) return
             post({ type: 'read-result', id: m.id, data }, [data.buffer])
@@ -2062,7 +2129,7 @@ const handleMessage = async (session: Session, m: any) => {
       // a move carrying a read length is a reader advancing, so it takes the same re-anchor test a read
       // takes; without one it is a user seek, which moves the anchor unconditionally
       if (m.readLen != null) anchorSequential(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.readLen)
-      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.held === true)
+      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.held === true, m.bulk === true ? true : undefined)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
     } else if (m.type === 'set-flags') {

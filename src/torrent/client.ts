@@ -95,8 +95,17 @@ export type TorrentClient = {
    * `hold` fetches the torrent's file list and then stops, transferring nothing until somebody
    * watches or reads it. For a page that offers a Download button rather than starting one.
    */
-  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean }) => void
-  addTorrentFile: (bytes: Uint8Array, savePath?: string) => void
+  /**
+   * `paused` adds the torrent STOPPED, exactly as if the person had pressed Pause on it.
+   *
+   * Not the same as `hold`, and the difference is what the row can offer. A held torrent is parked
+   * by `applyViewing` with `userPaused` clear, so it reads as Queued and shows no Resume; this is a
+   * deliberate stop, so the entry carries `paused: true`, it comes back stopped after a reload, and
+   * there is a button to start it. For anything added on the user's behalf rather than at their
+   * request, which should cost them no transfer at all until they ask for it.
+   */
+  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean, paused?: boolean }) => void
+  addTorrentFile: (bytes: Uint8Array, options?: { savePath?: string, ephemeral?: boolean, paused?: boolean }) => void
   /**
    * Publish a torrent the page just built from the user's own file or folder, and seed it from
    * there. `handles` is one entry per file, in the torrent's own file order, which is what the
@@ -147,7 +156,13 @@ export type TorrentClient = {
    * torrent stays parked. It is how a page says "this is open in front of somebody" so the storage
    * budget does not reclaim a torrent whose page is still on screen.
    */
-  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number, held?: boolean) => void
+  /**
+   * `bulk` says this claim is a SAVE rather than playback, so the torrent is planned for throughput
+   * and given no piece deadlines. Sticky: the worker carries it across the re-anchors a long export
+   * makes, so it is passed once when the claim is taken. See the note on `Viewer` in worker.ts for
+   * what it is worth (measured 1.617x the payload fetched without it, 1.011x with).
+   */
+  watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number, held?: boolean, bulk?: boolean) => void
   unwatch: (viewer: string) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -535,8 +550,8 @@ export const createTorrentClient = (): EngineClient => {
     },
     importList: (list) => send({ type: 'import-list', list }),
     clearList: () => send({ type: 'clear-list' }),
-    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
-    addTorrentFile: (bytes, savePath) => send({ type: 'add-torrent-file', bytes, savePath }, [bytes.buffer]),
+    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true, paused: options?.paused === true }),
+    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, paused: options?.paused === true }, [bytes.buffer]),
     // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
     // offer the .torrent as a download afterwards, and a transferred buffer would be detached.
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),
@@ -574,7 +589,7 @@ export const createTorrentClient = (): EngineClient => {
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
     newViewerId: () => `${docId}:${++viewerId}`,
-    watch: (viewer, handle, fileIndex, fromOffset = 0, readLen, held) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen, held: held === true }),
+    watch: (viewer, handle, fileIndex, fromOffset = 0, readLen, held, bulk) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen, held: held === true, bulk: bulk === true }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
     destroy: () => {
       window.removeEventListener('online', onOnline)

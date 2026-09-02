@@ -47,9 +47,10 @@ export type DownloadTorrent = {
  * the intended resting state: opening a link reads the torrent's file list off the network and then
  * stops, and nothing is transferred until somebody presses Download.
  *
- * The claim also decides the ORDER bytes arrive in: it puts the selected file at normal priority
- * with a deadline band at the read cursor and everything else at skip, which is what turns a
- * rarest-first swarm into a stream that can be written straight to disk.
+ * The claim also decides the ORDER bytes arrive in: it puts the selected file at normal priority and
+ * everything else at skip, which is what turns a rarest-first swarm into a stream that can be
+ * written straight to disk. It is a BULK claim, so it gets no piece deadlines: those exist to beat a
+ * playback clock and this has none, and paying for them cost 61% more traffic than the file.
  */
 export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent => {
   const client = getTorrentClient()
@@ -124,7 +125,15 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
    */
   const claim = useCallback((fileIndex: number) => {
     if (handle == null || files === 0) return
-    client.watch(viewerRef.current, handle, fileIndex >= 0 && fileIndex < files ? fileIndex : 0)
+    // BULK, and this is the whole reason the flag exists. An export has no clock: it writes bytes to
+    // disk as fast as they arrive and nothing is waiting on any particular one. Claiming it as
+    // playback instead put a deadline on every piece of every 8 MiB read, which enlists libtorrent's
+    // time-critical rescue to race peers for the same block and bin the loser. MEASURED on a 1446 MB
+    // torrent: 2325 MB fetched and 879 MB wasted as a timed claim, 1454 MB and 8 MB as a bulk one.
+    // (viewer, handle, fileIndex, fromOffset, readLen, held, bulk). The trailing slots are easy to
+    // miscount: putting `true` one place to the left registers a HELD claim instead of a bulk one,
+    // which downloads correctly and silently keeps every deadline. The test pins the whole list.
+    client.watch(viewerRef.current, handle, fileIndex >= 0 && fileIndex < files ? fileIndex : 0, undefined, undefined, false, true)
   }, [client, handle, files])
 
   /* The same registration the state subscription makes, which is what makes it a hold again. */
