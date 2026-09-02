@@ -5,10 +5,24 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # e2e-swarm only. 03:17 rather than on the hour, where every other cron in the world queues.
+  schedule:
+    - cron: '17 3 * * *'
+
+# A newer push makes the older answer worthless, and these jobs hold a browser for minutes. The
+# scheduled run is never cancelled: it is the only thing watching the swarm lane.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # Pure logic in node: no browser, no build, no network. `tests/lanes.test.ts` lives here on purpose,
+  # so a spec added to no lane fails in the FAST suite rather than being silently never run.
+  unit:
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -17,13 +31,76 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-
-      # `npm test` is `vitest run --project unit`: the 24 files under src/ that are pure logic in node.
-      # They read no env, so the gitignored .env.local being absent on a runner changes nothing, and
-      # they need no browser and no build/ artifacts.
       - run: npm test
 
-      # The other two suites deliberately stay local. The `browser` project mounts components in a real
-      # Chrome that vite.config.ts locates on PATH, and it also serves build/ output (the player test
-      # loads build/libav-worker.js), so it would need a browser step plus a full `npm run build`. The
-      # tests/ Playwright specs watch a torrent actually transfer, which only reaches speed headful.
+  # Components mounted in a real Chrome. It does NOT need build/ output: the one test that wanted
+  # build/libav-worker.js says so itself and skips when it is absent.
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # ubuntu-24 restricts unprivileged user namespaces, which Chrome's sandbox needs. Lift the
+      # restriction rather than passing --no-sandbox: the sandbox is the thing under the tests.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Point the browser project at the installed Chromium
+        run: echo "RIPPLE_CHROME=$(node -e "console.log(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - run: npm run test:browser
+
+  # Playwright specs that need a browser and NOTHING else. Split by dependency rather than by cost:
+  # these are deterministic, so they can gate a push.
+  e2e-local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm run test:e2e:local
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-local-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # The specs that watch a torrent actually move bytes. HEADFUL under Xvfb, because headless
+  # Chromium reaches "Loading metadata" and sits at a flat 0 B/s forever while its data plane is
+  # provably healthy. Nightly rather than per-push: it depends on strangers' seeders, so a red here
+  # is a fact about the swarm as often as about the commit.
+  e2e-swarm:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: sudo apt-get install -y xvfb
+      - run: xvfb-run -a -s "-screen 0 1280x720x24" npm run test:e2e:swarm
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-swarm-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

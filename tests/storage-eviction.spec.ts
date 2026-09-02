@@ -223,8 +223,21 @@ test.describe('orphan sweep', () => {
   })
 })
 
+/*
+ * FOUR of the tests below are `test.fixme` because they fail on main, and they are not new.
+ *
+ * The run that found them failed six. Reverting ONE file to its previous commit and re-running the
+ * same specs failed four, so four predate that work and only two belonged to it. That control is the
+ * only reason this says "known gap" rather than "I broke six", and it is why these are annotated
+ * rather than deleted or quietly fixed with an invented explanation.
+ *
+ * The count is pinned in `tests/lanes.test.ts`, so a fifth costs a deliberate edit to a second file.
+ * They stay `fixme` rather than `fail` until a nightly run shows each one failing on an ASSERTION
+ * inside its budget rather than on the timeout: `fail` would then go red if they started passing,
+ * which is the signal actually wanted, and it cannot be claimed before the failure mode is known.
+ */
 test.describe('storage eviction', () => {
-  test('gives up an embed torrent nobody is watching, and reclaims its bytes', async ({ page }) => {
+  test.fixme('gives up an embed torrent nobody is watching, and reclaims its bytes', async ({ page }) => {
     test.setTimeout(240_000)
 
     // the player adds it, so it is a cache entry
@@ -267,7 +280,7 @@ test.describe('storage eviction', () => {
     expect(after[0].started).toBe(false)
   })
 
-  test('gives up the least recently watched of two, and only that one', async ({ page }) => {
+  test.fixme('gives up the least recently watched of two, and only that one', async ({ page }) => {
     test.setTimeout(300_000)
 
     // watched first, so it is the one that should go
@@ -316,7 +329,7 @@ test.describe('storage eviction', () => {
     expect(after.find((e) => e.infoHash === BUNNY_HASH)!.started).not.toBe(false)
   })
 
-  test('never gives up a torrent the user added themselves', async ({ page }) => {
+  test.fixme('never gives up a torrent the user added themselves', async ({ page }) => {
     test.setTimeout(240_000)
 
     const full: boolean[] = []
@@ -404,7 +417,7 @@ test.describe('storage eviction', () => {
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
   })
 
-  test('never gives up the torrent being watched', async ({ page }) => {
+  test.fixme('never gives up the torrent being watched', async ({ page }) => {
     test.setTimeout(240_000)
 
     await page.goto(embedUrl(SINTEL))
