@@ -522,7 +522,15 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   const fieldRef = useRef<HTMLInputElement>(null)
 
   const files = torrent?.files
+  /** The count a PERSON sees, which is what the summary line and the one-file branch are about. */
   const fileCount = files?.length ?? 0
+  /**
+   * The count an INDEX is bounded by, pads included.
+   *
+   * `compileFileSelection` drops any index at or above the count it is handed, so passing the content
+   * count would silently delete every engine index past it and narrow the link's selection.
+   */
+  const engineFileCount = torrent?.fileCount ?? 0
 
   /**
    * Which files the link names, as engine indices.
@@ -541,11 +549,18 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   // the subject arrived, so the field has done its job and the empty state is behind us
   useEffect(() => { if (torrent) { setHandedOver(false); setInput('') } }, [torrent])
 
-  // the player's own default, so an untouched watch link opens what pressing Watch would have
-  const defaultWatch = useMemo(() => pickVideoFile(files ?? undefined), [files])
+  // the player's own default, so an untouched watch link opens what pressing Watch would have.
+  // `pickVideoFile` answers with a position in the list it was given, and this one is pad-filtered,
+  // so it is translated back to the engine index the link has to carry.
+  const defaultWatch = useMemo(
+    () => (files?.length ? files[pickVideoFile(files)]?.index ?? 0 : 0),
+    [files],
+  )
   const fileIndex = watchIndex ?? defaultWatch
 
-  const indices = useMemo(() => picked ?? [...Array(fileCount).keys()], [picked, fileCount])
+  // every CONTENT file by its engine index, never 0..n-1: on a padded torrent those are not the same
+  // set, and the positions name other files
+  const indices = useMemo(() => picked ?? (files?.map((f) => f.index) ?? []), [picked, files])
 
   /**
    * Whether Watch is on offer at all.
@@ -560,8 +575,8 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   useEffect(() => { if (!watchable) setMode('download') }, [watchable])
 
   const link = useMemo(
-    () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount, fileIndex } : null),
-    [torrent?.magnet, mode, indices, fileCount, fileIndex],
+    () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount: engineFileCount, fileIndex } : null),
+    [torrent?.magnet, mode, indices, engineFileCount, fileIndex],
   )
 
   const empty = mode === 'download' && fileCount > 0 && indices.length === 0
@@ -723,8 +738,8 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                           </div>
                           <div className="list">
                             {files!.map((f, i) => (
-                              <label className="file" key={i}>
-                                <input type="checkbox" checked={indices.includes(i)} onChange={() => toggle(i)} />
+                              <label className="file" key={f.index}>
+                                <input type="checkbox" checked={indices.includes(f.index)} onChange={() => toggle(f.index)} />
                                 <span className="name">{leaf(f.name)}</span>
                                 <span className="size">{getHumanReadableByteString(f.size)}</span>
                               </label>

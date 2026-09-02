@@ -22,8 +22,22 @@ export type ShareSubject = {
   name: string
   /** total bytes, or 0 when only a magnet is known */
   size: number
-  /** null when the file list is not knowable without the swarm */
-  files: { name: string, size: number }[] | null
+  /**
+   * null when the file list is not knowable without the swarm.
+   *
+   * `index` is the ENGINE's file index, not the position here: pads are dropped from this list and a
+   * position after one names a different file. A share link's `files=` is read as engine indices by
+   * the download page, so emitting positions handed somebody a link to the wrong files.
+   */
+  files: { name: string, size: number, index: number }[] | null
+  /**
+   * How many files the ENGINE sees, pads included, which is what an index is bounded by.
+   *
+   * Needed as well as `files.length` because `compileFileSelection` DISCARDS any index at or above
+   * the count it is given. Handing it the content count would silently drop every engine index that
+   * sits past it, narrowing the selection instead of failing.
+   */
+  fileCount: number
 }
 
 const DICT = 0x64
@@ -102,14 +116,16 @@ const hex = (buffer: ArrayBuffer): string =>
  * else is a directory. Pads never appear here: a pad inside a file tree is a hard parse failure in
  * libtorrent, so a tree that has one is not a torrent worth describing.
  */
-const fromFileTree = (tree: Bencode, name: string): { name: string, size: number }[] => {
-  const out: { name: string, size: number }[] = []
+// v2 aligns files to piece boundaries by construction, so a file tree carries no pads and walk order
+// IS engine order: the position each entry lands at here is its index
+const fromFileTree = (tree: Bencode, name: string): { name: string, size: number, index: number }[] => {
+  const out: { name: string, size: number, index: number }[] = []
   const walk = (node: Bencode, prefix: string[]) => {
     if (!(node instanceof Map)) return
     const own = node.get('')
     if (own instanceof Map) {
       const length = own.get('length')
-      if (typeof length === 'number') out.push({ name: [name, ...prefix].join('/'), size: length })
+      if (typeof length === 'number') out.push({ name: [name, ...prefix].join('/'), size: length, index: out.length })
       return
     }
     for (const [key, child] of node) walk(child, [...prefix, key])
@@ -187,10 +203,14 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
     const name = text(info.get('name')) ?? (hasV1 ? infoHash : infoHashV2 ?? infoHash)
     const fileList = info.get('files')
 
-    let files: { name: string, size: number }[]
+    let files: { name: string, size: number, index: number }[]
+    // the engine's own count, which the dropped pads are still part of
+    let fileCount = 0
     if (Array.isArray(fileList)) {
+      fileCount = fileList.length
       // a multi-file torrent: each entry carries its path as a list of components under the name
-      files = fileList.flatMap((entry) => {
+      // `index` is the position in THIS list, pads included, because that is what the engine numbers
+      files = fileList.flatMap((entry, index) => {
         if (!(entry instanceof Map)) return []
         // a pad is not one of the person's files: counting one inflates the size and shows a
         // `.pad/64536` row nobody put there
@@ -199,13 +219,15 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
         const length = entry.get('length')
         if (!Array.isArray(path) || typeof length !== 'number') return []
         const parts = path.map((p) => text(p)).filter((p): p is string => !!p)
-        return [{ name: [name, ...parts].join('/'), size: length }]
+        return [{ name: [name, ...parts].join('/'), size: length, index }]
       })
     } else if (typeof info.get('length') === 'number') {
-      files = [{ name, size: info.get('length') as number }]
+      files = [{ name, size: info.get('length') as number, index: 0 }]
+      fileCount = 1
     } else if (hasV2) {
       // a v2-only torrent has neither key, and its whole file list lives in the tree
       files = fromFileTree(info.get('file tree')!, name)
+      fileCount = files.length
     } else {
       files = []
     }
@@ -221,7 +243,7 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
     ]
     const magnet = `magnet:?${(urns.length ? urns : [`xt=urn:btih:${infoHash}`]).join('&')}&${params.toString()}`
 
-    return { magnet, name, size, files: files.length ? files : null }
+    return { magnet, name, size, files: files.length ? files : null, fileCount }
   } catch {
     return null
   }
@@ -245,5 +267,5 @@ export const readMagnet = (raw: string): ShareSubject | null => {
    */
   let magnet = trimmed
   try { magnet = new URL(trimmed).href } catch { /* not a URL, so leave it as typed */ }
-  return { magnet, name: magnetParam(magnet, 'dn') ?? infoHash, size: 0, files: null }
+  return { magnet, name: magnetParam(magnet, 'dn') ?? infoHash, size: 0, files: null, fileCount: 0 }
 }

@@ -23,9 +23,40 @@ describe('reading a share subject without the engine', () => {
   it('reads a multi-file torrent, joining each path onto the name', async () => {
     const doc = bencode('d8:announce9:udp://a:14:infod5:filesld6:lengthi10e4:pathl1:a5:b.mkveed6:lengthi20e4:pathl5:c.srteee4:name4:packee')
     const s = await readTorrentFile(doc)
-    expect(s!.files).toEqual([{ name: 'pack/a/b.mkv', size: 10 }, { name: 'pack/c.srt', size: 20 }])
+    expect(s!.files).toEqual([
+      { name: 'pack/a/b.mkv', size: 10, index: 0 },
+      { name: 'pack/c.srt', size: 20, index: 1 },
+    ])
     expect(s!.size).toBe(30)
     expect(s!.name).toBe('pack')
+    expect(s!.fileCount).toBe(2)
+  })
+
+  /*
+   * A PAD between the two files, which is where the index and the position part company.
+   *
+   * A share link names files by ENGINE index, and this list drops the pads, so numbering it 0..n-1
+   * pointed the link at the wrong file for everything after the first pad. The indices here are
+   * deliberately NON-CONTIGUOUS, and `fileCount` counts the pad, because `compileFileSelection`
+   * discards any index at or above the count it is given.
+   */
+  it('numbers the files it keeps by their engine index, not by their place in the list', async () => {
+    const doc = bencode(
+      'd8:announce9:udp://a:14:infod5:filesl'
+      + 'd6:lengthi10e4:pathl1:a5:b.mkveed'
+      + '6:lengthi16e4:attr1:p4:pathl4:.pad2:16eed'
+      + '6:lengthi20e4:pathl5:c.srteee'
+      + '4:name4:packee',
+    )
+    const s = await readTorrentFile(doc)
+    expect(s!.files).toEqual([
+      { name: 'pack/a/b.mkv', size: 10, index: 0 },
+      { name: 'pack/c.srt', size: 20, index: 2 },
+    ])
+    // the pad is nobody's data, so it is out of the list and out of the total
+    expect(s!.size).toBe(30)
+    // but it is still a file the engine numbers, so an index can legitimately reach 2
+    expect(s!.fileCount).toBe(3)
   })
 
   it('builds a magnet carrying the name and every tracker tier', async () => {

@@ -2159,8 +2159,11 @@ const Home = () => {
     magnet: t.magnet ?? '',
     name: t.name,
     size: t.size,
-    // pads are not the person's files, and a share link listing one would offer a `.pad` to watch
-    files: t.files ? contentFiles(t.files).map((f) => ({ name: f.name, size: f.size })) : null,
+    // pads are not the person's files, and a share link listing one would offer a `.pad` to watch.
+    // `index` comes along because the link names files by ENGINE index: dropping it left the dialog
+    // numbering a filtered list 0..n-1 and emitting positions, which pointed at the wrong files.
+    files: t.files ? contentFiles(t.files).map((f) => ({ name: f.name, size: f.size, index: f.index })) : null,
+    fileCount: t.files?.length ?? 0,
   }), [])
 
   useEffect(() => {

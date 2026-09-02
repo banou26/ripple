@@ -21,16 +21,31 @@ import { ShareLinkDialog } from '../../src/components/share-link-dialog'
  */
 const file = (name: string, size: number) => ({ name, size })
 
+/**
+ * A file list with no pads, where the position IS the engine index.
+ *
+ * Padded fixtures name their indices explicitly instead, because that is the whole point: a link
+ * carries ENGINE indices, and dropping pads renumbers everything after the first one.
+ */
+const numbered = (entries: { name: string, size: number }[]) => entries.map((e, index) => ({ ...e, index }))
+
+/** The same subject with a different file list, keeping `fileCount` honest against it. */
+const withFiles = (
+  entries: { name: string, size: number, index: number }[] | null,
+  fileCount = entries?.length ?? 0,
+): ShareSubject => ({ ...SINTEL, files: entries, fileCount })
+
 const SINTEL: ShareSubject = {
   magnet: 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel',
   name: 'Sintel',
   size: 129_300_000,
-  files: [
+  files: numbered([
     file('Sintel/Sintel.de.srt', 1_700),
     file('Sintel/Sintel.en.srt', 1_500),
     file('Sintel/Sintel.es.srt', 1_600),
     file('Sintel/Sintel.mp4', 129_200_000),
-  ],
+  ]),
+  fileCount: 4,
 }
 
 // the shell portals to the body, so nothing here is reachable through the render container
@@ -172,6 +187,39 @@ describe('the share link dialog, once it has a torrent', () => {
     await expect.poll(url).not.toBe('')
   })
 
+  /*
+   * A PADDED torrent, where a position and an engine index are different numbers.
+   *
+   * The link's `files=` is read by the download page as ENGINE indices. The subject's list is
+   * pad-filtered, so numbering it 0..n-1 emitted positions instead: a link naming the second
+   * episode pointed at the pad, and the recipient downloaded the wrong thing under a right-looking
+   * name. Without a pad the two coincide and this cannot fail, which is why the fixture has one.
+   */
+  const PADDED: ShareSubject = {
+    ...SINTEL,
+    files: [
+      { name: 'Pack/E01.mkv', size: 1_000, index: 0 },
+      // index 1 is the pad, which is never in this list
+      { name: 'Pack/E02.mkv', size: 2_000, index: 2 },
+    ],
+    fileCount: 3,
+  }
+
+  it('names files by engine index, not by their position after the pads are dropped', async () => {
+    const { query } = await mount(PADDED)
+    await userEvent.click(dialog().querySelector('details.files summary') as HTMLElement)
+    // clear the selection, then take only the SECOND content file, which is engine index 2
+    await userEvent.click([...dialog().querySelectorAll('.bulk button')][1] as HTMLElement)
+    await userEvent.click([...dialog().querySelectorAll('.file input[type="checkbox"]')][1] as HTMLElement)
+    await expect.poll(() => query().get('files')).toBe('2')
+  })
+
+  it('keeps every engine index when the whole selection is offered', async () => {
+    // 0 and 2 rather than 0-1: the pad at 1 is not the person's file and the link must not claim it
+    const { query } = await mount(PADDED)
+    await expect.poll(() => query().get('files')).toBe('0,2')
+  })
+
   it('puts allow-downloads in the frame snippet for a download link only', async () => {
     await mount(SINTEL)
     const snippet = () => dialog().querySelector('[data-testid="embed-iframe"]')?.textContent ?? ''
@@ -188,7 +236,7 @@ describe('the share link dialog, once it has a torrent', () => {
    * cannot check: `compileFileSelection` returns null once a selection covers every file, and
    * `embedPath` omits `fileIndex` when it is 0, so both parameters are absent either way.
    */
-  const ONE_FILE = { ...SINTEL, files: [file('Sintel/Sintel.mp4', 129_200_000)] }
+  const ONE_FILE = withFiles(numbered([file('Sintel/Sintel.mp4', 129_200_000)]))
 
   it('offers no file picker when the torrent holds one file', async () => {
     await mount(ONE_FILE)
@@ -212,7 +260,7 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 
   it('still offers the picker as soon as there are two files to choose between', async () => {
-    await mount({ ...SINTEL, files: [file('a.mkv', 2), file('b.srt', 1)] })
+    await mount(withFiles(numbered([file('a.mkv', 2), file('b.srt', 1)])))
     // download is the default, so the list is the picker on screen
     expect(dialog().querySelector('details.files')).not.toBeNull()
   })
@@ -224,7 +272,7 @@ describe('the share link dialog, once it has a torrent', () => {
    * only once somebody else has already clicked it. The note has to say why, or the missing control
    * reads as a bug.
    */
-  const NO_MEDIA = { ...SINTEL, files: [file('readme.txt', 10), file('data.zip', 900)] }
+  const NO_MEDIA = withFiles(numbered([file('readme.txt', 10), file('data.zip', 900)]))
 
   it('offers no Watch option when nothing in the torrent can be played', async () => {
     await mount(NO_MEDIA)
@@ -244,12 +292,12 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 
   it('keeps Watch for a magnet whose file list has not arrived, since unknown is not unplayable', async () => {
-    await mount({ ...SINTEL, files: null })
+    await mount(withFiles(null, 0))
     expect([...dialog().querySelectorAll('button')].map((b) => b.textContent)).toContain('Watch')
   })
 
   it('still builds a link before the file list arrives, covering the whole torrent', async () => {
-    const { url, query } = await mount({ ...SINTEL, files: null })
+    const { url, query } = await mount(withFiles(null, 0))
     expect(url()).not.toBe('')
     expect(query().get('files')).toBeNull()
   })
