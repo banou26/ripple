@@ -64,12 +64,22 @@ describe('against torrents libtorrent itself built', () => {
   for (const reference of REFERENCE_CASES) {
     describe(`${reference.name}: ${reference.why}`, () => {
       for (const file of reference.files) {
+        /*
+         * An explicit timeout, because the biggest of these sits ON the default one.
+         *
+         * `big.bin` is 2,097,157 bytes and hashing it into a full merkle tree took 5006 ms against
+         * vitest's 5000 ms default: it passes run alone and fails in a full suite, where the workers
+         * share a machine. Measured three times before this was read as a timeout rather than as a
+         * wrong hash, and it would have been an intermittent red in the CI gate this suite is about
+         * to become. The number is generous on purpose; what is being bought is a stable verdict, not
+         * a fast one.
+         */
         it(`${file.path.join('/')} at ${file.size} bytes`, async () => {
           const content = await referenceBytes(file.seed, file.size)
           const tree = await merkleTreeOf(content, reference.pieceLength)
           expect(tree.root === null ? null : hex(tree.root)).toBe(file.root)
           expect(tree.layer.map(hex)).toEqual(file.layer)
-        })
+        }, 60_000)
       }
     })
   }
