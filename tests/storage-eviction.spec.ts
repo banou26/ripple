@@ -130,6 +130,19 @@ const squeezeTo = async (page: Page, freeBytes: number) => {
 }
 
 /** Wait for the demo torrent to have written a real amount of data. */
+/**
+ * Start the bundled demo, which now arrives PAUSED.
+ *
+ * A first run used to add it started, so every test here got a real torrent moving bytes for free.
+ * It is added paused and temporary since `5a416fa`, because a first run should not spend somebody's
+ * metered allowance on 129 MB nobody asked for. Anything that needs the demo to actually download
+ * has to say so now, and this is that.
+ */
+const startDemo = async (page: Page) => {
+  const resume = page.locator('.torrent').first().getByRole('button', { name: 'Resume' })
+  if (await resume.isVisible().catch(() => false)) await resume.click()
+}
+
 const downloadSome = async (page: Page, atLeast: number) => {
   const baseline = (await estimate(page)).used
   await expect.poll(
@@ -176,6 +189,7 @@ test.describe('orphan sweep', () => {
     await page.goto('/')
     await expect(page.locator('.torrent').first()).toBeVisible()
     // let the demo publish its layout, which is what lets the shared root be accounted for at all
+    await startDemo(page)
     await downloadSome(page, 5_000_000)
     const entries = await library(page)
     expect(entries).toHaveLength(1)

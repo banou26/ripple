@@ -41,14 +41,28 @@ test('the library boots, the engine reports in, and nothing throws', async ({ pa
   await expect(page.getByRole('status')).toHaveText('Already in your list')
   await expect(page.locator('.torrent')).toHaveCount(1)
 
-  await row.getByRole('button', { name: 'Pause' }).click()
+  /*
+   * The demo arrives PAUSED, and that is the assertion rather than a step to get past.
+   *
+   * A first run used to add it started, so opening Ripple for the first time pulled 129.3 MB nobody
+   * had asked for and then seeded it, against a metered allowance. It is added paused and temporary
+   * now, so the row is an offer rather than a transfer, and this is the only test that sees a first
+   * run at all.
+   */
   await expect(row.locator('.badge')).toHaveText('Paused')
+
+  // and it STAYS stopped: a pause that quietly lifts itself is the failure this has always watched
+  // for, whether it was the person's pause or the one the add came with
   await page.waitForTimeout(7_000)
   await expect(row.locator('.badge')).toHaveText('Paused')
 
   await row.getByRole('button', { name: 'Resume' }).click()
   await expect(row.locator('.badge')).not.toHaveText('Paused')
   await expect(row.locator('.badge')).not.toHaveText('Retrying')
+
+  // and back, which is the half the old version covered by pausing first
+  await row.getByRole('button', { name: 'Pause' }).click()
+  await expect(row.locator('.badge')).toHaveText('Paused')
 
   expect(pageErrors).toEqual([])
 })

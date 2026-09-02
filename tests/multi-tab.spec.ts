@@ -51,11 +51,18 @@ test('a second tab borrows the first tab\'s engine, then takes it over when that
   const nameInA = await firstRow(a).locator('.title strong').innerText()
   await expect(firstRow(b).locator('.title strong')).toHaveText(nameInA)
 
-  const pauseInB = firstRow(b).getByRole('button', { name: 'Pause' })
-  await expect(pauseInB).toBeVisible({ timeout: 30_000 })
-  await pauseInB.click()
-  await expect(firstRow(a).locator('.badge'), 'the borrowing tab\'s Pause never reached the engine')
-    .toHaveText('Paused', { timeout: 30_000 })
+  /*
+   * RESUME, not Pause, because the demo now arrives paused (`5a416fa`).
+   *
+   * What is under test is unchanged: a command issued in the tab that only BORROWS the engine has to
+   * reach the tab hosting it, and be visible there. Resume is simply the direction that exists from
+   * the state a first run starts in, and the second test in this file already handles both.
+   */
+  const resumeInB = firstRow(b).getByRole('button', { name: 'Resume' })
+  await expect(resumeInB).toBeVisible({ timeout: 30_000 })
+  await resumeInB.click()
+  await expect(firstRow(a).locator('.badge'), 'the borrowing tab\'s Resume never reached the engine')
+    .not.toHaveText('Paused', { timeout: 30_000 })
 
   await a.close()
   await expect
