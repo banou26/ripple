@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, cacheBudget, evictionFloor, planEviction } from '../../src/torrent/storage-budget'
+import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, cacheBudget, evictionFloor, isOriginFull, planEviction } from '../../src/torrent/storage-budget'
 import type { Budget, EvictionCandidate } from '../../src/torrent/storage-budget'
 
 const GB = 1_000_000_000
@@ -182,5 +182,68 @@ describe('planEviction', () => {
     expect(planEviction(budget({ limitBytes: 10 * GB, usedBytes: Number.NaN, candidates }))).toEqual([])
     // a quota the browser reports as smaller than what it says is already stored
     expect(planEviction(budget({ limitBytes: 10 * GB, usedBytes: -1, candidates }))).toEqual([])
+  })
+})
+
+/*
+ * The shape a real Chromium origin actually presents, which is not the shape these cases assume.
+ *
+ * MEASURED 2026-09-03, one machine with 2.7 TiB free, one origin, three 512 MiB sparse writes:
+ * Chromium's quota rose 10.737 GB to 12.353 GB, by exactly what was written, and `quota - usage`
+ * came back as 10,737,418,240 every single time. Firefox on the same machine held the quota still
+ * and let the headroom fall by the 1,613,063,025 bytes written, byte for byte.
+ *
+ * So on Chromium the browser hands the planner `limit = used + 10 GiB` rather than a fixed limit,
+ * and these pin what that does to the two branches. They are here rather than in a comment because
+ * the arithmetic is what decides it, and the arithmetic is testable.
+ */
+describe('an origin whose ceiling floats with its usage, as Chromium reports one', () => {
+  const HEADROOM = 10_737_418_240
+  const chromiumAt = (usedBytes: number, candidates: EvictionCandidate[]): Budget =>
+    ({ usedBytes, limitBytes: usedBytes + HEADROOM, pendingBytes: 0, candidates })
+
+  it('never fires the pressure branch, however much is already used', () => {
+    // the floor is min(1 GB, 10% of limit) and the headroom is a constant 10 GiB, so `free < floor`
+    // is `10 GiB < 1 GB` at every usage there is
+    for (const used of [0, 1 * GB, 50 * GB, 500 * GB]) {
+      expect(isOriginFull({ usedBytes: used, limitBytes: used + HEADROOM })).toBe(false)
+    }
+  })
+
+  it('leaves the size branch as the only one that can reclaim anything there', () => {
+    // 8 GB of cold cache against a budget of 25% of (8 GB + 10.74 GiB), which is about 4.7 GB
+    const cold = [1, 2, 3, 4].map((n) => candidate(String(n), n, 2 * GB))
+    const plan = planEviction(chromiumAt(8 * GB, cold))
+    expect(plan.length, 'the cache ceiling still bites even where pressure cannot').toBeGreaterThan(0)
+    // oldest first, and no more than the ceiling asks for
+    expect(plan[0]).toBe('1')
+    expect(plan.length).toBeLessThan(cold.length)
+  })
+
+  it('settles at a bounded cache rather than growing without end', () => {
+    /*
+     * `cold = CACHE_SHARE * (cold + headroom)` solves to headroom/3 with CACHE_SHARE at a quarter,
+     * which is about 3.6 GB. Below it nothing is taken, above it something is, so the cache cannot
+     * run away on a machine that never feels full: that is what makes the floating ceiling safe
+     * rather than merely survivable.
+     */
+    const settled = HEADROOM / 3
+    const under = [candidate('a', 1, Math.floor(settled * 0.9))]
+    expect(planEviction(chromiumAt(under[0]!.bytesOnDisk, under))).toEqual([])
+    const over = [1, 2].map((n) => candidate(String(n), n, Math.floor(settled * 0.8)))
+    const used = over.reduce((sum, c) => sum + c.bytesOnDisk, 0)
+    expect(planEviction(chromiumAt(used, over)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('isOriginFull', () => {
+  it('is true only inside the floor', () => {
+    expect(isOriginFull({ usedBytes: 99.5 * GB, limitBytes: 100 * GB })).toBe(true)
+    expect(isOriginFull({ usedBytes: 98 * GB, limitBytes: 100 * GB })).toBe(false)
+  })
+
+  it('is false for a quota the browser will not report, which is not a full origin', () => {
+    expect(isOriginFull({ usedBytes: 5 * GB, limitBytes: 0 })).toBe(false)
+    expect(isOriginFull({ usedBytes: 5 * GB, limitBytes: Number.NaN })).toBe(false)
   })
 })

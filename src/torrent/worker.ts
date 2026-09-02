@@ -19,7 +19,7 @@ import { NO_INBOUND, countInbound } from './inbound'
 import type { Totals, Uptime } from './uptime'
 
 import { NO_TOTALS, NO_UPTIME, TOTAL_KEYS, accumulate, mergeTotals, sessionUptime, totalUptime, worthWriting } from './uptime'
-import { evictionFloor, planEviction } from './storage-budget'
+import { isOriginFull, planEviction } from './storage-budget'
 import { correctedUsage, measureOpfsBytes } from './opfs-usage'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata } from './library'
@@ -1053,7 +1053,7 @@ const collectCandidates = async (list: Persisted[], now: number): Promise<Evicti
 // announcing the origin as full is worse than saying nothing.
 let storageFull = false
 const reportSpace = (space: Space) => {
-  const full = space.limitBytes - space.usedBytes < evictionFloor(space.limitBytes)
+  const full = isOriginFull(space)
   if (full === storageFull) return
   storageFull = full
   post({ type: 'storage-full', full, usedBytes: space.usedBytes, limitBytes: space.limitBytes })
@@ -1117,9 +1117,21 @@ const runStorageBudget = async () => {
   const live = session
   if (!live || budgetPassRunning) return
   budgetPassRunning = true
+  /*
+   * The last thing this pass actually measured, reported in `finally` rather than at the end.
+   *
+   * `reportSpace` used to sit on the happy path alone, and there are three ways out above it: an
+   * origin that cannot be measured, a delete whose effect cannot be read back, and a throw anywhere
+   * in the pass. All three skipped the one call that raises "Out of storage space", which is the
+   * notice a player shows instead of stalling with nothing on screen. A pass that fails part way is
+   * exactly when a full origin most needs saying, so the report is owed on every exit that still
+   * knows an honest figure.
+   */
+  let measured: Space | null = null
   try {
     let space = await measureSpace()
     if (!space) return
+    measured = space
     const pendingBytes = remainingForViewers()
     let candidates = await collectCandidates(await loadList(), Date.now())
     // One at a time, re-measured in between. The plan's sizes decide the ORDER and whether to start
@@ -1138,18 +1150,25 @@ const runStorageBudget = async () => {
       const before = space.usedBytes
       await evict(live, h, next)
       const after = await settleAfterDelete(before)
-      if (!after) return
+      // The delete landed and its effect cannot be read back, so nothing here knows the origin's
+      // state any more. Reporting the figure from before it would announce a full origin having just
+      // given up a torrent's worth of bytes, which is the one thing `reportSpace` must never do.
+      if (!after) { measured = null; return }
       space = after
+      measured = after
     }
     // Out of torrents it may give up, but bytes nothing owns are always fair game and are exactly
     // what an account switch leaves behind, so sweep before calling the origin full.
-    if (space.limitBytes - space.usedBytes < evictionFloor(space.limitBytes) && await runOrphanSweep()) {
+    if (isOriginFull(space) && await runOrphanSweep()) {
       space = (await settleAfterDelete(space.usedBytes)) ?? space
     }
-    reportSpace(space)
+    measured = space
   } catch (err) {
     console.error('[worker] storage budget pass failed', String(err))
-  } finally { budgetPassRunning = false }
+  } finally {
+    budgetPassRunning = false
+    if (measured) reportSpace(measured)
+  }
 }
 
 const init = async () => {

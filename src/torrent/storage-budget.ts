@@ -50,6 +50,50 @@ export const cacheBudget = (limitBytes: number, largestBytes: number): number =>
   return Math.max(Math.min(CACHE_SHARE * limitBytes, MAX_CACHE_BYTES), Math.max(0, largestBytes))
 }
 
+/**
+ * Whether the origin is short enough of room to be worth saying so.
+ *
+ * One expression, in one place, because it decides two different things: whether to sweep the bytes
+ * nothing owns before giving up, and whether to raise the "Out of storage space" notice a player
+ * shows instead of stalling with nothing on screen.
+ *
+ * WHICH BROWSER THIS CAN EVER BE TRUE ON, measured 2026-09-03 on one machine with 2.7 TiB free, one
+ * origin, three 512 MiB sparse writes per engine:
+ *
+ *  - CHROMIUM reports a FLOATING ceiling. The quota rose from 10.737 GB to 12.353 GB, by exactly
+ *    what was written, and `quota - usage` moved by 0 bytes each time: 10,737,418,240, which is
+ *    10 GiB, before and after every write. So the headroom is a constant and this function is
+ *    `10 GiB < 1 GB`, which is false however much anybody writes.
+ *  - FIREFOX reports a FIXED ceiling. The quota stayed at 10,737,418,240 and the headroom fell by
+ *    1,613,063,025 bytes against 1,613,063,025 written, byte for byte. Everything here works there.
+ *
+ * That is not a small difference in a number, it is a difference in what the number MEANS, and it
+ * had gone unnoticed because at low usage a flat quota and a flat headroom read identically. It is
+ * why four eviction tests sat failing: they squeeze the origin to provoke this, and on Chromium a
+ * squeeze cannot land. `storage-relief.ts` records the 10 GiB as a cap on the budget; it is a cap on
+ * the HEADROOM, and only that reading survives the pair above.
+ *
+ * The design still holds on Chromium, through {@link cacheBudget} rather than through pressure.
+ * With `limit = used + 10 GiB` the cold cache settles where `cold = CACHE_SHARE * (cold + 10 GiB)`,
+ * which is about 3.6 GB, so it is bounded and converges rather than growing without end. Pressure is
+ * the branch that is inert there, not the whole of it.
+ */
+export const isOriginFull = ({ usedBytes, limitBytes }: { usedBytes: number, limitBytes: number }): boolean => {
+  /*
+   * An origin whose quota the browser will not report is not an origin that is KNOWN to be full,
+   * which is the same rule `planEviction` states below and states for the same reason.
+   *
+   * Without this line the arithmetic answers the opposite: `evictionFloor(0)` is 0, so a limit of 0
+   * against any usage at all is `-used < 0`, which is true, and an origin that merely declined to
+   * say would raise "Out of storage space" permanently. Unreachable through `measureSpace`, which
+   * returns null on a falsy quota before it ever gets here, and this is an exported primitive that
+   * two call sites already share, so it may not depend on one caller's guard to be right.
+   */
+  if (!Number.isFinite(limitBytes) || limitBytes <= 0) return false
+  if (!Number.isFinite(usedBytes) || usedBytes < 0) return false
+  return limitBytes - usedBytes < evictionFloor(limitBytes)
+}
+
 export type EvictionCandidate = {
   infoHash: string
   /** `lastUsedAt ?? addedAt`, resolved by the caller so this module never guesses at a default. */

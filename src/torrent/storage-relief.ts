@@ -8,6 +8,20 @@ import type { SaveLocation } from './library'
  * and `navigator.storage.persist()` was refused on every attempt there without ever raising a
  * prompt. Nothing this module offers changes that number, and nothing else can either.
  *
+ * The 10 GiB caps the HEADROOM, not the quota, which is a stronger statement than the paragraph
+ * above knew when it was written and does not change a word of the advice it gives. Re-measured
+ * 2026-09-03 by writing rather than by reading: three 512 MiB sparse writes raised Chromium's
+ * reported quota from 10.737 GB to 12.353 GB, by exactly what was written, leaving `quota - usage`
+ * at 10,737,418,240 bytes after every one of them. Firefox on the same machine and origin held its
+ * quota still and let the headroom fall by the 1,613,063,025 bytes written, byte for byte.
+ *
+ * At low usage those two look identical, which is why one reading stood for the other. The reason it
+ * matters is in `storage-budget.ts`: a ceiling that floats means Chromium never reports the origin
+ * as full, so the pressure half of the eviction budget and the "Out of storage space" notice are
+ * both inert there. What is NOT affected is anything this module says. Bytes still count against the
+ * cap, moving them to a folder still takes them out from under it, and Chromium still refuses to
+ * raise it.
+ *
  * On FIREFOX that same call is not the same thing. Measured 2026-09-01 on torrent.fkn.app: granting
  * its "Store data in persistent storage" doorhanger moved the reported quota from 12 GB to 3.97 TB
  * on an 8.03 TB device. That route is deliberately NOT part of this module, because it is a prompt
