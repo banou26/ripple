@@ -485,8 +485,7 @@ export const createTorrentClient = (): EngineClient => {
         gate.open()
         // a fresh engine, including one in another tab, holds none of this page's reservations
         for (const infoHash of reserved) send({ type: 'reserve-storage', infoHash, on: true })
-      }
-      else if (m.type === ENGINE_RESET) {
+      } else if (m.type === ENGINE_RESET) {
         resetEngineState('the engine was taken over by another tab')
       } else if (m.type === 'storage-unavailable') {
         storageIsUnavailable = true
