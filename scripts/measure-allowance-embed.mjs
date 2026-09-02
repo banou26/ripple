@@ -31,6 +31,14 @@ if (!MAGNET) {
   process.exit(1)
 }
 
+/**
+ * Point the run at a DEPLOYED origin instead of a locally served build.
+ *
+ * The reason this exists: a fix measured against a local build is measured against bytes nobody else
+ * runs. Setting this drives the real deployment, which is the only way to say the number describes
+ * what a user gets. No static server is started when it is set.
+ */
+const BASE_URL = process.env.RIPPLE_MEASURE_BASE_URL
 const PORT = process.env.RIPPLE_MEASURE_PORT || '4771'
 const CAP_MS = Number(process.env.RIPPLE_MEASURE_CAP_MS ?? 25 * 60_000)
 const EVERY_MS = 10_000
@@ -50,11 +58,14 @@ const readQuota = async () => {
   return body?.data?.quota ?? null
 }
 
-const serve = spawn('npx', ['serve', '-s', '-C', '-p', PORT, 'build'], { stdio: 'ignore' })
-const stopServer = () => { try { serve.kill('SIGTERM') } catch {} }
+const serve = BASE_URL ? null : spawn('npx', ['serve', '-s', '-C', '-p', PORT, 'build'], { stdio: 'ignore' })
+const stopServer = () => { try { serve?.kill('SIGTERM') } catch {} }
 process.on('exit', stopServer)
 
+const origin = BASE_URL ?? `http://127.0.0.1:${PORT}`
+
 const waitForServer = async () => {
+  if (BASE_URL) return
   for (let i = 0; i < 60; i++) {
     try { if ((await fetch(`http://127.0.0.1:${PORT}/`)).ok) return } catch {}
     await new Promise((r) => setTimeout(r, 500))
@@ -66,6 +77,7 @@ const main = async () => {
   await waitForServer()
 
   const before = await readQuota()
+  console.log(`target: ${origin}`)
   console.log(`allowance before: ${mb(before?.usedBytes)} used, ${mb(before?.remaining)} left`)
 
   const downloads = mkdtempSync(join(tmpdir(), 'ripple-measure-'))
@@ -101,7 +113,7 @@ const main = async () => {
 
   const page = await context.newPage()
   const extra = process.env.RIPPLE_MEASURE_PARAMS ? `&${process.env.RIPPLE_MEASURE_PARAMS}` : ''
-  const url = `http://127.0.0.1:${PORT}/embed?magnet=${Buffer.from(MAGNET).toString('base64')}&mode=download${extra}`
+  const url = `${origin}/embed?magnet=${Buffer.from(MAGNET).toString('base64')}&mode=download${extra}`
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 60_000 })
 
