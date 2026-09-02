@@ -185,6 +185,8 @@ describe('planning a torrent', () => {
 })
 
 const hashes = (count: number) => new Uint8Array(count * PIECE_HASH_BYTES).fill(7)
+/** One merkle tree per CONTENT file, which is what a v2 or hybrid encode asks for. */
+const trees = (count: number) => Array.from({ length: count }, () => ({ root: new Uint8Array(32).fill(9), layer: [] }))
 
 describe('encoding the info dictionary', () => {
   it('refuses a piece list that does not match the piece count', () => {
@@ -262,6 +264,46 @@ describe('what another reader makes of it', () => {
      * to drop that first segment, because the source handle IS that directory.
      */
     expect(read!.files!.map((f) => f.name)).toEqual(['Some.Pack/E01.mkv', 'Some.Pack/Subs/E01.ass'])
+  })
+
+  /*
+   * The indices a share link carries, which only this loop can check.
+   *
+   * A v2-only torrent has no `files` list, so libtorrent synthesizes one from the file tree on parse
+   * and PADS it unconditionally. Reads are served by index into that synthesized list, so the second
+   * content file is not index 1. The decoder has to number the tree the way the parser will, and the
+   * only way to know it got it right is to build a torrent whose padding this file already asserts
+   * elsewhere and read the numbering back out.
+   *
+   * The hybrid case is the control: its `files` list is written out with the pads in it, so the
+   * decoder reads real indices straight off the wire rather than deriving them.
+   */
+  it('numbers a v2 tree the way libtorrent will, pads included', async () => {
+    const two = plan({
+      name: 'Pack',
+      // neither size lands on a piece boundary, so a pad follows each
+      files: [{ path: ['E01.mkv'], size: 40 }, { path: ['E02.mkv'], size: 50 }],
+      pieceLength: 65536,
+      format: 'v2',
+    })
+    const read = await readTorrentFile(encodeTorrent({ plan: two, pieces: hashes(two.pieceCount), fileHashes: trees(2) }))
+    expect(read!.files!.map((f) => f.name)).toEqual(['Pack/E01.mkv', 'Pack/E02.mkv'])
+    // 0 and 2, never 0 and 1: the pad after E01 takes index 1
+    expect(read!.files!.map((f) => f.index)).toEqual([0, 2])
+    // and the count an index is bounded by counts those pads
+    expect(read!.fileCount).toBe(4)
+  })
+
+  it('reads a hybrid list back at its written indices, pads and all', async () => {
+    const two = plan({
+      name: 'Pack',
+      files: [{ path: ['E01.mkv'], size: 40 }, { path: ['E02.mkv'], size: 50 }],
+      pieceLength: 65536,
+      format: 'hybrid',
+    })
+    const read = await readTorrentFile(encodeTorrent({ plan: two, pieces: hashes(two.pieceCount), fileHashes: trees(2) }))
+    expect(read!.files!.map((f) => f.name)).toEqual(['Pack/E01.mkv', 'Pack/E02.mkv'])
+    expect(read!.files!.map((f) => f.index)).toEqual([0, 2])
   })
 
   it('agrees on the infohash, computed from the bytes rather than from the builder', async () => {

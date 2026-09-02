@@ -1,3 +1,4 @@
+import { padLengthFor } from './make-torrent'
 import { magnetInfoHash, magnetParam } from './magnet'
 
 /**
@@ -116,22 +117,47 @@ const hex = (buffer: ArrayBuffer): string =>
  * else is a directory. Pads never appear here: a pad inside a file tree is a hard parse failure in
  * libtorrent, so a tree that has one is not a torrent worth describing.
  */
-// v2 aligns files to piece boundaries by construction, so a file tree carries no pads and walk order
-// IS engine order: the position each entry lands at here is its index
-const fromFileTree = (tree: Bencode, name: string): { name: string, size: number, index: number }[] => {
+/**
+ * A v2-only file tree, numbered the way LIBTORRENT will number it, not the way it is written.
+ *
+ * The tree itself carries no pads, which is why numbering it by position looks right and is not. A
+ * v2-only torrent has no `files` list, so libtorrent SYNTHESIZES one from the tree on parse and that
+ * path pads unconditionally, including for a single file. Reads are then served by index into that
+ * synthesized list, so the engine index of the nth content file is n plus however many pads precede
+ * it. `make-torrent.ts` carries the measurement and the two rules; this is the reader's half of the
+ * same fact, and it uses the same `padLengthFor` so the two cannot drift.
+ *
+ * A tree with no piece length to reason from is left numbered by position, which is what it was
+ * before and is right for the aligned case.
+ */
+const fromFileTree = (
+  tree: Bencode,
+  name: string,
+  pieceLength: number,
+): { files: { name: string, size: number, index: number }[], fileCount: number } => {
   const out: { name: string, size: number, index: number }[] = []
+  // the engine's own cursor: content files and the pads libtorrent inserts between them
+  let index = 0
+  let offset = 0
   const walk = (node: Bencode, prefix: string[]) => {
     if (!(node instanceof Map)) return
     const own = node.get('')
     if (own instanceof Map) {
       const length = own.get('length')
-      if (typeof length === 'number') out.push({ name: [name, ...prefix].join('/'), size: length, index: out.length })
+      if (typeof length !== 'number') return
+      out.push({ name: [name, ...prefix].join('/'), size: length, index })
+      index++
+      if (pieceLength > 0) {
+        offset += length
+        const pad = length > 0 ? padLengthFor(offset, pieceLength) : 0
+        if (pad > 0) { index++; offset += pad }
+      }
       return
     }
     for (const [key, child] of node) walk(child, [...prefix, key])
   }
   walk(tree, [])
-  return out
+  return { files: out, fileCount: index }
 }
 
 /**
@@ -202,6 +228,8 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
 
     const name = text(info.get('name')) ?? (hasV1 ? infoHash : infoHashV2 ?? infoHash)
     const fileList = info.get('files')
+    // only the v2 tree needs it, to place the pads libtorrent will synthesize
+    const pieceLength = typeof info.get('piece length') === 'number' ? info.get('piece length') as number : 0
 
     let files: { name: string, size: number, index: number }[]
     // the engine's own count, which the dropped pads are still part of
@@ -226,8 +254,9 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
       fileCount = 1
     } else if (hasV2) {
       // a v2-only torrent has neither key, and its whole file list lives in the tree
-      files = fromFileTree(info.get('file tree')!, name)
-      fileCount = files.length
+      const tree = fromFileTree(info.get('file tree')!, name, pieceLength)
+      files = tree.files
+      fileCount = tree.fileCount
     } else {
       files = []
     }
