@@ -1148,12 +1148,22 @@ const runStorageBudget = async () => {
       // that window. Commands do not queue behind this pass, so nothing else would notice.
       if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
       const before = space.usedBytes
+      /*
+       * From HERE until the delete is read back, nothing knows the origin's state, so there is no
+       * honest figure to report and `measured` says so.
+       *
+       * Clearing it after `evict` instead would leave a real hole rather than a theoretical one:
+       * `releaseStorage` awaits `patchList`, which is an IndexedDB read-modify-write, which is
+       * exactly the kind of write that fails on a full origin. A throw there escapes to the catch
+       * with the bytes ALREADY gone and the pre-delete figure still in hand, and `finally` would
+       * then announce a full origin having just given up a torrent's worth of bytes: the one thing
+       * the note on `reportSpace` says it must never do.
+       */
+      measured = null
       await evict(live, h, next)
       const after = await settleAfterDelete(before)
-      // The delete landed and its effect cannot be read back, so nothing here knows the origin's
-      // state any more. Reporting the figure from before it would announce a full origin having just
-      // given up a torrent's worth of bytes, which is the one thing `reportSpace` must never do.
-      if (!after) { measured = null; return }
+      // the delete landed and its effect cannot be read back, so there is still nothing honest to say
+      if (!after) return
       space = after
       measured = after
     }
