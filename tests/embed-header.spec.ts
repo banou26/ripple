@@ -50,7 +50,15 @@ test.describe('the embedded player header', () => {
     await expect(toRipple).toBeVisible({ timeout: 90_000 })
 
     const [opened] = await Promise.all([context.waitForEvent('page'), toRipple.click()])
-    await opened!.waitForLoadState('domcontentloaded')
+    /*
+     * `waitForURL`, not `waitForLoadState`.
+     *
+     * A page opened by a target=_blank click exists before it has navigated, and
+     * `waitForLoadState('domcontentloaded')` is satisfied by the `about:blank` it starts on. Reading
+     * `url()` there returns "about:blank", so the next line failed with `TypeError: Invalid URL`
+     * rather than with anything about the link: three of three runs, locally.
+     */
+    await opened!.waitForURL(/[?&]torrent=/, { timeout: 30_000 })
     expect(new URL(opened!.url()).searchParams.get('torrent')).toBe(SINTEL_HASH)
 
     /*
