@@ -35,13 +35,18 @@ jobs:
 
   # Components mounted in a real Chrome. It does NOT need build/ output: the one test that wanted
   # build/libav-worker.js says so itself and skips when it is absent.
-  # ADVISORY until a run proves them, and that is not caution for its own sake: the first run of this
-  # gate failed 13 of 35 in `e2e-local` while the identical lane passed 35 of 35 locally, on three
-  # environment differences a local run cannot show (a runner low on disk renders a storage-relief
-  # button and a storage `status` that make two selectors ambiguous, and its font set moves the
-  # tabular readouts `stable-widths` measures). A gate that is red on every push is worse than none,
-  # so the BLOCKING job is `unit`, which carries `tests/lanes.test.ts` and therefore the anti-rot
-  # property this whole change is for. Flip these to blocking once a run is green.
+  # ADVISORY, and this one has a reason of its own rather than being unproven.
+  #
+  # It passes: 295 of 295 tests green on the runner. What fails is an IMPORT, "Vitest failed to find
+  # the runner", on a cold dependency-optimizer cache. Seen three times now, twice locally, and it
+  # clears on a re-run with the cache warm. That is an upstream flake rather than a fact about this
+  # repo, and a push gate must not carry one.
+  #
+  # `e2e-local` used to sit here too. Its first run failed 13 of 35 while the identical lane passed
+  # 35 of 35 locally, on environment differences a local run cannot show: a runner low on disk renders
+  # a storage-relief button and a storage `status`, which made two selectors ambiguous, and its font
+  # set moves the tabular readouts `stable-widths` measures. The selectors were real defects and are
+  # fixed; the font ones moved to the `machine` lane. It is green on the runner now, so it blocks.
   browser:
     runs-on: ubuntu-24.04
     continue-on-error: true
@@ -67,7 +72,6 @@ jobs:
   # these are deterministic, so they can gate a push.
   e2e-local:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
