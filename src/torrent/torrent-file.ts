@@ -136,6 +136,30 @@ const fromFileTree = (
   pieceLength: number,
 ): { files: { name: string, size: number, index: number }[], fileCount: number } => {
   const out: { name: string, size: number, index: number }[] = []
+  /*
+   * The torrent's NAME is not always part of the path, and this is the one shape where it is not.
+   *
+   * libtorrent's `extract_files2` decides it in one line, quoted in full where `dropsFolderName`
+   * explains the consequence to somebody about to create one:
+   *
+   *     bool const single_file = leaf_node && !has_files && tree.dict_size() == 1;
+   *     std::string path = single_file ? std::string() : root_dir;
+   *
+   * `root_dir` is the name. `has_files` is whether a v1 `files` list is present, and it is false by
+   * construction here: this function is reached only for a torrent that has neither `files` nor
+   * `length`. So a top level holding exactly ONE leaf discards the name and the file lands on its
+   * own, while the same content with a second file, or nested one folder deeper, keeps it.
+   *
+   * This used to prefix the name unconditionally, which is right for every shape but that one. It
+   * read as cosmetic for as long as the only consumer was a dialog listing names, and stopped being
+   * cosmetic when `copy-source.ts` began WRITING to these paths: bytes at `Movie/Movie` are bytes
+   * the engine's check does not find, so a torrent verifies at zero and downloads what its own
+   * author just made. Measured exactly that way before it was fixed.
+   */
+  const entries = tree instanceof Map ? [...tree.values()] : []
+  const only = entries.length === 1 ? entries[0] : null
+  const singleFile = only instanceof Map && only.get('') instanceof Map
+  const root = singleFile ? [] : [name]
   // the engine's own cursor: content files and the pads libtorrent inserts between them
   let index = 0
   let offset = 0
@@ -145,7 +169,7 @@ const fromFileTree = (
     if (own instanceof Map) {
       const length = own.get('length')
       if (typeof length !== 'number') return
-      out.push({ name: [name, ...prefix].join('/'), size: length, index })
+      out.push({ name: [...root, ...prefix].join('/'), size: length, index })
       index++
       if (pieceLength > 0) {
         offset += length

@@ -109,3 +109,63 @@ describe('reading a share subject without the engine', () => {
     expect(readMagnet(raw)!.magnet).toBe(raw)
   })
 })
+
+/**
+ * The v2 file tree, and the one shape where the torrent's NAME is not part of the path.
+ *
+ * libtorrent's `extract_files2` decides it in a line, and `dropsFolderName` in make-torrent.ts
+ * quotes it in full:
+ *
+ *     bool const single_file = leaf_node && !has_files && tree.dict_size() == 1;
+ *     std::string path = single_file ? std::string() : root_dir;
+ *
+ * `has_files` is whether a v1 `files` list is present, and it is false for everything here, because
+ * the tree is only read for a torrent that carries neither `files` nor `length`. So a top level of
+ * exactly one LEAF drops the name; one leaf plus anything else, or one leaf a folder deeper, keeps
+ * it.
+ *
+ * This decoder prefixed the name unconditionally until 2026-09-03. It read as cosmetic while the
+ * only consumer was a dialog listing names, and stopped being cosmetic when `copy-source.ts` began
+ * WRITING to these paths: a file put at `movie.mkv/movie.mkv` is a file the engine's check does not
+ * find, so the torrent verifies at zero and downloads what its own author just made. That is not a
+ * deduction, it is what a headful run did, twice, before and after the fix.
+ */
+describe('a v2 file tree, numbered and named the way libtorrent does', () => {
+  const enc = (value: unknown): string => {
+    if (typeof value === 'number') return `i${value}e`
+    if (typeof value === 'string') return `${value.length}:${value}`
+    if (Array.isArray(value)) return `l${value.map(enc).join('')}e`
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    return `d${entries.map(([key, inner]) => enc(key) + enc(inner)).join('')}e`
+  }
+  /** A file's own entry, which sits under the empty-string key. */
+  const leaf = (length: number) => ({ '': { length } })
+  const v2 = (name: string, tree: Record<string, unknown>) =>
+    bencode(enc({ info: { 'file tree': tree, 'meta version': 2, name, 'piece length': 65536 } }))
+
+  it('drops the name when the top level is a single file', async () => {
+    const s = await readTorrentFile(v2('movie.mkv', { 'movie.mkv': leaf(1_000) }))
+    expect(s!.files!.map((f) => f.name)).toEqual(['movie.mkv'])
+    expect(s!.size).toBe(1_000)
+  })
+
+  /** The same content plus one more file makes `dict_size() == 1` false, so the name comes back. */
+  it('keeps the name as soon as there is a second file beside it', async () => {
+    const s = await readTorrentFile(v2('Pack', { 'a.mkv': leaf(10), 'b.mkv': leaf(20) }))
+    expect(s!.files!.map((f) => f.name)).toEqual(['Pack/a.mkv', 'Pack/b.mkv'])
+  })
+
+  /** One file, one folder deeper: the top level entry is a directory, so `leaf_node` is false. */
+  it('keeps the name when the single top-level entry is a folder', async () => {
+    const s = await readTorrentFile(v2('Pack', { Subs: { 'a.ass': leaf(10) } }))
+    expect(s!.files!.map((f) => f.name)).toEqual(['Pack/Subs/a.ass'])
+  })
+
+  it('still numbers by the engine index, pads included, in the dropped-name case', async () => {
+    // one unaligned file: libtorrent synthesizes a pad after it, so the count is 2 and not 1
+    const s = await readTorrentFile(v2('movie.mkv', { 'movie.mkv': leaf(1_000) }))
+    expect(s!.files!.map((f) => f.index)).toEqual([0])
+    expect(s!.fileCount, 'the pad after an unaligned file occupies an index of its own').toBe(2)
+  })
+})
