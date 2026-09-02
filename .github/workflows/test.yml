@@ -45,7 +45,9 @@ jobs:
   browser:
     runs-on: ubuntu-24.04
     continue-on-error: true
-    timeout-minutes: 15
+    # 30, not 15: a cold runner optimizes the vite dep graph before a single test runs, and the first
+    # attempt was killed at 15m17s, which GitHub reports as "cancelled" rather than as a timeout.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -104,6 +106,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: sudo apt-get install -y xvfb
+      # `machine` before `swarm`: it is fast, and it measures the RUNNER (font metrics), so a failure
+      # here says the environment moved rather than that the code did.
+      - run: npm run test:e2e:machine
       - run: xvfb-run -a -s "-screen 0 1280x720x24" npm run test:e2e:swarm
       - uses: actions/upload-artifact@v4
         if: failure()

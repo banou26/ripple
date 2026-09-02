@@ -19,7 +19,7 @@
     "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets && node scripts/build-sw.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run --project unit",
-    "test:e2e": "npm run test:e2e:local && npm run test:e2e:swarm",
+    "test:e2e": "npm run test:e2e:local && npm run test:e2e:machine && npm run test:e2e:swarm",
     "test:pause": "npm run build && playwright test --project=chromium tests/stale-pause-flag.spec.ts",
     "test:create": "npm run build && playwright test --project=chromium tests/create-torrent.spec.ts",
     "test:hybrid": "npm run build && playwright test --project=chromium tests/hybrid-torrent.spec.ts tests/one-file-torrent.spec.ts",
@@ -37,10 +37,12 @@
     "test:share-dialog": "npm run build && node scripts/test-share-dialog.mjs",
     "test:header": "npm run build && node scripts/test-header-layout.mjs",
     "verify:live": "node tests/live-watch.mjs",
-    "e2e:local": "playwright test --forbid-only --project=chromium tests/create-torrent.spec.ts tests/download-page-hold.spec.ts tests/download-share.spec.ts tests/embed-header.spec.ts tests/handover-rows.spec.ts tests/hints.spec.ts tests/hybrid-torrent.spec.ts tests/metadata-broadcast.spec.ts tests/multi-tab.spec.ts tests/one-file-torrent.spec.ts tests/rate-limits.spec.ts tests/resume-verify.spec.ts tests/smoke.spec.ts tests/stable-widths.spec.ts tests/stale-pause-flag.spec.ts tests/startup-list.spec.ts tests/stream-download.spec.ts tests/style-order.spec.ts tests/torrent-share-menu.spec.ts tests/uptime-persists.spec.ts",
+    "e2e:local": "playwright test --forbid-only --project=chromium tests/create-torrent.spec.ts tests/download-page-hold.spec.ts tests/download-share.spec.ts tests/embed-header.spec.ts tests/handover-rows.spec.ts tests/hints.spec.ts tests/hybrid-torrent.spec.ts tests/metadata-broadcast.spec.ts tests/multi-tab.spec.ts tests/one-file-torrent.spec.ts tests/rate-limits.spec.ts tests/resume-verify.spec.ts tests/smoke.spec.ts tests/stale-pause-flag.spec.ts tests/startup-list.spec.ts tests/stream-download.spec.ts tests/style-order.spec.ts tests/torrent-share-menu.spec.ts tests/uptime-persists.spec.ts",
     "e2e:swarm": "playwright test --forbid-only --project=chromium tests/embed-download.spec.ts tests/startup-breakdown.spec.ts tests/storage-eviction.spec.ts tests/stream-contiguity.spec.ts tests/torrent-ramp.spec.ts",
     "test:e2e:local": "npm run build && npm run e2e:local",
-    "test:e2e:swarm": "npm run build && npm run e2e:swarm"
+    "test:e2e:swarm": "npm run build && npm run e2e:swarm",
+    "e2e:machine": "playwright test --forbid-only --project=chromium tests/stable-widths.spec.ts",
+    "test:e2e:machine": "npm run build && npm run e2e:machine"
   },
   "dependencies": {
     "@banou/media-player": "^0.8.19",

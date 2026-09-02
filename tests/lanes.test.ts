@@ -11,12 +11,7 @@
  * DIRECTORY and asserting the scripts cover it, so a new spec is not merely unrun, it is a failing
  * test in the fast suite until somebody decides which lane it belongs in.
  *
- * The lanes split by DEPENDENCY, not by cost:
- *
- *  - `e2e:local` needs a browser and nothing else, so it can gate every push.
- *  - `e2e:swarm` watches a torrent actually move bytes, which per the project rule only works in a
- *    headful browser and only against a live swarm. It runs nightly, because a push gate that
- *    depends on strangers' seeders fails for reasons that have nothing to do with the push.
+ * The lanes split by DEPENDENCY, not by cost. See LANES below for what each one depends on.
  *
  * Read through vite rather than `node:fs`: this runs in the `unit` project, whose config applies
  * `vite-plugin-node-stdlib-browser`, and importing `node:fs` there fails resolving `punycode`.
@@ -27,6 +22,17 @@ import pkg from '../package.json'
 import { describe, expect, it } from 'vitest'
 
 const scripts = pkg.scripts as Record<string, string>
+
+/**
+ * The three lanes, in the order they cost.
+ *
+ *  - `local` needs a browser and nothing else, and is deterministic anywhere. It gates a push.
+ *  - `machine` is deterministic only where the MACHINE is: `stable-widths` measures that tabular
+ *    readouts hold their width, which a runner with a different font set fails while the code is
+ *    perfect. Split out after CI failed it twice on font metrics alone.
+ *  - `swarm` watches a torrent actually move bytes, so it needs a headful browser and live seeders.
+ */
+const LANES = ['e2e:local', 'e2e:machine', 'e2e:swarm']
 
 /** Every spec a run could pick up, straight off the directory. */
 const sources = import.meta.glob('./*.spec.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -47,24 +53,23 @@ const fixmes = (path: string) =>
 
 describe('the e2e lanes', () => {
   it('covers every spec on disk exactly once', () => {
-    const local = lane('e2e:local')
-    const swarm = lane('e2e:swarm')
+    const lanes = LANES.map(lane)
+    const named = lanes.flat().sort()
 
     // the message matters more than the assertion: whoever added the file has to choose a lane
-    expect([...local, ...swarm].sort(), 'a spec file is in no lane, so nothing would ever run it')
-      .toEqual(onDisk)
+    expect(named, 'a spec file is in no lane, so nothing would ever run it').toEqual(onDisk)
     expect(
-      local.filter((path) => swarm.includes(path)),
-      'a spec in both lanes runs twice and gates on the slower one',
+      named.filter((path, i) => named.indexOf(path) !== i),
+      'a spec in two lanes runs twice and gates on the slower one',
     ).toEqual([])
   })
 
   it('builds before each lane, and neither tolerates a committed .only', () => {
     // `--forbid-only` is what stops one committed `test.only` silencing a whole file in CI
-    for (const name of ['e2e:local', 'e2e:swarm']) {
+    for (const name of LANES) {
       expect(scripts[name], `${name} must refuse a committed .only`).toContain('--forbid-only')
     }
-    for (const name of ['test:e2e:local', 'test:e2e:swarm']) {
+    for (const name of LANES.map((lane) => lane.replace('e2e:', 'test:e2e:'))) {
       expect(scripts[name], `${name} must build before it drives the built app`).toContain('npm run build')
     }
   })
