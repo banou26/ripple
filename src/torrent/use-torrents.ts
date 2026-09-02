@@ -263,13 +263,22 @@ const DEMO_MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a1
 // longest a new user waits on a stalled cloud restore before the demo seeds anyway
 const DEMO_GRACE = 8_000
 
+/**
+ * PAUSED and TEMPORARY, because nobody asked for it.
+ *
+ * This used to add Sintel started and permanent, so a first run quietly pulled 129.3 MB and then
+ * seeded it for as long as the tab was open, on every visit, against a metered allowance the person
+ * had not spent on anything they chose. As a library entry the storage budget could never reclaim it
+ * either. Paused, it is an empty row offering a Start button and costing nothing; temporary, its
+ * bytes are a cache the budget pass may take back once it has any.
+ */
 const addDemo = (client: TorrentClient) =>
   fetch(DEMO_TORRENT_URL)
     .then(async (res) => {
       if (!res.ok) throw new Error(String(res.status))
-      client.addTorrentFile(new Uint8Array(await res.arrayBuffer()))
+      client.addTorrentFile(new Uint8Array(await res.arrayBuffer()), { ephemeral: true, paused: true })
     })
-    .catch(() => client.addMagnet(DEMO_MAGNET))
+    .catch(() => client.addMagnet(DEMO_MAGNET, { ephemeral: true, paused: true }))
 
 export const useTorrents = (): UseTorrents => {
   const client = getTorrentClient()
