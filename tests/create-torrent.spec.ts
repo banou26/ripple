@@ -96,7 +96,7 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   // the review step: the numbers are on screen BEFORE anything is hashed or published
   const dialog = page.getByRole('dialog')
@@ -225,7 +225,7 @@ test('a v2 torrent says up front that a folder holding one file will not survive
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   const dialog = page.getByRole('dialog')
   const format = dialog.getByLabel('Format')

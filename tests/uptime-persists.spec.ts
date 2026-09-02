@@ -91,7 +91,7 @@ test('a torrent keeps the time it has been seeding across a reload', async ({ pa
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
   await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })

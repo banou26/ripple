@@ -79,7 +79,7 @@ for (const format of ['v1', 'hybrid', 'v2'] as const) {
 
     await page.goto('/')
     await page.getByRole('button', { name: 'Create a torrent' }).click()
-    await page.getByRole('button', { name: 'Choose a folder' }).click()
+    await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByLabel('Format')).toBeVisible({ timeout: 30_000 })

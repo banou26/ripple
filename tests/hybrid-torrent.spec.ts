@@ -115,7 +115,7 @@ test('a hybrid torrent verifies against both of its own hash trees', async ({ pa
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Format')).toBeVisible({ timeout: 30_000 })
@@ -221,7 +221,7 @@ test('a v2 torrent keeps a 64 character identity the rest of the app recognises'
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Format')).toBeVisible({ timeout: 30_000 })
@@ -310,7 +310,7 @@ test('a created hybrid torrent restarts after a reload', async ({ page }) => {
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
-  await page.getByRole('button', { name: 'Choose a folder' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Format')).toBeVisible({ timeout: 30_000 })
   // a NON-automatic piece length, so the reload has something to get wrong

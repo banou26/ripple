@@ -38,7 +38,15 @@ test('the library boots, the engine reports in, and nothing throws', async ({ pa
     'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel',
   )
   await page.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(page.getByRole('status')).toHaveText('Already in your list')
+  /*
+   * `.first()`, because a second status can be on screen and it is not this one.
+   *
+   * The page renders a storage warning as a `status` when the origin is low on room, which never
+   * happens on a roomy dev machine and happens on a CI runner, so the bare role matched two elements
+   * and failed strict mode. The assertion is about the add's answer, so it names it.
+   */
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first())
+    .toBeVisible()
   await expect(page.locator('.torrent')).toHaveCount(1)
 
   /*
