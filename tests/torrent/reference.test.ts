@@ -5,6 +5,7 @@ import type { TorrentFormat } from '../../src/torrent/make-torrent'
 import { REFERENCE_CASES } from '../../src/torrent/reference-torrents'
 import { contentFiles, encodeTorrent, plan } from '../../src/torrent/make-torrent'
 import { hashPieces } from '../../src/torrent/hash-pieces'
+import { readTorrentFile } from '../../src/torrent/torrent-file'
 import { referenceBytes } from '../../src/torrent/reference-content'
 
 /**
@@ -119,5 +120,49 @@ describe('byte for byte against libtorrent', () => {
     expect(REFERENCE_CASES.length).toBe(12)
     expect(REFERENCE_CASES.filter((c) => c.single).length).toBeGreaterThan(0)
     expect(REFERENCE_CASES.filter((c) => c.files.some((f) => f.size === 0)).length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The decoder, against the same native bytes the encoder is checked against.
+ *
+ * `readTorrentFile` prefixed the torrent name onto every v2 path unconditionally until 2026-09-03,
+ * and libtorrent does not: `extract_files2` discards it when the file tree's top level is a single
+ * leaf. That was invisible while the only consumer listed names in a dialog, and became a data bug
+ * the moment `copy-source.ts` started WRITING to these paths, because bytes at `movie.mkv/movie.mkv`
+ * are bytes the engine's check never looks at.
+ *
+ * These are libtorrent 2.0.13's own torrents, so the expectation is derived from ITS rule and not
+ * from the implementation under test: one top-level entry which is a file means the name goes.
+ */
+describe('what libtorrent will call each file in a v2 torrent', () => {
+  /** libtorrent's `single_file = leaf_node && !has_files && tree.dict_size() == 1`, from the fixture. */
+  const dropsName = (reference: (typeof REFERENCE_CASES)[number]): boolean => {
+    // a `single` plan writes the torrent's own name as the tree's one key
+    if (reference.single) return true
+    const topLevel = new Set(reference.files.map((file) => file.path[0]))
+    return topLevel.size === 1 && reference.files.length === 1 && reference.files[0]!.path.length === 1
+  }
+
+  for (const reference of REFERENCE_CASES) {
+    it(`names ${reference.name} the way libtorrent does`, async () => {
+      const subject = await readTorrentFile(fromBase64(reference.torrents.v2))
+      expect(subject, 'the v2 reference bytes have to decode at all').not.toBeNull()
+      const expected = dropsName(reference)
+        ? (reference.single ? [reference.torrentName] : reference.files.map((f) => f.path.join('/')))
+        : reference.files.map((f) => [reference.torrentName, ...f.path].join('/'))
+      // SORTED, both sides: the file tree is walked in its own order and the fixture lists the source
+      // order. Which order the torrent fixes is already pinned byte for byte above; this is about the
+      // NAMES, and comparing them in two different orders would fail for a reason it is not testing.
+      expect(subject!.files!.map((f) => f.name).sort()).toEqual([...expected].sort())
+    })
+  }
+
+  /** The premise: this set really does contain both shapes, or the loop above proves one thing. */
+  it('covers torrents on both sides of that rule', () => {
+    const dropped = REFERENCE_CASES.filter(dropsName)
+    expect(dropped.length, 'no case drops the name, so the fix is untested here').toBeGreaterThan(0)
+    expect(REFERENCE_CASES.length - dropped.length, 'and none keeps it').toBeGreaterThan(0)
+    console.log('[reference] name dropped for:', dropped.map((c) => c.name).join(', '))
   })
 })
