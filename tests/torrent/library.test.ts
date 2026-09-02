@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from '../../src/torrent/library'
+import { DEMO_MAGNET } from '../../src/torrent/constants'
+import { magnetInfoHash } from '../../src/torrent/magnet'
 import type { Persisted } from '../../src/torrent/library'
 
 const HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
@@ -331,5 +333,27 @@ describe('a re-add does not undo what was decided', () => {
     expect(merged.wantedFiles).toBeUndefined()
     expect(merged.firstLast).toBeUndefined()
     expect(merged.saveTo).toBeUndefined()
+  })
+})
+
+/*
+ * A torrent marked TEMPORARY has to be one the budget pass can actually reclaim.
+ *
+ * These two rules are written in different files and only agree by construction: `worker.ts` roots a
+ * `.torrent` add at the SHARED_ROOT, because an infohash only appears after the add, while
+ * `collectCandidates` refuses any candidate failing `ownsItsDirectory`, which demands exactly
+ * `/dl/<infoHash>`. So marking a shared-root add `ephemeral: true` produces a row labelled temporary
+ * that nothing can ever take back: the label promises what the pass cannot deliver. That shipped for
+ * the demo torrent and is the reason this test exists.
+ */
+describe('a temporary torrent owns the directory it can be reclaimed from', () => {
+  it('refuses the shared root, which is where a .torrent add lands by default', () => {
+    expect(ownsItsDirectory(SHARED_ROOT, 'aabbccddeeff00112233445566778899aabbccdd')).toBe(false)
+  })
+
+  it('accepts the per-torrent directory the demo is now given', () => {
+    const infoHash = magnetInfoHash(DEMO_MAGNET)!
+    expect(infoHash, 'the demo magnet must carry a readable infohash').toMatch(/^[0-9a-f]{40}$/)
+    expect(ownsItsDirectory(savePathFor(infoHash), infoHash)).toBe(true)
   })
 })
