@@ -436,3 +436,121 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
   }
 })
 }
+
+/**
+ * A name too long for the engine to keep, which must DECLINE the copy rather than write a broken one.
+ *
+ * MEASURED 2026-09-03, and the measurement is the whole reason this exists. A torrent whose files
+ * were named at 100 through 250 characters came back with everything to 240 untouched and a SECOND,
+ * shorter file beside each of the 241 and the 250: libtorrent renaming what it could not use. The
+ * copy had written to the original name, so the engine's check found nothing and the torrent sat at
+ * progress 0 in state 3, downloading the content its own author had just made, with nothing anywhere
+ * reporting a fault.
+ *
+ * The exact rule for what it renames TO is deliberately not replicated, because the two observed
+ * truncations landed at 240 and 244 and that is not one flat limit. So the boundary is detected and
+ * the copy is skipped, and this is what proves the skip really happens against a real engine rather
+ * than only in `unsafePathElement`'s unit tests.
+ *
+ * Local lane: a browser and nothing else. The decline path never reaches the swarm, and the torrent
+ * it falls back to is verified by hashing files that are already on disk.
+ */
+test('a name the engine would rename declines the copy instead of writing where it cannot look', async ({ page }) => {
+  test.setTimeout(240_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const nodePath = await import('node:path')
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'ripple-longname-'))
+  const folder = nodePath.join(root, 'Long Pack')
+  fs.mkdirSync(folder, { recursive: true })
+  // 250 bytes, ten past the boundary. `short.mkv` beside it so the torrent is multi-file and the
+  // long element is a FILE name rather than the torrent's own name, which is the harder case.
+  const long = 'L'.repeat(246) + '.mkv'
+  fs.writeFileSync(nodePath.join(folder, long), Buffer.alloc(300_000, 0x11))
+  fs.writeFileSync(nodePath.join(folder, 'short.mkv'), Buffer.alloc(1_000, 0x22))
+
+  try {
+    await page.addInitScript(() => {
+      const w = window as any
+      w.__states = []
+      const Original = window.Worker
+      class Probe extends Original {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super(url, options)
+          this.addEventListener('message', (event: MessageEvent) => {
+            const data = event.data as any
+            if (data?.type !== 'state') return
+            w.__states.push((data.torrents ?? []).map((t: any) => ({
+              progress: t.status?.progress ?? 0,
+              savePath: t.status?.savePath,
+            })))
+          })
+        }
+      }
+      window.Worker = Probe as unknown as typeof Worker
+      try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+      delete (window as any).showDirectoryPicker
+      delete (window as any).showOpenFilePicker
+    })
+
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Create a torrent' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.locator('input[webkitdirectory]').setInputFiles(folder)
+    await expect(dialog.getByText('2', { exact: true })).toBeVisible({ timeout: 30_000 })
+
+    // said BEFORE the button, like every other thing that changes what will happen
+    await expect(dialog.getByText(/too long for the engine to keep/)).toBeVisible({ timeout: 30_000 })
+    // and never the promise it cannot keep
+    await expect(dialog.getByText(/will keep a .* copy in browser storage/)).toHaveCount(0)
+
+    await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+    await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+    const infoHash = (await dialog.locator('code').first().textContent())!
+    expect(infoHash).toMatch(/^[0-9a-f]{40}$/)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+
+    /*
+     * THE ASSERTION THAT MATTERS, and it is about the absence of a directory.
+     *
+     * Before the guard this held THREE files: the two the copy wrote under the names in the torrent,
+     * and one empty one the engine created for itself under the name it had truncated to. Now the
+     * copy never starts, so there is nothing under that path at all.
+     */
+    const onDisk = await page.evaluate(async (hash: string) => {
+      const out: string[] = []
+      let dir = await navigator.storage.getDirectory()
+      for (const segment of ['dl', hash]) {
+        const next = await dir.getDirectoryHandle(segment).catch(() => null)
+        if (!next) return out
+        dir = next
+      }
+      const walk = async (handle: any, prefix: string) => {
+        for await (const child of handle.values()) {
+          if (child.kind === 'file') out.push(prefix + child.name)
+          else await walk(child, prefix + child.name + '/')
+        }
+      }
+      await walk(dir, '')
+      return out
+    }, infoHash)
+    expect(onDisk, 'the copy must not have written anywhere the engine will not look').toEqual([])
+
+    // it is still shared, from where the files already are, which is what the dialog promised instead
+    await page.waitForTimeout(5_000)
+    const rows = await page.evaluate(() => {
+      const frames = (window as any).__states as any[][]
+      return frames[frames.length - 1] ?? []
+    })
+    expect(
+      rows.some((row: any) => (row.savePath ?? '').startsWith('/source/')),
+      'declining the copy still has to leave a torrent being shared',
+    ).toBe(true)
+    expect(pageErrors).toEqual([])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
