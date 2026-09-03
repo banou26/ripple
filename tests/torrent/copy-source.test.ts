@@ -1,11 +1,35 @@
 import type { PickedFile } from '../../src/torrent/walk-source'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_TRACKERS, buildTorrent } from '../../src/torrent/create-source'
 import { MIN_FREE_BYTES } from '../../src/torrent/storage-budget'
 import { PIECE_HASH_BYTES, contentFiles, plan } from '../../src/torrent/make-torrent'
 import { MAX_PATH_ELEMENT_BYTES, layoutFor, measureRoomForCopy, roomForCopy, unsafePathElement } from '../../src/torrent/copy-source'
+
+/**
+ * A browser handle tree, small enough to state inline and real enough for `measureOpfsBytes` to walk.
+ *
+ * `values()` and `getFile()` are the whole of what the walk touches, so the fakes carry those two and
+ * nothing else. A directory that THROWS from `values()` is one of the cases below, and it is the
+ * reason this is hand written rather than a mock library: the failure shapes are the point.
+ */
+type FakeHandle = { kind: 'file' | 'directory' }
+
+const opfsFile = (size: number): FakeHandle =>
+  ({ kind: 'file', getFile: async () => ({ size }) } as FakeHandle)
+
+const opfsDir = (children: FakeHandle[]): FakeHandle =>
+  ({ kind: 'directory', values: async function * () { for (const child of children) yield child } } as FakeHandle)
+
+const stubStorage = (over: { estimate?: unknown, getDirectory?: () => Promise<unknown> }) => {
+  vi.stubGlobal('navigator', {
+    storage: {
+      estimate: async () => over.estimate,
+      getDirectory: over.getDirectory ?? (async () => opfsDir([])),
+    },
+  })
+}
 
 /**
  * Where a copied pick's bytes have to land, and whether they will fit.
@@ -182,5 +206,60 @@ describe('a name the engine would rename', () => {
     // no browser storage in this environment at all, so reaching the estimate would throw: getting
     // `unsafe` back proves the check runs first rather than as a fallback
     await expect(measureRoomForCopy(1_000, [long(241)])).resolves.toEqual({ kind: 'unsafe', element: long(241) })
+  })
+})
+
+/**
+ * Whose usage figure the room check believes, which is not the browser's.
+ *
+ * `opfs-usage.ts` exists because Chrome 151 reported `usageDetails.fileSystem` as 752 bytes against a
+ * VERIFIED 1.78 GB of torrent data, and the numbers below are that measurement rather than invented
+ * ones. This started out believing `estimate().usage`, which means promising a copy there is no room
+ * for and then failing partway through the largest write the app ever makes.
+ *
+ * The control in the first case is what makes it a test rather than an assertion: the same figures
+ * put through `roomForCopy` with the browser's own usage answer "fits", so the two paths are
+ * distinguishable and this is measuring which one is taken.
+ */
+describe('measuring the room before promising a copy', () => {
+  const REPORTED = {
+    usage: 1_813_502,
+    quota: 10_739_231_742,
+    usageDetails: { fileSystem: 752, indexedDB: 1_809_581, serviceWorkerRegistrations: 3_169 },
+  }
+  const ON_DISK = 1_783_407_077
+  const ORIGIN = opfsDir([opfsDir([opfsFile(1_783_406_077), opfsDir([opfsFile(1_000)])])])
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('walks the origin rather than believing a usage figure that is six orders short', async () => {
+    expect(REPORTED.usageDetails.fileSystem, 'the premise').toBeLessThan(ON_DISK / 1_000_000)
+    stubStorage({ estimate: REPORTED, getDirectory: async () => ORIGIN })
+
+    const room = await measureRoomForCopy(9 * GB)
+    expect(room).toEqual({ kind: 'short', shortBy: 1_045_988_085 })
+
+    // THE CONTROL: the same numbers, believing the browser, say there is room for all nine gigabytes
+    expect(
+      roomForCopy({ totalBytes: 9 * GB, usedBytes: REPORTED.usage, limitBytes: REPORTED.quota }),
+      'without the walk this pick reads as fitting, which is the bug',
+    ).toEqual({ kind: 'fits' })
+  })
+
+  /** A walk that cannot finish is not a reason to refuse; the browser's figure is still a floor. */
+  it('falls back to the browser figure when the walk cannot be completed', async () => {
+    const unreadable = { kind: 'directory', values: () => { throw new Error('nope') } } as unknown as FakeHandle
+    stubStorage({ estimate: REPORTED, getDirectory: async () => unreadable })
+    await expect(measureRoomForCopy(GB)).resolves.toEqual({ kind: 'fits' })
+  })
+
+  it('refuses when there is no origin to ask at all', async () => {
+    stubStorage({ estimate: REPORTED, getDirectory: async () => { throw new Error('no opfs') } })
+    await expect(measureRoomForCopy(GB)).resolves.toEqual({ kind: 'unknown' })
+  })
+
+  it('refuses when the browser will not state a quota', async () => {
+    stubStorage({ estimate: { usage: 0 }, getDirectory: async () => ORIGIN })
+    await expect(measureRoomForCopy(GB)).resolves.toEqual({ kind: 'unknown' })
   })
 })

@@ -37,7 +37,7 @@
     "test:share-dialog": "npm run build && node scripts/test-share-dialog.mjs",
     "test:header": "npm run build && node scripts/test-header-layout.mjs",
     "verify:live": "node tests/live-watch.mjs",
-    "e2e:local": "playwright test --forbid-only --project=chromium tests/create-torrent.spec.ts tests/download-page-hold.spec.ts tests/download-share.spec.ts tests/embed-header.spec.ts tests/handover-rows.spec.ts tests/hints.spec.ts tests/hybrid-torrent.spec.ts tests/metadata-broadcast.spec.ts tests/multi-tab.spec.ts tests/one-file-torrent.spec.ts tests/rate-limits.spec.ts tests/smoke.spec.ts tests/stale-pause-flag.spec.ts tests/startup-list.spec.ts tests/stream-download.spec.ts tests/style-order.spec.ts tests/torrent-share-menu.spec.ts tests/uptime-persists.spec.ts",
+    "e2e:local": "playwright test --forbid-only --project=chromium tests/create-torrent.spec.ts tests/download-page-hold.spec.ts tests/download-share.spec.ts tests/embed-header.spec.ts tests/handover-rows.spec.ts tests/hints.spec.ts tests/hybrid-torrent.spec.ts tests/long-name-copy.spec.ts tests/metadata-broadcast.spec.ts tests/multi-tab.spec.ts tests/one-file-torrent.spec.ts tests/rate-limits.spec.ts tests/smoke.spec.ts tests/stale-pause-flag.spec.ts tests/startup-list.spec.ts tests/stream-download.spec.ts tests/style-order.spec.ts tests/torrent-share-menu.spec.ts tests/uptime-persists.spec.ts",
     "e2e:swarm": "playwright test --forbid-only --project=chromium tests/embed-download.spec.ts tests/resume-verify.spec.ts tests/startup-breakdown.spec.ts tests/storage-eviction.spec.ts tests/stream-contiguity.spec.ts tests/torrent-ramp.spec.ts",
     "test:e2e:local": "npm run build && npm run e2e:local",
     "test:e2e:swarm": "npm run build && npm run e2e:swarm",
