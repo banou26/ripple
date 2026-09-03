@@ -174,3 +174,31 @@ describe('the checks CI actually runs', () => {
     expect(unrun, 'a gate no workflow step runs is a check that cannot fail').toEqual([])
   })
 })
+
+/**
+ * A rule from a plugin that is not enabled is ignored IN SILENCE, which is the worst shape a check
+ * can have: no "unknown rule", no warning, just a clean run that tested nothing.
+ *
+ * oxlint turns its `react` plugin OFF by default. The deleted `.eslintrc.cjs` extended
+ * `plugin:react-hooks/recommended`, so this repo declared that coverage in 2023 and lost it with
+ * that file. Naming `react-hooks/exhaustive-deps` in the config without enabling the plugin looked
+ * exactly like a clean run: a probe file with a hook behind a condition AND a `useEffect` missing a
+ * dependency produced no output at all (measured 2026-09-04).
+ *
+ * This cannot run the linter, so it asserts the one thing that made the rules inert.
+ */
+describe('the lint plugins', () => {
+  const configs = import.meta.glob('../vite.config.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+  const config = Object.values(configs).join('\n')
+
+  it('read the config at all, so a false pass here is not a bad glob', () => {
+    expect(Object.keys(configs)).not.toEqual([])
+    expect(config).toContain('jsPlugins')
+  })
+
+  it('enables the react plugin, without which every hooks rule is silently dead', () => {
+    const plugins = config.match(/plugins:\s*\[([^\]]*)\]/)
+    expect(plugins, 'no `plugins` array, so oxlint uses its defaults and react is not among them').toBeTruthy()
+    expect(plugins![1]).toContain("'react'")
+  })
+})

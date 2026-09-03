@@ -64,6 +64,17 @@ export default defineConfig((env) => ({
   fmt: { semi: false, singleQuote: true },
   lint: {
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    /*
+     * `react` is OFF in oxlint by default, and a rule from a disabled plugin is IGNORED IN SILENCE:
+     * no "unknown rule", no warning, just nothing. Naming the two hooks rules without this line
+     * looked exactly like a clean run, and a deliberate double violation planted in a probe file
+     * produced no output at all (2026-09-04).
+     *
+     * It matters because the deleted `.eslintrc.cjs` extended `plugin:react-hooks/recommended`, so
+     * this is coverage the repo declared in 2023 and then lost when that file went, two years before
+     * anyone noticed the linter had stopped running.
+     */
+    plugins: ['react', 'typescript', 'oxc'],
     rules: {
       /*
        * OFF, and not because it is wrong: applying it rewrites the `vitest` import in 97 test files

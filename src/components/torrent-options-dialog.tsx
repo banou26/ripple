@@ -269,9 +269,16 @@ export const TorrentOptionsDialog = ({
             <div className="group" key={group.id} role="group" aria-label={group.label}>
               <label>{group.label}</label>
               {group.items.map((item) => {
+                /*
+                 * `key` is NOT in here, and that is the point.
+                 *
+                 * React 19 deprecates reaching an element's key through a spread and warns about it
+                 * at runtime, so it is passed directly on each element below. It also cannot be seen
+                 * by a static check from inside a spread, which is what `react(jsx-key)` was
+                 * reporting: three elements in an iterator with no visible key.
+                 */
                 const common = {
                   type: 'button' as const,
-                  key: item.id,
                   className: 'opt' + (item.kind === 'action' && item.danger ? ' danger' : ''),
                   disabled: !!item.disabled,
                 }
@@ -279,7 +286,8 @@ export const TorrentOptionsDialog = ({
                 if (item.kind === 'toggle') {
                   return (
                     <button
-                      {...common}
+                      key={item.id}
+                    {...common}
                       role="switch"
                       aria-checked={item.checked}
                       onClick={() => item.apply(!item.checked)}
@@ -295,7 +303,8 @@ export const TorrentOptionsDialog = ({
                 if (item.kind === 'radio') {
                   return (
                     <button
-                      {...common}
+                      key={item.id}
+                    {...common}
                       role="radio"
                       aria-checked={item.selected}
                       onClick={item.apply}
@@ -310,6 +319,7 @@ export const TorrentOptionsDialog = ({
                 }
                 return (
                   <button
+                    key={item.id}
                     {...common}
                     onClick={() => { item.run(); onClose() }}
                   >
