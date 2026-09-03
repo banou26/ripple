@@ -118,6 +118,18 @@ export default defineConfig((env) => ({
     include: [
       '@fkn/lib', '@fkn/lib/react',
       'react', 'react-dom', 'react-dom/client', 'react-tooltip', 'react-feather',
+      // A SECOND REASON to be on this list, and it has nothing to do with React.
+      //
+      // A dependency reached for the first time mid run triggers a re-optimisation, and vite
+      // RELOADS the page to pick it up. In the browser project that reload happens under the test
+      // runner, which does not survive it: the file dies importing vitest-browser-react with
+      // "Vitest failed to find the runner", an error that names neither the dependency nor the
+      // reload. It reproduces only on a COLD cache, so it passes locally on the second run and
+      // fails in CI every time, which is the worst shape a failure can have.
+      //
+      // @banou/ponyfill is imported by save-file.ts, which one browser test loads through
+      // importOriginal, so it enters that graph late. Adding it here is the whole fix.
+      '@banou/ponyfill',
     ],
   },
   worker: {

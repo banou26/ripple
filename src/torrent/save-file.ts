@@ -1,6 +1,8 @@
 // Reads through the worker's Session.read(): the worker owns the OPFS SyncAccessHandle,
 // so an export never races the seeding write lock.
 
+import { showSaveFilePicker } from '@banou/ponyfill'
+
 import type { TorrentClient } from './client'
 import type { TorrentFile } from './types'
 
@@ -54,27 +56,6 @@ const triggerAnchorDownload = (blob: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-/**
- * Whether this document is framed by another origin.
- *
- * Chrome exposes `showSaveFilePicker` on the window either way and refuses it at CALL time with
- * "Cross origin sub frames aren't allowed to show a file picker". Probing for the property therefore
- * says nothing, and calling it inside /embed is a guaranteed rejection that also burns part of the
- * click's transient activation, which the service worker arm below still needs.
- */
-const inCrossOriginFrame = (): boolean => {
-  if (typeof window === 'undefined') return false
-  const top = window.top
-  if (!top || top === window.self) return false
-  try {
-    // a same-origin ancestor answers; a cross-origin one throws, and so does an opaque origin
-    void top.location.origin
-    return false
-  } catch {
-    return true
-  }
-}
-
 type SinkRequest = {
   /** Advertised to the browser as Content-Length. 0 where it is not known exactly, as for a zip. */
   contentLength?: number
@@ -106,26 +87,43 @@ const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }:
     if (streamed) return streamed
   }
 
-  const picker = (window as any).showSaveFilePicker as undefined | ((o: any) => Promise<any>)
-  if (picker && !inCrossOriginFrame()) {
-    try {
-      const handle = await picker({ suggestedName: baseName })
-      const writable = await handle.createWritable()
-      return {
-        write: (c) => writable.write(c),
-        close: () => writable.close(),
-        abort: () => writable.abort?.().catch(() => {}),
-      }
-    } catch (error) {
-      /**
-       * Only a genuine "the user closed the dialog" ends the save.
+  /**
+   * The picker, through `@banou/ponyfill` rather than off the window, and the difference is the
+   * ORDER in which it refuses.
+   *
+   * Chrome exposes `showSaveFilePicker` whether or not it can be used and refuses at CALL time in a
+   * cross origin frame, which is what /embed is. That rejection also burns part of the click's
+   * transient activation, and the arm below still needs it. The ponyfill raises both of its
+   * refusals BEFORE calling the platform, so the gesture survives to reach the fallback. Ripple
+   * carried a byte-identical copy of that check until it moved there.
+   */
+  try {
+    const handle = await showSaveFilePicker({ suggestedName: baseName })
+    const writable = await handle.createWritable()
+    return {
+      /*
+       * The one cast, at the one DOM boundary that needs it.
        *
-       * Everything else is this environment declining to offer a picker, and the arm below can
-       * still deliver the bytes. Letting a SecurityError out of here made it dead code wherever the
-       * picker is refused, and reported it as "Saving X failed".
+       * A bare `Uint8Array` is `Uint8Array<ArrayBufferLike>`, which includes a view over a
+       * SharedArrayBuffer, and `FileSystemWriteChunkType` excludes exactly that. No chunk here can
+       * be one: they come from `client.read`, which returns structured clones, and from the zip
+       * writer, which allocates its own. `openStreamSink` already relies on the same fact, since it
+       * TRANSFERS `chunk.buffer`, which a shared buffer refuses.
        */
-      if (isSaveCancelled(error)) throw error
+      write: (c) => writable.write(c as Uint8Array<ArrayBuffer>),
+      close: () => writable.close(),
+      abort: () => writable.abort?.().catch(() => {}),
     }
+  } catch (error) {
+    /**
+     * Only a genuine "the user closed the dialog" ends the save.
+     *
+     * Everything else is this environment declining to offer a picker, and the arm below can still
+     * deliver the bytes. The ponyfill names its refusals `NotAllowedError` for exactly this reason:
+     * `AbortError` is the platform's word for the person cancelling, and a refusal wearing it would
+     * end a save that could still have worked and report it as "Saving X failed".
+     */
+    if (isSaveCancelled(error)) throw error
   }
 
   if (totalBytes > MAX_BUFFERED_BYTES) {

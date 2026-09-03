@@ -38,10 +38,19 @@ jobs:
   # build/libav-worker.js says so itself and skips when it is absent.
   # ADVISORY, and this one has a reason of its own rather than being unproven.
   #
-  # It passes: 295 of 295 tests green on the runner. What fails is an IMPORT, "Vitest failed to find
-  # the runner", on a cold dependency-optimizer cache. Seen three times now, twice locally, and it
-  # clears on a re-run with the cache warm. That is an upstream flake rather than a fact about this
-  # repo, and a push gate must not carry one.
+  # It passes: 307 of 307 tests green. What fails is an IMPORT, "Vitest failed to find the runner",
+  # on a cold dependency-optimizer cache, and it clears on a re-run with the cache warm.
+  #
+  # PART OF THAT WAS NOT A FLAKE, and this comment called the whole of it one until 2026-09-03. A
+  # dependency reached for the first time DURING a run makes vite re-optimize and reload the page,
+  # which the test runner does not survive, and the error names neither the dependency nor the
+  # reload. Listing it in `optimizeDeps.include` fixes that half: `@banou/ponyfill` enters through
+  # save-file.ts, which one browser test loads via importOriginal. Measured 2026-09-03 on six cold
+  # runs, cache deleted before each: without the entry 0 of 2 passed, with it 5 of 6.
+  #
+  # So a residual flake IS real, at roughly one cold run in six, and that is why this stays advisory.
+  # What changed is that the deterministic half of it is gone rather than being filed under the same
+  # word.
   #
   # `e2e-local` used to sit here too. Its first run failed 13 of 35 while the identical lane passed
   # 35 of 35 locally, on environment differences a local run cannot show: a runner low on disk renders

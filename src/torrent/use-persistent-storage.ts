@@ -2,6 +2,8 @@ import type { PersistPermission, PersistState } from './storage-permission'
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { permissions, storage } from '@banou/ponyfill'
+
 /**
  * Asking the browser to make this origin persistent, and MEASURING what that did.
  *
@@ -31,55 +33,56 @@ import { useCallback, useEffect, useState } from 'react'
  * person is still looking at the button they pressed.
  */
 
-/** the parts of `navigator` this module touches, so a test can pass its own without a browser */
-type StorageLike = {
-  persist?: () => Promise<boolean>
-  persisted?: () => Promise<boolean>
-  estimate?: () => Promise<{ quota?: number }>
+/**
+ * The platform, as `@banou/ponyfill` makes it behave, and as a test can hand its own in.
+ *
+ * WHY THIS IS A PARAMETER RATHER THAN A GLOBAL. The ponyfill reads `globalThis.navigator` itself, so
+ * a test that wanted to steer this would have to stub a global and then reason about which of the
+ * two layers it was exercising. Injecting the ponyfill's own shape keeps that separable: the cases
+ * below drive THIS module's rules, and the ponyfill's own suite covers what it absorbs.
+ *
+ * THREE ABSORBED CASES ARE GONE FROM HERE and none of them lost coverage. `permissions.query` no
+ * longer has to be wrapped for an engine with no Permissions API, one that rejects this name, or one
+ * that throws synchronously for it; all three answer 'prompt', which is what this module already did
+ * with its own fourth state. `storage.persist()` no longer has to be reconciled against a following
+ * `persisted()` read, because it already resolves the state it leaves behind rather than its own
+ * claim. What is left here is what this app decides, which is when to ask and what to do with the
+ * answer.
+ */
+type PersistenceApi = {
+  storage: {
+    persist: () => Promise<boolean>
+    persisted: () => Promise<boolean>
+    estimate: () => Promise<{ quota?: number }>
+  }
+  permissions: { query: (descriptor: PermissionDescriptor) => Promise<{ state: PermissionState }> }
 }
 
-type NavigatorLike = {
-  storage?: StorageLike
-  permissions?: { query: (descriptor: PermissionDescriptor) => Promise<{ state: PermissionState }> }
-}
+const PLATFORM: PersistenceApi = { storage, permissions }
 
 /**
  * THE ONE TYPE ASSERTION, and why the query name is spelled exactly here and nowhere else.
  *
  * `persistent-storage` is in the `PermissionName` union of the lib.dom shipped with this repo's
  * TypeScript (checked 2026-09-01), so the assertion is redundant against that one. It is kept
- * because older DOM typings do not list it and this file is not worth breaking over a lib version,
- * and because an engine can accept the type and still reject the name at runtime: Permissions is
- * optional, and a query for a name an engine does not implement rejects, or throws outright. Both of
- * those land in `readPersistPermission`'s catch and answer 'unknown'.
+ * because older DOM typings do not list it and this file is not worth breaking over a lib version.
+ * The RUNTIME half of what this used to guard against, an engine that accepts the type and still
+ * rejects or throws for the name, is the ponyfill's now.
  */
 const PERSISTENT_STORAGE = { name: 'persistent-storage' } as PermissionDescriptor
 
-const currentNavigator = (): NavigatorLike | undefined =>
-  typeof navigator !== 'undefined' ? navigator : undefined
-
-/** null means the browser would not say, which is not the same as false and must not become false */
-const readPersisted = async (storage: StorageLike | undefined): Promise<boolean | null> => {
-  if (!storage?.persisted) return null
-  return storage.persisted().then((value) => value === true).catch(() => null)
-}
-
-const readQuota = async (storage: StorageLike | undefined): Promise<number | null> => {
-  if (!storage?.estimate) return null
-  return storage.estimate().then(({ quota }) => quota ?? null).catch(() => null)
-}
+const readQuota = async (api: PersistenceApi): Promise<number | null> =>
+  api.storage.estimate().then(({ quota }) => quota ?? null).catch(() => null)
 
 export const readPersistPermission = async (
-  nav: NavigatorLike | undefined = currentNavigator(),
+  api: PersistenceApi = PLATFORM,
 ): Promise<PersistPermission> => {
   try {
-    // awaited inside the try on purpose: query can throw synchronously for a name it does not know
-    // AND reject asynchronously, and only one of those is caught by a `.catch`
-    const status = await nav?.permissions?.query(PERSISTENT_STORAGE)
-    const state = status?.state
-    return state === 'granted' || state === 'denied' || state === 'prompt' ? state : 'unknown'
+    return (await api.permissions.query(PERSISTENT_STORAGE)).state
   } catch {
-    return 'unknown'
+    // the ponyfill does not reject, so this is a fake in a test or a build that drifted, and neither
+    // is a reason for a click handler in a storage warning to raise an unhandled rejection
+    return 'prompt'
   }
 }
 
@@ -89,7 +92,7 @@ export const readPersistPermission = async (
  * This used to live in `useStorageUsage`'s poll, which called persist() as soon as measured usage
  * passed zero. Two different cases were tangled together there:
  *
- *  - permission is 'prompt' or 'unknown', where the call can raise a doorhanger. That one is now a
+ *  - permission is 'prompt', where the call can raise a doorhanger. That one is now a
  *    button, because a person gets one prompt and it should be spent with the reason on screen.
  *  - permission is already 'granted', where the question has been answered and there is nothing left
  *    to ask: the call registers the protection against the existing grant. Nobody is interrupted, so
@@ -99,20 +102,18 @@ export const readPersistPermission = async (
  * poll re-decided it every 30 seconds and needed a module-level `requested` flag to stop repeating.
  */
 export const settlePersistence = async (
-  nav: NavigatorLike | undefined = currentNavigator(),
+  api: PersistenceApi = PLATFORM,
 ): Promise<{ persisted: boolean, permission: PersistPermission, silentlyPersisted: boolean }> => {
   try {
-    const storage = nav?.storage
-    const permission = await readPersistPermission(nav)
-    const persisted = await readPersisted(storage) ?? false
-    if (persisted || permission !== 'granted' || !storage?.persist) {
-      return { persisted, permission, silentlyPersisted: false }
-    }
-    const answered = await storage.persist().then((value) => value === true).catch(() => false)
-    const after = await readPersisted(storage) ?? answered
+    const permission = await readPersistPermission(api)
+    const persisted = await api.storage.persisted()
+    if (persisted || permission !== 'granted') return { persisted, permission, silentlyPersisted: false }
+    // `persist()` resolves the state it LEAVES BEHIND rather than its own claim, so there is nothing
+    // left to reconcile here: the answer is already what `persisted()` would say afterwards
+    const after = await api.storage.persist()
     return { persisted: after, permission, silentlyPersisted: after }
   } catch {
-    return { persisted: false, permission: 'unknown', silentlyPersisted: false }
+    return { persisted: false, permission: 'prompt', silentlyPersisted: false }
   }
 }
 
@@ -136,16 +137,22 @@ export type PersistMeasurement = {
  * anything.
  */
 export const requestPersistence = async (
-  nav: NavigatorLike | undefined = currentNavigator(),
+  api: PersistenceApi = PLATFORM,
 ): Promise<PersistMeasurement> => {
   try {
-    const storage = nav?.storage
-    const quotaBefore = await readQuota(storage)
-    if (!storage?.persist) return { attempted: true, granted: false, quotaBefore, quotaAfter: quotaBefore }
-    const answered = await storage.persist().then((value) => value === true).catch(() => false)
-    const persistedAfter = await readPersisted(storage)
-    const quotaAfter = await readQuota(storage)
-    return { attempted: true, granted: persistedAfter ?? answered, quotaBefore, quotaAfter }
+    const quotaBefore = await readQuota(api)
+    const granted = await api.storage.persist()
+    /*
+     * READ AFTERWARDS, THROUGH THE SAME LENS THE SCREEN USES.
+     *
+     * Both readings go through the ponyfill, which is what `useStorageUsage` displays, so `moved`
+     * below is a claim about the number somebody is actually looking at. Reading one of them raw
+     * would compare two different quantities: the ponyfill reports a ceiling that holds while the
+     * platform's own figure floats upward on Chromium, and a difference between those two is not a
+     * grant, it is the two definitions disagreeing.
+     */
+    const quotaAfter = await readQuota(api)
+    return { attempted: true, granted, quotaBefore, quotaAfter }
   } catch {
     return { attempted: true, granted: false, quotaBefore: null, quotaAfter: null }
   }
@@ -163,7 +170,9 @@ export type PersistentStorage = PersistState & {
 
 const INITIAL: Omit<PersistentStorage, 'request'> = {
   persisted: false,
-  permission: 'unknown',
+  // 'prompt' rather than a fourth state for "not asked yet": the offer rules read it the same way,
+  // and the ponyfill has no fourth state to report
+  permission: 'prompt',
   attempted: false,
   granted: null,
   quotaBefore: null,

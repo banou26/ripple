@@ -41,10 +41,11 @@ describe('whether to offer the persistent-storage ask', () => {
 
   /**
    * An engine with no Permissions API, or one that rejects this particular name, must not cost the
-   * person the button: 'unknown' means the query could not be asked, not that the answer was no.
+   * person the button. Those used to be a fourth state here; `@banou/ponyfill` collapses them onto
+   * 'prompt', which is the same edge of every rule below and the reason the fourth state could go.
    */
   it('offers it where the permission query could not be asked at all', () => {
-    expect(persistOffer(state({ permission: 'unknown' })).kind).toBe('ask')
+    expect(persistOffer(state({ permission: 'prompt' })).kind).toBe('ask')
   })
 
   it('offers nothing once the origin is already persistent', () => {
@@ -144,7 +145,7 @@ describe('what the persistent-storage offer is allowed to say', () => {
   it('gives every state copy, and a button only where there is something to press', () => {
     const states = [
       state(),
-      state({ permission: 'unknown' }),
+      state({ permission: 'prompt' }),
       state({ persisted: true }),
       state({ permission: 'denied' }),
       state({ attempted: true, granted: false }),

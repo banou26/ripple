@@ -48,8 +48,10 @@ test('an ask the browser refused by itself reports it without blaming the person
   expect(button(container).getAttribute('data-tooltip-content') ?? '').toMatch(/browser answered no/)
 })
 
+// an engine that cannot be asked answers 'prompt' through @banou/ponyfill, never 'denied', so the
+// control stays live: silence is not a refusal
 test('an engine that will not answer the permission query still gets the button', async () => {
-  const { container } = await mount(state({ permission: 'unknown' }))
+  const { container } = await mount(state({ permission: 'prompt' }))
   expect(button(container).disabled).toBe(false)
 })
 

@@ -27,14 +27,18 @@
  */
 
 /**
- * What `navigator.permissions.query({ name: 'persistent-storage' })` answered.
+ * What `permissions.query({ name: 'persistent-storage' })` answered.
  *
- * `unknown` is not a Permissions API state. It is this codebase's word for "the query could not be
- * asked", which covers an engine with no Permissions API, one that rejects that particular name, and
- * a query that threw. It is deliberately treated like `prompt` by the rules below: an engine that
- * will not say must not cost the person the button.
+ * THE PLATFORM'S OWN THREE, and there used to be a fourth. `unknown` was this codebase's word for
+ * "the query could not be asked", covering an engine with no Permissions API, one that rejects that
+ * particular name, and one that throws synchronously for it. It is gone because `@banou/ponyfill`
+ * answers 'prompt' for all three, which is what the rules below already did with it: an engine that
+ * will not say has not refused anything, and must not cost the person the button.
+ *
+ * Nothing rendered ever distinguished the two. Both fell past the `denied` check in `persistOffer`
+ * and `persistControl` alike and produced the same copy and the same button.
  */
-export type PersistPermission = 'granted' | 'prompt' | 'denied' | 'unknown'
+export type PersistPermission = PermissionState
 
 export type PersistState = {
   /** what `navigator.storage.persisted()` last answered */
@@ -94,7 +98,8 @@ export const persistOffer = ({ persisted, permission, attempted, granted }: Pers
     }
   }
 
-  // `prompt` and `unknown` both land here. The detail carries both halves of what the call does,
+  // 'prompt' lands here, which after the ponyfill's collapse also means "this engine cannot be
+  // asked at all". The detail carries both halves of what the call does,
   // because the half that matters depends on an engine this module cannot see, and it commits to no
   // number: the same press is about half a disk on Firefox and no extra bytes at all on Chromium.
   return {
