@@ -24,16 +24,31 @@ import {
 
 const srgb = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
 
-const luminance = (hex: string) => {
+/**
+ * A colour's three channels, 0 to 255, as a tuple rather than an array.
+ *
+ * The tuple is the point: destructuring an array gives three `number | undefined` under
+ * `noUncheckedIndexedAccess`, so every arithmetic use of them is a type error, and the shape that
+ * silences it is a default value, which would turn a malformed colour into a plausible black. It
+ * throws instead, since a theme constant that is not a colour is a bug rather than a shade.
+ */
+const channels = (hex: string): [number, number, number] => {
   const h = hex.replace('#', '')
   const full = h.length === 3 ? [...h].map(c => c + c).join('') : h
-  const [r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16) / 255)
-  return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b)
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) throw new Error(`not a hex colour: ${hex}`)
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16))
+  return [r!, g!, b!]
+}
+
+const luminance = (hex: string) => {
+  const [r, g, b] = channels(hex)
+  return 0.2126 * srgb(r / 255) + 0.7152 * srgb(g / 255) + 0.0722 * srgb(b / 255)
 }
 
 const contrast = (a: string, b: string) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((m, n) => n - m)
-  return (hi + 0.05) / (lo + 0.05)
+  const one = luminance(a)
+  const two = luminance(b)
+  return (Math.max(one, two) + 0.05) / (Math.min(one, two) + 0.05)
 }
 
 /** Every background at all. Only things that must work anywhere are held to this one. */
@@ -152,9 +167,11 @@ describe('controls stay identifiable', () => {
     /** EMPHASIS at the shared 45% disabled opacity, composited over the card it sits on. */
     const disabledComposite = (() => {
       const mix = (fg: number, bg: number) => Math.round(0.45 * fg + 0.55 * bg)
-      const parse = (hex: string) => [0, 2, 4].map(i => parseInt(hex.slice(1 + i, 3 + i), 16))
-      const [r, g, b] = parse(EMPHASIS).map((c, i) => mix(c, parse(SURFACE_BG)[i]))
-      return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')
+      const [fr, fg, fb] = channels(EMPHASIS)
+      const [br, bg, bb] = channels(SURFACE_BG)
+      return '#' + [mix(fr, br), mix(fg, bg), mix(fb, bb)]
+        .map(c => c.toString(16).padStart(2, '0'))
+        .join('')
     })()
 
     it('moves down rather than up, because there is no up', () => {

@@ -18,6 +18,7 @@
     "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker.wasm build/jassub-worker.wasm && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm && shx cp node_modules/jassub/dist/default.woff2 build/default.woff2",
     "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets && node scripts/build-sw.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --project unit",
     "test:e2e": "npm run test:e2e:local && npm run test:e2e:machine && npm run test:e2e:swarm",
     "test:pause": "npm run build && playwright test --project=chromium tests/stale-pause-flag.spec.ts",

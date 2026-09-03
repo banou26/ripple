@@ -31,6 +31,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
       - run: npm test
 
   # Components mounted in a real Chrome. It does NOT need build/ output: the one test that wanted

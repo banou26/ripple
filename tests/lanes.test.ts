@@ -141,3 +141,36 @@ describe('the e2e lanes', () => {
     expect(bare, 'a skipped test has to carry its reason where the run prints it').toEqual([])
   })
 })
+
+/**
+ * The same argument as the lanes above, one level up: a check nothing runs is a check that rots.
+ *
+ * `tsc --noEmit` had never been run by anything. It was red, with fourteen errors, and had been for
+ * long enough that nobody could say when they arrived, because the repo has no typecheck script and
+ * CI has no step that would have printed them. A type error is exactly the class a unit suite cannot
+ * see: the tests ran green over the whole of it.
+ *
+ * So the gates are named here and matched against the workflow. `npm test` is spelled `npm test` in
+ * CI and `test` in package.json, so both forms count; the check is that the script exists AND that
+ * the workflow names it, since either half alone is a gate that runs nothing.
+ */
+describe('the checks CI actually runs', () => {
+  const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+  const ci = Object.values(workflows).join('\n')
+
+  const GATES = ['typecheck', 'test', 'test:browser', 'test:e2e:local', 'test:e2e:machine', 'test:e2e:swarm']
+
+  it('found the workflow at all, so a false pass here is not a bad glob', () => {
+    expect(Object.keys(workflows), 'no workflow file was read, so every assertion below is vacuous').not.toEqual([])
+    expect(ci).toContain('runs-on')
+  })
+
+  it('names every gate, so none can go quiet the way the type check did', () => {
+    const unrun = GATES.filter((gate) => {
+      if (!scripts[gate]) return true
+      // npm allows `npm test` for the one script it has a shorthand for, and CI uses it
+      return !(ci.includes(`npm run ${gate}`) || (gate === 'test' && /\bnpm test\b/.test(ci)))
+    })
+    expect(unrun, 'a gate no workflow step runs is a check that cannot fail').toEqual([])
+  })
+})
