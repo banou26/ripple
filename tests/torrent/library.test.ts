@@ -357,3 +357,35 @@ describe('a temporary torrent owns the directory it can be reclaimed from', () =
     expect(ownsItsDirectory(savePathFor(infoHash), infoHash)).toBe(true)
   })
 })
+
+/**
+ * `created` has to survive a re-add, and it did not.
+ *
+ * The flag is written by exactly ONE add, the copy path's, and carried by no other. Every ordinary
+ * re-add of that torrent therefore spread `undefined` over it: a relocate, opening its own share
+ * link, a restore that re-adds from the list. `mergeEntry` already carries twelve other fields
+ * across for precisely this reason and this one was missed, which is invisible until the auto-save
+ * mirror wakes up and writes the person's entire pick into their save folder as a third copy.
+ *
+ * Found by an audit that went looking for what the mirror's fix RESTS on rather than for the fix.
+ */
+describe('a created torrent stays created across a re-add', () => {
+  const entry = (over: Partial<Persisted> = {}): Persisted =>
+    ({ infoHash: 'a'.repeat(40), magnet: 'magnet:?xt=urn:btih:' + 'a'.repeat(40), savePath: '/dl/x', addedAt: 1, ...over })
+
+  it('keeps the flag when the re-add says nothing about it', () => {
+    // an add carries no `created`: only the copy path ever states it
+    expect(mergeEntry(entry({ created: true }), entry({ addedAt: 2 })).created).toBe(true)
+  })
+
+  it('keeps it across the re-add a relocate performs, which also restates saveTo', () => {
+    const moved = mergeEntry(entry({ created: true, saveTo: 'browser' }), entry({ saveTo: 'folder', addedAt: 2 }))
+    expect(moved.created, 'moving a created torrent does not stop it being one').toBe(true)
+    expect(moved.saveTo, 'and the deliberate change still lands').toBe('folder')
+  })
+
+  it('leaves an ordinary torrent alone, so the carry-forward cannot invent one', () => {
+    expect(mergeEntry(entry(), entry({ addedAt: 2 })).created).toBeUndefined()
+    expect(mergeEntry(null, entry()).created).toBeUndefined()
+  })
+})

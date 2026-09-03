@@ -220,6 +220,17 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
       saveTo: next.saveTo ?? was.saveTo,
       wantedFiles: next.wantedFiles ?? was.wantedFiles,
       firstLast: next.firstLast ?? was.firstLast,
+      /*
+       * And `created`, which is the same trap once more and the one with teeth.
+       *
+       * It is written by exactly one add, the copy path's, and carried by no other. So every
+       * ORDINARY re-add of that torrent spread `undefined` over it: a relocate, opening its own share
+       * link, a restore that re-adds from the list. The flag is what keeps the auto-save mirror off
+       * a torrent whose bytes are already the person's own files, so losing it means the whole pick
+       * is written to their save folder as a third copy, minutes later, with nothing on screen
+       * connecting the two.
+       */
+      created: next.created ?? was.created,
     }
     : next
 
