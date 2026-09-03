@@ -207,6 +207,20 @@ describe('a name the engine would rename', () => {
     // `unsafe` back proves the check runs first rather than as a fallback
     await expect(measureRoomForCopy(1_000, [long(241)])).resolves.toEqual({ kind: 'unsafe', element: long(241) })
   })
+
+  /**
+   * The SECOND guard, in `layoutFor`, which the room check does not stand in for.
+   *
+   * The two are asked different questions. `measureRoomForCopy` is asked about the PICK, at pick
+   * time, and `layoutFor` about the FINISHED torrent, so only the second one has seen the name the
+   * dialog was left showing, which is editable and is a path element in its own right for every file
+   * under it. Deleting this guard was measured as costing nothing: nineteen unit tests and three
+   * browser ones stayed green, because the room check declines first for every pick they carry.
+   */
+  it('refuses to lay out a torrent whose finished name the engine would rename', async () => {
+    await expect(layoutFor(await build([picked([long(241)], 5_000)], 'Pack')))
+      .rejects.toThrow(/too long a name for the engine to keep/)
+  })
 })
 
 /**
