@@ -35,7 +35,7 @@ test('a torrent whose metadata just landed is announced to the page, not only st
         })
       }
     }
-    window.Worker = Probe as unknown as typeof Worker
+    window.Worker = Probe
   })
 
   await page.goto('/')

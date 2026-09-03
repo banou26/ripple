@@ -505,7 +505,7 @@ describe('the embed route in download mode', () => {
           ],
         },
       },
-    } as never)
+    })
 
     const screen = await mount('&mode=download')
     await expect.element(screen.getByRole('button', { name: /Download 2 files as \.zip/ })).toBeInTheDocument()
@@ -599,7 +599,7 @@ describe('offering to watch instead', () => {
    * engine answers, and says so rather than guessing.
    */
   it('offers nothing until the engine has said what is in there', async () => {
-    state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } as never })
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } })
     const screen = await mount('&mode=download')
     expect(screen.container.querySelector('a.watch')).toBeNull()
     await expect.element(screen.getByText('Reading the torrent from the network')).toBeVisible()

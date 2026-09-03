@@ -54,7 +54,7 @@ describe('the node shims the torrent worker installs', () => {
     const root: Root = { process: { env: { NODE_DEBUG: 'theirs' }, cwd: theirs } }
     installNodeShims(root)
     expect(root.process?.cwd).toBe(theirs)
-    expect((root.process?.env as Record<string, string>).NODE_DEBUG).toBe('theirs')
+    expect((root.process?.env as Record<string, string> | undefined)?.NODE_DEBUG).toBe('theirs')
     expect(typeof root.process?.nextTick).toBe('function')
   })
 

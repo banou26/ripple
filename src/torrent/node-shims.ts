@@ -55,4 +55,4 @@ export const installNodeShims = (root: Shimmable): void => {
 const root = typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self : (typeof window !== 'undefined' ? window : {}))
 
-installNodeShims(root as Shimmable)
+installNodeShims(root)

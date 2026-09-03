@@ -70,7 +70,7 @@ import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
 import { badgeRules } from './badge-style'
-import { STATE_LABEL, relativeDay, retryLine, speed } from './torrent-format'
+import { STATE_LABEL, retryLine, speed } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
@@ -1751,7 +1751,7 @@ const MissingRow = ({
 )
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onRecheck, onRemove, onStart, onPause, onEmbed, onOptions, selected, onSelect, savedToUserStorage, rates }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, savedToUserStorage, rates }: RowProps) => {
   /**
    * Before the missing branch, not after it.
    *
@@ -2613,7 +2613,7 @@ const Home = () => {
 
   /** In-flight moves, so the effect below and a click cannot start the same one twice. */
   const movingRef = useRef(new Set<string>())
-  const [moving, setMoving] = useState<Record<string, string>>({})
+  const [, setMoving] = useState<Record<string, string>>({})
 
   const runMove = async (t: Torrent, to: SaveLocation) => {
     if (!folder || !permitted || movingRef.current.has(t.id)) return

@@ -76,7 +76,7 @@ test('the service worker turns posted chunks into a real download', async ({ pag
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('probe.bin')
   const [peak, path] = await Promise.all([feeding, download.path()])
-  const got = readFileSync(path!)
+  const got = readFileSync(path)
 
   expect(got.length).toBe(TOTAL)
   expect(createHash('sha256').update(got).digest('hex'))

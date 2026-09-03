@@ -34,7 +34,7 @@ const ZERO_HASH = new Uint8Array(V2_HASH_BYTES)
 export const sha256 = async (bytes: Uint8Array): Promise<Uint8Array> =>
   // sliced into its own buffer for the same reason torrent-file.ts does it: ripple is cross-origin
   // isolated, so a view can sit on a SharedArrayBuffer, which is not a BufferSource
-  new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer as ArrayBuffer))
+  new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))
 
 const pair = (left: Uint8Array, right: Uint8Array): Uint8Array => {
   const out = new Uint8Array(V2_HASH_BYTES * 2)

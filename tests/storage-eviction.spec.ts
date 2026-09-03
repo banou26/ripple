@@ -442,7 +442,7 @@ test.describe('storage eviction', () => {
           })
         }
       }
-      window.Worker = Probe as unknown as typeof Worker
+      window.Worker = Probe
     })
 
     /*

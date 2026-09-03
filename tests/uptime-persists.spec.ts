@@ -31,7 +31,7 @@ const install = (pack: typeof PACK) => {
     constructor(url: string | URL, options?: WorkerOptions) {
       super(url, options)
       this.addEventListener('message', (event: MessageEvent) => {
-        const data = event.data as any
+        const data = event.data
         if (data?.type !== 'state') return
         w.__states.push((data.torrents ?? []).map((t: any) => ({
           savePath: t.status?.savePath,
@@ -43,7 +43,7 @@ const install = (pack: typeof PACK) => {
       })
     }
   }
-  window.Worker = Probe as unknown as typeof Worker
+  window.Worker = Probe
   try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
 
   const buildSource = async () => {
@@ -127,7 +127,7 @@ test('a torrent keeps the time it has been seeding across a reload', async ({ pa
       undefined,
       { timeout: 120_000 },
     )
-    .then((h) => h.jsonValue() as Promise<any>)
+    .then((h) => h.jsonValue())
 
   console.log('[after reload ]', JSON.stringify(after))
 

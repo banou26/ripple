@@ -52,7 +52,7 @@ describe('rebuilding a .torrent from its info dictionary', () => {
 })
 
 describe('the shape of the file it writes', () => {
-  const info = infoFromResume(bytesOf(REFERENCE_CASES[0]!.torrents!.v1!))!
+  const info = infoFromResume(bytesOf(REFERENCE_CASES[0]!.torrents.v1))!
 
   it('writes a valid torrent when the magnet carried no trackers at all', async () => {
     const rebuilt = buildTorrentFile(info, {})

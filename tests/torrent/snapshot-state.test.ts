@@ -79,7 +79,7 @@ describe('the state a torrent row shows', () => {
   it('waits rather than guessing when the engine has said nothing yet', () => {
     // layout but no status: known to exist, not known to be doing anything
     expect(snapshotState(snap(null))).toBe('queued')
-    expect(snapshotState(snap(null, { files: null } as Partial<TorrentSnapshot>))).toBe('downloading')
+    expect(snapshotState(snap(null, { files: null }))).toBe('downloading')
   })
 })
 

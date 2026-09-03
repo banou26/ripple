@@ -52,7 +52,7 @@ test.describe('the download page share actions', () => {
     const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYEJRIAAIhkCAyxA1AoAAAAASUVORK5CYII='
     await page.addInitScript(([hash, png]) => {
       // idb-keyval's default store, which is where the thumbnail cache lives
-      const bytes = Uint8Array.from(atob(png!), (character) => character.charCodeAt(0))
+      const bytes = Uint8Array.from(atob(png), (character) => character.charCodeAt(0))
       const blob = new Blob([bytes], { type: 'image/png' })
       const open = indexedDB.open('keyval-store', 1)
       open.onupgradeneeded = () => { open.result.createObjectStore('keyval') }
@@ -93,7 +93,7 @@ test.describe('the download page share actions', () => {
 
     const path = await download.path()
     expect(path, 'the download produced no file').toBeTruthy()
-    const bytes = await readFile(path!)
+    const bytes = await readFile(path)
 
     /*
      * The infohash is computed HERE, off the bytes that actually landed, rather than trusted from the
@@ -120,7 +120,7 @@ test.describe('the download page share actions', () => {
         const afterValue = readOne(afterKey)
         if (key === 'info') {
           const slice = new Uint8Array(b.slice(afterKey, afterValue))
-          const digest = await crypto.subtle.digest('SHA-1', slice.buffer as ArrayBuffer)
+          const digest = await crypto.subtle.digest('SHA-1', slice.buffer)
           return [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, '0')).join('')
         }
         at = afterValue

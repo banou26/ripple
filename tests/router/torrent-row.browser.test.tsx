@@ -347,7 +347,7 @@ describe('a library row', () => {
     it('does not select when the watch link is followed', async () => {
       thumbnail.current = null
       const { screen, props } = await inPage(torrent())
-      const link = screen.container.querySelector('a.primary') as HTMLElement | null
+      const link = screen.container.querySelector<HTMLElement>('a.primary')
       if (!link) return
       link.click()
       expect(props.onSelect).not.toHaveBeenCalled()

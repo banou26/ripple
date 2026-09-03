@@ -232,7 +232,7 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
     // sliced into its own buffer: subtle.digest wants a BufferSource, and a view over a
     // SharedArrayBuffer is not one, which is reachable here because ripple is cross-origin isolated
     const range = new Uint8Array(bytes.slice(start, end))
-    const infoHash = hex(await crypto.subtle.digest('SHA-1', range.buffer as ArrayBuffer))
+    const infoHash = hex(await crypto.subtle.digest('SHA-1', range.buffer))
 
     const [root] = decode(bytes, 0)
     if (!(root instanceof Map)) return null
@@ -248,7 +248,7 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
      */
     const hasV1 = info.has('pieces')
     const hasV2 = info.get('meta version') === 2 && info.has('file tree')
-    const infoHashV2 = hasV2 ? hex(await crypto.subtle.digest('SHA-256', range.buffer as ArrayBuffer)) : null
+    const infoHashV2 = hasV2 ? hex(await crypto.subtle.digest('SHA-256', range.buffer)) : null
 
     const name = text(info.get('name')) ?? (hasV1 ? infoHash : infoHashV2 ?? infoHash)
     const fileList = info.get('files')

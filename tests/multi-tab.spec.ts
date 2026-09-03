@@ -15,7 +15,7 @@ const recordWorkers = () => {
       scope.__workers.push(String(url))
     }
   }
-  window.Worker = Probe as unknown as typeof Worker
+  window.Worker = Probe
 }
 
 const engineWorkers = (page: Page): Promise<string[]> =>

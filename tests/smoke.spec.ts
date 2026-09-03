@@ -18,7 +18,7 @@ test('the library boots, the engine reports in, and nothing throws', async ({ pa
           })
         }
       }
-      window.Worker = Probe as unknown as typeof Worker
+      window.Worker = Probe
     })
   })
 

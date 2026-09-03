@@ -58,8 +58,8 @@ test.describe('the embedded player header', () => {
      * `url()` there returns "about:blank", so the next line failed with `TypeError: Invalid URL`
      * rather than with anything about the link: three of three runs, locally.
      */
-    await opened!.waitForURL(/[?&]torrent=/, { timeout: 30_000 })
-    expect(new URL(opened!.url()).searchParams.get('torrent')).toBe(SINTEL_HASH)
+    await opened.waitForURL(/[?&]torrent=/, { timeout: 30_000 })
+    expect(new URL(opened.url()).searchParams.get('torrent')).toBe(SINTEL_HASH)
 
     /*
      * The deep link is not the href, it is what the href DOES. `?torrent=` resolves an info hash to
@@ -72,9 +72,9 @@ test.describe('the embedded player header', () => {
      * single selector, and they have nothing to do with each other: the first is the engine still
      * starting, the second is this feature being broken.
      */
-    await expect(opened!.locator('.torrent'), 'the engine never listed the torrent, so selection was never reachable')
+    await expect(opened.locator('.torrent'), 'the engine never listed the torrent, so selection was never reachable')
       .not.toHaveCount(0, { timeout: 120_000 })
-    await expect(opened!.locator('.torrent.selected').first(), 'the row was there and the link did not open it')
+    await expect(opened.locator('.torrent.selected').first(), 'the row was there and the link did not open it')
       .toBeVisible({ timeout: 30_000 })
   })
 

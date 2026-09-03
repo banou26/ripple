@@ -156,10 +156,10 @@ const readPick = async (
   { signal, onFound }: { signal?: AbortSignal, onFound?: (n: number) => void },
 ) => {
   if (root.kind === 'file') {
-    const only = await pickedFile(root as FileSystemFileHandle)
+    const only = await pickedFile(root)
     return { files: [only], skipped: [], truncated: false, single: true }
   }
-  const walked = await walkDirectory(root as FileSystemDirectoryHandle, { signal, onFound })
+  const walked = await walkDirectory(root, { signal, onFound })
   return { ...walked, single: false }
 }
 
@@ -473,7 +473,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        */
       const refs = pick.reopenable
         ? out.handles
-        : await Promise.all(out.handles.map((ref) => (ref ? fileFrom(ref) : null)))
+        : await Promise.all(out.handles.map((ref) => (ref ? fileFrom(ref) : Promise.resolve(null))))
       client.createSource({
         infoHash: out.infoHash,
         magnet: out.magnet,

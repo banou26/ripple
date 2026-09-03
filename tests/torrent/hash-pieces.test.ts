@@ -26,7 +26,7 @@ const filled = (length: number, value: number) => new Uint8Array(length).fill(va
 
 /** SHA-1 through the same API the code uses, over bytes the test assembles itself. */
 const sha1 = async (data: Uint8Array) =>
-  hex(new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(data).buffer as ArrayBuffer)))
+  hex(new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(data).buffer)))
 
 const digestAt = (pieces: Uint8Array, index: number) =>
   hex(pieces.subarray(index * PIECE_HASH_BYTES, (index + 1) * PIECE_HASH_BYTES))
@@ -68,7 +68,7 @@ describe('hashing pieces', () => {
     const small = { ...built, pieceLength: 4, pieceCount: 4 }
     const { pieces } = await hashPieces(small, disk(contents).read)
 
-    const whole = new Uint8Array([...contents.a!, ...contents.b!, ...contents.c!])
+    const whole = new Uint8Array([...contents.a, ...contents.b, ...contents.c])
     expect(digestAt(pieces, 0)).toBe(await sha1(whole.subarray(0, 4)))
     expect(digestAt(pieces, 1)).toBe(await sha1(whole.subarray(4, 8)))
     expect(digestAt(pieces, 2)).toBe(await sha1(whole.subarray(8, 12)))

@@ -395,7 +395,7 @@ export const AddTorrentDialog = ({
                     type="radio"
                     name="add-location"
                     checked={choices.location === 'browser'}
-                    onChange={() => set({ location: 'browser' as SaveLocation })}
+                    onChange={() => set({ location: 'browser' })}
                   />
                   <span>
                     Browser storage
@@ -407,7 +407,7 @@ export const AddTorrentDialog = ({
                     type="radio"
                     name="add-location"
                     checked={choices.location === 'folder'}
-                    onChange={() => set({ location: 'folder' as SaveLocation })}
+                    onChange={() => set({ location: 'folder' })}
                   />
                   <span>
                     {folderName ?? 'Your folder'}

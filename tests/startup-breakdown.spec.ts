@@ -131,7 +131,7 @@ const instrument = async (page: import('@playwright/test').Page) => {
 const wasmTimings = (page: import('@playwright/test').Page) =>
   page.evaluate(() =>
     performance.getEntriesByType('resource')
-      .filter((e) => /\.wasm$/.test(e.name) || /libtorrent-|libav/.test(e.name))
+      .filter((e) => e.name.endsWith('.wasm') || /libtorrent-|libav/.test(e.name))
       .map((e) => ({
         name: e.name.replace(location.origin, ''),
         startTime: Math.round(e.startTime),

@@ -40,7 +40,7 @@ const install = (pack: typeof PACK) => {
     constructor(url: string | URL, options?: WorkerOptions) {
       super(url, options)
       this.addEventListener('message', (event: MessageEvent) => {
-        const data = event.data as any
+        const data = event.data
         if (data?.type !== 'state') return
         // the live inbound count rides this message; absent means the strip silently shows no count
         w.__inbound = data.inboundNow
@@ -54,7 +54,7 @@ const install = (pack: typeof PACK) => {
       })
     }
   }
-  window.Worker = Probe as unknown as typeof Worker
+  window.Worker = Probe
   // the demo torrent would add itself eight seconds in, inside every window this measures
   try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
 
@@ -352,7 +352,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
         constructor(url: string | URL, options?: WorkerOptions) {
           super(url, options)
           this.addEventListener('message', (event: MessageEvent) => {
-            const data = event.data as any
+            const data = event.data
             if (data?.type !== 'state') return
             w.__states.push((data.torrents ?? []).map((t: any) => ({
               progress: t.status?.progress ?? 0,
@@ -363,7 +363,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
           })
         }
       }
-      window.Worker = Probe as unknown as typeof Worker
+      window.Worker = Probe
       try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
       // what makes this the Firefox path: no pickers, so the ponyfill opens an input instead
       delete (window as any).showDirectoryPicker
@@ -425,7 +425,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
         infoHash,
         { timeout: 150_000 },
       )
-      .then((handle) => handle.jsonValue() as Promise<any>)
+      .then((handle) => handle.jsonValue())
     console.log('[verified, before reload]', JSON.stringify(verified))
     expect(verified.totalDone, 'the engine hashed a different number of bytes than the torrent describes').toBe(PICK_TOTAL)
     // in BROWSER storage, not the source tier: nothing here re-reads the person's own files
@@ -450,7 +450,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
         infoHash,
         { timeout: 150_000 },
       )
-      .then((handle) => handle.jsonValue() as Promise<any>)
+      .then((handle) => handle.jsonValue())
     console.log('[survived the reload]', JSON.stringify(survived))
     expect(survived.progress, 'a copied pick has to come back complete, with nothing re-granted').toBe(1)
     expect(survived.totalDone).toBe(PICK_TOTAL)

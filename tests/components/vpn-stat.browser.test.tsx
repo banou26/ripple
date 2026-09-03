@@ -30,7 +30,7 @@ const reach = (over: Partial<Reachability> = {}): Reachability => ({
   listeners: [{ transport: 'tcp', port: 41337, up: true, healing: false, attempts: 0 }],
   portOpen: true,
   ...over,
-}) as Reachability
+})
 
 const mount = async (reachable: Reachability | null) => {
   const { VpnStat } = await import('../../src/components/vpn-stat')

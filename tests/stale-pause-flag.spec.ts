@@ -46,7 +46,7 @@ const probe = () => {
     constructor(url: string | URL, options?: WorkerOptions) {
       super(url, options)
       this.addEventListener('message', (event: MessageEvent) => {
-        const data = event.data as any
+        const data = event.data
         if (!data || typeof data !== 'object') return
         // the engine worker is the only one that speaks this protocol; libav's never does
         if (data.type === 'ready' || data.type === 'state') w.__engine = this
@@ -66,7 +66,7 @@ const probe = () => {
       })
     }
   }
-  window.Worker = Probe as unknown as typeof Worker
+  window.Worker = Probe
   // the demo would add a second torrent on its own eight seconds in, which is inside every window
   // this test measures
   try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }

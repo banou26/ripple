@@ -113,7 +113,7 @@ export const createResilientStorage = (): MeasurableStorage => {
     onNewStorage: (id, savePath, files) => {
       dying.delete(id)
       idBySavePath.set(savePath, id)
-      return guard(id, -1, () => storage.onNewStorage(id, savePath, files)) as void | Promise<void>
+      return guard(id, -1, () => storage.onNewStorage(id, savePath, files))
     },
     onRemoveStorage: (id) => {
       dying.add(id)

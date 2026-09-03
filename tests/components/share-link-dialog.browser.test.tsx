@@ -97,7 +97,7 @@ describe('the share link dialog, before it has a torrent', () => {
   it('hands a pasted magnet to the library rather than adding it itself', async () => {
     const { onMagnet } = await mount(null)
     const field = dialog().querySelector('input[aria-label="Magnet link"]') as HTMLInputElement
-    await userEvent.fill(field, SINTEL.magnet!)
+    await userEvent.fill(field, SINTEL.magnet)
     await userEvent.click(dialog().querySelector('button[type="submit"]') as HTMLElement)
     expect(onMagnet).toHaveBeenCalledWith(SINTEL.magnet)
   })
@@ -112,7 +112,7 @@ describe('the share link dialog, before it has a torrent', () => {
   it('says it is working once something has been handed over, so the submit does not read as a no-op', async () => {
     const { onMagnet } = await mount(null)
     const field = dialog().querySelector('input[aria-label="Magnet link"]') as HTMLInputElement
-    await userEvent.fill(field, SINTEL.magnet!)
+    await userEvent.fill(field, SINTEL.magnet)
     await userEvent.click(dialog().querySelector('button[type="submit"]') as HTMLElement)
     expect(onMagnet).toHaveReturnedWith(true)
     await expect.poll(() => dialog().textContent).toContain('Reading the torrent')

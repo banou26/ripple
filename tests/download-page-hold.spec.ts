@@ -35,7 +35,7 @@ const recordWorkers = () => {
       scope.__workers.push(String(url))
     }
   }
-  window.Worker = Probe as unknown as typeof Worker
+  window.Worker = Probe
 }
 
 // Real infohash, no trackers and no web seeds on purpose: nothing must ever answer, so the torrent

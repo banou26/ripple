@@ -737,7 +737,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                             <button type="button" className="small" onClick={() => setPicked([])}>None</button>
                           </div>
                           <div className="list">
-                            {files!.map((f, i) => (
+                            {files!.map((f) => (
                               <label className="file" key={f.index}>
                                 <input type="checkbox" checked={indices.includes(f.index)} onChange={() => toggle(f.index)} />
                                 <span className="name">{leaf(f.name)}</span>

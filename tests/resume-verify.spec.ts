@@ -28,7 +28,7 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options)
         this.addEventListener('message', (event: MessageEvent) => {
-          const data = event.data as any
+          const data = event.data
           if (data?.type !== 'state') return
           w.__snap = data.torrents.map((t: any) => ({
             state: t.status?.state ?? -1,
@@ -39,7 +39,7 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
         })
       }
     }
-    window.Worker = Probe as unknown as typeof Worker
+    window.Worker = Probe
   })
 
   await page.goto('/')

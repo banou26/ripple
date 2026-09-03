@@ -1274,8 +1274,8 @@ const init = async () => {
        */
       if (e.saveTo === 'source') continue
       const savePath = e.savePath || SHARED_ROOT
-      const resume = (await get(resumeKey(e.infoHash))) as Uint8Array | undefined
-      const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
+      const resume = (await get(resumeKey(e.infoHash)))
+      const bytes = (await get(torrentKey(e.infoHash)))
       if (cleared && resume && resume.byteLength) {
         await del(resumeKey(e.infoHash)).catch(() => {})
         e.started = false; changed = true; continue
@@ -1327,7 +1327,7 @@ const init = async () => {
   // would otherwise spend that half second on screen as a row with no numbers in it. The alerts have
   // not been pumped yet, so some statuses are still null here; that is exactly the state a row is
   // built to render, and the next tick fills them in.
-  post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
+  post({ type: 'state', torrents: snapshot(), reachable: session.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
 
   setInterval(() => {
     if (!session) return
@@ -1510,7 +1510,7 @@ const init = async () => {
     }
     inboundNow = countInbound(handles.map((h) => session!.lastPeers(h)))
 
-    post({ type: 'state', torrents: snapshot(), reachable: session!.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
+    post({ type: 'state', torrents: snapshot(), reachable: session.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
       const st = session.status(h)
       /*
@@ -1774,7 +1774,7 @@ const handleMessage = async (session: Session, m: any) => {
       // already has lets the caller carry on without a special case.
       const running = [...infoHashByHandle.entries()].find(([, hash]) => hash === ih)
       if (running) { post({ type: 'added', handle: running[0], magnet: magnetByHandle.get(running[0]) ?? '' }); return }
-      const bytes = (await get(torrentKey(ih))) as Uint8Array | undefined
+      const bytes = (await get(torrentKey(ih)))
       if (!bytes?.byteLength) {
         post({ type: 'add-failed', message: 'The torrent this was built from is no longer stored' })
         return
@@ -2122,7 +2122,7 @@ const handleMessage = async (session: Session, m: any) => {
       }
       if (e) {
         const savePath = e.savePath || SHARED_ROOT
-        const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined
+        const bytes = (await get(torrentKey(e.infoHash)))
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
@@ -2136,7 +2136,7 @@ const handleMessage = async (session: Session, m: any) => {
         wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
-        post({ type: 'state', torrents: snapshot(), reachable: session!.reachable() })
+        post({ type: 'state', torrents: snapshot(), reachable: session.reachable() })
         await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {

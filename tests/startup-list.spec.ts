@@ -37,7 +37,7 @@ test('a reload shows the library before the engine is ready', async ({ page }) =
         })
       }
     }
-    window.Worker = Probe as unknown as typeof Worker
+    window.Worker = Probe
     const observer = new MutationObserver(() => {
       if (w.__order.rowAt == null && document.querySelector('.torrent')) {
         w.__order.rowAt = performance.now() - t0

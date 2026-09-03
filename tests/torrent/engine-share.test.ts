@@ -44,9 +44,9 @@ beforeEach(() => {
   globalThis.BroadcastChannel = class extends RealBroadcastChannel {
     constructor(name: string) {
       super(prefix + name)
-      opened.push(this as unknown as BroadcastChannel)
+      opened.push(this)
     }
-  } as unknown as typeof BroadcastChannel
+  }
 })
 
 afterEach(() => {

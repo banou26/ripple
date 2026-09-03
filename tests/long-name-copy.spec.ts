@@ -68,7 +68,7 @@ test(`a name ${subject.label}`, async ({ page }) => {
         constructor (url: string | URL, options?: WorkerOptions) {
           super(url, options)
           this.addEventListener('message', (event: MessageEvent) => {
-            const data = event.data as any
+            const data = event.data
             if (data?.type !== 'state') return
             w.__states.push((data.torrents ?? []).map((t: any) => ({
               progress: t.status?.progress ?? 0,
@@ -79,7 +79,7 @@ test(`a name ${subject.label}`, async ({ page }) => {
           })
         }
       }
-      window.Worker = Probe as unknown as typeof Worker
+      window.Worker = Probe
       // the demo torrent would add itself eight seconds in, inside every window this measures
       try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
       // what sends the ponyfill to its input fallback, whose handle cannot be stored, which is the
@@ -144,7 +144,7 @@ test(`a name ${subject.label}`, async ({ page }) => {
         want,
         { timeout: 150_000 },
       )
-      .then((handle) => handle.jsonValue() as Promise<any>)
+      .then((handle) => handle.jsonValue())
     console.log(`[${subject.name.length} byte name]`, JSON.stringify(verified))
     expect(verified.totalDone, 'the engine hashed a different number of bytes than the torrent describes').toBe(SIZE)
     expect([4, 5], 'it has to be running, not parked').toContain(verified.state)

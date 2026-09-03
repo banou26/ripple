@@ -35,7 +35,7 @@ const remoteMedia = (): PlayerMedia => {
     error: null,
     buffered: { length: 1, start: () => 0, end: () => 600 },
     seekable: { length: 1, start: () => 0, end: () => 600 },
-  }) as PlayerMedia
+  })
 }
 
 const sized = () => {

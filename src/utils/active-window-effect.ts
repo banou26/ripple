@@ -28,6 +28,9 @@ export const useActiveWindow = <T>({ onActive, onInactive }: { onActive?: () => 
   }, [broadcastChannel])
 
   useEffect(() => {
+    // Reported by oxlint as never reassigned, 2026-09-04, and wrong: it is assigned at the
+    // `setTimeout` twenty lines below, and `const` here does not compile.
+    // oxlint-disable-next-line prefer-const
     let probe: number | undefined
     const handleMessage = ({ data }: MessageEvent) => {
       if (data === 'activate') {

@@ -39,7 +39,7 @@ const SOURCES = import.meta.glob(
    */
   ['../src/**/*.{ts,tsx}', './**/*.{ts,tsx}'],
   { query: '?raw', import: 'default', eager: true },
-) as Record<string, string>
+)
 
 /**
  * Every css literal in a file, with the text that FOLLOWS its closing backtick.

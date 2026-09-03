@@ -112,7 +112,7 @@ export const bencode = (value: Bencodable): Uint8Array => {
   if (typeof value === 'string' || value instanceof Uint8Array) return string(value)
   if (Array.isArray(value)) return concat([LIST, ...value.map(bencode), END])
   // before the dictionary branch, since a Raw is an object and its one entry is not a key to encode
-  if (RAW in value) return (value as Raw)[RAW]
+  if (RAW in value) return (value)[RAW]
 
   if (value instanceof Map) {
     const binary = [...value.entries()]
@@ -235,7 +235,7 @@ export const isValidPieceLength = (value: number): boolean =>
 export const compareSourceFiles = (a: SourceFile, b: SourceFile): number => {
   const shared = Math.min(a.path.length, b.path.length)
   for (let i = 0; i < shared; i++) {
-    const d = compareKeys(encoder.encode(a.path[i]!), encoder.encode(b.path[i]!))
+    const d = compareKeys(encoder.encode(a.path[i]), encoder.encode(b.path[i]))
     if (d !== 0) return d
   }
   return a.path.length - b.path.length
@@ -620,7 +620,7 @@ const hexOf = (bytes: Uint8Array): string =>
 
 /** The v1 infohash: SHA-1 over the encoded `info` value. 40 hex characters. */
 export const infoHashOf = async (info: Uint8Array): Promise<string> =>
-  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(info).buffer as ArrayBuffer)))
+  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(info).buffer)))
 
 /**
  * The v2 infohash: SHA-256 over the SAME bytes. 64 hex characters.
@@ -631,7 +631,7 @@ export const infoHashOf = async (info: Uint8Array): Promise<string> =>
  * still published in the magnet, so a v2-only client can find the same swarm.
  */
 export const infoHashV2Of = async (info: Uint8Array): Promise<string> =>
-  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(info).buffer as ArrayBuffer)))
+  hexOf(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(info).buffer)))
 
 /**
  * A magnet for a torrent this device already holds in full.

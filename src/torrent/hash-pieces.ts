@@ -57,7 +57,7 @@ export class HashCancelled extends Error {
 const sha1 = async (bytes: Uint8Array): Promise<Uint8Array> =>
   // sliced into its own buffer for the same reason torrent-file.ts does it: ripple is cross-origin
   // isolated, so a view can sit on a SharedArrayBuffer, which is not a BufferSource
-  new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(bytes).buffer as ArrayBuffer))
+  new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(bytes).buffer))
 
 /**
  * What one pass over the picked bytes produces, for whichever formats the plan asked for.

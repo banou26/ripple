@@ -35,7 +35,7 @@ const scripts = pkg.scripts as Record<string, string>
 const LANES = ['e2e:local', 'e2e:machine', 'e2e:swarm']
 
 /** Every spec a run could pick up, straight off the directory. */
-const sources = import.meta.glob('./*.spec.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const sources = import.meta.glob('./*.spec.ts', { query: '?raw', import: 'default', eager: true })
 
 const onDisk = Object.keys(sources)
   .map((path) => path.replace('./', 'tests/'))
@@ -155,7 +155,7 @@ describe('the e2e lanes', () => {
  * the workflow names it, since either half alone is a gate that runs nothing.
  */
 describe('the checks CI actually runs', () => {
-  const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+  const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw', import: 'default', eager: true })
   const ci = Object.values(workflows).join('\n')
 
   const GATES = ['typecheck', 'test', 'test:browser', 'test:e2e:local', 'test:e2e:machine', 'test:e2e:swarm']
