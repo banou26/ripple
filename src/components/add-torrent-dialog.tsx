@@ -320,7 +320,7 @@ export const AddTorrentDialog = ({
    * Does what they have picked fit in what the browser is still allowing?
    *
    * Clamped at zero because a full origin can read back further used than its own limit: the used
-   * figure is a walk of the file system (see opfs-usage.ts) and the limit is what the engine says it
+   * figure is a walk of the file system (see `@banou/ponyfill`) and the limit is what the engine says it
    * allows, and the two are separate readings that can cross. Negative room is not a thing to put on
    * screen.
    *

@@ -226,7 +226,7 @@ describe('a name the engine would rename', () => {
 /**
  * Whose usage figure the room check believes, which is not the browser's.
  *
- * `opfs-usage.ts` exists because Chrome 151 reported `usageDetails.fileSystem` as 752 bytes against a
+ * `@banou/ponyfill` exists because Chrome 151 reported `usageDetails.fileSystem` as 752 bytes against a
  * VERIFIED 1.78 GB of torrent data, and the numbers below are that measurement rather than invented
  * ones. This started out believing `estimate().usage`, which means promising a copy there is no room
  * for and then failing partway through the largest write the app ever makes.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { correctedUsage, measureOpfsBytes } from './opfs-usage'
+import { storage } from '@banou/ponyfill'
 
 export type StorageUsage = {
   usedBytes: number
@@ -49,32 +49,27 @@ export const useStorageUsage = (refreshKey: unknown): StorageUsage | null => {
   const [usage, setUsage] = useState<StorageUsage | null>(null)
 
   useEffect(() => {
-    const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined
-    if (!storage?.estimate) return
+    // no guard on the API being present: the ponyfill answers an empty estimate where there is no
+    // Storage API at all, and `!estimate.quota` below is what turns that into "say nothing"
     let cancelled = false
 
     const read = async () => {
       if (document.visibilityState !== 'visible') return
       try {
-        const [estimate, persisted] = await Promise.all([
-          storage.estimate(),
-          storage.persisted?.() ?? Promise.resolve(false),
-        ])
-        if (cancelled || !estimate.quota) return
         /**
-         * Measured rather than believed. Chrome 151 reported 752 bytes of file system against a
-         * verified 1.78 GB of torrent data, which put "2 MB / 10.74 GB" on screen above a library
-         * plainly holding more than that. See opfs-usage.ts for the numbers and the reasoning.
+         * Measured rather than believed, which `@banou/ponyfill` does inside `estimate()`. Chrome 151
+         * reported 752 bytes of file system against a verified 1.78 GB of torrent data, which put
+         * "2 MB / 10.74 GB" on screen above a library plainly holding more than that.
          *
          * Once every 30 seconds and only while the tab is visible, which is the cadence this poll
-         * already ran at, so the walk costs nothing anyone can perceive.
+         * already ran at, so the walk it does costs nothing anyone can perceive.
          */
-        const measured = await storage.getDirectory?.()
-          .then((root) => measureOpfsBytes(root))
-          .catch(() => null) ?? null
-        const usedBytes = correctedUsage(estimate, measured)
-        if (cancelled || usedBytes === null) return
-        setUsage({ usedBytes, limitBytes: estimate.quota, persisted })
+        const [estimate, persisted] = await Promise.all([
+          storage.estimate(),
+          storage.persisted(),
+        ])
+        if (cancelled || !estimate.quota || estimate.usage === undefined) return
+        setUsage({ usedBytes: estimate.usage, limitBytes: estimate.quota, persisted })
         /**
          * THIS POLL NO LONGER ASKS FOR ANYTHING. It used to call `storage.persist()` here the first
          * time measured usage passed zero, which on Firefox raises a permission doorhanger as a side

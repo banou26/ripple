@@ -1,7 +1,7 @@
 import type { Built } from './create-source'
 import type { SourceRef } from './walk-source'
 
-import { correctedUsage, measureOpfsBytes } from './opfs-usage'
+import { storage } from '@banou/ponyfill'
 import { evictionFloor } from './storage-budget'
 import { fileFrom } from './walk-source'
 import { readTorrentFile } from './torrent-file'
@@ -111,7 +111,8 @@ export const roomForCopy = (
  *
  * MEASURED usage, not the browser's own figure, for the same reason the worker's `measureSpace`
  * corrects it: on Chrome 151 `usageDetails.fileSystem` came back as 752 bytes against a verified
- * 1.78 GB of torrent data, and `opfs-usage.ts` exists entirely because of it. Believing an
+ * 1.78 GB of torrent data, and `@banou/ponyfill` carries the measurement and the correction.
+ * Believing an
  * under-report here means promising a copy there is no room for, then failing partway through the
  * largest write the app ever makes. The walk costs a directory traversal, once, at pick time.
  */
@@ -119,11 +120,19 @@ export const measureRoomForCopy = async (totalBytes: number, paths: string[] = [
   const unsafe = unsafePathElement(paths)
   if (unsafe) return { kind: 'unsafe', element: unsafe }
   try {
-    const estimate = await navigator.storage.estimate()
-    const measured = await measureOpfsBytes(await navigator.storage.getDirectory()).catch(() => null)
-    const usedBytes = correctedUsage(estimate, measured)
-    if (usedBytes === null) return { kind: 'unknown' }
-    return roomForCopy({ totalBytes, usedBytes, limitBytes: estimate.quota ?? 0 })
+    /*
+     * The origin is OPENED before it is measured, and that is not the same question.
+     *
+     * `estimate()` falls back to the browser's own figure when the file system cannot be walked,
+     * which is right for a readout and wrong for this: the browser's figure is the one that came
+     * back six orders of magnitude short, and deciding to write gigabytes against it is exactly the
+     * promise this function exists to avoid making. An origin that will not even open is also an
+     * origin the copy could not write to, so there is nothing to weigh.
+     */
+    await storage.getDirectory()
+    const { usage, quota } = await storage.estimate()
+    if (usage === undefined) return { kind: 'unknown' }
+    return roomForCopy({ totalBytes, usedBytes: usage, limitBytes: quota ?? 0 })
   } catch { return { kind: 'unknown' } }
 }
 

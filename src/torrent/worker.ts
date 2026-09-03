@@ -20,7 +20,9 @@ import type { Totals, Uptime } from './uptime'
 
 import { NO_TOTALS, NO_UPTIME, TOTAL_KEYS, accumulate, mergeTotals, sessionUptime, totalUptime, worthWriting } from './uptime'
 import { isOriginFull, planEviction } from './storage-budget'
-import { correctedUsage, measureOpfsBytes } from './opfs-usage'
+// aliased: `storage` at module scope here is the hybrid backend, and the ponyfill's is
+// navigator.storage. Two different things that would otherwise want the same name.
+import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
@@ -892,20 +894,17 @@ type Space = { usedBytes: number, limitBytes: number }
 
 const measureSpace = async (): Promise<Space | null> => {
   try {
-    const estimate = await navigator.storage.estimate()
-    // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
-    if (!estimate.quota) return null
     /**
-     * The browser's own usage figure cannot be trusted here, and this is the reader that matters
-     * most: `planEviction` decides from it. Measured on Chrome 151, `usageDetails.fileSystem` came
-     * back as 752 bytes for a verified 1.78 GB of torrent data, which would have the budget pass
-     * conclude there is room forever. What happens then is not a full disk, it is a write failing
-     * with QuotaExceededError, which opfs-storage classifies as fatal and stops the torrent.
+     * `@banou/ponyfill` rather than `navigator.storage`, and this is the reader that matters most:
+     * `planEviction` decides from it. The browser's own usage figure came back as 752 bytes for a
+     * verified 1.78 GB on Chrome 151, which would have the budget pass conclude there is room
+     * forever. What happens then is not a full disk, it is a write failing with QuotaExceededError,
+     * which opfs-storage classifies as fatal and stops the torrent.
      */
-    const measured = await measureOpfsBytes(await navigator.storage.getDirectory()).catch(() => null)
-    const usedBytes = correctedUsage(estimate, measured)
-    if (usedBytes === null) return null
-    return { usedBytes, limitBytes: estimate.quota }
+    const { usage, quota } = await originStorage.estimate()
+    // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
+    if (!quota || usage === undefined) return null
+    return { usedBytes: usage, limitBytes: quota }
   } catch { return null }
 }
 
