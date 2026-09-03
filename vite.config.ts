@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import { defineConfig, lazyPlugins } from 'vite-plus'
 import react from '@vitejs/plugin-react'
-import { playwright } from '@vitest/browser-playwright'
+import { playwright } from 'vite-plus/test/browser-playwright'
 import { execFileSync, execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
@@ -65,9 +65,48 @@ export default defineConfig((env) => ({
   lint: {
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     rules: {
-      'vite-plus/prefer-vite-plus-imports': 'error',
+      /*
+       * OFF, and not because it is wrong: applying it rewrites the `vitest` import in 97 test files
+       * to `vite-plus/test`, which is verified working but is a test-infrastructure migration rather
+       * than a lint fix. It was 'error' here and had never once run, so nothing was enforcing it.
+       */
+      'vite-plus/prefer-vite-plus-imports': 'off',
       'no-var': 'error',
       'prefer-const': 'error',
+      /*
+       * THE THREE THAT WERE MEASURED, rather than three that sounded sensible.
+       *
+       * The repo's formatting was compared against its own history on 2026-09-04, the 2024 tree
+       * against today: no semicolons, two space indent, single quotes, arrow functions over
+       * `function` by 1896 to 4, `type` over `interface` by 149 to 8, `export const` and never
+       * `export function`. All of it already consistent, and `fmt` above pins the two that matter.
+       *
+       * What DID drift is type safety, per 1000 lines of code:
+       *
+       *   | | 2024 | now |
+       *   | as-casts | 5.4 | 7.5 |
+       *   | non-null `!` | 0.4 | 3.2 |
+       *   | `any` | 0 | 1.4 |
+       *
+       * So these are the three, and nothing else was added: a rule that fires on nothing is only a
+       * new way to fail.
+       */
+      /*
+       * Clean as of 2026-09-04: 71 unnecessary assertions were removed to get here, and one of the
+       * fixer's suggestions was a FALSE POSITIVE that broke the build (it stripped
+       * `querySelector(...) as HTMLElement | null`, and `Element` has no `click`). Read what this
+       * one auto-fixes rather than trusting it.
+       */
+      'typescript/no-unnecessary-type-assertion': 'error',
+      /*
+       * NOT CLEAN, and the count is here so it cannot quietly become background noise: 81 non-null
+       * assertions and 26 `any` in `src/` on 2026-09-04. They are the one thing that measurably
+       * drifted (non-null 0.4 to 3.2 per 1000 lines since 2024, `any` 0 to 1.4), so they are errors
+       * rather than warnings, and `lint` is deliberately NOT a CI gate until they reach zero. A gate
+       * that cannot pass is the thing this repo has just finished removing twice.
+       */
+      'typescript/no-non-null-assertion': 'error',
+      'typescript/no-explicit-any': 'error',
     },
     options: { typeAware: true, typeCheck: true },
     overrides: [
@@ -77,6 +116,15 @@ export default defineConfig((env) => ({
           'no-floating-promises': 'off',
           'no-unused-vars': 'off',
           'no-unused-expressions': 'off',
+          /*
+           * A test cannot avoid these, so requiring it would be requiring worse tests.
+           * `noUncheckedIndexedAccess` is on, which makes every `files[0]` a `T | undefined`, and a
+           * fixture that has just built the array knows better than the compiler does: 399 of the
+           * 480 non-null assertions in this repo are in `tests/` for exactly that reason. `any` is
+           * the same story for the fakes that stand in for an engine or a navigator.
+           */
+          'typescript/no-non-null-assertion': 'off',
+          'typescript/no-explicit-any': 'off',
         },
       },
     ],
