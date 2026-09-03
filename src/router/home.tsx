@@ -1703,22 +1703,37 @@ const MissingRow = ({
                 <Clock aria-hidden="true"/>Temporary
               </button>
             )}
-            <span>Files aren't on this device · download to fetch them</span>
+            {/* A created source is the one ghost whose files were never in a swarm: this device was
+                the only seed, so there is nobody to fetch them from and the line has to say what
+                actually happened instead of offering a download that cannot work. */}
+            <span>
+              {t.saveTo === 'source'
+                ? 'Ripple can no longer reach the files this was made from · pick them again to share it'
+                : "Files aren't on this device · download to fetch them"}
+            </span>
           </div>
         </div>
         <div className="side">
           <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
           {/* Two, matching the live rows: fetch it, or open the menu. Removing a library entry is
-              in the menu with everything else destructive. */}
+              in the menu with everything else destructive.
+              ONE EXCEPTION, and it is not cosmetic. A created source has no swarm behind it, and
+              `start` on one adds the torrent at its `/source/<hash>` path with no handles
+              registered, which throws inside the storage on the first read: a fatal disk error, a
+              red retrying row backing off to five minutes, and an entry written back to
+              `started: true`, which hides it from this list again with its Remove option gone. So
+              the row offers the menu alone, where Remove is. */}
           <div className="actions">
-            <button
-              className="primary"
-              onClick={() => onStart(t)}
-              {...hint('Download to this device')}
-              aria-label={`Download ${t.name}`}
-            >
-              <Download size={16} aria-hidden="true"/>
-            </button>
+            {t.saveTo !== 'source' && (
+              <button
+                className="primary"
+                onClick={() => onStart(t)}
+                {...hint('Download to this device')}
+                aria-label={`Download ${t.name}`}
+              >
+                <Download size={16} aria-hidden="true"/>
+              </button>
+            )}
             <button
               className="more"
               aria-haspopup="dialog"

@@ -17,9 +17,11 @@
  * flow has two outcomes that look alike from a screenshot. So the 240 byte case has to copy and the
  * 241 byte case has to not, in the same rig, one selection apart.
  *
- * The pickers are DELETED, which is what puts Chromium on the input route: `handlePickers()` is
- * exactly `'showDirectoryPicker' in window && 'showOpenFilePicker' in window`, and the copy only
- * ever happens for a pick that cannot be re-opened. No network and no transfer, so this is headless.
+ * The pickers are DELETED, which puts Chromium on the same route Firefox and WebKit are always on:
+ * `@banou/ponyfill` opens an `<input type="file">` where an engine has no picker, and the handle it
+ * wraps around the result cannot be stored, which is the only condition anything is ever copied for.
+ * Driving it needs Playwright's `filechooser` event rather than a locator, because the input is
+ * created on the click and removed again after. No network and no transfer, so this is headless.
  */
 import { expect, test } from '@playwright/test'
 
@@ -47,8 +49,8 @@ test(`a name ${subject.label}`, async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))
 
-  // real files on disk, because `setInputFiles` with a directory is what produces the
-  // `webkitRelativePath` values the input route reads, and a fake File cannot carry one
+  // real files on disk, because setting a DIRECTORY on the input is what produces the
+  // `webkitRelativePath` values the ponyfill rebuilds the tree from, and a fake File carries none
   const fs = await import('node:fs')
   const os = await import('node:os')
   const nodePath = await import('node:path')
@@ -80,7 +82,8 @@ test(`a name ${subject.label}`, async ({ page }) => {
       window.Worker = Probe as unknown as typeof Worker
       // the demo torrent would add itself eight seconds in, inside every window this measures
       try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
-      // what makes this the input route, which is the only route anything is copied for
+      // what sends the ponyfill to its input fallback, whose handle cannot be stored, which is the
+      // only condition anything is copied for
       delete (window as any).showDirectoryPicker
       delete (window as any).showOpenFilePicker
     })
@@ -88,7 +91,11 @@ test(`a name ${subject.label}`, async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Create a torrent' }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.locator('input[webkitdirectory]').setInputFiles(folder)
+    // the input the ponyfill opens lives only for the length of the pick, so it is caught as a
+    // file chooser rather than found as an element
+    const chooser = page.waitForEvent('filechooser')
+    await dialog.getByRole('button', { name: 'Choose a folder', exact: true }).click()
+    await (await chooser).setFiles(folder)
 
     /*
      * WHICH OF TWO TRUE SENTENCES IS ON SCREEN, before anybody agrees to anything.

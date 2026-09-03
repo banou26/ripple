@@ -264,6 +264,30 @@ describe('the torrent option list', () => {
     })
 
     /**
+     * A CREATED SOURCE IS THE ONE GHOST WITH NOWHERE TO DOWNLOAD FROM, and offering it is not merely
+     * useless: it is destructive.
+     *
+     * Its bytes were never in a swarm, because this device was the only seed, and its entry points
+     * at `/source/<hash>`, which is a key into handles the page registers for one session rather
+     * than a directory. Starting it adds the torrent with none registered, the first read throws a
+     * fatal disk error, and the entry is written back to `started: true`, which hides it from every
+     * list again with the Remove option on this very row gone with it.
+     */
+    it('does not offer to download a torrent this device was the only seed for', () => {
+      const source = torrent({ state: 'missing', flags: 0, queuePosition: -1, saveTo: 'source' })
+      expect(flat(source).map((item) => item.id), 'downloading it destroys the row it is on')
+        .not.toContain('start')
+      // and it can still be removed, which is the only thing left to do with it
+      expect(find(source, 'remove')!.disabled).toBeUndefined()
+    })
+
+    /** the control: every other ghost is exactly the thing "Download to this device" is for */
+    it('still offers it for an ordinary ghost', () => {
+      expect(flat(ghost).map((item) => item.id)).toContain('start')
+      expect(flat(torrent({ state: 'missing', saveTo: 'browser' })).map((item) => item.id)).toContain('start')
+    })
+
+    /**
      * Watch is the one that got dangerous rather than merely useless.
      *
      * A ghost carries a file list now, synced from the device that has the torrent, so it looks

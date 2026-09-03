@@ -187,6 +187,60 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
   }
 }
 
+/**
+ * Whether this entry is a created source the WAITING LIST will carry, so it needs no row of its own.
+ *
+ * `saveTo: 'source'` means the bytes live outside the origin and the page holds the way back to
+ * them. Such an entry is deliberately left out of the live rows, the starting rows and the ghosts,
+ * because what it is waiting for is a permission grant, which needs a click, and `useCreatedSources`
+ * surfaces it as something to click instead.
+ *
+ * `started !== false` IS THE SECOND HALF, and without it an entry can render NOWHERE. The waiting
+ * list reads the handle the page stored to re-open the pick, and drops any entry it cannot find one
+ * for. An entry excluded here as well is then in no list at all: not live, not starting, not a
+ * ghost, and with no row there is nothing to remove it from the library with. The publish path
+ * writes `started: false` for exactly the case where no handle could be kept, which sends the entry
+ * to the ghost branch, where it carries its name and size and offers "Remove from the library".
+ *
+ * Reachable before this on the shipping Firefox path: a pick that cannot be re-opened whose copy
+ * into browser storage does not fit, which is an ordinary outcome rather than an exotic one.
+ */
+export const waitsForItsSource = (e: Persisted): boolean =>
+  e.saveTo === 'source' && e.started !== false
+
+/**
+ * The rows for library entries the engine does not have, which is two kinds and one exclusion.
+ *
+ * GHOSTS are `started === false`: not on this device, and offered "Download to this device".
+ * STARTING rows are on their way. The library arrives from IndexedDB in about a millisecond while
+ * the engine needs over a second to exist, almost all of it waiting on the relay for a listen port,
+ * and without these the page shows an empty library for that whole time and then everything at once,
+ * which reads as a slow app rather than as one still connecting.
+ *
+ * THE EXCLUSION is a torrent created from this device's own files while it is out of the engine. It
+ * is not a ghost: pressing "Download to this device" on one would try to fetch the person's own
+ * files from strangers who do not have them, and what actually happens is a fatal disk error. And it
+ * is not starting: the restore loop deliberately does not add these, so a row saying it is on its
+ * way would say so forever. What it is waiting for is a permission grant, which needs a click, so
+ * `useCreatedSources` surfaces it as something to click and it becomes an ordinary live row the
+ * moment the grant is back.
+ *
+ * A FUNCTION rather than three statements inside the memo, because the exclusion is the part that
+ * goes wrong and a memo cannot be tested without a client, a worker and a session. See
+ * {@link waitsForItsSource} for the half of it that took a shipped bug to find.
+ */
+export const rowsForEntriesNotInTheEngine = (
+  list: Persisted[],
+  liveHashes: Set<string | undefined>,
+): Torrent[] => {
+  const absent = list.filter((e) => !waitsForItsSource(e) && !liveHashes.has(e.infoHash))
+  const byAge = (a: Persisted, b: Persisted) => a.addedAt - b.addedAt
+  return [
+    ...absent.filter((e) => e.started !== false).sort(byAge).map(startingToTorrent),
+    ...absent.filter((e) => e.started === false).sort(byAge).map(ghostToTorrent),
+  ]
+}
+
 export const ghostToTorrent = (e: Persisted): Torrent => ({
   id: 'missing:' + e.infoHash,
   magnet: e.magnet,
@@ -366,41 +420,7 @@ export const useTorrents = (): UseTorrents => {
         : t
     })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
-    /*
-     * A torrent created from this device's own files is represented by NEITHER of the two kinds of
-     * row below while it is out of the engine.
-     *
-     * It is not a ghost: a ghost is something this device does not have and can be offered
-     * "Download to this device", and pressing that here would start downloading the person's own
-     * files into browser storage from strangers. And it is not starting: the restore loop
-     * deliberately does not add these, so a row saying it is on its way would say so forever.
-     *
-     * What it is waiting for is a permission grant, which needs a click, so it is surfaced as
-     * something to click rather than as a row pretending to be busy. `useCreatedSources` in
-     * use-create-torrent.ts does that, and the torrent appears here as an ordinary live row the
-     * moment the grant is back.
-     */
-    const created = (e: Persisted) => e.saveTo === 'source'
-    const ghosts = list
-      .filter((e) => e.started === false && !created(e) && !liveHashes.has(e.infoHash))
-      .sort((a, b) => a.addedAt - b.addedAt)
-      .map(ghostToTorrent)
-    /**
-     * Rows for torrents this device IS running that the engine has not got to yet.
-     *
-     * The library arrives from IndexedDB in about a millisecond while the engine needs over a second
-     * to exist, almost all of it waiting on the relay for a listen port. Without these the page shows
-     * an empty library for that whole time and then everything appears at once, which reads as a slow
-     * app rather than as one still connecting.
-     *
-     * Distinct from a ghost, which is `started === false` and genuinely not here. These are on their
-     * way, so they are never offered "Download to this device".
-     */
-    const starting = list
-      .filter((e) => e.started !== false && !created(e) && !liveHashes.has(e.infoHash))
-      .sort((a, b) => a.addedAt - b.addedAt)
-      .map(startingToTorrent)
-    return [...live, ...starting, ...ghosts]
+    return [...live, ...rowsForEntriesNotInTheEngine(list, liveHashes)]
   }, [snaps, list])
 
   const addMagnet = useCallback((magnet: string) => client.addMagnet(magnet), [client])

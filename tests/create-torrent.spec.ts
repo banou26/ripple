@@ -96,6 +96,20 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
+
+  /*
+   * WHAT IT PROMISES BEFORE ANYTHING IS PICKED, which is the only claim that can be made that early.
+   *
+   * It used to say "Nothing is copied and nothing is moved", which stopped being true for everyone
+   * the moment every engine got the pickers: a pick that cannot be handed back after a reload has
+   * its bytes copied into browser storage. What holds for every pick is that the person's own files
+   * are only read, and that is what this has to keep saying. Nothing else asserted this paragraph,
+   * so it could be rewritten to anything at all and the suite stayed green.
+   */
+  const idle = page.getByRole('dialog')
+  await expect(idle.getByText('never written to and never moved')).toBeVisible()
+  await expect(idle.getByText('Nothing is copied'), 'a promise this dialog cannot keep').toHaveCount(0)
+
   await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   // the review step: the numbers are on screen BEFORE anything is hashed or published
@@ -141,6 +155,17 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
   const infoHash = await dialog.locator('code').first().textContent()
   expect(infoHash).toMatch(/^[0-9a-f]{40}$/)
+
+  /*
+   * THE RE-OPENABLE BRANCH of the closing line, which is the one every Chromium user sees.
+   *
+   * The three cases below delete the pickers, so they only ever reach the two sentences for a pick
+   * that CANNOT be re-opened. This handle can be, so it must promise the other thing: nothing was
+   * copied, and the browser will ask for access again after a reload.
+   */
+  await expect(dialog.getByText('the browser asks for access to those files again')).toBeVisible()
+  await expect(dialog.getByText('Ripple kept its own copy'), 'nothing was copied for a handle that re-opens')
+    .toHaveCount(0)
 
   // the card shell: a bordered surface with its own header and footer, matching the other dialogs
   await expect(dialog.locator('.card')).toBeVisible()
@@ -258,10 +283,10 @@ test('a v2 torrent says up front that a folder holding one file will not survive
  * copy those bytes into browser storage, and this is the proof it works: the same pack, the same
  * dialog, no pickers, and a reload in the middle.
  *
- * The pickers are DELETED rather than the browser being changed, because `handlePickers()` is
- * exactly `'showDirectoryPicker' in window && 'showOpenFilePicker' in window`. Removing them puts
- * Chromium on the input route, which is the code under test; running it on Firefox as well would be
- * a second proof of the same lines and needs a headful engine to seed at all.
+ * The pickers are DELETED rather than the browser being changed, which sends `@banou/ponyfill` to
+ * the `<input type="file">` it opens for an engine that has none. That is the code under test, and
+ * it is the same code Firefox and WebKit always run; doing it on Firefox as well would be a second
+ * proof of the same lines and needs a headful engine to seed at all.
  */
 /*
  * Both formats, because the padded one is where the copy could be right and the CHECK still fail.
@@ -306,7 +331,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
   page.on('pageerror', (error) => pageErrors.push(String(error)))
 
   // real files on disk, because `setInputFiles` with a directory is what produces the
-  // `webkitRelativePath` values the input route reads, and a fake File cannot carry one
+  // `webkitRelativePath` values the ponyfill rebuilds the tree from, and a fake File carries none
   const fs = await import('node:fs')
   const os = await import('node:os')
   const nodePath = await import('node:path')
@@ -340,7 +365,7 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
       }
       window.Worker = Probe as unknown as typeof Worker
       try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
-      // what makes this the Firefox path: no pickers, so the dialog offers its inputs instead
+      // what makes this the Firefox path: no pickers, so the ponyfill opens an input instead
       delete (window as any).showDirectoryPicker
       delete (window as any).showOpenFilePicker
     })
@@ -349,11 +374,18 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
     await page.getByRole('button', { name: 'Create a torrent' }).click()
     const dialog = page.getByRole('dialog')
 
-    // the promise made BEFORE anything is picked, which is the one that changed
-    await expect(dialog.getByText('keeps its own copy in browser storage')).toBeVisible()
-
-    if (pick.folder) await dialog.locator('input[webkitdirectory]').setInputFiles(folder)
-    else await dialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles(nodePath.join(folder, 'E01.mkv'))
+    /*
+     * ONE PAIR OF BUTTONS, whichever engine this is, which is the change this now proves.
+     *
+     * The dialog used to fork here and render two `<input type="file">` labels instead, and say in
+     * advance that this browser could not hand the files back. It cannot know that in advance any
+     * more: every engine has the pickers now, and whether a PICK can be re-opened is answered by the
+     * handle it produces. The input the ponyfill opens lives only for the length of the pick, so it
+     * is caught as a file chooser rather than found as an element.
+     */
+    const chooser = page.waitForEvent('filechooser')
+    await dialog.getByRole('button', { name: pick.folder ? 'Choose a folder' : 'Choose a file', exact: true }).click()
+    await (await chooser).setFiles(pick.folder ? folder : nodePath.join(folder, 'E01.mkv'))
 
     // the review step, and the size of the copy it is about to make, quoted before the button
     await expect(dialog.getByText(pick.folder ? '3' : '1', { exact: true })).toBeVisible({ timeout: 30_000 })

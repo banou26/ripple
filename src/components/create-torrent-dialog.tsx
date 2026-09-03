@@ -110,16 +110,7 @@ const style = css`
 
   .picks { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  /*
-   * A label that picks a file has to LOOK like the button it replaces.
-   *
-   * It is a label rather than a button because that is the only way to open the native picker
-   * without a click handler, which is what the browsers lacking the handle pickers need. So the
-   * selector carries both, and the input inside is hidden rather than removed: display:none on an
-   * input still opens its picker when the label is clicked, and keeps it out of the tab order so the
-   * label is the one focusable thing.
-   */
-  button, label.pick-source {
+  button {
     font: inherit;
     font-size: 0.85rem;
     font-weight: 700;
@@ -133,11 +124,7 @@ const style = css`
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
     &:disabled { opacity: 0.35; cursor: default; }
   }
-  label.pick-source {
-    display: inline-block;
-    input { display: none; }
-  }
-  button.go, label.pick-source.go {
+  button.go {
     background: ${EMPHASIS};
     color: ${TEXT_ON_LIGHT};
     border-color: transparent;
@@ -313,23 +300,18 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
         </header>
 
         <div className="body">
+          {/* "Your files are only read" and not "nothing is copied", which stopped being true for
+              everyone the moment every engine got the pickers. Some browsers cannot hand a pick back
+              after a reload, and Ripple keeps its OWN copy in browser storage for those so the
+              sharing survives one. Which of the two this is cannot be known until something has been
+              picked, so the sentence promises the part that always holds and the review step says
+              what will actually happen to this pick, with the size of the copy, before anybody
+              presses anything. */}
           {state.stage === 'idle' && (
-            <>
-              <p>
-                Pick a file or a folder on this device. Ripple reads it where it is, builds the torrent,
-                and shares it from there. Nothing is copied and nothing is moved.
-              </p>
-              {/* Said BEFORE anything is picked, not after it is built: it changes whether somebody
-                  wants to start at all. Phrased as what happens rather than as a browser fault, and
-                  it names no browser, because the person reading it did not choose one to be told off
-                  about. */}
-              {!create.durableSources && (
-                <p className="faint">
-                  This browser cannot hand those files back to Ripple after a reload, so Ripple keeps
-                  its own copy in browser storage and shares from that. Your files are only read.
-                </p>
-              )}
-            </>
+            <p>
+              Pick a file or a folder on this device. Ripple reads it where it is, builds the torrent,
+              and shares it from there. Your files are never written to and never moved.
+            </p>
           )}
 
           {state.stage === 'reading' && (
@@ -589,8 +571,10 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               {state.built.infoHashV2 && state.built.infoHashV2 !== state.built.infoHash && (
                 <p className="faint">v2 info hash <code>{state.built.infoHashV2}</code></p>
               )}
+              {/* Keyed on THIS pick, not on the browser. Every engine has the pickers now, and what
+                  differs is whether the one thing picked can be handed back after a reload. */}
               <p className="faint">
-                {create.durableSources
+                {state.reopenable
                   ? 'It keeps sharing while Ripple is open. After a reload the browser asks for access to those files again before it can carry on.'
                   : state.room?.kind === 'fits'
                     ? 'Ripple kept its own copy, so this keeps sharing across reloads with nothing to grant again. Your files were only read.'
@@ -608,51 +592,15 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
           {state.stage === 'idle' && (
             <>
               <button type="button" onClick={onClose}>Cancel</button>
-              {create.durableSources
-                ? (
-                  <>
-                    <button type="button" onClick={() => void create.pickFile()}>Choose a file</button>
-                    <button ref={first} className="go" type="button" onClick={() => void create.pickFolder()}>
-                      Choose a folder
-                    </button>
-                  </>
-                )
-                : (
-                  /*
-                   * A label wrapping an input, which is the same pattern the library toolbar already
-                   * uses to open a .torrent. It gives the native picker with no click handler, and it
-                   * is what makes creating work in a browser without the handle pickers: a torrent
-                   * needs BYTES, and an input has always been able to hand those over.
-                   *
-                   * `value = ''` after each pick, or choosing the same folder twice in a row fires no
-                   * change event and the dialog appears to ignore the second pick.
-                   */
-                  <>
-                    <label className="pick-source">
-                      <input
-                        type="file"
-                        onChange={(event) => {
-                          const picked = event.currentTarget.files
-                          if (picked?.length) create.pickFiles(picked, false)
-                          event.currentTarget.value = ''
-                        }}
-                      />
-                      Choose a file
-                    </label>
-                    <label className="pick-source go">
-                      <input
-                        type="file"
-                        webkitdirectory=""
-                        onChange={(event) => {
-                          const picked = event.currentTarget.files
-                          if (picked?.length) create.pickFiles(picked, true)
-                          event.currentTarget.value = ''
-                        }}
-                      />
-                      Choose a folder
-                    </label>
-                  </>
-                )}
+              {/* ONE PAIR OF BUTTONS, on every engine. This used to fork: the handle pickers where
+                  the window carried them, and a pair of labels wrapping `<input type="file">` where
+                  it did not, which is two routes to maintain and two sets of copy to keep true.
+                  `@banou/ponyfill` opens the input itself where an engine has no picker, so there is
+                  one call, one return type, and nothing here that names a browser. */}
+              <button type="button" onClick={() => void create.pickFile()}>Choose a file</button>
+              <button ref={first} className="go" type="button" onClick={() => void create.pickFolder()}>
+                Choose a folder
+              </button>
             </>
           )}
 

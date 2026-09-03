@@ -20,7 +20,16 @@ const fakeClient = () => {
       adds.push({ options, lengthAtCall: bytes.byteLength })
       structuredClone(bytes.buffer, { transfer: [bytes.buffer] })
     },
-    createSource: (torrent: unknown) => { sources.push(torrent) },
+    /*
+     * CLONED FOR REAL, because the worker is reached by `postMessage` and that is what it does.
+     *
+     * A fake that merely kept the object could not see the failure this guards: the handles for a
+     * pick that cannot be re-opened are wrappers around a `File`, and a wrapper carries its methods
+     * as own properties so `structuredClone` refuses it. The post then throws, the torrent is
+     * already published, and what the person sees is one that never reaches a single per cent with
+     * nothing reporting a fault. Measured against the real engine before this line existed.
+     */
+    createSource: (torrent: unknown) => { sources.push(structuredClone(torrent)) },
     reserveStorage: (infoHash: string, on: boolean) => { reserved.push({ infoHash, on }) },
     setLocation: (infoHash: string, to: unknown) => { locations.push({ infoHash, to }) },
   } as unknown as TorrentClient
@@ -87,6 +96,69 @@ const settle = async (api: () => UseCreateTorrent) => {
   expect(api().state.stage).toBe('done')
 }
 
+/**
+ * A directory handle shaped like the one `@banou/ponyfill` hands back where an engine has no picker.
+ *
+ * Its methods are OWN properties, which is not a style choice: that is what makes `structuredClone`
+ * refuse it, and refusing is how ripple learns this pick cannot be re-opened and its bytes have to be
+ * copied. A prototype here would clone silently and every test below would take the other branch.
+ *
+ * Built by hand rather than driven out of the real ponyfill because these cases need `File` objects
+ * with a stalled `stream()`, which no real picker can produce. That the ponyfill's actual wrapper is
+ * walkable is pinned separately, in tests/torrent/walk-ponyfill-pick.test.ts.
+ */
+const wrappedDirectory = (name: string, files: File[]): FileSystemDirectoryHandle => {
+  const entries = files.map((file) => [file.name, {
+    kind: 'file',
+    name: file.name,
+    getFile: async () => file,
+    isSameEntry: async () => false,
+  }] as [string, unknown])
+  return {
+    kind: 'directory',
+    name,
+    entries: async function * () { for (const entry of entries) yield entry },
+    values: async function * () { for (const [, handle] of entries) yield handle },
+    isSameEntry: async () => false,
+  } as unknown as FileSystemDirectoryHandle
+}
+
+/**
+ * And the control: a handle shaped like a NATIVE one, which is the only difference that matters.
+ *
+ * Its methods live on a prototype, so `structuredClone` copies it happily, exactly as a real
+ * `FileSystemDirectoryHandle` does. That is the whole of what ripple asks a pick, so a stand-in that
+ * answers the same way exercises the same branch.
+ */
+class NativeLikeDirectory {
+  kind = 'directory' as const
+  constructor (public name: string, private files: File[]) {}
+  async * entries () { for (const file of this.files) yield [file.name, new NativeLikeFile(file)] }
+  async * values () { for (const file of this.files) yield new NativeLikeFile(file) }
+  async isSameEntry () { return false }
+}
+
+class NativeLikeFile {
+  kind = 'file' as const
+  constructor (private file: File) {}
+  get name () { return this.file.name }
+  async getFile () { return this.file }
+  async isSameEntry () { return false }
+}
+
+/** Pick that folder, through the same call the dialog's button makes. */
+const pickWrapped = async (api: () => UseCreateTorrent, name: string, files: File[]) => {
+  ;(window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker =
+    async () => wrappedDirectory(name, files)
+  await api().pickFolder()
+}
+
+const pickNative = async (api: () => UseCreateTorrent, name: string, files: File[]) => {
+  ;(window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker =
+    async () => new NativeLikeDirectory(name, files)
+  await api().pickFolder()
+}
+
 const mount = async (client: TorrentClient) => {
   const held = { current: null as UseCreateTorrent | null }
   const Harness = () => {
@@ -103,10 +175,10 @@ describe('publishing a pick that cannot be re-opened', () => {
     const { client, adds, sources, reserved, locations } = fakeClient()
     const api = await mount(client)
 
-    api().pickFiles([
-      pick('Slice Pack/a.mkv', new Uint8Array(40_001).fill(0x11)),
-      pick('Slice Pack/b.mkv', new Uint8Array(40_002).fill(0x22)),
-    ], true)
+    await pickWrapped(api, 'Slice Pack', [
+      pick('a.mkv', new Uint8Array(40_001).fill(0x11)),
+      pick('b.mkv', new Uint8Array(40_002).fill(0x22)),
+    ])
     await expect.poll(() => api().state.stage).toBe('ready')
     await expect.poll(() => api().state.room?.kind).toBe('fits')
 
@@ -131,7 +203,16 @@ describe('publishing a pick that cannot be re-opened', () => {
     const api = await mount(client)
     const long = 'x'.repeat(237) + '.mkv'
 
-    api().pickFiles([pick(`Long Pack/${long}`, new Uint8Array(30_001).fill(0x11))], true)
+    /*
+     * A REAL `File`, because this is the one case that reaches `createSource`.
+     *
+     * The copy is declined here, so the bytes cross to the worker as the files themselves, and the
+     * fake above is not one: its `slice` and `stream` are own properties, which is exactly what
+     * makes something refuse to clone. Using it would fail the post for a reason that has nothing to
+     * do with the handles under test.
+     */
+    const real = new File([new Uint8Array(30_001).fill(0x11)], long, { lastModified: 1_700_000_000_000 })
+    await pickWrapped(api, 'Long Pack', [real])
     await expect.poll(() => api().state.stage).toBe('ready')
     await expect.poll(() => api().state.room?.kind).toBe('unsafe')
 
@@ -142,6 +223,67 @@ describe('publishing a pick that cannot be re-opened', () => {
     expect(adds).toEqual([])
     expect(reserved).toEqual([])
     expect(sources.length).toBe(1)
+    /*
+     * AND IT SAYS SO, which is what keeps this entry visible after a reload.
+     *
+     * No copy was made and no handle could be stored, so nothing can re-open this source. The worker
+     * writes `started: false` for that, which gives it a ghost row somebody can remove. Without the
+     * flag the entry renders in no list at all: not live, not starting, not a ghost, not waiting.
+     */
+    expect(sources[0]).toMatchObject({ reopenable: false })
+    /*
+     * AND WHAT IS IN `handles`, which is the half `reopenable` does not prove.
+     *
+     * The worker reads this torrent's bytes through these, by file index. A wrapped handle cannot
+     * cross the post at all, so the page resolves each one to the `File` behind it; posting the
+     * wrappers instead throws inside `postMessage` and the torrent never reaches a single per cent.
+     * Without this assertion `out.handles.map(() => null)` would satisfy every other line here.
+     */
+    const posted = sources[0] as { handles: unknown[] }
+    expect(posted.handles).toHaveLength(1)
+    expect(posted.handles[0], 'the worker was handed no bytes to read').toBeInstanceOf(File)
+    expect((posted.handles[0] as File).size).toBe(30_001)
+  })
+
+  /**
+   * The control, and the branch that did not exist before: a pick that CAN be re-opened.
+   *
+   * Nothing is measured, nothing is copied, the handle is stored, and the entry is an ordinary
+   * running source. A `reopenable` that were hard-coded either way would fail here or above.
+   */
+  it('stores the handle for a pick that can be re-opened, and copies nothing', async () => {
+    const { client, adds, sources, reserved } = fakeClient()
+    const api = await mount(client)
+
+    /*
+     * A REAL `File`, not the fake above, and the difference is the whole point.
+     *
+     * `pick()` builds an object whose `slice` and `stream` are own properties, which is exactly what
+     * makes a wrapped handle refuse to clone. A control for the cloneable branch therefore cannot
+     * use one: the handle would be uncloneable for a reason that has nothing to do with the handle.
+     */
+    const real = new File([new Uint8Array(20_001).fill(0x33)], 'a.mkv', { lastModified: 1_700_000_000_000 })
+    await pickNative(api, 'Kept Pack', [real])
+    await expect.poll(() => api().state.stage).toBe('ready')
+    expect(api().state.reopenable, 'a handle that clones is one the browser can keep').toBe(true)
+    // the room question is never asked, because nothing is going to be copied
+    expect(api().state.room).toBeNull()
+
+    await api().publish(options('Kept Pack'))
+    await settle(api)
+
+    expect(adds).toEqual([])
+    expect(reserved).toEqual([])
+    expect(sources.length).toBe(1)
+    expect(sources[0]).toMatchObject({ reopenable: true })
+    /*
+     * And the control for the conversion above: a handle that clones goes over UNTOUCHED.
+     *
+     * Turning every pick into a `File` would work and would quietly throw away what a native handle
+     * is for, which is a fresh read per chunk rather than one snapshot taken at pick time.
+     */
+    const posted = sources[0] as { handles: unknown[] }
+    expect(posted.handles[0], 'a native handle was flattened into a snapshot').not.toBeInstanceOf(File)
   })
 
   it('goes back to where it started when the copy is cancelled', async () => {
@@ -152,9 +294,9 @@ describe('publishing a pick that cannot be re-opened', () => {
     const gate = new Promise<void>((resolve) => { release = resolve })
     const stalled = new Uint8Array(50_002).fill(0x22)
 
-    api().pickFiles([
-      pick('Cancel Pack/a.mkv', new Uint8Array(50_001).fill(0x11)),
-      pick('Cancel Pack/b.mkv', stalled, {
+    await pickWrapped(api, 'Cancel Pack', [
+      pick('a.mkv', new Uint8Array(50_001).fill(0x11)),
+      pick('b.mkv', stalled, {
         stream: () => new ReadableStream({
           async start (controller) {
             await gate
@@ -163,8 +305,8 @@ describe('publishing a pick that cannot be re-opened', () => {
           },
         }),
       }),
-      pick('Cancel Pack/c.mkv', new Uint8Array(50_003).fill(0x33)),
-    ], true)
+      pick('c.mkv', new Uint8Array(50_003).fill(0x33)),
+    ])
     await expect.poll(() => api().state.stage).toBe('ready')
     await expect.poll(() => api().state.room?.kind).toBe('fits')
 

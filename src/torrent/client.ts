@@ -150,6 +150,15 @@ export type TorrentClient = {
     /** The chosen piece length, which decides where the pads fall and so must survive a reload. */
     pieceLength?: number
     files: { name: string, size: number }[]
+    /**
+     * Whether the page managed to keep a handle that can re-open this source after a reload.
+     *
+     * False makes the entry a GHOST rather than an invisible row. `saveTo: 'source'` means the bytes
+     * live outside the origin and the page holds the way back to them; where it does not, the entry
+     * has to be something the list can show and somebody can remove, or it is stuck in the library
+     * with no way out. See the ghost branch in `use-torrents.ts`.
+     */
+    reopenable?: boolean
   }) => void
   /**
    * Start a created torrent that is already in the library, on a later load, now that its source is

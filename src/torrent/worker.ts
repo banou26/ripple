@@ -1732,7 +1732,17 @@ const handleMessage = async (session: Session, m: any) => {
         lastUsedAt: at,
         // never cache, never evicted, and never moved: `saveTo: 'source'` is what says so
         ephemeral: false,
-        started: true,
+        /*
+         * `started: false` for a source the page could NOT keep a handle for, which is what makes it
+         * a ghost on the next load instead of nothing at all.
+         *
+         * A source entry is excluded from every live row on purpose, because the waiting list is
+         * meant to carry it and offer the access button. That list reads the stored handle, so an
+         * entry without one is dropped from it too and renders nowhere: not live, not starting, not
+         * a ghost, and with no row there is nothing to remove it from the library with. Absent means
+         * true, so an older client that does not send this keeps the behaviour it had.
+         */
+        started: m.reopenable !== false,
         paused: false,
         saveTo: 'source',
         // the format decides where the pads fall, and a later load has to rebuild the same file
@@ -2092,6 +2102,24 @@ const handleMessage = async (session: Session, m: any) => {
       if (changed) post({ type: 'list', list })
     } else if (m.type === 'start') {
       const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
+      /*
+       * A CREATED SOURCE IS NOT FETCHABLE, and adding one here is worse than doing nothing.
+       *
+       * Its bytes were never in a swarm: this device was the only seed, and its `savePath` is
+       * `/source/<hash>`, which is not a directory but a key into handles the page registers for one
+       * session through `create-source`. This handler registers none, so the storage resolves with
+       * `handles: null` and the first read throws a FATAL disk error, which is a red retrying row
+       * backing off to five minutes. Then the line below writes `started: true`, which hides the
+       * entry from every list again, this time with the Remove option that was on its row gone with
+       * it. The restore loop refuses these for the same reason; see the note there.
+       *
+       * The UI does not offer the button for one of these, and this is the second lock on the same
+       * door: the message can also arrive from a stale tab or a keyboard shortcut.
+       */
+      if (e?.saveTo === 'source') {
+        post({ type: 'add-failed', message: 'This torrent was made from files on this device, so there is nowhere to fetch it from. Create it again from the same files to share it.' })
+        return
+      }
       if (e) {
         const savePath = e.savePath || SHARED_ROOT
         const bytes = (await get(torrentKey(e.infoHash))) as Uint8Array | undefined

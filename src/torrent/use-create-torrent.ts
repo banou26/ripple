@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { del, get, set } from 'idb-keyval'
 
+import { showDirectoryPicker, showOpenFilePicker } from '@banou/ponyfill'
+
 import type { Built, CreateOptions } from './create-source'
 import type { HashProgress } from './hash-pieces'
 import type { Persisted } from './library'
+
+import { waitsForItsSource } from './use-torrents'
 import type { PickedFile } from './walk-source'
 import type { TorrentClient } from './client'
 import type { TorrentFormat, TorrentPlan } from './make-torrent'
@@ -14,7 +18,7 @@ import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
 import { HashCancelled, hashPieces } from './hash-pieces'
 import { copyPickIntoBrowserStorage, measureRoomForCopy } from './copy-source'
 import { plan } from './make-torrent'
-import { changedSince, filesFromList, pickedFile, readPicked, walkDirectory } from './walk-source'
+import { changedSince, fileFrom, pickedFile, readPicked, walkDirectory } from './walk-source'
 
 /**
  * Creating a torrent from something on this device, and keeping it seeding across loads.
@@ -49,12 +53,20 @@ export type CreateState = {
   built: Built | null
   filesFound: number
   /**
+   * Whether THIS pick can hand the same files back after a reload.
+   *
+   * Null before anything is picked, because it is a property of the pick rather than of the browser.
+   * It used to be the hook-level `durableSources`, which asked the window whether it carried the
+   * handle pickers; every engine has them now, so the question moved to where the answer lives. See
+   * {@link canBeReopened}.
+   */
+  reopenable: boolean | null
+  /**
    * Whether this pick's bytes will be kept in browser storage, and if not, by how much it misses.
    *
-   * Only ever set for a pick that cannot be re-opened, which is the input route. Measured as soon as
-   * the pick is read, so the dialog can say what will happen BEFORE anybody agrees to it rather than
-   * reporting it afterwards. Null on the handle route, where nothing is copied and the question does
-   * not arise.
+   * Only ever set for a pick that cannot be re-opened, which is the only pick anything is copied
+   * for. Measured as soon as the pick is read, so the dialog can say what will happen BEFORE anybody
+   * agrees to it rather than reporting it afterwards.
    */
   room: CopyRoom | null
   /** Where the copy has got to, while `stage` is `copying`. */
@@ -70,6 +82,7 @@ const IDLE: CreateState = {
   error: null,
   built: null,
   filesFound: 0,
+  reopenable: null,
   room: null,
   copy: null,
 }
@@ -108,20 +121,33 @@ const requestRead = async (handle: FileSystemHandle): Promise<boolean> =>
 export const createSupported = () => typeof window !== 'undefined'
 
 /**
- * Whether this browser can hand back the SAME files after a reload.
+ * Whether THIS PICK can hand the same files back after a reload, which is not a fact about the
+ * browser.
  *
- * What a handle buys is not creating, it is re-opening: it survives a reload and can be re-granted,
- * so a torrent created from one keeps seeding across sessions. A `File` from an input is one
- * snapshot, readable for the life of the page and gone after it. That difference is the only thing
- * the two routes disagree about, and the dialog says which one is in force rather than hiding a
- * control.
+ * It used to be one. `handlePickers()` asked whether the window carried the two handle pickers, and
+ * everything downstream read that as "this pick can re-open". The two agreed by coincidence: on an
+ * engine with pickers every pick came from one, and on an engine without them every pick came from
+ * an `<input>`. `@banou/ponyfill` ends the coincidence by giving every engine the pickers, so the
+ * question has to be asked of the pick.
+ *
+ * AND THE PLATFORM ANSWERS IT, with no new API and no user agent sniffing. What re-opening needs is
+ * for the handle to survive a trip through IndexedDB, and IndexedDB stores by structured clone. A
+ * native handle clones; a wrapper around a `File` from an input cannot, because a snapshot is not an
+ * entry on a disk, so it refuses with `DataCloneError` (measured on Chromium, Firefox and WebKit,
+ * 2026-09-03, and the reason the ponyfill's wrapped handles carry their methods as own properties:
+ * an ordinary object would clone SUCCESSFULLY into something with no methods left).
+ *
+ * So the question is asked by trying it. Cloning a native handle is cheap, it happens once per pick,
+ * and it is the same operation `set()` performs later, which is the only definition of the word that
+ * matters here.
  */
-export const handlePickers = () =>
-  typeof window !== 'undefined' && 'showDirectoryPicker' in window && 'showOpenFilePicker' in window
-
-type Picker = {
-  showDirectoryPicker?: (options: { id?: string, mode?: 'read' }) => Promise<FileSystemDirectoryHandle>
-  showOpenFilePicker?: (options: { id?: string, multiple?: boolean }) => Promise<FileSystemFileHandle[]>
+const canBeReopened = (root: FileSystemDirectoryHandle | FileSystemFileHandle): boolean => {
+  try {
+    structuredClone(root)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Reads a pick into the list of files a torrent would be built from. */
@@ -144,18 +170,6 @@ export type UseCreateTorrent = {
   suggestedName: string
   pickFolder: () => Promise<void>
   pickFile: () => Promise<void>
-  /**
-   * The input route: a `FileList` from `<input type="file">`, with `folder` true when the input
-   * carried `webkitdirectory`. Synchronous, because the list arrives complete.
-   */
-  pickFiles: (list: ArrayLike<File>, folder: boolean) => void
-  /**
-   * Whether a torrent made here can still be seeded after a reload.
-   *
-   * False on the input route, where the files are one snapshot the page cannot re-open. The dialog
-   * says so before anybody creates anything, rather than after.
-   */
-  durableSources: boolean
   /** Hash, assemble, check, and hand it to the engine. */
   publish: (options: CreateOptions) => Promise<void>
   /**
@@ -174,12 +188,13 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   const [state, setState] = useState<CreateState>(IDLE)
   const [suggestedName, setSuggestedName] = useState('')
   const source = useRef<{
-    /** Null on the input route: there is no handle to store, so nothing can re-open it later. */
-    root: FileSystemDirectoryHandle | FileSystemFileHandle | null
-    /** Carried rather than read off `root`, which the input route does not have. */
+    root: FileSystemDirectoryHandle | FileSystemFileHandle
+    /** Carried rather than read off `root`, because an empty folder cannot supply one. */
     name: string
     files: PickedFile[]
     single: boolean
+    /** Whether this pick survives a reload, decided by {@link canBeReopened} at pick time. */
+    reopenable: boolean
   } | null>(null)
   const abort = useRef<AbortController | null>(null)
 
@@ -195,15 +210,15 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   }
 
   /**
-   * Everything after the pick, shared by both routes.
+   * Everything after the pick: the two refusals, the plan, and the `ready` state.
    *
-   * Split out of `take` so the handle route and the input route cannot drift: both refusals below,
-   * the plan, and the `ready` state are decided once, whatever handed over the files.
+   * Split out of `take` because it is where the pick stops being a handle and becomes a torrent, and
+   * because it is the one place that decides whether this one can re-open itself.
    */
   const accept = useCallback((
     read: { files: PickedFile[], skipped: string[], truncated: boolean, single: boolean },
     name: string,
-    root: FileSystemDirectoryHandle | FileSystemFileHandle | null,
+    root: FileSystemDirectoryHandle | FileSystemFileHandle,
   ) => {
       if (!read.files.length) throw new Error('There are no files in there to put in a torrent')
       /*
@@ -217,7 +232,8 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       if (!read.files.reduce((sum, file) => sum + file.size, 0)) {
         throw new Error('Every file in there is empty, and a torrent needs something to share')
       }
-      source.current = { root, name, files: read.files, single: read.single }
+      const reopenable = canBeReopened(root)
+      source.current = { root, name, files: read.files, single: read.single, reopenable }
       // planned here rather than at publish time so the file count, the total and the piece count
       // are on screen BEFORE anybody agrees to anything. No piece length yet: the dialog re-plans
       // through `replan` below once somebody chooses one.
@@ -233,6 +249,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         skipped: read.skipped,
         truncated: read.truncated,
         filesFound: read.files.length,
+        reopenable,
       })
       /*
        * Asked now, not at publish time, because it changes what the dialog PROMISES.
@@ -240,10 +257,13 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * A pick that cannot be re-opened has its bytes copied into browser storage so the torrent
        * survives a reload, and that copy is the largest the app can make. Whether it fits decides
        * which of two true sentences the screen shows, and somebody deciding whether to start at all
-       * is owed the one that applies to them. `root` is the whole test: handles re-open, snapshots
-       * do not, and that is a property of this pick rather than of the browser.
+       * is owed the one that applies to them.
+       *
+       * The test is whether the HANDLE survives a structured clone, which is what re-opening
+       * actually needs and what `handlePickers()` was standing in for until the ponyfill gave every
+       * engine the pickers.
        */
-      if (!root) {
+      if (!reopenable) {
         // the paths as the torrent will carry them: the name is a path element too, for every file
         const paths = read.single ? [name] : read.files.map((file) => [name, ...file.path].join('/'))
         void measureRoomForCopy(built.totalBytes, paths).then((room) => {
@@ -267,31 +287,19 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   }, [accept])
 
   /**
-   * The input route, which is what Firefox uses and what every browser could have used all along.
+   * Both pickers, on every engine, through `@banou/ponyfill`.
    *
-   * `webkitdirectory` hands over a whole folder as a flat list with relative paths, so the folder
-   * case works here too; `filesFromList` applies the same caps and junk rules the walk does. There is
-   * no abort controller because there is nothing to abort: the list arrives complete and the work is
-   * synchronous. `root` is null, which is what later makes this torrent unable to re-open itself.
+   * There is no capability check left because there is nothing to check: where the platform has a
+   * picker it is used and its handles come back untouched, and where it does not the ponyfill opens
+   * an `<input type="file">` and wraps what comes back in the same shape. Ripple carried a whole
+   * second route for the second case, with a `File` where the first had a handle and a union threaded
+   * through everything downstream; that route is gone and this is what replaced it.
+   *
+   * `AbortError` is still the person closing the dialog, on both paths, so it stays silent.
    */
-  const pickFiles = useCallback((list: ArrayLike<File>, folder: boolean) => {
-    setState({ ...IDLE, stage: 'reading' })
-    try {
-      const read = filesFromList(list)
-      const first = list[0]
-      const name = folder
-        ? (first?.webkitRelativePath?.split('/')[0] || 'torrent')
-        : (first?.name ?? 'torrent')
-      setSuggestedName(name)
-      accept({ ...read, single: !folder }, name, null)
-    } catch (error) { fail(error) }
-  }, [accept])
-
   const pickFolder = useCallback(async () => {
-    const picker = (window as unknown as Picker).showDirectoryPicker
-    if (!picker) return
     // `mode: 'read'` so the browser itself refuses a write, rather than only this code refusing one
-    const root = await picker({ id: 'ripple-source', mode: 'read' }).catch((error: unknown) => {
+    const root = await showDirectoryPicker({ id: 'ripple-source', mode: 'read' }).catch((error: unknown) => {
       if ((error as Error)?.name !== 'AbortError') fail(error)
       return null
     })
@@ -299,9 +307,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
   }, [take])
 
   const pickFile = useCallback(async () => {
-    const picker = (window as unknown as Picker).showOpenFilePicker
-    if (!picker) return
-    const picked = await picker({ id: 'ripple-source', multiple: false }).catch((error: unknown) => {
+    const picked = await showOpenFilePicker({ id: 'ripple-source', multiple: false }).catch((error: unknown) => {
       if ((error as Error)?.name !== 'AbortError') fail(error)
       return null
     })
@@ -379,7 +385,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * smaller thing than the person asked for and it is said on screen, rather than refusing to
        * create anything or copying most of a folder and failing at the end.
        */
-      if (!pick.root) {
+      if (!pick.reopenable) {
         const room = await measureRoomForCopy(
           out.plan.totalBytes,
           out.files.map((file) => file.name),
@@ -441,20 +447,68 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * attaches to and what can be re-walked; re-walking also re-checks that the files are still
        * the ones the torrent describes, which storing the file handles would skip.
        */
-      // nothing to store on the input route: a File cannot be re-opened after a reload
-      if (pick.root) await set(sourceKey(out.infoHash), pick.root)
+      /*
+       * The store is ATTEMPTED rather than predicted, and a refusal is not fatal.
+       *
+       * `canBeReopened` asked the same question at pick time with the same operation, so the two
+       * agree, and this is the one that counts: a `DataCloneError` here means the browser will not
+       * keep this handle, whatever was decided earlier. What must not happen is an uncaught
+       * rejection taking down a publish whose torrent is otherwise finished and about to seed.
+       */
+      const stored = pick.reopenable
+        ? await set(sourceKey(out.infoHash), pick.root).then(() => true).catch(() => false)
+        : false
+      /*
+       * A HANDLE THAT CANNOT BE STORED CANNOT BE POSTED EITHER, so what crosses to the worker is the
+       * `File` behind it.
+       *
+       * `postMessage` copies by the same structured clone IndexedDB stores by, so the property that
+       * decides `reopenable` decides this too, and one flag answers both. A `File` clones and carries
+       * its bytes, which is all the worker wants: it reads by file INDEX and never re-opens anything.
+       * Sending the wrapper instead throws `DataCloneError` inside the post, and what the person sees
+       * is a torrent that published cleanly and then never reaches a single per cent.
+       *
+       * Where the pick CAN be re-opened the native handles go over untouched, because a fresh
+       * `getFile()` per read is worth having and a native handle clones.
+       */
+      const refs = pick.reopenable
+        ? out.handles
+        : await Promise.all(out.handles.map((ref) => (ref ? fileFrom(ref) : null)))
       client.createSource({
         infoHash: out.infoHash,
         magnet: out.magnet,
         bytes: out.bytes,
-        handles: out.handles,
+        handles: refs,
         name: out.plan.name,
         size: out.plan.totalBytes,
         format: out.format,
         pieceLength: out.plan.pieceLength,
         files: out.files,
+        /*
+         * WHETHER THE PAGE COULD KEEP THE HANDLE, told to the worker in the same message.
+         *
+         * The entry the worker writes is `saveTo: 'source'`, which means "the bytes live outside
+         * the origin and the page holds the way back to them". Without the handle that is a lie, and
+         * a lie the list then cannot show: `use-torrents.ts` excludes a source entry from the live
+         * rows, the ghosts and the starting rows alike, on the grounds that the waiting list will
+         * carry it, and the waiting list drops it because there is no handle to offer access to. The
+         * result is an entry that renders nowhere and cannot be removed.
+         *
+         * So the two halves are written together. See the ghost branch in `use-torrents.ts`.
+         */
+        reopenable: stored,
       })
-      setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan }))
+      /*
+       * `reopenable` is REPLACED by what the store actually did, not left at what the probe guessed.
+       *
+       * `canBeReopened` answers before any bytes are read, which is early enough to decide whether to
+       * measure a copy and late enough to be right almost always. `stored` is the same question asked
+       * by performing it, and where the two disagree the second one is the truth: a handle that
+       * clones but that IndexedDB refuses leaves nothing to re-open, and the closing line reads this
+       * field. Without it the screen would promise that the browser will ask for access again after a
+       * reload, for an entry the worker was just told is a ghost.
+       */
+      setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan, reopenable: stored }))
     } catch (error) { fail(error) }
   }, [client])
 
@@ -484,12 +538,10 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
 
   return {
     supported: createSupported(),
-    durableSources: handlePickers(),
     state,
     suggestedName,
     pickFolder,
     pickFile,
-    pickFiles,
     publish,
     replan,
     cancel,
@@ -560,7 +612,16 @@ export const useCreatedSources = (
     if (!owns) return
     let cancelled = false
     void (async () => {
-      const created = list.filter((entry) => entry.saveTo === 'source' && !started.current.has(entry.infoHash))
+      /*
+       * THE SAME PREDICATE THE LIST USES, so the two can never disagree about one entry.
+       *
+       * The list leaves a created source out of every row on the grounds that this hook will carry
+       * it, and this hook drops any entry it has no stored handle for. Those two rules met in the
+       * middle for an entry with neither, and it rendered nowhere at all: `waitsForItsSource` is
+       * where that is now decided, once, for both. Asking it here as well means an entry the list
+       * has already given a ghost row cannot also turn up in the waiting panel.
+       */
+      const created = list.filter((entry) => waitsForItsSource(entry) && !started.current.has(entry.infoHash))
       const stillWaiting: WaitingSource[] = []
       for (const entry of created) {
         const root = await get<FileSystemDirectoryHandle | FileSystemFileHandle>(sourceKey(entry.infoHash)).catch(() => undefined)

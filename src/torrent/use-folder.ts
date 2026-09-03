@@ -8,6 +8,18 @@ type PermissionCapableHandle = FileSystemDirectoryHandle & {
   requestPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>
 }
 
+/**
+ * Whether this browser can grant WRITE access to a folder somebody chooses, which is a real question
+ * with no platform name and the one place a window probe still belongs.
+ *
+ * `use-create-torrent.ts` no longer has one: `@banou/ponyfill` gives every engine the pickers, so
+ * whether a PICK can be re-opened is asked of the handle it produced rather than of the window. That
+ * does not carry over here, because this folder is written to. An `<input type="file">` hands over
+ * copies of bytes with no route back to where they came from, so the ponyfill refuses
+ * `mode: 'readwrite'` where it has no native picker, and refusing at the ask is right. What it
+ * cannot do is answer the question BEFORE the ask, and a button that only reveals itself to be
+ * impossible once pressed is worse than one that was never offered.
+ */
 const isSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
 const pickDirectory = async (): Promise<FileSystemDirectoryHandle | undefined> => {

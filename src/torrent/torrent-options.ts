@@ -200,7 +200,19 @@ export const buildTorrentOptions = (
       run: a.watch,
     })
   }
-  if (isGhost(t)) {
+  /*
+   * A ghost can be fetched again, EXCEPT the one kind whose bytes were never in a swarm.
+   *
+   * A created source is a torrent somebody made from their own files, so there is nobody to download
+   * it FROM: this device was the only seed. Its entry points at `/source/<hash>`, which is not a
+   * directory at all but a key into handles the page holds for one session, so starting it tells the
+   * engine to fetch into a location whose reads nothing answers.
+   *
+   * A source entry only reaches this row when the page could not keep a handle for it, which is what
+   * makes it unrecoverable in the first place, so the only honest thing to offer is removal. See
+   * `waitsForItsSource` in use-torrents.ts.
+   */
+  if (isGhost(t) && t.saveTo !== 'source') {
     actions.push({
       kind: 'action',
       id: 'start',
