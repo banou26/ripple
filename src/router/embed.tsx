@@ -542,6 +542,11 @@ const Player = () => {
     <div css={playerStyle}>
       <MediaPlayer
         {...source}
+        // Served to whoever frames this page, and only them, through @banou/media-player/remote: a
+        // watch-together host's followers are made to match this player through it. A tab that opens
+        // the embed directly has nobody to serve.
+        expose
+
         // No `title`: the player would draw it full width in a layer of its own, where it cannot see
         // the readout above it and runs underneath it on a narrow screen. The overlay row below
         // carries the filename instead, in the same flex line as the numbers it has to give way to.
