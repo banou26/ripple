@@ -233,7 +233,13 @@ describe('the caching half of the worker', () => {
   it('leaves everything that is not a hashed chunk on the network', () => {
     const caches = fakeCaches()
     const { on } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
-    for (const path of ['/', '/embed', '/index.js', '/sw.js', '/assets/logo.png', '/jassub-worker.js']) {
+    // `/jassub/...` is where jassub's own build pass puts its worker and data files. They are
+    // unhashed and outside `assets/`, so the service worker must leave every one of them alone; the
+    // path here used to be `/jassub-worker.js`, which stopped existing when they moved.
+    for (const path of [
+      '/', '/embed', '/index.js', '/sw.js', '/assets/logo.png',
+      '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/default.woff2',
+    ]) {
       const r = requestFor(ORIGIN + path)
       on.fetch?.({ ...r.event, request: { url: ORIGIN + path, method: 'GET' } })
       expect(r.taken(), `${path} must not be intercepted`).toBeNull()

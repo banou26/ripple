@@ -59,6 +59,43 @@ const serveServiceWorkerInDev = () => ({
   },
 })
 
+/**
+ * jassub's built assets, handed to the dev server as bytes.
+ *
+ * They live under `build/jassub`, which is inside the project root, so vite's dev server treats a
+ * request for one as a source module: `/build/jassub/worker.js` came back as the SPA fallback HTML,
+ * and the emscripten glue next to it came back TRANSFORMED, neither of which a module worker can run.
+ * They are already built and must be served exactly as they are.
+ *
+ * This is the same shape as the service worker above, and for the same reason: a file that ships as
+ * itself cannot go through the transform pipeline. libav needs no equivalent because a single classic
+ * script survives being transformed.
+ */
+const serveJassubAssetsInDev = () => ({
+  name: 'ripple-serve-jassub-in-dev',
+  apply: 'serve' as const,
+  configureServer (server: { middlewares: { use: (fn: (req: { url?: string }, res: BinaryResponseLike, next: () => void) => void) => void } }) {
+    server.middlewares.use((req, res, next) => {
+      const path = (req.url ?? '').split('?')[0] ?? ''
+      const name = path.startsWith('/build/jassub/') ? path.slice('/build/jassub/'.length) : null
+      // one path segment only, so a request cannot climb out of the directory
+      if (!name || !/^[\w.-]+$/.test(name)) return next()
+      const type = name.endsWith('.wasm') ? 'application/wasm'
+        : name.endsWith('.woff2') ? 'font/woff2'
+        : name.endsWith('.js') ? 'text/javascript'
+        : 'application/octet-stream'
+      readFile(new URL(`./build/jassub/${name}`, import.meta.url))
+        .then(body => {
+          res.setHeader('content-type', type)
+          res.end(body)
+        })
+        .catch(() => next())
+    })
+  },
+})
+
+type BinaryResponseLike = { setHeader: (name: string, value: string) => void, end: (body: Buffer) => void }
+
 type ServerResponseLike = { setHeader: (name: string, value: string) => void, end: (body: string) => void }
 
 export default defineConfig((env) => ({
@@ -209,6 +246,7 @@ export default defineConfig((env) => ({
     polyfills(),
     jassubOwnAssets(),
     serveServiceWorkerInDev(),
+    serveJassubAssetsInDev(),
   ]),
   /**
    * `unit` is the pure logic in node. `browser` mounts things in real Chrome, which is the only place
