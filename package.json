@@ -13,9 +13,9 @@
   "scripts": {
     "dev": "vp dev --port 4560",
     "serve": "serve -s -C -p 4560 build",
-    "build": "shx rm -rf build/ && vp build && npm run copy-libav && npm run copy-libass && npm run copy-html",
+    "build": "shx rm -rf build/ && vp build && npm run copy-libav && npm run build-jassub && npm run copy-html",
     "copy-libav": "shx cp node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/libav-wasm/build/libav.wasm build/libav.wasm && shx cp node_modules/libav-wasm/build/libav-jspi.wasm build/libav-jspi.wasm",
-    "copy-libass": "shx cp node_modules/jassub/dist/jassub-worker.js build/jassub-worker.js && shx cp node_modules/jassub/dist/jassub-worker.wasm build/jassub-worker.wasm && shx cp node_modules/jassub/dist/jassub-worker-modern.wasm build/jassub-worker-modern.wasm && shx cp node_modules/jassub/dist/default.woff2 build/default.woff2",
+    "build-jassub": "vp build -c vite.jassub.config.ts",
     "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && copyfiles -u 2 ./src/assets/* build/assets && node scripts/build-sw.mjs",
     "lint": "vp lint",
     "typecheck": "tsc --noEmit",
@@ -46,7 +46,7 @@
     "test:e2e:machine": "npm run build && npm run e2e:machine"
   },
   "dependencies": {
-    "@banou/media-player": "^0.8.21",
+    "@banou/media-player": "^0.9.0",
     "@banou/ponyfill": "^0.0.7",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.24",
@@ -82,7 +82,7 @@
     "eslint": "^8.45.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
-    "jassub": "^1.7.18",
+    "jassub": "^2.5.16",
     "node-stdlib-browser": "^1.2.0",
     "playwright": "^1.58.0",
     "serve": "^14.2.1",

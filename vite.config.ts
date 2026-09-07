@@ -5,6 +5,7 @@ import { playwright } from 'vite-plus/test/browser-playwright'
 import { execFileSync, execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
+import jassubOwnAssets from './vite-plugin-jassub-own-assets.mjs'
 
 /** system Chrome, because playwright's own browser download does not work on NixOS */
 const findChrome = () => {
@@ -206,6 +207,7 @@ export default defineConfig((env) => ({
       jsxImportSource: '@emotion/react',
     }),
     polyfills(),
+    jassubOwnAssets(),
     serveServiceWorkerInDev(),
   ]),
   /**

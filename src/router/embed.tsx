@@ -346,20 +346,20 @@ const Player = () => {
     [origin]
   )
 
-  // jassub's prebuilt worker is a classic script, so wrap it via importScripts; a memo, not an effect, because a changing URL identity tears the pipeline down
-  const jassubWorkerUrl = useMemo(() => {
-    const url = new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker.js`, origin).toString()
-    return URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(url)})`], { type: 'application/javascript' }))
-  }, [origin])
-
-  useEffect(() => () => URL.revokeObjectURL(jassubWorkerUrl), [jassubWorkerUrl])
-
-  const jassubWasmUrl = useMemo(
-    () => new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub-worker-modern.wasm`, origin).toString(),
+  // jassub 2's worker is an ES module that the bundler has to build, so it comes out of its own build
+  // pass into build/jassub rather than being copied. See vite.jassub.config.ts. The blob that used to
+  // wrap it in importScripts is gone: a module worker cannot host one, and v2 asks for `type: module`
+  // on both of its branches whatever the caller passes.
+  const jassubBase = useMemo(
+    () => new URL(`${import.meta.env.DEV ? '/build' : ''}/jassub/`, origin).toString(),
     [origin]
   )
-
-  const defaultFontUrl = useMemo(() => new URL(`${publicPath}default.woff2`).toString(), [publicPath])
+  const jassubWorkerUrl = useMemo(() => new URL('worker.js', jassubBase).toString(), [jassubBase])
+  const jassubWasmUrl = useMemo(() => new URL('jassub-worker-modern.wasm', jassubBase).toString(), [jassubBase])
+  // Now worth passing, which it was not before: jassub 2 picks the modern build on RELAXED simd
+  // rather than plain simd, so the fallback covers current browsers and not only ancient ones.
+  const jassubLegacyWasmUrl = useMemo(() => new URL('jassub-worker.wasm', jassubBase).toString(), [jassubBase])
+  const defaultFontUrl = useMemo(() => new URL('default.woff2', jassubBase).toString(), [jassubBase])
 
   const st = snapshot?.status
   const info = {
@@ -554,6 +554,7 @@ const Player = () => {
         libavWorkerUrl={libavWorkerUrl}
         jassubWorkerUrl={jassubWorkerUrl}
         jassubWasmUrl={jassubWasmUrl}
+        jassubLegacyWasmUrl={jassubLegacyWasmUrl}
         defaultFontUrl={defaultFontUrl}
         autoplay={true}
         overlay={overlay}
