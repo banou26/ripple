@@ -53,7 +53,7 @@ const measure = async (name, launcher, opts) => {
   let browser
   try { browser = await launcher.launch(opts) } catch (e) { console.log('  could not launch:', String(e).split('\n')[0]); return null }
   const page = await browser.newPage()
-  await page.goto(`${BASE}/embed`)
+  await page.goto(`${BASE}/watch`)
   const rows = []
   let prev = await est(page)
   rows.push({ step: 'start', ...prev, free: prev.quota - prev.used })

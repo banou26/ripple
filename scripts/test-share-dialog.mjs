@@ -212,7 +212,7 @@ try {
     const bad = []
     if (!built.hasSubject) bad.push('no torrent shown')
     if (built.askedInstead) bad.push('asked for a torrent it was already given')
-    if (!built.url.includes('/embed?')) bad.push(`no link built (${built.url})`)
+    if (!built.url.includes('/watch?')) bad.push(`no link built (${built.url})`)
     if (rowErrors.length) bad.push(`page errors: ${rowErrors.slice(0, 2).join(' | ')}`)
     if (bad.length) { console.log(`  FAIL: ${bad.join('; ')}`); code = 1 }
     else console.log('  PASS')

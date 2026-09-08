@@ -9,7 +9,7 @@ const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const SINTEL_VIDEO = 5
 
-const watchUrl = `/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=${SINTEL_VIDEO}`
+const watchUrl = `/watch?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=${SINTEL_VIDEO}`
 
 test.describe('the embedded player header', () => {
   test('says what the engine is doing and offers both ways out', async ({ page }) => {

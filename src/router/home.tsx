@@ -1996,7 +1996,7 @@ const Home = () => {
    * shape for this one. The engine lives in whichever tab won the election, and a setting pushed
    * down from a page is lost the moment that election moves, with nothing to re-push it. So the
    * worker owns these, reads them back at startup and reports them on its ordinary broadcast: every
-   * tab then renders the value actually in force, including an `/embed` tab that has no settings
+   * tab then renders the value actually in force, including a `/watch` tab that has no settings
    * screen to push from at all.
    */
   const [sessionLimits, setSessionLimits] = useState<RateLimits>(NO_LIMITS)

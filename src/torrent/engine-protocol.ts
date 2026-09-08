@@ -39,7 +39,7 @@ export type Transport = {
    *
    * A follower holds every command until a leader speaks, and the transport is then REPLACED the moment
    * this document wins the election. Without a way to carry that backlog across the swap it is dropped
-   * in silence, which is worse than any error: `/embed` issues its `add-magnet` inside exactly that
+   * in silence, which is worse than any error: `/watch` issues its `add-magnet` inside exactly that
    * window, so the torrent is never added and the player waits on metadata for a torrent the engine has
    * never heard of. Only a queueing transport implements this.
    */
@@ -80,7 +80,7 @@ export const LEADER_SILENCE_MS = 5_000
  * These are therefore dropped rather than carried.
  *
  * The rest are safe to carry and MUST be: they name a torrent by info hash or carry no target at all,
- * and dropping them reintroduces the bug `gate.ts` exists to describe, where `/embed` loses the
+ * and dropping them reintroduces the bug `gate.ts` exists to describe, where `/watch` loses the
  * `add-magnet` it issues during its own election and waits forever on metadata.
  */
 export const SESSION_SCOPED = new Set([

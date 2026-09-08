@@ -183,7 +183,7 @@ const run = async () => {
   page.on('pageerror', (e) => console.log('  [pageerror]', String(e).slice(0, 400)))
 
   console.log('--- 1. open the player and write some bytes ---')
-  await page.goto(`${BASE}/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=${SINTEL_VIDEO}`)
+  await page.goto(`${BASE}/watch?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=${SINTEL_VIDEO}`)
   const baseline = (await estimate(page)).used
   const deadline = Date.now() + 180_000
   while (Date.now() < deadline) {

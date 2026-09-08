@@ -40,7 +40,7 @@ const BUNNY_HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'
 const BUNNY_VIDEO = 1
 
 const embedUrl = (magnet: string, fileIndex = SINTEL_VIDEO) =>
-  `/embed?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${fileIndex}`
+  `/watch?magnet=${Buffer.from(magnet).toString('base64')}&fileIndex=${fileIndex}`
 
 test.use({ headless: false })
 
@@ -551,7 +551,7 @@ test.describe('storage eviction', () => {
     test.skip(squeezed.elastic, ELASTIC_REASON)
     expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
-    // still on /embed, so this torrent has a viewer for the whole wait
+    // still on /watch, so this torrent has a viewer for the whole wait
     await page.waitForTimeout(45_000)
     expect((await filesUnder(page, savePath)).count, 'the torrent being watched must never be evicted')
       .toBeGreaterThan(0)

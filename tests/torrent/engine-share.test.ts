@@ -203,7 +203,7 @@ describe('the follower transport', () => {
 
 // A command issued before any leader has spoken is HELD, and the transport is then replaced the moment
 // this document wins the election. Dropping the backlog there loses the page's own request in silence:
-// /embed calls addMagnet on mount, inside exactly that window, and the engine then never hears about
+// /watch calls addMagnet on mount, inside exactly that window, and the engine then never hears about
 // the torrent while the player waits on metadata forever.
 describe('a queued command survives the swap to leadership', () => {
   it('hands its undelivered commands to whatever replaces it', async () => {

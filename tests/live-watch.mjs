@@ -64,7 +64,7 @@ const clickPrompt = async () => {
   return null
 }
 
-const embedFrame = () => page.frames().find((f) => f.url().includes('/embed'))
+const embedFrame = () => page.frames().find((f) => f.url().includes('/watch'))
 
 const clicked = []
 for (let i = 0; i < 12; i++) {

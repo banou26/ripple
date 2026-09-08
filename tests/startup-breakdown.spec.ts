@@ -40,7 +40,7 @@ type Mark = { name: string, at: number, detail?: Record<string, unknown> }
 
 /**
  * Everything is armed in an init script so it survives the SPA navigation to
- * /embed, and so the video element can be caught even though the player creates
+ * /watch, and so the video element can be caught even though the player creates
  * it long after load.
  */
 const instrument = async (page: import('@playwright/test').Page) => {

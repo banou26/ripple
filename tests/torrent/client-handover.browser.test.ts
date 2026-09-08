@@ -133,7 +133,7 @@ describe('a command caught by an engine handover', () => {
 
   it('carries a command that names its torrent by info hash across the same handover', async () => {
     const rig = makeRig()
-    // exactly the case gate.ts exists for: /embed issues this during its own election
+    // exactly the case gate.ts exists for: /watch issues this during its own election
     rig.client.addMagnet('magnet:?xt=urn:btih:0000000000000000000000000000000000000000')
     rig.swap()
     running(rig)

@@ -160,7 +160,7 @@ describe('the share link dialog, once it has a torrent', () => {
     // index 3 is the mp4; the three subtitles are smaller and not video
     await expect.poll(() => query().get('fileIndex')).toBe('3')
     // and the link SAYS it plays, in the part of the URL a person reads first
-    expect(path()).toBe('/embed')
+    expect(path()).toBe('/watch')
     expect(query().get('mode')).toBeNull()
   })
 

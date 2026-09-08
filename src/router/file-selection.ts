@@ -1,4 +1,4 @@
-// What an embedding page is allowed to ask /embed for, and what that means against a real file list.
+// What an embedding page is allowed to ask /watch for, and what that means against a real file list.
 //
 // Kept pure and apart from the page so the grammar can be tested without an engine, a browser or a
 // torrent. Everything here is total: a selection that names files this torrent does not have
@@ -34,7 +34,7 @@ const int = (raw: string): number | null => {
 /**
  * The `files` grammar: `all`, `3`, `0-4`, or a comma separated mix of the last two.
  *
- * `fileIndex` is the fallback so that swapping /embed for /download on an existing watch URL
+ * `fileIndex` is the fallback so that swapping /watch for /download on an existing watch URL
  * downloads the file that URL was playing, which is the one translation an embedder should not have
  * to think about. With neither, a download page is for the whole torrent.
  */

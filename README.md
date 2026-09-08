@@ -4,14 +4,14 @@ THE app that allows you to download torrents and stream video files from the saf
 
 ## Embedding
 
-`/embed` and `/download` are the pages another site puts in an iframe. Both take a magnet and the
-same query; the path chooses which one renders. `/embed` plays the file, `/download` delivers it.
+`/watch` and `/download` are the pages another site puts in an iframe. Both take a magnet and the
+same query; the path chooses which one renders. `/watch` plays the file, `/download` delivers it.
 
 | param | value | meaning |
 | --- | --- | --- |
 | `m` | the packed magnet, base64url | what Ripple writes today |
 | `magnet` | base64 of the magnet URI | the original form, read forever |
-| `fileIndex` | a file index | the file `/embed` plays; the fallback `/download` uses |
+| `fileIndex` | a file index | the file `/watch` plays; the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
 | `f` | a packed file list | optional preview, `/download` only |
 
@@ -42,7 +42,7 @@ becomes `m2` and `m` keeps decoding the way it always did.
 Order never matters when READING a link. When writing one, Ripple puts the plainest parts first:
 
 ```
-/embed?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/watch?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
 /download?files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
 /download?m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
 ```
@@ -75,16 +75,18 @@ than encoding: piece hashes are around 94% of a torrent and are 20 bytes of SHA1
 are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676. The
 file list is the part that is both small and worth having.
 
-### `/embed`
+### `/watch`
 
 Plays `fileIndex` (0 if absent) in the media player, with the filename, peer count and transfer
 rates drawn over the video.
 
-**`/embed?magnet=...` is what has been published since the beginning and it keeps working
-untouched.** The mode used to be a parameter, and for a while Ripple wrote `mode=watch` out in full
-so that a link said what it did rather than being told apart by an absence. The path says it for
-free and in the part of a URL that is read first, so the parameter is gone from both halves. A link
-that still carries `mode=download` now opens the PLAYER, because it is pointed at `/embed`.
+The mode used to be a parameter, and for a while Ripple wrote `mode=watch` out in full so that a
+link said what it did rather than being told apart by an absence. The path says it for free and in
+the part of a URL that is read first, so the parameter is gone from both halves and a link still
+carrying one gets the page its path names.
+
+**This route was `/embed` until 2026-09-09 and the old path is gone rather than redirected.** A link
+written against it 404s to the SPA shell; rewrite it as `/watch` with the query untouched.
 
 ### `/download`
 
@@ -98,7 +100,7 @@ browser's own downloader without ever being held in memory.
 /download?magnet=<base64>&files=0-4       files 0 to 4 inclusive, as a zip
 /download?magnet=<base64>&files=0,2,5     those three, as a zip
 /download?magnet=<base64>&fileIndex=3     same as files=3, so a watch URL becomes a download by
-                                          swapping /embed for /download and nothing else
+                                          swapping /watch for /download and nothing else
 ```
 
 `files` outranks `fileIndex`. Indices the torrent does not have are dropped rather than clamped, and

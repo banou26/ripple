@@ -87,7 +87,7 @@ describe('the commands that only mean something inside one session', () => {
    *
    * `\b` is load bearing: `m.handles` is a list of FileSystemHandles on create-source and
    * start-source, which are keyed by info hash and must keep crossing a handover. Without the
-   * boundary both are swept in and `/embed` loses the source it was opened for.
+   * boundary both are swept in and `/watch` loses the source it was opened for.
    */
   const carriesHandle = (): string[] => {
     const parts = workerSource.split(/m\.type === '([a-z-]+)'/)

@@ -54,9 +54,9 @@ export type EmbedLink = {
 }
 
 /**
- * The `/embed?...` or `/download?...` path for a link, relative to the app root.
+ * The `/watch?...` or `/download?...` path for a link, relative to the app root.
  *
- * THE MODE IS THE PATH. A watch link is `/embed`, a download link is `/download`, and the `mode`
+ * THE MODE IS THE PATH. A watch link is `/watch`, a download link is `/download`, and the `mode`
  * parameter that used to say which is gone from both halves, written and read.
  *
  * Built through getRoutePath rather than by hand so whichever form the codec picked goes through
@@ -100,7 +100,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
   }
 
   // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
-  return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.EMBED, { ...options, ...source })
+  return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.WATCH, { ...options, ...source })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */

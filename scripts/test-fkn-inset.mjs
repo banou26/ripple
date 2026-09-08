@@ -86,7 +86,7 @@ const measure = () => {
 }
 
 // Every route that lays itself out against the viewport, so a strip reserved on the root reaches it.
-// /add and /embed are omitted deliberately: both need a magnet to render anything.
+// /add and /watch are omitted deliberately: both need a magnet to render anything.
 //
 // Each route gets a viewport TALLER THAN ITS OWN CONTENT on purpose. The rule under test is the
 // viewport-height one (`height: 100dvh`, `min-height: 100vh`), and that rule only binds while the

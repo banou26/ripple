@@ -4,7 +4,7 @@ import { compileFileSelection, embedIframe, embedPath, embedUrl } from '../../sr
 import { parseFileSelection, resolveSelection } from '../../src/router/file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from '../../src/router/magnet-codec'
 
-/** What a built path actually names, read back the way /embed reads it. */
+/** What a built path actually names, read back the way /watch reads it. */
 const magnetOf = (path: string) => decodeMagnetParam(new URLSearchParams(path.slice(path.indexOf('?') + 1)))
 
 const MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
@@ -91,7 +91,7 @@ describe('compile then parse round trip', () => {
 describe('embedPath', () => {
   it('carries the magnet and nothing else for a plain watch link', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}`)
+    expect(path).toBe(`/watch?m=${encodeMagnetParam(MAGNET)!.value}`)
     expect(magnetOf(path)).toBe(MAGNET)
   })
 
@@ -133,7 +133,7 @@ describe('embedPath', () => {
   it('puts the mode in the path and writes no mode parameter at all', () => {
     const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
     const download = embedPath({ magnet: MAGNET, mode: 'download' })!
-    expect(watch.startsWith('/embed?')).toBe(true)
+    expect(watch.startsWith('/watch?')).toBe(true)
     expect(download.startsWith('/download?')).toBe(true)
     expect(watch).not.toContain('mode=')
     expect(download).not.toContain('mode=')
@@ -186,7 +186,7 @@ describe('embedPath', () => {
    */
   it('writes the packed form with nothing a query string has to escape', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+$/)
+    expect(path).toMatch(/^\/watch\?m=[A-Za-z0-9\-_]+$/)
   })
 })
 
@@ -237,7 +237,7 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value)
+      .toBe('https://torrent.fkn.app/watch?m=' + encodeMagnetParam(MAGNET)!.value)
     expect(embedUrl({ magnet: MAGNET, mode: 'download' }, 'https://torrent.fkn.app'))
       .toBe('https://torrent.fkn.app/download?m=' + encodeMagnetParam(MAGNET)!.value)
   })
@@ -293,7 +293,7 @@ describe('a link describes no files, only which ones it wants', () => {
   it('is no longer than the watch link for the same torrent', () => {
     const download = embedPath({ magnet: MAGNET, mode: 'download' })!
     const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(download.length - watch.length).toBeLessThanOrEqual('/download'.length - '/embed'.length)
+    expect(download.length - watch.length).toBeLessThanOrEqual('/download'.length - '/watch'.length)
   })
 })
 

@@ -67,7 +67,7 @@ describe('mergeEntry', () => {
   })
 
   it('does not let the player put a claimed torrent back into the cache', () => {
-    // /embed adds with ephemeral on every mount, including for a torrent the user added by hand
+    // /watch adds with ephemeral on every mount, including for a torrent the user added by hand
     const mine = entry({ ephemeral: false })
     expect(mergeEntry(mine, anAdd({ ephemeral: true })).ephemeral).toBe(false)
   })

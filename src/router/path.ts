@@ -1,20 +1,20 @@
 export enum Route {
   HOME = 'HOME',
   ADD = 'ADD',
-  EMBED = 'EMBED',
+  WATCH = 'WATCH',
   DOWNLOAD = 'DOWNLOAD',
   LEGAL = 'LEGAL',
   PRIVACY = 'PRIVACY'
 }
 
 /**
- * What /embed and /download accept.
+ * What /watch and /download accept.
  *
- * THE PATH PICKS THE PAGE: /embed is the player, /download is the download page. A `mode` parameter
+ * THE PATH PICKS THE PAGE: /watch is the player, /download is the download page. A `mode` parameter
  * used to do that job and is gone from both halves, written and read.
  *
  * `files` is the download page's selection (`all`, `3`, `0-4`, `0,2,5`); `fileIndex` names the
- * single file the player opens, and the download page falls back to it so that swapping /embed for
+ * single file the player opens, and the download page falls back to it so that swapping /watch for
  * /download on an existing watch URL downloads what that URL was playing.
  *
  * The torrent arrives as either `m` (the packed form, see magnet-codec) or `magnet` (base64 of the
@@ -55,7 +55,7 @@ const Routes = {
   [Route.HOME]: (options?: HomeOptions) =>
     (options?.torrent ? `/?${new URLSearchParams({ torrent: options.torrent }).toString()}` : '/'),
   [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
-  [Route.EMBED]: (options: EmbedOptions) => `/embed?${new URLSearchParams(options).toString()}`,
+  [Route.WATCH]: (options: EmbedOptions) => `/watch?${new URLSearchParams(options).toString()}`,
   [Route.DOWNLOAD]: (options: EmbedOptions) => `/download?${new URLSearchParams(options).toString()}`,
   [Route.LEGAL]: () => '/legal',
   [Route.PRIVACY]: () => '/privacy'
@@ -64,7 +64,7 @@ const Routes = {
 const RouterRoutes = {
   [Route.HOME]: '/',
   [Route.ADD]: '/add',
-  [Route.EMBED]: '/embed',
+  [Route.WATCH]: '/watch',
   [Route.DOWNLOAD]: '/download',
   [Route.LEGAL]: '/legal',
   [Route.PRIVACY]: '/privacy'

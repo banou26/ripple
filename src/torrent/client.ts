@@ -591,7 +591,7 @@ export const createTorrentClient = (): EngineClient => {
       // Taken BEFORE the reset and before the swap: a follower queues every command until a leader
       // speaks, and this call is what happens when THIS document becomes that leader. Dropping the
       // backlog here loses whatever the page asked for during its own election, silently and with no
-      // error anywhere. `/embed` calls addMagnet on mount, which is inside that window, so losing it
+      // error anywhere. `/watch` calls addMagnet on mount, which is inside that window, so losing it
       // means the engine never hears about the torrent and the player waits on metadata forever.
       const carried = previous?.pending?.() ?? []
       resetEngineState('the engine behind this tab was replaced')

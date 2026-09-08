@@ -45,7 +45,7 @@ const SingleTabMount = () => {
 
 /**
  * Subscribed here rather than in a route, because an update reaches every page and the pages most
- * likely to be open are `/embed` and the download page, not the library.
+ * likely to be open are `/watch` and the download page, not the library.
  */
 const Mount = () => {
   useShellUpdate()

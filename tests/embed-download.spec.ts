@@ -210,7 +210,7 @@ print(json.dumps({
   })
 
   /**
-   * The topology the page is actually for: /embed inside somebody else's origin.
+   * The topology the page is actually for: /watch inside somebody else's origin.
    *
    * `localhost` and `127.0.0.1` are different origins to a browser while being the same server, so
    * this is a genuine cross-origin frame with no second deployment. What it pins is that the page

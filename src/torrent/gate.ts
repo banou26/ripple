@@ -10,7 +10,7 @@
  *
  * It shipped exactly that way and it was not a rare window. `arm` is called whenever the engine is
  * replaced, which happens the instant a document wins the engine election, roughly 13ms after boot.
- * `/embed` issues its `add-magnet` inside that window, so the torrent was never added at all and the
+ * `/watch` issues its `add-magnet` inside that window, so the torrent was never added at all and the
  * player waited on metadata for a torrent the session had never heard of: no peers, no bytes, no error.
  *
  * `arm` therefore installs the new latch FIRST and only then releases the old one, so a woken waiter

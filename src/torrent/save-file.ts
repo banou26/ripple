@@ -92,7 +92,7 @@ const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }:
    * ORDER in which it refuses.
    *
    * Chrome exposes `showSaveFilePicker` whether or not it can be used and refuses at CALL time in a
-   * cross origin frame, which is what /embed is. That rejection also burns part of the click's
+   * cross origin frame, which is what /watch is. That rejection also burns part of the click's
    * transient activation, and the arm below still needs it. The ponyfill raises both of its
    * refusals BEFORE calling the platform, so the gesture survives to reach the fallback. Ripple
    * carried a byte-identical copy of that check until it moved there.

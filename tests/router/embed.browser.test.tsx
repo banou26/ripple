@@ -6,7 +6,7 @@ import { page } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
- * What the embed route hands the player, measured where it lands.
+ * What /watch hands the player, measured where it lands.
  *
  * Both halves used to be wrong on screen while being perfectly well typed: the torrent readout was
  * passed as a `ReactNode` with no say in where a `ReactNode` renders, and it came out painted across
@@ -59,14 +59,14 @@ const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
   await page.viewport(size.width, size.height)
   const { default: Embed } = await import('../../src/router/embed')
   return render(
-    <MemoryRouter initialEntries={[`/embed${search}`]}>
+    <MemoryRouter initialEntries={[`/watch${search}`]}>
       <Embed />
     </MemoryRouter>,
     sized(size),
   )
 }
 
-describe('the embed route', () => {
+describe('the watch route', () => {
   beforeEach(() => { state.current = torrent() })
   // the viewport is shared by every test in the file, so a phone-sized one has to be handed back
   afterEach(async () => { await page.viewport(DESKTOP.width, DESKTOP.height) })

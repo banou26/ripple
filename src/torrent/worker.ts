@@ -363,7 +363,7 @@ const planByHandle = new Map<number, { wanted?: number[], firstLast?: boolean }>
  * `setFolder` has to be offered by every tab continuously. Reading this out of IndexedDB in the
  * worker ties its lifetime to the session's by construction, so there is no window in which an
  * engine is running without the limits the user chose, whichever tab happens to be hosting it and
- * whether or not that tab has a settings screen at all. An `/embed` tab has none.
+ * whether or not that tab has a settings screen at all. A `/watch` tab has none.
  */
 let sessionLimits: RateLimits = { down: 0, up: 0 }
 
@@ -881,7 +881,7 @@ const EVICT_INTERVAL_MS = 10_000
 // the auto-save folder mirror all read without registering a viewer, and a copy that pauses between
 // chunks must not be deleted out from under itself.
 const READ_GRACE_MS = 60_000
-// A torrent used this recently is in use, whoever is holding it. /embed re-opening one it played
+// A torrent used this recently is in use, whoever is holding it. /watch re-opening one it played
 // before touches it and only then attaches a viewer, once the layout arrives, and a pass landing
 // inside that gap would delete exactly the thing the person just asked to watch.
 const RECENT_USE_MS = 15_000
@@ -1629,7 +1629,7 @@ const handleMessage = async (session: Session, m: any) => {
            *
            * `applyViewing` idle-pauses an ephemeral torrent as soon as its last viewer leaves, and
            * promotion cleared the flag that made it a cache entry without touching the pause that
-           * flag had already caused. So watching something in /embed, closing it, and then adding
+           * flag had already caused. So watching something in /watch, closing it, and then adding
            * the same magnet to the library gave a row that sat at Queued for good: not user-paused,
            * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
            * leaves it alone.
@@ -1816,7 +1816,7 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       /*
-       * The synthesized magnet is the torrent's identity everywhere (list, /embed URL, player match),
+       * The synthesized magnet is the torrent's identity everywhere (list, /watch URL, player match),
        * and it has to be a magnet a client can actually resolve.
        *
        * `session.infohash` answers with the v1 hash when there is one and the v2 hash otherwise, so a

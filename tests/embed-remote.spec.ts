@@ -1,5 +1,5 @@
 // The embed's player served to whoever frames it, against a REAL torrent: a page on this origin frames
-// /embed with Sintel, takes a `mediaPlayer` on it, and reads and moves the video through that alone.
+// /watch with Sintel, takes a `mediaPlayer` on it, and reads and moves the video through that alone.
 // @banou/media-player's own browser test proves `mediaPlayer` over a bare <video> in a frame; what
 // only this can show is the embed page serving the player it actually renders, source and all.
 //
@@ -31,7 +31,7 @@ test('the embed serves its player to the page that frames it', async ({ page, ba
 
   // Index 5 is the video. The embed's default is file 0, which for Sintel is a subtitle track, and a
   // player handed a subtitle reports "No playable video track" and never plays.
-  const src = `${baseURL}/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=5`
+  const src = `${baseURL}/watch?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=5`
   await page.evaluate(async ({ src }) => {
     const frame = document.createElement('iframe')
     frame.id = 'embed'
@@ -75,7 +75,7 @@ test('the embed serves its player to the page that frames it', async ({ page, ba
   await expect.poll(async () => { const s = await snapshot(); return !s.paused && s.time > target }, { timeout: 60_000, intervals: [1_000] }).toBe(true)
 
   // the element itself, read from inside the frame, agrees with the mirror
-  const embed = page.frames().find(frame => frame.url().includes('/embed?'))!
+  const embed = page.frames().find(frame => frame.url().includes('/watch?'))!
   const inFrame = await embed.evaluate(() => { const v = document.querySelector('video')!; return { paused: v.paused, time: v.currentTime } })
   expect(inFrame.paused).toBe(false)
   expect(inFrame.time).toBeGreaterThan(target)

@@ -427,7 +427,7 @@ const Player = () => {
   /*
    * This page's own URL under the other PATH, rather than a link built from scratch.
    *
-   * That conversion is the one `EmbedOptions` describes: /embed and /download take the same query,
+   * That conversion is the one `EmbedOptions` describes: /watch and /download take the same query,
    * so swapping the path downloads what this URL was playing. Doing it this way carries the file
    * being watched across for free, keeps whichever magnet encoding the embedder used rather than
    * re-packing it, and needs no metadata, so the link is right from the first paint instead of
@@ -574,7 +574,7 @@ const Player = () => {
 /**
  * The two things this component can be, chosen by the ROUTE that mounted it.
  *
- * /embed is the player and /download is the download page, and both take the same query, so an
+ * /watch is the player and /download is the download page, and both take the same query, so an
  * embedder holding one URL for a release gets the other by swapping the path. Nothing in the query
  * can change that: a `mode` parameter used to, and is now neither written nor read.
  *

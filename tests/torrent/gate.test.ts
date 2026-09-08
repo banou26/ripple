@@ -21,7 +21,7 @@ describe('createGate', () => {
   })
 
   // THE REGRESSION. `arm` runs when the engine is replaced, which is what happens the moment a document
-  // wins the engine election, ~13ms after boot. /embed issues add-magnet inside that window. Re-arming
+  // wins the engine election, ~13ms after boot. /watch issues add-magnet inside that window. Re-arming
   // by simply replacing the promise stranded that command forever: the old promise had no resolver left.
   it('wakes a waiter parked on the gate it retires', async () => {
     const gate = createGate()

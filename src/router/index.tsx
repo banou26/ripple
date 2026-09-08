@@ -19,10 +19,10 @@ const router = createBrowserRouter([
     element: <Add/>
   },
   {
-    path: getRouterRoutePath(Route.EMBED),
+    path: getRouterRoutePath(Route.WATCH),
     element: <Embed/>
   },
-  // The same component, told which page to be by the route rather than by a `mode` parameter. /embed
+  // The same component, told which page to be by the route rather than by a `mode` parameter. /watch
   // still reads that parameter, so every link published before this keeps landing where it did.
   {
     path: getRouterRoutePath(Route.DOWNLOAD),

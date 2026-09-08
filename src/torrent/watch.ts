@@ -56,5 +56,5 @@ export const watchHref = (t: Torrent): string | null => {
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
   // the file leads the packed torrent for the same reason embedPath orders them that way: this URL
   // is what sits in the address bar while somebody watches, so the readable half goes in front
-  return getRoutePath(Route.EMBED, { fileIndex: String(pickVideoFile(t.files)), ...source })
+  return getRoutePath(Route.WATCH, { fileIndex: String(pickVideoFile(t.files)), ...source })
 }

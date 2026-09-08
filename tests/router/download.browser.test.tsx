@@ -132,18 +132,18 @@ const mount = async (search = '') => {
   )
 }
 
-/** The player, for the one test that checks this page is NOT what /embed renders. */
+/** The player, for the one test that checks this page is NOT what /watch renders. */
 const mountPlayer = async (search = '') => {
   const { default: Embed } = await import('../../src/router/embed')
   return render(
-    <MemoryRouter initialEntries={[`/embed?magnet=${MAGNET}${search}`]}>
+    <MemoryRouter initialEntries={[`/watch?magnet=${MAGNET}${search}`]}>
       <Embed />
     </MemoryRouter>,
     sized(),
   )
 }
 
-describe('the embed route in download mode', () => {
+describe('the download route', () => {
   beforeEach(() => {
     state.current = torrent()
     saved.zip = []
@@ -156,9 +156,9 @@ describe('the embed route in download mode', () => {
     listed.current = [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: true, firstLast: false }]
   })
 
-  it('stays the player on /embed, with the same query this page reads', async () => {
+  it('stays the player on /watch, with the same query this page reads', async () => {
     /**
-     * The one shipped consumer passes only `magnet`, on /embed. If this ever fails, the download
+     * The one shipped consumer passes only `magnet`, on /watch. If this ever fails, the download
      * page has taken over a URL that is supposed to play.
      *
      * Only the ELEMENT is asserted, not any of its content: this file mocks the download hook and
@@ -593,7 +593,7 @@ describe('offering to watch instead', () => {
     const watch = screen.container.querySelector('a.watch') as HTMLAnchorElement
     expect(watch, 'no Watch link was offered for a pack of mkv files').toBeTruthy()
     // the PATH is what says it plays; there is no mode parameter to look for any more
-    expect(watch.getAttribute('href')!.startsWith('/embed?')).toBe(true)
+    expect(watch.getAttribute('href')!.startsWith('/watch?')).toBe(true)
   })
 
   /**
