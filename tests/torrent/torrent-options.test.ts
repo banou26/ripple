@@ -468,6 +468,18 @@ describe('the torrent option list', () => {
   })
 
   /**
+   * Pause, recheck and the removals are what people open this menu for; leaving them under the
+   * preference groups meant scrolling past every knob to reach them. Second place, right behind
+   * Actions, is where they belong on both surfaces.
+   */
+  it('puts Manage directly after Actions', () => {
+    for (const t of [torrent(), torrent({ queuePosition: 0 }), torrent({ progress: 1 })]) {
+      const ids = buildTorrentOptions(t, actions(), { savedToUserStorage: true }).map((g) => g.id)
+      expect(ids.slice(0, 2)).toEqual(['actions', 'maintenance'])
+    }
+  })
+
+  /**
    * Two groups both called "This torrent" made the menu read as though it repeated itself, which is
    * what shipped in the first pass. A group label is the only thing separating two lists of items
    * that are otherwise indistinguishable at a glance.

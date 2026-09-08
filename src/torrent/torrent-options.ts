@@ -272,10 +272,83 @@ export const buildTorrentOptions = (
   }
 
   const groups: OptionGroup[] = []
-  // Named apart from the 'manage' group at the bottom, which was also "This torrent" and made the
-  // menu read as though it repeated itself. This one is what you do WITH the content; that one is
-  // what you do TO the torrent.
+  // Named apart from the 'manage' group below, which was also "This torrent" and made the menu read
+  // as though it repeated itself. This one is what you do WITH the content; that one is what you do
+  // TO the torrent.
   if (actions.length) groups.push({ id: 'actions', label: 'Actions', items: actions })
+
+  const maintenance: OptionItem[] = [
+    {
+      kind: 'action',
+      id: 'toggle-run',
+      label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
+      hint: 'Stops or restarts this torrent without forgetting anything.',
+      disabled: ghost,
+      run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
+    },
+    {
+      kind: 'action',
+      id: 'recheck',
+      label: 'Force recheck',
+      hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
+      disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
+      run: a.recheck,
+    },
+  ]
+
+  // A stalled torrent is waiting out a backoff rather than paused, so "resume" would do nothing for
+  // it. This is the item that actually shortens the wait.
+  if (t.state === 'retrying') {
+    maintenance.splice(1, 0, {
+      kind: 'action',
+      id: 'retry-now',
+      label: 'Try again now',
+      hint: 'Stops waiting out the retry timer and reconnects immediately.',
+      run: a.retryNow,
+    })
+  }
+
+  /**
+   * Which removals are real for this torrent.
+   *
+   * A ghost has no files here at all, so forgetting the entry is the only thing removal can mean.
+   * A torrent living only in OPFS cannot have its files "kept", because there is nowhere for them
+   * to be kept: offering it would promise something the storage cannot deliver. Only once the
+   * bytes are in the user's own folder do both readings exist, and only then are both offered.
+   */
+  if (isGhost(t)) {
+    maintenance.push({
+      kind: 'action',
+      id: 'remove',
+      label: 'Remove from the library',
+      hint: 'Forgets this entry. Its files are not on this device anyway.',
+      danger: true,
+      run: a.remove,
+    })
+  } else {
+    if (context.savedToUserStorage) {
+      maintenance.push({
+        kind: 'action',
+        id: 'remove',
+        label: 'Remove from the library',
+        hint: 'Forgets the torrent and stops sharing it. The copy in your folder stays.',
+        danger: true,
+        run: a.remove,
+      })
+    }
+    maintenance.push({
+      kind: 'action',
+      id: 'remove-files',
+      label: context.savedToUserStorage ? 'Remove and delete Ripple\'s copy' : 'Remove and delete the files',
+      hint: context.savedToUserStorage
+        ? 'Forgets the torrent and frees the space Ripple is using. The copy in your folder stays.'
+        : 'Forgets the torrent and deletes what it downloaded. This cannot be undone.',
+      danger: true,
+      run: a.removeWithFiles,
+    })
+  }
+
+  groups.push({ id: 'maintenance', label: 'Manage', items: maintenance })
 
   /**
    * Where this torrent's files belong.
@@ -521,79 +594,5 @@ export const buildTorrentOptions = (
       })),
     })
   }
-
-  const maintenance: OptionItem[] = [
-    {
-      kind: 'action',
-      id: 'toggle-run',
-      label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
-      hint: 'Stops or restarts this torrent without forgetting anything.',
-      disabled: ghost,
-      run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
-    },
-    {
-      kind: 'action',
-      id: 'recheck',
-      label: 'Force recheck',
-      hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
-      disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
-      run: a.recheck,
-    },
-  ]
-
-  // A stalled torrent is waiting out a backoff rather than paused, so "resume" would do nothing for
-  // it. This is the item that actually shortens the wait.
-  if (t.state === 'retrying') {
-    maintenance.splice(1, 0, {
-      kind: 'action',
-      id: 'retry-now',
-      label: 'Try again now',
-      hint: 'Stops waiting out the retry timer and reconnects immediately.',
-      run: a.retryNow,
-    })
-  }
-
-  /**
-   * Which removals are real for this torrent.
-   *
-   * A ghost has no files here at all, so forgetting the entry is the only thing removal can mean.
-   * A torrent living only in OPFS cannot have its files "kept", because there is nowhere for them
-   * to be kept: offering it would promise something the storage cannot deliver. Only once the
-   * bytes are in the user's own folder do both readings exist, and only then are both offered.
-   */
-  if (isGhost(t)) {
-    maintenance.push({
-      kind: 'action',
-      id: 'remove',
-      label: 'Remove from the library',
-      hint: 'Forgets this entry. Its files are not on this device anyway.',
-      danger: true,
-      run: a.remove,
-    })
-  } else {
-    if (context.savedToUserStorage) {
-      maintenance.push({
-        kind: 'action',
-        id: 'remove',
-        label: 'Remove from the library',
-        hint: 'Forgets the torrent and stops sharing it. The copy in your folder stays.',
-        danger: true,
-        run: a.remove,
-      })
-    }
-    maintenance.push({
-      kind: 'action',
-      id: 'remove-files',
-      label: context.savedToUserStorage ? 'Remove and delete Ripple\'s copy' : 'Remove and delete the files',
-      hint: context.savedToUserStorage
-        ? 'Forgets the torrent and frees the space Ripple is using. The copy in your folder stays.'
-        : 'Forgets the torrent and deletes what it downloaded. This cannot be undone.',
-      danger: true,
-      run: a.removeWithFiles,
-    })
-  }
-
-  groups.push({ id: 'maintenance', label: 'Manage', items: maintenance })
-
   return groups
 }
