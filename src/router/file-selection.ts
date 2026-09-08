@@ -24,17 +24,6 @@ export type FileSelection =
   | { kind: 'range', from: number, to: number }
   | { kind: 'list', spans: Span[] }
 
-/**
- * LEGACY ONLY: `mode=download` opts in; anything else is the player.
- *
- * The path chooses the page now (/embed against /download) and nothing writes a `mode` any more.
- * This still reads one on /embed, because every link published before that carries it, and absent
- * has to keep meaning `watch`, because the one shipped consumer (@banou/stub-plugin) passes only
- * `magnet`.
- */
-export const parseMode = (raw: string | undefined | null): EmbedMode =>
-  raw?.trim().toLowerCase() === 'download' ? 'download' : 'watch'
-
 const int = (raw: string): number | null => {
   // Number('') is 0 and Number(' 1 ') is 1, so neither is safe on a hand written query string
   if (!/^\d+$/.test(raw.trim())) return null

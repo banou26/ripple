@@ -1,19 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { firstIndexOf, parseFileSelection, parseMode, resolveSelection } from '../../src/router/file-selection'
-
-describe('the embed mode', () => {
-  it('is the player unless download is asked for by name', () => {
-    expect(parseMode(undefined)).toBe('watch')
-    expect(parseMode(null)).toBe('watch')
-    expect(parseMode('')).toBe('watch')
-    expect(parseMode('watch')).toBe('watch')
-    // the shipped consumer passes only `magnet`, so anything unrecognised has to keep playing
-    expect(parseMode('player')).toBe('watch')
-    expect(parseMode('DOWNLOAD')).toBe('download')
-    expect(parseMode(' download ')).toBe('download')
-  })
-})
+import { firstIndexOf, parseFileSelection, resolveSelection } from '../../src/router/file-selection'
 
 describe('the files grammar', () => {
   it('takes the whole torrent when nothing is asked for', () => {
@@ -22,7 +9,7 @@ describe('the files grammar', () => {
     expect(parseFileSelection('ALL', undefined)).toEqual({ kind: 'all' })
   })
 
-  it('falls back to fileIndex, so &mode=download on a watch URL downloads what it was playing', () => {
+  it('falls back to fileIndex, so a watch URL under /download fetches what it was playing', () => {
     expect(parseFileSelection(undefined, '4')).toEqual({ kind: 'single', index: 4 })
     // `files` outranks it: the newer, more expressive param wins where both are present
     expect(parseFileSelection('1-3', '4')).toEqual({ kind: 'range', from: 1, to: 3 })

@@ -17,11 +17,8 @@ same query; the path chooses which one renders. `/embed` plays the file, `/downl
 
 One of `m` or `magnet` is required. `m` wins if both are present.
 
-`mode=download` on `/embed` is the older way of asking for the download page, and it still works:
-every link published with it keeps landing where it did. Ripple no longer writes one, and `/embed`
-with no `mode`, or an unrecognised one, is the player, so an existing embed URL keeps working
-untouched. On `/download` the path wins and a leftover `mode=watch` in a copied query changes
-nothing.
+There is no `mode` parameter. It used to choose the page and is now neither written nor read, so a
+link still carrying one gets the page its PATH names and the parameter is ignored.
 
 ### The two magnet forms
 
@@ -86,8 +83,8 @@ rates drawn over the video.
 **`/embed?magnet=...` is what has been published since the beginning and it keeps working
 untouched.** The mode used to be a parameter, and for a while Ripple wrote `mode=watch` out in full
 so that a link said what it did rather than being told apart by an absence. The path says it for
-free and in the part of a URL that is read first, so the parameter is gone from what Ripple writes
-and stays in what it reads.
+free and in the part of a URL that is read first, so the parameter is gone from both halves. A link
+that still carries `mode=download` now opens the PLAYER, because it is pointed at `/embed`.
 
 ### `/download`
 

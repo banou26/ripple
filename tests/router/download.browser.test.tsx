@@ -8,9 +8,8 @@ import { MemoryRouter } from 'react-router-dom'
 /**
  * What the download page puts on screen, and what it asks the save path for.
  *
- * Mounted through `/embed?...&mode=download` here, which is the LEGACY link form: `/download` is
- * what Ripple writes now, and every one of these mounts doubles as proof that the links published
- * under the old form still land on this page. `mountDownloadRoute` below covers the new one.
+ * Mounted through `/download`, which is the only way to reach this page: the `mode=download`
+ * parameter that used to select it is gone from what Ripple writes AND from what it reads.
  *
  * The engine and the sink are both mocked: neither belongs in this measurement. What does belong is
  * the translation from a URL to a set of ENGINE file indices, because getting it wrong is silent.
@@ -123,27 +122,22 @@ const sized = () => {
  */
 const MAGNET = 'bWFnbmV0Oj94dD11cm46YnRpaDphYmMmZG49UGFjay5OYW1l'
 
-const mount = async (search: string) => {
+const mount = async (search = '') => {
   const { default: Embed } = await import('../../src/router/embed')
   return render(
-    <MemoryRouter initialEntries={[`/embed?magnet=${MAGNET}${search}`]}>
-      <Embed />
+    <MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
+      <Embed mode="download" />
     </MemoryRouter>,
     sized(),
   )
 }
 
-/**
- * The `/download` route, which passes the mode as a PROP because the path already said it.
- *
- * The same component either way, so everything else in this file measures both. What only this can
- * show is that the page arrives with no `mode` in the query at all.
- */
-const mountDownloadRoute = async (search = '') => {
+/** The player, for the one test that checks this page is NOT what /embed renders. */
+const mountPlayer = async (search = '') => {
   const { default: Embed } = await import('../../src/router/embed')
   return render(
-    <MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
-      <Embed mode="download" />
+    <MemoryRouter initialEntries={[`/embed?magnet=${MAGNET}${search}`]}>
+      <Embed />
     </MemoryRouter>,
     sized(),
   )
@@ -162,51 +156,45 @@ describe('the embed route in download mode', () => {
     listed.current = [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: true, firstLast: false }]
   })
 
-  it('stays the player when no mode is asked for', async () => {
+  it('stays the player on /embed, with the same query this page reads', async () => {
     /**
-     * The one shipped consumer passes only `magnet`. If this ever fails, adding the download mode
-     * broke playback for it.
+     * The one shipped consumer passes only `magnet`, on /embed. If this ever fails, the download
+     * page has taken over a URL that is supposed to play.
      *
      * Only the ELEMENT is asserted, not any of its content: this file mocks the download hook and
      * leaves `usePlayerTorrent` real, so there is no torrent behind the player here and nothing for
      * it to name. That the player mounts at all is the whole claim.
      */
-    const screen = await mount('')
+    const screen = await mountPlayer()
     await expect.poll(() => screen.container.querySelector('video')).not.toBeNull()
     expect(screen.container.querySelector('.cta'), 'the download card must not be mounted').toBeNull()
   })
 
+  /**
+   * The ROUTE is the whole of what chooses this page, and it has to do so with nothing in the query
+   * saying so. The same URL used to be a player unless `mode=download` rode along, so a check that
+   * only asserts the download card appears would have passed on the old code with the parameter and
+   * on this one without it.
+   */
   it('renders a download page instead of a player', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
     // the player must not be mounted behind it: it would claim its own viewer and read for nothing
     expect(screen.container.querySelector('video')).toBeNull()
   })
 
   /**
-   * The route is what chooses the page now, and it has to do so with nothing in the query saying so.
-   * Before this the same URL without `mode=download` was a PLAYER, so a check that only asserts the
-   * download card appears would pass on the old code as long as the parameter came along.
+   * `mode` is not a parameter of this app any more, so one left over in a copied query is inert
+   * rather than contradicting the path it sits on.
    */
-  it('renders the download page on /download with no mode parameter', async () => {
-    const screen = await mountDownloadRoute()
-    await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
-    expect(screen.container.querySelector('video')).toBeNull()
-  })
-
-  /**
-   * A query copied off an old watch link can still carry `mode=watch`, and pasting it after
-   * `/download` must not take the page back to the player. The path is the statement; the parameter
-   * is a leftover.
-   */
-  it('stays the download page when a stale mode=watch rides along', async () => {
-    const screen = await mountDownloadRoute('&mode=watch')
+  it('ignores a stale mode=watch that rides along in the query', async () => {
+    const screen = await mount('&mode=watch')
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
     expect(screen.container.querySelector('video')).toBeNull()
   })
 
   it('names a single file and offers it directly rather than as a zip of one', async () => {
-    const screen = await mount('&mode=download&files=2')
+    const screen = await mount('&files=2')
     await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
     await expect.element(screen.getByText('1.6 GB')).toBeInTheDocument()
 
@@ -225,7 +213,7 @@ describe('the embed route in download mode', () => {
    * those names, which is a silently wrong archive rather than a failure.
    */
   it('zips a range using the engine file indices, not positions in the filtered list', async () => {
-    const screen = await mount('&mode=download&files=1-2')
+    const screen = await mount('&files=1-2')
     await expect.element(screen.getByRole('button', { name: /Download 2 files as .zip/ })).toBeInTheDocument()
     // 1.5 GB + 1.6 GB, so the total describes the SELECTION rather than the torrent
     await expect.element(screen.getByText('3.1 GB · 2 files')).toBeInTheDocument()
@@ -244,13 +232,13 @@ describe('the embed route in download mode', () => {
   })
 
   it('takes a comma list too', async () => {
-    const screen = await mount('&mode=download&files=0,3')
+    const screen = await mount('&files=0,3')
     await screen.getByRole('button', { name: /Download 2 files as .zip/ }).click()
     expect(saved.zip[0]!.entries.map((e) => e.index)).toEqual([0, 3])
   })
 
   it('downloads one file out of a multi-file selection from its own row', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
 
     // no click to open it: the list holds the choice this page is asking for, so it arrives open
@@ -269,7 +257,7 @@ describe('the embed route in download mode', () => {
 
   it('says so instead of downloading something else when the selection names nothing real', async () => {
     // Widening to the whole torrent here would hand somebody a different release than they asked for
-    const screen = await mount('&mode=download&files=9')
+    const screen = await mount('&files=9')
     await expect.element(screen.getByText(/None of the requested files/)).toBeInTheDocument()
     await expect.element(screen.getByRole('button', { name: 'No matching files' })).toBeDisabled()
   })
@@ -287,33 +275,33 @@ describe('the embed route in download mode', () => {
    * claim that matters; "there is a page" is.
    */
   it('survives a range far wider than any real torrent', async () => {
-    const screen = await mount('&mode=download&files=0-2000000000')
+    const screen = await mount('&files=0-2000000000')
     // clamped to what the torrent actually has, not to what the URL asked for
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
   })
 
   it('survives a huge multi-part list, which used to blow the call stack during render', async () => {
-    const screen = await mount('&mode=download&files=900-2000000000,1')
+    const screen = await mount('&files=900-2000000000,1')
     await expect.element(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
     // only file 1 exists out of that selection, so it is delivered as a file rather than a zip
     await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
   })
 
   it('does not let a wide selection reach the player either', async () => {
-    // `files` needs no `mode=download` to be parsed: the memo runs above the mode branch
-    const screen = await mount('&files=0-2000000000')
+    // the selection is parsed on BOTH pages: the memo runs above the branch that picks one
+    const screen = await mountPlayer('&files=0-2000000000')
     await expect.poll(() => screen.container.querySelector('video')).not.toBeNull()
   })
 
   it('waits for metadata before offering anything', async () => {
     state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null }, handle: null })
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeDisabled()
   })
 
   it('reports an engine failure rather than counting peers that will never arrive', async () => {
     state.current = torrent({ engineError: 'The download engine stopped. Reload the page to try again.' })
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(screen.container.querySelector('[data-testid="swarm"]')).toBeNull()
   })
@@ -326,7 +314,7 @@ describe('the embed route in download mode', () => {
    * agreed to download anything, and the only sign of it was a peer count.
    */
   it('asks the engine for nothing until Download is pressed', async () => {
-    const screen = await mount('&mode=download&files=2')
+    const screen = await mount('&files=2')
     await expect.element(screen.getByRole('button', { name: 'Download' })).toBeEnabled()
     // a rendered file list proves the metadata arrived, so this is the held state and not a page still loading
     await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
@@ -341,7 +329,7 @@ describe('the embed route in download mode', () => {
   })
 
   it('claims the first file of a zip, which is where the archive starts writing', async () => {
-    const screen = await mount('&mode=download&files=1-2')
+    const screen = await mount('&files=1-2')
     await screen.getByRole('button', { name: /Download 2 files as .zip/ }).click()
     expect(claimed).toEqual([1])
   })
@@ -356,7 +344,7 @@ describe('the embed route in download mode', () => {
    * episodes.
    */
   it('takes the files that are ticked and leaves out the ones that are not', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
 
     // addressed by NAME, so a row moving cannot make this tick something other than it meant to
@@ -377,7 +365,7 @@ describe('the embed route in download mode', () => {
    * POSITION in the list on screen is 1. Anything that ticks by position exports E02 and E03.
    */
   it('ticks in engine indices, not in positions in the list on screen', async () => {
-    const screen = await mount('&mode=download&files=1-3')
+    const screen = await mount('&files=1-3')
     await screen.getByRole('checkbox', { name: 'E03.mkv' }).click()
     await screen.getByRole('button', { name: /Download 2 files as \.zip/ }).click()
 
@@ -385,7 +373,7 @@ describe('the embed route in download mode', () => {
   })
 
   it('hands over one ticked file directly rather than as a zip of one', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Select none' }).click()
     await screen.getByRole('checkbox', { name: 'E03.mkv' }).click()
 
@@ -404,7 +392,7 @@ describe('the embed route in download mode', () => {
    * on it that does anything.
    */
   it('refuses an empty selection, and still lets a single row be taken', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Select none' }).click()
 
     await expect.element(screen.getByRole('button', { name: 'Select at least one file' })).toBeDisabled()
@@ -424,7 +412,7 @@ describe('the embed route in download mode', () => {
    * at skip for as long as the tab was open.
    */
   it('lets the rest of the pack be taken after one file has been', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
 
     await expect.element(screen.getByRole('button', { name: 'Download E03.mkv', exact: true })).toBeEnabled()
@@ -436,7 +424,7 @@ describe('the embed route in download mode', () => {
   })
 
   it('says which files have already landed, so somebody coming back knows what is left', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
 
     await expect
@@ -454,7 +442,7 @@ describe('the embed route in download mode', () => {
    * again when the job ends, because the ticks can move while one runs.
    */
   it('tells the engine which files to want, in engine indices', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
     await screen.getByRole('button', { name: /Download 3 files as \.zip/ }).click()
 
@@ -462,7 +450,7 @@ describe('the embed route in download mode', () => {
   })
 
   it('says "all of it" by leaving the list out, rather than by naming every index', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: /Download 4 files/ }).click()
 
     // absent is what survives a torrent gaining a file it did not have when this was decided
@@ -479,7 +467,7 @@ describe('the embed route in download mode', () => {
    */
   it('plans what is ticked when a job ENDS, not what was ticked when it began', async () => {
     saved.holds = true
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
 
     await expect.poll(() => planned.length).toBe(1)
@@ -504,7 +492,7 @@ describe('the embed route in download mode', () => {
    */
   it('never plans a torrent the person has in their own library', async () => {
     listed.current = [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: false, firstLast: true }]
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
     await screen.getByRole('button', { name: /Download 3 files as \.zip/ }).click()
 
@@ -519,7 +507,7 @@ describe('the embed route in download mode', () => {
    * button says stopped and the engine, which was never told, does not.
    */
   it('hands the claim back when a download ends', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
 
     await expect.poll(() => released.count).toBe(1)
@@ -549,7 +537,7 @@ describe('the embed route in download mode', () => {
       },
     })
 
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: /Download 2 files as \.zip/ })).toBeInTheDocument()
     expect([...screen.container.querySelectorAll('.files .file .name')].map((n) => n.textContent))
       .toEqual(['E01.mkv', 'E02.mkv'])
@@ -569,7 +557,7 @@ describe('the embed route in download mode', () => {
    */
   it('registers no claim once the page has gone away', async () => {
     saved.holds = true
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await screen.getByRole('button', { name: 'Download E01.mkv', exact: true }).click()
     await expect.poll(() => saved.file.length, { timeout: 5_000 }).toBe(1)
 
@@ -582,7 +570,7 @@ describe('the embed route in download mode', () => {
   })
 
   it('claims the row that was pressed, not the head of the page selection', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
     await screen.getByRole('button', { name: 'Download E03.mkv', exact: true }).click()
     expect(claimed).toEqual([2])
@@ -601,7 +589,7 @@ describe('offering to watch instead', () => {
   beforeEach(() => { state.current = torrent() })
 
   it('offers Watch when the requested files include a video', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     const watch = screen.container.querySelector('a.watch') as HTMLAnchorElement
     expect(watch, 'no Watch link was offered for a pack of mkv files').toBeTruthy()
     // the PATH is what says it plays; there is no mode parameter to look for any more
@@ -617,7 +605,7 @@ describe('offering to watch instead', () => {
    * the selection the two coincide and the test would pass either way.
    */
   it('opens the largest video, by the torrent index and not the position on screen', async () => {
-    const screen = await mount('&mode=download&files=1-3')
+    const screen = await mount('&files=1-3')
     const href = (screen.container.querySelector('a.watch') as HTMLAnchorElement).getAttribute('href')!
     expect(href).toContain('fileIndex=2')
     expect(href, 'the position was used instead of the engine index').not.toContain('fileIndex=1')
@@ -625,14 +613,14 @@ describe('offering to watch instead', () => {
 
   /** A link naming the subtitles should not offer to play the video it did not ask for. */
   it('asks only about the files the link named', async () => {
-    const screen = await mount('&mode=download&files=3')
+    const screen = await mount('&files=3')
     expect(screen.container.querySelector('a.watch')).toBeNull()
   })
 
   it('names the file when there is more than one to choose between', async () => {
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     expect(screen.container.querySelector('a.watch')!.textContent).toContain('E03.mkv')
-    const one = await mount('&mode=download&files=0')
+    const one = await mount('&files=0')
     expect(one.container.querySelector('a.watch')!.textContent?.trim()).toBe('Watch')
   })
 
@@ -643,7 +631,7 @@ describe('offering to watch instead', () => {
    */
   it('offers nothing until the engine has said what is in there', async () => {
     state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } })
-    const screen = await mount('&mode=download')
+    const screen = await mount()
     expect(screen.container.querySelector('a.watch')).toBeNull()
     await expect.element(screen.getByText('Reading the torrent from the network')).toBeVisible()
   })

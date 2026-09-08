@@ -17,7 +17,7 @@ import { useReachability } from '../torrent/use-reachability'
 import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
-import { parseFileSelection, parseMode } from './file-selection'
+import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam } from './magnet-codec'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
 import { STATE_LABEL } from './torrent-format'
@@ -434,15 +434,13 @@ const Player = () => {
    * appearing once the file list lands. `embedPath` cannot do it: in download mode it writes a
    * `files` selection and drops `fileIndex`, so it would need a file COUNT this page may not have
    * yet.
-   *
-   * `mode` is dropped rather than carried: a legacy `/embed?mode=watch` reaching here would
-   * otherwise hand out `/download?mode=watch`, where the stale parameter contradicts the path.
    */
   const downloadHref = useMemo(() => {
     if (!magnet) return null
-    const params = new URLSearchParams(searchParams)
-    params.delete('mode')
-    return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${params.toString()}`, origin).toString()
+    return new URL(
+      `${getRouterRoutePath(Route.DOWNLOAD)}?${new URLSearchParams(searchParams).toString()}`,
+      origin,
+    ).toString()
   }, [magnet, searchParams, origin])
 
   const overlay = (
@@ -577,21 +575,15 @@ const Player = () => {
  * The two things this component can be, chosen by the ROUTE that mounted it.
  *
  * /embed is the player and /download is the download page, and both take the same query, so an
- * embedder holding one URL for a release gets the other by swapping the path.
- *
- * `mode` is the parameter that used to make that choice, and it is still read on /embed so that
- * every `?mode=download` link published before this keeps landing on the download page. The prop
- * WINS over it: on /download a stale `mode=watch` in a copied query cannot take the page back to
- * the player. Absent, and on anything unrecognised, /embed stays the player, which is what the one
- * shipped consumer (@banou/stub-plugin, which passes only `magnet`) keeps getting.
+ * embedder holding one URL for a release gets the other by swapping the path. Nothing in the query
+ * can change that: a `mode` parameter used to, and is now neither written nor read.
  *
  * The two are separate COMPONENTS, not two branches inside one, so neither mounts the other's hooks:
  * the player would otherwise register a playback viewer with its own read-window cache behind a page
  * that never plays anything.
  */
-const Embed = ({ mode: routeMode }: { mode?: EmbedMode } = {}) => {
+const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
   const [searchParams] = useSearchParams()
-  const mode = routeMode ?? parseMode(searchParams.get('mode'))
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
   const selection = useMemo(
     () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),

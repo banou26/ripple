@@ -10,9 +10,8 @@ export enum Route {
 /**
  * What /embed and /download accept.
  *
- * THE PATH PICKS THE PAGE: /embed is the player, /download is the download page. `mode` used to do
- * that job as a query parameter and is still READ on /embed, because every link published before
- * this carries it, but nothing writes one any more.
+ * THE PATH PICKS THE PAGE: /embed is the player, /download is the download page. A `mode` parameter
+ * used to do that job and is gone from both halves, written and read.
  *
  * `files` is the download page's selection (`all`, `3`, `0-4`, `0,2,5`); `fileIndex` names the
  * single file the player opens, and the download page falls back to it so that swapping /embed for
@@ -37,12 +36,7 @@ export enum Route {
 type AddOptions = { magnet: string, name?: string }
 
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
-/**
- * `mode` is absent on purpose, and this type is what enforces that.
- *
- * Both pages read it for the links already out there; a writer that could still set it would put
- * `/embed?mode=download` back into circulation one call site at a time.
- */
+/** No `mode`: the path is what chooses the page, and neither page reads a parameter for it. */
 type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: string }
 
 /**

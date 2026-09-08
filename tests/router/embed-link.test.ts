@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { compileFileSelection, embedIframe, embedPath, embedUrl } from '../../src/router/embed-link'
-import { parseFileSelection, parseMode, resolveSelection } from '../../src/router/file-selection'
+import { parseFileSelection, resolveSelection } from '../../src/router/file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from '../../src/router/magnet-codec'
 
 /** What a built path actually names, read back the way /embed reads it. */
@@ -107,9 +107,9 @@ describe('embedPath', () => {
      *
      * It used to measure the path, which stopped working the day `&mode=watch` was added: eleven
      * fixed characters sat on both sides of the comparison, diluting the ratio the codec is
-     * answerable for, and at this magnet's length that alone pushed 2x out of reach. The mode is
-     * gone from the query now, but the claim being made is still about the encoding, so the
-     * encoding is still what is measured.
+     * answerable for, and at this magnet's length that alone pushed 2x out of reach. That parameter
+     * is gone, but the claim being made is still about the encoding, so the encoding is still what
+     * is measured.
      */
     expect(encoded.key, 'fell back to base64 for a magnet the packed form can hold').toBe('m')
     expect(`m=${encoded.value}`.length)
@@ -127,7 +127,8 @@ describe('embedPath', () => {
   /**
    * THE PATH SAYS WHICH PAGE IT IS, so a link is told apart by the part of a URL a person reads
    * first rather than by a parameter buried behind a packed magnet. `mode=watch` did that job for a
-   * while and cost 11 characters of query to do it; a path costs nothing and cannot be missed.
+   * while and cost 11 characters of query to do it; a path costs nothing and cannot be missed. It is
+   * neither written nor read now, so a link that carries one is carrying junk.
    */
   it('puts the mode in the path and writes no mode parameter at all', () => {
     const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
@@ -136,19 +137,6 @@ describe('embedPath', () => {
     expect(download.startsWith('/download?')).toBe(true)
     expect(watch).not.toContain('mode=')
     expect(download).not.toContain('mode=')
-  })
-
-  /**
-   * WRITING it must not change READING it. Every link published before this omits `mode`, and the
-   * one shipped consumer passes only `magnet`, so an absent mode has to keep opening the player.
-   * parseMode is what guarantees that; this is the round trip through the two of them together.
-   */
-  it('still opens the player for a link that names no mode at all', () => {
-    const legacy = `/embed?magnet=${encodeURIComponent(btoa(MAGNET))}`
-    expect(parseMode(new URLSearchParams(legacy.split('?')[1]).get('mode'))).toBe('watch')
-    // and the mode this module now writes reads back as the same thing
-    const written = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(parseMode(new URLSearchParams(written.split('?')[1]).get('mode'))).toBe('watch')
   })
 
   /**

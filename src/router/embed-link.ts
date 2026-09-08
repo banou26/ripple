@@ -56,10 +56,8 @@ export type EmbedLink = {
 /**
  * The `/embed?...` or `/download?...` path for a link, relative to the app root.
  *
- * THE MODE IS THE PATH. A watch link is `/embed`, a download link is `/download`, and neither
- * carries a `mode` parameter any more. Reading is untouched: /embed still honours `mode=download`
- * for every link published before this, which is why nothing here has to be forwards compatible
- * with itself.
+ * THE MODE IS THE PATH. A watch link is `/embed`, a download link is `/download`, and the `mode`
+ * parameter that used to say which is gone from both halves, written and read.
  *
  * Built through getRoutePath rather than by hand so whichever form the codec picked goes through
  * URLSearchParams. That matters for the legacy fallback, whose base64 can carry `+`, `/` and `=`:
