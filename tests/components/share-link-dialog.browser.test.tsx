@@ -71,7 +71,9 @@ const mount = async (torrent: ShareSubject | null, dragging = false) => {
   await expect.poll(dialog).not.toBeNull()
   const url = () => dialog().querySelector('[data-testid="embed-url"]')?.textContent ?? ''
   const query = () => new URLSearchParams(url().slice(url().indexOf('?')))
-  return { onMagnet, onFiles, onClear, onClose, onToast, url, query }
+  // the PATH is what says which page the link opens; `mode` was that until it moved into the URL
+  const path = () => url().slice(url().indexOf('/', url().indexOf('//') + 2), url().indexOf('?'))
+  return { onMagnet, onFiles, onClear, onClose, onToast, url, query, path }
 }
 
 describe('the share link dialog, before it has a torrent', () => {
@@ -143,8 +145,9 @@ describe('the share link dialog, once it has a torrent', () => {
 
   /** download is the default now: it works for every torrent, including ones with nothing playable */
   it('defaults to a download link over the whole torrent', async () => {
-    const { query } = await mount(SINTEL)
-    expect(query().get('mode')).toBe('download')
+    const { query, path } = await mount(SINTEL)
+    expect(path()).toBe('/download')
+    expect(query().get('mode'), 'the mode moved into the path and must not be written twice').toBeNull()
     // every file selected means every file, so the grammar says nothing rather than listing them
     expect(query().get('files')).toBeNull()
     expect(query().get('fileIndex')).toBeNull()
@@ -152,12 +155,13 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 
   it('switches to a watch link on the file the player would have picked', async () => {
-    const { query } = await mount(SINTEL)
+    const { query, path } = await mount(SINTEL)
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
     // index 3 is the mp4; the three subtitles are smaller and not video
     await expect.poll(() => query().get('fileIndex')).toBe('3')
-    // and the link SAYS it is a watch link, rather than leaving it to be read off an absent param
-    expect(query().get('mode')).toBe('watch')
+    // and the link SAYS it plays, in the part of the URL a person reads first
+    expect(path()).toBe('/embed')
+    expect(query().get('mode')).toBeNull()
   })
 
   /**
@@ -286,8 +290,8 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 
   it('builds a download link for it regardless', async () => {
-    const { query } = await mount(NO_MEDIA)
-    expect(query().get('mode')).toBe('download')
+    const { query, path } = await mount(NO_MEDIA)
+    expect(path()).toBe('/download')
     expect(decodeMagnetParam(query())).toBe(SINTEL.magnet)
   })
 

@@ -89,9 +89,9 @@ describe('compile then parse round trip', () => {
 })
 
 describe('embedPath', () => {
-  it('carries the magnet and the mode for a plain watch link, and nothing else', () => {
+  it('carries the magnet and nothing else for a plain watch link', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toBe(`/embed?mode=watch&m=${encodeMagnetParam(MAGNET)!.value}`)
+    expect(path).toBe(`/embed?m=${encodeMagnetParam(MAGNET)!.value}`)
     expect(magnetOf(path)).toBe(MAGNET)
   })
 
@@ -106,9 +106,10 @@ describe('embedPath', () => {
      * The PARAMETER, not the whole path.
      *
      * It used to measure the path, which stopped working the day `&mode=watch` was added: eleven
-     * fixed characters sit on both sides of the comparison and do nothing but dilute the ratio the
-     * codec is answerable for, and at this magnet's length that alone pushed 2x out of reach. The
-     * claim being made is about the encoding, so the encoding is what is measured.
+     * fixed characters sat on both sides of the comparison, diluting the ratio the codec is
+     * answerable for, and at this magnet's length that alone pushed 2x out of reach. The mode is
+     * gone from the query now, but the claim being made is still about the encoding, so the
+     * encoding is still what is measured.
      */
     expect(encoded.key, 'fell back to base64 for a magnet the packed form can hold').toBe('m')
     expect(`m=${encoded.value}`.length)
@@ -124,14 +125,17 @@ describe('embedPath', () => {
   })
 
   /**
-   * Both modes SAY which they are, so a link can be told apart by reading it rather than by noticing
-   * that a parameter is missing. It costs 11 characters on a watch link, which is the deliberate
-   * trade: everything else in the query is packed or an index, and this is the only part left that
-   * a person is meant to read.
+   * THE PATH SAYS WHICH PAGE IT IS, so a link is told apart by the part of a URL a person reads
+   * first rather than by a parameter buried behind a packed magnet. `mode=watch` did that job for a
+   * while and cost 11 characters of query to do it; a path costs nothing and cannot be missed.
    */
-  it('names the mode on both kinds of link, rather than leaving watch to be inferred', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).toContain('mode=watch')
-    expect(embedPath({ magnet: MAGNET, mode: 'download' })).toContain('mode=download')
+  it('puts the mode in the path and writes no mode parameter at all', () => {
+    const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
+    const download = embedPath({ magnet: MAGNET, mode: 'download' })!
+    expect(watch.startsWith('/embed?')).toBe(true)
+    expect(download.startsWith('/download?')).toBe(true)
+    expect(watch).not.toContain('mode=')
+    expect(download).not.toContain('mode=')
   })
 
   /**
@@ -159,14 +163,14 @@ describe('embedPath', () => {
 
   it('puts the set on a download link and leaves fileIndex out of it', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'download', indices: [1, 2], fileCount: 9, fileIndex: 7 })
-    expect(path).toContain('mode=download')
+    expect(path!.startsWith('/download?')).toBe(true)
     expect(path).toContain('files=1-2')
     expect(path).not.toContain('fileIndex')
   })
 
   it('omits files when the download names the whole torrent', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'download', indices: [0, 1, 2], fileCount: 3 })
-    expect(path).toContain('mode=download')
+    expect(path!.startsWith('/download?')).toBe(true)
     expect(path).not.toContain('files=')
   })
 
@@ -194,7 +198,7 @@ describe('embedPath', () => {
    */
   it('writes the packed form with nothing a query string has to escape', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toMatch(/^\/embed\?mode=watch&m=[A-Za-z0-9\-_]+$/)
+    expect(path).toMatch(/^\/embed\?m=[A-Za-z0-9\-_]+$/)
   })
 })
 
@@ -227,7 +231,10 @@ describe('a magnet that btoa cannot take', () => {
 
   it('builds a link for it instead of throwing mid-render', () => {
     expect(() => embedPath({ magnet: UNICODE, mode: 'watch' })).not.toThrow()
-    expect(embedPath({ magnet: UNICODE, mode: 'watch' })).toContain('&m=')
+    const path = embedPath({ magnet: UNICODE, mode: 'watch' })!
+    // read as a param rather than matched as a substring: `m` leads the query now that no mode
+    // precedes it, so a test looking for `&m=` passes only by accident of parameter order
+    expect(new URLSearchParams(path.slice(path.indexOf('?'))).get('m')).toBeTruthy()
   })
 
   /** null rather than a throw, so the caller renders its no-link branch */
@@ -242,7 +249,9 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/embed?mode=watch&m=' + encodeMagnetParam(MAGNET)!.value)
+      .toBe('https://torrent.fkn.app/embed?m=' + encodeMagnetParam(MAGNET)!.value)
+    expect(embedUrl({ magnet: MAGNET, mode: 'download' }, 'https://torrent.fkn.app'))
+      .toBe('https://torrent.fkn.app/download?m=' + encodeMagnetParam(MAGNET)!.value)
   })
 
   /**
@@ -290,13 +299,13 @@ describe('a link describes no files, only which ones it wants', () => {
 
   /**
    * A whole-torrent download link is now the same length as the watch link for the same torrent,
-   * give or take the mode. It used to be about 60 per cent longer on a single-file release, and all
+   * give or take the path. It used to be about 60 per cent longer on a single-file release, and all
    * of that difference was a file list the page threw away the moment metadata arrived.
    */
   it('is no longer than the watch link for the same torrent', () => {
     const download = embedPath({ magnet: MAGNET, mode: 'download' })!
     const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(download.length - watch.length).toBeLessThanOrEqual('download'.length - 'watch'.length)
+    expect(download.length - watch.length).toBeLessThanOrEqual('/download'.length - '/embed'.length)
   })
 })
 

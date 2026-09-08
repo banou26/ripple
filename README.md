@@ -4,22 +4,24 @@ THE app that allows you to download torrents and stream video files from the saf
 
 ## Embedding
 
-`/embed` is the page another site puts in an iframe. It takes a magnet and renders one of two things,
-chosen by `mode`.
+`/embed` and `/download` are the pages another site puts in an iframe. Both take a magnet and the
+same query; the path chooses which one renders. `/embed` plays the file, `/download` delivers it.
 
 | param | value | meaning |
 | --- | --- | --- |
 | `m` | the packed magnet, base64url | what Ripple writes today |
 | `magnet` | base64 of the magnet URI | the original form, read forever |
-| `mode` | `watch` (default) or `download` | which page to render |
-| `fileIndex` | a file index | the file `watch` plays; the fallback `download` uses |
-| `files` | `all`, `3`, `0-4`, `0,2,5` | what `download` delivers |
-| `f` | a packed file list | optional preview, `download` only |
+| `fileIndex` | a file index | the file `/embed` plays; the fallback `/download` uses |
+| `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
+| `f` | a packed file list | optional preview, `/download` only |
 
 One of `m` or `magnet` is required. `m` wins if both are present.
 
-`mode` is absent-safe: anything unrecognised stays the player, so an existing embed URL keeps working
-untouched.
+`mode=download` on `/embed` is the older way of asking for the download page, and it still works:
+every link published with it keeps landing where it did. Ripple no longer writes one, and `/embed`
+with no `mode`, or an unrecognised one, is the player, so an existing embed URL keeps working
+untouched. On `/download` the path wins and a leftover `mode=watch` in a copied query changes
+nothing.
 
 ### The two magnet forms
 
@@ -43,16 +45,16 @@ becomes `m2` and `m` keeps decoding the way it always did.
 Order never matters when READING a link. When writing one, Ripple puts the plainest parts first:
 
 ```
-/embed?mode=watch&fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
-/embed?mode=download&files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
-/embed?mode=download&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
+/embed?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/download?files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/download?m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
 ```
 
-What the link does, then the packed torrent, then `f`. The torrent used to lead, from when it was
-the only thing in the link; now that everything around it is base64url or an index, leading with it
-buried the one part a person can read behind forty characters of noise. A URL is read from the left
-and truncated from the right, so `f`, the longest parameter and the one a reader cares least about,
-goes last.
+The path, then which files, then the packed torrent, then `f`. The torrent used to lead, from when
+it was the only thing in the link; now that everything around it is base64url or an index, leading
+with it buried the one part a person can read behind forty characters of noise. A URL is read from
+the left and truncated from the right, so `f`, the longest parameter and the one a reader cares
+least about, goes last.
 
 ### `f`, the file list
 
@@ -66,7 +68,7 @@ per-file buttons are not rendered at all while the list is only the link's claim
 describes a torrent inaccurately therefore costs a reader a wrong line on screen for a few seconds,
 and can never cost them the wrong file on disk.
 
-Ripple writes it only on `mode=download`, only when it has the list, and only when it fits: a
+Ripple writes it only on `/download`, only when it has the list, and only when it fits: a
 12-episode season costs about 172 characters and a 48-file season about 416. Past a budget it is
 left off entirely rather than pushing the link past what a chat message will carry. Absent, `f`
 changes nothing, so a link without it behaves exactly as it always has.
@@ -76,31 +78,30 @@ than encoding: piece hashes are around 94% of a torrent and are 20 bytes of SHA1
 are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676. The
 file list is the part that is both small and worth having.
 
-### `mode=watch`
+### `/embed`
 
 Plays `fileIndex` (0 if absent) in the media player, with the filename, peer count and transfer
 rates drawn over the video.
 
-Ripple writes `mode=watch` out in full on every link it builds, even though **an absent `mode` still
-means exactly this and always will**: `/embed?magnet=...` is what has been published since the
-beginning and it keeps working untouched. Naming it costs 11 characters and buys the one thing
-packing the magnet took away, which is a link a person can read. Everything else in the query is
-either compressed or an index, so this is the only part of the URL still meant for a human, and a
-watch link that said nothing could only be told from a download link by an absence.
+**`/embed?magnet=...` is what has been published since the beginning and it keeps working
+untouched.** The mode used to be a parameter, and for a while Ripple wrote `mode=watch` out in full
+so that a link said what it did rather than being told apart by an absence. The path says it for
+free and in the part of a URL that is read first, so the parameter is gone from what Ripple writes
+and stays in what it reads.
 
-### `mode=download`
+### `/download`
 
 A download page: the release name, the size of the selection, and one button. One file is delivered
 as that file; anything more is delivered as a single `.zip`, written straight through to the
 browser's own downloader without ever being held in memory.
 
 ```
-/embed?magnet=<base64>&mode=download                 the whole torrent, as a zip
-/embed?magnet=<base64>&mode=download&files=3         just file 3
-/embed?magnet=<base64>&mode=download&files=0-4       files 0 to 4 inclusive, as a zip
-/embed?magnet=<base64>&mode=download&files=0,2,5     those three, as a zip
-/embed?magnet=<base64>&mode=download&fileIndex=3     same as files=3, so &mode=download can simply be
-                                                     appended to a watch URL
+/download?magnet=<base64>                 the whole torrent, as a zip
+/download?magnet=<base64>&files=3         just file 3
+/download?magnet=<base64>&files=0-4       files 0 to 4 inclusive, as a zip
+/download?magnet=<base64>&files=0,2,5     those three, as a zip
+/download?magnet=<base64>&fileIndex=3     same as files=3, so a watch URL becomes a download by
+                                          swapping /embed for /download and nothing else
 ```
 
 `files` outranks `fileIndex`. Indices the torrent does not have are dropped rather than clamped, and
@@ -115,7 +116,7 @@ event fires and nothing throws. There is no `downloads` feature in Permissions-P
 is not a lever here; the `sandbox` attribute is the only one.
 
 ```html
-<iframe src="https://torrent.fkn.app/embed?magnet=...&mode=download"
+<iframe src="https://torrent.fkn.app/download?magnet=..."
         sandbox="allow-scripts allow-same-origin allow-downloads"></iframe>
 ```
 

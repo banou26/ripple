@@ -237,7 +237,7 @@ describe('the caching half of the worker', () => {
     // unhashed and outside `assets/`, so the service worker must leave every one of them alone; the
     // path here used to be `/jassub-worker.js`, which stopped existing when they moved.
     for (const path of [
-      '/', '/embed', '/index.js', '/sw.js', '/assets/logo.png',
+      '/', '/embed', '/download', '/index.js', '/sw.js', '/assets/logo.png',
       '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/default.woff2',
     ]) {
       const r = requestFor(ORIGIN + path)

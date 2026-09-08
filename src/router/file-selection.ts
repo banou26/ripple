@@ -25,10 +25,12 @@ export type FileSelection =
   | { kind: 'list', spans: Span[] }
 
 /**
- * `mode=download` opts in; anything else is the player.
+ * LEGACY ONLY: `mode=download` opts in; anything else is the player.
  *
- * Absent has to keep meaning `watch`, because the one shipped consumer (@banou/stub-plugin) passes
- * only `magnet` and would otherwise stop playing the moment this lands.
+ * The path chooses the page now (/embed against /download) and nothing writes a `mode` any more.
+ * This still reads one on /embed, because every link published before that carries it, and absent
+ * has to keep meaning `watch`, because the one shipped consumer (@banou/stub-plugin) passes only
+ * `magnet`.
  */
 export const parseMode = (raw: string | undefined | null): EmbedMode =>
   raw?.trim().toLowerCase() === 'download' ? 'download' : 'watch'
@@ -43,9 +45,9 @@ const int = (raw: string): number | null => {
 /**
  * The `files` grammar: `all`, `3`, `0-4`, or a comma separated mix of the last two.
  *
- * `fileIndex` is the fallback so that adding `&mode=download` to an existing watch URL downloads the
- * file that URL was playing, which is the one translation an embedder should not have to think
- * about. With neither, a download page is for the whole torrent.
+ * `fileIndex` is the fallback so that swapping /embed for /download on an existing watch URL
+ * downloads the file that URL was playing, which is the one translation an embedder should not have
+ * to think about. With neither, a download page is for the whole torrent.
  */
 export const parseFileSelection = (
   files: string | undefined | null,

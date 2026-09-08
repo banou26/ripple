@@ -22,6 +22,12 @@ const router = createBrowserRouter([
     path: getRouterRoutePath(Route.EMBED),
     element: <Embed/>
   },
+  // The same component, told which page to be by the route rather than by a `mode` parameter. /embed
+  // still reads that parameter, so every link published before this keeps landing where it did.
+  {
+    path: getRouterRoutePath(Route.DOWNLOAD),
+    element: <Embed mode="download"/>
+  },
   {
     path: getRouterRoutePath(Route.LEGAL),
     element: <Legal/>

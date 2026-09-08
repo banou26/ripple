@@ -54,8 +54,7 @@ export const watchHref = (t: Torrent): string | null => {
   const encoded = encodeMagnetParam(t.magnet)
   if (encoded === null) return null
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
-  // `mode` is named here for the same reason embedPath names it, and leads for the same reason it
-  // leads there: this URL is what sits in the address bar while somebody watches, so the readable
-  // half goes in front of the packed torrent rather than behind it
-  return getRoutePath(Route.EMBED, { mode: 'watch', fileIndex: String(pickVideoFile(t.files)), ...source })
+  // the file leads the packed torrent for the same reason embedPath orders them that way: this URL
+  // is what sits in the address bar while somebody watches, so the readable half goes in front
+  return getRoutePath(Route.EMBED, { fileIndex: String(pickVideoFile(t.files)), ...source })
 }

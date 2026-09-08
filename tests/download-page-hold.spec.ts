@@ -42,7 +42,7 @@ const recordWorkers = () => {
 // stays in the pre-metadata state this test is about.
 const NO_PEERS = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Nothing%20Answers'
 
-const downloadUrl = () => `/embed?magnet=${Buffer.from(NO_PEERS).toString('base64')}&mode=download`
+const downloadUrl = () => `/download?magnet=${Buffer.from(NO_PEERS).toString('base64')}`
 
 test('a download page for a torrent with no metadata yet does not trap the engine', async ({ page }) => {
   const engineErrors: string[] = []

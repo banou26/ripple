@@ -1,4 +1,5 @@
 import type { MediaPlayerSource } from '@banou/media-player'
+import type { EmbedMode } from './file-selection'
 
 import { useEffect, useMemo } from 'react'
 import { css } from '@emotion/react'
@@ -424,20 +425,24 @@ const Player = () => {
   }, [magnet, origin])
 
   /*
-   * This page's own URL with `mode` swapped, rather than a link built from scratch.
+   * This page's own URL under the other PATH, rather than a link built from scratch.
    *
-   * That conversion is the one `EmbedOptions` describes: adding `&mode=download` to a watch URL
-   * downloads what that URL was playing. Doing it this way carries the file being watched across for
-   * free, keeps whichever magnet encoding the embedder used rather than re-packing it, and needs no
-   * metadata, so the link is right from the first paint instead of appearing once the file list
-   * lands. `embedPath` cannot do it: in download mode it writes a `files` selection and drops
-   * `fileIndex`, so it would need a file COUNT this page may not have yet.
+   * That conversion is the one `EmbedOptions` describes: /embed and /download take the same query,
+   * so swapping the path downloads what this URL was playing. Doing it this way carries the file
+   * being watched across for free, keeps whichever magnet encoding the embedder used rather than
+   * re-packing it, and needs no metadata, so the link is right from the first paint instead of
+   * appearing once the file list lands. `embedPath` cannot do it: in download mode it writes a
+   * `files` selection and drops `fileIndex`, so it would need a file COUNT this page may not have
+   * yet.
+   *
+   * `mode` is dropped rather than carried: a legacy `/embed?mode=watch` reaching here would
+   * otherwise hand out `/download?mode=watch`, where the stale parameter contradicts the path.
    */
   const downloadHref = useMemo(() => {
     if (!magnet) return null
     const params = new URLSearchParams(searchParams)
-    params.set('mode', 'download')
-    return new URL(`${getRouterRoutePath(Route.EMBED)}?${params.toString()}`, origin).toString()
+    params.delete('mode')
+    return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${params.toString()}`, origin).toString()
   }, [magnet, searchParams, origin])
 
   const overlay = (
@@ -569,20 +574,24 @@ const Player = () => {
 }
 
 /**
- * The two things /embed can be, chosen by `mode`.
+ * The two things this component can be, chosen by the ROUTE that mounted it.
  *
- * One route rather than two because an embedder already holds an /embed URL for a release: turning
- * that into a download page is `&mode=download`, with the magnet and the file untouched. Absent, and
- * on anything unrecognised, it stays the player, which is what the one shipped consumer
- * (@banou/stub-plugin, which passes only `magnet`) keeps getting.
+ * /embed is the player and /download is the download page, and both take the same query, so an
+ * embedder holding one URL for a release gets the other by swapping the path.
+ *
+ * `mode` is the parameter that used to make that choice, and it is still read on /embed so that
+ * every `?mode=download` link published before this keeps landing on the download page. The prop
+ * WINS over it: on /download a stale `mode=watch` in a copied query cannot take the page back to
+ * the player. Absent, and on anything unrecognised, /embed stays the player, which is what the one
+ * shipped consumer (@banou/stub-plugin, which passes only `magnet`) keeps getting.
  *
  * The two are separate COMPONENTS, not two branches inside one, so neither mounts the other's hooks:
  * the player would otherwise register a playback viewer with its own read-window cache behind a page
  * that never plays anything.
  */
-const Embed = () => {
+const Embed = ({ mode: routeMode }: { mode?: EmbedMode } = {}) => {
   const [searchParams] = useSearchParams()
-  const mode = parseMode(searchParams.get('mode'))
+  const mode = routeMode ?? parseMode(searchParams.get('mode'))
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
   const selection = useMemo(
     () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),

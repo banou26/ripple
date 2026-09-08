@@ -53,7 +53,7 @@ const main = async () => {
   })
 
   const page = await context.newPage()
-  const url = `${ORIGIN}/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download&files=${SUBTITLE}`
+  const url = `${ORIGIN}/download?magnet=${Buffer.from(SINTEL).toString('base64')}&files=${SUBTITLE}`
   console.log(`target: ${url.slice(0, 60)}...`)
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 60_000 })

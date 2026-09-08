@@ -26,7 +26,7 @@ const SUBTITLE = 0
 const SUBTITLE_RANGE = '0-2'
 
 const downloadUrl = (params: string) =>
-  `/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download&${params}`
+  `/download?magnet=${Buffer.from(SINTEL).toString('base64')}&${params}`
 
 // a magnet gets a directory of its own, named by its infohash, under the shared save root
 const SINTEL_SAVE_PATH = '/dl/08ada5a7a6183aae1e09d831df6748d566095a10'

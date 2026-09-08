@@ -13,7 +13,7 @@ import { expect, test } from '@playwright/test'
 
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
-const downloadUrl = `/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download`
+const downloadUrl = `/download?magnet=${Buffer.from(SINTEL).toString('base64')}`
 
 test.describe('the download page share actions', () => {
   test('copies the magnet to the clipboard', async ({ page, context }) => {

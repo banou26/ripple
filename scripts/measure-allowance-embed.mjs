@@ -113,7 +113,7 @@ const main = async () => {
 
   const page = await context.newPage()
   const extra = process.env.RIPPLE_MEASURE_PARAMS ? `&${process.env.RIPPLE_MEASURE_PARAMS}` : ''
-  const url = `${origin}/embed?magnet=${Buffer.from(MAGNET).toString('base64')}&mode=download${extra}`
+  const url = `${origin}/download?magnet=${Buffer.from(MAGNET).toString('base64')}${extra}`
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 60_000 })
 

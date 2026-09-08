@@ -100,7 +100,7 @@ test('a hint appears at once, and never leaves the page', async ({ page }) => {
 test('hints work on the download page too, which mounts none of its own', async ({ page }) => {
   test.setTimeout(120_000)
   const magnet = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
-  await page.goto(`/embed?magnet=${Buffer.from(magnet).toString('base64')}&mode=download`)
+  await page.goto(`/download?magnet=${Buffer.from(magnet).toString('base64')}`)
 
   const anchor = page.locator('[data-tooltip-id="ripple-hint"]').first()
   await expect(anchor).toBeVisible({ timeout: 60_000 })

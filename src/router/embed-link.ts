@@ -54,7 +54,12 @@ export type EmbedLink = {
 }
 
 /**
- * The `/embed?...` path for a link, relative to the app root.
+ * The `/embed?...` or `/download?...` path for a link, relative to the app root.
+ *
+ * THE MODE IS THE PATH. A watch link is `/embed`, a download link is `/download`, and neither
+ * carries a `mode` parameter any more. Reading is untouched: /embed still honours `mode=download`
+ * for every link published before this, which is why nothing here has to be forwards compatible
+ * with itself.
  *
  * Built through getRoutePath rather than by hand so whichever form the codec picked goes through
  * URLSearchParams. That matters for the legacy fallback, whose base64 can carry `+`, `/` and `=`:
@@ -75,19 +80,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
    * putting it first buried the one part of the URL a person can actually parse behind forty
    * characters of noise. A link is read left to right, and truncated from the right.
    */
-  const options: { mode: EmbedMode, files?: string, fileIndex?: string } = { mode }
-  /*
-   * `mode` is written out even for `watch`, which an absent `mode` already means.
-   *
-   * It costs 11 characters on a watch link and buys back the one thing packing the magnet took away:
-   * a person holding the link can see what it is going to do. A download link said so and a watch
-   * link said nothing, so the two were told apart by an ABSENCE, which is not something anybody
-   * reads.
-   *
-   * Reading is untouched and must stay that way: absent still parses as watch, because every link
-   * published before this omits it and the one shipped consumer (@banou/stub-plugin) passes only
-   * `magnet`. See parseMode in file-selection.ts, which is tested for exactly that.
-   */
+  const options: { files?: string, fileIndex?: string } = {}
   if (mode === 'download') {
     /*
      * The selection and NOTHING about the files themselves.
@@ -109,7 +102,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
   }
 
   // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
-  return getRoutePath(Route.EMBED, { ...options, ...source })
+  return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.EMBED, { ...options, ...source })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */

@@ -2,17 +2,21 @@ export enum Route {
   HOME = 'HOME',
   ADD = 'ADD',
   EMBED = 'EMBED',
+  DOWNLOAD = 'DOWNLOAD',
   LEGAL = 'LEGAL',
   PRIVACY = 'PRIVACY'
 }
 
 /**
- * What /embed accepts.
+ * What /embed and /download accept.
  *
- * `mode` picks the page: absent or `watch` is the player, `download` is the download page. `files`
- * is the download page's selection (`all`, `3`, `0-4`, `0,2,5`); `fileIndex` still names the single
- * file the player opens, and the download page falls back to it so that adding `&mode=download` to
- * an existing watch URL downloads what that URL was playing.
+ * THE PATH PICKS THE PAGE: /embed is the player, /download is the download page. `mode` used to do
+ * that job as a query parameter and is still READ on /embed, because every link published before
+ * this carries it, but nothing writes one any more.
+ *
+ * `files` is the download page's selection (`all`, `3`, `0-4`, `0,2,5`); `fileIndex` names the
+ * single file the player opens, and the download page falls back to it so that swapping /embed for
+ * /download on an existing watch URL downloads what that URL was playing.
  *
  * The torrent arrives as either `m` (the packed form, see magnet-codec) or `magnet` (base64 of the
  * magnet URI, which is what README publishes and what every link written before the packed form
@@ -33,7 +37,13 @@ export enum Route {
 type AddOptions = { magnet: string, name?: string }
 
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
-type EmbedOptions = EmbedSource & { fileIndex?: string, mode?: 'watch' | 'download', files?: string, f?: string }
+/**
+ * `mode` is absent on purpose, and this type is what enforces that.
+ *
+ * Both pages read it for the links already out there; a writer that could still set it would put
+ * `/embed?mode=download` back into circulation one call site at a time.
+ */
+type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: string }
 
 /**
  * What the library page accepts, which is one torrent to open when it loads.
@@ -52,6 +62,7 @@ const Routes = {
     (options?.torrent ? `/?${new URLSearchParams({ torrent: options.torrent }).toString()}` : '/'),
   [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
   [Route.EMBED]: (options: EmbedOptions) => `/embed?${new URLSearchParams(options).toString()}`,
+  [Route.DOWNLOAD]: (options: EmbedOptions) => `/download?${new URLSearchParams(options).toString()}`,
   [Route.LEGAL]: () => '/legal',
   [Route.PRIVACY]: () => '/privacy'
 } as const
@@ -60,6 +71,7 @@ const RouterRoutes = {
   [Route.HOME]: '/',
   [Route.ADD]: '/add',
   [Route.EMBED]: '/embed',
+  [Route.DOWNLOAD]: '/download',
   [Route.LEGAL]: '/legal',
   [Route.PRIVACY]: '/privacy'
 } as const

@@ -11,4 +11,4 @@
   X-Frame-Options: DENY
   Content-Security-Policy: frame-ancestors 'none'
 
-# NOT /embed, deliberately: being framed by another site is the entire point of that route.
+# NOT /embed or /download, deliberately: being framed by another site is the entire point of both.

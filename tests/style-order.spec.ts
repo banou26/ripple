@@ -40,7 +40,7 @@ test('the VPN info glyph is the same size however you got to the library', async
   expect(direct.width).toBeLessThanOrEqual(ICON + 3)
 
   // and the reported path: the download page first, then its wordmark to the library
-  await page.goto(`/embed?magnet=${Buffer.from(SINTEL).toString('base64')}&mode=download`)
+  await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}`)
   await expect(page.locator('.wordmark')).toBeVisible({ timeout: 60_000 })
   await page.locator('.wordmark').click()
   await expect(page.locator('.stats')).toBeVisible({ timeout: 60_000 })

@@ -6,7 +6,11 @@ import { render } from 'vitest-browser-react'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
- * What `mode=download` puts on screen, and what it asks the save path for.
+ * What the download page puts on screen, and what it asks the save path for.
+ *
+ * Mounted through `/embed?...&mode=download` here, which is the LEGACY link form: `/download` is
+ * what Ripple writes now, and every one of these mounts doubles as proof that the links published
+ * under the old form still land on this page. `mountDownloadRoute` below covers the new one.
  *
  * The engine and the sink are both mocked: neither belongs in this measurement. What does belong is
  * the translation from a URL to a set of ENGINE file indices, because getting it wrong is silent.
@@ -129,6 +133,22 @@ const mount = async (search: string) => {
   )
 }
 
+/**
+ * The `/download` route, which passes the mode as a PROP because the path already said it.
+ *
+ * The same component either way, so everything else in this file measures both. What only this can
+ * show is that the page arrives with no `mode` in the query at all.
+ */
+const mountDownloadRoute = async (search = '') => {
+  const { default: Embed } = await import('../../src/router/embed')
+  return render(
+    <MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
+      <Embed mode="download" />
+    </MemoryRouter>,
+    sized(),
+  )
+}
+
 describe('the embed route in download mode', () => {
   beforeEach(() => {
     state.current = torrent()
@@ -160,6 +180,28 @@ describe('the embed route in download mode', () => {
     const screen = await mount('&mode=download')
     await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
     // the player must not be mounted behind it: it would claim its own viewer and read for nothing
+    expect(screen.container.querySelector('video')).toBeNull()
+  })
+
+  /**
+   * The route is what chooses the page now, and it has to do so with nothing in the query saying so.
+   * Before this the same URL without `mode=download` was a PLAYER, so a check that only asserts the
+   * download card appears would pass on the old code as long as the parameter came along.
+   */
+  it('renders the download page on /download with no mode parameter', async () => {
+    const screen = await mountDownloadRoute()
+    await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
+    expect(screen.container.querySelector('video')).toBeNull()
+  })
+
+  /**
+   * A query copied off an old watch link can still carry `mode=watch`, and pasting it after
+   * `/download` must not take the page back to the player. The path is the statement; the parameter
+   * is a leftover.
+   */
+  it('stays the download page when a stale mode=watch rides along', async () => {
+    const screen = await mountDownloadRoute('&mode=watch')
+    await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
     expect(screen.container.querySelector('video')).toBeNull()
   })
 
@@ -562,7 +604,8 @@ describe('offering to watch instead', () => {
     const screen = await mount('&mode=download')
     const watch = screen.container.querySelector('a.watch') as HTMLAnchorElement
     expect(watch, 'no Watch link was offered for a pack of mkv files').toBeTruthy()
-    expect(watch.getAttribute('href')).toContain('mode=watch')
+    // the PATH is what says it plays; there is no mode parameter to look for any more
+    expect(watch.getAttribute('href')!.startsWith('/embed?')).toBe(true)
   })
 
   /**
