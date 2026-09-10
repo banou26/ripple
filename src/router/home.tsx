@@ -3405,7 +3405,7 @@ const Home = () => {
         <Link to="/privacy">Privacy</Link>
         <a
           className="build"
-          href={`https://github.com/Banou26/ripple/commit/${__COMMIT_HASH__}`}
+          href={`https://github.com/banou26/ripple/commit/${__COMMIT_HASH__}`}
           target="_blank"
           rel="noreferrer"
           {...hint(`commit ${__COMMIT_HASH__}`)}
