@@ -2,6 +2,7 @@
   "name": "@banou/ripple",
   "version": "0.0.6",
   "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/banou26/ripple.git" },
   "main": "build/index.js",
   "keywords": [
     "fkn",

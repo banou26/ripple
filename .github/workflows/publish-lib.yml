@@ -1,0 +1,153 @@
+# Publishes @banou/ripple to npm with no token stored anywhere: the job exchanges its OIDC identity
+# for a short lived credential against the trusted publisher registered on npmjs.org.
+#
+# THE FILENAME IS PART OF THE TRUST RELATIONSHIP AND MUST NOT CHANGE. npm binds the package to a
+# repository PLUS a workflow filename (banou26/ripple + publish-lib.yml), so renaming this file
+# breaks publishing and has to be re-registered on npmjs.org by hand. Both halves are case
+# sensitive: the account renamed Banou26 to banou26 on 2026-09-11 and a capital B in the form is a
+# different string to the OIDC claim. The `name:` below is display text and is safe to edit.
+#
+# Only a version bump publishes. Every other push to main is a Cloudflare Pages deploy and nothing
+# else, so the version gate below is what keeps this from fighting the registry on every commit.
+name: Publish
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  # for re-running a publish that failed after the version already landed, which a push cannot repeat
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      # the OIDC token npm exchanges for short lived publish credentials
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # NO registry-url on purpose. That input writes an .npmrc pinning the auth token to
+      # ${NODE_AUTH_TOKEN}, which is empty here, so npm believes it is already authenticated, skips
+      # the OIDC exchange entirely, and the publish dies with an E404 PUT that names the package
+      # rather than the credential. registry.npmjs.org is npm's default, so nothing is lost.
+      #
+      # Node 22 because that is what every other gate in this repo builds under: the build runs the
+      # vite-plus toolchain, and a publish is the wrong place to be the first run on a newer runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or newer, which no node 22 image ships. Pinned rather
+      # than assumed: an npm too old fails at the publish step with an auth error that reads like a
+      # revoked credential rather than a stale CLI.
+      - name: Use an npm that supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          echo "npm $(npm --version)"
+
+      - run: npm ci
+
+      # Trusted publishing turns provenance on by itself, and the registry then checks that this
+      # manifest names the repository the statement was signed against. A missing or mismatched
+      # `repository` is refused with a 422 AFTER the OIDC exchange has succeeded and the statement
+      # has been written to the public transparency log, so the cost of finding out late is a
+      # permanent sigstore entry for a version that never published. Asked here, for a second.
+      - name: The manifest has to name this repository
+        run: |
+          URL=$(node -p "require('./package.json').repository?.url ?? ''")
+          CLEAN=${URL#git+}
+          CLEAN=${CLEAN%.git}
+          if [ "$CLEAN" != "https://github.com/$GITHUB_REPOSITORY" ]; then
+            echo "::error::package.json repository.url is '$CLEAN', and provenance expects 'https://github.com/$GITHUB_REPOSITORY'"
+            exit 1
+          fi
+          echo "::notice::repository.url matches $GITHUB_REPOSITORY"
+
+      # Decide BEFORE building, so an unchanged version costs seconds rather than a full build.
+      #
+      # Asked over HTTP rather than through `npm view`, which answers from a cache that a lookup made
+      # shortly before a publish can leave holding a negative. The VERSION document separates the
+      # three facts a gate needs: 200 is published, 404 is not, and anything else is the registry not
+      # answering, which is not evidence either way.
+      - name: Decide whether the version moved
+        id: decide
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          DOC=$(node -p "encodeURIComponent(require('./package.json').name)")
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "doc=$DOC" >> "$GITHUB_OUTPUT"
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$DOC/$VERSION")
+          if [ "$CODE" = "200" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME $VERSION is already published; nothing to do."
+          elif [ "$CODE" = "404" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::publishing $NAME $VERSION"
+          else
+            echo "::error::the registry answered $CODE for $NAME $VERSION. Refusing to guess."
+            exit 1
+          fi
+
+      # The whole build, because `files` publishes build/ and package.json's `main` is build/index.js:
+      # the platform loads an npm app by appending a module script for exactly that path.
+      - name: Build
+        if: steps.decide.outputs.changed == 'true'
+        run: npm run build
+
+      - name: The tarball has to carry the entry
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          MAIN=$(node -p "require('./package.json').main")
+          if [ ! -s "$MAIN" ]; then
+            echo "::error::package.json names '$MAIN' as main and the build did not emit it"
+            exit 1
+          fi
+          echo "::notice::$MAIN is $(wc -c < "$MAIN") bytes"
+
+      # No credential is passed. npm exchanges the job's OIDC identity for a short lived token against
+      # the trusted publisher configured on npmjs.org for banou26/ripple + publish-lib.yml. A
+      # publisher that does not match this repository and filename surfaces only as a bare ENEEDAUTH,
+      # which is why the log level is raised: at verbose the exchange prints its own answer,
+      # "OIDC token exchange error - package not found", a message about the match rather than the
+      # package.
+      - name: Publish
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          NPM_CONFIG_LOGLEVEL: verbose
+        run: npm publish --access public
+
+      # Ask the REGISTRY, not the runner. Everything above is a claim about what was uploaded; this is
+      # the only step that observes what a consumer would actually get. The version document lags a
+      # publish by minutes (measured on @banou/stub, 2026-09-11: five tries at 15 s all answered 404
+      # for a publish that had succeeded), so this waits up to ten.
+      - name: Confirm the registry serves it
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          NAME: ${{ steps.decide.outputs.name }}
+          VERSION: ${{ steps.decide.outputs.version }}
+          DOC: ${{ steps.decide.outputs.doc }}
+        run: |
+          for attempt in $(seq 1 40); do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$DOC/$VERSION")
+            if [ "$CODE" = "200" ]; then
+              echo "::notice::the registry serves $NAME $VERSION"
+              exit 0
+            fi
+            echo "attempt $attempt: the registry answered $CODE"
+            sleep 15
+          done
+          echo "::error::the registry still does not serve $NAME $VERSION"
+          exit 1
