@@ -87,6 +87,13 @@ export const packageProblems = (pkg, repo, tree) => {
     if (!tree.exists(path)) problems.push(`${path} is missing, and the entry builds its url at runtime so nothing else would notice`)
   }
 
+  // the app's identity, fetched from the package root by the platform and from /.well-known/ by a
+  // host. Its absence is SWALLOWED there (`recordManifest(...).catch(() => {})`), so the app simply
+  // runs unregistered and nothing says why.
+  for (const path of ['fkn.json', '.well-known/fkn.json']) {
+    if (!tree.exists(path)) problems.push(`${path} is missing, so the app has no identity from this source. \`fkn-sign place --out <dir>\` writes both.`)
+  }
+
   return problems
 }
 

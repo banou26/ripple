@@ -38,6 +38,8 @@ const SITE = [
   'jassub/jassub-worker.wasm',
   'jassub/jassub-worker-modern.wasm',
   'jassub/default.woff2',
+  'fkn.json',
+  '.well-known/fkn.json',
 ]
 
 const ENTRY = 'import"./api.js";const w=new Worker(new URL("/assets/worker-SJZDGuG-.js",import.meta.url));fetch("/libav-worker.js");navigator.serviceWorker.register("/sw.js")'
@@ -94,6 +96,16 @@ describe('the built site as the package root', () => {
   it('refuses a manifest left over from an older version', () => {
     const stale = { ...npmManifest(REPO), version: '0.0.7' }
     expect(packageProblems(stale, REPO, tree(SITE)).join('\n')).toContain('the published version is "0.0.7"')
+  })
+
+  it('refuses a package with no signed manifest, which the platform swallows in silence', () => {
+    const missing = SITE.filter((p) => p !== 'fkn.json')
+    expect(packageProblems(npmManifest(REPO), REPO, tree(missing)).join('\n')).toContain('fkn.json is missing')
+  })
+
+  it('refuses one with no /.well-known copy, which is what a host is asked for', () => {
+    const missing = SITE.filter((p) => p !== '.well-known/fkn.json')
+    expect(packageProblems(npmManifest(REPO), REPO, tree(missing)).join('\n')).toContain('.well-known/fkn.json is missing')
   })
 
   it('refuses an entry that is not a module', () => {

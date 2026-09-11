@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "app": "fkn:app:177wlviv7kkjk43vhpgkmrgzo5ynxhsaa5tz72nq7glqmrdahpgfq",
+  "root": "5Nagknk9CNeVCZoPl1lBbNe6I5JqTW7a7xoN8AXRg3E=",
+  "slug": "ripple",
+  "keys": {
+    "serial": 0,
+    "members": [
+      "UgFyOKUlOb5rt9YfoqiIofxArQt2evRREFbuRgHYOGE="
+    ],
+    "sig": "03aLecu4H1QZ2ZjJizZkcsFMOU3qqJrJ9Qtnyj8HSZe0M58312FZXILXhxQIjyfwh+JJS5CEWP+/GsheuxH9CQ=="
+  }
+}
