@@ -16,11 +16,9 @@ import type { TorrentSnapshot } from './worker'
 import type { Keyframe, ThumbnailSource } from './thumbnail'
 
 import { downloadedByteRanges } from './downloaded-ranges'
+import { thumbnailKey as key } from './library'
 import { magnetInfoHash } from './magnet'
 import { downloadedFraction, pickThumbnailSource, rangeIsDownloaded, readableKeyframes } from './thumbnail'
-
-/** Same `ripple:<thing>:<infoHash>` shape the worker's own keys use, in the same default store. */
-const key = (infoHash: string) => 'ripple:thumb:' + infoHash
 
 /** How much of the head has to exist before a video is worth opening at all. */
 const MIN_HEAD_BYTES = 512 * 1024

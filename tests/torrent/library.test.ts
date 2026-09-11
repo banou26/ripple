@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, savePathFor, staysEphemeral, syncedMetadata } from '../../src/torrent/library'
+import { SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, savePathFor, staysEphemeral, survivesRemovals, syncedMetadata } from '../../src/torrent/library'
 import { DEMO_MAGNET } from '../../src/torrent/constants'
 import { magnetInfoHash } from '../../src/torrent/magnet'
 import type { Persisted } from '../../src/torrent/library'
@@ -387,5 +387,75 @@ describe('a created torrent stays created across a re-add', () => {
   it('leaves an ordinary torrent alone, so the carry-forward cannot invent one', () => {
     expect(mergeEntry(entry(), entry({ addedAt: 2 })).created).toBeUndefined()
     expect(mergeEntry(null, entry()).created).toBeUndefined()
+  })
+})
+
+/**
+ * A removal has to travel, because the backup is merged and a merge only ever adds.
+ *
+ * Found 2026-09-12 with ripple on two origins sharing one library: Sintel, removed on either, was
+ * back as "Files aren't on this device" after every reload, because the next write read it from the
+ * cloud and put it back.
+ */
+describe('removals', () => {
+  const OTHER = 'b'.repeat(40)
+  /** What an import from another device creates: in the list, not running here. */
+  const ghost = (over: Partial<Persisted> = {}) => entry({ started: false, ...over })
+
+  it('keeps the latest removal of each torrent, whichever source it came from', () => {
+    const merged = mergeRemovals(
+      [{ infoHash: HASH, removedAt: 3_000 }],
+      [{ infoHash: HASH, removedAt: 7_000 }, { infoHash: OTHER, removedAt: 2_000 }],
+      [{ infoHash: HASH, removedAt: 5_000 }],
+    )
+    expect(merged).toEqual([{ infoHash: HASH, removedAt: 7_000 }, { infoHash: OTHER, removedAt: 2_000 }])
+  })
+
+  it('refuses a malformed removal rather than trusting the cloud', () => {
+    const junk = [null, 'x', { infoHash: '', removedAt: 1 }, { infoHash: HASH }, { infoHash: HASH, removedAt: Number.NaN }, { removedAt: 1 }]
+    expect(mergeRemovals(junk, undefined, { not: 'an array' })).toEqual([])
+  })
+
+  it('lets only an add newer than the latest removal survive it', () => {
+    const survives = survivesRemovals([{ infoHash: HASH, removedAt: 5_000 }])
+    expect(survives(entry({ addedAt: 4_000 }))).toBe(false)
+    expect(survives(entry({ addedAt: 5_000 }))).toBe(false)
+    expect(survives(entry({ addedAt: 6_000 }))).toBe(true)
+    expect(survives(entry({ infoHash: OTHER }))).toBe(true)
+  })
+
+  it('skips an incoming entry that was removed after it was added', () => {
+    const { incoming } = applyRemovals([], [ghost({ addedAt: 1_000 })], [{ infoHash: HASH, removedAt: 2_000 }])
+    expect(incoming).toEqual([])
+  })
+
+  it('takes an incoming entry that was added again after its removal', () => {
+    const back = ghost({ addedAt: 3_000 })
+    expect(applyRemovals([], [back], [{ infoHash: HASH, removedAt: 2_000 }]).incoming).toEqual([back])
+  })
+
+  /** THE REGRESSION'S OTHER HALF: the row another device removed goes here too. */
+  it('drops a row with nothing running here once another device removed it', () => {
+    const { list } = applyRemovals([ghost({ addedAt: 1_000 })], [], [{ infoHash: HASH, removedAt: 2_000 }])
+    expect(list).toEqual([])
+  })
+
+  it('never drops a torrent this browser is running, whoever removed it', () => {
+    const running = entry({ addedAt: 1_000, started: true })
+    const legacy = entry({ addedAt: 1_000, started: undefined })
+    const { list } = applyRemovals([running, legacy], [], [{ infoHash: HASH, removedAt: 2_000 }])
+    expect(list).toEqual([running, legacy])
+  })
+
+  it('keeps the row when another device has added the torrent back since', () => {
+    const mine = ghost({ addedAt: 1_000 })
+    const { list } = applyRemovals([mine], [ghost({ addedAt: 3_000 })], [{ infoHash: HASH, removedAt: 2_000 }])
+    expect(list).toEqual([mine])
+  })
+
+  it('leaves everything alone when nothing was removed', () => {
+    const mine = ghost()
+    const theirs = ghost({ infoHash: OTHER, magnet: 'magnet:?xt=urn:btih:' + OTHER })
+    expect(applyRemovals([mine], [theirs], [])).toEqual({ list: [mine], incoming: [theirs] })
   })
 })

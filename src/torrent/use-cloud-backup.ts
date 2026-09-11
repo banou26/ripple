@@ -1,15 +1,26 @@
 import type { Persisted } from './client'
+import type { Removal } from './library'
 
 import { useEffect, useState } from 'react'
+import { get } from 'idb-keyval'
 
 import { account, cloud } from '@fkn/lib'
 
 import { getTorrentClient } from './client'
-import { DEMO_SEEDED_KEY } from './constants'
+import { DEMO_MAGNET, DEMO_SEEDED_KEY } from './constants'
+import { REMOVED_KEY, mergeRemovals, survivesRemovals } from './library'
+import { magnetInfoHash } from './magnet'
 import { retryMissedThumbnails, syncThumbnails } from './thumbnail-sync'
 import { mergeTotals } from './uptime'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
+/**
+ * The removals, in a file of their own rather than inside the list, because a ripple from before
+ * them rewrites the list: through a projection that drops any field it does not know, and over an
+ * object it does not recognise as if there were no backup at all, taking every other device's
+ * entries with it.
+ */
+export const REMOVALS_PATH = 'ripple/removed.json'
 const ACCOUNT_KEY = 'ripple:sync-account'
 const WRITE_DEBOUNCE = 3_000
 // Restores retry forever on this (the last delay repeats); never add a give-up. Giving up used to leave writes disarmed for the life of the page, so a library
@@ -143,6 +154,73 @@ const bounded = <T>(work: Promise<T>, fallback: T, ms = BROKER_TIMEOUT): Promise
 const accountName = (): Promise<string | null> =>
   bounded(account.info().then((a) => a?.name ?? null), null, 4_000).catch(() => null)
 
+/**
+ * The cloud's removals, `[]` when there are none yet, and null when they could not be read, which
+ * is then no reason to overwrite them. A file that reads and does not parse is treated as empty,
+ * since rewriting it with what this device knows is the only repair there is.
+ */
+const readRemovals = async (): Promise<Removal[] | null> => {
+  let text: string | null
+  try {
+    text = await bounded<string | null>(cloud.fs.promises.readFile(REMOVALS_PATH, 'utf8').then(String), null)
+  } catch (err) {
+    return isAbsent(err, (err as { message?: string })?.message ?? String(err)) ? [] : null
+  }
+  if (text === null) return null
+  try { return mergeRemovals(JSON.parse(text)) } catch { return [] }
+}
+
+const DEMO_INFO_HASH = magnetInfoHash(DEMO_MAGNET)
+
+/**
+ * Sync only the device-portable identity, never device-local state: `started`, `paused`, and the
+ * cache tier (`ephemeral`, `lastUsedAt`), which describe what THIS browser is holding.
+ *
+ * The metadata belongs on the portable side. It says what the torrent IS rather than what this
+ * machine has done with it, and without it a second device signed into the same account can only
+ * render eight characters of infohash and a size of zero, because all it has is the magnet.
+ * `savePath` stays for historical reasons; it is a path, not a machine. The byte counters describe
+ * what has HAPPENED to the torrent, and are merged by maximum on the way in and on the way out; see
+ * `mergeTotals` in uptime.ts.
+ */
+const portableOf = (e: Persisted) => ({
+  infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
+  name: e.name, size: e.size, files: e.files,
+  activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
+  downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
+})
+
+/**
+ * The list a write publishes: this device's entries and the cloud's, less every removed one.
+ *
+ * An entry only the cloud has stays, because this device may not have restored it yet, and dropping
+ * it would delete another machine's torrent as a side effect of a stats write. That same rule put
+ * back every entry removed here, so the removals are what tell the two apart.
+ *
+ * An entry both sides hold is published with the LATER add, because a removal is compared with the
+ * latest add: a torrent removed and then added again elsewhere is back, and this device's older copy
+ * must not publish it as still removed.
+ *
+ * The first-run demo stays out until someone claims it. Nobody asked for it, so it is no device's
+ * library, and publishing it is how it became a row with no files on every other one.
+ */
+export const backupOf = (local: Persisted[], cloud: Persisted[] | null, removals: readonly Removal[]) => {
+  const theirs = new Map((cloud ?? []).map((e) => [e.infoHash, e]))
+  const merged = local
+    .filter((e) => !(e.ephemeral === true && e.infoHash === DEMO_INFO_HASH))
+    .map((e) => {
+      const other = theirs.get(e.infoHash)
+      return other
+        ? { ...portableOf(e), ...mergeTotals(e, other), addedAt: Math.max(e.addedAt ?? 0, other.addedAt ?? 0) }
+        : portableOf(e)
+    })
+  const mine = new Set(merged.map((e) => e.infoHash))
+  // projected through the same shape rather than pushed whole, so a foreign entry cannot smuggle a
+  // device-local field back into the document the projection exists to keep out
+  for (const [infoHash, e] of theirs) if (!mine.has(infoHash)) merged.push(portableOf(e))
+  return merged.filter(survivesRemovals(removals))
+}
+
 export const useCloudBackup = (): SyncState => {
   const client = getTorrentClient()
   const [state, setState] = useState<SyncState>({ status: 'off', reason: 'signed-out' })
@@ -199,25 +277,6 @@ export const useCloudBackup = (): SyncState => {
       pending = false
       window.clearTimeout(timer)
       /*
-       * Sync only the device-portable identity, never device-local state: `started`, `paused`, and
-       * the cache tier (`ephemeral`, `lastUsedAt`), which describe what THIS browser is holding.
-       *
-       * The metadata below belongs on that portable side. It says what the torrent IS rather than
-       * what this machine has done with it, and without it a second device signed into the same
-       * account can only render eight characters of infohash and a size of zero, because all it has
-       * is the magnet. `savePath` stays for historical reasons; it is a path, not a machine.
-       */
-      const portable = latest.map((e) => ({
-        infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
-        name: e.name, size: e.size, files: e.files,
-        // the accumulated counters, which unlike everything above describe what has HAPPENED to this
-        // torrent rather than what this browser is holding. Merged by maximum on the way in and on
-        // the way out; see `mergeTotals` in uptime.ts
-        activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
-        downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
-      }))
-
-      /*
        * READ, MERGE, THEN WRITE. The blind overwrite this replaces is what made syncing a counter
        * impossible.
        *
@@ -231,31 +290,17 @@ export const useCloudBackup = (): SyncState => {
        * A failure to read is not a failure to write. The catch falls back to publishing this device's
        * own view, which is exactly the old behaviour and still moves every number forwards.
        */
+      // one read at a time, since each read of a locked scope raises the unlock card
       const existing = await readBackup().catch(() => null)
-      const theirs = new Map((existing ?? []).map((e) => [e.infoHash, e]))
-      const merged = portable.map((e) => {
-        const other = theirs.get(e.infoHash)
-        return other ? { ...e, ...mergeTotals(e, other) } : e
-      })
-      /*
-       * An entry only the cloud has stays there: this device may simply not have restored it yet, and
-       * dropping it would delete another machine's torrent as a side effect of a stats write.
-       *
-       * Projected through the same shape rather than pushed whole, so a foreign entry cannot smuggle
-       * a device-local field back into the document the projection above exists to keep out.
-       */
-      const mine = new Set(merged.map((e) => e.infoHash))
-      for (const [infoHash, e] of theirs) {
-        if (mine.has(infoHash)) continue
-        merged.push({
-          infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath, addedAt: e.addedAt,
-          name: e.name, size: e.size, files: e.files,
-          activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
-          downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
-        })
+      const published = await readRemovals()
+      const removals = mergeRemovals(await get<Removal[]>(REMOVED_KEY).catch(() => undefined), published)
+      // the removals first: a list written without an entry, and no removal saying why, is undone by
+      // the next write of any device still holding it
+      const known = new Map(published?.map((r) => [r.infoHash, r.removedAt]))
+      if (published !== null && removals.some((r) => known.get(r.infoHash) !== r.removedAt)) {
+        await cloud.fs.promises.writeFile(REMOVALS_PATH, JSON.stringify(removals), { contentType: 'application/json' })
       }
-
-      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(merged), { contentType: 'application/json' })
+      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(backupOf(latest, existing, removals)), { contentType: 'application/json' })
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
@@ -389,7 +434,11 @@ export const useCloudBackup = (): SyncState => {
         if (Array.isArray(list)) {
           // A restorable backup - even an empty one - means a returning user, so suppress the demo
           try { localStorage.setItem(DEMO_SEEDED_KEY, '1') } catch {}
-          if (list.length) client.importList(list)
+          // read only once the list has, since a read of a locked scope is what raises the unlock
+          // card. A failed read imports no removals: rows removed elsewhere wait for a later mount.
+          const removed = await readRemovals() ?? []
+          if (stale()) return
+          if (list.length || removed.length) client.importList(list, removed)
         }
         restored = true
         setStatus('synced')

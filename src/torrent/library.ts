@@ -274,6 +274,59 @@ export const syncedMetadata = (e: Partial<Persisted>): Pick<Persisted, 'name' | 
 export const LIST_KEY = 'ripple:torrents'
 
 /**
+ * A torrent someone removed from the library, kept so the removal reaches every copy of the list.
+ *
+ * The cloud backup is merged rather than overwritten, and an entry only the cloud has is kept, which
+ * is exactly what a removed entry looks like. With nothing recording the removal, the next write put
+ * the entry back and the next load restored it as a row with no files. An entry survives a removal
+ * only when it was added after it, so adding a torrent again needs no removal deleted.
+ */
+export type Removal = { infoHash: string, removedAt: number }
+
+/** Where this browser keeps the removals it made or learned. */
+export const REMOVED_KEY = 'ripple:removed'
+
+/** The latest removal of each torrent across every source given. Checked, since one is cloud json. */
+export const mergeRemovals = (...sources: unknown[]): Removal[] => {
+  const latest = new Map<string, number>()
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue
+    for (const r of source as (Partial<Removal> | null)[]) {
+      if (typeof r?.infoHash !== 'string' || !r.infoHash) continue
+      if (typeof r.removedAt !== 'number' || !Number.isFinite(r.removedAt)) continue
+      latest.set(r.infoHash, Math.max(latest.get(r.infoHash) ?? r.removedAt, r.removedAt))
+    }
+  }
+  return [...latest].map(([infoHash, removedAt]) => ({ infoHash, removedAt }))
+}
+
+/** A test for entries: true when the entry was never removed, or added again after its latest removal. */
+export const survivesRemovals = (removals: readonly Removal[]) => {
+  const removedAt = new Map(removals.map((r) => [r.infoHash, r.removedAt]))
+  return (e: Pick<Persisted, 'infoHash' | 'addedAt'>): boolean => {
+    const at = removedAt.get(e.infoHash)
+    return at === undefined || (e.addedAt ?? 0) > at
+  }
+}
+
+/**
+ * An import with every removal applied to both sides of it.
+ *
+ * A removed incoming entry is skipped. A local entry is dropped only when this browser is not running
+ * it (`started === false`), so a removal on one device never stops a download on another. A local
+ * row also stays when an incoming copy was added after the removal, since the torrent is back.
+ */
+export const applyRemovals = (list: Persisted[], incoming: Persisted[], removals: readonly Removal[]) => {
+  const survives = survivesRemovals(removals)
+  const kept = incoming.filter((e) => !!e && survives(e))
+  const back = new Set(kept.map((e) => e.infoHash))
+  return {
+    list: list.filter((e) => e.started !== false || back.has(e.infoHash) || survives(e)),
+    incoming: kept,
+  }
+}
+
+/**
  * Where a torrent's resume blob lives, shared because two realms read it.
  *
  * The worker writes it, and the page reads it to rebuild a .torrent: `lt_torrent_save_resume_data`
@@ -283,3 +336,6 @@ export const LIST_KEY = 'ripple:torrents'
  * looks exactly like a torrent with no metadata yet.
  */
 export const resumeKey = (infoHash: string) => 'ripple:resume:' + infoHash
+
+/** Where a torrent's picture lives. The page writes it; the worker drops it with a row it removes. */
+export const thumbnailKey = (infoHash: string) => 'ripple:thumb:' + infoHash

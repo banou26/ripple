@@ -5,7 +5,7 @@ import type { InboundNow } from './inbound'
 import { NO_INBOUND } from './inbound'
 
 import { normalizeLimits } from './rate-limits'
-import type { SaveLocation } from './library'
+import type { Removal, SaveLocation } from './library'
 import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 import type { SourceRef } from './walk-source'
@@ -85,7 +85,8 @@ export type TorrentClient = {
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void
-  importList: (list: Persisted[]) => void
+  /** `removed` is the cloud's removals, applied to both the incoming list and this browser's own. */
+  importList: (list: Persisted[], removed?: Removal[]) => void
   clearList: () => void
   /**
    * `ephemeral` marks a torrent the PLAYER asked for rather than the user. Its bytes become a cache
@@ -603,7 +604,7 @@ export const createTorrentClient = (): EngineClient => {
       // anything holding one of its handles is dropped rather than re-aimed at the new one.
       for (const msg of carried) if (!isSessionScoped(msg?.type)) transport.post(msg, [])
     },
-    importList: (list) => send({ type: 'import-list', list }),
+    importList: (list, removed = []) => send({ type: 'import-list', list, removed }),
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true, paused: options?.paused === true }),
     addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, paused: options?.paused === true, saveTo: options?.saveTo, created: options?.created === true }, [bytes.buffer]),

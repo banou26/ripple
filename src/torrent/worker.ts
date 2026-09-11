@@ -9,7 +9,7 @@ import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, Trac
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
 import type { EvictionCandidate } from './storage-budget'
-import type { Persisted, SaveLocation } from './library'
+import type { Persisted, Removal, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
@@ -24,7 +24,7 @@ import { isOriginFull, planEviction } from './storage-budget'
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { LIST_KEY, SHARED_ROOT, SYNCED_FILE_CAP, mergeEntry, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata } from './library'
+import { LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -231,12 +231,19 @@ const touchUsed = (h: number) => {
   const ih = infoHashByHandle.get(h)
   if (ih) void patchList(ih, { lastUsedAt: Date.now() }, true).catch(() => {})
 }
-const removeFromList = async (ih: string) => {
-  let list: Persisted[] = []
-  await update<Persisted[]>(LIST_KEY, (prev) => (list = (prev ?? []).filter((e) => e.infoHash !== ih)))
+const forgetStored = async (ih: string) => {
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
   await del(sourceKey(ih)).catch(() => {})
+  // the page drops it on a Remove too, but a row taken by another device's removal has no page action
+  await del(thumbnailKey(ih)).catch(() => {})
+}
+const removeFromList = async (ih: string) => {
+  let list: Persisted[] = []
+  await update<Persisted[]>(LIST_KEY, (prev) => (list = (prev ?? []).filter((e) => e.infoHash !== ih)))
+  // for the cloud backup to carry, or its next write puts the entry straight back: see Removal
+  await update<Removal[]>(REMOVED_KEY, (prev) => mergeRemovals(prev, [{ infoHash: ih, removedAt: Date.now() }]))
+  await forgetStored(ih)
   post({ type: 'list', list })
 }
 
@@ -2045,13 +2052,18 @@ const handleMessage = async (session: Session, m: any) => {
       const h = ih ? handles.find((x) => infoHashByHandle.get(x) === ih) : undefined
       if (ih && h !== undefined) await relocate(session, h, ih, to)
     } else if (m.type === 'import-list') {
-      const incoming: Persisted[] = Array.isArray(m.list) ? m.list : []
+      let removals: Removal[] = []
+      await update<Removal[]>(REMOVED_KEY, (prev) => (removals = mergeRemovals(prev, m.removed)))
       let list: Persisted[] = []
+      let dropped: Persisted[] = []
       let changed = false
       await update<Persisted[]>(LIST_KEY, (prev) => {
-        list = prev ?? []
+        const applied = applyRemovals(prev ?? [], Array.isArray(m.list) ? m.list : [], removals)
+        list = applied.list
+        dropped = (prev ?? []).filter((e) => !list.includes(e))
+        changed = dropped.length > 0
         const byHash = new Map(list.map((e) => [e.infoHash, e]))
-        for (const e of incoming) {
+        for (const e of applied.incoming) {
           if (!e || typeof e.infoHash !== 'string' || !e.magnet) continue
           const meta = syncedMetadata(e)
           const mine = byHash.get(e.infoHash)
@@ -2099,6 +2111,7 @@ const handleMessage = async (session: Session, m: any) => {
         }
         return list
       })
+      for (const e of dropped) await forgetStored(e.infoHash)
       if (changed) post({ type: 'list', list })
     } else if (m.type === 'start') {
       const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
@@ -2155,6 +2168,8 @@ const handleMessage = async (session: Session, m: any) => {
       for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
       let dropped: Persisted[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
+      // the previous account's removals, which would otherwise hide the next account's torrents
+      await del(REMOVED_KEY).catch(() => {})
       for (const e of dropped) {
         await del(resumeKey(e.infoHash)).catch(() => {})
         await del(torrentKey(e.infoHash)).catch(() => {})

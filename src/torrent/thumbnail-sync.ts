@@ -2,6 +2,7 @@ import { get, set } from 'idb-keyval'
 
 import { cloud } from '@fkn/lib'
 
+import { thumbnailKey } from './library'
 import { loadCachedThumbnails, thumbnailFor } from './thumbnail-store'
 
 /**
@@ -53,7 +54,7 @@ const rememberPushed = async (infoHash: string) => {
 }
 
 const localBlob = async (infoHash: string): Promise<Blob | undefined> =>
-  get<Blob>('ripple:thumb:' + infoHash).catch(() => undefined)
+  get<Blob>(thumbnailKey(infoHash)).catch(() => undefined)
 
 /** Uploads this device's picture. Returns whether anything was sent. */
 const push = async (infoHash: string): Promise<boolean> => {
@@ -71,7 +72,7 @@ const pull = async (infoHash: string): Promise<boolean> => {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data)
   if (!bytes.byteLength) return false
   // stored under the key the local store already reads, so the ordinary loader finds it
-  await set('ripple:thumb:' + infoHash, new Blob([bytes], { type: 'image/webp' }))
+  await set(thumbnailKey(infoHash), new Blob([bytes], { type: 'image/webp' }))
   return true
 }
 

@@ -1,6 +1,9 @@
 import { describe, expect, it, test } from 'vitest'
 
-import { classifyAvailability, isAbsent } from '../../src/torrent/use-cloud-backup'
+import { DEMO_MAGNET } from '../../src/torrent/constants'
+import { magnetInfoHash } from '../../src/torrent/magnet'
+import { backupOf, classifyAvailability, isAbsent } from '../../src/torrent/use-cloud-backup'
+import type { Persisted } from '../../src/torrent/library'
 
 /**
  * What a storage-availability answer means, and specifically when it means "try again".
@@ -121,5 +124,56 @@ describe('recognising an absent backup', () => {
   it('does not fire on a 404 that is part of some other number', () => {
     expect(isAbsent(new Error('x'), 'storage: read failed (4040)')).toBe(false)
     expect(isAbsent(new Error('x'), 'read 404040 bytes')).toBe(false)
+  })
+})
+
+/**
+ * What a write publishes, which is where a removal used to be undone.
+ *
+ * Found 2026-09-12 with ripple on two origins sharing one library: the cloud still listed an entry
+ * removed here, "only the cloud has it" is the rule that keeps another device's new torrent, so the
+ * write put it back and the next load restored it as a row with no files.
+ */
+describe('the list a write publishes', () => {
+  const HASH = 'a'.repeat(40)
+  const OTHER = 'b'.repeat(40)
+  const DEMO = magnetInfoHash(DEMO_MAGNET)!
+  const entry = (infoHash: string, over: Partial<Persisted> = {}): Persisted => ({
+    infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt: 1_000, ...over,
+  })
+  const hashes = (list: { infoHash: string }[]) => list.map((e) => e.infoHash)
+
+  /** THE REGRESSION: this device removed it, the cloud still lists it. */
+  it('does not put back an entry removed here', () => {
+    expect(hashes(backupOf([], [entry(HASH)], [{ infoHash: HASH, removedAt: 2_000 }]))).toEqual([])
+  })
+
+  it('keeps an entry another device added since this one restored', () => {
+    // the reason the merge keeps what only the cloud has, which a removal must not break
+    expect(hashes(backupOf([entry(HASH)], [entry(HASH), entry(OTHER)], []))).toEqual([HASH, OTHER])
+  })
+
+  it('publishes a torrent added again after its removal, even from a device holding the older copy', () => {
+    const published = backupOf([entry(HASH, { addedAt: 1_000 })], [entry(HASH, { addedAt: 3_000 })], [{ infoHash: HASH, removedAt: 2_000 }])
+    expect(published).toMatchObject([{ infoHash: HASH, addedAt: 3_000 }])
+  })
+
+  it('leaves the first-run demo out until someone claims it', () => {
+    expect(hashes(backupOf([entry(DEMO, { ephemeral: true })], null, []))).toEqual([])
+    expect(hashes(backupOf([entry(DEMO, { ephemeral: false })], null, []))).toEqual([DEMO])
+  })
+
+  it('keeps any other temporary torrent, which syncs on purpose', () => {
+    expect(hashes(backupOf([entry(HASH, { ephemeral: true })], null, []))).toEqual([HASH])
+  })
+
+  it('publishes no device-local field', () => {
+    const [published] = backupOf([entry(HASH, { started: true, paused: true, ephemeral: false, lastUsedAt: 9, saveTo: 'folder' })], null, [])
+    expect(Object.keys(published!).filter((key) => ['started', 'paused', 'ephemeral', 'lastUsedAt', 'saveTo'].includes(key))).toEqual([])
+  })
+
+  it('still agrees the byte counters by maximum', () => {
+    const [published] = backupOf([entry(HASH, { uploaded: 5 })], [entry(HASH, { uploaded: 9 })], [])
+    expect(published!.uploaded).toBe(9)
   })
 })
