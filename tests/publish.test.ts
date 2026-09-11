@@ -25,6 +25,13 @@ const WORKFLOW = '../.github/workflows/publish-lib.yml'
 
 const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 
+/**
+ * The workflow WITHOUT its comments, which is what every assertion about its steps has to read: it
+ * explains each trap it avoids by name, so `registry-url` and the gate script both appear in prose
+ * whether or not the step using them survives an edit.
+ */
+const steps = () => (workflows[WORKFLOW] ?? '').split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+
 describe('the trusted publisher', () => {
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
     expect(Object.keys(workflows), 'no workflow file was read, so every assertion below is vacuous').not.toEqual([])
@@ -33,19 +40,22 @@ describe('the trusted publisher', () => {
   })
 
   it('asks for the OIDC token, without which there is no credential to exchange', () => {
-    expect(workflows[WORKFLOW]).toMatch(/id-token:\s*write/)
+    expect(steps()).toMatch(/id-token:\s*write/)
   })
 
   it('leaves the registry alone, so npm reaches for the exchange instead of a token', () => {
     // `registry-url` writes an .npmrc auth line and an empty NODE_AUTH_TOKEN; npm then believes it is
     // authenticated, never exchanges, and the publish fails naming the package rather than the auth.
     // Comments are stripped first, since the workflow explains the trap it is avoiding.
-    const steps = workflows[WORKFLOW]!.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
-    expect(steps, 'registry-url on setup-node skips the OIDC exchange entirely').not.toMatch(/registry-url/)
+    expect(steps(), 'registry-url on setup-node skips the OIDC exchange entirely').not.toMatch(/registry-url/)
   })
 
   it('publishes the scope publicly, which a scoped package does not do by default', () => {
-    expect(workflows[WORKFLOW]).toContain('npm publish --access public')
+    expect(steps()).toContain('npm publish --access public')
+  })
+
+  it('asks the gate before building, so a reserved number never reaches a signature', () => {
+    expect(steps(), 'the tombstone case is in that script, not in the workflow').toContain('node scripts/npm-version-gate.mjs')
   })
 })
 

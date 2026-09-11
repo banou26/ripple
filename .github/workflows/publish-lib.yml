@@ -76,10 +76,9 @@ jobs:
 
       # Decide BEFORE building, so an unchanged version costs seconds rather than a full build.
       #
-      # Asked over HTTP rather than through `npm view`, which answers from a cache that a lookup made
-      # shortly before a publish can leave holding a negative. The VERSION document separates the
-      # three facts a gate needs: 200 is published, 404 is not, and anything else is the registry not
-      # answering, which is not evidence either way.
+      # The gate reads the WHOLE packument, because a 404 on the version document is not proof that a
+      # number is free: npm reserves an unpublished version forever. 0.0.6 was the proof, on the very
+      # first run of this workflow (2026-09-11). See scripts/npm-version-gate.mjs.
       - name: Decide whether the version moved
         id: decide
         run: |
@@ -89,15 +88,11 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "doc=$DOC" >> "$GITHUB_OUTPUT"
-          CODE=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$DOC/$VERSION")
-          if [ "$CODE" = "200" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$NAME $VERSION is already published; nothing to do."
-          elif [ "$CODE" = "404" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::publishing $NAME $VERSION"
+          if OUT=$(node scripts/npm-version-gate.mjs "$NAME" "$VERSION" 2> "$RUNNER_TEMP/gate.err"); then
+            echo "::notice::$(cat "$RUNNER_TEMP/gate.err")"
+            echo "$OUT" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::the registry answered $CODE for $NAME $VERSION. Refusing to guess."
+            echo "::error::$(cat "$RUNNER_TEMP/gate.err")"
             exit 1
           fi
 
