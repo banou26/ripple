@@ -133,9 +133,10 @@ jobs:
         run: npm publish ./build --access public
 
       # Ask the REGISTRY, not the runner. Everything above is a claim about what was uploaded; this is
-      # the only step that observes what a consumer would actually get. The version document lags a
-      # publish by minutes (measured on @banou/stub, 2026-09-11: five tries at 15 s all answered 404
-      # for a publish that had succeeded), so this waits up to ten.
+      # the only step that observes what a consumer would actually get. The registry answers the PUT
+      # with 202 and processes the version afterwards, so it appears minutes later, and how many
+      # varies: 0.0.9 took about 4, 0.0.10 took 10 min 12 s and failed the ten minute window this had,
+      # on a publish that had worked. So this waits up to thirty.
       - name: Confirm the registry serves it
         if: steps.decide.outputs.changed == 'true'
         env:
@@ -143,7 +144,7 @@ jobs:
           VERSION: ${{ steps.decide.outputs.version }}
           DOC: ${{ steps.decide.outputs.doc }}
         run: |
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 120); do
             CODE=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$DOC/$VERSION")
             if [ "$CODE" = "200" ]; then
               echo "::notice::the registry serves $NAME $VERSION"

@@ -66,3 +66,16 @@ describe('what provenance compares the upload against', () => {
     expect(url!.replace(/^git\+/, '').replace(/\.git$/, '')).toBe(`https://github.com/${REPOSITORY}`)
   })
 })
+
+describe('confirming the release', () => {
+  /**
+   * The registry answers a publish with 202 and processes it afterwards, so the version appears
+   * minutes later: 0.0.9 took about 4, and 0.0.10 took 10 minutes 12 seconds, which failed the
+   * ten minute window this had on a publish that had worked.
+   */
+  it('waits long enough for the registry to finish processing a publish', () => {
+    const loop = steps().match(/for attempt in \$\(seq 1 (\d+)\)[\s\S]*?sleep (\d+)/)
+    expect(loop, 'the confirm loop moved or changed shape').toBeTruthy()
+    expect(Number(loop![1]) * Number(loop![2]), 'seconds the confirm step waits').toBeGreaterThanOrEqual(30 * 60)
+  })
+})
