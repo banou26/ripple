@@ -51,7 +51,7 @@ describe('the trusted publisher', () => {
   })
 
   it('publishes the scope publicly, which a scoped package does not do by default', () => {
-    expect(steps()).toContain('npm publish --access public')
+    expect(steps(), 'a bare name is a package spec to npm, so the path has to say it is a directory').toContain('npm publish ./build --access public')
   })
 
   it('asks the gate before building, so a reserved number never reaches a signature', () => {

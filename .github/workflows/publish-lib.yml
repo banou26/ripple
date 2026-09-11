@@ -96,21 +96,26 @@ jobs:
             exit 1
           fi
 
-      # The whole build, because `files` publishes build/ and package.json's `main` is build/index.js:
-      # the platform loads an npm app by appending a module script for exactly that path.
+      # THE BUILT SITE IS THE PACKAGE, and `npm run build` ends by writing build/package.json and
+      # running scripts/check-npm-package.mjs over it. The platform maps a tenant path 1:1 onto a
+      # package path, and ripple asks for `/libav-worker.js` and `/assets/worker-<hash>.js` because
+      # on torrent.fkn.app the origin root is build/. Publishing the repo root put every one of those
+      # a directory too deep, which is what 0.0.7 shipped.
       - name: Build
         if: steps.decide.outputs.changed == 'true'
         run: npm run build
 
-      - name: The tarball has to carry the entry
+      - name: The built manifest has to be the one the gate cleared
         if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
         run: |
-          MAIN=$(node -p "require('./package.json').main")
-          if [ ! -s "$MAIN" ]; then
-            echo "::error::package.json names '$MAIN' as main and the build did not emit it"
+          BUILT=$(node -p "require('./build/package.json').version")
+          if [ "$BUILT" != "$VERSION" ]; then
+            echo "::error::build/package.json is $BUILT and the repo is $VERSION"
             exit 1
           fi
-          echo "::notice::$MAIN is $(wc -c < "$MAIN") bytes"
+          echo "::notice::publishing build/ as $(node -p "require('./build/package.json').name") $BUILT"
 
       # No credential is passed. npm exchanges the job's OIDC identity for a short lived token against
       # the trusted publisher configured on npmjs.org for banou26/ripple + publish-lib.yml. A
@@ -122,7 +127,10 @@ jobs:
         if: steps.decide.outputs.changed == 'true'
         env:
           NPM_CONFIG_LOGLEVEL: verbose
-        run: npm publish --access public
+        # ./build, never `build`: a bare name is a PACKAGE SPEC to npm, so `npm publish build` reaches
+        # for the registry's own `build` package rather than this directory (measured 2026-09-12,
+        # `npm pack build` returned build@0.1.4 from the registry).
+        run: npm publish ./build --access public
 
       # Ask the REGISTRY, not the runner. Everything above is a claim about what was uploaded; this is
       # the only step that observes what a consumer would actually get. The version document lags a
