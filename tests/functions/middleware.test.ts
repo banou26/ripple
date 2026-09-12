@@ -264,7 +264,7 @@ describe('what it refuses to route', () => {
     for (const path of [INDEX_PATH, ARCHIVE_PATH]) {
       const { response, body, nexted } = await answer(path, { bind: false })
       expect(response.status, `${path} without the binding`).toBe(503)
-      expect(nexted, 'an index.html parsed as an index is an ABSENT index, which boots unsigned').toBe(false)
+      expect(nexted, 'the fallback answers index.html, which names nothing for whoever reads it').toBe(false)
       expect(new TextDecoder().decode(body), 'the body has to name the binding a dashboard has to set').toContain('PACKAGES')
       expect(response.headers.get('access-control-allow-origin')).toBe('https://fkn.app')
     }

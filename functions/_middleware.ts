@@ -46,7 +46,6 @@ const ARCHIVE_PREFIX = '/packages/'
 /** ONE path segment: no `/`, and no leading dot, so nothing under the prefix can name another key. */
 const ARCHIVE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$/
 
-/** Every key this app owns in the shared bucket. */
 const KEY_PREFIX = 'ripple/'
 
 /** The broker is always fkn.app, nested or not, so one origin is the whole list. */
@@ -133,7 +132,9 @@ const wholeObject = async (bucket: PackagesBucket, target: Target): Promise<Resp
 
 const serve = async (bucket: PackagesBucket, target: Target, request: Request): Promise<Response> => {
   if (request.method === 'HEAD') {
-    // Range is not honoured on a HEAD: nothing reads a zip that way, and the size is the fact a HEAD asks for
+    // A DELIBERATE DEVIATION FROM RFC 9110, which asks a HEAD to carry the headers its GET would: the
+    // matching GET answers 206 with the slice's length, and this answers 200 with the whole object's.
+    // Range is ignored because nothing reads a zip that way, and the size is the fact a HEAD asks for.
     const head = await bucket.head(target.key)
     if (head === null) return missing(target)
     return new Response(null, {
@@ -190,8 +191,9 @@ export const onRequest = async ({ request, env, next }: MiddlewareContext): Prom
   if (request.method !== 'GET' && request.method !== 'HEAD') return next()
 
   const bucket = env.PACKAGES
-  // without this a project missing the binding answers the SPA fallback, and an index.html parsed as
-  // an index is an ABSENT index: the misconfiguration would read as a host that serves no packages
+  // the reader calls any answer that is not ok absent, so this and the SPA fallback's index.html are
+  // the same verdict to it. What the status buys is for whoever reads the response: a 503 names the
+  // binding a dashboard has to set, where the fallback names nothing
   if (bucket === undefined) return refuse(503, target.kind, 'the PACKAGES R2 binding is not bound to this project')
 
   try {
