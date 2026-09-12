@@ -105,6 +105,58 @@ jobs:
         if: steps.decide.outputs.changed == 'true'
         run: npm run build
 
+      # The release manifest, and the first one this repo signs in CI. `npm run sign` holds the one
+      # copy of the source list; the assertion below is what keeps it honest.
+      #
+      # AFTER the build, because the list is the packlist of build/ and `write-npm-manifest.mjs`
+      # writes build/package.json at the end of that build. The secret holds the raw signing seed, so
+      # nothing here prints it and fkn-sign reads it straight out of the environment.
+      - name: Sign the release manifest over the packlist
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          FKN_SIGNING_KEY: ${{ secrets.FKN_SIGNING_KEY }}
+        run: npm run sign
+
+      # `sources` decides which source the platform will accept this manifest from, and a signature
+      # that verifies says nothing about that list being right. npm: is the source this release is
+      # fetched from: without it every consumer gets SOURCE_NOT_LISTED, and the version is burned by
+      # then. Asked of the signed document rather than of the command that wrote it.
+      - name: The release manifest lists the npm source
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          node -e "
+            const manifest = require('./fkn.json')
+            const sources = Array.isArray(manifest.sources) ? manifest.sources : []
+            if (!sources.includes('npm:@banou/ripple')) {
+              console.error('fkn.json sources are ' + JSON.stringify(sources) + ', which does not include npm:@banou/ripple')
+              process.exit(1)
+            }
+            console.log('sources ' + sources.join(' '))
+          "
+
+      # `place` runs after `sign` so both copies carry the list rather than the identity-only document
+      # the build placed. `check` compares the packlist against the list and every copy against the
+      # root; `verify --contents` re-hashes the tree the list was built from.
+      - name: Place, check and verify the release manifest
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          npx fkn-sign place --out build
+          npx fkn-sign check --package build/package.json
+          npx fkn-sign verify fkn.json --contents build --source npm:@banou/ripple
+
+      # The readers deployed today cap a manifest at 16384 bytes and ignore `contents` entirely,
+      # which is what lets this release verify under them exactly as the identity-only ones did. Past
+      # the cap they refuse it outright, so the size is a gate rather than a note.
+      - name: The release manifest stays under the deployed readers' cap
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          SIZE=$(wc -c < fkn.json)
+          if [ "$SIZE" -gt 16384 ]; then
+            echo "::error::fkn.json is $SIZE bytes, over the 16384 byte cap the deployed readers read it under"
+            exit 1
+          fi
+          echo "::notice::fkn.json is $SIZE bytes"
+
       - name: The built manifest has to be the one the gate cleared
         if: steps.decide.outputs.changed == 'true'
         env:
@@ -154,4 +206,27 @@ jobs:
             sleep 15
           done
           echo "::error::the registry still does not serve $NAME $VERSION"
+          exit 1
+
+      # The only step that reads the PUBLISHED bytes: it walks the npm CDN's file tree for this
+      # version and compares every file against the list the manifest it serves carries. Everything
+      # above measures the runner's own directory.
+      #
+      # The CDN mirrors the registry rather than sharing it, so it lags the step above by minutes of
+      # its own. The loop is the same shape as that one: it retries while the CDN is behind and still
+      # fails the job when the answer never comes.
+      - name: Verify the published files against the list
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          NAME: ${{ steps.decide.outputs.name }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for attempt in $(seq 1 40); do
+            if npx fkn-sign verify --published "$NAME@$VERSION"; then
+              exit 0
+            fi
+            echo "attempt $attempt: the CDN does not serve $NAME $VERSION yet"
+            sleep 15
+          done
+          echo "::error::the published $NAME $VERSION does not match its own list"
           exit 1

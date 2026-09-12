@@ -15,6 +15,7 @@
  */
 import pkg from '../package.json'
 
+import { MANIFEST_MAX_BYTES } from '@fkn/sign'
 import { describe, expect, it } from 'vitest'
 
 /** owner and repo exactly as the OIDC claim spells them, lowercase since the 2026-09-11 rename */
@@ -31,6 +32,18 @@ const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw'
  * whether or not the step using them survives an edit.
  */
 const steps = () => (workflows[WORKFLOW] ?? '').split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+
+/** Every step of the job as its own text, so a `if:` can be read as belonging to one step. */
+const stepBlocks = () => steps().split(/\n {6}- /).slice(1)
+
+const stepNamed = (name: string) => stepBlocks().find((block) => block.startsWith(`name: ${name}`))
+
+/** Where a command sits in the job, for the assertions that are about ORDER rather than presence. */
+const positionOf = (needle: string): number => {
+  const index = steps().indexOf(needle)
+  expect(index, `${needle} is not in ${WORKFLOW}, so an order assertion over it would be vacuous`).toBeGreaterThan(-1)
+  return index
+}
 
 describe('the trusted publisher', () => {
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
@@ -77,5 +90,61 @@ describe('confirming the release', () => {
     const loop = steps().match(/for attempt in \$\(seq 1 (\d+)\)[\s\S]*?sleep (\d+)/)
     expect(loop, 'the confirm loop moved or changed shape').toBeTruthy()
     expect(Number(loop![1]) * Number(loop![2]), 'seconds the confirm step waits').toBeGreaterThanOrEqual(30 * 60)
+  })
+})
+
+/**
+ * The release manifest carries a `contents` list, so from step 5 on the platform refuses any file of
+ * this package whose bytes are not the ones listed. Everything that makes that list right is here,
+ * and none of it can be seen before a release: a list built from the wrong tree, built before the
+ * build, or missing the source it is fetched from all publish successfully and fail at every
+ * consumer, on a version number that is spent by then.
+ */
+describe('the contents-signed release', () => {
+  it('signs the packlist of the built site, and names both sources it is served from', () => {
+    const script = (pkg as { scripts?: Record<string, string> }).scripts?.['sign']
+    expect(script, 'package.json has no sign script, so the workflow step running it signs nothing').toBeTruthy()
+    expect(script, 'without --contents the release is identity only and its bytes are pinned by nothing').toContain('--contents build')
+    expect(script, 'the list binds the name and version of the manifest that ships, which is build/package.json').toContain('--package build/package.json')
+    expect(script, 'a source left out of this list is SOURCE_NOT_LISTED at every consumer of it').toContain('--sources npm:@banou/ripple,https:torrent.fkn.app')
+    expect(script).toContain('--out fkn.json')
+  })
+
+  it('signs after the build, since the list is that build output read off the disk', () => {
+    expect(positionOf('run: npm run sign')).toBeGreaterThan(positionOf('run: npm run build'))
+  })
+
+  it('signs only when the version moved, so an unchanged push never reaches for the secret', () => {
+    const block = stepNamed('Sign the release manifest over the packlist')
+    expect(block, 'the signing step is gone or renamed').toBeTruthy()
+    expect(block).toContain("if: steps.decide.outputs.changed == 'true'")
+    expect(block, 'the seed comes from the repository secret and nothing else').toContain('FKN_SIGNING_KEY: ${{ secrets.FKN_SIGNING_KEY }}')
+  })
+
+  it('re-reads the tree it signed, and the source list, before anything is uploaded', () => {
+    const publish = positionOf('npm publish ./build --access public')
+    expect(positionOf("node -e"), 'the source assertion runs after the publish, which is too late').toBeLessThan(publish)
+    expect(positionOf('fkn-sign place --out build'), 'the copies would still hold the identity-only document').toBeLessThan(publish)
+    expect(positionOf('fkn-sign check --package build/package.json')).toBeLessThan(publish)
+    expect(positionOf('fkn-sign verify fkn.json --contents build --source npm:@banou/ripple')).toBeLessThan(publish)
+  })
+
+  it('holds the document under the cap the deployed readers read it at', () => {
+    // 0.0.11 verifies under the readers that are live today because they ignore `contents` entirely.
+    // They still cap the document, and past the cap they refuse it outright rather than degrading.
+    const gate = steps().match(/SIZE=\$\(wc -c < fkn\.json\)[\s\S]*?-gt (\d+)/)
+    expect(gate, 'the size gate moved or changed shape').toBeTruthy()
+    expect(Number(gate![1])).toBe(MANIFEST_MAX_BYTES)
+  })
+
+  it('verifies what the CDN serves, which is the only reading of the published bytes', () => {
+    expect(positionOf('npx fkn-sign verify --published')).toBeGreaterThan(positionOf('npm publish ./build --access public'))
+  })
+
+  it('never commits the signed document, which lists an npm packlist and not this branch', () => {
+    // torrent.fkn.app is built from this branch, so a committed list would name files that source
+    // does not serve. Nothing here writes to the repository, and the token cannot.
+    expect(steps()).toMatch(/contents:\s*read/)
+    expect(steps(), 'a commit of fkn.json would deploy an npm packlist to the website source').not.toMatch(/git (?:commit|push)/)
   })
 })
