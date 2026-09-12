@@ -18,6 +18,14 @@ import pkg from '../package.json'
 import { MANIFEST_MAX_BYTES } from '@fkn/sign'
 import { describe, expect, it } from 'vitest'
 
+// Asked of the runtime rather than imported: this config aliases the node builtins to
+// node-stdlib-browser for the app bundle, and the unit project extends it, so `import` from
+// 'node:fs' here answers the browser shim whose mkdtempSync is not a function.
+const { spawnSync } = process.getBuiltinModule('node:child_process')
+const { mkdirSync, mkdtempSync, readFileSync, writeFileSync } = process.getBuiltinModule('node:fs')
+const { tmpdir } = process.getBuiltinModule('node:os')
+const { join } = process.getBuiltinModule('node:path')
+
 /** owner and repo exactly as the OIDC claim spells them, lowercase since the 2026-09-11 rename */
 const REPOSITORY = 'banou26/ripple'
 
@@ -43,6 +51,67 @@ const positionOf = (needle: string): number => {
   const index = steps().indexOf(needle)
   expect(index, `${needle} is not in ${WORKFLOW}, so an order assertion over it would be vacuous`).toBeGreaterThan(-1)
   return index
+}
+
+/**
+ * One step's shell, dedented, as bash receives it. Read from the RAW workflow rather than the
+ * comment-stripped copy above, because a shell comment inside a `run` body is part of the script.
+ */
+const scriptOf = (name: string): string => {
+  const raw = workflows[WORKFLOW] ?? ''
+  const step = raw.indexOf(`- name: ${name}\n`)
+  expect(step, `no step named '${name}', so a behaviour assertion over its shell would be vacuous`).toBeGreaterThan(-1)
+  const block = raw.indexOf('run: |', step)
+  expect(block, `the step named '${name}' runs no inline shell`).toBeGreaterThan(-1)
+  const body = raw.slice(block).split('\n').slice(1)
+  const lines: string[] = []
+  for (const line of body) {
+    if (line.trim() !== '' && !line.startsWith(' '.repeat(10))) break
+    lines.push(line.slice(10))
+  }
+  return `${lines.join('\n')}\n`
+}
+
+/** What one `fkn-sign verify --published` attempt answers: its exit code and the line it writes. */
+type Answer = { code: number, stderr: string }
+
+/**
+ * Runs a step's shell against a scripted `fkn-sign`, and reports how many attempts it made.
+ *
+ * `npx` and `sleep` are both replaced on PATH: the first hands back the next scripted answer and
+ * counts the call, the second returns at once so a forty attempt loop costs no wall clock. The
+ * ATTEMPT COUNT is the measurement, since a loop that reaches the same red forty attempts later
+ * still exits non-zero and would pass an assertion about the exit code alone.
+ */
+const attemptsOf = (script: string, answers: Answer[], env: Record<string, string>): { code: number, attempts: number } => {
+  const root = mkdtempSync(join(tmpdir(), 'ripple-publish-'))
+  const bin = join(root, 'bin')
+  const scripted = join(root, 'answers')
+  mkdirSync(bin)
+  mkdirSync(scripted)
+  for (const [index, answer] of answers.entries()) writeFileSync(join(scripted, String(index + 1)), `${answer.code}\n${answer.stderr}\n`)
+  const last = answers[answers.length - 1] as Answer
+  writeFileSync(join(scripted, 'rest'), `${last.code}\n${last.stderr}\n`)
+  const calls = join(root, 'calls')
+  writeFileSync(calls, '0\n')
+  writeFileSync(join(bin, 'npx'), [
+    '#!/bin/sh',
+    `n=$(($(cat ${calls}) + 1))`,
+    `echo "$n" > ${calls}`,
+    `answer=${scripted}/$n`,
+    `[ -f "$answer" ] || answer=${scripted}/rest`,
+    'tail -n +2 "$answer" >&2',
+    'exit "$(head -n 1 "$answer")"',
+    '',
+  ].join('\n'), { mode: 0o755 })
+  writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const file = join(root, 'step.sh')
+  writeFileSync(file, script)
+  const run = spawnSync('bash', [file], {
+    encoding: 'utf8',
+    env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH ?? ''}`, RUNNER_TEMP: root },
+  })
+  return { code: run.status ?? -1, attempts: Number(readFileSync(calls, 'utf8').trim()) }
 }
 
 describe('the trusted publisher', () => {
@@ -161,5 +230,73 @@ describe('the contents-signed release', () => {
     // does not serve. Nothing here writes to the repository, and the token cannot.
     expect(steps()).toMatch(/contents:\s*read/)
     expect(steps(), 'a commit of fkn.json would deploy an npm packlist to the website source').not.toMatch(/git (?:commit|push)/)
+  })
+})
+
+/**
+ * The published verify retries the CDN being behind and nothing else. Two answers wear the same exit
+ * code and mean opposite things: a 404 is the CDN not having mirrored the version yet, and a
+ * `mismatch` is a final reading of bytes that are already published and cannot change. Retrying the
+ * second spends ten minutes reaching the red the first attempt already had, under forty lines
+ * claiming the CDN is behind.
+ *
+ * Driven rather than read: the step's shell runs against a scripted `fkn-sign`, and the ATTEMPT
+ * COUNT is what separates the two, since both paths end with the job red.
+ */
+describe('how the published verify answers', () => {
+  const step = () => scriptOf('Verify the published files against the list')
+  const env = { NAME: '@banou/ripple', VERSION: '0.0.11' }
+
+  it('read the step at all, so a false pass here is not an empty script', () => {
+    expect(step(), 'nothing was extracted, so every run below would exit 0 having done nothing').toContain('fkn-sign verify --published')
+  })
+
+  it('stops on a mismatch, which is the final answer about bytes that are already served', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'mismatch assets/index.js at https://unpkg.com/@banou/ripple@0.0.11' }], env)
+    expect(run.attempts, 'the CDN answered about the bytes, so a second reading answers the same').toBe(1)
+    expect(run.code, 'a mismatch has to fail the job').not.toBe(0)
+  })
+
+  it('stops on an unlisted path, for the same reason', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'unlisted assets/stray.js at https://unpkg.com/@banou/ripple@0.0.11: the list does not name it' }], env)
+    expect(run.attempts).toBe(1)
+    expect(run.code).not.toBe(0)
+  })
+
+  it('stops on a version the list does not carry, which no wait can change', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'CONTENTS_VERSION: the list names 0.0.10, not 0.0.11' }], env)
+    expect(run.attempts).toBe(1)
+    expect(run.code).not.toBe(0)
+  })
+
+  it('waits out a 404, which is the CDN behind rather than an answer about the bytes', () => {
+    const run = attemptsOf(step(), [
+      { code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/fkn.json answered 404' },
+      { code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/fkn.json answered 404' },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(run.attempts, 'a fix that stops on every refusal makes the CDN lag a failure').toBe(3)
+    expect(run.code).toBe(0)
+  })
+
+  it('waits out a CDN that is not answering at all, in either shape', () => {
+    const unreachable = attemptsOf(step(), [
+      { code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/fkn.json is unreachable: fetch failed' },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(unreachable.attempts).toBe(2)
+    expect(unreachable.code).toBe(0)
+    const overloaded = attemptsOf(step(), [
+      { code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/?meta answered 503' },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(overloaded.attempts).toBe(2)
+    expect(overloaded.code).toBe(0)
+  })
+
+  it('gives up when the CDN never catches up, rather than passing the release', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/fkn.json answered 404' }], env)
+    expect(run.attempts, 'the whole retry budget').toBe(40)
+    expect(run.code).not.toBe(0)
   })
 })

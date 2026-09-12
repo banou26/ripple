@@ -219,6 +219,13 @@ jobs:
       # The CDN mirrors the registry rather than sharing it, so it lags the step above by minutes of
       # its own. The loop is the same shape as that one: it retries while the CDN is behind and still
       # fails the job when the answer never comes.
+      #
+      # WHICH answer decides that, because the two are not the same fact. `answered 404`, `answered
+      # 429`, a 5xx and `is unreachable` are all the CDN not answering yet, and another attempt is
+      # the only way to tell them from a real absence. Every other refusal is about bytes that are
+      # already published and cannot change: `mismatch`, `unlisted`, a name or version the list does
+      # not carry. Retrying one of those spends ten minutes reaching the same red the first attempt
+      # already had, and buries it under forty lines saying the CDN is behind.
       - name: Verify the published files against the list
         if: steps.decide.outputs.changed == 'true'
         env:
@@ -226,11 +233,16 @@ jobs:
           VERSION: ${{ steps.decide.outputs.version }}
         run: |
           for attempt in $(seq 1 40); do
-            if npx fkn-sign verify --published "$NAME@$VERSION"; then
+            if npx fkn-sign verify --published "$NAME@$VERSION" 2> "$RUNNER_TEMP/published.err"; then
               exit 0
+            fi
+            cat "$RUNNER_TEMP/published.err"
+            if ! grep -qE 'answered (404|429|5[0-9][0-9])|is unreachable' "$RUNNER_TEMP/published.err"; then
+              echo "::error::the published $NAME $VERSION does not match its own list"
+              exit 1
             fi
             echo "attempt $attempt: the CDN does not serve $NAME $VERSION yet"
             sleep 15
           done
-          echo "::error::the published $NAME $VERSION does not match its own list"
+          echo "::error::the published $NAME $VERSION was never served to read"
           exit 1
