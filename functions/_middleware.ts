@@ -13,8 +13,7 @@
 // The `next()` below is the fallthrough for a path that slips through the route list, never the
 // mechanism the site is served by.
 
-/** An R2 range read: an offset with a length, or the last `suffix` bytes. */
-type R2Range = { offset: number, length: number } | { suffix: number }
+type R2Range = { offset: number, length: number }
 
 /** What an R2 object reports. `size` is the WHOLE object's, whatever range was asked for. */
 type R2Head = { size: number, httpEtag: string }

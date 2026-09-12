@@ -35,7 +35,7 @@ const INDEX_PATH = '/.well-known/fkn-package.json'
 /** what the Function answers when it hands the request to the static asset pipeline */
 const NEXT = 'the static pipeline answered'
 
-type Range = { offset: number, length: number } | { suffix: number }
+type Range = { offset: number, length: number }
 
 type Call = { op: 'get' | 'head', key: string, range: Range | null }
 
@@ -63,11 +63,7 @@ const bucketOf = (objects: Record<string, Uint8Array>, throws?: 'get' | 'head') 
         if (throws === 'get') throw new Error('R2 did not answer')
         const bytes = objects[key]
         if (bytes === undefined) return null
-        const slice = range === null
-          ? bytes
-          : 'suffix' in range
-            ? bytes.subarray(bytes.byteLength - range.suffix)
-            : bytes.subarray(range.offset, range.offset + range.length)
+        const slice = range === null ? bytes : bytes.subarray(range.offset, range.offset + range.length)
         return { size: bytes.byteLength, httpEtag: `"etag-${key}"`, body: streamOf(slice) }
       },
     },
