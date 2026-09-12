@@ -167,9 +167,9 @@ describe('confirming the release', () => {
    * spends the version number and leaves its published bytes unread: the gate answers changed=false
    * on a dispatch re-run, so none of the release steps run again.
    */
-  it('outlasts both retry windows, with the build and the publish still to pay for', () => {
+  it('outlasts every retry window, with the build and the publish still to pay for', () => {
     const loops = [...steps().matchAll(/for attempt in \$\(seq 1 (\d+)\)[\s\S]*?sleep (\d+)/g)]
-    expect(loops.length, 'a retry loop moved or changed shape, so the sum below is not the job budget').toBe(2)
+    expect(loops.length, 'a retry loop moved or changed shape, so the sum below is not the job budget').toBe(3)
     const waiting = loops.reduce((total, loop) => total + Number(loop[1]) * Number(loop[2]), 0)
     const timeout = steps().match(/timeout-minutes: (\d+)/)
     expect(timeout, 'the job declares no timeout, so a hung step runs for the runner maximum').toBeTruthy()
@@ -190,7 +190,7 @@ describe('the contents-signed release', () => {
     expect(script, 'package.json has no sign script, so the workflow step running it signs nothing').toBeTruthy()
     expect(script, 'without --contents the release is identity only and its bytes are pinned by nothing').toContain('--contents build')
     expect(script, 'the list binds the name and version of the manifest that ships, which is build/package.json').toContain('--package build/package.json')
-    expect(script, 'a source left out of this list is SOURCE_NOT_LISTED at every consumer of it').toContain('--sources npm:@banou/ripple,https:torrent.fkn.app')
+    expect(script, 'a source left out of this list is SOURCE_NOT_LISTED at every consumer of it').toContain('--sources npm:@banou/ripple,https-pkg:torrent.fkn.app/ripple,https:torrent.fkn.app')
     expect(script).toContain('--out fkn.json')
   })
 
@@ -297,6 +297,162 @@ describe('how the published verify answers', () => {
   it('gives up when the CDN never catches up, rather than passing the release', () => {
     const run = attemptsOf(step(), [{ code: 1, stderr: 'https://unpkg.com/@banou/ripple@0.0.11/fkn.json answered 404' }], env)
     expect(run.attempts, 'the whole retry budget').toBe(40)
+    expect(run.code).not.toBe(0)
+  })
+})
+
+/**
+ * The second half of a release, publishing a different set of bytes to a different host: the archive
+ * and the index that `https-pkg:torrent.fkn.app/ripple` is read from. functions/_middleware.ts serves
+ * both out of R2, because Cloudflare Pages ignores Range on a static file.
+ *
+ * Two of these are silent when they are wrong, which is why they are pinned as ORDER rather than
+ * presence. `pack --index` MERGES into the document it is handed, so an index that was not downloaded
+ * is an index written from nothing, holding this one version and taking every earlier version of
+ * ripple off the host. And wrangler 4 reads LOCAL storage without `--remote`, where the download
+ * answers "The specified key does not exist" on every run, which is exactly the answer the first
+ * release is supposed to produce.
+ */
+describe('the archive and the index torrent.fkn.app serves', () => {
+  it('names the package source in the list it signs, or every boot from the index is refused', () => {
+    const script = (pkg as { scripts?: Record<string, string> }).scripts?.['sign']
+    expect(script, 'a boot from the index would be SOURCE_NOT_LISTED on a version already spent').toContain('https-pkg:torrent.fkn.app/ripple')
+  })
+
+  it('asks the signed document for both sources, not the command that wrote them', () => {
+    const block = stepNamed('The release manifest lists the sources it is served from')
+    expect(block, 'the source assertion is gone or renamed').toBeTruthy()
+    expect(block).toContain('npm:@banou/ripple')
+    expect(block).toContain('https-pkg:torrent.fkn.app/ripple')
+    expect(block).toContain("if: steps.decide.outputs.changed == 'true'")
+  })
+
+  it('reads the standing index before packing, since pack merges into it', () => {
+    expect(
+      positionOf('r2 object get fkn-packages/ripple/index.json'),
+      'a pack with no index to merge into writes one holding this version alone',
+    ).toBeLessThan(positionOf('fkn-sign pack'))
+  })
+
+  it('asks the REMOTE bucket every time, which wrangler 4 does not do by default', () => {
+    const commands = [...steps().matchAll(/r2 object (?:get|put)/g)]
+    expect(commands.length, 'the r2 commands moved or changed shape, so the count below is not about them').toBe(3)
+    expect(
+      [...steps().matchAll(/--remote/g)].length,
+      'a local read answers "The specified key does not exist" forever, which reads as the first release',
+    ).toBe(3)
+  })
+
+  it('pins wrangler exactly, so a release is never the first run of a new one', () => {
+    const pins = [...steps().matchAll(/wrangler@(\d+\.\d+\.\d+)/g)].map((match) => match[1])
+    expect(pins.length, 'wrangler is invoked three times and every one of them names a version').toBe(3)
+    expect(new Set(pins).size, 'two wranglers in one job is two answers to one question').toBe(1)
+    expect(steps(), 'an unpinned npx wrangler takes whatever 4.x published this morning').not.toMatch(/wrangler(?!@)/)
+  })
+
+  it('packs the built site against the release manifest, never the repo root', () => {
+    const block = stepNamed('Pack the archive and add it to the index')
+    expect(block, 'the pack step is gone or renamed').toBeTruthy()
+    expect(block, 'the package is the built site, and its own package.json is what the list binds').toContain('--package build/package.json')
+    expect(block, 'the release manifest is the one `sign` wrote at the root').toContain('--manifest fkn.json')
+    expect(block, 'the url is where the Function serves it, relative to the index origin').toContain('--url "/packages/ripple-$VERSION.zip"')
+    expect(block).toContain('--slot ripple')
+    expect(block).toContain("if: steps.decide.outputs.changed == 'true'")
+  })
+
+  it('uploads the archive before the index, which is the only safe order', () => {
+    expect(
+      positionOf('r2 object put "fkn-packages/ripple/ripple-$VERSION.zip"'),
+      'an index naming an archive that is not there yet 404s every boot in that window',
+    ).toBeLessThan(positionOf('r2 object put fkn-packages/ripple/index.json'))
+    expect(positionOf('fkn-sign pack'), 'nothing is uploaded before it exists').toBeLessThan(positionOf('r2 object put'))
+  })
+
+  it('carries both Cloudflare credentials on every step that reaches the bucket', () => {
+    for (const name of ['Read the index the host is serving', 'Upload the archive, then the index']) {
+      const block = stepNamed(name)
+      expect(block, `${name} is gone or renamed`).toBeTruthy()
+      expect(block, 'the token is R2 write only and is held as a repository secret').toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}')
+      expect(block, 'the account the bucket belongs to').toContain('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}')
+    }
+  })
+
+  it('reads what the host serves last of all, and only when the version moved', () => {
+    const block = stepNamed('Verify the published archive against the list')
+    expect(block, 'the only step that reads the bytes a boot would read').toBeTruthy()
+    expect(block).toContain("if: steps.decide.outputs.changed == 'true'")
+    expect(positionOf('verify --published "https-pkg:torrent.fkn.app/ripple@$VERSION"'))
+      .toBeGreaterThan(positionOf('r2 object put fkn-packages/ripple/index.json'))
+  })
+})
+
+/**
+ * The published-archive verify retries an eventually consistent BUCKET and nothing else.
+ *
+ * There is no CDN here: the Function reads R2 directly, so the answers worth waiting on are the ones
+ * where the reader still got the index from before this release. That is `no version` on a release
+ * onto a standing index, and `no package` on the first release of a slot. Everything else is a final
+ * reading of bytes that are already uploaded, and driving the shell is the only way to tell the two
+ * apart, since both paths end with the job red.
+ */
+describe('how the published archive verify answers', () => {
+  const step = () => scriptOf('Verify the published archive against the list')
+  const env = { VERSION: '0.0.12' }
+
+  it('read the step at all, so a false pass here is not an empty script', () => {
+    expect(step(), 'nothing was extracted, so every run below would exit 0 having done nothing').toContain('verify --published "https-pkg:torrent.fkn.app/ripple@$VERSION"')
+  })
+
+  it('stops on a mismatch, which is a final answer about bytes already uploaded', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'mismatch assets/index.js at https://torrent.fkn.app/packages/ripple-0.0.12.zip' }], env)
+    expect(run.attempts, 'the archive is uploaded, so a second reading answers the same').toBe(1)
+    expect(run.code).not.toBe(0)
+  })
+
+  it('stops on an unlisted path and on a version the list does not carry', () => {
+    for (const stderr of [
+      'unlisted assets/stray.js at https://torrent.fkn.app/packages/ripple-0.0.12.zip: the list does not name it',
+      'CONTENTS_VERSION: the list names 0.0.11, not 0.0.12',
+    ]) {
+      const run = attemptsOf(step(), [{ code: 1, stderr }], env)
+      expect(run.attempts, stderr).toBe(1)
+      expect(run.code).not.toBe(0)
+    }
+  })
+
+  it('waits out an index from before the upload, on a release and on a first release', () => {
+    const stale = attemptsOf(step(), [
+      { code: 1, stderr: "no version 0.0.12 of 'ripple': the index names 0.0.11" },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(stale.attempts, 'the reader got the index from before this release').toBe(2)
+    expect(stale.code).toBe(0)
+    const first = attemptsOf(step(), [
+      { code: 1, stderr: "no package 'ripple' at torrent.fkn.app: the index names " },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(first.attempts, 'the first release is the one that puts the slot on the index').toBe(2)
+    expect(first.code).toBe(0)
+  })
+
+  it('waits out a host that is not answering yet, in either shape', () => {
+    const absent = attemptsOf(step(), [
+      { code: 1, stderr: 'https://torrent.fkn.app/.well-known/fkn-package.json answered 404' },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(absent.attempts).toBe(2)
+    expect(absent.code).toBe(0)
+    const unreachable = attemptsOf(step(), [
+      { code: 1, stderr: 'https://torrent.fkn.app/packages/ripple-0.0.12.zip is unreachable: fetch failed' },
+      { code: 0, stderr: '' },
+    ], env)
+    expect(unreachable.attempts).toBe(2)
+    expect(unreachable.code).toBe(0)
+  })
+
+  it('gives up after two minutes rather than passing the release', () => {
+    const run = attemptsOf(step(), [{ code: 1, stderr: 'https://torrent.fkn.app/.well-known/fkn-package.json answered 404' }], env)
+    expect(run.attempts, 'the whole retry budget').toBe(8)
     expect(run.code).not.toBe(0)
   })
 })

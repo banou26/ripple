@@ -27,10 +27,11 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    # The two retry windows below are 30 minutes and 10, so 40 of this is spent waiting on npm before
-    # the build is counted at all. A timeout that expires PAST the publish spends a version whose
-    # published bytes are then never read: a workflow_dispatch re-run reads changed=false from the
-    # gate and runs none of the release steps, so the one step that reads the CDN never happens.
+    # The three retry windows below are 30 minutes, 10 and 2, so 42 of this is spent waiting on a
+    # registry or a bucket before the build is counted at all. A timeout that expires PAST the
+    # publish spends a version whose published bytes are then never read: a workflow_dispatch re-run
+    # reads changed=false from the gate and runs none of the release steps, so the steps that read
+    # what is actually served never happen.
     timeout-minutes: 60
     permissions:
       # the OIDC token npm exchanges for short lived publish credentials
@@ -122,17 +123,20 @@ jobs:
         run: npm run sign
 
       # `sources` decides which source the platform will accept this manifest from, and a signature
-      # that verifies says nothing about that list being right. npm: is the source this release is
-      # fetched from: without it every consumer gets SOURCE_NOT_LISTED, and the version is burned by
-      # then. Asked of the signed document rather than of the command that wrote it.
-      - name: The release manifest lists the npm source
+      # that verifies says nothing about that list being right. These two are the sources this release
+      # is FETCHED from, and a missing one is SOURCE_NOT_LISTED at every consumer of it: without npm:
+      # for anyone installing from the registry, without https-pkg: for anyone loading it from
+      # torrent.fkn.app's own index, and the version is burned by the time either is read. Asked of
+      # the signed document rather than of the command that wrote it.
+      - name: The release manifest lists the sources it is served from
         if: steps.decide.outputs.changed == 'true'
         run: |
           node -e "
             const manifest = require('./fkn.json')
             const sources = Array.isArray(manifest.sources) ? manifest.sources : []
-            if (!sources.includes('npm:@banou/ripple')) {
-              console.error('fkn.json sources are ' + JSON.stringify(sources) + ', which does not include npm:@banou/ripple')
+            const missing = ['npm:@banou/ripple', 'https-pkg:torrent.fkn.app/ripple'].filter((source) => !sources.includes(source))
+            if (missing.length) {
+              console.error('fkn.json sources are ' + JSON.stringify(sources) + ', which does not include ' + missing.join(' '))
               process.exit(1)
             }
             console.log('sources ' + sources.join(' '))
@@ -245,4 +249,105 @@ jobs:
             sleep 15
           done
           echo "::error::the published $NAME $VERSION was never served to read"
+          exit 1
+
+      # ---- the https-pkg source, which is a different set of bytes on a different host ----------
+      #
+      # Everything above is the npm release. What follows publishes the archive and the index that
+      # `https-pkg:torrent.fkn.app/ripple` is read from: functions/_middleware.ts serves both out of
+      # the R2 bucket, because Cloudflare Pages ignores Range on a static file and the loading side
+      # reads a zip by asking for its tail, its directory and then one range per file.
+
+      # --remote IS LOAD BEARING HERE, and leaving it off is silent. wrangler 4 reads LOCAL storage by
+      # default ("Resource location: local. Use --remote if you want to access the remote instance.",
+      # measured on 4.131.1, 2026-09-12), so without it this reads a miniflare simulator, answers
+      # "The specified key does not exist." on every run, and the pack step below then writes a BRAND
+      # NEW index holding this version alone, taking every earlier version of ripple off the host.
+      #
+      # A not-found is the one answer that is not a failure, and only because the first release has no
+      # index to read. The match is deliberately narrow: any other stderr fails the job, which leaves
+      # the standing index untouched, and that is the safe direction to be wrong in.
+      - name: Read the index the host is serving
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          mkdir -p dist
+          if npx --yes wrangler@4.131.1 r2 object get fkn-packages/ripple/index.json --file dist/index.json --remote 2> "$RUNNER_TEMP/index.err"; then
+            echo "::notice::the host serves an index of $(wc -c < dist/index.json) bytes"
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/index.err"
+          if grep -qF 'The specified key does not exist' "$RUNNER_TEMP/index.err"; then
+            # a failed get can still leave a file behind, and a zero byte one is a malformed index
+            rm -f dist/index.json
+            echo "::notice::no index on the host yet, so this release writes the first one"
+            exit 0
+          fi
+          echo "::error::reading fkn-packages/ripple/index.json failed for a reason other than its absence"
+          exit 1
+
+      # `pack` runs the packlist AGAIN and re-hashes every file as it reads it, so the archive can
+      # only carry the tree the list was signed over: signing and packing are separate steps, and a
+      # build that rewrote a file between them would otherwise publish bytes the list cannot account
+      # for. `--index` MERGES this version into the document read above and moves `latest` onto it.
+      - name: Pack the archive and add it to the index
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          npx fkn-sign pack \
+            --package build/package.json \
+            --manifest fkn.json \
+            --out "dist/ripple-$VERSION.zip" \
+            --index dist/index.json \
+            --slot ripple \
+            --url "/packages/ripple-$VERSION.zip" \
+            --default
+
+      # THE ARCHIVE FIRST, THEN THE INDEX, and the order is the rule rather than a preference. The
+      # index is the only document that names the archive, so an index uploaded first names bytes that
+      # are not there and every boot in that window 404s. The other way round the window holds an
+      # archive nothing points at, which no reader can even ask for. `bash -e` is the default shell
+      # here, so a failed archive upload never reaches the index line and https-pkg: keeps serving
+      # the previous version.
+      - name: Upload the archive, then the index
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          npx --yes wrangler@4.131.1 r2 object put "fkn-packages/ripple/ripple-$VERSION.zip" \
+            --file "dist/ripple-$VERSION.zip" --content-type application/zip --remote
+          npx --yes wrangler@4.131.1 r2 object put fkn-packages/ripple/index.json \
+            --file dist/index.json --content-type application/json --remote
+
+      # The only step that reads what torrent.fkn.app actually serves: it fetches the index, downloads
+      # the archive whole, reads the manifest inside it and hashes every file against that list.
+      #
+      # Two minutes rather than the CDN's thirty, because there is no mirror to wait for: the Function
+      # reads R2 directly. What this retries is an eventually consistent BUCKET, which shows up as an
+      # index from before the upload: `no version` for a release onto an existing index, `no package`
+      # for the first one. Every other refusal is about bytes that are already uploaded and cannot
+      # change, and retrying one of those reaches the same red two minutes later.
+      - name: Verify the published archive against the list
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for attempt in $(seq 1 8); do
+            if npx fkn-sign verify --published "https-pkg:torrent.fkn.app/ripple@$VERSION" 2> "$RUNNER_TEMP/package.err"; then
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/package.err"
+            if ! grep -qE 'answered (404|429|5[0-9][0-9])|is unreachable|no version |no package ' "$RUNNER_TEMP/package.err"; then
+              echo "::error::the archive torrent.fkn.app serves does not match its own list"
+              exit 1
+            fi
+            echo "attempt $attempt: torrent.fkn.app does not serve ripple $VERSION yet"
+            sleep 15
+          done
+          echo "::error::the archive for ripple $VERSION was never served to read"
           exit 1
