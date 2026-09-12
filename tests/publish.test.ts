@@ -461,7 +461,7 @@ describe('the archive and the index torrent.fkn.app serves', () => {
     for (const name of ['Read the index the host is serving', 'Upload the archive, then the index']) {
       const block = stepNamed(name)
       expect(block, `${name} is gone or renamed`).toBeTruthy()
-      expect(block, 'the token is R2 write only and is held as a repository secret').toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}')
+      expect(block, 'the token reads the standing index as well as writing, and is a repository secret').toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}')
       expect(block, 'the account the bucket belongs to').toContain('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}')
     }
   })
