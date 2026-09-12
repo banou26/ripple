@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { del, get, set } from 'idb-keyval'
 
+import { isFramed } from '../utils/framed'
+
 const KEY = 'ripple:folder'
 
 type PermissionCapableHandle = FileSystemDirectoryHandle & {
@@ -19,11 +21,16 @@ type PermissionCapableHandle = FileSystemDirectoryHandle & {
  * `mode: 'readwrite'` where it has no native picker, and refusing at the ask is right. What it
  * cannot do is answer the question BEFORE the ask, and a button that only reveals itself to be
  * impossible once pressed is worse than one that was never offered.
+ *
+ * Which is also why the frame test is here rather than at the ask: `showDirectoryPicker` EXISTS in a
+ * framed tenant and is refused when called, whatever the frame's sandbox tokens, so the presence
+ * probe alone would offer a control that cannot work on https://fkn.app/app/. The file input stays.
  */
-const isSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
+export const folderPickerSupported = (): boolean =>
+  typeof window !== 'undefined' && 'showDirectoryPicker' in window && !isFramed()
 
 const pickDirectory = async (): Promise<FileSystemDirectoryHandle | undefined> => {
-  if (!isSupported()) return undefined
+  if (!folderPickerSupported()) return undefined
   const picker = (window as Window & { showDirectoryPicker?: (options: { id?: string, mode?: 'readwrite' }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker!
   return picker({ id: 'ripple-downloads', mode: 'readwrite' }).catch((error: unknown) => {
     if ((error as Error)?.name === 'AbortError') return undefined
@@ -92,5 +99,5 @@ export const useFolder = (): UseFolder => {
     setPermitted(false)
   }, [])
 
-  return { supported: isSupported(), folder, permitted, pick, allow, clear }
+  return { supported: folderPickerSupported(), folder, permitted, pick, allow, clear }
 }
