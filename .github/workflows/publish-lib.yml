@@ -267,6 +267,9 @@ jobs:
       # A not-found is the one answer that is not a failure, and only because the first release has no
       # index to read. The match is deliberately narrow: any other stderr fails the job, which leaves
       # the standing index untouched, and that is the safe direction to be wrong in.
+      #
+      # WHICH OF THE TWO IT WAS IS RECORDED, in both branches, because the step below holds the merge
+      # to it and a missing record fails that step rather than skipping it.
       - name: Read the index the host is serving
         if: steps.decide.outputs.changed == 'true'
         env:
@@ -275,6 +278,8 @@ jobs:
         run: |
           mkdir -p dist
           if npx --yes wrangler@4.131.1 r2 object get fkn-packages/ripple/index.json --file dist/index.json --remote 2> "$RUNNER_TEMP/index.err"; then
+            cp dist/index.json "$RUNNER_TEMP/standing-index.json"
+            echo held > "$RUNNER_TEMP/standing-state"
             echo "::notice::the host serves an index of $(wc -c < dist/index.json) bytes"
             exit 0
           fi
@@ -282,6 +287,7 @@ jobs:
           if grep -qF 'The specified key does not exist' "$RUNNER_TEMP/index.err"; then
             # a failed get can still leave a file behind, and a zero byte one is a malformed index
             rm -f dist/index.json
+            echo absent > "$RUNNER_TEMP/standing-state"
             echo "::notice::no index on the host yet, so this release writes the first one"
             exit 0
           fi
@@ -305,6 +311,30 @@ jobs:
             --slot ripple \
             --url "/packages/ripple-$VERSION.zip" \
             --default
+
+      # The one refusal that has to happen BEFORE the upload, because the upload is what cannot be
+      # taken back: an index written from nothing takes every earlier version of ripple off the host,
+      # and the verify at the end of this job reads only the version just published, so it passes.
+      # `--remote` above is one way to reach that, and a renamed key or a token scoped elsewhere are
+      # others, which is why this asks what the packed document HOLDS rather than how it was read.
+      # The live index is the second reading, and the only one that shares nothing with wrangler.
+      - name: The packed index still serves everything the host does
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          if node scripts/index-keeps-versions.mjs \
+            --state "$RUNNER_TEMP/standing-state" \
+            --standing "$RUNNER_TEMP/standing-index.json" \
+            --merged dist/index.json \
+            --live https://torrent.fkn.app/.well-known/fkn-package.json \
+            --slot ripple \
+            --version "$VERSION" > "$RUNNER_TEMP/keeps.out" 2>&1; then
+            echo "::notice::$(cat "$RUNNER_TEMP/keeps.out")"
+            exit 0
+          fi
+          echo "::error::$(cat "$RUNNER_TEMP/keeps.out")"
+          exit 1
 
       # THE ARCHIVE FIRST, THEN THE INDEX, and the order is the rule rather than a preference. The
       # index is the only document that names the archive, so an index uploaded first names bytes that

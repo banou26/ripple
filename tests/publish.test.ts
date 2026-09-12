@@ -114,6 +114,58 @@ const attemptsOf = (script: string, answers: Answer[], env: Record<string, strin
   return { code: run.status ?? -1, attempts: Number(readFileSync(calls, 'utf8').trim()) }
 }
 
+/** What the bucket read step left behind for the step that checks the merge against it. */
+type Recorded = { code: number, state: string | null, standing: string | null, downloaded: string | null }
+
+/**
+ * Runs the bucket read step in a directory of its own, against a scripted `wrangler`.
+ *
+ * The RECORD is the measurement: `pack --index` rewrites dist/index.json in place, so the copy this
+ * step puts aside is the only evidence of what the host was serving, and the guard step after pack
+ * refuses to run without it. A scripted read is the only way to drive the absence branch, which is
+ * the one that writes a brand new index.
+ */
+const bucketRead = (script: string, answer: { serves?: string, stderr?: string }): Recorded => {
+  const root = mkdtempSync(join(tmpdir(), 'ripple-bucket-'))
+  const bin = join(root, 'bin')
+  mkdirSync(bin)
+  const served = join(root, 'served.json')
+  if (answer.serves !== undefined) writeFileSync(served, answer.serves)
+  writeFileSync(join(bin, 'npx'), [
+    '#!/bin/sh',
+    'file=""',
+    'prev=""',
+    'for arg in "$@"; do',
+    '  if [ "$prev" = "--file" ]; then file="$arg"; fi',
+    '  prev="$arg"',
+    'done',
+    ...(answer.serves === undefined
+      ? [`echo '${answer.stderr ?? ''}' >&2`, 'exit 1']
+      : [`cat ${served} > "$file"`, 'exit 0']),
+    '',
+  ].join('\n'), { mode: 0o755 })
+  const file = join(root, 'step.sh')
+  writeFileSync(file, script)
+  const run = spawnSync('bash', [file], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, RUNNER_TEMP: root },
+  })
+  const held = (path: string): string | null => {
+    try {
+      return readFileSync(join(root, path), 'utf8')
+    } catch {
+      return null
+    }
+  }
+  return {
+    code: run.status ?? -1,
+    state: held('standing-state')?.trim() ?? null,
+    standing: held('standing-index.json'),
+    downloaded: held('dist/index.json'),
+  }
+}
+
 describe('the trusted publisher', () => {
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
     expect(Object.keys(workflows), 'no workflow file was read, so every assertion below is vacuous').not.toEqual([])
@@ -368,6 +420,43 @@ describe('the archive and the index torrent.fkn.app serves', () => {
     expect(positionOf('fkn-sign pack'), 'nothing is uploaded before it exists').toBeLessThan(positionOf('r2 object put'))
   })
 
+  /**
+   * The refusal that has to happen BEFORE the upload, since the upload is what cannot be taken back.
+   *
+   * Nothing else in the job can see the catastrophic outcome: the verify at the end reads the version
+   * just published, finds it, and exits 0 over an index that has lost every earlier version. The flag
+   * assertion above cannot see it either, because a renamed key, another bucket and a plain 404 all
+   * answer the same sentence `--remote` does.
+   */
+  it('holds the packed index to what the host serves, before anything is uploaded', () => {
+    const block = stepNamed('The packed index still serves everything the host does')
+    expect(block, 'the guard on the merge is gone or renamed').toBeTruthy()
+    expect(block).toContain("if: steps.decide.outputs.changed == 'true'")
+    expect(block, 'the record of what the bucket read answered').toContain('--state "$RUNNER_TEMP/standing-state"')
+    expect(block, 'the second reading, which shares no credential with wrangler').toContain('--live https://torrent.fkn.app/.well-known/fkn-package.json')
+    const guard = positionOf('node scripts/index-keeps-versions.mjs')
+    expect(guard, 'a merge can only be checked after it happened').toBeGreaterThan(positionOf('fkn-sign pack'))
+    expect(guard, 'the upload is the half that cannot be taken back').toBeLessThan(positionOf('r2 object put'))
+  })
+
+  it('reads the record at the paths the bucket read writes it to', () => {
+    const read = stepNamed('Read the index the host is serving') ?? ''
+    const guard = stepNamed('The packed index still serves everything the host does') ?? ''
+    for (const path of ['standing-state', 'standing-index.json']) {
+      expect(read, `nothing writes ${path}, so the guard would refuse every release`).toContain(`"$RUNNER_TEMP/${path}"`)
+      expect(guard, `the guard does not read ${path}, so the two steps are about different files`).toContain(`"$RUNNER_TEMP/${path}"`)
+    }
+  })
+
+  it('asks the host the release is verified against, and not some other one', () => {
+    const guard = stepNamed('The packed index still serves everything the host does') ?? ''
+    const live = /--live https:\/\/([^/]+)\//.exec(guard)
+    expect(live, 'the guard reads no live index, so it has only wrangler to go on').toBeTruthy()
+    const verified = /https-pkg:([^/]+)\/ripple@/.exec(steps())
+    expect(verified, 'the verify step moved or changed shape').toBeTruthy()
+    expect(live![1], 'a guard reading another host proves nothing about this release').toBe(verified![1])
+  })
+
   it('carries both Cloudflare credentials on every step that reaches the bucket', () => {
     for (const name of ['Read the index the host is serving', 'Upload the archive, then the index']) {
       const block = stepNamed(name)
@@ -454,5 +543,44 @@ describe('how the published archive verify answers', () => {
     const run = attemptsOf(step(), [{ code: 1, stderr: 'https://torrent.fkn.app/.well-known/fkn-package.json answered 404' }], env)
     expect(run.attempts, 'the whole retry budget').toBe(8)
     expect(run.code).not.toBe(0)
+  })
+})
+
+/**
+ * What the bucket read hands the step that checks the merge, driven rather than read.
+ *
+ * `pack --index` rewrites dist/index.json in place, so by the time anything can compare the merged
+ * document the index it merged into is gone. This step is what keeps a copy, and the branch that
+ * matters is the one where the read found nothing: that is the release that writes a brand new index,
+ * and the state file is the only thing downstream that knows which branch ran.
+ */
+describe('what the bucket read records for the step that checks the merge', () => {
+  const step = () => scriptOf('Read the index the host is serving')
+  const INDEX = '{"v":1,"default":"ripple","packages":{"ripple":{"latest":"0.0.11","versions":{"0.0.11":{"url":"/packages/ripple-0.0.11.zip","size":2048}}}}}'
+
+  it('read the step at all, so a false pass here is not an empty script', () => {
+    expect(step(), 'nothing was extracted, so every run below would exit 0 having done nothing').toContain('r2 object get')
+  })
+
+  it('keeps the index it downloaded, which pack overwrites in place', () => {
+    const run = bucketRead(step(), { serves: INDEX })
+    expect(run.code, 'a read that answered is not a failure').toBe(0)
+    expect(run.state, 'the guard after pack refuses to run without this').toBe('held')
+    expect(run.standing, 'dist/index.json is the file pack rewrites, so this copy is the only record').toBe(INDEX)
+    expect(run.downloaded, 'pack merges into the downloaded file, so it stays where it landed').toBe(INDEX)
+  })
+
+  it('records an absence as an absence, which is the first release and nothing else', () => {
+    const run = bucketRead(step(), { stderr: 'The specified key does not exist.' })
+    expect(run.code, 'the first release has no index to read, so this is not a failure').toBe(0)
+    expect(run.state, 'an unrecorded absence reads as a lost record, which fails the guard').toBe('absent')
+    expect(run.standing, 'nothing was downloaded, so there is nothing to keep').toBeNull()
+    expect(run.downloaded, 'a zero byte file left behind by a failed get is a malformed index').toBeNull()
+  })
+
+  it('records nothing when the read failed for any other reason, and fails the job', () => {
+    const run = bucketRead(step(), { stderr: 'A request to the Cloudflare API failed' })
+    expect(run.code, 'a read that failed is not a first release').not.toBe(0)
+    expect(run.state, 'a state recorded here would let the next step treat a failure as an absence').toBeNull()
   })
 })
