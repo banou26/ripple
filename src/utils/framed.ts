@@ -10,6 +10,10 @@
  * they are clicking, and the folder control refuses because a directory picker is refused in a
  * cross-origin frame whatever its sandbox tokens, so offering it there is a button that can only
  * turn out to be impossible once pressed.
+ *
+ * `framedByAnotherOrigin` in src/router/download.tsx is the other predicate of this shape, and it
+ * answers FALSE for that same-origin frame: it asks who the top page belongs to, not whether there
+ * is one.
  */
 export const isFramed = (): boolean => {
   if (typeof window === 'undefined') return false

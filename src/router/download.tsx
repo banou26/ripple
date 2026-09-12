@@ -488,7 +488,12 @@ const style = css`
   }
 `
 
-/** Whether this document is framed by another origin, which decides whether to offer a way out. */
+/**
+ * Whether this document is framed by another origin, which decides whether to offer a way out.
+ *
+ * A SAME-ORIGIN FRAME ANSWERS FALSE, where `isFramed()` in src/utils/framed.ts answers true for it:
+ * that one asks whether a frame exists at all, and refusing is what it feeds.
+ */
 const framedByAnotherOrigin = (): boolean => {
   if (typeof window === 'undefined') return false
   const top = window.top

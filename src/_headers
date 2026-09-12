@@ -5,8 +5,9 @@
 # button under the visitor's cursor while they believe they are clicking something else, and nothing
 # written inside the frame helps, because the surrounding page chooses what is visible.
 #
-# The page checks `window.top !== window.self` as well. This header is the half that works before any
-# script runs, and the check is the half that survives a host serving these files without it.
+# The page refuses through `isFramed()` in src/utils/framed.ts as well. This header is the half that
+# works before any script runs, and that check is the half that survives a host serving these files
+# without it.
 #
 # Cloudflare applies this to a STATIC response and not to a Function's, so `src/_routes.json` keeps
 # functions/_middleware.ts off every path but the two it serves. A route list that includes /add,
