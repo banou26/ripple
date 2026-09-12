@@ -51,6 +51,7 @@ import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useRippleUpdate } from '../utils/use-ripple-update'
 import { useConfirm } from '../components/confirm-dialog'
@@ -2799,9 +2800,7 @@ const Home = () => {
   useEffect(() => {
     const magnet = params.get('add')
     if (!magnet) return
-    let framed = true
-    try { framed = window.top !== window.self } catch { framed = true }
-    if (framed) { setParams(new URLSearchParams(), { replace: true }); return }
+    if (isFramed()) { setParams(new URLSearchParams(), { replace: true }); return }
     let from: string | null = null
     try { from = document.referrer ? new URL(document.referrer).origin : null } catch { from = null }
     if (from === window.location.origin) from = null
