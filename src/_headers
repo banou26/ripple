@@ -7,6 +7,10 @@
 #
 # The page checks `window.top !== window.self` as well. This header is the half that works before any
 # script runs, and the check is the half that survives a host serving these files without it.
+#
+# Cloudflare applies this to a STATIC response and not to a Function's, so `src/_routes.json` keeps
+# functions/_middleware.ts off every path but the two it serves. A route list that includes /add,
+# or no route list at all, takes this block off the whole site silently.
 /add
   X-Frame-Options: DENY
   Content-Security-Policy: frame-ancestors 'none'

@@ -6,6 +6,12 @@
 // central directory, then one two-sided range per file it actually wants, and it accepts a 200 where
 // it asked for a 206 only when the body is exactly the size the index promised. So a host that
 // ignores Range does not degrade, it costs the whole archive on every boot.
+//
+// WHAT REACHES IT IS `src/_routes.json`, copied to build/ by `copy-html`. A `_middleware` at the
+// functions root is otherwise invoked for EVERY request, and Cloudflare does not apply `_headers` to
+// a Function's response, so the `/add` frame headers would come off the site the day this deployed.
+// The `next()` below is the fallthrough for a path that slips through the route list, never the
+// mechanism the site is served by.
 
 /** An R2 range read: an offset with a length, or the last `suffix` bytes. */
 type R2Range = { offset: number, length: number } | { suffix: number }

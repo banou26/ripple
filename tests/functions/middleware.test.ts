@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import pkg from '../../package.json'
+
 import { onRequest } from '../../functions/_middleware'
 
 /**
@@ -247,5 +249,67 @@ describe('what it refuses to route', () => {
       expect(new TextDecoder().decode(body), 'the body has to name the binding a dashboard has to set').toContain('PACKAGES')
       expect(response.headers.get('access-control-allow-origin')).toBe('https://fkn.app')
     }
+  })
+})
+
+/**
+ * Which requests are an invocation at all, which is `_routes.json`'s business rather than this
+ * file's.
+ *
+ * A `_middleware` at the functions root runs for EVERY request to the project, and Cloudflare
+ * applies `_headers` to a static response and NOT to a Function's. So without a route list the /add
+ * frame headers come off the site on the first deploy, silently: `next()` answers the page, the page
+ * works, and the header that stops a framing is gone. Nothing this Function can assert about itself
+ * sees that, which is why the list and the headers file are read here as text.
+ */
+describe('which requests reach this Function at all', () => {
+  const ROUTES = '../../src/_routes.json'
+
+  const files = import.meta.glob('../../src/_{routes.json,headers}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+
+  /** Pages' own matching: a pattern is an exact path unless it ends in `/*`, which is a prefix. */
+  const routed = (pathname: string, patterns: string[]): boolean =>
+    patterns.some((pattern) => pattern.endsWith('/*') ? pathname.startsWith(pattern.slice(0, -1)) : pattern === pathname)
+
+  const list = (): { include: string[], exclude: string[] } => {
+    const raw = files[ROUTES]
+    expect(raw, 'no src/_routes.json, so every request to the project is a Function invocation').toBeTruthy()
+    const parsed = JSON.parse(raw!) as { version?: number, include?: string[], exclude?: string[] }
+    expect(parsed.version, 'Pages refuses a route list it does not know the version of').toBe(1)
+    expect(Array.isArray(parsed.include) && parsed.include.length > 0, 'an empty include list routes nothing here').toBe(true)
+    expect(parsed.exclude, 'nothing here needs an exclusion, and one shadowing an include is silent').toEqual([])
+    return { include: parsed.include!, exclude: parsed.exclude! }
+  }
+
+  it('read both files at all, so a false pass here is not a bad glob', () => {
+    expect(list().include.length).toBeGreaterThan(0)
+    expect(files['../../src/_headers'], 'the headers file is the thing a route list protects').toBeTruthy()
+  })
+
+  it('routes every path this Function answers, or the index and the archives 404 as a site path', async () => {
+    const { include } = list()
+    for (const path of [INDEX_PATH, ARCHIVE_PATH, '/packages/ripple-9.9.9.zip']) {
+      const { nexted } = await answer(path)
+      expect(nexted, `${path} is answered here, so it has to be an invocation`).toBe(false)
+      expect(routed(path, include), `${path} is answered here and would never be invoked`).toBe(true)
+    }
+  })
+
+  it('leaves the site out of it, so the /add frame headers keep being applied', async () => {
+    const { include } = list()
+    const headers = files['../../src/_headers'] ?? ''
+    expect(headers, 'the block this is protecting is gone, so the assertion below is vacuous').toContain('X-Frame-Options: DENY')
+    for (const path of ['/', '/add', '/index.html', '/assets/index-abc123.js', '/watch/1']) {
+      const { nexted } = await answer(path)
+      expect(nexted, `${path} is the site's`).toBe(true)
+      expect(routed(path, include), `_headers is not applied to a Function response, so ${path} must not be one`).toBe(false)
+    }
+  })
+
+  it('ships the list with the build, which is the only copy Pages ever reads', () => {
+    const copy = (pkg as { scripts?: Record<string, string> }).scripts?.['copy-html']
+    expect(copy, 'no copy-html script, so nothing puts the static files in build/').toBeTruthy()
+    expect(copy, 'a route list left in src/ is a route list Pages never sees').toContain('src/_routes.json build/_routes.json')
+    expect(copy, 'same for the headers file it protects').toContain('src/_headers build/_headers')
   })
 })
