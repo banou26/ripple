@@ -46,19 +46,21 @@ const streamOf = (bytes: Uint8Array): ReadableStream => new ReadableStream({
   },
 })
 
-const bucketOf = (objects: Record<string, Uint8Array>) => {
+const bucketOf = (objects: Record<string, Uint8Array>, throws?: 'get' | 'head') => {
   const calls: Call[] = []
   return {
     calls,
     bucket: {
       head: async (key: string) => {
         calls.push({ op: 'head', key, range: null })
+        if (throws === 'head') throw new Error('R2 did not answer')
         const bytes = objects[key]
         return bytes === undefined ? null : { size: bytes.byteLength, httpEtag: `"etag-${key}"` }
       },
       get: async (key: string, options?: { range?: Range }) => {
         const range = options?.range ?? null
         calls.push({ op: 'get', key, range })
+        if (throws === 'get') throw new Error('R2 did not answer')
         const bytes = objects[key]
         if (bytes === undefined) return null
         const slice = range === null
@@ -74,14 +76,15 @@ const bucketOf = (objects: Record<string, Uint8Array>) => {
 
 const answer = async (
   path: string,
-  { method = 'GET', range, objects, bind = true }: {
+  { method = 'GET', range, objects, bind = true, throws }: {
     method?: string
     range?: string
     objects?: Record<string, Uint8Array>
     bind?: boolean
+    throws?: 'get' | 'head'
   } = {},
 ) => {
-  const { calls, bucket } = bucketOf(objects ?? { 'ripple/index.json': INDEX, [ARCHIVE_KEY]: ARCHIVE })
+  const { calls, bucket } = bucketOf(objects ?? { 'ripple/index.json': INDEX, [ARCHIVE_KEY]: ARCHIVE }, throws)
   let nexted = false
   const response = await onRequest({
     request: new Request(`https://torrent.fkn.app${path}`, {
@@ -191,6 +194,26 @@ describe('what each path is served as', () => {
     expect(nexted, 'falling through would answer index.html for a missing archive').toBe(false)
     expect(response.headers.get('access-control-allow-origin'), 'an unreadable 404 arrives as an unreachable host').toBe('https://fkn.app')
     expect(new TextDecoder().decode(body)).toContain('ripple/ripple-9.9.9.zip')
+  })
+
+  it('answers a bucket that threw with a 502 the browser is allowed to read', async () => {
+    const shapes: { method?: string, range?: string, throws: 'get' | 'head' }[] = [
+      { method: 'HEAD', throws: 'head' },
+      { range: 'bytes=100-149', throws: 'head' },
+      { range: 'bytes=100-149', throws: 'get' },
+      { throws: 'get' },
+    ]
+    for (const { method, range, throws } of shapes) {
+      const { response, body, nexted } = await answer(ARCHIVE_PATH, { method, range, throws })
+      const shape = `${method ?? 'GET'} ${range ?? 'whole object'}, with ${throws} throwing`
+      expect(response.status, shape).toBe(502)
+      expect(
+        response.headers.get('access-control-allow-origin'),
+        'an escaped throw is answered by Pages with a CORS-less 500, which arrives as an unreachable host',
+      ).toBe('https://fkn.app')
+      expect(nexted, `${shape}: falling through would answer index.html for a read that failed`).toBe(false)
+      expect(new TextDecoder().decode(body), shape).toContain(ARCHIVE_KEY)
+    }
   })
 
   it('answers the preflight itself, rather than leaving it to the site', async () => {

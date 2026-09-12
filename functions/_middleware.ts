@@ -132,6 +132,45 @@ const wholeObject = async (bucket: PackagesBucket, target: Target): Promise<Resp
   })
 }
 
+const serve = async (bucket: PackagesBucket, target: Target, request: Request): Promise<Response> => {
+  if (request.method === 'HEAD') {
+    // Range is not honoured on a HEAD: nothing reads a zip that way, and the size is the fact a HEAD asks for
+    const head = await bucket.head(target.key)
+    if (head === null) return missing(target)
+    return new Response(null, {
+      status: 200,
+      headers: { ...headersOf(target.kind, head.httpEtag), 'content-length': String(head.size) },
+    })
+  }
+
+  const asked = request.headers.get('range')
+  if (asked === null) return wholeObject(bucket, target)
+
+  // the read before the read is what buys the 416 and the clamp: a range can only be called
+  // unsatisfiable against a known size, and `bytes=-n` can only become an offset against one
+  const head = await bucket.head(target.key)
+  if (head === null) return missing(target)
+  const slice = sliceOf(asked, head.size)
+  if (slice === null) return wholeObject(bucket, target)
+  if (slice === 'unsatisfiable') {
+    return refuse(416, target.kind, `'${asked}' is not a range of a ${head.size} byte object`, {
+      'content-range': `bytes */${head.size}`,
+    })
+  }
+
+  const length = slice.end - slice.start + 1
+  const object = await bucket.get(target.key, { range: { offset: slice.start, length } })
+  if (object === null) return missing(target)
+  return new Response(object.body, {
+    status: 206,
+    headers: {
+      ...headersOf(target.kind, object.httpEtag),
+      'content-range': `bytes ${slice.start}-${slice.end}/${head.size}`,
+      'content-length': String(length),
+    },
+  })
+}
+
 export const onRequest = async ({ request, env, next }: MiddlewareContext): Promise<Response> => {
   const target = targetOf(new URL(request.url).pathname)
   if (target === null) return next()
@@ -156,38 +195,13 @@ export const onRequest = async ({ request, env, next }: MiddlewareContext): Prom
   // an index is an ABSENT index: the misconfiguration would read as a host that serves no packages
   if (bucket === undefined) return refuse(503, target.kind, 'the PACKAGES R2 binding is not bound to this project')
 
-  if (request.method === 'HEAD') {
-    // Range is not honoured on a HEAD: nothing reads a zip that way, and the size is the fact a HEAD asks for
-    const head = await bucket.head(target.key)
-    if (head === null) return missing(target)
-    return new Response(null, {
-      status: 200,
-      headers: { ...headersOf(target.kind, head.httpEtag), 'content-length': String(head.size) },
-    })
+  try {
+    return await serve(bucket, target, request)
+  } catch {
+    // A THROW FROM THE BUCKET IS ANSWERED BY PAGES ITSELF, with a 500 carrying no CORS header, and a
+    // status the browser will not show is a network error: the read that failed once then arrives as
+    // an unreachable host, which sends a verified package to its stored copy. Every other answer
+    // here carries the header for the same reason.
+    return refuse(502, target.kind, `the packages bucket did not answer for ${target.key}`)
   }
-
-  const asked = request.headers.get('range')
-  if (asked === null) return wholeObject(bucket, target)
-
-  const head = await bucket.head(target.key)
-  if (head === null) return missing(target)
-  const slice = sliceOf(asked, head.size)
-  if (slice === null) return wholeObject(bucket, target)
-  if (slice === 'unsatisfiable') {
-    return refuse(416, target.kind, `'${asked}' is not a range of a ${head.size} byte object`, {
-      'content-range': `bytes */${head.size}`,
-    })
-  }
-
-  const length = slice.end - slice.start + 1
-  const object = await bucket.get(target.key, { range: { offset: slice.start, length } })
-  if (object === null) return missing(target)
-  return new Response(object.body, {
-    status: 206,
-    headers: {
-      ...headersOf(target.kind, object.httpEtag),
-      'content-range': `bytes ${slice.start}-${slice.end}/${head.size}`,
-      'content-length': String(length),
-    },
-  })
 }
