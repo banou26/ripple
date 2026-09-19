@@ -62,6 +62,19 @@ describe('the manifest that ships with the built site', () => {
     expect(built.dependencies, 'the app is bundled and unpkg installs nothing').toBeUndefined()
     expect(built.scripts, 'there is nothing to run in a built site').toBeUndefined()
   })
+
+  // the ownership claim is read off the PUBLISHED manifest, and this file is what publishes it. A
+  // filter that drops it leaves the source pending for ever with every gate green
+  it('carries the fkn ownership claim through to the published manifest', () => {
+    const claim = { app: `fkn:app:1${'a'.repeat(52)}` }
+    expect(npmManifest({ ...REPO, fkn: claim }).fkn).toEqual(claim)
+  })
+
+  // THE CONTROL: a field the list does NOT name is still dropped, so the row above is the list
+  // carrying `fkn` rather than the filter having stopped filtering
+  it('still drops a field the list does not name', () => {
+    expect(npmManifest({ ...REPO, devDependencies: { vite: '^7.0.0' } }).devDependencies).toBeUndefined()
+  })
 })
 
 describe('the layout 0.0.7 published', () => {

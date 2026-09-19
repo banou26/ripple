@@ -14,7 +14,12 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const KEPT = ['name', 'version', 'type', 'repository', 'keywords', 'license', 'description', 'homepage']
+// `fkn` is the app's OWNERSHIP CLAIM and the platform reads it off the PUBLISHED manifest, so it has
+// to survive this filter or it never leaves the repo. The api fetches
+// `registry.npmjs.org/<name>/latest` and compares `document.fkn.app` to the app id for exact
+// equality; a claim filtered out here reads as absent, and the source sits `pending` for ever with
+// every gate green, which is the failure this list caused before it named the field.
+const KEPT = ['name', 'version', 'type', 'repository', 'keywords', 'license', 'description', 'homepage', 'fkn']
 
 /** The manifest that ships beside the built site, given the repo's own. `main` is always the entry
  *  at the root of that directory, whatever the repo calls its build output. */
