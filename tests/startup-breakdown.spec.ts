@@ -21,7 +21,7 @@
 // from byte-identical code, so a pass/fail on a duration would be noise. It
 // prints a table and attaches JSON; the judgement is yours.
 
-import type { Browser, TestInfo } from '@playwright/test'
+import type { Browser } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
@@ -33,27 +33,28 @@ test.use({ headless: false })
 
 const DEFAULT_MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969'
 const MAGNET = process.env.RIPPLE_BENCH_MAGNET ?? DEFAULT_MAGNET
+const FILE_INDEX = process.env.RIPPLE_BENCH_FILE_INDEX ?? '0'
 const TRIALS = Number(process.env.RIPPLE_STARTUP_TRIALS ?? 3)
 const FRAME_BUDGET_MS = Number(process.env.RIPPLE_STARTUP_BUDGET_MS ?? 180_000)
 
 type Mark = { name: string, at: number, detail?: Record<string, unknown> }
+type ReadSample = { id: number, offset: number, len: number, at: number, end?: number, error?: string }
 
 /**
- * Everything is armed in an init script so it survives the SPA navigation to
- * /watch, and so the video element can be caught even though the player creates
- * it long after load.
+ * Armed before navigation so the first engine message and video frame are both observed.
  */
 const instrument = async (page: import('@playwright/test').Page) => {
   await page.addInitScript(() => {
     const root = window as any
     const marks: Mark[] = []
-    root.__startup = { marks }
+    const reads: ReadSample[] = []
+    let downloaded = 0
+    root.__startup = { marks, reads }
     const mark = (name: string, detail?: Record<string, unknown>) => {
       // first occurrence only: every stage here is a "when did this first happen"
       if (marks.some((m) => m.name === name)) return
       marks.push({ name, at: performance.now(), detail })
     }
-    root.__mark = mark
     mark('navigationStart')
 
     // ---- workers: the engine, libav and jassub all arrive this way ----------
@@ -75,10 +76,15 @@ const instrument = async (page: import('@playwright/test').Page) => {
           marks.push({ name: 'engine:readStalled', at: performance.now(), detail: { offset: m.offset, waitedMs: m.waitedMs, missingCount: m.missing?.length, numPeers: m.numPeers, downloadRate: m.downloadRate } })
         } else if (m.type === 'state' && Array.isArray(m.torrents)) {
           for (const t of m.torrents) {
+            downloaded = t.status?.totalDone ?? 0
             if (t.files) mark('torrent:metadata')
             if ((t.status?.numPeers ?? 0) > 0) mark('torrent:firstPeer')
             if ((t.status?.totalDone ?? 0) > 0) mark('torrent:firstByte')
           }
+        }
+        if (m.type === 'read-result' || m.type === 'read-error') {
+          const read = reads.find((r) => r.id === m.id)
+          if (read) { read.end = performance.now(); read.error = m.error }
         }
       })
 
@@ -87,7 +93,10 @@ const instrument = async (page: import('@playwright/test').Page) => {
         if (message && typeof message === 'object') {
           if (message.type === 'add-magnet') mark('torrent:addMagnet')
           else if (message.type === 'watch') mark('player:watchClaim')
-          else if (message.type === 'read') mark('player:firstRead', { offset: message.offset, len: message.len })
+          else if (message.type === 'read' && message.prioritize !== false) {
+            mark('player:firstRead', { offset: message.offset, len: message.len })
+            reads.push({ id: message.id, at: performance.now(), offset: message.offset, len: message.len })
+          }
         }
         if (transfer === undefined) post(message)
         else post(message, transfer)
@@ -114,7 +123,7 @@ const instrument = async (page: import('@playwright/test').Page) => {
       const anyVideo = video as any
       if (typeof anyVideo.requestVideoFrameCallback === 'function') {
         anyVideo.requestVideoFrameCallback((_now: number, meta: any) => {
-          mark('video:firstFrame', { presentationTime: meta?.presentationTime, mediaTime: meta?.mediaTime })
+          mark('video:firstFrame', { presentationTime: meta?.presentationTime, mediaTime: meta?.mediaTime, downloaded })
         })
       }
       const q = typeof anyVideo.getVideoPlaybackQuality === 'function' ? anyVideo.getVideoPlaybackQuality() : null
@@ -145,43 +154,17 @@ const runTrial = async (browser: Browser, index: number) => {
   const page = await context.newPage()
   try {
     await instrument(page)
-    await page.goto('/')
+    await page.goto(`/watch?${new URLSearchParams({ magnet: Buffer.from(MAGNET).toString('base64'), fileIndex: FILE_INDEX })}`)
     // Focus matters: rVFC is throttled in a background tab exactly like rAF.
     await page.bringToFront()
-
-    await page.waitForFunction(
-      () => ((window as any).__startup?.marks ?? []).some((m: Mark) => m.name === 'engine:ready'),
-      undefined, { timeout: 60_000 },
-    )
-
-    // Split the pre-magnet time. Everything between engine:ready and the add is a
-    // mix of the app becoming interactive and the harness typing, and lumping them
-    // together hides whichever one is the real cost.
-    const input = page.getByPlaceholder('Add a magnet link')
-    await input.waitFor({ state: 'visible', timeout: 60_000 })
-    await page.evaluate(() => (window as any).__mark('ui:inputReady'))
-    await input.fill(MAGNET)
-    await page.evaluate(() => (window as any).__mark('ui:filled'))
-    await page.getByRole('button', { name: 'Add', exact: true }).click()
-    // Playwright's click waits for actionability (visible, stable, enabled), and a
-    // CSS animation can hold it for seconds. Without this mark that wait is
-    // indistinguishable from the app being slow to dispatch the add.
-    await page.evaluate(() => (window as any).__mark('ui:clicked'))
-
-    // Click Watch the moment it exists. Warming the torrent first, as torrent-ramp
-    // does with 16 MiB, measures a hot engine and is a different question.
-    const watch = page.getByRole('link', { name: 'Watch' }).first()
-    await watch.waitFor({ state: 'visible', timeout: 120_000 })
-    await page.evaluate(() => (window as any).__mark('player:watchClick'))
-    await watch.click()
 
     await page.waitForFunction(
       () => ((window as any).__startup?.marks ?? []).some((m: Mark) => m.name === 'video:firstFrame'),
       undefined, { timeout: FRAME_BUDGET_MS },
     ).catch(() => {})
 
-    const marks: Mark[] = await page.evaluate(() => (window as any).__startup.marks)
-    return { index, marks, wasm: await wasmTimings(page) }
+    const { marks, reads }: { marks: Mark[], reads: ReadSample[] } = await page.evaluate(() => (window as any).__startup)
+    return { index, marks, reads, wasm: await wasmTimings(page) }
   } finally {
     await context.close()
   }
@@ -195,13 +178,9 @@ const rel = (marks: Mark[], name: string, from: number | null) => {
 
 const STAGES = [
   'engine:ready',
-  'ui:inputReady',
-  'ui:filled',
-  'ui:clicked',
   'torrent:addMagnet',
   'torrent:firstPeer',
   'torrent:metadata',
-  'player:watchClick',
   'worker:libav:created',
   'player:watchClaim',
   'player:firstRead',
@@ -214,7 +193,7 @@ const STAGES = [
 ]
 
 test.describe('startup breakdown', () => {
-  test('times every stage from magnet to first rendered frame', async ({ browser }, testInfo) => {
+  test('times a cold watch URL through its first rendered frame', async ({ browser }, testInfo) => {
     test.setTimeout((FRAME_BUDGET_MS + 120_000) * TRIALS)
 
     const trials: Awaited<ReturnType<typeof runTrial>>[] = []
@@ -240,6 +219,12 @@ test.describe('startup breakdown', () => {
     lines.push('')
     for (const t of trials) {
       for (const w of t.wasm) lines.push(`trial${t.index + 1} wasm ${w.name} start=${w.startTime}ms dur=${w.duration}ms size=${w.transferSize}`)
+      const frame = t.marks.find((m) => m.name === 'video:firstFrame')
+      const downloaded = frame?.detail?.downloaded
+      lines.push(`trial${t.index + 1} downloaded at first frame: ${typeof downloaded === 'number' ? downloaded : '-'} bytes`)
+      for (const r of t.reads.filter((r) => r.at < (frame?.at ?? Infinity))) {
+        lines.push(`trial${t.index + 1} read offset=${r.offset} len=${r.len} wait=${r.end == null ? 'pending' : Math.round(r.end - r.at)}ms`)
+      }
     }
     // eslint-disable-next-line no-console
     console.log('\n' + lines.join('\n') + '\n')
@@ -249,7 +234,6 @@ test.describe('startup breakdown', () => {
       contentType: 'application/json',
     })
 
-    // The only hard assertion: the run has to have produced a measurement at all.
-    expect(trials.some((t) => at(t.marks, 'torrent:metadata') != null)).toBe(true)
+    expect(trials.every((t) => at(t.marks, 'video:firstFrame') != null), 'every trial must render a frame').toBe(true)
   })
 })

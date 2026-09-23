@@ -57,7 +57,7 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
       if (snap) handleRef.current = snap.handle
-      if (snap?.files && !watching) {
+      if (snap && !watching) {
         watching = true
         client.watch(viewer, snap.handle, fileIndex)
       }
