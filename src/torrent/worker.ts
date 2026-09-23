@@ -668,7 +668,14 @@ const applyViewing = (h: number) => {
   wake(h)
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
-  const claims = active.map(({ fileIndex, fromOffset }) => ({ fileIndex, offset: fromOffset }))
+  const claims = active.flatMap(({ fileIndex, fromOffset, bulk }) => {
+    const head = { fileIndex, offset: fromOffset }
+    const file = files.files[fileIndex]
+    // Fetch trailing container metadata alongside the head, before the demuxer asks for it.
+    return !bulk && file?.size
+      ? [head, { fileIndex, offset: file.size - 1 }]
+      : [head]
+  })
   // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
   // sits at the first piece the torrent does not have, so without it the capacity beyond the
   // deadline window goes to the first file in the torrent rather than the one being watched.
@@ -1884,10 +1891,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (!inFlight) readsByHandle.set(m.handle, inFlight = new Set())
       inFlight.add(m.id)
       try {
-        // A read is the ONLY thing that re-plans priorities (anchorSequential is called from here
-        // and nowhere else), so a read parked on a piece the plan does not cover freezes the plan
-        // that starved it: a self-sustaining stall while the engine happily downloads elsewhere.
-        // Retry in bounded attempts and force the plan forward between them.
+        // Bound each attempt so stalled requests can be reassigned while the rest keeps downloading.
         for (let attempt = 0; ; attempt++) {
           try {
             /*
@@ -1943,25 +1947,10 @@ const handleMessage = async (session: Session, m: any) => {
             for (const piece of missing.slice(0, CANCEL_PER_STALL)) {
               session.cancelPieceRequests(m.handle, piece)
             }
-            /*
-             * Re-anchoring re-places the deadlines, so the next tick requests the freed blocks from
-             * the fastest peers rather than the ones that just lost them.
-             *
-             * Only for a viewer that is STILL asking for bytes, and this guard is the whole
-             * difference between stopping a download and appearing to. A read outlives the export
-             * that issued it, and the `watch` below writes an entry with no held flag, so an
-             * abandoned read PROMOTED the page's hold back into a live claim, woke the torrent and
-             * carried on fetching the file somebody had just cancelled, for the life of the tab.
-             * On unmount it was worse: it recreated a viewer the page had already unwatched, and a
-             * torrent with a viewer is one the eviction pass may never reclaim.
-             *
-             * The promotion on a read's ENTRY is untouched, in anchorSequential, so a live reader
-             * still turns its own hold into a claim. What cannot happen here is a read overruling a
-             * decision made after it started.
-             */
+            // Keep the current playhead: a stalled index probe or an old read must not undo a seek.
             const claim = m.viewer ? viewers.get(m.handle)?.get(m.viewer) : undefined
             if (m.prioritize !== false && m.viewer && claim && !claim.held) {
-              watch(m.viewer, m.handle, m.fileIndex, m.offset)
+              applyViewing(m.handle)
             }
           }
         }
