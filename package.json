@@ -7,7 +7,8 @@
     "url": "git+https://github.com/banou26/ripple.git"
   },
   "fkn": {
-    "app": "fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq"
+    "app": "fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq",
+    "signed": true
   },
   "main": "build/index.js",
   "keywords": [

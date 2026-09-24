@@ -9,6 +9,12 @@
 #
 # Only a version bump publishes. Every other push to main is a Cloudflare Pages deploy and nothing
 # else, so the version gate below is what keeps this from fighting the registry on every commit.
+#
+# Every version is SIGNED IN PLACE (HOR-233 slice 9): after the build, `fkn-sign release ./build
+# --npm` writes the release as build/fkn.json with the key in the FKN_RELEASE_KEY repository secret
+# (Ripple's "GitHub Actions" key, shown on fkn.dev's Signing tab), npm publishes it with the package,
+# and the last step checks the published version the way a device does. With no secret the sign step
+# fails before anything is published.
 name: Publish
 
 on:
@@ -121,6 +127,22 @@ jobs:
           fi
           echo "::notice::publishing build/ as $(node -p "require('./build/package.json').name") $BUILT"
 
+      # the list fkn.dev publishes for Ripple, which the release attaches; into the runner's temporary
+      # directory, so it is never a file npm packs. pipefail: under `bash -e` alone jq's exit decides
+      # the pipeline, and jq exits 0 on the empty output of a refused fetch
+      - name: Fetch Ripple's key list
+        if: steps.decide.outputs.changed == 'true'
+        run: set -o pipefail; curl -fsS https://api.fkn.app/v1/apps/fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq/keys | jq .list > "$RUNNER_TEMP/fkn-keys.json"
+
+      # writes build/fkn.json beside build/package.json, listing every file npm pack ships from build/,
+      # and refuses when the package would not ship it or the release would not fit what a device
+      # reads. ./build for the same reason the publish names it so
+      - name: Sign the package in place
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          FKN_RELEASE_KEY: ${{ secrets.FKN_RELEASE_KEY }}
+        run: npx --yes @fkn/sign@0.0.10 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"
+
       # No credential is passed. npm exchanges the job's OIDC identity for a short lived token against
       # the trusted publisher configured on npmjs.org for banou26/ripple + publish-lib.yml. A
       # publisher that does not match this repository and filename surfaces only as a bare ENEEDAUTH,
@@ -158,4 +180,24 @@ jobs:
             sleep 15
           done
           echo "::error::the registry still does not serve $NAME $VERSION"
+          exit 1
+
+      # What a device does with the version: its fkn.json and every file it lists, fetched from unpkg
+      # and checked. Exit 2 is unpkg not serving every file yet, the only answer worth waiting out
+      - name: Confirm devices verify it
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for attempt in $(seq 1 40); do
+            set +e
+            npx --yes @fkn/sign@0.0.10 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
+            CODE=$?
+            set -e
+            if [ "$CODE" = "0" ]; then exit 0; fi
+            if [ "$CODE" != "2" ]; then exit "$CODE"; fi
+            echo "attempt $attempt: unpkg does not serve every file yet"
+            sleep 15
+          done
+          echo "::error::unpkg still does not serve every file of @banou/ripple $VERSION"
           exit 1
