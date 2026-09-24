@@ -1,6 +1,7 @@
 // read through vite rather than node:fs, for the reason lanes.test.ts records
 import pkg from '../package.json'
 import LOCK from '../package-lock.json?raw'
+import NODE_VERSION from '../.node-version?raw'
 
 import { describe, expect, it } from 'vitest'
 
@@ -56,5 +57,42 @@ describe('the vite-plus toolchain is pinned as one release', () => {
       .map(([path, found]) => `${path}@${found.version}`)
     expect(off).toEqual([])
     expect(copies.filter(([path]) => path.endsWith('node_modules/vitest'))).toHaveLength(1)
+  })
+})
+
+// Cloudflare Pages builds on whatever .node-version names, and on node 22.16.0 without one, which is
+// below vite-plus's own floor. npm only warns for a regular dependency, but drops an OPTIONAL native
+// binding that fails its engine check without a word, so a floor raised past the pin breaks the deploy
+// and nothing local. The ranges these packages publish are ^x.y.z and >=x.y.z joined by ||; anything
+// else throws rather than being guessed at.
+const parse = (version: string) => version.split('.').map(Number)
+const atLeast = ([a = 0, b = 0, c = 0]: number[], [x = 0, y = 0, z = 0]: number[]) => a !== x ? a > x : b !== y ? b > y : c >= z
+const satisfies = (version: string, range: string) => range.split('||').some(clause => {
+  const match = /^(\^|>=)(\d+\.\d+\.\d+)$/.exec(clause.trim())
+  if (!match?.[2]) throw new Error(`unsupported engines clause: ${clause}`)
+  const [have, floor] = [parse(version), parse(match[2])]
+  return atLeast(have, floor) && (match[1] === '>=' || have[0] === floor[0])
+})
+
+describe('Pages builds on a node the toolchain accepts', () => {
+  it('the range check can tell an accepted node from a refused one (control)', () => {
+    expect(satisfies('24.21.0', '^20.19.0 || ^22.18.0 || >=24.11.0')).toBe(true)
+    expect(satisfies('22.16.0', '^20.19.0 || ^22.18.0 || >=24.11.0')).toBe(false)
+    expect(satisfies('21.0.0', '^20.19.0 || >=24.11.0')).toBe(false)
+  })
+
+  it('.node-version satisfies vite-plus, vite-plus-core, vitest and the linux native binding', () => {
+    const pinned = NODE_VERSION.trim()
+    expect(pinned).toMatch(/^\d+\.\d+\.\d+$/)
+    const refused = [
+      'node_modules/vite-plus',
+      'node_modules/vite',
+      'node_modules/vitest',
+      // what Pages installs on its linux x64 image, and the one npm would drop in silence
+      'node_modules/@voidzero-dev/vite-plus-linux-x64-gnu',
+    ]
+      .map(path => [path, entry(path).engines?.node] as const)
+      .filter(([, range]) => !range || !satisfies(pinned, range))
+    expect(refused).toEqual([])
   })
 })
