@@ -9,10 +9,11 @@ import { expect, it } from 'vitest'
 // compares with EXACT equality. A wrong id reads as another app's claim, and a missing one leaves the
 // source pending with every gate green, so both are pinned here rather than noticed at Check now.
 
-// the id the console minted for Ripple; its website, torrent.fkn.app, claims the same one by TXT record
-const APP = 'fkn:app:135yqk2jyumik36avcubguntimr6s4jbllsijxbyvbntjpj7sbt6a'
-// the signed app the claim replaced, revoked 2026-09-19 and still quoted in older notes
-const RETIRED = 'fkn:app:177wlviv7kkjk43vhpgkmrgzo5ynxhsaa5tz72nq7glqmrdahpgfq'
+// the id fkn.dev minted for Ripple on 2026-09-24, founder-derived so it can sign; its website, torrent.fkn.app,
+// claims the same one by TXT record
+const APP = 'fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq'
+// the founderless managed app it replaced, stopped 2026-09-24 because nothing could ever sign for it
+const RETIRED = 'fkn:app:135yqk2jyumik36avcubguntimr6s4jbllsijxbyvbntjpj7sbt6a'
 
 it('claims the managed Ripple app, and only that', () => {
   expect(pkg.name).toBe('@banou/ripple')
