@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import CONFIG from '../vite.jassub.config.ts?raw'
 import EMBED from '../src/router/embed.tsx?raw'
+import ENTRY from '../src/jassub-assets.ts?raw'
 
 /**
  * The app and the build pass have to agree on jassub's filenames, and nothing else makes them.
@@ -37,6 +38,13 @@ describe('jassub asset names', () => {
     // outDir and the url base have to name the same directory, or every asset 404s together
     expect(CONFIG, 'the build pass no longer writes to build/jassub').toContain("outDir: 'build/jassub'")
     expect(EMBED, 'the app no longer reads from /jassub/').toContain("/jassub/`")
+  })
+
+  // vite 8.3 drops a worker no output chunk references, and the build pass's floor check is the only
+  // other thing that notices; this says why before a build has to
+  it('the build pass entry keeps the worker url referenced, so vite still emits the worker', () => {
+    expect(ENTRY, 'a bare import of the worker tree-shakes away and vite drops the worker with it')
+      .toMatch(/^export \{ default as \w+ \} from 'jassub\/dist\/worker\/worker\.js\?worker&url'$/m)
   })
 
   it('reads both files, so the assertions cannot pass by matching nothing', () => {

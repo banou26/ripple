@@ -12,7 +12,10 @@
  * into the same `build/` directory. Nothing imports this module at runtime: the app addresses the
  * results by the fixed paths in `jassub-urls.ts`, the same way it already addresses libav's.
  */
-import 'jassub/dist/worker/worker.js?worker&url'
+// Exported, never a bare import: since vite 8.3.0 (#22473) a build drops a worker whose url no output
+// chunk references, and a bare import tree-shakes to nothing, so worker.js, jassub-worker.js and
+// fonts.js silently stopped being written (measured with vite-plus 0.3.3, 2026-09-25).
+export { default as worker } from 'jassub/dist/worker/worker.js?worker&url'
 import 'jassub/dist/wasm/jassub-worker-modern.wasm?no-inline&url'
 import 'jassub/dist/wasm/jassub-worker.wasm?no-inline&url'
 import 'jassub/dist/default.woff2?no-inline&url'
