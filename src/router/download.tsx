@@ -21,7 +21,7 @@ import {
   TEXT_MUTED,
   TEXT_ON_LIGHT,
 } from '../theme'
-import { ArrowDown, Check, Download, File as FileIcon, Folder, Link2, Play, User } from 'react-feather'
+import { ArrowDown, Check, Download, File as FileIcon, Folder, Link2, Play, User } from 'lucide-react'
 
 import type { SaveEntry } from '../torrent/save-file'
 import type { FileSelection } from './file-selection'

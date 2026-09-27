@@ -214,7 +214,7 @@ export default defineConfig((env) => ({
     // (reading 'useState')", in the browser project only.
     include: [
       '@fkn/lib', '@fkn/lib/react',
-      'react', 'react-dom', 'react-dom/client', 'react-tooltip', 'react-feather',
+      'react', 'react-dom', 'react-dom/client', 'react-tooltip', 'lucide-react',
       // A SECOND REASON to be on this list, and it has nothing to do with React.
       //
       // A dependency reached for the first time mid run triggers a re-optimisation, and vite
