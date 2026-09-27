@@ -4,7 +4,7 @@ import type { EmbedMode } from './file-selection'
 import { useEffect, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
-import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'react-feather'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'

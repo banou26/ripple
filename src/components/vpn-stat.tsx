@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Info } from 'react-feather'
+import { Info } from 'lucide-react'
 
 import type { Reachability } from '../torrent/client'
 import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'

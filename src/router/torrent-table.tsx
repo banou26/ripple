@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 import type { SortDir, SortKey } from '../torrent/list-view'
 
 import { css } from '@emotion/react'
-import { Clock } from 'react-feather'
+import { Clock } from 'lucide-react'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
 import { badgeRules } from './badge-style'

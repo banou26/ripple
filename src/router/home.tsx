@@ -9,7 +9,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
 
-import { Clock, Download, FilePlus, Folder, Link2, MoreHorizontal, Pause, Play, PlayCircle, Plus, RefreshCw, Upload, X } from 'react-feather'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Folder, Link2, Pause, Play, Plus, RefreshCw, Upload, X } from 'lucide-react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -1743,7 +1743,7 @@ const MissingRow = ({
               {...hint('Options')}
               onClick={() => onOptions(t, null)}
             >
-              <MoreHorizontal size={16} aria-hidden="true"/>
+              <Ellipsis size={16} aria-hidden="true"/>
             </button>
           </div>
         </div>
@@ -1901,7 +1901,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
             <div className="actions">
               {href && (
                 <Link className="primary" to={href} {...hint('Watch')} aria-label={`Watch ${t.name}`}>
-                  <PlayCircle size={16} aria-hidden="true"/>
+                  <CirclePlay size={16} aria-hidden="true"/>
                 </Link>
               )}
               {/* Only when there is something to write out AND it is not already sitting in the
@@ -1935,7 +1935,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                 {...hint('Options')}
                 onClick={() => onOptions(t, null)}
               >
-                <MoreHorizontal size={16} aria-hidden="true"/>
+                <Ellipsis size={16} aria-hidden="true"/>
               </button>
             </div>
           </div>

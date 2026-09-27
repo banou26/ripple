@@ -1,7 +1,7 @@
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 
 import { css } from '@emotion/react'
-import { ArrowDown, ArrowUp, Grid, List as ListIcon } from 'react-feather'
+import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT } from '../torrent/list-view'
 import { hint } from './hint'
@@ -195,7 +195,7 @@ export const ListToolbar = (
       <button
         type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
         onClick={() => onView('cards')} {...hint('One card per torrent, with artwork.')}
-      ><Grid/>Cards</button>
+      ><LayoutGrid/>Cards</button>
       <button
         type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
         onClick={() => onView('table')} {...hint('A dense table, for a lot of torrents at once.')}
