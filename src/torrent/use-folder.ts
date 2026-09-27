@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { del, get, set } from 'idb-keyval'
 
 import { isFramed } from '../utils/framed'
+import { forgetHandle, loadHandle, storeHandle } from './handle-store'
 
 const KEY = 'ripple:folder'
 
@@ -72,7 +72,7 @@ export const useFolder = (): UseFolder => {
 
   useEffect(() => {
     (async () => {
-      const stored = await get<FileSystemDirectoryHandle>(KEY)
+      const stored = await loadHandle<FileSystemDirectoryHandle>(KEY)
       if (!stored) return
       setFolder(stored)
       setPermitted(await queryPermission(stored) === 'granted')
@@ -82,7 +82,7 @@ export const useFolder = (): UseFolder => {
   const pick = useCallback(async () => {
     const handle = await pickDirectory()
     if (!handle) return false
-    await set(KEY, handle)
+    await storeHandle(KEY, handle)
     setFolder(handle)
     setPermitted(true)
     return true
@@ -94,7 +94,7 @@ export const useFolder = (): UseFolder => {
   }, [folder])
 
   const clear = useCallback(async () => {
-    await del(KEY)
+    await forgetHandle(KEY)
     setFolder(null)
     setPermitted(false)
   }, [])

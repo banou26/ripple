@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { del, get, set } from 'idb-keyval'
 
 import { showDirectoryPicker, showOpenFilePicker } from '@banou/ponyfill'
 
@@ -7,6 +6,7 @@ import type { Built, CreateOptions } from './create-source'
 import type { HashProgress } from './hash-pieces'
 import type { Persisted } from './library'
 
+import { forgetHandle, loadHandle, storeHandle } from './handle-store'
 import { waitsForItsSource } from './use-torrents'
 import type { PickedFile } from './walk-source'
 import type { TorrentClient } from './client'
@@ -138,8 +138,8 @@ export const createSupported = () => typeof window !== 'undefined'
  * an ordinary object would clone SUCCESSFULLY into something with no methods left).
  *
  * So the question is asked by trying it. Cloning a native handle is cheap, it happens once per pick,
- * and it is the same operation `set()` performs later, which is the only definition of the word that
- * matters here.
+ * and it is the same operation `storeHandle()` performs later, which is the only definition of the
+ * word that matters here.
  */
 const canBeReopened = (root: FileSystemDirectoryHandle | FileSystemFileHandle): boolean => {
   try {
@@ -456,7 +456,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * rejection taking down a publish whose torrent is otherwise finished and about to seed.
        */
       const stored = pick.reopenable
-        ? await set(sourceKey(out.infoHash), pick.root).then(() => true).catch(() => false)
+        ? await storeHandle(sourceKey(out.infoHash), pick.root).then(() => true).catch(() => false)
         : false
       /*
        * A HANDLE THAT CANNOT BE STORED CANNOT BE POSTED EITHER, so what crosses to the worker is the
@@ -624,7 +624,7 @@ export const useCreatedSources = (
       const created = list.filter((entry) => waitsForItsSource(entry) && !started.current.has(entry.infoHash))
       const stillWaiting: WaitingSource[] = []
       for (const entry of created) {
-        const root = await get<FileSystemDirectoryHandle | FileSystemFileHandle>(sourceKey(entry.infoHash)).catch(() => undefined)
+        const root = await loadHandle<FileSystemDirectoryHandle | FileSystemFileHandle>(sourceKey(entry.infoHash)).catch(() => undefined)
         if (!root) continue
         if (await queryRead(root) === 'granted') {
           await startFrom(entry, root).catch(() => stillWaiting.push({ entry, name: root.name }))
@@ -647,7 +647,7 @@ export const useCreatedSources = (
   const allow = useCallback(async (infoHash: string) => {
     const entry = list.find((candidate) => candidate.infoHash === infoHash)
     if (!entry) return false
-    const root = await get<FileSystemDirectoryHandle | FileSystemFileHandle>(sourceKey(infoHash)).catch(() => undefined)
+    const root = await loadHandle<FileSystemDirectoryHandle | FileSystemFileHandle>(sourceKey(infoHash)).catch(() => undefined)
     if (!root) return false
     if (!(await requestRead(root))) return false
     try {
@@ -660,6 +660,6 @@ export const useCreatedSources = (
   return { waiting, allow }
 }
 
-export const forgetSource = (infoHash: string) => del(sourceKey(infoHash)).catch(() => {})
+export const forgetSource = (infoHash: string) => forgetHandle(sourceKey(infoHash)).catch(() => {})
 
 export { DEFAULT_TRACKERS }
