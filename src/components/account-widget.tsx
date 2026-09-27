@@ -1,7 +1,7 @@
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, ExternalLink, LogOut } from 'react-feather'
+import { ChevronDown, ExternalLink, LogOut } from 'lucide-react'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { MenuSurface } from './menu'
