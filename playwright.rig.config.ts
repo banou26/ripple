@@ -64,6 +64,26 @@ const relayCommand = [
   'exec "$RIG_RELAY_BIN"',
 ].join('; ')
 
+/**
+ * A webServer that goes when the runner goes.
+ *
+ * Playwright stops these only on a graceful exit, so a runner killed outright left the relay and
+ * both servers listening, and the next run failed on the ports. Playwright starts each command in a
+ * process group of its own, so the watchdog takes the whole group, including the node child that
+ * `npx serve` leaves behind its own pid. The owner is the runner, the process that loads this config
+ * and starts the servers.
+ */
+const WATCHDOG = [
+  'bash -c "$RIG_CMD" & d=$!',
+  'while kill -0 "$RIG_OWNER" 2>/dev/null && kill -0 "$d" 2>/dev/null; do sleep 0.5; done',
+  'kill -9 0',
+].join('; ')
+
+const owned = (command: string, env: Record<string, string> = {}) => ({
+  command: `bash -c '${WATCHDOG}'`,
+  env: { ...process.env as Record<string, string>, ...env, RIG_CMD: command, RIG_OWNER: String(process.pid) },
+})
+
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/swarm-rig.spec.ts',
@@ -75,10 +95,7 @@ export default defineConfig({
   use: { baseURL: app.origin },
   webServer: [
     {
-      command: `bash -c '${relayCommand}'`,
-      url: `http://${relay.host}:${relay.http}/health`,
-      env: {
-        ...process.env as Record<string, string>,
+      ...owned(relayCommand, {
         RIG_LOCAL: local,
         RIG_RELAY_BIN: relayBin,
         RIG_RELAY_HOST: relay.host,
@@ -87,19 +104,20 @@ export default defineConfig({
         RIG_WS: String(relay.websocket),
         RIG_CERTS: join(RIG_STATE, 'relay-certs'),
         RIG_FREE_RATE: String(topology.freeRateBytesPerSec),
-      },
+      }),
+      url: `http://${relay.host}:${relay.http}/health`,
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
       // no -s: the broker is /api, which clean URLs map to api.html, where the SPA fallback would answer index.html
-      command: `npx serve -C -p ${broker.port} ${join(fknClient, 'web/build')}`,
+      ...owned(`npx serve -C -p ${broker.port} ${join(fknClient, 'web/build')}`),
       url: `${broker.origin}/api`,
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
-      command: `npx serve -s -C -p ${app.port} build`,
+      ...owned(`npx serve -s -C -p ${app.port} build`),
       url: app.origin,
       reuseExistingServer: false,
       timeout: 30_000,
