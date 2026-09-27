@@ -3,7 +3,8 @@ import { defineConfig, lazyPlugins } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import { playwright } from 'vite-plus/test/browser-playwright'
 import { execFileSync, execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
 import jassubOwnAssets from './vite-plugin-jassub-own-assets.mjs'
 
@@ -20,6 +21,22 @@ const findChrome = () => {
 }
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
+
+/**
+ * The swarm rig's `@fkn/lib`: a local build whose broker is the rig's own, set only by `npm run test:e2e:rig`.
+ *
+ * The published lib bakes `https://fkn.app` into every consumer at ITS build time, so no env var of
+ * ripple's can point it anywhere else, and a rig built against it tests production.
+ * `scripts/rig-prepare.mjs` builds this one; see tests/swarm-rig.spec.ts.
+ */
+const rigLib = process.env.RIPPLE_RIG_FKN_CLIENT
+  ? resolvePath(process.env.RIPPLE_RIG_FKN_CLIENT, 'lib/lib')
+  : undefined
+if (rigLib && !existsSync(`${rigLib}/index.js`)) {
+  throw new Error(`RIPPLE_RIG_FKN_CLIENT is set but ${rigLib}/index.js does not exist: run scripts/rig-prepare.mjs first`)
+}
+if (rigLib) console.warn(`ripple: building against the swarm rig's @fkn/lib at ${rigLib}, NOT the published one`)
+
 const commitHash =
   process.env.CF_PAGES_COMMIT_SHA ||
   (() => {
@@ -194,6 +211,12 @@ export default defineConfig((env) => ({
     },
   },
   resolve: {
+    alias: rigLib
+      ? [
+          { find: /^@fkn\/lib$/, replacement: `${rigLib}/index.js` },
+          { find: /^@fkn\/lib\/(.+)$/, replacement: `${rigLib}/$1.js` },
+        ]
+      : [],
     // The symlinked libtorrent-wasm carries its own @fkn/lib + osra; without dedupe the worker's dgram talks to a different @fkn/lib than relayWorker bridges
     //
     // React and emotion are listed for the same reason via @banou/media-player, which is symlinked in

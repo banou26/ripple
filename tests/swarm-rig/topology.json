@@ -1,0 +1,8 @@
+{
+  "broker": { "origin": "http://localhost:5234", "port": 5234 },
+  "relay": { "host": "127.0.0.1", "webtransport": 5433, "http": 5434, "websocket": 5443 },
+  "app": { "origin": "http://localhost:5460", "port": 5460 },
+  "closed": 5299,
+  "seeders": { "count": 4, "firstHost": 2, "basePeerPort": 52600, "baseRpcPort": 9400 },
+  "freeRateBytesPerSec": 1073741824
+}
