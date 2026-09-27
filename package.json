@@ -52,7 +52,9 @@
     "test:e2e:local": "npm run build && npm run e2e:local",
     "test:e2e:swarm": "npm run build && npm run e2e:swarm",
     "e2e:machine": "playwright test --forbid-only --project=chromium tests/stable-widths.spec.ts",
-    "test:e2e:machine": "npm run build && npm run e2e:machine"
+    "test:e2e:machine": "npm run build && npm run e2e:machine",
+    "e2e:rig": "playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig.spec.ts",
+    "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
   },
   "dependencies": {
     "@banou/media-player": "^0.10.5",
