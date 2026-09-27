@@ -23,7 +23,7 @@
  *
  * No network and no transfer: the torrent is complete from the moment it exists, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './regular-profile'
 
 type Row = {
   progress: number

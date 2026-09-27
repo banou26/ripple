@@ -13,7 +13,7 @@
  * A created torrent also seeds from the instant it exists, so the clock starts without a swarm, a
  * transfer or a network. Headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './regular-profile'
 
 const PACK = [
   { path: ['E01.mkv'], bytes: 120_000, fill: 0x11 },
