@@ -24,15 +24,17 @@ import { describe, expect, it } from 'vitest'
 const scripts = pkg.scripts as Record<string, string>
 
 /**
- * The three lanes, in the order they cost.
+ * The four lanes, in the order they cost.
  *
  *  - `local` needs a browser and nothing else, and is deterministic anywhere. It gates a push.
  *  - `machine` is deterministic only where the MACHINE is: `stable-widths` measures that tabular
  *    readouts hold their width, which a runner with a different font set fails while the code is
  *    perfect. Split out after CI failed it twice on font metrics alone.
  *  - `swarm` watches a torrent actually move bytes, so it needs a headful browser and live seeders.
+ *  - `rig` moves bytes too, but from seeders on loopback through a local relay and broker, so it
+ *    needs those three checkouts and Xvfb, and no CI runner has them. See playwright.rig.config.ts.
  */
-const LANES = ['e2e:local', 'e2e:machine', 'e2e:swarm']
+const LANES = ['e2e:local', 'e2e:machine', 'e2e:swarm', 'e2e:rig']
 
 /** Every spec a run could pick up, straight off the directory. */
 const sources = import.meta.glob('./*.spec.ts', { query: '?raw', import: 'default', eager: true })
