@@ -8,7 +8,8 @@
   },
   "fkn": {
     "app": "fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq",
-    "signed": true
+    "signed": true,
+    "url": "https://torrent.fkn.app/"
   },
   "main": "build/index.js",
   "keywords": [
