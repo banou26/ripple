@@ -52,6 +52,10 @@ jobs:
   # What changed is that the deterministic half of it is gone rather than being filed under the same
   # word.
   #
+  # 2026-10-04: three more of that kind were reloading on every CI run, `@fkn/lib/net` and
+  # `@fkn/lib/dgram` through the engine worker and `react-router` through the SPA fallback that a
+  # missing build/libav-worker.js lands on. Whether they were the one in six is not measured yet.
+  #
   # `e2e-local` used to sit here too. Its first run failed 13 of 35 while the identical lane passed
   # 35 of 35 locally, on environment differences a local run cannot show: a runner low on disk renders
   # a storage-relief button and a storage `status`, which made two selectors ambiguous, and its font
@@ -76,7 +80,17 @@ jobs:
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Point the browser project at the installed Chromium
         run: echo "RIPPLE_CHROME=$(node -e "console.log(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
-      - run: npm run test:browser
+      # A mid run reload can still end green, and that is how `react-router` reloaded every run on
+      # main until 2026-10-04 (tests/optimize-deps.test.ts), so the reload fails the step by name.
+      # `shell: bash` runs with pipefail, so a failing suite still fails through the tee.
+      - name: Browser tests, with no mid run reload
+        shell: bash
+        run: |
+          npm run test:browser 2>&1 | tee "$RUNNER_TEMP/browser.log"
+          if grep -qE 'optimized dependencies changed|unexpectedly reloaded a test' "$RUNNER_TEMP/browser.log"; then
+            echo "::error::vite reloaded a test page mid run: add the dependency it names to optimizeDeps.include"
+            exit 1
+          fi
 
   # Playwright specs that need a browser and NOTHING else. Split by dependency rather than by cost:
   # these are deterministic, so they can gate a push.
