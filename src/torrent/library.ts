@@ -337,5 +337,11 @@ export const applyRemovals = (list: Persisted[], incoming: Persisted[], removals
  */
 export const resumeKey = (infoHash: string) => 'ripple:resume:' + infoHash
 
+/**
+ * Where the `.torrent` a torrent was added from lives, byte for byte. The worker writes it; the page
+ * reads it for the magnet a torrent is copied and shared as, and for Save .torrent.
+ */
+export const torrentKey = (infoHash: string) => 'ripple:torrent:' + infoHash
+
 /** Where a torrent's picture lives. The page writes it; the worker drops it with a row it removes. */
 export const thumbnailKey = (infoHash: string) => 'ripple:thumb:' + infoHash
