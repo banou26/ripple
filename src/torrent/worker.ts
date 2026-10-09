@@ -24,7 +24,7 @@ import { isOriginFull, planEviction } from './storage-budget'
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey } from './library'
+import { LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -66,7 +66,6 @@ export type TorrentDetail = {
   trackers: TrackerInfo[]
 }
 
-const torrentKey = (ih: string) => 'ripple:torrent:' + ih
 /**
  * The handle a created torrent is read from. WRITTEN AND READ BY THE PAGE, never by this worker.
  *

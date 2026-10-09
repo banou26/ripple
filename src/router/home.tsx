@@ -83,7 +83,8 @@ import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-vie
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
-import { saveTorrentFile } from '../torrent/torrent-export'
+import { saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
+import { useShareableMagnet } from '../torrent/use-shareable-magnet'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
@@ -2171,8 +2172,8 @@ const Home = () => {
   }, [])
 
   /** a torrent already in the library, in the same shape a parsed file produces */
-  const subjectOf = useCallback((t: Torrent): ShareSubject => ({
-    magnet: t.magnet ?? '',
+  const subjectOf = useCallback(async (t: Torrent): Promise<ShareSubject> => ({
+    magnet: (await shareableMagnet(t)) ?? '',
     name: t.name,
     size: t.size,
     // pads are not the person's files, and a share link listing one would offer a `.pad` to watch.
@@ -2373,7 +2374,7 @@ const Home = () => {
     else { setMenu(null); setOptionsId(t.id) }
   }, [])
 
-  const optionActions = (t: Torrent): TorrentOptionActions => ({
+  const optionActions = (t: Torrent, magnet: string | undefined): TorrentOptionActions => ({
     setFlags: (flags, mask) => client.setFlags(Number(t.id), flags, mask),
     reannounce: () => {
       client.reannounce(Number(t.id))
@@ -2382,8 +2383,8 @@ const Home = () => {
     },
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
     copyMagnet: () => {
-      if (!t.magnet) return
-      navigator.clipboard.writeText(t.magnet)
+      if (!magnet) return
+      navigator.clipboard.writeText(magnet)
         .then(() => showToast(`Copied ${t.name}'s magnet`))
         .catch(() => showToast('This page was not allowed to use the clipboard'))
     },
@@ -2414,7 +2415,7 @@ const Home = () => {
     // the row's Watch is a <Link>; from a menu it has to navigate itself
     watch: () => { const href = watchHref(t); if (href) navigate(href) },
     save: () => (contentFiles(t.files).length > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
-    embed: () => openEmbed(subjectOf(t)),
+    embed: () => { void subjectOf(t).then(openEmbed) },
     retryNow: () => retry(Number(t.id)),
     start: () => { if (t.infoHash) start(t.infoHash) },
   })
@@ -2434,6 +2435,8 @@ const Home = () => {
 
   const menuTorrent = menu ? torrents.find((t) => t.id === menu.id) : undefined
   const optionsTorrent = optionsId ? torrents.find((t) => t.id === optionsId) : undefined
+  // one of the two is open at a time, and both offer Copy magnet, so neither opens before this is read
+  const shared = useShareableMagnet(menuTorrent ?? optionsTorrent)
 
   // Called synchronously from the click so showSaveFilePicker keeps the user gesture
   const onSave = (t: Torrent, fileIndex: number) => {
@@ -2942,18 +2945,18 @@ const Home = () => {
       {/* Both are rendered from here rather than from the row: only one may be open at a time, and
           each has to sit above every row rather than inside one. The menu is positioned against the
           viewport; the dialog portals to the body, one step below the broker frame. */}
-      {menu && menuTorrent && (
+      {menu && menuTorrent && shared && (
         <ContextMenu
-          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent), optionContext(menuTorrent))}
+          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet), optionContext(menuTorrent))}
           at={menu.at}
           label={`Options for ${menuTorrent.name}`}
           onClose={() => setMenu(null)}
         />
       )}
-      {optionsTorrent && (
+      {optionsTorrent && shared && (
         <TorrentOptionsDialog
           title={optionsTorrent.name}
-          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent), optionContext(optionsTorrent))}
+          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet), optionContext(optionsTorrent))}
           onClose={() => setOptionsId(null)}
         />
       )}
@@ -3313,7 +3316,7 @@ const Home = () => {
               onRemove={onRemove}
               onStart={onStart}
               onPause={onPause}
-              onEmbed={(t) => openEmbed(subjectOf(t))}
+              onEmbed={(t) => { void subjectOf(t).then(openEmbed) }}
               onOptions={onOptions}
               selected={t.id === selectedId}
               onSelect={onSelect}

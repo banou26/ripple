@@ -1,8 +1,8 @@
 import { get } from 'idb-keyval'
 
-import { infoRange } from './torrent-file'
+import { infoRange, readTorrentFile } from './torrent-file'
 import { magnetParams } from './magnet'
-import { resumeKey } from './library'
+import { resumeKey, torrentKey } from './library'
 
 /**
  * Handing back the `.torrent` for something that arrived as a magnet.
@@ -99,12 +99,37 @@ export const infoFromResume = (resume: Uint8Array): Uint8Array | null => {
   return new Uint8Array(resume.slice(start, end))
 }
 
+const keptTorrentFile = async (infoHash: string): Promise<Uint8Array | null> => {
+  const bytes = await get<Uint8Array>(torrentKey(infoHash)).catch(() => undefined)
+  return bytes?.byteLength ? bytes : null
+}
+
+/**
+ * The magnet a library torrent is copied and shared as.
+ *
+ * A `.torrent` add's stored magnet is its identity, `xt` alone, and stays that way because it is
+ * compared rather than re-derived. Handed out, it gives the receiver no name and no trackers. So
+ * where this device kept the file, the magnet is read from the file, with its `dn` and every `tr`.
+ * A row synced from another device has no file here and answers with the stored string.
+ */
+export const shareableMagnet = async (
+  { infoHash, magnet }: { infoHash?: string, magnet?: string },
+): Promise<string | undefined> => {
+  if (!magnet || !infoHash) return magnet
+  const kept = await keptTorrentFile(infoHash)
+  return (kept && (await readTorrentFile(kept))?.magnet) || magnet
+}
+
 /** How long to wait for the worker to write a blob after being asked, and how often to look. */
 const FLUSH_TIMEOUT_MS = 5_000
 const FLUSH_POLL_MS = 200
 
 /**
  * The `.torrent` for a torrent this device is holding, or null if its metadata has not arrived.
+ *
+ * The file it was added from, as it was, when this device kept one: that carries its own trackers
+ * and web seeds, which a rebuild can only take from the magnet. Otherwise it is rebuilt from the
+ * resume blob.
  *
  * A held torrent may have no blob yet, because the worker writes one on its own schedule, so this
  * asks for a flush and waits rather than reporting a torrent with metadata on screen as having none.
@@ -120,6 +145,9 @@ export const torrentFileFor = async (
     wait?: (ms: number) => Promise<unknown>
   },
 ): Promise<Uint8Array | null> => {
+  const kept = await keptTorrentFile(infoHash)
+  if (kept) return kept
+
   const read = async (): Promise<Uint8Array | null> => {
     const blob = await get<Uint8Array>(resumeKey(infoHash)).catch(() => undefined)
     return blob ? infoFromResume(blob) : null
