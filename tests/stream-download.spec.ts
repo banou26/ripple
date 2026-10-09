@@ -26,6 +26,9 @@ test('the service worker turns posted chunks into a real download', async ({ pag
     { timeout: 30_000 },
   )
 
+  // armed before the frame exists, because the download can begin before the evaluate that opens it returns
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 })
+
   // hand-rolled copy of the wire protocol in src/torrent/stream-download.ts
   await page.evaluate(async ({ total, chunkSize }) => {
     const registration = await navigator.serviceWorker.ready
@@ -38,13 +41,22 @@ test('the service worker turns posted chunks into a real download', async ({ pag
     let wake: (() => void) | null = null
     const notify = () => { const w = wake; wake = null; w?.() }
     let peakOutstanding = 0
+    const ready = Promise.withResolvers<void>()
 
     port.onmessage = (event) => {
+      if (event.data?.type === 'stream-ready') { ready.resolve(); return }
       if (event.data?.type !== 'pull') return
       credits++
       notify()
     }
     worker.postMessage({ type: 'stream-open', id, name: 'probe.bin', size: total }, [channel.port2])
+    /*
+     * The frame's fetch and this message reach the worker by separate routes, and a fetch that gets
+     * there first is answered 404 "Unknown download": 3 of 10 runs under one busy loop per core,
+     * 2026-10-09. So the frame waits for the worker to say the stream is registered.
+     * src/torrent/stream-download.ts opens its frame without this wait.
+     */
+    await ready.promise
 
     // MUST be a navigation: an <a download> click runs outside the service worker
     const frame = document.createElement('iframe')
@@ -70,7 +82,6 @@ test('the service worker turns posted chunks into a real download', async ({ pag
   }, { total: TOTAL, chunkSize: CHUNK })
 
   // fed and drained at once on purpose: awaiting either one first waits on the other forever
-  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 })
   const feeding = page.evaluate(() => (window as any).__feed as Promise<number>)
 
   const download = await downloadPromise
