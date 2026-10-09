@@ -103,8 +103,13 @@ const install = (pack: typeof PACK) => {
     }
     return dir
   }
-  w.__sourceReady = buildSource()
-  ;(window as any).showDirectoryPicker = async () => w.__sourceReady
+  /*
+   * Built by the pick, never by a page load. An init script runs on every load and in every frame, and
+   * the app's about:blank frame shares this origin's OPFS, so a build here wrote the folder twice per
+   * load and again on the reload, alongside the app's own reads of it. A write in flight lists as an
+   * empty `<name>.crswap` beside the file, which a pick then counts as one of the fixture's files.
+   */
+  ;(window as any).showDirectoryPicker = buildSource
 }
 
 test('a hybrid torrent verifies against both of its own hash trees', async ({ page }) => {
@@ -349,11 +354,27 @@ test('a created hybrid torrent restarts after a reload', async ({ page }) => {
   await expect.poll(async () => (await stored())?.name, { timeout: 60_000 }).toBeTruthy()
   const entry = await stored()
   console.log('[library]', JSON.stringify({ size: entry?.size, format: entry?.format, pieceLength: entry?.pieceLength, files: entry?.files?.length }))
+  expect(entry.files.length, 'the pick held a file the fixture never wrote').toBe(PACK.length)
   expect(entry.size, 'the library recorded the PADDED total, so the reload will refuse it').toBe(TOTAL)
   expect(entry.format).toBe('hybrid')
   expect(entry.pieceLength, 'the chosen piece length was not kept, so the pads move on reload').toBe(PIECE)
   // pads are not the person's files and have no business in a list another device reads
   expect(entry.files.every((f: { name: string }) => !f.name.includes('.pad/'))).toBe(true)
+
+  // every file with its size and mtime, so a reload that wrote the folder again cannot pass as one that did not
+  const folder = () => page.evaluate(async () => {
+    const out: string[] = []
+    const walk = async (dir: any, prefix: string) => {
+      for await (const [name, handle] of dir.entries()) {
+        if (handle.kind === 'directory') { await walk(handle, `${prefix}${name}/`); continue }
+        const file = await handle.getFile()
+        out.push(`${prefix}${name} ${file.size} ${file.lastModified}`)
+      }
+    }
+    await walk(await (await navigator.storage.getDirectory()).getDirectoryHandle('ripple-hybrid-source'), '')
+    return out.sort()
+  })
+  const created = await folder()
 
   await page.reload()
 
@@ -375,6 +396,7 @@ test('a created hybrid torrent restarts after a reload', async ({ page }) => {
   expect(after.progress).toBe(1)
   expect(after.savePath).toBe(`/source/${infoHash}`)
   expect(after.numFiles).toBe(PACK.length + expectedPads().pads.length)
+  expect(await folder(), 'the reload wrote the folder the torrent was created from').toEqual(created)
   expect(pageErrors).toEqual([])
 })
 
