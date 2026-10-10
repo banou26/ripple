@@ -17,10 +17,6 @@ import ENTRY from '../src/jassub-assets.ts?raw'
  * back as HTML rather than a 404 and jassub fails somewhere inside a worker with an error that names
  * no file. The build pass has its own floor-size guard for whether the files exist; this is the other
  * half, that they are the ones the app will ask for.
- *
- * Read through vite with `?raw` rather than `node:fs`, for the reason `lanes.test.ts` records: this
- * runs in the `unit` project, whose config applies `vite-plugin-node-stdlib-browser`, and importing
- * `node:fs` there dies resolving `punycode`.
  */
 
 /** Every name the app builds a url for, and the base it builds them against. */

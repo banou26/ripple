@@ -9,9 +9,6 @@
 // 404, the whole build ran, the provenance statement was SIGNED INTO THE PUBLIC TRANSPARENCY LOG,
 // and only then did the PUT come back 400. `time` is what keeps the complete history, unpublished
 // numbers included, so it is the only field that can answer this before a signature is spent.
-//
-// No imports on purpose: `fetch` and `process` are globals, and the unit test project runs its
-// modules through vite's node-stdlib-browser polyfill, where `node:fs` fails resolving punycode.
 
 /**
  * What to do about `version`, given the registry's document for the package.

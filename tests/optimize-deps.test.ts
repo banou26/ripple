@@ -14,8 +14,6 @@
  *   react-router"). Two of five cold local runs without a build hung past 580 s on it, and the
  *   other three passed after the reload. A tree with a build never shows it, which is how it
  *   outlived the first fix.
- *
- * Read through vite rather than `node:fs`, for the reason lanes.test.ts records.
  */
 import viteConfig from '../vite.config.ts?raw'
 

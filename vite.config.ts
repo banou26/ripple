@@ -272,7 +272,8 @@ export default defineConfig((env) => ({
     react({
       jsxImportSource: '@emotion/react',
     }),
-    polyfills(),
+    // Not in the unit project: its aliases turn node:fs and node:child_process into empty objects there
+    { ...polyfills(), apply: (config: { test?: { name?: string } }) => config.test?.name !== 'unit' },
     jassubOwnAssets(),
     serveServiceWorkerInDev(),
     serveJassubAssetsInDev(),
