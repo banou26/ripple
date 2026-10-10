@@ -150,13 +150,34 @@ jobs:
       # "OIDC token exchange error - package not found", a message about the match rather than the
       # package.
       - name: Publish
+        id: publish
         if: steps.decide.outputs.changed == 'true'
         env:
           NPM_CONFIG_LOGLEVEL: verbose
+          NAME: ${{ steps.decide.outputs.name }}
+          VERSION: ${{ steps.decide.outputs.version }}
         # ./build, never `build`: a bare name is a PACKAGE SPEC to npm, so `npm publish build` reaches
         # for the registry's own `build` package rather than this directory (measured 2026-09-12,
         # `npm pack build` returned build@0.1.4 from the registry).
-        run: npm publish ./build --access public
+        #
+        # An earlier run's upload of this version can sit STAGED, held until the owner releases it on
+        # npmjs.com, while the version document answers 404 and the gate above reads the number as
+        # free. npm then answers 409 'Cannot publish over previously staged version "<version>"' (0.0.18,
+        # 2026-10-10). Passing is safe because that upload already owns the number and npm takes no
+        # other tarball for it, so no retry changes what ships; the registry checks are skipped since
+        # only the owner's release makes it live. Any other failure, a 409 for another version
+        # included, stays red.
+        run: |
+          set +e
+          npm publish ./build --access public 2>&1 | tee "$RUNNER_TEMP/publish.log"
+          CODE=${PIPESTATUS[0]}
+          set -e
+          if [ "$CODE" != "0" ] && grep -qF "Cannot publish over previously staged version \"$VERSION\"" "$RUNNER_TEMP/publish.log"; then
+            echo "::notice::npm already holds $NAME $VERSION as staged from an earlier run; it goes live when the owner releases it on npmjs.com, so the registry checks are skipped"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit "$CODE"
 
       # Ask the REGISTRY, not the runner. Everything above is a claim about what was uploaded; this is
       # the only step that observes what a consumer would actually get. The registry answers the PUT
@@ -164,7 +185,7 @@ jobs:
       # varies: 0.0.9 took about 4, 0.0.10 took 10 min 12 s and failed the ten minute window this had,
       # on a publish that had worked. So this waits up to thirty.
       - name: Confirm the registry serves it
-        if: steps.decide.outputs.changed == 'true'
+        if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'
         env:
           NAME: ${{ steps.decide.outputs.name }}
           VERSION: ${{ steps.decide.outputs.version }}
@@ -185,7 +206,7 @@ jobs:
       # What a device does with the version: its fkn.json and every file it lists, fetched from unpkg
       # and checked. Exit 2 is unpkg not serving every file yet, the only answer worth waiting out
       - name: Confirm devices verify it
-        if: steps.decide.outputs.changed == 'true'
+        if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'
         env:
           VERSION: ${{ steps.decide.outputs.version }}
         run: |
