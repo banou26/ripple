@@ -17,6 +17,13 @@ import pkg from '../package.json'
 
 import { describe, expect, it } from 'vitest'
 
+// The unit project aliases node built-ins to node-stdlib-browser's mocks, so `import ... from
+// 'node:fs'` yields an object with nothing but `default`. getBuiltinModule asks node itself.
+const { spawnSync } = process.getBuiltinModule('node:child_process')
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = process.getBuiltinModule('node:fs')
+const { tmpdir } = process.getBuiltinModule('node:os')
+const { join } = process.getBuiltinModule('node:path')
+
 /** owner and repo exactly as the OIDC claim spells them, lowercase since the 2026-09-11 rename */
 const REPOSITORY = 'banou26/ripple'
 
@@ -31,6 +38,13 @@ const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw'
  * whether or not the step using them survives an edit.
  */
 const steps = () => (workflows[WORKFLOW] ?? '').split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+
+const block = (name: string) => {
+  const text = steps()
+  const at = text.indexOf(`- name: ${name}`)
+  const next = text.indexOf('- name: ', at + 1)
+  return text.slice(at, next === -1 ? undefined : next)
+}
 
 describe('the trusted publisher', () => {
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
@@ -108,12 +122,6 @@ describe('confirming the release', () => {
 // HOR-233 slice 9: every release is signed in place, and devices check it after it is served
 describe('the in-place signature', () => {
   const names = () => [...steps().matchAll(/- name: (.+)/g)].map((match) => match[1]!.trim())
-  const block = (name: string) => {
-    const text = steps()
-    const at = text.indexOf(`- name: ${name}`)
-    const next = text.indexOf('- name: ', at + 1)
-    return text.slice(at, next === -1 ? undefined : next)
-  }
 
   // proof: move the sign step after Publish and the release npm serves carries no fkn.json
   it('signs the built package after the manifest check and before the publish, with the key CI holds', () => {
@@ -137,5 +145,65 @@ describe('the in-place signature', () => {
     const verify = block('Confirm devices verify it')
     expect(verify).toContain('npx --yes @fkn/sign@0.0.12 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"')
     expect(verify).toContain('if [ "$CODE" != "2" ]; then exit "$CODE"; fi')
+  })
+})
+
+/**
+ * An earlier run's upload can sit staged, held until the owner releases it on npmjs.com, and npm
+ * answers the next run's PUT with 409 'Cannot publish over previously staged version "0.0.18"'
+ * (2026-10-10). Only that answer, naming the version this run publishes, may pass. The step's own
+ * shell runs here under `bash -e`, which is how Actions runs a `run:`, against an npm stub.
+ */
+describe('a version npm already holds as staged', () => {
+  const VERSION = '0.0.18'
+
+  const publish = (answer: string, code: number) => {
+    const lines = block('Publish').split('\n')
+    const at = lines.findIndex((line) => line.trim() === 'run: |')
+    expect(at, 'the Publish step has no `run: |` block to execute').toBeGreaterThan(-1)
+    const rest = lines.slice(at + 1)
+    const end = rest.findIndex((line) => line.trim() && line.search(/\S/) <= lines[at]!.search(/\S/))
+    const body = rest.slice(0, end === -1 ? undefined : end)
+    const indent = body.find((line) => line.trim())!.search(/\S/)
+    const dir = mkdtempSync(join(tmpdir(), 'ripple-publish-'))
+    try {
+      writeFileSync(join(dir, 'step.sh'), body.map((line) => line.slice(indent)).join('\n'))
+      writeFileSync(join(dir, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$NPM_ANSWER" >&2\nexit ${code}\n`, { mode: 0o755 })
+      writeFileSync(join(dir, 'output'), '')
+      const run = spawnSync('bash', ['-e', join(dir, 'step.sh')], {
+        encoding: 'utf8',
+        env: { PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_OUTPUT: join(dir, 'output'), NAME: '@banou/ripple', VERSION, NPM_ANSWER: answer },
+      })
+      return { status: run.status, log: run.stdout, output: readFileSync(join(dir, 'output'), 'utf8') }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  const conflict = (message: string) => `npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@banou%2fripple - ${message}`
+
+  it('passes the staged 409 for its own version, says so, and skips the registry checks', () => {
+    const { status, log, output } = publish(conflict(`Cannot publish over previously staged version "${VERSION}".`), 1)
+    expect(status).toBe(0)
+    expect(log).toContain(`::notice::npm already holds @banou/ripple ${VERSION} as staged`)
+    expect(output).toBe('held=true\n')
+    expect(block('Publish')).toContain('id: publish')
+    for (const name of ['Confirm the registry serves it', 'Confirm devices verify it']) {
+      expect(block(name), name).toContain("if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'")
+    }
+  })
+
+  it('passes a publish npm accepts, leaving the registry checks to run', () => {
+    expect(publish(`+ @banou/ripple@${VERSION}`, 0)).toMatchObject({ status: 0, output: '' })
+  })
+
+  it.each([
+    ['a staged 409 for another version', conflict('Cannot publish over previously staged version "0.0.17".')],
+    ['a staged 409 for a version this one prefixes', conflict('Cannot publish over previously staged version "0.0.180".')],
+    ['any other 409', conflict('Document update conflict.')],
+    ['a 403', `npm error code E403\nnpm error 403 403 Forbidden - PUT https://registry.npmjs.org/@banou%2fripple - You cannot publish over the previously published versions: ${VERSION}.`],
+    ['a network error', 'npm error code ECONNRESET\nnpm error network aborted'],
+  ])('fails on %s', (_, answer) => {
+    expect(publish(answer, 1)).toMatchObject({ status: 1, output: '' })
   })
 })
