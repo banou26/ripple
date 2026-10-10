@@ -68,7 +68,7 @@ const makeEpisode = (dir: string) => {
   return join(dir, NAME)
 }
 
-/** Taps the normalizer's output, K-weighted (ITU-R BS.1770 at 48 kHz), and samples it every 100 ms with the media time. */
+/** Taps the normalizer's output, K-weighted (ITU-R BS.1770), and samples it every 100 ms with the media time. */
 const instrument = () => {
   const w = window as any
   try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
@@ -81,9 +81,20 @@ const instrument = () => {
     if (target instanceof AudioDestinationNode && this instanceof AudioWorkletNode && !w.__analyser) {
       const context = this.context
       w.__sampleRate = context.sampleRate
+      // K-weighting at the context's own rate, which follows the output device (44.1 kHz on a CI runner), in the
+      // bilinear form libebur128 uses: at 48 kHz it gives BS.1770's published coefficients to 1e-15
+      const biquad = (f0: number, q: number, vh: number, vb: number): [number[], number[]] => {
+        const k = Math.tan(Math.PI * f0 / context.sampleRate)
+        const a0 = 1 + k / q + k * k
+        return [
+          [(vh + vb * k / q + k * k) / a0, 2 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0],
+          [1, 2 * (k * k - 1) / a0, (1 - k / q + k * k) / a0],
+        ]
+      }
+      const vh = Math.pow(10, 3.999843853973347 / 20)
       const stages: [number[], number[]][] = [
-        [[1.53512485958697, -2.69169618940638, 1.19839281085285], [1, -1.69065929318241, 0.73248077421585]],
-        [[1, -2, 1], [1, -1.99004745483398, 0.99007225036621]],
+        biquad(1681.974450955533, 0.7071752369554196, vh, Math.pow(vh, 0.4996667741545416)),
+        [[1, -2, 1], biquad(38.13547087602444, 0.5003270373238773, 1, 0)[1]],
       ]
       const weighted = stages.reduce<AudioNode>(
         (node, [feedforward, feedback]) => connect.call(node, new IIRFilterNode(context, { feedforward, feedback })),
@@ -153,7 +164,6 @@ test('the cue is held to the dialogue with the switch on, and keeps its lead off
   expect(blobRefused, 'the tenant CSP is not in force on /watch').toBe(true)
 
   await expect.poll(() => page.evaluate(() => !!(window as any).__analyser), { timeout: 60_000 }).toBe(true)
-  expect(await page.evaluate(() => (window as any).__sampleRate)).toBe(48000)
   // opens the settings menu when the switch is not on screen, and reads or flips it
   const normalizeSwitch = (flip: boolean) => page.evaluate(async (flip) => {
     const find = () => document.querySelector<HTMLElement>('[role="switch"]')
@@ -179,7 +189,10 @@ test('the cue is held to the dialogue with the switch on, and keeps its lead off
   const off = { dialogue: loudness(samples, 24, 30), cue: loudness(samples, 34, 40) }
   test.info().annotations.push({
     type: 'loudness',
-    description: JSON.stringify({ file: lead, on, off, leadOn: on.cue - on.dialogue, leadOff: off.cue - off.dialogue }),
+    description: JSON.stringify({
+      sampleRate: await page.evaluate(() => (window as any).__sampleRate),
+      file: lead, on, off, leadOn: on.cue - on.dialogue, leadOff: off.cue - off.dialogue,
+    }),
   })
   expect(off.cue - off.dialogue, 'the control: off, the cue keeps its lead').toBeGreaterThan(5)
   expect(Math.abs(on.cue - on.dialogue), 'on, the cue is held to the dialogue').toBeLessThan(2)
