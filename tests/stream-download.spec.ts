@@ -1,9 +1,10 @@
-// The real service worker in a real browser, where src/sw.test.ts only drives sw.js against
-// a stand-in global. Firefox is the browser this path exists for: Chromium takes showSaveFilePicker.
+// The real service worker in a real browser, where tests/sw.test.ts only drives sw.js against a
+// stand-in global.
 
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 
+import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 const TOTAL = 3 * 1024 * 1024
@@ -54,7 +55,6 @@ test('the service worker turns posted chunks into a real download', async ({ pag
      * The frame's fetch and this message reach the worker by separate routes, and a fetch that gets
      * there first is answered 404 "Unknown download": 3 of 10 runs under one busy loop per core,
      * 2026-10-09. So the frame waits for the worker to say the stream is registered.
-     * src/torrent/stream-download.ts opens its frame without this wait.
      */
     await ready.promise
 
@@ -104,4 +104,83 @@ test('an unclaimed download URL does not serve the app itself', async ({ page })
     return res.status
   })
   expect(status).toBe(404)
+})
+
+/*
+ * The same download through the app's own path: a torrent in the library and its Save button, so
+ * src/torrent/stream-download.ts is what talks to the worker. The torrent is made from a file picked
+ * through an input, which copies its bytes into browser storage, so it is complete the moment it
+ * exists: no network and no transfer.
+ */
+const FILE = { name: 'E01.mkv', bytes: 300_000, fill: 0x11 }
+
+const libraryFile = async (page: Page) => {
+  await page.addInitScript(() => {
+    const w = window as any
+    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+    // no handle pickers, so the pick goes through an input and its bytes are kept
+    delete w.showDirectoryPicker
+    delete w.showOpenFilePicker
+    // a fallback reached after the stream was refused, and whether the click still counted by then
+    w.__pickerCalls = []
+    w.showSaveFilePicker = async () => {
+      w.__pickerCalls.push(navigator.userActivation.isActive)
+      throw new DOMException('no picker in this test', 'NotAllowedError')
+    }
+  })
+
+  const path = test.info().outputPath(FILE.name)
+  writeFileSync(path, Buffer.alloc(FILE.bytes, FILE.fill))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  const dialog = page.getByRole('dialog')
+  const chooser = page.waitForEvent('filechooser')
+  await dialog.getByRole('button', { name: 'Choose a file', exact: true }).click()
+  await (await chooser).setFiles(path)
+  await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+  await expect(dialog.getByText('Ripple kept its own copy')).toBeVisible({ timeout: 120_000 })
+  await dialog.getByRole('button', { name: 'Close' }).click()
+
+  const save = page.getByRole('button', { name: `Save ${FILE.name} to disk` })
+  await expect(save, 'the torrent never completed').toBeVisible({ timeout: 150_000 })
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
+  return {
+    save,
+    pickerCalls: () => page.evaluate(() => (window as any).__pickerCalls as boolean[]),
+  }
+}
+
+test('a library save is delivered by the service worker, not by the fallback', async ({ page }) => {
+  test.setTimeout(300_000)
+  const { save, pickerCalls } = await libraryFile(page)
+
+  const downloading = page.waitForEvent('download', { timeout: 60_000 })
+  await save.click()
+  const download = await downloading
+
+  // a stream URL answered "Unknown download" makes the app give up on it and save through a blob
+  expect(download.url(), 'the worker refused the stream, so the save fell back').toContain('/__ripple-stream/')
+  expect(readFileSync(await download.path()).equals(Buffer.alloc(FILE.bytes, FILE.fill))).toBe(true)
+  expect(await pickerCalls()).toEqual([])
+})
+
+test('a worker that never registers the stream falls back while the click still counts', async ({ page }) => {
+  test.setTimeout(300_000)
+  await page.addInitScript(() => {
+    // oxlint-disable-next-line typescript/unbound-method
+    ServiceWorker.prototype.postMessage = new Proxy(ServiceWorker.prototype.postMessage, {
+      apply: (post, worker, args) => (args[0]?.type === 'stream-open' ? undefined : Reflect.apply(post, worker, args)),
+    })
+  })
+  const { save, pickerCalls } = await libraryFile(page)
+
+  const downloading = page.waitForEvent('download', { timeout: 60_000 })
+  await save.click()
+  const download = await downloading
+
+  expect(download.url()).toMatch(/^blob:/)
+  expect(readFileSync(await download.path()).equals(Buffer.alloc(FILE.bytes, FILE.fill))).toBe(true)
+  // the picker needs the click's activation, which lapses about five seconds after it
+  expect(await pickerCalls(), 'the fallback was reached after the click stopped counting').toEqual([true])
 })
