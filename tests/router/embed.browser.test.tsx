@@ -1,5 +1,7 @@
 import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 
+import { NORMALIZE_VOLUME_KEY } from '../../src/router/normalize-volume'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { page } from '@vitest/browser/context'
@@ -160,5 +162,42 @@ describe('the watch route', () => {
     const screen = await mount(DESKTOP, '?magnet=bWFnbmV0Og==&fileIndex=abc')
     // NaN would reach the engine and match no file at all, so it collapses to the first
     await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
+  })
+})
+
+describe('the volume normalizer switch on /watch', () => {
+  beforeEach(() => {
+    state.current = torrent()
+    localStorage.removeItem(NORMALIZE_VOLUME_KEY)
+  })
+  afterEach(() => { localStorage.removeItem(NORMALIZE_VOLUME_KEY) })
+
+  const openSwitch = async (screen: Awaited<ReturnType<typeof mount>>) => {
+    await expect.poll(() => screen.container.querySelector('button.settings')).not.toBeNull()
+    ;(screen.container.querySelector('button.settings') as HTMLElement).click()
+    await expect.poll(() => screen.container.querySelector('[role="switch"]')).not.toBeNull()
+    return () => screen.container.querySelector('[role="switch"]') as HTMLElement
+  }
+
+  /**
+   * The player keeps nothing between loads by design, so the switch sticking is ripple's half. The row
+   * appearing at all is the other: the player offers it only when it is handed the worklet's url.
+   */
+  it('is offered in the player\'s settings menu, and what it is set to survives a reload', async () => {
+    const first = await mount()
+    const row = await openSwitch(first)
+    expect(row().textContent).toBe('Normalize volume')
+    expect(row().getAttribute('aria-checked')).toBe('false')
+    row().click()
+    await expect.poll(() => row().getAttribute('aria-checked')).toBe('true')
+    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('1')
+    first.unmount()
+
+    const second = await mount()
+    const again = await openSwitch(second)
+    expect(again().getAttribute('aria-checked')).toBe('true')
+    again().click()
+    await expect.poll(() => again().getAttribute('aria-checked')).toBe('false')
+    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('0')
   })
 })

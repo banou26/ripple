@@ -106,6 +106,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # tests/volume-normalizer.spec.ts builds its episode with ffmpeg, as media-player's CI does its fixtures
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm run test:e2e:local
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -1,11 +1,12 @@
 import type { MediaPlayerSource } from '@banou/media-player'
 import type { EmbedMode } from './file-selection'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
+import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString } from '../utils/bytes'
@@ -19,6 +20,7 @@ import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam } from './magnet-codec'
+import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
 import { STATE_LABEL } from './torrent-format'
 
@@ -320,6 +322,11 @@ const Player = () => {
     return Number.isSafeInteger(index) && index >= 0 ? index : 0
   }, [_fileIndex])
   const { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  const [normalizeVolume, setNormalizeVolume] = useState(() => normalizeVolumeSaved((k) => localStorage.getItem(k)))
+  const chooseNormalizeVolume = (on: boolean) => {
+    setNormalizeVolume(on)
+    try { localStorage.setItem(NORMALIZE_VOLUME_KEY, on ? '1' : '0') } catch {}
+  }
   /**
    * Whether anything is carrying peer traffic, drawn beside the peer count it explains.
    *
@@ -559,6 +566,9 @@ const Player = () => {
         jassubWasmUrl={jassubWasmUrl}
         jassubLegacyWasmUrl={jassubLegacyWasmUrl}
         defaultFontUrl={defaultFontUrl}
+        normalizerWorkletUrl={normalizerWorkletUrl}
+        normalizeVolume={normalizeVolume}
+        onNormalizeVolumeChange={chooseNormalizeVolume}
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}
