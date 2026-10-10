@@ -9,9 +9,9 @@ const REAL = {
 const bencode = (s: string) => new TextEncoder().encode(s)
 
 describe('reading a share subject without the engine', () => {
-  it('reads a real single-file torrent whole', async () => {
+  it('reads a real single-file torrent whole', async ({ skip }) => {
     const bytes = await readFile(REAL.path).catch(() => null)
-    if (!bytes) { expect.soft(true, 'the owner\'s file is not on this machine').toBe(true); return }
+    if (!bytes) return skip(`the owner's file is not on this machine: ${REAL.path}`)
     const s = await readTorrentFile(new Uint8Array(bytes))
     expect(s!.magnet).toContain(REAL.infoHash)
     expect(s!.name).toContain('Re Zero')

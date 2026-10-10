@@ -17,13 +17,6 @@ import { describe, expect, it } from 'vitest'
  * be a file nothing runs. This runs with everything else.
  */
 
-/*
- * Read through Vite rather than through `node:fs`.
- *
- * The unit project runs with `vite-plugin-node-stdlib-browser`, which replaces node's built-ins with
- * browser shims, so `readdirSync` is present as a name and is not a function. `import.meta.glob` is
- * resolved at build time by the bundler and works wherever the test does.
- */
 const SOURCES = import.meta.glob(
   /*
    * BOTH trees, and the second one is not padding.

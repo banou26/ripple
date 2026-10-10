@@ -71,25 +71,15 @@ describe('writeZip', () => {
    * opens. `testzip()` recomputes every CRC, which is the one thing no test here could fake.
    *
    * python3 is the only zip reader on this machine (no unzip, 7z or bsdtar), so a run without it
-   * skips rather than fails.
+   * fails rather than skips.
    */
   it('produces an archive a real zip reader accepts, with the right bytes in it', async () => {
-    let python: string
-    try {
-      python = execFileSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).trim()
-      if (!python) throw new Error('missing')
-    } catch {
-      // eslint-disable-next-line no-console
-      console.warn('skipped: python3 is needed to validate the zip with a real reader')
-      return
-    }
-
     const { bytes } = await build([entry('a.mkv', 4_096), entry('b/c.srt', 128)], false)
     const dir = mkdtempSync(join(tmpdir(), 'ripple-zip-'))
     try {
       const archive = join(dir, 'out.zip')
       writeFileSync(archive, bytes)
-      const report = execFileSync(python, ['-c', `
+      const report = execFileSync('python3', ['-c', `
 import json, zipfile
 z = zipfile.ZipFile(${JSON.stringify(archive)})
 # testzip() returns the first entry whose recomputed CRC disagrees with the stored one, else None

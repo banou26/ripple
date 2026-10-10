@@ -10,19 +10,15 @@
  * answers E404 on the PUT, and a missing `repository` answers 422 after the statement is already in
  * the public transparency log. None of them can be seen before a release, which is why they are
  * asserted here rather than discovered there.
- *
- * Read through vite with `?raw` rather than `node:fs`, for the reason `lanes.test.ts` records.
  */
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import pkg from '../package.json'
 
 import { describe, expect, it } from 'vitest'
-
-// The unit project aliases node built-ins to node-stdlib-browser's mocks, so `import ... from
-// 'node:fs'` yields an object with nothing but `default`. getBuiltinModule asks node itself.
-const { spawnSync } = process.getBuiltinModule('node:child_process')
-const { mkdtempSync, readFileSync, rmSync, writeFileSync } = process.getBuiltinModule('node:fs')
-const { tmpdir } = process.getBuiltinModule('node:os')
-const { join } = process.getBuiltinModule('node:path')
 
 /** owner and repo exactly as the OIDC claim spells them, lowercase since the 2026-09-11 rename */
 const REPOSITORY = 'banou26/ripple'

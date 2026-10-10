@@ -12,10 +12,6 @@
  * test in the fast suite until somebody decides which lane it belongs in.
  *
  * The lanes split by DEPENDENCY, not by cost. See LANES below for what each one depends on.
- *
- * Read through vite rather than `node:fs`: this runs in the `unit` project, whose config applies
- * `vite-plugin-node-stdlib-browser`, and importing `node:fs` there fails resolving `punycode`.
- * `import.meta.glob` is answered by the bundler and needs no filesystem at all.
  */
 import pkg from '../package.json'
 

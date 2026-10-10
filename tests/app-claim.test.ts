@@ -1,4 +1,3 @@
-// read through vite rather than node:fs, for the reason lanes.test.ts records
 import pkg from '../package.json'
 import { npmManifest } from '../scripts/write-npm-manifest.mjs'
 

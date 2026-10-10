@@ -348,8 +348,8 @@ describe('a library row', () => {
       thumbnail.current = null
       const { screen, props } = await inPage(torrent())
       const link = screen.container.querySelector<HTMLElement>('a.primary')
-      if (!link) return
-      link.click()
+      expect(link, 'the watch link').not.toBeNull()
+      link!.click()
       expect(props.onSelect).not.toHaveBeenCalled()
     })
 
