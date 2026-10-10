@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@banou/media-player": "^0.10.10",
-    "@banou/ponyfill": "^0.0.9",
+    "@banou/ponyfill": "^0.0.10",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.42",
     "ass-compiler": "^0.1.15",

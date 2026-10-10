@@ -60,6 +60,28 @@ describe('the vite-plus toolchain is pinned as one release', () => {
   })
 })
 
+// `npm ci` refuses a lock that disagrees with the manifest, and every CI job and the Publish workflow run it. Ranges
+// raised in package.json alone passed every local check on 2026-10-11, because node_modules had been filled by hand.
+describe('the lock agrees with the manifest', () => {
+  const declared = pkg as unknown as Record<string, Record<string, string> | undefined>
+
+  it('records every range the manifest declares, and an installed entry for each', () => {
+    const root = lock.packages[''] as unknown as Record<string, Record<string, string> | undefined>
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      expect(root[field] ?? {}, field).toEqual(declared[field] ?? {})
+    }
+    const missing = Object.keys({ ...declared.dependencies, ...declared.devDependencies })
+      .filter((name) => !lock.packages[`node_modules/${name}`])
+    expect(missing).toEqual([])
+  })
+
+  // a caret on 0.0.x is one exact version, so a range other than media-player's installs a second copy under it
+  it('asks for the @banou/ponyfill media-player does, so one copy serves both', () => {
+    expect(entry('node_modules/@banou/media-player').dependencies?.['@banou/ponyfill']).toBe(declared.dependencies?.['@banou/ponyfill'])
+    expect(installed(/(^|\/)node_modules\/@banou\/ponyfill$/).map(([path]) => path)).toEqual(['node_modules/@banou/ponyfill'])
+  })
+})
+
 // Cloudflare Pages builds on whatever .node-version names, and on node 22.16.0 without one, which is
 // below vite-plus's own floor. npm only warns for a regular dependency, but drops an OPTIONAL native
 // binding that fails its engine check without a word, so a floor raised past the pin breaks the deploy
