@@ -42,7 +42,12 @@ test('the VPN info glyph is the same size however you got to the library', async
   // and the reported path: the download page first, then its wordmark to the library
   await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}`)
   await expect(page.locator('.wordmark')).toBeVisible({ timeout: 60_000 })
-  await page.locator('.wordmark').click()
+  /*
+   * Dispatched on the link, not clicked at a point. As it loads, `@fkn/lib`'s broker frame draws the
+   * FKN bar across the top of the page, over the wordmark, and a click that lands in that cross-origin
+   * frame never reaches this document, which Playwright's hit target check reports as a success.
+   */
+  await page.locator('.wordmark').dispatchEvent('click')
   await expect(page.locator('.stats')).toBeVisible({ timeout: 60_000 })
   const arrived = await iconBox(page)
   console.log('[from the download page]', JSON.stringify(arrived))
