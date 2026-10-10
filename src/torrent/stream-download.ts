@@ -76,11 +76,15 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
 
   const fail = (error: Error) => { failure ??= error; notify() }
 
+  let registered = () => {}
+  const opened = new Promise<true>((resolve) => { registered = () => resolve(true) })
+
   const ready = new Promise<void>((resolve) => {
     let first = true
     port.onmessage = (event) => {
       const msg = event.data
       if (!msg) return
+      if (msg.type === 'stream-ready') { registered(); return }
       if (msg.type === 'pull') {
         credits++
         if (first) { first = false; resolve() }
@@ -92,6 +96,8 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   })
 
   worker.postMessage({ type: 'stream-open', id, name, size }, [channel.port2])
+  // The frame's fetch and this message reach the worker by separate routes, and a fetch that lands first is answered 404 "Unknown download". Bounded by READY_MS so a worker that never answers still leaves the fallback its click.
+  if (!await withTimeout(opened, READY_MS)) { port.onmessage = null; port.close(); return null }
 
   const frame = openDownloadFrame(PREFIX + id + '/' + encodeURIComponent(name))
 
