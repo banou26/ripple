@@ -24,6 +24,20 @@ const engineWorkers = (page: Page): Promise<string[]> =>
 
 const firstRow = (page: Page) => page.locator('.torrent').first()
 
+/*
+ * Records which engine last reported this tab's first torrent paused for good: paused with
+ * auto-management off. Paused with it on is libtorrent's queue, which starts the torrent again a tick
+ * later. Opened after the app's own channel, so it hears each broadcast after the app has.
+ */
+const listenForPause = (page: Page) => page.evaluate(() => {
+  new BroadcastChannel('ripple:torrent').onmessage = ({ data }) => {
+    const status = data?.to === 'all' && data.msg?.type === 'state' ? data.msg.torrents?.[0]?.status : null
+    if (status?.paused && !status.autoManaged) (window as unknown as { __pausedBy: string }).__pausedBy = data.gen
+  }
+})
+
+const pausedBy = (page: Page) => page.evaluate(() => (window as unknown as { __pausedBy?: string }).__pausedBy)
+
 const openTab = async (context: BrowserContext): Promise<Page> => {
   const page = await context.newPage()
   const errors: string[] = []
@@ -85,9 +99,14 @@ test('a tab that was not promoted still drives the engine after the handover', a
   const hosting = await Promise.all(tabs.map(async (tab) => (await engineWorkers(tab)).length))
   expect(hosting, 'exactly one tab should be hosting the engine').toEqual([1, 0, 0])
 
+  const survivors = [tabs[1]!, tabs[2]!]
+  for (const tab of survivors) await listenForPause(tab)
+  // the demo arrives paused, and has to be in the library that way before its engine goes
+  await expect.poll(() => pausedBy(survivors[0]!), { timeout: 30_000 }).toBeTruthy()
+  const before = await pausedBy(survivors[0]!)
+
   await tabs[0]!.close()
 
-  const survivors = [tabs[1]!, tabs[2]!]
   await expect
     .poll(
       async () => (await Promise.all(survivors.map(async (t) => (await engineWorkers(t)).length))).reduce((a, b) => a + b, 0),
@@ -99,11 +118,17 @@ test('a tab that was not promoted still drives the engine after the handover', a
   const promoted = survivors[counts.findIndex((n) => n === 1)]!
   const bystander = survivors[counts.findIndex((n) => n === 0)]!
 
-  await expect(firstRow(bystander)).toBeVisible({ timeout: 60_000 })
+  /*
+   * Nothing is pressed until the NEW engine has reported the torrent paused for good. Until then the
+   * row is the old engine's, whose commands the new one drops by design, or a state about to change:
+   * a null status drawn as Downloading, or the queue's park, which the engine undoes a tick later.
+   * Either swaps the row's Pause and Resume under a click already on its way.
+   */
+  await expect
+    .poll(() => pausedBy(bystander), { timeout: 60_000, message: 'the new engine never reported the torrent paused' })
+    .not.toBe(before)
+  await firstRow(bystander).getByRole('button', { name: 'Resume' }).click()
   const pause = firstRow(bystander).getByRole('button', { name: 'Pause' })
-  const resume = firstRow(bystander).getByRole('button', { name: 'Resume' })
-  // Whether it comes back paused depends on what the first test left behind.
-  if (await resume.isVisible().catch(() => false)) await resume.click()
   await expect(pause).toBeVisible({ timeout: 30_000 })
   await pause.click()
 
