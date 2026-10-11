@@ -24,7 +24,7 @@ test('the library boots, the engine reports in, and nothing throws', async ({ pa
 
   await page.goto('/')
 
-  await expect(page.getByText('Only one page can be active at a time.')).toHaveCount(0)
+  await expect(page.getByText('Ripple is open in another tab.')).toHaveCount(0)
   await expect(page.getByText('Ripple', { exact: true })).toBeVisible()
 
   const engine = await page.evaluate(() => (window as any).__engine as Promise<string>)

@@ -91,11 +91,6 @@ describe('the share link dialog, before it has a torrent', () => {
     expect(dialog().textContent).not.toContain('Sintel')
   })
 
-  it('says what the link is for before a torrent is chosen', async () => {
-    await mount(null)
-    expect(dialog().textContent).toContain('no Ripple account and nothing to install')
-  })
-
   it('hands a pasted magnet to the library rather than adding it itself', async () => {
     const { onMagnet } = await mount(null)
     const field = dialog().querySelector('input[aria-label="Magnet link"]') as HTMLInputElement
@@ -138,11 +133,6 @@ describe('the share link dialog, before it has a torrent', () => {
 })
 
 describe('the share link dialog, once it has a torrent', () => {
-  it('keeps saying what the link is for', async () => {
-    await mount(SINTEL)
-    expect(dialog().textContent).toContain('no Ripple account and nothing to install')
-  })
-
   /** download is the default now: it works for every torrent, including ones with nothing playable */
   it('defaults to a download link over the whole torrent', async () => {
     const { query, path } = await mount(SINTEL)
@@ -273,8 +263,7 @@ describe('the share link dialog, once it has a torrent', () => {
    * Nothing playable means Watch is not offered at all.
    *
    * Offering it would produce a link that opens the player on a file it cannot play, which fails
-   * only once somebody else has already clicked it. The note has to say why, or the missing control
-   * reads as a bug.
+   * only once somebody else has already clicked it.
    */
   const NO_MEDIA = withFiles(numbered([file('readme.txt', 10), file('data.zip', 900)]))
 
@@ -282,11 +271,6 @@ describe('the share link dialog, once it has a torrent', () => {
     await mount(NO_MEDIA)
     expect([...dialog().querySelectorAll('button')].map((b) => b.textContent)).not.toContain('Watch')
     expect(dialog().querySelector('.seg')).toBeNull()
-  })
-
-  it('says why Watch is missing rather than leaving a gap', async () => {
-    await mount(NO_MEDIA)
-    expect(dialog().textContent).toContain('nothing here the player can open')
   })
 
   it('builds a download link for it regardless', async () => {
@@ -308,7 +292,7 @@ describe('the share link dialog, once it has a torrent', () => {
 
   it('says so instead of showing a broken link when the torrent has no magnet', async () => {
     const { url } = await mount({ ...SINTEL, magnet: '' })
-    expect(dialog().textContent).toContain('no magnet yet')
+    expect(dialog().textContent).toContain('No magnet link yet')
     expect(url()).toBe('')
   })
 

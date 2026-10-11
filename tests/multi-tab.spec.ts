@@ -57,7 +57,7 @@ test('a second tab borrows the first tab\'s engine, then takes it over when that
 
   const b = await openTab(context)
 
-  await expect(b.getByText('Only one page can be active at a time.')).toHaveCount(0)
+  await expect(b.getByText('Ripple is open in another tab.')).toHaveCount(0)
 
   await expect(firstRow(b)).toBeVisible({ timeout: 60_000 })
   expect(await engineWorkers(b), 'the borrowing tab must not build a second engine').toHaveLength(0)

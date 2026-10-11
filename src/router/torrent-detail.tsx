@@ -110,13 +110,13 @@ const General = ({ t }: { t: Torrent }) => {
           <Fact label="Share ratio" value={s ? ratio(s) : '-'}/>
           {/* hash failures plus bytes that arrived after we already had them */}
           <Fact label="Wasted" value={s ? bytes(s.wasted) : '-'}/>
-          <Fact label="Remaining" value={remaining === 0 ? 'Nothing, it is complete' : bytes(remaining)}/>
+          <Fact label="Remaining" value={remaining === 0 ? 'Nothing' : bytes(remaining)}/>
           <Fact label="Seeding for" value={s ? `${seconds(s.seedingSeconds)} (${seconds(s.sessionSeedingSeconds)} this session)` : '-'}/>
           {/* Below 1 means no combination of the peers we can see holds a whole copy. Negative is
               libtorrent's "not known yet", which happens before metadata or before any peer has
               sent a bitfield, and printing it as -1.00 reads as a real measurement of nothing. */}
           <Fact label="Availability" value={s && s.availability >= 0 ? s.availability.toFixed(2) : '-'}/>
-          <Fact label="Inbound peers" value={s ? (s.hadIncoming ? 'Yes, peers have dialled in' : 'None yet') : '-'}/>
+          <Fact label="Inbound peers" value={s ? (s.hadIncoming ? 'Yes' : 'None yet') : '-'}/>
         </div>
       </section>
       <section>
@@ -164,7 +164,7 @@ const Files = ({
   /** Null for a torrent that is not in the session: the list is synced, the bytes are not here. */
   onSave: ((index: number) => void) | null
 }) => {
-  if (!files.length) return <p className="none">No file list yet. It arrives with the torrent's metadata.</p>
+  if (!files.length) return <p className="none">No file list yet.</p>
   return (
     <div className="rows">
       {/* No per-file progress bar on purpose: TorrentFile.progress is the torrent's overall
@@ -263,13 +263,7 @@ const trackerState = (tr: TrackerInfo): { label: string, tone: 'ok' | 'warn' | '
 
 const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boolean }) => {
   if (!loaded) return <p className="none">Asking the engine…</p>
-  if (!trackers.length) {
-    return (
-      <p className="none">
-        This torrent has no trackers. It finds peers through the DHT and through other peers instead.
-      </p>
-    )
-  }
+  if (!trackers.length) return <p className="none">No trackers.</p>
   const sorted = [...trackers].sort((a, b) => a.tier - b.tier)
   return (
     <div className="rows">

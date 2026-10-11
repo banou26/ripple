@@ -111,7 +111,7 @@ describe('the entry the worker writes for a torrent created from a pick', () => 
      */
     rig.send({ type: 'start', infoHash: LOST })
     await vi.waitFor(() => expect(rig.of('add-failed')).toHaveLength(1))
-    expect(rig.of('add-failed')[0]!.message).toMatch(/made from files on this device/)
+    expect(rig.of('add-failed')[0]!.message).toMatch(/Create it again from the same files/)
 
     /*
      * And the control, which is what stops a handler that refused EVERY start from passing.

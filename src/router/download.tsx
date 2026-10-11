@@ -793,7 +793,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
     // outcome from where the person is sitting, so it is said rather than swallowed.
     navigator.clipboard.writeText(magnet)
       .then(() => say('Magnet copied'))
-      .catch(() => say('This page was not allowed to use the clipboard'))
+      .catch(() => say('Could not copy the magnet'))
   }, [magnet, say])
 
   /*
@@ -810,7 +810,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
     void saveTorrentFile({ infoHash, magnet, name: torrentName, flush: () => client.flushResume() })
       .then((result) => say(
         result === 'saved' ? 'Saved the .torrent'
-          : result === 'no-metadata' ? 'The metadata has not arrived yet, so there is no .torrent to save'
+          : result === 'no-metadata' ? 'The metadata has not arrived yet'
             : 'The .torrent could not be built',
       ))
       .finally(() => setSavingTorrent(false))
@@ -952,7 +952,7 @@ const DownloadPage = ({ magnet, selection }: Props) => {
   useEffect(() => client.onEngineReset(() => {
     if (!abortRef.current) return
     cancel()
-    setFailure('The download engine restarted, so the download stopped. Start it again.')
+    setFailure('The download stopped. Start it again.')
   }), [client])
 
   const status = engineError

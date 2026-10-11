@@ -17,14 +17,12 @@ import type { Torrent } from './types'
  * "Cache" names a store the machine manages and the person is not meant to think about, which is the
  * opposite of the intent: this is exactly the fact they DO need to know. And every torrent is bytes
  * on disk, so "cache" does not separate anything. "Temporary" names the consequence, which is the
- * part that costs them something. Where it came from is carried by the sentence below, not the word.
+ * part that costs them something.
  */
-export const TEMPORARY_HINT =
-  'Ripple downloaded this to play a link, and can delete it to free space. Open options to keep it.'
+export const TEMPORARY_HINT = 'May be deleted to free space. Open options to keep it.'
 
-/** The same fact once the bytes are already gone, where it explains rather than warns. */
-export const TEMPORARY_GONE_HINT =
-  'Ripple downloaded this to play a link and has since freed the space. You can download it again at any time.'
+/** The same fact once the bytes are already gone. */
+export const TEMPORARY_GONE_HINT = 'Deleted to free space.'
 
 // -------------------------------------------------------------------------------------- the filter
 

@@ -3,7 +3,7 @@ import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-vie
 import { css } from '@emotion/react'
 import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
 
-import { NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT } from '../torrent/list-view'
+import { NATURAL_DIR, SORT_LABEL } from '../torrent/list-view'
 import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
@@ -145,16 +145,15 @@ export const ListToolbar = (
       <div className="seg" role="group" aria-label="Show">
         <button
           type="button" data-on={filter === 'all' || undefined} aria-pressed={filter === 'all'}
-          onClick={() => onFilter('all')} {...hint('Everything in your library.')}
+          onClick={() => onFilter('all')}
         >All</button>
         <button
           type="button" data-on={filter === 'library' || undefined} aria-pressed={filter === 'library'}
           onClick={() => onFilter('library')}
-          {...hint('Only the downloads you keep. Ripple never deletes these on its own.')}
         >Kept</button>
         <button
           type="button" data-on={filter === 'temporary' || undefined} aria-pressed={filter === 'temporary'}
-          onClick={() => onFilter('temporary')} {...hint(TEMPORARY_HINT)}
+          onClick={() => onFilter('temporary')}
         >Temporary <span className="count">{temporaryCount}</span></button>
       </div>
     )}
@@ -194,11 +193,11 @@ export const ListToolbar = (
     <div className="seg views" role="group" aria-label="View">
       <button
         type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
-        onClick={() => onView('cards')} {...hint('One card per torrent, with artwork.')}
+        onClick={() => onView('cards')}
       ><LayoutGrid/>Cards</button>
       <button
         type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
-        onClick={() => onView('table')} {...hint('A dense table, for a lot of torrents at once.')}
+        onClick={() => onView('table')}
       ><ListIcon/>Table</button>
     </div>
   </div>

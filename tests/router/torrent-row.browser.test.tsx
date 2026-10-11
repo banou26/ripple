@@ -286,7 +286,7 @@ describe('a library row', () => {
     const screen = await render(row(torrent()), sized())
 
     screen.rerender(row(torrent({ state: 'missing' })))
-    await expect.element(screen.getByText(/Files aren't on this device/)).toBeInTheDocument()
+    await expect.element(screen.getByText('Not on this device')).toBeInTheDocument()
     // the cached picture is still shown for a torrent whose files are gone
     expect(screen.container.querySelector('img.poster')).not.toBeNull()
 

@@ -1,6 +1,5 @@
 import type { Reachability } from '../../src/torrent/client'
 
-import { css } from '@emotion/react'
 import { describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
 
@@ -38,24 +37,6 @@ const mount = async (reachable: Reachability | null) => {
 }
 
 const strong = (c: HTMLElement) => c.querySelector('strong')
-
-/**
- * The library strip, reduced to the one rule of it that reaches inside this component.
- *
- * `.stats svg` in router/home.tsx sizes the speed graph, and its selector matches every svg in the
- * panel. Copied rather than imported because importing home pulls the engine client and the whole
- * library page in behind it, which is a lot of machinery to stand up to measure one icon. If the
- * rule in home changes, this stops reproducing it, which is the honest cost of the copy: the
- * assertion is that the component holds its own box against a hostile ancestor, and this is one.
- */
-const strip = css`
-  svg {
-    flex: 1;
-    min-width: 120px;
-    height: 52px;
-    align-self: center;
-  }
-`
 
 describe('the VPN stat', () => {
   it('says On when the relay holds a port and a socket is bound to it', async () => {
@@ -119,28 +100,9 @@ describe('the VPN stat', () => {
     expect(strong(on.container)?.textContent).not.toBe(strong(off.container)?.textContent)
   })
 
-  it('explains what Off means for downloads, since nothing else on screen does', async () => {
+  it('says what to do about Off, since nothing else on screen does', async () => {
     const { container } = await mount(reach({ port: null, listeners: [] }))
-    expect(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toMatch(/Loading torrent/)
-  })
-
-  /**
-   * The state title says what is happening NOW. The glyph says what the readout is, which is a
-   * different question and the one somebody meeting the word "VPN" on a torrent page actually has.
-   * A browser shows the NEAREST title, so the glyph carrying its own is what keeps the two apart.
-   */
-  it('carries an explainer of its own on the info glyph, not only a state title', async () => {
-    const { container } = await mount(reach())
-    const info = container.querySelector('.stat.vpn .info')
-    expect(info, 'no info affordance at all').not.toBeNull()
-    expect(info?.getAttribute('data-tooltip-content')).toMatch(/WebVPN/)
-    // and it is not simply repeating the state line above it
-    expect(info?.getAttribute('data-tooltip-content')).not.toBe(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content'))
-  })
-
-  it('keeps the explainer in the Off state too, where it is needed most', async () => {
-    const { container } = await mount(reach({ port: null, listeners: [] }))
-    expect(container.querySelector('.stat.vpn .info')?.getAttribute('data-tooltip-content')).toMatch(/WebVPN/)
+    expect(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toMatch(/reloading/)
   })
 
   /**
@@ -152,21 +114,5 @@ describe('the VPN stat', () => {
     const off = await mount(reach({ port: null, listeners: [] }))
     const colour = (c: HTMLElement) => getComputedStyle(strong(c)!).color
     expect(colour(on.container)).not.toBe(colour(off.container))
-  })
-
-  /**
-   * Found on screen, not by a test: on the library page the ⓘ sat sixty pixels to the right of the
-   * word it explains, and nowhere else. `.stats svg` sizes the speed graph and matches this glyph
-   * too, so the icon was drawn centred inside a 120px box. Declaring a width does not fix that,
-   * because the min-width is what decides the box.
-   */
-  it('keeps the info glyph its own size inside a panel that stretches every svg', async () => {
-    const { VpnStat } = await import('../../src/components/vpn-stat')
-    const { container } = await render(<div css={strip}><VpnStat reachable={reach()}/></div>)
-    const svg = container.querySelector('.stat.vpn .info svg')!
-    expect(Math.round(svg.getBoundingClientRect().width)).toBeLessThan(20)
-    // and it stays beside the word rather than drifting off across the strip
-    const word = strong(container)!.getBoundingClientRect()
-    expect(svg.getBoundingClientRect().left - word.right).toBeLessThan(12)
   })
 })

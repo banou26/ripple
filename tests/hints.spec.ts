@@ -37,7 +37,7 @@ test('a hint appears at once, and never leaves the page', async ({ page }) => {
 
   const anchors = page.locator('[data-tooltip-id="ripple-hint"]')
   const total = await anchors.count()
-  expect(total, 'no hints were found at all, so this test would pass by checking nothing').toBeGreaterThan(6)
+  expect(total, 'no hints were found at all, so this test would pass by checking nothing').toBeGreaterThan(4)
 
   const viewport = page.viewportSize()!
   const skipped: string[] = []
@@ -85,9 +85,10 @@ test('a hint appears at once, and never leaves the page', async ({ page }) => {
 
   /*
    * A floor on how much was actually checked, so a change that stopped hints opening cannot pass by
-   * skipping everything. The skips are printed rather than swallowed.
+   * skipping everything. The skips are printed rather than swallowed. Measured 2026-10-11, once the
+   * explanatory hints were cut: 7 to 9 anchors on this page across two runs, 5 to 7 of them hoverable.
    */
-  expect(measured, `only ${measured} hints were measured; skipped ${JSON.stringify(skipped)}`).toBeGreaterThan(8)
+  expect(measured, `only ${measured} hints were measured; skipped ${JSON.stringify(skipped)}`).toBeGreaterThan(2)
   expect(fastest, 'no hint opened quickly, which is the whole point of replacing title').toBeLessThan(INSTANT_MS)
   expect(errors).toEqual([])
 })

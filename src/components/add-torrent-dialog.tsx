@@ -13,15 +13,12 @@ import { PersistOffer } from './persist-offer'
 import type { AddChoices } from '../torrent/add-options'
 import type { SaveLocation } from '../torrent/library'
 import type { PersistState } from '../torrent/storage-permission'
-import type { StorageRelief } from '../torrent/storage-relief'
 import type { TorrentFile } from '../torrent/types'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 
 import {
   choicesProblem, selectAll, selectedBytes, selectNone, toggleFile,
 } from '../torrent/add-options'
-import { persistOffer } from '../torrent/storage-permission'
-import { reliefOffer } from '../torrent/storage-relief'
 import { getHumanReadableByteString } from '../utils/bytes'
 
 /**
@@ -174,12 +171,6 @@ const style = css`
 
     /* Same reason as the file rows above: an explicit neutral accent, or the UA paints these blue. */
     input { accent-color: ${EMPHASIS}; margin-top: 2px; flex-shrink: 0; }
-
-    .hint {
-      display: block;
-      color: ${TEXT_MUTED};
-      font-size: 0.78rem;
-    }
   }
 
   .waiting {
@@ -276,7 +267,7 @@ const FilePath = ({ path }: { path: string }) => {
 
 export const AddTorrentDialog = ({
   name, from, files, choices, onChoices, folderName, folderReady, external, onConfirm, onCancel, onNeverAsk,
-  storage, relief, persist, onAskPersist,
+  storage, persist, onAskPersist,
 }: {
   name: string
   /** the origin that linked here, for a torrent arriving from another site */
@@ -301,8 +292,6 @@ export const AddTorrentDialog = ({
    * caller with no reading has nothing to say, so this says nothing.
    */
   storage?: StorageUsage | null
-  /** The folder route, for the case where there is nothing left to ask the browser for. */
-  relief?: StorageRelief
   persist?: PersistState
   /** Asks the browser for persistent storage. Runs on a press, never on a render. */
   onAskPersist?: () => void
@@ -330,8 +319,6 @@ export const AddTorrentDialog = ({
    */
   const room = storage ? Math.max(0, storage.limitBytes - storage.usedBytes) : null
   const shortfall = room !== null && selected > room ? { room } : null
-  /** whether the offer below has a button, which is what decides if the folder route is shown here */
-  const canAsk = !!persist && !!onAskPersist && persistOffer(persist).kind === 'ask'
 
   const set = (patch: Partial<AddChoices>) => onChoices({ ...choices, ...patch })
 
@@ -347,11 +334,7 @@ export const AddTorrentDialog = ({
       <div className="card">
         <header>
           <h2 id="add-torrent-title">{name}</h2>
-          <p className="from">
-            {external
-              ? <>{from ? <>Sent here by <b>{from}</b>. </> : <>Opened from a link. </>}Nothing is added until you say so.</>
-              : <>Choose what to download before it starts.</>}
-          </p>
+          {external && <p className="from">{from ? <>Sent here by <b>{from}</b></> : 'Opened from a link'}</p>}
         </header>
 
         <div className="body">
@@ -382,7 +365,7 @@ export const AddTorrentDialog = ({
                   </div>
                 </>
               )
-              : <p className="waiting">Reading the file list from the swarm...</p>}
+              : <p className="waiting">Loading the file list...</p>}
             {problem && <p className="problem">{problem}</p>}
           </div>
 
@@ -397,10 +380,7 @@ export const AddTorrentDialog = ({
                     checked={choices.location === 'browser'}
                     onChange={() => set({ location: 'browser' })}
                   />
-                  <span>
-                    Browser storage
-                    <span className="hint">Private to this browser, and counts against its quota.</span>
-                  </span>
+                  <span>Browser storage</span>
                 </label>
                 <label className="check">
                   <input
@@ -409,10 +389,7 @@ export const AddTorrentDialog = ({
                     checked={choices.location === 'folder'}
                     onChange={() => set({ location: 'folder' })}
                   />
-                  <span>
-                    {folderName ?? 'Your folder'}
-                    <span className="hint">Downloads in the browser, then moves there when it finishes.</span>
-                  </span>
+                  <span>{folderName ?? 'Your folder'}</span>
                 </label>
               </div>
             </div>
@@ -423,31 +400,19 @@ export const AddTorrentDialog = ({
             <div className="toggles">
               <label className="check">
                 <input type="checkbox" checked={choices.start} onChange={(e) => set({ start: e.currentTarget.checked })}/>
-                <span>
-                  Start downloading
-                  <span className="hint">Off adds it to the library and leaves it paused.</span>
-                </span>
+                <span>Start downloading</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.sequential} onChange={(e) => set({ sequential: e.currentTarget.checked })}/>
-                <span>
-                  Download in sequential order
-                  <span className="hint">Front to back, so it can be watched early. Usually slower.</span>
-                </span>
+                <span>Download in sequential order</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.firstLast} onChange={(e) => set({ firstLast: e.currentTarget.checked })}/>
-                <span>
-                  Download first and last pieces first
-                  <span className="hint">Grabs each file's head and tail early, where a player looks for the header and the index.</span>
-                </span>
+                <span>Download first and last pieces first</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.topOfQueue} onChange={(e) => set({ topOfQueue: e.currentTarget.checked })}/>
-                <span>
-                  Put it first
-                  <span className="hint">Ahead of everything already waiting to run.</span>
-                </span>
+                <span>Put it first</span>
               </label>
             </div>
           </div>
@@ -460,15 +425,9 @@ export const AddTorrentDialog = ({
           <div className="fit" role="status">
             <strong>Bigger than the room left</strong>
             <span>
-              This selection is {getHumanReadableByteString(selected, true)} and your browser is
-              allowing Ripple {getHumanReadableByteString(shortfall.room, true)} more here. It can
-              still be added: the download stops if the room runs out before it finishes.
+              {getHumanReadableByteString(selected, true)} selected, {getHumanReadableByteString(shortfall.room, true)} free
             </span>
             {persist && onAskPersist && <PersistOffer persist={persist} onAsk={onAskPersist}/>}
-            {/* The folder route takes the place of the button where there is no button to have,
-                which is a browser that already answered. Never both: one route to read is the point
-                of a notice sitting on top of a confirm row. */}
-            {!canAsk && relief && <span>{reliefOffer(relief).detail}</span>}
           </div>
         )}
 

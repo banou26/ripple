@@ -139,7 +139,7 @@ const libraryFile = async (page: Page) => {
   await dialog.getByRole('button', { name: 'Choose a file', exact: true }).click()
   await (await chooser).setFiles(path)
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-  await expect(dialog.getByText('Ripple kept its own copy')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.locator('[data-outcome="copied"]')).toBeVisible({ timeout: 120_000 })
   await dialog.getByRole('button', { name: 'Close' }).click()
 
   const save = page.getByRole('button', { name: `Save ${FILE.name} to disk` })

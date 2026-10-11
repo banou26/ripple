@@ -2118,7 +2118,7 @@ const handleMessage = async (session: Session, m: any) => {
        * door: the message can also arrive from a stale tab or a keyboard shortcut.
        */
       if (e?.saveTo === 'source') {
-        post({ type: 'add-failed', message: 'This torrent was made from files on this device, so there is nowhere to fetch it from. Create it again from the same files to share it.' })
+        post({ type: 'add-failed', message: 'Nothing to download this from. Create it again from the same files.' })
         return
       }
       if (e) {

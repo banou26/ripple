@@ -62,16 +62,16 @@ const cleanName = (raw: string | undefined | null): string | undefined => {
 export const describeAddRequest = (
   { magnet, name }: { magnet: string | null | undefined, name?: string | null },
 ): AddRequest => {
-  if (!magnet) return { ok: false, problem: 'This link carried no torrent. Ripple was asked to add nothing at all.' }
+  if (!magnet) return { ok: false, problem: 'This link has no torrent in it.' }
   if (!magnet.startsWith('magnet:')) {
-    return { ok: false, problem: 'This link is not a magnet link, so there is nothing here Ripple can add.' }
+    return { ok: false, problem: 'This is not a magnet link.' }
   }
   const infoHash = magnetInfoHash(magnet)
   if (!infoHash) {
-    return { ok: false, problem: 'This magnet link has no info hash, so it does not name a torrent.' }
+    return { ok: false, problem: 'This magnet link has no info hash.' }
   }
   if (!V1.test(infoHash) && !V2.test(infoHash)) {
-    return { ok: false, problem: 'This magnet link\'s info hash is malformed, so it does not name a torrent.' }
+    return { ok: false, problem: 'This magnet link\'s info hash is malformed.' }
   }
   return {
     ok: true,

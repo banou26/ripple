@@ -19,7 +19,7 @@ import { hint } from './hint'
  * DISABLED RATHER THAN HIDDEN in the three states that cannot raise a prompt (already persistent,
  * blocked in the browser's own settings, or asked and answered no this session). A control that
  * disappears once it has been answered sends somebody hunting through browser settings for a switch
- * that is simply already decided, and the hint on the disabled button is where that answer lives.
+ * that is simply already decided, and the disabled button's label is that answer.
  *
  * The one-press latch is a ref as well as state, for the reason measured in `PersistOffer`: two
  * clicks in the same tick both reach the handler, because React has not re-rendered the button as

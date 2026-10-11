@@ -149,21 +149,16 @@ const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) 
   </div>
 )
 
-/**
- * One line each, because a stat strip is not the place for a paragraph and a new user has no idea
- * what a connect grant is. The distinction that matters to them is whether their library is safe
- * somewhere else, and whether they need to do anything about it.
- */
 const SYNC_DETAIL: Record<SyncReason, string> = {
-  'signed-out': 'Connect an account to keep your library across devices.',
-  'no-storage-grant': 'Your account is connected but storage did not answer. Retrying.',
-  'broker-timeout': 'FKN did not respond in time. Retrying.',
-  'account-unknown': 'Waiting until your account identifies itself, so libraries cannot be mixed up.',
-  locked: 'Your storage is locked. Unlock it to sync again.',
-  'read-failed': 'Your saved library could not be read, so it has been left untouched. Retrying.',
-  'read-timeout': 'FKN did not answer in time, so your saved library was left untouched. Retrying.',
-  'switch-unverified': 'Waiting to read this account\'s library before replacing the one on this device.',
-  'write-failed': 'This device\'s library could not be saved. It will retry on the next change.',
+  'signed-out': 'Connect an account to sync your library.',
+  'no-storage-grant': 'Storage did not answer. Retrying.',
+  'broker-timeout': 'FKN did not respond. Retrying.',
+  'account-unknown': 'Waiting for your account.',
+  locked: 'Your storage is locked. Unlock it to sync.',
+  'read-failed': 'Could not read your saved library. Retrying.',
+  'read-timeout': 'FKN did not respond. Retrying.',
+  'switch-unverified': 'Waiting for this account\'s library.',
+  'write-failed': 'Could not save your library. Retrying on the next change.',
 }
 
 const SyncStat = ({ state }: { state: SyncState }) => {
@@ -246,22 +241,19 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
     : !detail ? `:${port}`
     : `:${port} · ${detail}`
   /*
-   * The tooltip carries what the label cannot: the live count in words, and the session total.
-   *
-   * Both matter and they are different facts. "Nobody is connected in right now" is not the same as
-   * "nothing has ever reached this port", and only the second is a reason to go looking at a router.
+   * The tooltip carries what the label cannot: the session total. "Nobody is connected in right now"
+   * is not the same as "nothing has ever reached this port", and only the second is a reason to go
+   * looking at a router.
    */
-  const total = inbound > 0
-    ? ` ${inbound} in total have been accepted on it since this session started, so the port itself works.`
-    : ''
+  const total = inbound > 0 ? ` ${inbound} accepted this session.` : ''
   const title =
     failed ? listenFailed.join('\n')
-    : healing ? 'The connection carrying this port dropped. Reclaiming it.'
-    : port && !portOpen ? `Peers were told to dial ${port} and nothing is holding it any more. Reload to take a new one.`
+    : healing ? 'Connection dropped. Reconnecting.'
+    : port && !portOpen ? `Port ${port} is closed. Reload to get a new one.`
     : !port ? undefined
     : inboundNow.total > 0
-      ? `${inboundNow.total} ${inboundNow.total === 1 ? 'peer is' : 'peers are'} connected in on port ${port} right now: ${detail}.${total}`
-      : `Nobody is connected in on port ${port} right now.${total || ' Peers are told to dial it and none has yet.'}`
+      ? `${inboundNow.total} ${inboundNow.total === 1 ? 'peer' : 'peers'} connected in on port ${port}: ${detail}.${total}`
+      : `Nobody connected in on port ${port}.${total}`
   return (
     <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
       <label>Inbound</label>
@@ -1709,9 +1701,7 @@ const MissingRow = ({
                 the only seed, so there is nobody to fetch them from and the line has to say what
                 actually happened instead of offering a download that cannot work. */}
             <span>
-              {t.saveTo === 'source'
-                ? 'Ripple can no longer reach the files this was made from · pick them again to share it'
-                : "Files aren't on this device · download to fetch them"}
+              {t.saveTo === 'source' ? 'Source files unavailable' : 'Not on this device'}
             </span>
           </div>
         </div>
@@ -1850,22 +1840,19 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                   torrent still downloading has an ETA in this slot, which is the more useful number,
                   and a row carrying both reads as two competing answers to "how long". */}
               {(t.state === 'seeding' || t.state === 'done') && (t.stats?.seedingSeconds ?? 0) > 0 && (
-                <span
-                  className="seeded"
-                  {...hint(`Sharing this torrent for ${formatDuration(t.stats!.seedingSeconds)}, and running for ${formatDuration(t.stats!.activeSeconds)}, added up across every session`)}
-                >
+                <span className="seeded">
                   seeded for {formatDuration(t.stats!.seedingSeconds)}
                 </span>
               )}
               {/* Only when this torrent has been given one of its own. The session ceiling lives in
                   the footer and would be the same on every row, which is noise rather than news. */}
               {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (
-                <span className="limit" {...hint(`This torrent will not download faster than ${formatLimit(t.downloadLimit)}`)}>
+                <span className="limit">
                   ↓ max {formatLimit(t.downloadLimit)}
                 </span>
               )}
               {isLimit(t.uploadLimit) && t.uploadLimit > 0 && (
-                <span className="limit" {...hint(`This torrent will not upload faster than ${formatLimit(t.uploadLimit)}`)}>
+                <span className="limit">
                   ↑ max {formatLimit(t.uploadLimit)}
                 </span>
               )}
@@ -1968,9 +1955,7 @@ const Home = () => {
     if (Object.keys(saving).length > 0) {
       const ok = await confirm({
         title: 'Update now?',
-        body: 'A file is being saved to your disk right now. Updating reloads every Ripple page, and'
-          + ' that save will stop part way with nothing to resume from. Downloads themselves are safe'
-          + ' and pick up where they left off.',
+        body: 'Updating reloads Ripple and stops the file being saved to your disk.',
         confirmLabel: 'Update anyway',
       })
       if (!ok) return
@@ -2051,9 +2036,9 @@ const Home = () => {
   const [showSetup] = useState(() => !isAppInstalled())
   const onSetupHandlers = useCallback(async () => {
     const outcome = await setupHandlers()
-    if (outcome === 'installed') showToast('Ripple installed. Torrent files and magnet links open here now.')
+    if (outcome === 'installed') showToast('Ripple installed')
     else if (outcome === 'magnet-registered') showToast('Confirm the prompt to route magnet links to Ripple.')
-    else if (outcome === 'already-installed') showToast('Ripple is already set up on this device.')
+    else if (outcome === 'already-installed') showToast('Ripple is already installed')
     else showToast('Use your browser menu to install Ripple as an app.')
   }, [showToast])
 
@@ -2297,7 +2282,7 @@ const Home = () => {
       const onDisk = getHumanReadableByteString(t.downloaded ?? 0, true)
       const ok = await confirm({
         title: `Remove ${t.name}?`,
-        body: `This deletes the ${onDisk} already downloaded. It cannot be undone, and getting it back means downloading it again.`,
+        body: `This deletes the ${onDisk} already downloaded.`,
         confirmLabel: 'Remove and delete',
         tone: 'danger',
         rememberKey: 'ripple:confirm-remove',
@@ -2313,7 +2298,7 @@ const Home = () => {
 
   const onRecheck = (t: Torrent) => {
     recheck(Number(t.id))
-    showToast(`Checking ${t.name} against the files on disk`)
+    showToast(`Checking ${t.name}`)
   }
 
   /**
@@ -2327,7 +2312,7 @@ const Home = () => {
     if (t.state !== 'missing') {
       const ok = await confirm({
         title: `Remove ${t.name} from the library?`,
-        body: 'The downloaded files stay where they are. Ripple stops sharing it and forgets its progress.',
+        body: 'The downloaded files stay, but its progress is forgotten.',
         confirmLabel: 'Remove',
       })
       if (!ok) return
@@ -2379,14 +2364,14 @@ const Home = () => {
     reannounce: () => {
       client.reannounce(Number(t.id))
       // the only one of these with no visible consequence anywhere, so it says so itself
-      showToast(`Asking ${t.name}'s trackers for peers again`)
+      showToast(`Reannouncing ${t.name}`)
     },
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
     copyMagnet: () => {
       if (!magnet) return
       navigator.clipboard.writeText(magnet)
         .then(() => showToast(`Copied ${t.name}'s magnet`))
-        .catch(() => showToast('This page was not allowed to use the clipboard'))
+        .catch(() => showToast('Could not copy the magnet'))
     },
     saveTorrentFile: () => {
       if (!t.magnet || !t.infoHash) return
@@ -2605,8 +2590,8 @@ const Home = () => {
       const ok = await confirm({
         title: `Let Ripple delete ${t.name}?`,
         body: ownsDirectory
-          ? 'It stops being part of your library. Ripple can delete its files to free space when storage runs low, without asking again. You can download it again at any time.'
-          : 'It stops being part of your library. Its files are stored where Ripple does not delete on its own, so nothing is removed until you remove it.',
+          ? 'Ripple may delete its files when storage runs low.'
+          : 'Its files are only deleted when you remove it.',
         confirmLabel: 'Let Ripple delete it',
       })
       if (!ok) return
@@ -3081,7 +3066,6 @@ const Home = () => {
           <button
             className="update"
             type="button"
-            {...hint('A newer Ripple is ready. Taking it reloads every open Ripple page.')}
             onClick={onTakeUpdate}
           >
             <RefreshCw/>
@@ -3092,7 +3076,6 @@ const Home = () => {
           className="share"
           type="button"
           aria-expanded={embedOpen}
-          {...hint('Make a link that plays or downloads a torrent on any device, with no account')}
           onClick={() => (embedOpen ? closeEmbed() : openEmbed(null))}
         >
           <Link2/>
@@ -3103,7 +3086,6 @@ const Home = () => {
             className="share"
             type="button"
             aria-expanded={createOpen}
-            {...hint('Make a torrent from a file or folder on this device, and share it from where it is')}
             onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
           >
             <Upload/>
@@ -3146,10 +3128,6 @@ const Home = () => {
               ? 'A torrent you created needs access to its files again'
               : `${waitingSources.length} torrents you created need access to their files again`}
           </strong>
-          <span>
-            Browsers forget folder access when a page reloads, so these stopped sharing. Nothing was
-            lost and the files were not touched.
-          </span>
           <div className="actions">
             {/* One button per source, and one press each. `requestPermission` consumes the transient
                 activation, so a loop over several folders shows one prompt and silently fails for the
@@ -3175,21 +3153,13 @@ const Home = () => {
       {storageUnavailable && (
         <div className="storage-warning surface" role="alert">
           <strong>Ripple can't run in this window</strong>
-          <span>
-            Downloads are stored in your browser's private file system (OPFS), which isn't
-            available in private/incognito windows or when site storage is blocked. Open Ripple
-            in a normal window to download and stream.
-          </span>
+          <span>Open Ripple in a normal window, with site storage allowed.</span>
         </div>
       )}
 
       {workerError && (
         <div className="storage-warning surface" role="alert">
           <strong>The download engine stopped</strong>
-          <span>
-            Nothing will download until the page is reloaded. Your library and everything already
-            downloaded are safe. ({workerError})
-          </span>
           <button onClick={() => window.location.reload()}>Reload</button>
         </div>
       )}
@@ -3197,14 +3167,12 @@ const Home = () => {
       {offline && !storageUnavailable && !workerError && (
         <div className="storage-warning surface offline" role="status">
           <strong>You're offline</strong>
-          <span>Downloads carry on automatically as soon as the connection is back.</span>
         </div>
       )}
 
       {!offline && retrying > 0 && !workerError && (
         <div className="storage-warning surface offline" role="status">
-          <strong>{retrying === 1 ? 'A download hit a problem' : `${retrying} downloads hit a problem`}</strong>
-          <span>Ripple is retrying on its own. Each row shows why and when the next attempt is.</span>
+          <strong>{retrying === 1 ? 'A download hit a problem, retrying' : `${retrying} downloads hit a problem, retrying`}</strong>
         </div>
       )}
 
@@ -3266,11 +3234,9 @@ const Home = () => {
           ? (
             <div className="empty">
               <h1>Download. Stream.<br/><em>In your browser.</em></h1>
-              Ripple is a torrent client that runs entirely in your browser.<br/>
-              Watch the video while it downloads, then save it to your disk.
               <div className="hints">
-                <span>Paste a magnet link in the bar above</span>
-                <span>Or drop a magnet or a .torrent anywhere on this page</span>
+                <span>Paste a magnet link above</span>
+                <span>Or drop a magnet or a .torrent anywhere</span>
               </div>
             </div>
           )
@@ -3285,8 +3251,8 @@ const Home = () => {
                */
               <div className="empty">
                 {listFilter === 'temporary'
-                  ? 'No temporary downloads. Everything here is yours to keep.'
-                  : 'Nothing to show with this filter.'}
+                  ? 'No temporary downloads.'
+                  : 'Nothing matches this filter.'}
                 <div className="hints">
                   <button type="button" className="link" onClick={() => chooseFilter('all')}>
                     Show everything
@@ -3363,10 +3329,9 @@ const Home = () => {
           onChoices={setChoices}
           folderName={folder?.name}
           folderReady={!!folder && permitted}
-          // the same figures and the same two routes the warning above gets, so "this will not fit"
-          // can be said where the decision is made rather than after the download has stopped
+          // the same figures the warning above gets, so "this will not fit" can be said where the
+          // decision is made rather than after the download has stopped
           storage={storage}
-          relief={relief}
           persist={persistence}
           onAskPersist={() => void persistence.request()}
           onConfirm={confirmAdd}
@@ -3383,7 +3348,7 @@ const Home = () => {
             ? (rateEdit.scope === 'session' ? 'Total download rate limit' : 'Download rate limit')
             : (rateEdit.scope === 'session' ? 'Total upload rate limit' : 'Upload rate limit')}
           subject={rateEdit.scope === 'session'
-            ? 'Applies to every torrent at once'
+            ? 'All torrents'
             : rateEditTorrent?.name}
           value={rateEdit.scope === 'session'
             ? (rateEdit.direction === 'down' ? sessionLimits.down : sessionLimits.up)
@@ -3422,14 +3387,12 @@ const Home = () => {
             <button
               className={sessionLimits.down > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
-              {...hint('The most Ripple will download in total, across every torrent at once.')}
             >
               {formatLimit(sessionLimits.down)} down
             </button>
             <button
               className={sessionLimits.up > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
-              {...hint('The most Ripple will upload in total. Sharing back is what keeps a torrent alive, so leaving room here helps everyone on it.')}
             >
               {formatLimit(sessionLimits.up)} up
             </button>
@@ -3439,9 +3402,6 @@ const Home = () => {
             <button
               className={addDialog ? 'on' : undefined}
               onClick={() => chooseAddDialog(!addDialog)}
-              {...hint(addDialog
-                  ? 'Adding a magnet opens a dialog first, so you can pick which files to download and where they go.'
-                  : 'A magnet you add starts straight away with every file. Torrents sent from other sites always ask, whatever this says.')}
             >
               {addDialog ? 'Ask what to download' : 'Start straight away'}
             </button>
@@ -3467,9 +3427,6 @@ const Home = () => {
                 <button
                   className={defaultLocation === 'folder' ? 'on' : undefined}
                   onClick={() => chooseDefaultLocation(defaultLocation === 'folder' ? 'browser' : 'folder')}
-                  {...hint(defaultLocation === 'folder'
-                      ? `New torrents download into browser storage and move into ${folder.name} once they finish. Ripple keeps sharing them from there.`
-                      : `New torrents stay in browser storage. Ripple can still copy them into ${folder.name}, and keeps its own copy as well.`)}
                 >
                   {defaultLocation === 'folder' ? `Files go to ${folder.name}` : 'Files stay in the browser'}
                 </button>

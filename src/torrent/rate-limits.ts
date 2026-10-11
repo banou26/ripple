@@ -142,5 +142,5 @@ export const limitLabel = (own: number | undefined, global: number): string => {
 export const limitNote = (own: number | undefined, global: number): string | null => {
   if (!isLimit(own) || own === UNLIMITED) return null
   if (global === UNLIMITED || own <= global) return null
-  return `Everything together is limited to ${formatLimit(global)}, so this torrent will not go faster than that.`
+  return `Capped at ${formatLimit(global)} by the total limit.`
 }

@@ -230,7 +230,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * folder has been walked and hashed, saying nothing about the actual reason.
        */
       if (!read.files.reduce((sum, file) => sum + file.size, 0)) {
-        throw new Error('Every file in there is empty, and a torrent needs something to share')
+        throw new Error('Every file in there is empty')
       }
       const reopenable = canBeReopened(root)
       source.current = { root, name, files: read.files, single: read.single, reopenable }
@@ -360,7 +360,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         throw new Error(
           `${changed[0]!.path} changed while it was being read`
           + (changed.length > 1 ? `, along with ${changed.length - 1} more` : '')
-          + '. Nothing was published; start again and it will match.',
+          + '. Try again.',
         )
       }
 

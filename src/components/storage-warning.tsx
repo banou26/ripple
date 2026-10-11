@@ -15,7 +15,7 @@ import { PersistOffer } from './persist-offer'
  * under it: granting that doorhanger took the reported quota from 12 GB to 3.97 TB on an 8.03 TB
  * device. It is offered first and not alone, because on Chromium the same call is refused without
  * anyone being asked, and there the folder is the whole of what can be done. Once the browser has
- * answered, its answer takes that first slot in place of the button.
+ * answered, the ask is gone for the session.
  *
  * The two buttons must never read as one action, which is why neither label is written here: "Ask
  * for more room" comes from storage-permission.ts and the folder labels come from storage-relief.ts,
@@ -43,19 +43,12 @@ export const StorageWarning = ({ storage, relief, onAct, persist, onAskPersist }
     <div className="storage-warning surface" role="status">
       <strong>Running out of room</strong>
       <span>
-        Ripple has used {getHumanReadableByteString(storage.usedBytes, true)} of the
-        {' '}{getHumanReadableByteString(storage.limitBytes, true)} your browser allows this
-        site, counting everything it keeps here. Downloads stop when that runs out.
-        {!storage.persisted && ' Storage here is best effort, so the browser can also clear it on its own when the device gets tight.'}
+        {getHumanReadableByteString(storage.usedBytes, true)} of {getHumanReadableByteString(storage.limitBytes, true)} used
       </span>
-      {/* First, and above the folder, because it is the only route that can raise the number in the
-          sentence above. It renders nothing at all where there is nothing to ask for. */}
+      {/* First, because it is the only route that can raise the limit. It renders nothing where there
+          is nothing to ask for. */}
       <PersistOffer persist={persist} onAsk={onAskPersist}/>
-      {/* The way out that works on every engine, in the place the problem is reported. This used to
-          say only "removing a torrent frees its files", which is true, and points at deleting your
-          library. It stays on offer beside the ask above, and outlives it: the ask can be answered
-          no, and moving bytes off the origin still works when it is. */}
-      <span>{offer.detail}</span>
+      {offer.detail && <span>{offer.detail}</span>}
       {offer.action && <button type="button" onClick={onAct}>{offer.action}</button>}
     </div>
   )

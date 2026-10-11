@@ -86,7 +86,7 @@ for (const format of ['v1', 'hybrid', 'v2'] as const) {
     await dialog.getByLabel('Piece size').selectOption(String(PIECE))
     await dialog.getByLabel('Format').selectOption(format)
     await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-    await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+    await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
 
     const infoHash = (await dialog.locator('code').first().textContent())!
     expect(infoHash).toMatch(format === 'v2' ? /^[0-9a-f]{64}$/ : /^[0-9a-f]{40}$/)

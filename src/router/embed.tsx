@@ -15,7 +15,7 @@ import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { useReachability } from '../torrent/use-reachability'
-import { VPN_EXPLAINER, vpnStatus } from '../torrent/vpn-status'
+import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection } from './file-selection'
@@ -477,7 +477,7 @@ const Player = () => {
                 <ExternalLink />
               </a>
             }
-            toolTipText={<span>Open this torrent in Ripple<br />Opens a new tab</span>}
+            toolTipText={<span>Open this torrent in Ripple</span>}
           />
         )}
         {downloadHref && (
@@ -496,7 +496,7 @@ const Player = () => {
                 <Download />
               </a>
             }
-            toolTipText={<span>Download {fileName ?? 'this torrent'}<br />Opens a new tab</span>}
+            toolTipText={<span>Download {fileName ?? 'this torrent'}</span>}
           />
         )}
       </div>
@@ -510,7 +510,7 @@ const Player = () => {
             id="torrent-state"
             tooltipPlace="bottom-end"
             text={<div className="item state" data-testid="torrent-state"><Activity /><span>{stateLabel}</span></div>}
-            toolTipText={<span>Torrent: {stateLabel}<br />What the engine is doing with this torrent</span>}
+            toolTipText={<span>Torrent: {stateLabel}</span>}
           />
         )}
         {vpn && (
@@ -522,14 +522,14 @@ const Player = () => {
                anyway keeps every chip under its own item. */
             tooltipPlace="bottom-end"
             text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
-            toolTipText={<span>VPN: {vpn.label}<br />{VPN_EXPLAINER}</span>}
+            toolTipText={<span>VPN: {vpn.label}</span>}
           />
         )}
         <TooltipDisplay
           id="peers"
           tooltipPlace="bottom-end"
           text={<div className="item"><User /><span>{info.peers}</span></div>}
-          toolTipText={<span>Peers: {info.peers}<br />Computers connected to you</span>}
+          toolTipText={<span>Peers: {info.peers}</span>}
         />
         <TooltipDisplay
           id="download-speed"

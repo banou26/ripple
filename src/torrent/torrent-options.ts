@@ -32,7 +32,8 @@ export type OptionItem =
     kind: 'toggle'
     id: string
     label: string
-    hint: string
+    /** A short state or scope note, only where the label does not already say it. */
+    hint?: string
     checked: boolean
     /** Why this cannot be used right now, or absent when it can. */
     disabled?: string
@@ -44,7 +45,7 @@ export type OptionItem =
     /** Items sharing a `group` are one choice; exactly one of them is selected. */
     group: string
     label: string
-    hint: string
+    hint?: string
     selected: boolean
     disabled?: string
     apply: () => void
@@ -53,7 +54,7 @@ export type OptionItem =
     kind: 'action'
     id: string
     label: string
-    hint: string
+    hint?: string
     /** Destructive, so it is separated and marked in both surfaces. */
     danger?: boolean
     disabled?: string
@@ -173,7 +174,7 @@ export const buildTorrentOptions = (
   // every control it disables would otherwise send a command naming no torrent
   const ghost = !hasNoHandle(t)
     ? undefined
-    : isGhost(t) ? 'This torrent is not running on this device.' : 'This torrent is still starting up.'
+    : isGhost(t) ? 'Not on this device' : 'Still starting'
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
@@ -185,7 +186,7 @@ export const buildTorrentOptions = (
    *
    * The row kept seven of them and could not take another, which is what pushed this menu into
    * existence in the first place. It now keeps four icons for what people reach for constantly and
-   * everything else lives here, where it has room for a name and a sentence.
+   * everything else lives here, where it has room for a name.
    */
   const actions: OptionItem[] = []
   // Not for a ghost. Its file list is synced from another device, so it now looks playable while
@@ -196,7 +197,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'watch',
       label: 'Watch',
-      hint: 'Play it here. It streams while the rest arrives, so it does not have to finish first.',
       run: a.watch,
     })
   }
@@ -217,7 +217,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'start',
       label: 'Download to this device',
-      hint: 'This torrent is in your library but not on this device. This fetches it again.',
       run: a.start,
     })
   }
@@ -226,9 +225,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'save',
       label: multi ? 'Save as a zip' : 'Save to disk',
-      hint: multi
-        ? 'Writes every file out as one zip, wherever you choose.'
-        : 'Writes the file out wherever you choose.',
       run: a.save,
     })
   }
@@ -238,7 +234,6 @@ export const buildTorrentOptions = (
       id: 'embed',
       // a magnet is the whole of a share link, so this needs no metadata and no bytes on disk
       label: 'Get a share link',
-      hint: 'Makes a link that plays or downloads this torrent on any device.',
       run: a.embed,
     })
     actions.push({
@@ -246,14 +241,12 @@ export const buildTorrentOptions = (
       id: 'copy-magnet',
       // the magnet IS the torrent's name, so this asks nothing of the engine and works on a ghost
       label: 'Copy magnet',
-      hint: 'Puts this torrent\'s magnet link on the clipboard.',
       run: a.copyMagnet,
     })
     actions.push({
       kind: 'action',
       id: 'save-torrent-file',
       label: 'Save .torrent',
-      hint: 'Writes out the .torrent file for this torrent, wherever you choose.',
       /*
        * Needs the METADATA, which is a different question from having bytes on disk.
        *
@@ -263,9 +256,7 @@ export const buildTorrentOptions = (
        * cannot be asked to write one.
        */
       disabled: !t.files?.length
-        ? (isGhost(t)
-          ? 'This torrent is not running on this device, so its metadata cannot be read.'
-          : 'The metadata has not arrived yet.')
+        ? (isGhost(t) ? 'Not on this device' : 'Waiting for metadata')
         : undefined,
       run: a.saveTorrentFile,
     })
@@ -282,7 +273,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'toggle-run',
       label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
-      hint: 'Stops or restarts this torrent without forgetting anything.',
       disabled: ghost,
       run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
     },
@@ -290,8 +280,7 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'recheck',
       label: 'Force recheck',
-      hint: 'Re-hashes what is on disk. Use it if the files were changed outside Ripple.',
-      disabled: ghost ?? (t.state === 'checking' ? 'A check is already running.' : undefined),
+      disabled: ghost ?? (t.state === 'checking' ? 'Already checking' : undefined),
       run: a.recheck,
     },
   ]
@@ -303,7 +292,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'retry-now',
       label: 'Try again now',
-      hint: 'Stops waiting out the retry timer and reconnects immediately.',
       run: a.retryNow,
     })
   }
@@ -321,7 +309,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'remove',
       label: 'Remove from the library',
-      hint: 'Forgets this entry. Its files are not on this device anyway.',
       danger: true,
       run: a.remove,
     })
@@ -331,7 +318,6 @@ export const buildTorrentOptions = (
         kind: 'action',
         id: 'remove',
         label: 'Remove from the library',
-        hint: 'Forgets the torrent and stops sharing it. The copy in your folder stays.',
         danger: true,
         run: a.remove,
       })
@@ -340,9 +326,6 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'remove-files',
       label: context.savedToUserStorage ? 'Remove and delete Ripple\'s copy' : 'Remove and delete the files',
-      hint: context.savedToUserStorage
-        ? 'Forgets the torrent and frees the space Ripple is using. The copy in your folder stays.'
-        : 'Forgets the torrent and deletes what it downloaded. This cannot be undone.',
       danger: true,
       run: a.removeWithFiles,
     })
@@ -375,9 +358,6 @@ export const buildTorrentOptions = (
           id: 'location-browser',
           group: 'location',
           label: 'Keep in browser storage',
-          hint: current === 'browser' && intended === 'browser'
-            ? 'Where Ripple downloads. Private to this browser, and counts against its storage quota.'
-            : 'Copies the files back into browser storage. It can be shared and rechecked from there.',
           selected: intended === 'browser',
           apply: () => a.setLocation('browser'),
         },
@@ -386,9 +366,7 @@ export const buildTorrentOptions = (
           id: 'location-folder',
           group: 'location',
           label: `Move to ${context.folderName ?? 'your folder'}`,
-          hint: intended === 'folder' && pending
-            ? pending
-            : 'Puts the files somewhere you can open, and frees the browser storage they were using. Ripple keeps sharing them from there.',
+          hint: intended === 'folder' && pending ? pending : undefined,
           selected: intended === 'folder',
           apply: () => a.setLocation('folder'),
         },
@@ -397,9 +375,8 @@ export const buildTorrentOptions = (
           id: 'pick-folder',
           label: 'Choose another folder...',
           // Ripple holds ONE granted directory, so this changes it for everything rather than for
-          // this torrent alone. Said out loud, because a per-torrent menu implies per-torrent scope
-          // and quietly moving everyone else's files would be the worst possible surprise here.
-          hint: 'Picks the folder Ripple saves into. It is shared by every torrent set to save there.',
+          // this torrent alone, which a per-torrent menu would otherwise imply
+          hint: 'Applies to every torrent',
           run: a.pickFolder,
         },
       ],
@@ -411,7 +388,7 @@ export const buildTorrentOptions = (
    *
    * Positive direction on purpose: promoting is the safe, common action and reads as switching
    * something on. The off direction is the one that can lose data, and it loses it LATER, silently,
-   * with no further interaction, so the hint has to say that plainly and the caller confirms it.
+   * with no further interaction, so the caller confirms it.
    *
    * Shown for every torrent, not only temporary ones. A control that appears the moment a torrent
    * becomes deletable would be a control nobody ever finds, and the state it reports is worth
@@ -425,13 +402,10 @@ export const buildTorrentOptions = (
         kind: 'toggle',
         id: 'keep',
         label: 'Keep this download',
-        hint: t.ephemeral === true
-          ? 'Ripple downloaded this to play a link and can delete it to free space. Keep it and only you can remove it.'
-          : 'Only you can remove this. Turn it off and Ripple may delete it to free space when storage runs low.',
         checked: t.ephemeral !== true,
         // keyed by infohash rather than handle, like the location controls, so it works on a torrent
         // this device is not running. Without one there is nothing to name in the message.
-        disabled: t.infoHash ? undefined : 'This torrent has not reported an infohash yet.',
+        disabled: t.infoHash ? undefined : 'Waiting for the info hash',
         apply: (on) => a.setKept(on),
       },
     ],
@@ -447,12 +421,11 @@ export const buildTorrentOptions = (
           id: 'order-rarest',
           group: 'order',
           label: 'Rarest first',
-          hint: 'Grabs the pieces fewest peers have. Finishes sooner and is kinder to the swarm.',
           selected: !sequential,
           // Rarest first is not a flag of its own: it is libtorrent's default picker, and what
           // `sequential_download` replaces. So choosing it means clearing that flag, and there is
           // no state in which both or neither is true.
-          disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
+          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
           apply: () => a.setFlags(0, TORRENT_FLAG.sequentialDownload),
         },
         {
@@ -460,20 +433,18 @@ export const buildTorrentOptions = (
           id: 'order-sequential',
           group: 'order',
           label: 'Download in sequential order',
-          hint: 'Downloads front to back so it can be watched while it arrives. Usually slower.',
           selected: sequential,
-          disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
+          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
           apply: () => a.setFlags(TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload),
         },
         {
           kind: 'toggle',
           id: 'first-last',
           label: 'Download first and last pieces first',
-          hint: 'Takes each file\'s head and tail early, where a player looks for the header and the index.',
           checked: t.firstLast === true,
           // it composes with the piece order rather than replacing it, exactly as in qBittorrent,
           // which is why it is a checkbox beside the pair rather than a third choice within it
-          disabled: ghost ?? (complete ? 'This torrent has finished downloading.' : undefined),
+          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
           apply: (on) => a.setFirstLast(on),
         },
       ],
@@ -498,15 +469,14 @@ export const buildTorrentOptions = (
       id: 'speed',
       label: 'Speed',
       items: ([
-        ['limit-down', 'Limit download rate...', 'down', 'downloads', t.downloadLimit, sessionLimits.down],
-        ['limit-up', 'Limit upload rate...', 'up', 'shares back', t.uploadLimit, sessionLimits.up],
-      ] as const).map(([id, label, direction, verb, own, global]) => ({
+        ['limit-down', 'Limit download rate...', 'down', t.downloadLimit, sessionLimits.down],
+        ['limit-up', 'Limit upload rate...', 'up', t.uploadLimit, sessionLimits.up],
+      ] as const).map(([id, label, direction, own, global]) => ({
         kind: 'action' as const,
         id,
         label,
-        // the value lives in the hint rather than the label, so the label stays qBittorrent's and the
-        // sentence still says what the control does to someone who has never set one
-        hint: `How fast this torrent ${verb}, whatever else is running. Currently ${limitLabel(own, global)}.`,
+        // the value lives in the hint rather than the label, so the label stays qBittorrent's
+        hint: limitLabel(own, global),
         disabled: ghost,
         run: () => a.limitRate(direction),
       })),
@@ -522,7 +492,6 @@ export const buildTorrentOptions = (
           kind: 'toggle',
           id: 'dht',
           label: 'Disable DHT for this torrent',
-          hint: 'Stops looking for peers in the global peer directory. Trackers and peer exchange still apply.',
           checked: has(t, TORRENT_FLAG.disableDht),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.disableDht : 0, TORRENT_FLAG.disableDht),
@@ -531,7 +500,6 @@ export const buildTorrentOptions = (
           kind: 'toggle',
           id: 'pex',
           label: 'Disable PeX for this torrent',
-          hint: 'Stops connected peers introducing you to the peers they know.',
           checked: has(t, TORRENT_FLAG.disablePex),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.disablePex : 0, TORRENT_FLAG.disablePex),
@@ -540,7 +508,6 @@ export const buildTorrentOptions = (
           kind: 'action',
           id: 'reannounce',
           label: 'Force reannounce',
-          hint: 'Announces immediately instead of waiting for the next interval.',
           disabled: ghost,
           run: a.reannounce,
         },
@@ -554,7 +521,6 @@ export const buildTorrentOptions = (
           kind: 'toggle',
           id: 'upload-only',
           label: 'Upload mode',
-          hint: 'Keeps sharing what is already here and stops asking for anything new.',
           checked: has(t, TORRENT_FLAG.uploadMode),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.uploadMode : 0, TORRENT_FLAG.uploadMode),
@@ -563,11 +529,10 @@ export const buildTorrentOptions = (
           kind: 'toggle',
           id: 'super-seed',
           label: 'Super seeding mode',
-          hint: 'Hands each peer a different piece so the swarm gets a full copy sooner. For rare torrents.',
           checked: has(t, TORRENT_FLAG.superSeeding),
           // libtorrent ignores it while anything is still missing, so offering it then would be a
           // switch that flips back on its own
-          disabled: ghost ?? (complete ? undefined : 'Only available once the download has finished.'),
+          disabled: ghost ?? (complete ? undefined : 'Available once downloaded'),
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.superSeeding : 0, TORRENT_FLAG.superSeeding),
         },
       ],
@@ -589,7 +554,6 @@ export const buildTorrentOptions = (
         kind: 'action' as const,
         id,
         label,
-        hint: 'Decides which torrents run first when more are waiting than can run at once.',
         run: () => a.moveInQueue(where),
       })),
     })
