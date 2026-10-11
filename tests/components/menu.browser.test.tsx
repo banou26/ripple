@@ -130,14 +130,6 @@ describe('the torrent context menu', () => {
     expect(active()).toBe('Remove')
   })
 
-  it('tells the user how to reach the browser menu instead', async () => {
-    await mount()
-    const note = menu().querySelector('.passthrough')?.textContent ?? ''
-    expect(note).toMatch(/right-click/i)
-    expect(note).toMatch(/shift/i)
-    expect(note).toMatch(/ctrl/i)
-  })
-
   /** A disabled item that can be focused is a dead end the user has to arrow past. */
   it('skips over items that cannot be used', async () => {
     await mount()

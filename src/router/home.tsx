@@ -1701,7 +1701,7 @@ const MissingRow = ({
                 the only seed, so there is nobody to fetch them from and the line has to say what
                 actually happened instead of offering a download that cannot work. */}
             <span>
-              {t.saveTo === 'source' ? 'Source files unavailable' : 'Not on this device'}
+              {t.saveTo === 'source' ? 'Source files unavailable. Create it again from the same files.' : 'Not on this device'}
             </span>
           </div>
         </div>
@@ -2383,7 +2383,7 @@ const Home = () => {
       void saveTorrentFile({ infoHash: t.infoHash, magnet: t.magnet, name: t.name, flush: () => client.flushResume() })
         .then((result) => showToast(
           result === 'saved' ? `Saved ${t.name}.torrent`
-            : result === 'no-metadata' ? `${t.name} has no metadata yet, so there is no .torrent to save`
+            : result === 'no-metadata' ? `${t.name} has no metadata yet`
               : `The .torrent for ${t.name} could not be built`,
         ))
     },
@@ -2591,7 +2591,7 @@ const Home = () => {
         title: `Let Ripple delete ${t.name}?`,
         body: ownsDirectory
           ? 'Ripple may delete its files when storage runs low.'
-          : 'Its files are only deleted when you remove it.',
+          : 'It leaves your library, but its files stay until you remove it.',
         confirmLabel: 'Let Ripple delete it',
       })
       if (!ok) return
@@ -2619,7 +2619,7 @@ const Home = () => {
       showToast(to === 'folder' ? `${t.name} moved to ${folder.name}` : `${t.name} moved into browser storage`)
     } catch {
       // nothing was deleted: the copy runs first and the engine is only told once it lands
-      showToast(`Moving ${t.name} failed, nothing was lost`)
+      showToast(`Moving ${t.name} failed`)
     } finally {
       movingRef.current.delete(t.id)
       setMoving((m) => { const { [t.id]: _, ...rest } = m; return rest })

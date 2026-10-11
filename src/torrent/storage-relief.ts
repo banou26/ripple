@@ -75,8 +75,9 @@ export const storageRelief = (
 }
 
 /**
- * The button the "running out of room" notice offers, and the one line kept for a browser with no
- * folder at all, where removing a torrent is the only way to free room.
+ * The button the "running out of room" notice offers, and the one line kept where no button is left
+ * (no folder access at all, or finished downloads already move out), since removing a torrent is
+ * then the only way to free room.
  *
  * Every action moves bytes out from under the limit and never moves the limit itself, so no label
  * here may promise more room: that is the separate persistent-storage ask in storage-permission.ts.
@@ -92,6 +93,6 @@ export const reliefOffer = (relief: StorageRelief): { detail: string | null, act
     case 'allow':
       return { detail: null, action: `Allow ${relief.folderName}` }
     case 'settled':
-      return { detail: null, action: null }
+      return { detail: 'Removing a torrent frees its files.', action: null }
   }
 }

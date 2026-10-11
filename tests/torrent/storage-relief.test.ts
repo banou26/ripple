@@ -46,10 +46,10 @@ describe('what to offer when the origin is filling up', () => {
       .toEqual({ kind: 'allow', folderName: 'downloads' })
   })
 
-  it('offers nothing more once finished downloads already move out', () => {
+  it('offers only the remove line once finished downloads already move out', () => {
     const settled = relief({ folderName: 'downloads', permitted: true, defaultLocation: 'folder' })
     expect(settled).toEqual({ kind: 'settled', folderName: 'downloads' })
-    expect(reliefOffer(settled).action).toBeNull()
+    expect(reliefOffer(settled)).toEqual({ detail: 'Removing a torrent frees its files.', action: null })
   })
 
   /**

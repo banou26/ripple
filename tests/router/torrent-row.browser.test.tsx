@@ -294,6 +294,20 @@ describe('a library row', () => {
     await expect.element(screen.getByText('82 peers')).toBeInTheDocument()
   })
 
+  /** A created source has no swarm to fetch from, so the row's one line is also its only way out. */
+  it('tells a missing created source to be made again, with no download offered', async () => {
+    thumbnail.current = null
+    const { TorrentRow, style } = await import('../../src/router/home')
+    const screen = await render(
+      <MemoryRouter>
+        <div css={style}><main><TorrentRow t={torrent({ state: 'missing', saveTo: 'source' })} {...handlers()} /></main></div>
+      </MemoryRouter>,
+      sized(),
+    )
+    await expect.element(screen.getByText('Source files unavailable. Create it again from the same files.')).toBeInTheDocument()
+    expect(screen.container.querySelector('button[aria-label^="Download "]')).toBeNull()
+  })
+
   /**
    * Selection is what fills the docked details panel, so the ordinary click on a card has to be it.
    * The panel lives at the bottom of the page now rather than inside the row, which is why none of
