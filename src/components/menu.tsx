@@ -118,20 +118,6 @@ export const menuStyle = css`
     outline: none;
   }
 
-  .passthrough {
-    margin: 4px 0 0;
-    padding: 7px 10px 3px;
-    border-top: 1px solid ${BORDER};
-    /* A footnote about an affordance the browser normally offers, not an item in the list, so it
-       should read quieter than the group headings. Not by going darker, though: TEXT_FAINT lands at
-       4.4:1 on ELEVATED_BG, which is why theme.ts holds it to PAGE_BG and SURFACE_BG. TEXT_MUTED is
-       5.8:1 here, and the tier still reads, because the headings are 0.65rem uppercase bold with
-       0.08em tracking against this 0.7rem sentence case. */
-    color: ${TEXT_MUTED};
-    font-size: 0.7rem;
-    line-height: 1.35;
-  }
-
   button {
     display: flex;
     align-items: center;
@@ -485,11 +471,7 @@ export const MenuSurface = ({
   )
 }
 
-/**
- * The right-click menu, which is what this file was before anything else needed the behaviour.
- *
- * Its props and the DOM it renders are deliberately unchanged.
- */
+/** The right-click menu, which is what this file was before anything else needed the behaviour. */
 export const ContextMenu = ({
   groups, at, label, onClose,
 }: {
@@ -500,9 +482,5 @@ export const ContextMenu = ({
 }) => (
   <MenuSurface placement={{ kind: 'pointer', at }} label={label} onClose={onClose}>
     <MenuItems groups={groups} onChose={onClose}/>
-    {/* Taking over the right button removes something the browser normally offers, so the way
-        back is stated rather than left to be discovered. Both modifiers are accepted: Ctrl is
-        the secondary click on macOS, where Shift is the one that reads naturally. */}
-    <p className="passthrough">Shift or Ctrl + right-click for the browser menu</p>
   </MenuSurface>
 )
