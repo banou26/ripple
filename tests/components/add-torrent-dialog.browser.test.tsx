@@ -52,7 +52,6 @@ const mount = (over: Partial<Props> = {}) => {
       onCancel={() => {}}
       // 1.2 GB of room left, against a 4.5 GB selection unless a test says otherwise
       storage={{ usedBytes: 8_800_000_000, limitBytes: 10_000_000_000, persisted: false }}
-      relief={{ kind: 'choose' }}
       persist={asking()}
       onAskPersist={onAskPersist}
       {...over}
@@ -101,15 +100,11 @@ describe('the add dialog when the selection is bigger than the room left', () =>
     expect(onAskPersist).toHaveBeenCalledTimes(1)
   })
 
-  /**
-   * Already persistent, so there is nothing left to ask the browser for. The folder route takes the
-   * place of the button rather than a button being left there to press into an answered question.
-   */
-  it('offers the folder route and no button where there is nothing to ask for', async () => {
+  /** Already persistent, so there is nothing left to ask the browser for and no button to press. */
+  it('offers no button where there is nothing to ask for', async () => {
     mount({ persist: asking({ persisted: true, permission: 'granted' }) })
     await expect.poll(() => notice()).not.toBeNull()
     expect(named('Ask for more room')).toBeUndefined()
-    expect(notice()?.textContent).toContain('a folder on your computer')
   })
 
   /** the documented default: a caller with no reading has nothing to compare, so it says nothing */

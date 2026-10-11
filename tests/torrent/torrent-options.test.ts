@@ -259,10 +259,6 @@ describe('the torrent option list', () => {
       expect(flat(ghost).map((i) => i.id)).not.toContain('remove-files')
     })
 
-    it('does not claim its files are being left anywhere', () => {
-      expect(find(ghost, 'remove')!.hint).not.toContain('folder')
-    })
-
     /**
      * A CREATED SOURCE IS THE ONE GHOST WITH NOWHERE TO DOWNLOAD FROM, and offering it is not merely
      * useless: it is destructive.
@@ -432,7 +428,7 @@ describe('the torrent option list', () => {
 
     it('drops the pending wording once it has arrived', () => {
       const settled = item(torrent({ progress: 1 }), 'location-folder', withFolder({ intended: 'folder', current: 'folder' }))!
-      expect(settled.hint).not.toMatch(/when it finishes/)
+      expect(settled.hint).toBeUndefined()
     })
 
     it('applies the choice through setLocation, in both directions', () => {
@@ -461,7 +457,7 @@ describe('the torrent option list', () => {
       const a = actions()
       const pick = item(torrent(), 'pick-folder', withFolder(), a)!
       if (pick.kind !== 'action') throw new Error('not an action')
-      expect(pick.hint).toMatch(/shared by every torrent/)
+      expect(pick.hint).toMatch(/every torrent/)
       pick.run()
       expect(a.pickFolder).toHaveBeenCalled()
     })
@@ -533,12 +529,6 @@ describe('the torrent option list', () => {
       }
     }
   })
-
-  it('gives every item a hint, since the dialog shows one for each', () => {
-    for (const item of flat(torrent({ queuePosition: 0 }))) {
-      expect(item.hint.length, item.id).toBeGreaterThan(10)
-    }
-  })
 })
 
 /**
@@ -592,13 +582,8 @@ describe('keeping a download', () => {
   it('never says ephemeral or cache where a person can read it', () => {
     for (const t of [torrent({ ephemeral: true }), torrent({ ephemeral: false })]) {
       const item = find(t, 'keep')!
-      expect(item.label + ' ' + ('hint' in item ? item.hint : '')).not.toMatch(/ephemeral|cache|evict/i)
+      expect(item.label + ' ' + (item.hint ?? '')).not.toMatch(/ephemeral|cache|evict/i)
     }
-  })
-
-  it('says what turning it off actually costs', () => {
-    const item = find(torrent({ ephemeral: false }), 'keep')!
-    expect('hint' in item && item.hint).toMatch(/delete/)
   })
 })
 
@@ -642,10 +627,10 @@ describe('taking the torrent itself away', () => {
 
   it('disables Save .torrent until the metadata is there, and says which reason', () => {
     const waiting = find(torrent({ files: [] }), 'save-torrent-file')
-    expect(waiting?.disabled).toMatch(/metadata has not arrived/)
+    expect(waiting?.disabled).toMatch(/metadata/)
 
     const ghost = find(torrent({ state: 'missing', flags: 0, files: [] }), 'save-torrent-file')
-    expect(ghost?.disabled, 'a ghost cannot be asked to write a resume blob').toMatch(/not running on this device/)
+    expect(ghost?.disabled, 'a ghost cannot be asked to write a resume blob').toMatch(/Not on this device/)
 
     const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] }), 'save-torrent-file')
     expect(ready?.disabled, 'this is the case the whole feature is for').toBeUndefined()

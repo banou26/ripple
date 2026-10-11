@@ -146,7 +146,7 @@ test('a hybrid torrent verifies against both of its own hash trees', async ({ pa
 
   await page.screenshot({ path: 'test-results/hybrid-review.png' })
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-  await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
 
   /*
    * TWO hashes, and the v1 one is the identity.
@@ -233,7 +233,7 @@ test('a v2 torrent keeps a 64 character identity the rest of the app recognises'
   await dialog.getByLabel('Piece size').selectOption(String(PIECE))
   await dialog.getByLabel('Format').selectOption('v2')
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-  await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
 
   // ONE hash, and it is the v2 one. A v2 torrent has no v1 name to fall back on.
   const hashes = await dialog.locator('code').allTextContents()
@@ -322,7 +322,7 @@ test('a created hybrid torrent restarts after a reload', async ({ page }) => {
   await dialog.getByLabel('Piece size').selectOption(String(PIECE))
   await dialog.getByLabel('Format').selectOption('hybrid')
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-  await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
   const infoHash = (await dialog.locator('code').first().textContent())!
   await dialog.getByRole('button', { name: 'Close' }).click()
 

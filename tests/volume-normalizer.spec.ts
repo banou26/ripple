@@ -150,7 +150,7 @@ test('the cue is held to the dialogue with the switch on, and keeps its lead off
   await dialog.getByRole('button', { name: 'Choose a file', exact: true }).click()
   await (await chooser).setFiles(file)
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-  await expect(dialog.getByText('Ripple kept its own copy')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.locator('[data-outcome="copied"]')).toBeVisible({ timeout: 120_000 })
   await dialog.getByRole('button', { name: 'Close' }).click()
   const watch = page.getByRole('link', { name: `Watch ${NAME}` })
   await expect(watch).toBeVisible({ timeout: 120_000 })

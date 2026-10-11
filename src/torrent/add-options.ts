@@ -76,7 +76,7 @@ export const flagsFor = (choices: AddChoices): [flags: number, mask: number] => 
  * than like a thing nobody asked for.
  */
 export const choicesProblem = (choices: AddChoices): string | null =>
-  choices.files.length === 0 ? 'Choose at least one file, or cancel to add nothing at all.' : null
+  choices.files.length === 0 ? 'Choose at least one file.' : null
 
 /** Bytes that will actually be downloaded, which is what the dialog shows against the total. */
 export const selectedBytes = (choices: AddChoices, files: { size: number }[]): number =>

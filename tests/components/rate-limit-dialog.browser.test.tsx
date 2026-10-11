@@ -122,14 +122,14 @@ describe('refusing what it cannot read', () => {
  */
 describe('saying when the session limit is what really binds', () => {
   it('shows the warning it was given', async () => {
-    apply({ value: 5_000_000, note: 'Everything together is limited to 1 MB/s, so this torrent will not go faster than that.' })
-    await expect.poll(() => document.body.textContent).toContain('will not go faster')
+    apply({ value: 5_000_000, note: 'Capped at 1 MB/s by the total limit.' })
+    await expect.poll(() => document.body.textContent).toContain('Capped at 1 MB/s')
   })
 
   it('drops the warning once the field says unlimited, where it no longer applies', async () => {
-    apply({ value: 5_000_000, note: 'Everything together is limited to 1 MB/s.' })
-    await expect.poll(() => document.body.textContent).toContain('Everything together')
+    apply({ value: 5_000_000, note: 'Capped at 1 MB/s by the total limit.' })
+    await expect.poll(() => document.body.textContent).toContain('Capped at')
     await userEvent.click(unlimitedBox())
-    await expect.poll(() => document.body.textContent).not.toContain('Everything together')
+    await expect.poll(() => document.body.textContent).not.toContain('Capped at')
   })
 })

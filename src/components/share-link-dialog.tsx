@@ -77,14 +77,6 @@ const style = css`
       font-size: 1.05rem;
       font-weight: 600;
     }
-
-    p {
-      margin: 6px 0 0;
-      max-width: 62ch;
-      font-size: 0.8rem;
-      line-height: 1.55;
-      color: ${TEXT_MUTED};
-    }
   }
 
   .body {
@@ -623,10 +615,6 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
         <div className="card">
           <header>
             <h2 id="share-link-title">Share link</h2>
-            <p>
-              Makes a link that opens one torrent on any device, with no Ripple account and nothing
-              to install. Send it to somebody, or put it on a page.
-            </p>
           </header>
 
           <div className="body">
@@ -652,7 +640,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                       into an add, and a second handler here would add the same file twice. This
                       shows WHERE it lands and offers the picker for people who would rather click. */}
                   <div className="drop" data-drop={dragging || undefined}>
-                    <span>Drop a .torrent file anywhere on this window</span>
+                    <span>Drop a .torrent file</span>
                     <label className="file-button">
                       Choose a file
                       <input
@@ -677,23 +665,16 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     </span>
                   </div>
 
-                  <div className="opt">
-                    <label id="share-mode">The link</label>
-                    {/* one option is not a choice, so nothing to press is offered when Watch is out */}
-                    {watchable && (
+                  {/* one option is not a choice, so nothing to press is offered when Watch is out */}
+                  {watchable && (
+                    <div className="opt">
+                      <label id="share-mode">The link</label>
                       <div className="seg" role="group" aria-labelledby="share-mode">
                         <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>Watch</button>
                         <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>Download</button>
                       </div>
-                    )}
-                    <span className="note">
-                      {mode === 'watch'
-                        ? 'Opens the player and starts playing while the file downloads.'
-                        : watchable
-                          ? 'Opens a page with a Download button. Several files arrive as one .zip.'
-                          : 'Opens a page with a Download button. There is nothing here the player can open, so a watch link is not offered.'}
-                    </span>
-                  </div>
+                    </div>
+                  )}
 
                   {/*
                     * Nothing to choose between with a single file, so nothing is offered.
@@ -706,7 +687,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     * says the name and "1 file".
                     */}
                   {fileCount === 0
-                    ? <span className="note">Reading the file list from the network. The link works already and covers the whole torrent.</span>
+                    ? <span className="note">Loading the file list...</span>
                     : fileCount === 1
                     ? null
                     : mode === 'watch'
@@ -749,10 +730,10 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                       )}
 
                   {!link
-                    ? <span className="warn">This torrent has no magnet yet, so it cannot be linked.</span>
+                    ? <span className="warn">No magnet link yet.</span>
                     : empty
                     /* an absent files= means ALL, so there is no link that means "none of them" */
-                    ? <span className="warn">Pick at least one file. A link with none would hand over the whole torrent.</span>
+                    ? <span className="warn">Pick at least one file.</span>
                     : (
                       <>
                         <div className="out">
@@ -762,17 +743,11 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                         </div>
 
                         <details className="snippet">
-                          <summary>Put it on a web page instead</summary>
+                          <summary>Embed on a web page</summary>
                           <div className="out">
                             <pre data-testid="embed-iframe">{snippet}</pre>
                             <button type="button" onClick={() => copy(snippet, 'Frame')}>Copy</button>
                           </div>
-                          {mode === 'download' && (
-                            <span className="note">
-                              allow-downloads is required. Sandbox flags combine with the page above, so a
-                              frame cannot add back what its embedder left out.
-                            </span>
-                          )}
                         </details>
                       </>
                     )}

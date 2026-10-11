@@ -16,17 +16,14 @@ import type { Reachability } from './client'
  * OFF is exactly one measurement, "the WebVPN is not carrying this", and it currently covers two
  * situations that are opposite in every way that matters:
  *
- *  - In the desktop app the connections go over the machine's own network stack. Nothing is wrong,
- *    which is what `VPN_EXPLAINER` describes, and it is the distinction this readout was asked for.
+ *  - In the desktop app the connections go over the machine's own network stack. Nothing is wrong.
  *  - In a plain browser there is no second transport at all. `@fkn/lib/desktop` is a declared
  *    placeholder in 0.9.24 whose `available()` returns false and whose every method throws, so off
  *    here means nothing is carrying anything: every torrent sits on "Loading torrent…" with zero
  *    peers and no error anywhere on screen. That is the state this readout was built to name.
  *
- * NOTHING IN `Reachability` SEPARATES THE TWO, so the copy is split by job rather than by state:
- * the explainer says what on and off ARE, and `detail` below says what off COSTS, which is only
- * ever read where the cost is real. When a desktop backend ships, give this a third answer instead
- * of leaving one word meaning both.
+ * NOTHING IN `Reachability` SEPARATES THE TWO. When a desktop backend ships, give this a third
+ * answer instead of leaving one word meaning both.
  */
 export type VpnState = 'on' | 'healing' | 'off'
 
@@ -34,23 +31,9 @@ export type VpnStatus = {
   state: VpnState
   /** One WORD, because colour is never allowed to be the only thing separating these states. */
   label: string
-  /** What this state means for the download in front of the person right now. */
-  detail: string
+  /** One line for the state that needs acting on, or null where the label says it all. */
+  detail: string | null
 }
-
-/**
- * What the readout itself means, as opposed to what the current state means.
- *
- * Written once and shown by every placement, in words that assume nothing. "Peer traffic" and "the
- * tunnel" are the two phrases this used to lean on and neither means anything to somebody who has
- * simply been handed a link, which is most of the people who ever see this readout.
- *
- * It says what the two states ARE rather than what they cost, because the cost differs by where
- * ripple is running: see the note on `vpnStatus` below for why off is not always a fault.
- */
-export const VPN_EXPLAINER =
-  'Torrents work by connecting straight to other people\'s computers. On means those connections go '
-  + 'through FKN\'s WebVPN. Off means they go over your own connection instead.'
 
 /** Null while the engine has said nothing: not knowing is not the same as off. */
 export const vpnStatus = (reachable: Reachability | null): VpnStatus | null => {
@@ -66,12 +49,6 @@ export const vpnStatus = (reachable: Reachability | null): VpnStatus | null => {
   return {
     state,
     label: on ? 'On' : healing ? 'Reconnecting' : 'Off',
-    detail: on
-      ? 'Connected. Downloads can reach other people\'s computers.'
-      : healing
-        ? 'The connection dropped. Ripple is getting it back, and downloads will carry on by themselves.'
-        : 'Not going through the WebVPN, and nothing else here is carrying these connections, so '
-          + 'torrents will sit on "Loading torrent…" with no peers until this says On. '
-          + 'Try reloading the page.',
+    detail: on || healing ? null : 'No peers can connect. Try reloading the page.',
   }
 }

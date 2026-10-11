@@ -128,7 +128,7 @@ const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }:
 
   if (totalBytes > MAX_BUFFERED_BYTES) {
     throw new DownloadUnavailableError(
-      'This browser could not start a streaming download here, and the file is too large to build in memory.',
+      'This file is too large to save here.',
     )
   }
 

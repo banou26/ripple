@@ -300,19 +300,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
         </header>
 
         <div className="body">
-          {/* "Your files are only read" and not "nothing is copied", which stopped being true for
-              everyone the moment every engine got the pickers. Some browsers cannot hand a pick back
-              after a reload, and Ripple keeps its OWN copy in browser storage for those so the
-              sharing survives one. Which of the two this is cannot be known until something has been
-              picked, so the sentence promises the part that always holds and the review step says
-              what will actually happen to this pick, with the size of the copy, before anybody
-              presses anything. */}
-          {state.stage === 'idle' && (
-            <p>
-              Pick a file or a folder on this device. Ripple reads it where it is, builds the torrent,
-              and shares it from there. Your files are never written to and never moved.
-            </p>
-          )}
+          {state.stage === 'idle' && <p>Pick a file or a folder to share.</p>}
 
           {state.stage === 'reading' && (
             <p>Reading the folder{state.filesFound ? `, ${state.filesFound} files so far` : ''}…</p>
@@ -362,27 +350,11 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                     replanWith({ format: chosen })
                   }}
                 >
-                  <option value="v1">v1, which every client understands</option>
-                  <option value="hybrid">Hybrid, v1 and v2 in one torrent</option>
+                  <option value="v1">v1</option>
+                  <option value="hybrid">Hybrid, v1 and v2</option>
                   <option value="v2">v2 only</option>
                 </select>
               </label>
-              <p className="faint">
-                {format === 'v1'
-                  ? 'The original format. Every client can download it.'
-                  : format === 'hybrid'
-                    ? 'Carries both formats in one torrent, so older clients use the v1 half and newer '
-                      + 'ones can verify each file on its own.'
-                      + (state.plan.paddedBytes > state.plan.totalBytes
-                        // only when there IS some. A single file, or a folder whose files already end
-                        // on a piece boundary, pays nothing and should not be told it does.
-                        ? ' Each file is padded up to a piece boundary, which is where the padding'
-                          + ' above comes from.'
-                        : ' These files already end on piece boundaries, so this one costs no padding.')
-                    : 'Smaller and verifiable file by file, and invisible to any client that has not '
-                      + 'implemented it, which is still most of them. Choose this only if you know who '
-                      + 'is downloading.'}
-              </p>
 
               {/*
                 * Said here rather than left to be discovered, because the torrent is correct and the
@@ -392,9 +364,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 */}
               {dropsFolderName(state.plan) && (
                 <p className="warn">
-                  A v2 torrent cannot carry a folder that holds a single file, so
-                  {' '}<strong>{state.plan.name}</strong>{' '}
-                  will not survive: whoever downloads this gets the file on its own. Hybrid keeps it.
+                  v2 loses the folder name <strong>{state.plan.name}</strong>. Hybrid keeps it.
                 </p>
               )}
 
@@ -413,22 +383,9 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   ))}
                 </select>
               </label>
-              {state.plan.pieceLength >= 32 * 1024 * 1024 && (
-                <p className="faint">
-                  {/* only for the large end, where it stops being a detail. A piece is the smallest
-                      thing a peer can hand over, so this is what a stream waits for before it can
-                      start and what a failed hash check costs to fetch again. */}
-                  A piece is the smallest thing a peer can send, so at {binaryBytes(state.plan.pieceLength)}
-                  {' '}a stream waits that long for its first frame and one failed check costs that
-                  much to fetch again.
-                </p>
-              )}
 
               {state.truncated && (
-                <p className="warn">
-                  That folder holds more files than Ripple will put in one torrent. Pick a smaller
-                  folder, or nothing here will describe all of it.
-                </p>
+                <p className="warn">Too many files for one torrent. Pick a smaller folder.</p>
               )}
               {state.skipped.length > 0 && (
                 <details>
@@ -446,7 +403,6 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 <span>Trackers, one per line</span>
                 <textarea value={trackerText} onChange={(event) => setTrackerText(event.target.value)}/>
               </label>
-              <p className="faint">Leave the trackers empty to rely on the DHT alone.</p>
 
               <details>
                 <summary className="faint">Web seeds, comment, source</summary>
@@ -455,10 +411,6 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                     <span>Web seed URLs, one per line</span>
                     <textarea value={webSeedText} onChange={(event) => setWebSeedText(event.target.value)}/>
                   </label>
-                  <p className="faint">
-                    Http addresses the same files can also be fetched from. Ripple writes them into
-                    the torrent for other clients; it does not download from them itself.
-                  </p>
                   <label className="field">
                     <span>Comment</span>
                     <input type="text" value={comment} onChange={(event) => setComment(event.target.value)}/>
@@ -467,28 +419,15 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                     <span>Source</span>
                     <input type="text" value={sourceTag} onChange={(event) => setSourceTag(event.target.value)}/>
                   </label>
-                  <p className="faint">
-                    Source goes inside the torrent's identity, so setting it makes a different
-                    torrent out of the same files. Private trackers ask for a particular value;
-                    leave it empty unless you were given one, or nobody you share with will find you.
-                  </p>
                 </div>
               </details>
 
               <label className="check">
                 <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)}/>
-                <span>
-                  Private
-                  <span className="faint"> · keeps it to the trackers above, with no DHT and no peer exchange</span>
-                </span>
+                <span>Private</span>
               </label>
 
               {state.error && <p className="warn">{state.error}</p>}
-
-              <p className="faint">
-                Sharing means anyone with the link can download these files while this tab is open.
-                The files stay where they are and Ripple never writes to them.
-              </p>
 
               {/* The copy is the largest thing this dialog can set off, so its size is on screen
                   before the button is pressed rather than after. Only ever shown for a pick that
@@ -496,30 +435,20 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   measurement not being back yet, and says nothing rather than guessing. */}
               {state.room?.kind === 'fits' && state.plan && (
                 <p className="faint">
-                  Ripple will keep a {getHumanReadableByteString(state.plan.totalBytes)} copy in browser
-                  storage, so this keeps sharing after a reload. Your own files are left alone.
+                  Keeps a {getHumanReadableByteString(state.plan.totalBytes)} copy in browser storage.
                 </p>
               )}
               {state.room?.kind === 'short' && state.plan && (
                 <p className="warn">
-                  There is not room in browser storage to keep a copy: this needs
-                  {' '}{getHumanReadableByteString(state.plan.totalBytes)} and is
-                  {' '}{getHumanReadableByteString(state.room.shortBy)} short. It will still be shared,
-                  for as long as this tab stays open.
+                  {getHumanReadableByteString(state.room.shortBy)} short of room for a copy. Sharing stops
+                  when this tab closes.
                 </p>
               )}
               {state.room?.kind === 'unsafe' && (
-                <p className="warn">
-                  One of these names is too long for the engine to keep as written, so Ripple will not
-                  copy them: it would put the files somewhere the torrent does not point. It will
-                  still be shared, for as long as this tab stays open.
-                </p>
+                <p className="warn">A file name is too long to copy. Sharing stops when this tab closes.</p>
               )}
               {state.room?.kind === 'unknown' && (
-                <p className="faint">
-                  This browser will not say how much storage is free, so Ripple will not start a copy
-                  it cannot promise to finish. Sharing lasts as long as this tab stays open.
-                </p>
+                <p className="faint">Sharing stops when this tab closes.</p>
               )}
             </>
           )}
@@ -527,9 +456,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
           {(state.stage === 'hashing' || state.stage === 'checking') && (
             <>
               <p>
-                {state.stage === 'checking'
-                  ? 'Checking the files did not change while that ran…'
-                  : 'Reading and hashing the files…'}
+                {state.stage === 'checking' ? 'Checking the files…' : 'Hashing the files…'}
               </p>
               <div className="bar"><div style={{ width: `${Math.round(done * 100)}%` }}/></div>
               <p className="faint">
@@ -544,7 +471,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
 
           {state.stage === 'copying' && (
             <>
-              <p>Keeping a copy in browser storage, so this goes on sharing after a reload…</p>
+              <p>Copying to browser storage…</p>
               <div className="bar">
                 <div style={{ width: `${Math.round(copied * 100)}%` }}/>
               </div>
@@ -557,13 +484,14 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
             </>
           )}
 
-          {state.stage === 'adding' && <p>Handing it to the engine…</p>}
+          {state.stage === 'adding' && <p>Adding…</p>}
 
           {state.stage === 'done' && state.built && (
             <>
-              <p>
-                <strong>{state.built.plan.name}</strong> is being shared from where it sits on this
-                device.
+              {/* `data-outcome` names which kind of sharing this turned out to be: one re-opens its
+                  files after a reload, one survives on Ripple's own copy, one lasts as long as the tab */}
+              <p data-outcome={state.reopenable ? 'reopenable' : state.room?.kind === 'fits' ? 'copied' : 'tab'}>
+                <strong>{state.built.plan.name}</strong> is being shared.
               </p>
               <p className="faint">Info hash <code>{state.built.infoHash}</code></p>
               {/* only when it is a SECOND name for the same torrent. A v2-only torrent's identity IS
@@ -571,15 +499,9 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               {state.built.infoHashV2 && state.built.infoHashV2 !== state.built.infoHash && (
                 <p className="faint">v2 info hash <code>{state.built.infoHashV2}</code></p>
               )}
-              {/* Keyed on THIS pick, not on the browser. Every engine has the pickers now, and what
-                  differs is whether the one thing picked can be handed back after a reload. */}
-              <p className="faint">
-                {state.reopenable
-                  ? 'It keeps sharing while Ripple is open. After a reload the browser asks for access to those files again before it can carry on.'
-                  : state.room?.kind === 'fits'
-                    ? 'Ripple kept its own copy, so this keeps sharing across reloads with nothing to grant again. Your files were only read.'
-                    : 'It keeps sharing while this page stays open. A reload ends it, and picking the same files again is what starts it back up.'}
-              </p>
+              {!state.reopenable && state.room?.kind !== 'fits' && (
+                <p className="faint">Sharing stops when this tab closes or reloads.</p>
+              )}
             </>
           )}
 

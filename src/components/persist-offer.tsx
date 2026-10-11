@@ -19,15 +19,12 @@ import { persistOffer } from '../torrent/storage-permission'
  *  - ONE PROMPT PER PRESS, and one press. The latch is a ref as well as state, so a second click
  *    landing before anything has re-rendered is dropped rather than raising a second doorhanger for
  *    a question already on screen.
- *  - NO NUMBER IS PROMISED, because every word comes from `persistOffer` rather than from here. The
+ *  - NO NUMBER IS PROMISED, because the label comes from `persistOffer` rather than from here. The
  *    same press moved the reported quota from 12 GB to 3.97 TB on Firefox (measured 2026-09-01) and
  *    bought nothing at all on Chromium, which refused it without asking anyone (2026-08-30).
  *
  * Renders NOTHING where there is nothing to ask for, so a caller can drop it in unconditionally and
  * never has to choose between a dead button and a gap.
- *
- * No styles of its own, like storage-warning.tsx: a span and a button, painted by the notice around
- * them.
  */
 export const PersistOffer = ({ persist, onAsk }: {
   persist: PersistState
@@ -45,19 +42,8 @@ export const PersistOffer = ({ persist, onAsk }: {
     onAsk()
   }
 
-  /**
-   * 'none' is both dead ends at once: the origin is already persistent, or the browser setting
-   * already answers no. Neither sentence is worth the room inside a notice that is on screen to
-   * report something else, and a caller that showed one would be filling a warning with an aside.
-   */
-  if (offer.kind === 'none') return null
+  if (offer.kind !== 'ask') return null
 
-  return (
-    <>
-      <span>{offer.detail}</span>
-      {/* Disabled rather than removed once pressed: the press is a fact worth keeping on screen
-          until the measurement comes back and the copy above it changes to say what happened. */}
-      {offer.action && <button type="button" disabled={pressed} onClick={ask}>{offer.action}</button>}
-    </>
-  )
+  // disabled rather than removed once pressed, until the measurement comes back and the offer goes
+  return <button type="button" disabled={pressed} onClick={ask}>{offer.action}</button>
 }

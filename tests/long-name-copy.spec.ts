@@ -105,8 +105,8 @@ test(`a name ${subject.label}`, async ({ page }) => {
      * kept, the other says it will not and why. Somebody deciding whether to start is owed the one
      * that applies to them.
      */
-    const promise = dialog.getByText(/will keep a .* copy in browser storage/)
-    const refusal = dialog.getByText('too long for the engine to keep as written')
+    const promise = dialog.getByText(/Keeps a .* copy in browser storage/)
+    const refusal = dialog.getByText('A file name is too long to copy')
     if (subject.copied) {
       await expect(promise).toBeVisible({ timeout: 30_000 })
       await expect(refusal).toHaveCount(0)
@@ -116,12 +116,12 @@ test(`a name ${subject.label}`, async ({ page }) => {
     }
 
     await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-    await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+    await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
     const infoHash = (await dialog.locator('code').first().textContent())!
     expect(infoHash).toMatch(/^[0-9a-f]{40}$/)
     // the closing line says which kind of sharing this turned out to be, and they are different
     // promises: one survives a reload, the other lasts as long as the tab
-    await expect(dialog.getByText('Ripple kept its own copy')).toHaveCount(subject.copied ? 1 : 0)
+    await expect(dialog.locator('[data-outcome]')).toHaveAttribute('data-outcome', subject.copied ? 'copied' : 'tab')
     await dialog.getByRole('button', { name: 'Close' }).click()
 
     /*

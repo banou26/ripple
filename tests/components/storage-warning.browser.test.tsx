@@ -74,7 +74,6 @@ describe('the running-out-of-room notice', () => {
   it('offers to move finished downloads when a folder is only being copied to', async () => {
     const { container } = await mount({ kind: 'move', folderName: 'downloads' })
     expect(button(container)?.textContent).toBe('Move finished downloads to downloads')
-    expect(container.textContent).toContain('copying')
   })
 
   it('offers to choose a folder when there is none, and says it will move things there', async () => {
@@ -107,14 +106,6 @@ describe('the running-out-of-room notice', () => {
     const screen = await mount({ kind: 'move', folderName: 'downloads' }, onAct)
     await screen.getByRole('button', { name: 'Move finished downloads to downloads' }).click()
     expect(onAct).toHaveBeenCalledTimes(1)
-  })
-
-  /** best-effort storage can be cleared out from under the user, and only then is that said */
-  it('mentions eviction only when the origin is not persisted', async () => {
-    const persisted = await mount({ kind: 'choose' }, () => {}, settled())
-    const best = await mount({ kind: 'choose' }, () => {}, settled({ persisted: false, permission: 'denied' }))
-    expect(persisted.container.textContent).not.toContain('best effort')
-    expect(best.container.textContent).toContain('best effort')
   })
 })
 
@@ -149,17 +140,15 @@ describe('the persistent-storage offer inside that notice', () => {
   })
 
   /**
-   * The Chromium path. persist() resolves false without a prompt ever being raised, so the sentence
-   * has to say the browser answered rather than read as though the person refused, and the button
+   * The Chromium path. persist() resolves false without a prompt ever being raised, so the button
    * must not come back to be pressed into the same refusal.
    */
-  it('says what the browser answered, in place of the ask, once it has answered', async () => {
+  it('drops the ask once the browser has answered', async () => {
     const { container } = await mount(
       { kind: 'choose' },
       () => {},
       asking({ attempted: true, granted: false }),
     )
-    expect(container.textContent).toContain('the browser answered no by itself')
     expect(labels(container)).toEqual(['Choose a folder and move finished downloads there'])
   })
 
@@ -171,13 +160,6 @@ describe('the persistent-storage offer inside that notice', () => {
       expect(labels(container)).toEqual(['Choose a folder and move finished downloads there'])
       expect(container.textContent).not.toContain('Ask for more room')
     }
-  })
-
-  /** no number is promised, because the same press is worth nothing at all on Chromium */
-  it('promises no amount of room', async () => {
-    const { container } = await mount({ kind: 'choose' }, () => {}, asking())
-    expect(container.textContent).toContain('Your browser')
-    expect(container.textContent).not.toMatch(/\bTB\b/)
   })
 
   it('calls back exactly once when the ask is pressed', async () => {

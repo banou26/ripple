@@ -288,11 +288,11 @@ describe('the docked torrent details', () => {
     await expect.element(screen.getByText('Failed 3×')).toBeInTheDocument()
   })
 
-  it('explains a torrent with no trackers instead of leaving the tab blank', async () => {
+  it('says a torrent has no trackers instead of leaving the tab blank', async () => {
     const screen = await mount()
     tabButton(screen, 'Trackers').click()
     send({ trackers: [] })
-    await expect.element(screen.getByText(/finds peers through the DHT/)).toBeInTheDocument()
+    await expect.element(screen.getByText('No trackers.')).toBeInTheDocument()
   })
 
   /**

@@ -31,10 +31,9 @@ const SingleTabMount = () => {
   if (claim === 'inactive') {
     return (
       <div css={style}>
-        <div>Only one page can be active at a time.</div>
-        <div>Do you want this tab/window to take over? It will stop the other tab/window.</div>
+        <div>Ripple is open in another tab.</div>
         <div>
-          <button onClick={activate}>Yes, take over</button>
+          <button onClick={activate}>Use it here instead</button>
         </div>
       </div>
     )

@@ -39,13 +39,10 @@ test('a browser setting that says no reports Blocked and cannot be pressed', asy
   expect(button(container).disabled).toBe(true)
 })
 
-test('an ask the browser refused by itself reports it without blaming the person', async () => {
+test('an ask the browser refused by itself reports it and cannot be pressed', async () => {
   const { container } = await mount(state({ attempted: true, granted: false }))
   expect(button(container).textContent).toBe('Not granted')
   expect(button(container).disabled).toBe(true)
-  // the hint is the only place the reason lives once the button is dead, so it has to be there.
-  // hint() writes data-tooltip-content, not title: react-tooltip matches anchors by id
-  expect(button(container).getAttribute('data-tooltip-content') ?? '').toMatch(/browser answered no/)
 })
 
 // an engine that cannot be asked answers 'prompt' through @banou/ponyfill, never 'denied', so the

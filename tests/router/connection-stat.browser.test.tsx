@@ -134,27 +134,28 @@ describe('the inbound stat', () => {
     it('says in the tooltip how many are connected in now', async () => {
       const screen = await mount(current(), live({ tcp: 2, utp: 1 }))
       const title = screen.container.querySelector('.stat')?.getAttribute('data-tooltip-content') ?? ''
-      expect(title).toMatch(/3 peers are connected in on port 41337 right now/)
+      expect(title).toMatch(/3 peers connected in on port 41337/)
       expect(title).toMatch(/2 tcp · 1 utp/)
     })
 
     it('still says in the tooltip that the port itself has worked', async () => {
       const screen = await mount(current({ inbound: 91 }), live({}))
       const title = screen.container.querySelector('.stat')?.getAttribute('data-tooltip-content') ?? ''
-      expect(title).toMatch(/Nobody is connected in on port 41337 right now/)
-      expect(title).toMatch(/91 in total .* so the port itself works/)
+      expect(title).toMatch(/Nobody connected in on port 41337/)
+      expect(title).toMatch(/91 accepted this session/)
     })
 
-    it('says nothing has reached it yet when nothing has', async () => {
+    it('claims no accepted connections when nothing has reached it', async () => {
       const screen = await mount(current({ inbound: 0, inboundByTransport: {} }), live({}))
       const title = screen.container.querySelector('.stat')?.getAttribute('data-tooltip-content') ?? ''
-      expect(title).toMatch(/none has yet/)
+      expect(title).toMatch(/Nobody connected in on port 41337/)
+      expect(title).not.toMatch(/accepted/)
     })
 
     it('counts one connection in the singular', async () => {
       const screen = await mount(current(), live({ tcp: 1 }))
       const title = screen.container.querySelector('.stat')?.getAttribute('data-tooltip-content') ?? ''
-      expect(title).toMatch(/1 peer is connected in/)
+      expect(title).toMatch(/1 peer connected in/)
     })
 
     it('writes the port the way a port is written', async () => {

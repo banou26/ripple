@@ -75,49 +75,23 @@ export const storageRelief = (
 }
 
 /**
- * The sentence after the figures, and the button beside it.
+ * The button the "running out of room" notice offers, and the one line kept for a browser with no
+ * folder at all, where removing a torrent is the only way to free room.
  *
- * Kept here rather than in the component so the copy is covered by the same table-driven test as the
- * rules. Every one of these has to say what the limit IS before offering a way round it, because the
- * first thing people try is to look for a setting that raises it.
- *
- * On Chromium there is no such setting. On Firefox there is a prompt, and it is a SEPARATE offer
- * with its own copy in storage-permission.ts. These sentences are about the folder, which moves
- * bytes out from under the limit and never moves the limit itself, so nothing here may be reworded
- * into a promise the folder cannot keep. That is what the last test in storage-relief.test.ts pins.
+ * Every action moves bytes out from under the limit and never moves the limit itself, so no label
+ * here may promise more room: that is the separate persistent-storage ask in storage-permission.ts.
  */
-export const reliefOffer = (relief: StorageRelief): { detail: string, action: string | null } => {
+export const reliefOffer = (relief: StorageRelief): { detail: string | null, action: string | null } => {
   switch (relief.kind) {
     case 'none':
-      // no folder API here, so this is the honest whole of it
       return { detail: 'Removing a torrent frees its files.', action: null }
     case 'choose':
-      return {
-        // "on its own" rather than a flat "cannot raise it", because since 2026-09-01 Ripple can ASK,
-        // and on Firefox that ask is what sets the limit. It still cannot raise it unasked, and on
-        // Chromium the ask is refused, so this sentence stays true on both engines and stays honest
-        // beside the separate persistent-storage offer that may be on screen with it.
-        detail: 'Your browser sets that limit and Ripple cannot raise it on its own. Finished downloads'
-          + ' can move to a folder on your computer instead, where only your own disk space applies.',
-        action: 'Choose a folder and move finished downloads there',
-      }
+      return { detail: null, action: 'Choose a folder and move finished downloads there' }
     case 'move':
-      return {
-        detail: `Ripple is copying finished downloads to ${relief.folderName}, but it keeps its own`
-          + ' copy too, so this limit still applies. Move them instead and the browser copy is freed.',
-        action: `Move finished downloads to ${relief.folderName}`,
-      }
+      return { detail: null, action: `Move finished downloads to ${relief.folderName}` }
     case 'allow':
-      return {
-        detail: `Finished downloads are set to move to ${relief.folderName}, but the browser has`
-          + ' forgotten its permission for that folder. Nothing can move until it is given back.',
-        action: `Allow ${relief.folderName}`,
-      }
+      return { detail: null, action: `Allow ${relief.folderName}` }
     case 'settled':
-      return {
-        detail: `Finished downloads already move to ${relief.folderName}. What is still here is what`
-          + ' has not finished yet, plus anything set to stay in the browser.',
-        action: null,
-      }
+      return { detail: null, action: null }
   }
 }

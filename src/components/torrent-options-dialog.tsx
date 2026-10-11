@@ -295,7 +295,7 @@ export const TorrentOptionsDialog = ({
                       <span className="switch" data-on={item.checked || undefined} aria-hidden="true"/>
                       <span className="text">
                         <span className="label">{item.label}</span>
-                        <span className="hint">{hint}</span>
+                        {hint && <span className="hint">{hint}</span>}
                       </span>
                     </button>
                   )
@@ -312,7 +312,7 @@ export const TorrentOptionsDialog = ({
                       <span className="dot" data-on={item.selected || undefined} aria-hidden="true"/>
                       <span className="text">
                         <span className="label">{item.label}</span>
-                        <span className="hint">{hint}</span>
+                        {hint && <span className="hint">{hint}</span>}
                       </span>
                     </button>
                   )
@@ -326,7 +326,7 @@ export const TorrentOptionsDialog = ({
                     <span className="spacer" aria-hidden="true"/>
                     <span className="text">
                       <span className="label">{item.label}</span>
-                      <span className="hint">{hint}</span>
+                      {hint && <span className="hint">{hint}</span>}
                     </span>
                   </button>
                 )

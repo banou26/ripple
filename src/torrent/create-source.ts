@@ -96,7 +96,7 @@ export const optionsError = (
   const clean = trackers.map((url) => url.trim()).filter(Boolean)
   if (!name.trim()) return 'Give the torrent a name'
   if (name.includes('/')) return 'A torrent name cannot contain a slash'
-  if (isPrivate && !clean.length) return 'A private torrent needs at least one tracker, or nobody can find it'
+  if (isPrivate && !clean.length) return 'A private torrent needs at least one tracker'
   for (const url of clean) {
     // A bare hostname is the mistake people make here, and libtorrent drops such a tracker without
     // saying so, which reads as a tracker that never answers.

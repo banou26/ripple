@@ -97,19 +97,6 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
 
-  /*
-   * WHAT IT PROMISES BEFORE ANYTHING IS PICKED, which is the only claim that can be made that early.
-   *
-   * It used to say "Nothing is copied and nothing is moved", which stopped being true for everyone
-   * the moment every engine got the pickers: a pick that cannot be handed back after a reload has
-   * its bytes copied into browser storage. What holds for every pick is that the person's own files
-   * are only read, and that is what this has to keep saying. Nothing else asserted this paragraph,
-   * so it could be rewritten to anything at all and the suite stayed green.
-   */
-  const idle = page.getByRole('dialog')
-  await expect(idle.getByText('never written to and never moved')).toBeVisible()
-  await expect(idle.getByText('Nothing is copied'), 'a promise this dialog cannot keep').toHaveCount(0)
-
   await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
 
   // the review step: the numbers are on screen BEFORE anything is hashed or published
@@ -142,30 +129,22 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
   // 16 KiB to 128 MiB doubling, and nothing skipped in between
   expect(sizes.length).toBe(14)
 
-  // and the largest ones say what they cost, since a piece is the smallest thing a peer can send
-  await dialog.getByLabel('Piece size').selectOption(String(64 * 1024 * 1024))
-  await expect(dialog.getByText('smallest thing a peer can send')).toBeVisible()
-  await dialog.getByLabel('Piece size').selectOption('')
-  await expect(dialog.getByText('smallest thing a peer can send')).toHaveCount(0)
-
   await page.screenshot({ path: 'test-results/create-review.png' })
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
 
   // Published, and named for the folder it came from
-  await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
   const infoHash = await dialog.locator('code').first().textContent()
   expect(infoHash).toMatch(/^[0-9a-f]{40}$/)
 
   /*
-   * THE RE-OPENABLE BRANCH of the closing line, which is the one every Chromium user sees.
+   * THE RE-OPENABLE BRANCH, which is the one every Chromium user sees.
    *
-   * The three cases below delete the pickers, so they only ever reach the two sentences for a pick
-   * that CANNOT be re-opened. This handle can be, so it must promise the other thing: nothing was
-   * copied, and the browser will ask for access again after a reload.
+   * The three cases below delete the pickers, so they only ever reach the outcomes for a pick that
+   * CANNOT be re-opened. This handle can be, so nothing was copied for it.
    */
-  await expect(dialog.getByText('the browser asks for access to those files again')).toBeVisible()
-  await expect(dialog.getByText('Ripple kept its own copy'), 'nothing was copied for a handle that re-opens')
-    .toHaveCount(0)
+  await expect(dialog.locator('[data-outcome]'), 'nothing was copied for a handle that re-opens')
+    .toHaveAttribute('data-outcome', 'reopenable')
 
   // the card shell: a bordered surface with its own header and footer, matching the other dialogs
   await expect(dialog.locator('.card')).toBeVisible()
@@ -240,7 +219,7 @@ test('a folder on this device becomes a torrent the engine verifies and seeds', 
  * libtorrent's, so this is said in the dialog rather than encoded around.
  */
 const LONE = [{ path: ['only.mkv'], bytes: 100_000, fill: 0x55 }]
-const LOSS = /cannot carry a folder/
+const LOSS = /loses the folder name/
 
 test('a v2 torrent says up front that a folder holding one file will not survive', async ({ page }) => {
   test.setTimeout(120_000)
@@ -389,13 +368,13 @@ test(`${pick.label} that cannot be re-opened is kept, and still seeds after a re
 
     // the review step, and the size of the copy it is about to make, quoted before the button
     await expect(dialog.getByText(pick.folder ? '3' : '1', { exact: true })).toBeVisible({ timeout: 30_000 })
-    await expect(dialog.getByText(/will keep a .* copy in browser storage/)).toBeVisible({ timeout: 30_000 })
+    await expect(dialog.getByText(/Keeps a .* copy in browser storage/)).toBeVisible({ timeout: 30_000 })
 
     if (format !== 'v1') await dialog.getByLabel('Format').selectOption(format)
 
     await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
-    await expect(dialog.getByText('is being shared from where it sits')).toBeVisible({ timeout: 120_000 })
-    await expect(dialog.getByText('Ripple kept its own copy')).toBeVisible()
+    await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
+    await expect(dialog.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'copied')
     /*
      * 40 hex OR 64. A v2-ONLY torrent has no v1 hash, so Ripple's identity for it is the v2 one and
      * every save path is keyed on that: `Built.infoHash` is documented as "the v1 hash wherever
