@@ -122,3 +122,7 @@ a folder you choose. Signed in to FKN, your list and its thumbnails sync to your
 encrypted in your browser first. Peers see the FKN relay's address, not yours. The
 [privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps
 (`src/router/privacy.tsx`).
+
+## License
+
+MIT, see [LICENSE](./LICENSE).
