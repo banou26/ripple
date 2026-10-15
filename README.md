@@ -86,7 +86,6 @@ same query; the path chooses which one renders. `/watch` plays a file, `/downloa
 | `m` | the packed magnet, base64url | what Ripple's own share links write |
 | `fileIndex` | a file index | the file `/watch` plays (0 if absent); the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
-| `f` | a packed file list | optional, `/download` only: shown until the torrent's own list arrives |
 
 One of `magnet` or `m` is required, and `m` is read first when both are present. `magnet=` is the
 original form and every link written with it keeps working. `m=` is the same torrent packed into a

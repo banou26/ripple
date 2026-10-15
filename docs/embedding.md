@@ -38,43 +38,32 @@ Order never matters when READING a link. When writing one, Ripple puts the plain
 ```
 /watch?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
 /download?files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
-/download?m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
 ```
 
-The path, then which files, then the packed torrent, then `f`. The torrent used to lead, from when
-it was the only thing in the link; now that everything around it is base64url or an index, leading
-with it buried the one part a person can read behind forty characters of noise. A URL is read from
-the left and truncated from the right, so `f`, the longest parameter and the one a reader cares
-least about, goes last.
+The path, then which files, then the packed torrent. The torrent used to lead, from when it was the
+only thing in the link; now that everything around it is base64url or an index, leading with it
+buried the one part a person can read behind forty characters of noise.
 
-## `f`, the file list
+## No `f` parameter
 
-A magnet names a torrent and nothing else, so a download link normally opens on "Reading the torrent
-from the network" for as long as metadata takes. `f` closes that gap by carrying the file list the
-sender already had, and the page shows it immediately, marked **from the link**.
+From 2026-08-29 to 2026-08-31 a `/download` link could carry `f`, a packed copy of the file list,
+so the page could show the files before the torrent's metadata arrived. It was only a preview, so the
+page needed a second list it could show but never act on, and on a single-file release it cost 38% of
+the link to add a file extension. It is now neither written nor read: a link that still carries one
+gets the parameter ignored, and the page reads "Reading the torrent from the network" until the
+metadata arrives.
 
-It is a preview and Ripple treats it as one. It never decides what gets downloaded: the button stays
-disabled until real metadata arrives, the download itself is resolved against that metadata, and the
-per-file buttons are not rendered at all while the list is only the link's claim. A link that
-describes a torrent inaccurately therefore costs a reader a wrong line on screen for a few seconds,
-and can never cost them the wrong file on disk.
-
-Ripple writes it only on `/download`, only when it has the list, and only when it fits: a
-12-episode season costs about 172 characters and a 48-file season about 416. Past a budget it is
-left off entirely rather than pushing the link past what a chat message will carry. Absent, `f`
-changes nothing, so a link without it behaves exactly as it always has.
-
-Putting the whole `.torrent` in the URL instead does not work, and the reason is arithmetic rather
+Putting the whole `.torrent` in the URL does not work either, and the reason is arithmetic rather
 than encoding: piece hashes are around 94% of a torrent and are 20 bytes of SHA1 per piece, so they
-are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676. The
-file list is the part that is both small and worth having.
+are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676.
 
 ## `/watch` and `/download`
 
 `/watch` plays `fileIndex` in the media player, with the filename, peer count and transfer rates
 drawn over the video.
 
-`/download` shows the release name, the size of the selection, and one button. More than one file is
+`/download` shows the release name, the size of the selection and a Download button, and lists the
+files to pick from when the link names more than one. More than one file is
 delivered as a single `.zip`, written straight through to the browser's own downloader without ever
 being held in memory. `fileIndex` is its fallback so that a watch URL becomes a download by swapping
 `/watch` for `/download` and nothing else.
