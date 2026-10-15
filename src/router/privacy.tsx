@@ -19,7 +19,7 @@ const Privacy = () => (
       you sign in, Ripple also remembers which FKN account your list belongs to.
     </p>
     <p>
-      Ripple never sends your files to FKN or to any server. Like any BitTorrent app, while a
+      Ripple never stores your files on FKN or on any server. Like any BitTorrent app, while a
       torrent is active it shares the pieces it has with the other peers of that torrent.
     </p>
 
