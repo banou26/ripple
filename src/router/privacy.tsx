@@ -3,7 +3,7 @@ import LegalDoc from '../components/legal-doc'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 5 July 2026</div>
+    <div className="updated">Last updated 16 October 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -12,20 +12,30 @@ const Privacy = () => (
 
     <h2>What Ripple stores on your device</h2>
     <p>
-      Your torrent list and all downloaded data live in your browser&rsquo;s storage
-      (OPFS and IndexedDB) on your device. Removing a torrent in Ripple also deletes its
-      downloaded data. The files you download are never uploaded or reported anywhere by
-      Ripple itself.
+      Your torrent list, each torrent&rsquo;s resume data and thumbnail, and your settings
+      (such as speed limits and how the list is sorted) live in your browser&rsquo;s storage
+      (IndexedDB and local storage). Downloaded files live in your browser&rsquo;s storage
+      (OPFS). If you choose a folder on your disk, finished downloads are saved there. Once
+      you sign in, Ripple also remembers which FKN account your list belongs to.
+    </p>
+    <p>
+      Ripple never sends your files to FKN or to any server. Like any BitTorrent app, while a
+      torrent is active it shares the pieces it has with the other peers of that torrent.
     </p>
 
-    <h2>Torrent list sync when signed in</h2>
+    <h2>Library sync when signed in</h2>
     <p>
-      If you connect an FKN account, Ripple stores your torrent list (magnet links, save
-      paths, and when you added each torrent; never the downloaded files themselves) in
-      that account&rsquo;s FKN cloud storage, encrypted in transit, so your library
-      follows you across devices. Without an account connected, nothing is synced and
-      everything stays local. Disconnecting the account stops the sync, and removing
-      torrents while signed in also removes them from the synced list.
+      If you connect an FKN account, Ripple keeps a copy of your library in that
+      account&rsquo;s FKN cloud storage, so it follows you across devices. For each torrent
+      that is its magnet link, name, size and file list, where it is saved, when you added it,
+      and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
+      torrents you removed and when, so other devices remove them too, and one thumbnail
+      picture per torrent. It never syncs the downloaded files themselves.
+    </p>
+    <p>
+      All of it is encrypted in your browser before it is uploaded, so FKN stores it without
+      being able to read it. File names stay visible to FKN, and each thumbnail&rsquo;s file
+      name is its torrent&rsquo;s info hash. Without an account connected, nothing is synced.
     </p>
 
     <h2>The relay and your IP address</h2>
@@ -42,11 +52,16 @@ const Privacy = () => (
 
     <h2>Your control</h2>
     <p>
-      Removing a torrent deletes its data from your device. Clearing this site&rsquo;s data
-      in your browser removes everything Ripple has stored on your device. Ripple itself
-      has no account to delete; if you use an FKN account for premium or sync, the account
-      and its synced torrent list are managed at{' '}
-      <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>.
+      Removing a torrent deletes its data from your browser&rsquo;s storage. Files in a folder
+      on your disk, and the files you made a torrent from, stay where they are. Clearing this
+      site&rsquo;s data in your browser removes everything Ripple stored in your browser.
+    </p>
+    <p>
+      Ripple itself has no account to delete. Disconnecting your FKN account stops the sync.
+      Removing a torrent also removes it from the synced list, but its synced thumbnail stays
+      in your account. Deleting your FKN account at{' '}
+      <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>{' '}
+      deletes everything Ripple stored in it.
     </p>
 
     <h2>Contact</h2>
