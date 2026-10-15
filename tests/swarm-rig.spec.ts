@@ -5,7 +5,7 @@
 // to first frame. Here the only source is the fleet the magnet names, so a number can move for a
 // reason. The engine's DHT is still on and announces the infohash through the relay, which is why
 // the seeders' own upload count is part of the claim. Runs only under playwright.rig.config.ts
-// (`npm run test:e2e:rig`, see the README).
+// (`npm run test:e2e:rig`, see tests/swarm-rig/README.md).
 
 import type { BrowserType, LaunchOptions, Page, ViewportSize } from '@playwright/test'
 

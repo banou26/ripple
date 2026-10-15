@@ -1,0 +1,95 @@
+# Embedding: why it works this way
+
+The contract itself (the parameters, the two magnet forms, `files` and `fileIndex`, and
+`allow-downloads`) is in the [README](../README.md#embedding). This page keeps the reasons behind
+it.
+
+## The two magnet forms
+
+`magnet=<base64 of the magnet URI>` is the original, and it is **permanent**. Every link ever handed
+out with it keeps working, and an embedder that finds it easier to write can keep writing it. Nothing
+about it has changed.
+
+`m=` is the same torrent packed smaller: the infohash as raw bytes rather than 40 hex characters, and
+the rest of the query deflated against a fixed table of the announce URLs that public magnets
+overwhelmingly share. It is base64url, so a query string carries it without escaping anything. Across
+a corpus covering every magnet form Ripple accepts, the median link is **69% shorter**; a five-tracker
+release goes from a 549-character URL to 148. A magnet using only private trackers has nothing to
+match against and still comes out around 42% shorter, on the strength of the packed infohash alone.
+
+Ripple writes whichever of the two is shorter, which is almost always `m`. The letter names a
+version: the table it compresses against can never be edited, so if it ever needs to change the
+parameter becomes `m2` and `m` keeps decoding the way it always did (`src/router/magnet-codec.ts`).
+
+## No `mode` parameter
+
+It used to choose the page and is now neither written nor read, so a link still carrying one gets the
+page its PATH names and the parameter is ignored. For a while Ripple wrote `mode=watch` out in full so
+that a link said what it did rather than being told apart by an absence. The path says it for free
+and in the part of a URL that is read first.
+
+**`/watch` was `/embed` until 2026-09-09, and the old path is gone rather than redirected.** A link
+written against it 404s to the SPA shell; rewrite it as `/watch` with the query untouched.
+
+## Parameter order
+
+Order never matters when READING a link. When writing one, Ripple puts the plainest parts first:
+
+```
+/watch?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/download?files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/download?m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA&f=AWNSC87MK0nN0YdQ
+```
+
+The path, then which files, then the packed torrent, then `f`. The torrent used to lead, from when
+it was the only thing in the link; now that everything around it is base64url or an index, leading
+with it buried the one part a person can read behind forty characters of noise. A URL is read from
+the left and truncated from the right, so `f`, the longest parameter and the one a reader cares
+least about, goes last.
+
+## `f`, the file list
+
+A magnet names a torrent and nothing else, so a download link normally opens on "Reading the torrent
+from the network" for as long as metadata takes. `f` closes that gap by carrying the file list the
+sender already had, and the page shows it immediately, marked **from the link**.
+
+It is a preview and Ripple treats it as one. It never decides what gets downloaded: the button stays
+disabled until real metadata arrives, the download itself is resolved against that metadata, and the
+per-file buttons are not rendered at all while the list is only the link's claim. A link that
+describes a torrent inaccurately therefore costs a reader a wrong line on screen for a few seconds,
+and can never cost them the wrong file on disk.
+
+Ripple writes it only on `/download`, only when it has the list, and only when it fits: a
+12-episode season costs about 172 characters and a 48-file season about 416. Past a budget it is
+left off entirely rather than pushing the link past what a chat message will carry. Absent, `f`
+changes nothing, so a link without it behaves exactly as it always has.
+
+Putting the whole `.torrent` in the URL instead does not work, and the reason is arithmetic rather
+than encoding: piece hashes are around 94% of a torrent and are 20 bytes of SHA1 per piece, so they
+are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB remux is 68,676. The
+file list is the part that is both small and worth having.
+
+## `/watch` and `/download`
+
+`/watch` plays `fileIndex` in the media player, with the filename, peer count and transfer rates
+drawn over the video.
+
+`/download` shows the release name, the size of the selection, and one button. More than one file is
+delivered as a single `.zip`, written straight through to the browser's own downloader without ever
+being held in memory. `fileIndex` is its fallback so that a watch URL becomes a download by swapping
+`/watch` for `/download` and nothing else.
+
+## What an embedder has to grant
+
+Sandbox flags on a nested browsing context are the union of the parent's set and the child's, so a
+flag the embedder withheld cannot be restored from inside, and Chrome then refuses the download
+*silently*: the navigation is dropped, no event fires and nothing throws. There is no `downloads`
+feature in Permissions-Policy, so `allow=` is not a lever here; the `sandbox` attribute is the only
+one.
+
+When the page detects it is framed by another origin it offers a link to open itself top-level,
+which is the way out if the embedder cannot grant the flag.
+
+Two other consequences of being framed, both handled: Chrome refuses `showSaveFilePicker` in a
+cross-origin frame, so the page does not ask for one, and delivery goes through the service worker
+instead.

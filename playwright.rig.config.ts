@@ -7,7 +7,8 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * The swarm rig: ripple built against a local broker, over a local relay, downloading from local
  * seeders. Nothing it starts is fkn/local's rig and no port overlaps it (1234, 3000, 4433, 4560,
- * 8443 stay free), so the two can run side by side. `npm run test:e2e:rig`; see the README.
+ * 8443 stay free), so the two can run side by side. `npm run test:e2e:rig`; see
+ * tests/swarm-rig/README.md.
  *
  * Needs three checkouts, named by env:
  *  - RIPPLE_RIG_FKN_CLIENT  an fkn-client worktree of its own, built by scripts/rig-prepare.mjs
