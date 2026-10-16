@@ -201,7 +201,7 @@ describe('carrying thumbnails between devices', () => {
   })
 })
 
-/** HOR-535: a file's name is visible to FKN, so it must not be the torrent's info hash. */
+/** A file's name is visible to FKN, so it must not be the torrent's info hash. */
 describe('naming a picture so the account cannot tell which torrent it is', () => {
   it('names the picture by a keyed hash, never by the info hash', async () => {
     local.add(HASH)
