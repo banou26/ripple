@@ -4,7 +4,7 @@ import { render } from 'vitest-browser-react'
 import type { Persisted } from '../../src/torrent/library'
 
 /**
- * HOR-535: the pictures a write syncs are those of the list it published, so neither a torrent
+ * The pictures a write syncs are those of the list it published, so neither a torrent
  * removed on another device that this one still runs, nor the unclaimed demo, uploads one.
  */
 

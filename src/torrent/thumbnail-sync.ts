@@ -73,7 +73,8 @@ const readNameKey = async (): Promise<Uint8Array<ArrayBuffer> | null> => {
 
 /**
  * Made only when the store says there is none, since replacing a key renames every picture out of
- * reach. Read back after the write, so two devices making one at once both end on whichever landed.
+ * reach. Read back after the write, which narrows but cannot close the window in which two devices
+ * making one at once each keep their own: the store has no compare-and-swap.
  */
 const loadNameKey = async (): Promise<CryptoKey> => {
   let bytes = await readNameKey()

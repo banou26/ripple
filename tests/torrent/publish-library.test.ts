@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Persisted } from '../../src/torrent/library'
 
-/** HOR-535: a torrent's synced picture goes with the removal record that syncs. */
+/** A torrent's synced picture goes with the removal record that syncs. */
 
 const store = new Map<string, unknown>()
 const cloudText = new Map<string, string>()
