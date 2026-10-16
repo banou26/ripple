@@ -10,7 +10,7 @@ import { getTorrentClient } from './client'
 import { DEMO_MAGNET, DEMO_SEEDED_KEY } from './constants'
 import { REMOVED_KEY, mergeRemovals, survivesRemovals } from './library'
 import { magnetInfoHash } from './magnet'
-import { retryMissedThumbnails, syncThumbnails } from './thumbnail-sync'
+import { forgetSyncedThumbnails, resetThumbnailSync, syncThumbnails } from './thumbnail-sync'
 import { mergeTotals } from './uptime'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
@@ -221,6 +221,57 @@ export const backupOf = (local: Persisted[], cloud: Persisted[] | null, removals
   return merged.filter(survivesRemovals(removals))
 }
 
+/**
+ * The cloud's current list, or null when it cannot be read.
+ *
+ * Deliberately much simpler than `restore` below, which has to tell an absent backup from an
+ * unreadable one from a starved broker because it DECIDES something on the answer. This one only
+ * feeds the merge, where every one of those cases has the same correct response: publish this
+ * device's own view, which still moves every number forwards.
+ */
+const readBackup = async (): Promise<Persisted[] | null> => {
+  const text = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
+  if (text === null) return null
+  const parsed = JSON.parse(text) as unknown
+  return Array.isArray(parsed) ? parsed as Persisted[] : null
+}
+
+/**
+ * Writes this device's library to the account: the removals, then the list.
+ *
+ * READ, MERGE, THEN WRITE. The blind overwrite this replaces is what made syncing a counter
+ * impossible.
+ *
+ * The cloud is read exactly once per mount, so without this a long-lived tab holds another
+ * device's totals as of its own start and erases everything that device has counted since,
+ * every time it writes. There is no compare-and-swap in the storage layer, so this is still a
+ * race, but a maximum is self-healing where a blind write is not: the window shrinks from days
+ * to one round trip, and anything lost to it is republished in full by the next write, because
+ * each device always holds its own true totals locally.
+ *
+ * A failure to read is not a failure to write. The catch falls back to publishing this device's
+ * own view, which is exactly the old behaviour and still moves every number forwards.
+ */
+export const publishLibrary = async (local: Persisted[]) => {
+  // one read at a time, since each read of a locked scope raises the unlock card
+  const existing = await readBackup().catch(() => null)
+  const published = await readRemovals()
+  const removals = mergeRemovals(await get<Removal[]>(REMOVED_KEY).catch(() => undefined), published)
+  const list = backupOf(local, existing, removals)
+  // the removals first: a list written without an entry, and no removal saying why, is undone by
+  // the next write of any device still holding it
+  const known = new Map(published?.map((r) => [r.infoHash, r.removedAt]))
+  const fresh = published === null ? [] : removals.filter((r) => known.get(r.infoHash) !== r.removedAt)
+  if (fresh.length) {
+    await cloud.fs.promises.writeFile(REMOVALS_PATH, JSON.stringify(removals), { contentType: 'application/json' })
+    // tied to the removal's first publish, since no later write sees it as new
+    const kept = new Set(list.map((e) => e.infoHash))
+    void forgetSyncedThumbnails(fresh.map((r) => r.infoHash).filter((h) => !kept.has(h))).catch(() => {})
+  }
+  await cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(list), { contentType: 'application/json' })
+  return list
+}
+
 export const useCloudBackup = (): SyncState => {
   const client = getTorrentClient()
   const [state, setState] = useState<SyncState>({ status: 'off', reason: 'signed-out' })
@@ -258,56 +309,17 @@ export const useCloudBackup = (): SyncState => {
       try { return localStorage.getItem(ACCOUNT_KEY) } catch { return null }
     }
 
-    /**
-     * The cloud's current list, or null when it cannot be read.
-     *
-     * Deliberately much simpler than `restore` below, which has to tell an absent backup from an
-     * unreadable one from a starved broker because it DECIDES something on the answer. This one only
-     * feeds the merge, where every one of those cases has the same correct response: publish this
-     * device's own view, which still moves every number forwards.
-     */
-    const readBackup = async (): Promise<Persisted[] | null> => {
-      const text = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
-      if (text === null) return null
-      const parsed = JSON.parse(text) as unknown
-      return Array.isArray(parsed) ? parsed as Persisted[] : null
-    }
-
     const writeNow = async () => {
       pending = false
       window.clearTimeout(timer)
-      /*
-       * READ, MERGE, THEN WRITE. The blind overwrite this replaces is what made syncing a counter
-       * impossible.
-       *
-       * The cloud is read exactly once per mount, so without this a long-lived tab holds another
-       * device's totals as of its own start and erases everything that device has counted since,
-       * every time it writes. There is no compare-and-swap in the storage layer, so this is still a
-       * race, but a maximum is self-healing where a blind write is not: the window shrinks from days
-       * to one round trip, and anything lost to it is republished in full by the next write, because
-       * each device always holds its own true totals locally.
-       *
-       * A failure to read is not a failure to write. The catch falls back to publishing this device's
-       * own view, which is exactly the old behaviour and still moves every number forwards.
-       */
-      // one read at a time, since each read of a locked scope raises the unlock card
-      const existing = await readBackup().catch(() => null)
-      const published = await readRemovals()
-      const removals = mergeRemovals(await get<Removal[]>(REMOVED_KEY).catch(() => undefined), published)
-      // the removals first: a list written without an entry, and no removal saying why, is undone by
-      // the next write of any device still holding it
-      const known = new Map(published?.map((r) => [r.infoHash, r.removedAt]))
-      if (published !== null && removals.some((r) => known.get(r.infoHash) !== r.removedAt)) {
-        await cloud.fs.promises.writeFile(REMOVALS_PATH, JSON.stringify(removals), { contentType: 'application/json' })
-      }
-      return cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(backupOf(latest, existing, removals)), { contentType: 'application/json' })
+      return publishLibrary(latest)
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
       if (writesFor !== currentAccount()) return
       setStatus('syncing')
       try {
-        await writeNow()
+        const published = await writeNow()
         if (!cancelled) setStatus('synced')
         /*
          * Pictures ride alongside the list, not inside it.
@@ -315,9 +327,10 @@ export const useCloudBackup = (): SyncState => {
          * Done here because this is the point at which the cloud is known to be reachable and the
          * list is known to agree on both sides. It is bounded per pass and every failure is
          * swallowed, so it can never turn a good backup into a reported one: a missing thumbnail is
-         * a smaller problem than anything worth risking to avoid it.
+         * a smaller problem than anything worth risking to avoid it. The pictures follow the list
+         * as published, so a torrent removed elsewhere, or the unclaimed demo, uploads none.
          */
-        void syncThumbnails(latest.map((e) => e.infoHash)).catch(() => {})
+        void syncThumbnails(published.map((e) => e.infoHash)).catch(() => {})
       }
       catch (err) {
         if (cancelled) return
@@ -427,6 +440,7 @@ export const useCloudBackup = (): SyncState => {
       if (switched) { client.clearList(); latest = [] }
       if (name) { try { localStorage.setItem(ACCOUNT_KEY, name) } catch {} }
       writesFor = name
+      resetThumbnailSync()
 
       if (text !== null) {
         let list: unknown
@@ -444,7 +458,6 @@ export const useCloudBackup = (): SyncState => {
         setStatus('synced')
         // the case this exists for: a device that just adopted a library it has no files for, and
         // therefore no way to picture any of it
-        retryMissedThumbnails()
         void syncThumbnails((Array.isArray(list) ? list : []).map((e: Persisted) => e.infoHash).filter(Boolean))
           .catch(() => {})
         if (latest.length) schedule()
