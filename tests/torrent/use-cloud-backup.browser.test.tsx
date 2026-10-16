@@ -91,4 +91,13 @@ describe('the pictures a write syncs', () => {
     await expect.poll(() => synced.length, { timeout: 15_000 }).toBe(1)
     expect(events).toEqual(['reset', 'sync'])
   }, 40_000)
+
+  /** an empty list deletes every picture under an old name, so a backup that is not a list must not read as one */
+  it('are left alone by a restore whose backup is not a list', async () => {
+    cloudText.set('ripple/torrents.json', JSON.stringify({ not: 'a list' }))
+    synced.length = 0; events.length = 0
+    const screen = await render(<Harness/>)
+    await expect.element(screen.getByTestId('status'), { timeout: 15_000 }).toHaveTextContent('synced')
+    expect(synced).toEqual([])
+  }, 40_000)
 })
