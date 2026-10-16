@@ -458,8 +458,9 @@ export const useCloudBackup = (): SyncState => {
         setStatus('synced')
         // the case this exists for: a device that just adopted a library it has no files for, and
         // therefore no way to picture any of it
-        void syncThumbnails((Array.isArray(list) ? list : []).map((e: Persisted) => e.infoHash).filter(Boolean))
-          .catch(() => {})
+        if (Array.isArray(list)) {
+          void syncThumbnails(list.map((e: Persisted) => e.infoHash).filter(Boolean)).catch(() => {})
+        }
         if (latest.length) schedule()
       } else if (missing) {
         restored = true
