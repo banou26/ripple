@@ -3,7 +3,7 @@ import LegalDoc from '../components/legal-doc'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 16 October 2026</div>
+    <div className="updated">Last updated 17 October 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -34,8 +34,8 @@ const Privacy = () => (
     </p>
     <p>
       All of it is encrypted in your browser before it is uploaded, so FKN stores it without
-      being able to read it. File names stay visible to FKN, and each thumbnail&rsquo;s file
-      name is its torrent&rsquo;s info hash. Without an account connected, nothing is synced.
+      being able to read it. File names stay visible to FKN, but they do not say which
+      torrents you have. Without an account connected, nothing is synced.
     </p>
 
     <h2>The relay and your IP address</h2>
@@ -58,8 +58,8 @@ const Privacy = () => (
     </p>
     <p>
       Ripple itself has no account to delete. Disconnecting your FKN account stops the sync.
-      Removing a torrent also removes it from the synced list, but its synced thumbnail stays
-      in your account. Deleting your FKN account at{' '}
+      Removing a torrent also removes it from the synced list and deletes its synced
+      thumbnail. Deleting your FKN account at{' '}
       <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>{' '}
       deletes everything Ripple stored in it.
     </p>
