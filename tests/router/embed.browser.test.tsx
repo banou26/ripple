@@ -183,21 +183,21 @@ describe('the volume normalizer switch on /watch', () => {
    * The player keeps nothing between loads by design, so the switch sticking is ripple's half. The row
    * appearing at all is the other: the player offers it only when it is handed the worklet's url.
    */
-  it('is offered in the player\'s settings menu, and what it is set to survives a reload', async () => {
+  it('is offered in the player\'s settings menu, on with nothing saved, and what it is set to survives a reload', async () => {
     const first = await mount()
     const row = await openSwitch(first)
     expect(row().textContent).toBe('Normalize volume')
-    expect(row().getAttribute('aria-checked')).toBe('false')
+    expect(row().getAttribute('aria-checked')).toBe('true')
     row().click()
-    await expect.poll(() => row().getAttribute('aria-checked')).toBe('true')
-    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('1')
+    await expect.poll(() => row().getAttribute('aria-checked')).toBe('false')
+    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('0')
     first.unmount()
 
     const second = await mount()
     const again = await openSwitch(second)
-    expect(again().getAttribute('aria-checked')).toBe('true')
+    expect(again().getAttribute('aria-checked')).toBe('false')
     again().click()
-    await expect.poll(() => again().getAttribute('aria-checked')).toBe('false')
-    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('0')
+    await expect.poll(() => again().getAttribute('aria-checked')).toBe('true')
+    expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('1')
   })
 })
