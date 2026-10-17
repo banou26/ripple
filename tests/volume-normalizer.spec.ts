@@ -57,12 +57,13 @@ const makeEpisode = (dir: string) => {
   const dialogueGain = -24 - integrated(dir, 'dialogue-raw.wav')
   const burstGain = -9 - integrated(dir, 'burst-raw.wav')
   const starts = [...BURSTS, ...BURSTS.map((start) => start + HALF)]
+  // the second half by looping the input: `asplit` into `concat` ends the whole mix at 22 s on ffmpeg 6.1 (Ubuntu
+  // 24.04's, on the CI runner) once a burst is delayed past the source's end; 7.1 and 9 wrote all 44 s (2026-10-17)
   ffmpeg(dir, [
-    '-i', 'dialogue-raw.wav', '-i', 'burst-raw.wav',
+    '-stream_loop', '1', '-i', 'dialogue-raw.wav', '-i', 'burst-raw.wav',
     '-f', 'lavfi', '-i', `testsrc=size=160x90:rate=10:duration=${2 * HALF}`,
     '-filter_complex', [
-      `[0]volume=${dialogueGain}dB,asplit[d0][d1]`,
-      '[d0][d1]concat=n=2:v=0:a=1[dialogue]',
+      `[0]volume=${dialogueGain}dB[dialogue]`,
       `[1]atrim=duration=1,asetpts=N/SR/TB,volume=${burstGain}dB,afade=t=in:d=0.01,afade=t=out:st=0.99:d=0.01,` +
         `asplit=${starts.length}${starts.map((_, i) => `[b${i}]`).join('')}`,
       ...starts.map((start, i) => `[b${i}]adelay=delays=${start * 1000}:all=1[c${i}]`),
@@ -162,8 +163,9 @@ test('short bursts are held and the dialogue is left as it is, on by default, an
   test.setTimeout(300_000)
   const dir = test.info().outputPath()
   const file = makeEpisode(dir)
-  const lead = integrated(dir, NAME, BURSTS[0], 1) - integrated(dir, NAME, 2, 5)
+  const [lead, leadSecond] = [0, HALF].map((offset) => integrated(dir, NAME, offset + BURSTS[0]!, 1) - integrated(dir, NAME, offset + 2, 5))
   expect(lead, 'the file itself has to carry louder bursts').toBeGreaterThan(12)
+  expect(leadSecond, 'the file has to carry them in its second half too, the control').toBeGreaterThan(12)
 
   // no service worker, so the CSP below lands on the document /watch actually renders
   const context = await browser.newContext({ serviceWorkers: 'block' })
