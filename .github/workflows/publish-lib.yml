@@ -18,13 +18,19 @@
 name: Publish
 
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
+  # after Test, not on the push beside it: a push starts both at once, and a red Test has to stop the release
+  workflow_run:
+    # the `name:` of test.yml, not its filename
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
   # for re-running a publish that failed after the version already landed, which a push cannot repeat
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Publish even when no green Test run exists for this commit'
+        type: boolean
+        default: false
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -32,6 +38,15 @@ concurrency:
 
 jobs:
   publish:
+    # A workflow_run job builds main's tip (GITHUB_SHA), the commit provenance names too, so it runs only when Test
+    # passed a push of that very commit: not a fork's pull request from a branch named main, and not a commit main has
+    # since moved past, which the newer commit's own Test run releases
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_sha == github.sha
+      )
     runs-on: ubuntu-24.04
     # The retry window below is 30 minutes, so half of this is spent waiting on npm before the
     # build is counted at all. A timeout that expires PAST the publish spends a version nobody saw
@@ -42,9 +57,23 @@ jobs:
       # the OIDC token npm exchanges for short lived publish credentials
       id-token: write
       contents: read
+      # to read Test's runs when a dispatch has to show one passed
+      actions: read
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Require a green Test run for this commit
+        if: github.event_name == 'workflow_dispatch' && inputs.force != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GREEN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq .total_count)
+          if ! [ "$GREEN" -ge 1 ]; then
+            echo "::error::no green Test run for $GITHUB_SHA: wait for Test, or dispatch again with force"
+            exit 1
+          fi
+          echo "::notice::$GREEN green Test run(s) for $GITHUB_SHA"
 
       # NO registry-url on purpose. That input writes an .npmrc pinning the auth token to
       # ${NODE_AUTH_TOKEN}, which is empty here, so npm believes it is already authenticated, skips

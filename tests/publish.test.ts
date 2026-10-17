@@ -42,6 +42,30 @@ const block = (name: string) => {
   return text.slice(at, next === -1 ? undefined : next)
 }
 
+/** A step's `run: |` block under `bash -e`, which is how Actions runs a `run:`, with `stubs` as commands ahead of PATH. */
+const runStep = (name: string, stubs: Record<string, string>, env: Record<string, string>) => {
+  const lines = block(name).split('\n')
+  const at = lines.findIndex((line) => line.trim() === 'run: |')
+  expect(at, `the ${name} step has no \`run: |\` block to execute`).toBeGreaterThan(-1)
+  const rest = lines.slice(at + 1)
+  const end = rest.findIndex((line) => line.trim() && line.search(/\S/) <= lines[at]!.search(/\S/))
+  const body = rest.slice(0, end === -1 ? undefined : end)
+  const indent = body.find((line) => line.trim())!.search(/\S/)
+  const dir = mkdtempSync(join(tmpdir(), 'ripple-publish-'))
+  try {
+    writeFileSync(join(dir, 'step.sh'), body.map((line) => line.slice(indent)).join('\n'))
+    for (const [command, script] of Object.entries(stubs)) writeFileSync(join(dir, command), script, { mode: 0o755 })
+    writeFileSync(join(dir, 'output'), '')
+    const run = spawnSync('bash', ['-e', join(dir, 'step.sh')], {
+      encoding: 'utf8',
+      env: { PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_OUTPUT: join(dir, 'output'), ...env },
+    })
+    return { status: run.status, log: run.stdout, stderr: run.stderr, output: readFileSync(join(dir, 'output'), 'utf8') }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 describe('the trusted publisher', () => {
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
     expect(Object.keys(workflows), 'no workflow file was read, so every assertion below is vacuous').not.toEqual([])
@@ -148,33 +172,16 @@ describe('the in-place signature', () => {
  * An earlier run's upload can sit staged, held until the owner releases it on npmjs.com, and npm
  * answers the next run's PUT with 409 'Cannot publish over previously staged version "0.0.18"'
  * (2026-10-10). Only that answer, naming the version this run publishes, may pass. The step's own
- * shell runs here under `bash -e`, which is how Actions runs a `run:`, against an npm stub.
+ * shell runs here against an npm stub.
  */
 describe('a version npm already holds as staged', () => {
   const VERSION = '0.0.18'
 
-  const publish = (answer: string, code: number) => {
-    const lines = block('Publish').split('\n')
-    const at = lines.findIndex((line) => line.trim() === 'run: |')
-    expect(at, 'the Publish step has no `run: |` block to execute').toBeGreaterThan(-1)
-    const rest = lines.slice(at + 1)
-    const end = rest.findIndex((line) => line.trim() && line.search(/\S/) <= lines[at]!.search(/\S/))
-    const body = rest.slice(0, end === -1 ? undefined : end)
-    const indent = body.find((line) => line.trim())!.search(/\S/)
-    const dir = mkdtempSync(join(tmpdir(), 'ripple-publish-'))
-    try {
-      writeFileSync(join(dir, 'step.sh'), body.map((line) => line.slice(indent)).join('\n'))
-      writeFileSync(join(dir, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$NPM_ANSWER" >&2\nexit ${code}\n`, { mode: 0o755 })
-      writeFileSync(join(dir, 'output'), '')
-      const run = spawnSync('bash', ['-e', join(dir, 'step.sh')], {
-        encoding: 'utf8',
-        env: { PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_OUTPUT: join(dir, 'output'), NAME: '@banou/ripple', VERSION, NPM_ANSWER: answer },
-      })
-      return { status: run.status, log: run.stdout, output: readFileSync(join(dir, 'output'), 'utf8') }
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  }
+  const publish = (answer: string, code: number) => runStep(
+    'Publish',
+    { npm: `#!/bin/sh\nprintf '%s\\n' "$NPM_ANSWER" >&2\nexit ${code}\n` },
+    { NAME: '@banou/ripple', VERSION, NPM_ANSWER: answer },
+  )
 
   const conflict = (message: string) => `npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@banou%2fripple - ${message}`
 
@@ -201,5 +208,56 @@ describe('a version npm already holds as staged', () => {
     ['a network error', 'npm error code ECONNRESET\nnpm error network aborted'],
   ])('fails on %s', (_, answer) => {
     expect(publish(answer, 1)).toMatchObject({ status: 1, output: '' })
+  })
+})
+
+/**
+ * A push starts Test and a push-triggered Publish at the same moment, so 0.0.26 and 0.0.27 published while their Test
+ * runs were red. Publish now follows Test's completion, and a dispatch has to show a green Test run for its commit.
+ */
+describe('a release waits on Test', () => {
+  const triggers = () => steps().slice(steps().indexOf('\non:'), steps().indexOf('\nconcurrency:'))
+  const job = () => steps().slice(steps().indexOf('\n  publish:'), steps().indexOf('runs-on:'))
+
+  it('starts when Test completes on main, and never on the push beside it', () => {
+    const test = /^name:\s*(.+)$/m.exec(workflows['../.github/workflows/test.yml'] ?? '')?.[1]?.trim()
+    expect(test, 'workflow_run matches the `name:` of test.yml, and a rename there stops every release').toBe('Test')
+    expect(triggers()).toMatch(/workflow_run:\s+workflows: \[Test\]\s+types: \[completed\]\s+branches: \[main\]/)
+    expect(triggers(), 'a push trigger starts the release before Test has answered').not.toMatch(/^\s+push:/m)
+  })
+
+  // the job builds github.sha, so the run it follows has to be green and for that very commit
+  it('releases only a green Test run of a push, on the commit main is at', () => {
+    expect(job()).toContain("github.event.workflow_run.conclusion == 'success'")
+    expect(job(), 'a pull request from a fork branch named main also matches `branches`').toContain("github.event.workflow_run.event == 'push'")
+    expect(job()).toContain('github.event.workflow_run.head_sha == github.sha')
+    expect(steps(), 'checking out anything but github.sha builds a commit the check above did not compare').not.toMatch(/^\s+ref:/m)
+  })
+
+  describe('a dispatch', () => {
+    const SHA = '58ddc235cca2643ee0c2d3eaf8ee45473e0e9b31'
+    const gate = (answer: string, code = 0) => runStep(
+      'Require a green Test run for this commit',
+      { gh: `#!/bin/sh\necho "$*" >&2\nprintf '%s' "$GH_ANSWER"\nexit ${code}\n` },
+      { GITHUB_REPOSITORY: 'banou26/ripple', GITHUB_SHA: SHA, GH_ANSWER: answer },
+    )
+
+    it('runs the gate unless forced, and asks only for green push runs of test.yml on this commit', () => {
+      expect(block('Require a green Test run for this commit')).toContain("if: github.event_name == 'workflow_dispatch' && inputs.force != true")
+      expect(gate('1').stderr).toContain(`repos/banou26/ripple/actions/workflows/test.yml/runs?head_sha=${SHA}&event=push&status=success`)
+      expect(steps(), 'reading the runs of Test needs the actions scope').toMatch(/actions:\s*read/)
+    })
+
+    it('goes on when Test passed on the commit', () => {
+      expect(gate('1')).toMatchObject({ status: 0 })
+    })
+
+    it.each([
+      ['no green Test run', '0', 0],
+      ['an answer that is not a count', '', 0],
+      ['the API refusing', '', 1],
+    ])('stops on %s', (_, answer, code) => {
+      expect(gate(answer, code).status).not.toBe(0)
+    })
   })
 })
