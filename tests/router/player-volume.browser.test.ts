@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userEvent } from '@vitest/browser/context'
 
 import { PLAYER_VOLUME_KEY, keepPlayerVolume } from '../../src/router/player-volume'
 
@@ -11,10 +12,27 @@ const change = async (video: HTMLVideoElement, write: () => void) => {
   await changed
 }
 
+// a real click, which is what makes a change the viewer's
+const click = async () => {
+  const button = document.body.appendChild(document.createElement('button'))
+  button.textContent = 'Play'
+  await userEvent.click(button)
+  button.remove()
+}
+
 describe('the kept player volume', () => {
   afterEach(() => {
     localStorage.removeItem(PLAYER_VOLUME_KEY)
     vi.restoreAllMocks()
+  })
+
+  // First in the file: a click counts for the rest of the document, and the tests below click.
+  it('keeps no change made before the viewer has clicked or pressed a key on the page', async () => {
+    const video = document.createElement('video')
+    keepPlayerVolume(video)
+    // what the player does when autoplay with sound is refused, and what an embedder can write through the remote
+    await change(video, () => { video.muted = true })
+    expect(saved()).toBeNull()
   })
 
   it('puts the saved volume and mute on the video', () => {
@@ -26,6 +44,7 @@ describe('the kept player volume', () => {
   })
 
   it('saves every change to the video until it is stopped', async () => {
+    await click()
     const video = document.createElement('video')
     const stop = keepPlayerVolume(video)
     expect(saved()).toBeNull()
@@ -41,7 +60,7 @@ describe('the kept player volume', () => {
   })
 
   it('applies nothing from a saved value it cannot use', () => {
-    for (const value of ['{"volume":2,"muted":false}', '{"volume":0.3}', '{"volume":"0.3","muted":true}', 'null', '5', '{']) {
+    for (const value of ['{"volume":2,"muted":true}', '{"volume":0.3}', '{"volume":"0.3","muted":true}', 'null', '5', '{']) {
       localStorage.setItem(PLAYER_VOLUME_KEY, value)
       const video = document.createElement('video')
       keepPlayerVolume(video)
@@ -50,9 +69,10 @@ describe('the kept player volume', () => {
   })
 
   it('plays at the defaults, and keeps playing, where storage is blocked', async () => {
+    await click()
     const blocked = () => { throw new DOMException('blocked', 'SecurityError') }
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(blocked)
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked)
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent) => { errors.push(event.error) }
     window.addEventListener('error', onError)
@@ -62,6 +82,7 @@ describe('the kept player volume', () => {
     expect([video.volume, video.muted]).toEqual([1, false])
     await change(video, () => { video.volume = 0.4 })
     window.removeEventListener('error', onError)
+    expect(setItem).toHaveBeenCalled()
     expect(errors).toEqual([])
   })
 })

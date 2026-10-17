@@ -5,7 +5,7 @@ import { PLAYER_VOLUME_KEY } from '../../src/router/player-volume'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page } from '@vitest/browser/context'
+import { page, userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
@@ -215,7 +215,8 @@ describe('the volume on /watch', () => {
     await expect.poll(() => first.container.querySelector('button[aria-label="Mute"]')).not.toBeNull()
     const video = first.container.querySelector('video')!
     video.volume = 0.3
-    ;(first.container.querySelector('button[aria-label="Mute"]') as HTMLElement).click()
+    // a real click: a change made before the viewer has used the page is not kept
+    await userEvent.click(first.container.querySelector('button[aria-label="Mute"]')!)
     await expect.poll(() => JSON.parse(localStorage.getItem(PLAYER_VOLUME_KEY) ?? 'null'))
       .toEqual({ volume: 0.3, muted: true })
     first.unmount()
