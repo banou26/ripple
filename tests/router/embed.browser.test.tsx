@@ -1,6 +1,7 @@
 import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 
 import { NORMALIZE_VOLUME_KEY } from '../../src/router/normalize-volume'
+import { PLAYER_VOLUME_KEY } from '../../src/router/player-volume'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -199,5 +200,30 @@ describe('the volume normalizer switch on /watch', () => {
     again().click()
     await expect.poll(() => again().getAttribute('aria-checked')).toBe('true')
     expect(localStorage.getItem(NORMALIZE_VOLUME_KEY)).toBe('1')
+  })
+})
+
+describe('the volume on /watch', () => {
+  beforeEach(() => {
+    state.current = torrent()
+    localStorage.removeItem(PLAYER_VOLUME_KEY)
+  })
+  afterEach(() => { localStorage.removeItem(PLAYER_VOLUME_KEY) })
+
+  it('starts the next visit at the volume and mute the viewer left', async () => {
+    const first = await mount()
+    await expect.poll(() => first.container.querySelector('button[aria-label="Mute"]')).not.toBeNull()
+    const video = first.container.querySelector('video')!
+    video.volume = 0.3
+    ;(first.container.querySelector('button[aria-label="Mute"]') as HTMLElement).click()
+    await expect.poll(() => JSON.parse(localStorage.getItem(PLAYER_VOLUME_KEY) ?? 'null'))
+      .toEqual({ volume: 0.3, muted: true })
+    first.unmount()
+
+    const second = await mount()
+    await expect.poll(() => second.container.querySelector('button[aria-label="Mute"]')?.getAttribute('aria-pressed'))
+      .toBe('true')
+    const again = second.container.querySelector('video')!
+    expect([again.volume, again.muted]).toEqual([0.3, true])
   })
 })

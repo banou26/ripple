@@ -1,7 +1,7 @@
 import type { MediaPlayerSource } from '@banou/media-player'
 import type { EmbedMode } from './file-selection'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'lucide-react'
@@ -21,6 +21,7 @@ import DownloadPage from './download'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
+import { keepPlayerVolume } from './player-volume'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
 import { STATE_LABEL } from './torrent-format'
 
@@ -327,6 +328,13 @@ const Player = () => {
     setNormalizeVolume(on)
     try { localStorage.setItem(NORMALIZE_VOLUME_KEY, on ? '1' : '0') } catch {}
   }
+  // The player keeps no volume of its own: it writes it onto its <video> and reads it back from there, and in
+  // local mode that element is rendered on the first commit, so it is already here.
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const video = box.current?.querySelector('video')
+    return video ? keepPlayerVolume(video) : undefined
+  }, [])
   /**
    * Whether anything is carrying peer traffic, drawn beside the peer count it explains.
    *
@@ -549,7 +557,7 @@ const Player = () => {
   )
 
   return (
-    <div css={playerStyle}>
+    <div css={playerStyle} ref={box}>
       <MediaPlayer
         {...source}
         // Served to whoever frames this page, and only them, through @banou/media-player/remote: a
