@@ -71,9 +71,10 @@ The Playwright suites build first, then drive the built site in Chrome:
 The swarm and rig suites need a headful Chrome, because headless Chromium stalls the engine at
 0 B/s. Run them under `xvfb-run -a -s "-screen 0 1280x720x24"` so no window opens.
 
-A push to `main` deploys [torrent.fkn.app](https://torrent.fkn.app) (Cloudflare Pages), and
-publishes to npm when `package.json` names a version the registry does not have yet
-(`.github/workflows/publish-lib.yml`). Each published version is signed for FKN with `fkn-sign`.
+A push to `main` deploys [torrent.fkn.app](https://torrent.fkn.app) (Cloudflare Pages). When Test
+passes on that commit and `package.json` names a version the registry does not have yet, it is also
+published to npm (`.github/workflows/publish-lib.yml`). Each published version is signed for FKN
+with `fkn-sign`.
 
 ## Embedding
 
