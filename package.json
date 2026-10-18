@@ -60,8 +60,8 @@
     "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
   },
   "dependencies": {
-    "@banou/media-player": "^0.10.21",
-    "@banou/ponyfill": "^0.0.10",
+    "@banou/media-player": "^0.10.22",
+    "@banou/ponyfill": "^0.0.12",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.61",
     "ass-compiler": "^0.1.15",
