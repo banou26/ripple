@@ -41,13 +41,14 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
   ...over,
 } as PlayerTorrent)
 
-const state = { current: torrent(), named: [] as (number | undefined)[] }
+const state = { current: torrent(), named: [] as (number | undefined)[], framed: true }
 vi.mock('../../src/torrent/use-player-torrent', () => ({
   usePlayerTorrent: (_: string | undefined, fileIndex: number | undefined) => {
     state.named.push(fileIndex)
     return state.current
   },
 }))
+vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
 
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
@@ -143,6 +144,38 @@ describe('the watch route', () => {
     await expect.element(failed.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(getComputedStyle(failed.container.querySelector('.loading-information')!).display)
       .not.toBe('none')
+  })
+
+  /**
+   * Inside another site's page Firefox holds this player to 10 GiB of its own, which a grant on
+   * Ripple's site does not reach and which Ripple's library does not share (measured on Firefox 157,
+   * 2026-10-19), so "Remove a download in Ripple" is advice that cannot be followed from here. This
+   * same page in a tab of its own is first party and plays the file.
+   */
+  it('sends a file too big for the storage here to Ripple, where it can play', async () => {
+    state.current = torrent({ storageFull: true })
+    const screen = await mount(DESKTOP, '?magnet=bWFnbmV0Og==')
+    const link = screen.getByRole('link', { name: 'Open it in Ripple' })
+    await expect.element(link).toBeInTheDocument()
+    expect(screen.container.querySelector('.loading-information')?.textContent)
+      .toBe("Too big for this browser's storage here. Open it in Ripple to play it.")
+    const href = new URL(link.element().getAttribute('href')!)
+    expect(`${href.origin}${href.pathname}`).toBe(`${location.origin}/watch`)
+    expect(href.searchParams.get('magnet')).toBe('bWFnbmV0Og==')
+    expect(href.searchParams.get('fileIndex')).toBe('0')
+    expect(link.element().getAttribute('target')).toBe('_blank')
+    // the row takes no pointer events, so a link in it has to ask for them back
+    expect(getComputedStyle(link.element()).pointerEvents).toBe('auto')
+  })
+
+  it('keeps the advice to remove a download in Ripple itself, where that frees room', async () => {
+    state.current = torrent({ storageFull: true })
+    state.framed = false
+    try {
+      const screen = await mount()
+      await expect.element(screen.getByText('Out of storage space. Remove a download in Ripple to free room.')).toBeInTheDocument()
+      expect(screen.container.querySelector('.loading-information a')).toBeNull()
+    } finally { state.framed = true }
   })
 
   it('reports an engine failure instead of counting bytes that will never arrive', async () => {

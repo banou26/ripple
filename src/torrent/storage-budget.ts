@@ -19,6 +19,15 @@
 /** Free space kept in hand beyond what the torrents being watched still have to write. */
 export const MIN_FREE_BYTES = 1_000_000_000
 
+/**
+ * The least free space kept beyond what the watched files owe, when {@link MIN_FREE_BYTES} cannot be.
+ *
+ * Firefox holds a frame partitioned under another site to a fixed 10 GiB, and a 9.9 GiB film fits
+ * there with 108 MiB to spare (measured on Firefox 157, 2026-10-19), so the floor alone would keep
+ * it from ever playing.
+ */
+export const MARGIN_BYTES = 64 * 1024 * 1024
+
 /** Ceiling on cold cache, so a busy embedding page cannot quietly fill a large disk. */
 export const MAX_CACHE_BYTES = 20_000_000_000
 
@@ -51,47 +60,57 @@ export const cacheBudget = (limitBytes: number, largestBytes: number): number =>
 }
 
 /**
- * Whether the origin is short enough of room to be worth saying so.
+ * Whether a file someone is watching cannot finish, which is when it is worth saying so.
  *
  * One expression, in one place, because it decides two different things: whether to sweep the bytes
  * nothing owns before giving up, and whether to raise the "Out of storage space" notice a player
  * shows instead of stalling with nothing on screen.
  *
- * WHICH BROWSER THIS CAN EVER BE TRUE ON, measured 2026-09-03 on one machine with 2.7 TiB free, one
+ * Two ways to know. From the numbers: what is left is under {@link MARGIN_BYTES} and under what the
+ * watched files owe. And from what the browser did: a refused write whose file, with
+ * {@link MARGIN_BYTES}, owes more than is left plus the cold cache. That is the must-have
+ * {@link planEviction} gives the cache up for, so a file the plan cannot make room for is always one
+ * this calls full.
+ *
+ * WHY THE NUMBERS ALONE CANNOT SAY IT, measured 2026-09-03 on one machine with 2.7 TiB free, one
  * origin, three 512 MiB sparse writes per engine:
  *
  *  - CHROMIUM reports a FLOATING ceiling. The quota rose from 10.737 GB to 12.353 GB, by exactly
  *    what was written, and `quota - usage` moved by 0 bytes each time: 10,737,418,240, which is
- *    10 GiB, before and after every write. So the headroom is a constant and this function is
- *    `10 GiB < 1 GB`, which is false however much anybody writes.
+ *    10 GiB, before and after every write. So the headroom is a constant, the first half is
+ *    `10 GiB < 64 MiB`, and a file owing more than the headroom proves nothing: on Chromium 149 in a
+ *    frame, a 40 GiB extent was accepted and the quota read 53.7 GB after it (2026-10-19).
  *  - FIREFOX reports a FIXED ceiling. The quota stayed at 10,737,418,240 and the headroom fell by
- *    1,613,063,025 bytes against 1,613,063,025 written, byte for byte. Everything here works there.
+ *    1,613,063,025 bytes against 1,613,063,025 written, byte for byte. A write past it returns a
+ *    short count, which `@banou/ponyfill` turns into the `QuotaExceededError` Chromium throws.
  *
  * That is not a small difference in a number, it is a difference in what the number MEANS, and it
- * had gone unnoticed because at low usage a flat quota and a flat headroom read identically. It is
- * why four eviction tests sat failing: they squeeze the origin to provoke this, and on Chromium a
- * squeeze cannot land. `storage-relief.ts` records the 10 GiB as a cap on the budget; it is a cap on
- * the HEADROOM, and only that reading survives the pair above.
+ * had gone unnoticed because at low usage a flat quota and a flat headroom read identically.
+ * `storage-relief.ts` records the 10 GiB as a cap on the budget; it is a cap on the HEADROOM, and
+ * only that reading survives the pair above.
  *
  * The design still holds on Chromium, through {@link cacheBudget} rather than through pressure.
  * With `limit = used + 10 GiB` the cold cache settles where `cold = CACHE_SHARE * (cold + 10 GiB)`,
  * which is about 3.6 GB, so it is bounded and converges rather than growing without end. Pressure is
  * the branch that is inert there, not the whole of it.
  */
-export const isOriginFull = ({ usedBytes, limitBytes }: { usedBytes: number, limitBytes: number }): boolean => {
+export const isOriginFull = ({ usedBytes, limitBytes, pendingBytes, refusedBytes, candidates }: Verdict): boolean => {
   /*
    * An origin whose quota the browser will not report is not an origin that is KNOWN to be full,
    * which is the same rule `planEviction` states below and states for the same reason.
    *
-   * Without this line the arithmetic answers the opposite: `evictionFloor(0)` is 0, so a limit of 0
-   * against any usage at all is `-used < 0`, which is true, and an origin that merely declined to
-   * say would raise "Out of storage space" permanently. Unreachable through `measureSpace`, which
-   * returns null on a falsy quota before it ever gets here, and this is an exported primitive that
-   * two call sites already share, so it may not depend on one caller's guard to be right.
+   * Without this line the arithmetic answers the opposite: a limit of 0 leaves `-used` free, which
+   * is under anything a watched file owes, and an origin that merely declined to say would raise
+   * "Out of storage space" permanently. Unreachable through `measureSpace`, which returns null on a
+   * falsy quota before it ever gets here, and this is an exported primitive that two call sites
+   * already share, so it may not depend on one caller's guard to be right.
    */
   if (!Number.isFinite(limitBytes) || limitBytes <= 0) return false
   if (!Number.isFinite(usedBytes) || usedBytes < 0) return false
-  return limitBytes - usedBytes < evictionFloor(limitBytes)
+  const free = limitBytes - usedBytes
+  if (free < Math.min(pendingBytes, MARGIN_BYTES)) return true
+  const cache = candidates.reduce((sum, c) => sum + Math.max(0, c.bytesOnDisk), 0)
+  return refusedBytes > 0 && refusedBytes + MARGIN_BYTES > free + cache
 }
 
 export type EvictionCandidate = {
@@ -106,10 +125,10 @@ export type Budget = {
   usedBytes: number
   limitBytes: number
   /**
-   * What the torrents someone is actually watching still have to write, from the bitfield rather
-   * than from `totalWanted - totalDone`: the streaming plan skips the unwatched files, which shrinks
-   * `totalWanted` to the watched selection while `totalDone` still counts every piece held, so that
-   * subtraction reads 0 for exactly the torrent about to write gigabytes.
+   * What the files someone is actually watching still have to grow by: each one's size less its
+   * size on disk. Not its missing pieces, because OPFS charges the extent: once a file's tail is
+   * written the holes before it cost nothing more (measured on Firefox 157, 512 MiB written into
+   * them moved usage by 0 bytes), while its missing pieces still read as gigabytes.
    */
   pendingBytes: number
   /**
@@ -117,6 +136,15 @@ export type Budget = {
    * added by hand, never one still rooted at the shared save path.
    */
   candidates: EvictionCandidate[]
+}
+
+export type Verdict = Budget & {
+  /**
+   * What the files the browser refused a write to for want of room still owe, in torrents someone
+   * is watching. Not necessarily part of `pendingBytes`: a download page holds one file of a pack
+   * and writes the others.
+   */
+  refusedBytes: number
 }
 
 /** Oldest first, then by infoHash so the same budget always produces the same plan. */
@@ -128,10 +156,10 @@ const byAge = (a: EvictionCandidate, b: EvictionCandidate) =>
  *
  * Two independent reasons to evict, and the plan is the longer of the two prefixes:
  *
- * - PRESSURE. The browser budget has to hold what the watched torrents still owe, plus a floor.
- *   A file larger than the entire budget can never reach that, and emptying the cache chasing a
- *   target that recedes as fast as it is approached is pure destruction, so when even giving up
- *   everything falls short the pressure prefix is cut back to what cleared the floor.
+ * - PRESSURE. The browser budget has to hold what the watched files still owe plus the floor, or
+ *   failing that what they owe plus {@link MARGIN_BYTES}. When even giving up everything falls
+ *   short of that the file can never fit, and nothing is given up for it: the write is refused
+ *   either way, and the cache would be gone for nothing.
  * - SIZE. Cold cache is capped whether or not the disk is tight, so a page playing episode after
  *   episode cannot leave a hundred gigabytes behind on a machine that never feels full.
  */
@@ -154,13 +182,12 @@ export const planEviction = ({ usedBytes, limitBytes, pendingBytes, candidates }
     return -1
   }
 
-  const floor = evictionFloor(limitBytes)
-  const reservation = floor + Math.max(0, pendingBytes)
+  const owed = Math.max(0, pendingBytes)
   const free = limitBytes - usedBytes
 
-  const forReservation = fewest((k) => free + freed[k]! >= reservation)
-  const forFloor = fewest((k) => free + freed[k]! >= floor)
-  const pressure = forReservation >= 0 ? forReservation : forFloor >= 0 ? forFloor : ordered.length
+  const forFloor = fewest((k) => free + freed[k]! >= owed + evictionFloor(limitBytes))
+  const forMargin = fewest((k) => free + freed[k]! >= owed + MARGIN_BYTES)
+  const pressure = forFloor >= 0 ? forFloor : Math.max(0, forMargin)
 
   const cold = freed[ordered.length]!
   const largest = ordered.reduce((most, c) => Math.max(most, c.bytesOnDisk), 0)

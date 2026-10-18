@@ -250,6 +250,8 @@ export default defineConfig((env) => ({
       // @banou/ponyfill is imported by save-file.ts, which one browser test loads through
       // importOriginal, so it enters that graph late. Adding it here is the whole fix.
       '@banou/ponyfill',
+      // its own entry, which the engine worker writes through
+      '@banou/ponyfill/file-system',
       // Same reload, through the engine worker a browser test starts (tests/optimize-deps.test.ts).
       '@fkn/lib/net', '@fkn/lib/dgram',
       // And again with no build/ (CI, a fresh clone): the player's GET /build/libav-worker.js falls
