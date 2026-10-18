@@ -134,9 +134,19 @@ export const SHARED_ROOT = '/dl'
 
 export const savePathFor = (infoHash: string | null) => (infoHash ? SHARED_ROOT + '/' + infoHash : SHARED_ROOT)
 
+/**
+ * Where a new cache torrent is kept, as chunk files (`chunked-storage.ts`). Entries written before
+ * it stay at `/dl/<infoHash>`, one file per torrent file.
+ */
+export const CACHE_ROOT = '/cache'
+
+export const cacheSavePathFor = (infoHash: string) => CACHE_ROOT + '/' + infoHash
+
+export const isCacheSavePath = (savePath: string | undefined): boolean => !!savePath?.startsWith(CACHE_ROOT + '/')
+
 /** Only a torrent that owns its whole directory can have that directory deleted out from under it. */
 export const ownsItsDirectory = (savePath: string | undefined, infoHash: string) =>
-  savePath === savePathFor(infoHash)
+  savePath === savePathFor(infoHash) || savePath === cacheSavePathFor(infoHash)
 
 /**
  * Combine an existing entry with an add of the same torrent.

@@ -8,9 +8,37 @@ import { write } from '@banou/ponyfill/file-system'
 
 const RETRY_DELAYS = [50, 150, 400, 900, 1_500]
 
-const isFatal = (error: unknown) => (error as { name?: string })?.name === 'QuotaExceededError'
+export const isFatal = (error: unknown) => (error as { name?: string })?.name === 'QuotaExceededError'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Run a disk operation, and on a failure that is not a refusal for room, drop the handles it used
+ * and try again a few times, unless the storage is being deleted (`dying`). Sync in, sync out: a
+ * sync success returns directly, which is the streaming hot path.
+ */
+export const retrying = (dying: Set<number>) => {
+  const retryAfter = async <T>(id: number, evict: () => void, op: () => T | Promise<T>, first: unknown): Promise<T> => {
+    let last = first
+    for (const delay of RETRY_DELAYS) {
+      if (isFatal(last)) break
+      evict()
+      await sleep(delay)
+      if (dying.has(id)) throw last
+      try { return await op() } catch (error) { last = error }
+    }
+    throw last
+  }
+  return <T>(id: number, evict: () => void, op: () => T | Promise<T>): T | Promise<T> => {
+    try {
+      const result = op()
+      if (result instanceof Promise) return result.catch((error) => retryAfter(id, evict, op, error))
+      return result
+    } catch (error) {
+      return retryAfter(id, evict, op, error)
+    }
+  }
+}
 
 /**
  * OPFSStorage's own bookkeeping, reached into rather than re-derived.
@@ -99,28 +127,9 @@ export const createResilientStorage = (): MeasurableStorage => {
     return total
   }
 
-  const retryAfter = async <T>(id: number, fileIndex: number, op: () => T | Promise<T>, first: unknown): Promise<T> => {
-    let last = first
-    for (const delay of RETRY_DELAYS) {
-      if (isFatal(last)) break
-      evictHandle(id, fileIndex)
-      await sleep(delay)
-      if (dying.has(id)) throw last
-      try { return await op() } catch (error) { last = error }
-    }
-    throw last
-  }
-
-  // MUST stay sync-or-promise: a sync success returns directly, which is the streaming hot path
-  const guard = <T>(id: number, fileIndex: number, op: () => T | Promise<T>): T | Promise<T> => {
-    try {
-      const result = op()
-      if (result instanceof Promise) return result.catch((error) => retryAfter(id, fileIndex, op, error))
-      return result
-    } catch (error) {
-      return retryAfter(id, fileIndex, op, error)
-    }
-  }
+  const retry = retrying(dying)
+  const guard = <T>(id: number, fileIndex: number, op: () => T | Promise<T>): T | Promise<T> =>
+    retry(id, () => evictHandle(id, fileIndex), op)
 
   const writeAt = (id: number, fileIndex: number, offset: number, bytes: Uint8Array) => {
     const put = (handle: FileSystemSyncAccessHandle) => {
