@@ -32,7 +32,7 @@ test('autoplay starts the embed and reports whether it had to mute', async ({ pa
   await page.addScriptTag({ url: '/remote-harness.js', type: 'module' })
   await page.waitForFunction(() => typeof window.mediaPlayer === 'function', null, { timeout: 10_000 })
 
-  // Index 5 is the video; the default file 0 is a subtitle track and never plays.
+  // Index 5 is the video.
   const src = `${baseURL}/watch?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=5`
   await page.evaluate(async ({ src }) => {
     const frame = document.createElement('iframe')

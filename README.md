@@ -85,7 +85,7 @@ same query; the path chooses which one renders. `/watch` plays a file, `/downloa
 | --- | --- | --- |
 | `magnet` | base64 of the magnet URI | the form to write; permanent |
 | `m` | the packed magnet, base64url | what Ripple's own share links write |
-| `fileIndex` | a file index | the file `/watch` plays (0 if absent); the fallback `/download` uses |
+| `fileIndex` | a file index | the file `/watch` plays (the largest video if absent); the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
 
 One of `magnet` or `m` is required, and `m` is read first when both are present. `magnet=` is the

@@ -541,9 +541,10 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   // the subject arrived, so the field has done its job and the empty state is behind us
   useEffect(() => { if (torrent) { setHandedOver(false); setInput('') } }, [torrent])
 
-  // the player's own default, so an untouched watch link opens what pressing Watch would have.
+  // the player's own default, shown in the picker while nothing is chosen. The link leaves it to the
+  // player, which picks the same file, and does so even when the list here has not arrived yet.
   // `pickVideoFile` answers with a position in the list it was given, and this one is pad-filtered,
-  // so it is translated back to the engine index the link has to carry.
+  // so it is translated back to the engine index.
   const defaultWatch = useMemo(
     () => (files?.length ? files[pickVideoFile(files)]?.index ?? 0 : 0),
     [files],
@@ -567,8 +568,10 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   useEffect(() => { if (!watchable) setMode('download') }, [watchable])
 
   const link = useMemo(
-    () => (torrent?.magnet ? { magnet: torrent.magnet, mode, indices, fileCount: engineFileCount, fileIndex } : null),
-    [torrent?.magnet, mode, indices, engineFileCount, fileIndex],
+    () => (torrent?.magnet
+      ? { magnet: torrent.magnet, mode, indices, fileCount: engineFileCount, fileIndex: watchIndex ?? undefined }
+      : null),
+    [torrent?.magnet, mode, indices, engineFileCount, watchIndex],
   )
 
   const empty = mode === 'download' && fileCount > 0 && indices.length === 0
@@ -681,8 +684,8 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     *
                     * The link is byte for byte the same either way, which is what makes this purely
                     * a matter of not asking a question with one answer: `compileFileSelection`
-                    * returns null once the selection covers every file, and `embedPath` omits
-                    * `fileIndex` when it is 0, so a one-file torrent emits neither parameter
+                    * returns null once the selection covers every file, and `fileIndex` is written
+                    * only for a file somebody chose, so a one-file torrent emits neither parameter
                     * whether the controls are on screen or not. The subject line above already
                     * says the name and "1 file".
                     */}
@@ -700,8 +703,8 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                             value={fileIndex}
                             onChange={(e) => setWatchIndex(Number(e.currentTarget.value))}
                           >
-                            {files!.map((f, i) => (
-                              <option key={i} value={i}>{leaf(f.name)} · {getHumanReadableByteString(f.size)}</option>
+                            {files!.map((f) => (
+                              <option key={f.index} value={f.index}>{leaf(f.name)} · {getHumanReadableByteString(f.size)}</option>
                             ))}
                           </select>
                         </div>

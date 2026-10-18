@@ -317,12 +317,13 @@ const Player = () => {
    * empty player.
    */
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
-  // NaN would reach the engine as a file index and match nothing, so it collapses to the first file
-  const fileIndex = useMemo(() => {
-    const index = Number(_fileIndex)
-    return Number.isSafeInteger(index) && index >= 0 ? index : 0
+  // parsed as /download parses it, so the two routes agree on what a link names. With no file
+  // named, the hook plays the torrent's video file.
+  const named = useMemo(() => {
+    const selection = parseFileSelection(null, _fileIndex)
+    return selection.kind === 'single' ? selection.index : undefined
   }, [_fileIndex])
-  const { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, fileIndex)
+  const { snapshot, engineError, storageFull, fileIndex, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, named)
   const [normalizeVolume, setNormalizeVolume] = useState(() => normalizeVolumeSaved((k) => localStorage.getItem(k)))
   const chooseNormalizeVolume = (on: boolean) => {
     setNormalizeVolume(on)
@@ -448,15 +449,15 @@ const Player = () => {
    * re-packing it, and needs no metadata, so the link is right from the first paint instead of
    * appearing once the file list lands. `embedPath` cannot do it: in download mode it writes a
    * `files` selection and drops `fileIndex`, so it would need a file COUNT this page may not have
-   * yet.
+   * yet. Once the file being played is known it is written in, so a link that named none downloads
+   * the file the button names rather than the whole release.
    */
   const downloadHref = useMemo(() => {
     if (!magnet) return null
-    return new URL(
-      `${getRouterRoutePath(Route.DOWNLOAD)}?${new URLSearchParams(searchParams).toString()}`,
-      origin,
-    ).toString()
-  }, [magnet, searchParams, origin])
+    const query = new URLSearchParams(searchParams)
+    if (selectedFile) query.set('fileIndex', String(fileIndex))
+    return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${query.toString()}`, origin).toString()
+  }, [magnet, searchParams, origin, selectedFile, fileIndex])
 
   const overlay = (
     <div className="ripple-overlay-content">

@@ -29,8 +29,7 @@ test('the embed serves its player to the page that frames it', async ({ page, ba
   await page.addScriptTag({ url: '/remote-harness.js', type: 'module' })
   await page.waitForFunction(() => typeof window.mediaPlayer === 'function', null, { timeout: 10_000 })
 
-  // Index 5 is the video. The embed's default is file 0, which for Sintel is a subtitle track, and a
-  // player handed a subtitle reports "No playable video track" and never plays.
+  // Index 5 is the video.
   const src = `${baseURL}/watch?magnet=${Buffer.from(SINTEL).toString('base64')}&fileIndex=5`
   await page.evaluate(async ({ src }) => {
     const frame = document.createElement('iframe')

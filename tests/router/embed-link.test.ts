@@ -120,8 +120,10 @@ describe('embedPath', () => {
     expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 5 })).toContain('fileIndex=5')
   })
 
-  it('leaves fileIndex off when it is 0, because absent already means the first file', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 0 })).not.toContain('fileIndex')
+  // an absent fileIndex lets the player pick the video file, which need not be file 0
+  it('names file 0 too, and leaves fileIndex off only when no file is given', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 0 })).toContain('fileIndex=0')
+    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).not.toContain('fileIndex')
   })
 
   /**
