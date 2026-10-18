@@ -59,8 +59,8 @@ are incompressible. A 12-episode season is a 28,512-character URL and a 40 GB re
 
 ## `/watch` and `/download`
 
-`/watch` plays `fileIndex` in the media player, with the filename, peer count and transfer rates
-drawn over the video.
+`/watch` plays `fileIndex` in the media player, or the torrent's largest video when the link names
+no file, with the filename, peer count and transfer rates drawn over the video.
 
 `/download` shows the release name, the size of the selection and a Download button, and lists the
 files to pick from when the link names more than one. More than one file is

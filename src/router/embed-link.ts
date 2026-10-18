@@ -49,7 +49,10 @@ export type EmbedLink = {
    */
   indices?: number[]
   fileCount?: number
-  /** The single file a watch link opens. Ignored in download mode, which uses `indices`. */
+  /**
+   * The single file a watch link opens, written whenever given, 0 included: a link without one
+   * plays the torrent's video file. Ignored in download mode, which uses `indices`.
+   */
   fileIndex?: number
 }
 
@@ -94,8 +97,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
      */
     const files = compileFileSelection(indices ?? [], fileCount ?? 0)
     if (files) options.files = files
-  } else if (fileIndex != null && fileIndex > 0) {
-    // fileIndex=0 is what an absent one already means
+  } else if (fileIndex != null) {
     options.fileIndex = String(fileIndex)
   }
 

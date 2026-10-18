@@ -4,18 +4,25 @@ import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
 import { magnetInfoHash } from './magnet'
 import { makeReadWindowStore } from './read-window-store'
+import { pickVideoFile } from './watch'
 
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
   engineError: string | null
   /** The browser's storage budget is exhausted and the engine has nothing left it may reclaim. */
   storageFull: boolean
+  /** The file being played: the one the link named, or else the video file once the layout is known. */
+  fileIndex: number
   read: (offset: number, size: number) => Promise<ArrayBuffer>
   readQuiet: (offset: number, size: number) => Promise<ArrayBuffer>
   prioritizeFrom: (offset: number) => void
 }
 
-export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number): PlayerTorrent => {
+const playedFile = (named: number | undefined, snapshot: TorrentSnapshot | null): number =>
+  named ?? pickVideoFile(snapshot?.files?.files.map((f) => ({ name: f.path, size: f.size, pad: f.pad })))
+
+/** `named` is the file the link asks for; leave it undefined to play the torrent's video file. */
+export const usePlayerTorrent = (magnet: string | undefined, named: number | undefined): PlayerTorrent => {
   const client = getTorrentClient()
   const handleRef = useRef<number | null>(null)
   // one id per open player: the engine merges every viewer's claim on the shared priority map
@@ -46,9 +53,9 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     // match on the infoHash, never on the magnet string, and never on "the first one"
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
-    let watching = false
+    let claimed: number | null = null
     const offReset = client.onEngineReset(() => {
-      watching = false
+      claimed = null
       handleRef.current = null
       readWindows.current.clear()
     })
@@ -57,9 +64,11 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
       if (snap) handleRef.current = snap.handle
-      if (snap && !watching) {
-        watching = true
-        client.watch(viewer, snap.handle, fileIndex)
+      // with no file named this claims file 0 until the layout lands, then moves to the video file
+      const index = playedFile(named, snap)
+      if (snap && index !== claimed) {
+        claimed = index
+        client.watch(viewer, snap.handle, index)
       }
       setSnapshot(snap)
     })
@@ -72,7 +81,9 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
       client.unwatch(viewer)
       handleRef.current = null
     }
-  }, [client, magnet, fileIndex])
+  }, [client, magnet, named])
+
+  const fileIndex = playedFile(named, snapshot)
 
   const readAt = async (offset: number, size: number, prioritize: boolean): Promise<ArrayBuffer> => {
     const handle = handleRef.current
@@ -125,5 +136,5 @@ export const usePlayerTorrent = (magnet: string | undefined, fileIndex: number):
     if (handle != null) client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, engineError, storageFull, read, readQuiet, prioritizeFrom }
+  return { snapshot, engineError, storageFull, fileIndex, read, readQuiet, prioritizeFrom }
 }

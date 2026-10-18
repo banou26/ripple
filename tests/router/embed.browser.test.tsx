@@ -34,14 +34,20 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
     displayDownloadRate: 8_700_000,
   },
   engineError: null,
+  fileIndex: 0,
   read: async () => new ArrayBuffer(0),
   readQuiet: async () => new ArrayBuffer(0),
   prioritizeFrom: () => {},
   ...over,
 } as PlayerTorrent)
 
-const state = { current: torrent() }
-vi.mock('../../src/torrent/use-player-torrent', () => ({ usePlayerTorrent: () => state.current }))
+const state = { current: torrent(), named: [] as (number | undefined)[] }
+vi.mock('../../src/torrent/use-player-torrent', () => ({
+  usePlayerTorrent: (_: string | undefined, fileIndex: number | undefined) => {
+    state.named.push(fileIndex)
+    return state.current
+  },
+}))
 
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
@@ -160,9 +166,51 @@ describe('the watch route', () => {
   })
 
   it('survives a fileIndex that is not a number', async () => {
+    state.named = []
     const screen = await mount(DESKTOP, '?magnet=bWFnbmV0Og==&fileIndex=abc')
-    // NaN would reach the engine and match no file at all, so it collapses to the first
     await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
+    // NaN would reach the engine and match no file at all, so it is read as no file named
+    expect(state.named.at(-1)).toBeUndefined()
+  })
+
+  // the stub plugin names no file, and the first file of a film release can be a special
+  it('names no file to play when the link names none, and the one it names otherwise', async () => {
+    const cases = [
+      ['', undefined],
+      ['&fileIndex=', undefined],
+      // what /download reads as no file, so swapping the path cannot change which file is meant
+      ['&fileIndex=%20', undefined],
+      ['&fileIndex=1e1', undefined],
+      ['&fileIndex=0', 0],
+      ['&fileIndex=2', 2],
+    ] as const
+    for (const [search, named] of cases) {
+      state.named = []
+      const screen = await mount(DESKTOP, `?magnet=bWFnbmV0Og==${search}`)
+      await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
+      expect(state.named.at(-1), search).toBe(named)
+      await screen.unmount()
+    }
+  })
+
+  it('downloads the file the button names, once the file list is known', async () => {
+    const special = { path: 'Promare/Promare.Galo.Hen.SP01.mkv', size: 200_000_000, offset: 0, pad: false }
+    const film = { path: 'Promare/Promare.mkv', size: 2_000_000_000, offset: 200_000_000, pad: false }
+    const { snapshot } = torrent()
+    const downloadsFile = async (over: Partial<PlayerTorrent>) => {
+      state.current = torrent(over)
+      const screen = await mount()
+      const link = screen.getByTestId('open-download-page')
+      await expect.element(link).toBeInTheDocument()
+      const label = link.element().getAttribute('aria-label')
+      const fileIndex = new URL(link.element().getAttribute('href')!).searchParams.get('fileIndex')
+      await screen.unmount()
+      return { label, fileIndex }
+    }
+    expect(await downloadsFile({ fileIndex: 1, snapshot: { ...snapshot!, files: { ...snapshot!.files!, files: [special, film] } } }))
+      .toEqual({ label: 'Download Promare.mkv', fileIndex: '1' })
+    expect(await downloadsFile({ snapshot: { ...snapshot!, files: null } }))
+      .toEqual({ label: 'Download this torrent', fileIndex: null })
   })
 })
 

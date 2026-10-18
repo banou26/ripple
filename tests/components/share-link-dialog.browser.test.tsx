@@ -147,11 +147,27 @@ describe('the share link dialog, once it has a torrent', () => {
   it('switches to a watch link on the file the player would have picked', async () => {
     const { query, path } = await mount(SINTEL)
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
-    // index 3 is the mp4; the three subtitles are smaller and not video
-    await expect.poll(() => query().get('fileIndex')).toBe('3')
     // and the link SAYS it plays, in the part of the URL a person reads first
-    expect(path()).toBe('/watch')
+    await expect.poll(path).toBe('/watch')
+    // index 3 is the mp4; the three subtitles are smaller and not video
+    expect((dialog().querySelector('#share-file') as HTMLSelectElement).value).toBe('3')
+    // left to the player, which picks the same file, and does so even before the file list is known
+    expect(query().get('fileIndex')).toBeNull()
     expect(query().get('mode')).toBeNull()
+  })
+
+  it('names the file chosen, file 0 included, since no fileIndex means the player picks', async () => {
+    const { query } = await mount(SINTEL)
+    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
+    await userEvent.selectOptions(dialog().querySelector('#share-file') as HTMLSelectElement, '0')
+    await expect.poll(() => query().get('fileIndex')).toBe('0')
+  })
+
+  it('names no file on a watch link made before the file list arrives', async () => {
+    const { query, path } = await mount(withFiles(null))
+    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
+    await expect.poll(path).toBe('/watch')
+    expect(query().get('fileIndex')).toBeNull()
   })
 
   /**
@@ -159,9 +175,9 @@ describe('the share link dialog, once it has a torrent', () => {
    * and the embed opens whatever the player chose for itself.
    */
   it('never puts a files list on a watch link', async () => {
-    const { query } = await mount(SINTEL)
+    const { query, path } = await mount(SINTEL)
     await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
-    await expect.poll(() => query().get('fileIndex')).toBe('3')
+    await expect.poll(path).toBe('/watch')
     expect(query().get('files')).toBeNull()
   })
 
@@ -208,6 +224,16 @@ describe('the share link dialog, once it has a torrent', () => {
     await expect.poll(() => query().get('files')).toBe('2')
   })
 
+  it('names the watched file by engine index, not by its position after the pads are dropped', async () => {
+    const { query } = await mount(PADDED)
+    await userEvent.click(dialog().querySelector('button[aria-pressed="false"]') as HTMLElement)
+    const picker = dialog().querySelector('#share-file') as HTMLSelectElement
+    // E02 is the bigger video, so it is what the picker shows before anything is chosen
+    expect(picker.selectedOptions[0]?.textContent).toContain('E02')
+    await userEvent.selectOptions(picker, picker.options[1]!)
+    await expect.poll(() => query().get('fileIndex')).toBe('2')
+  })
+
   it('keeps every engine index when the whole selection is offered', async () => {
     // 0 and 2 rather than 0-1: the pad at 1 is not the person's file and the link must not claim it
     const { query } = await mount(PADDED)
@@ -228,7 +254,7 @@ describe('the share link dialog, once it has a torrent', () => {
    * A single-file torrent has nothing to choose between, so neither control is offered. The link
    * must be identical to the one the controls would have produced, which is the half a screenshot
    * cannot check: `compileFileSelection` returns null once a selection covers every file, and
-   * `embedPath` omits `fileIndex` when it is 0, so both parameters are absent either way.
+   * `fileIndex` is written only for a file somebody chose, so both parameters are absent either way.
    */
   const ONE_FILE = withFiles(numbered([file('Sintel/Sintel.mp4', 129_200_000)]))
 
@@ -247,7 +273,7 @@ describe('the share link dialog, once it has a torrent', () => {
 
   it('builds the same link it would have with the picker on screen', async () => {
     const { query } = await mount(ONE_FILE)
-    // index 0 is what an absent fileIndex already means, and one of one file is every file
+    // no file was chosen, and one of one file is every file
     expect(query().get('fileIndex')).toBeNull()
     expect(query().get('files')).toBeNull()
     expect(decodeMagnetParam(query())).toBe(SINTEL.magnet)
