@@ -23,6 +23,7 @@ import { fakeDir, installWorkerGlobals } from '../utils/worker-rig'
 
 const GB = 1_000_000_000
 const QUOTA = 10 * GB
+const FULL = QUOTA - 32 * 1024 * 1024
 // the same shape twice, both 40 hex, so the reservation is the only difference between them
 const RESERVED = 'b'.repeat(40)
 const CONTROL = 'c'.repeat(40)
@@ -30,24 +31,19 @@ const CONTROL = 'c'.repeat(40)
 const dl = fakeDir('dl', [fakeDir(RESERVED), fakeDir(CONTROL)])
 
 /**
- * The first estimate is held until the test has sent its reservation, and answers a FULL origin.
- *
- * Not a convenience. The budget pass is started at the tail of `init`, unawaited, so it is already
- * running by the time a poll notices `ready`, and a reservation posted after that would miss the
- * sweep it is about; waiting for the ten second interval to bring a second pass is the alternative
- * and costs ten seconds. Holding the pass at its very first await instead is deterministic and free.
+ * A FULL origin until the sweep has given something back, and the space it gave back after.
  *
  * Full, because `runOrphanSweep` is called from the pass when `isOriginFull`, which is the extra
- * sweep a large copy provokes. Every later call reports the space the sweep gave back, so
- * `settleAfterDelete` sees the drop and returns on its first poll rather than waiting out four
- * seconds of them.
+ * sweep a large copy provokes: 32 MiB left, under what the film being watched owes. Nothing is
+ * watched until the reservation has been sent, so no pass before then sweeps. The drop afterwards
+ * is what lets `settleAfterDelete` return on its first poll rather than waiting out four seconds of
+ * them, and the count of estimates read after it says the sweep finished.
  */
-let releaseFirstEstimate = () => {}
-const firstEstimate = new Promise<void>((resolve) => { releaseFirstEstimate = resolve })
-let estimates = 0
+let afterSweep = 0
 const rig = installWorkerGlobals({
   estimate: async () => {
-    if (++estimates === 1) { await firstEstimate; return { usage: 9.8 * GB, quota: QUOTA } }
+    if (!dl.removed.length) return { usage: FULL, quota: QUOTA }
+    afterSweep++
     return { usage: 6.8 * GB, quota: QUOTA }
   },
   root: fakeDir('', [dl]),
@@ -57,8 +53,25 @@ vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
   const { fakeSession } = await import('../utils/worker-rig')
-  return { createSession: async () => fakeSession(), PRIORITY: { skip: 0 }, TORRENT_FLAG: { uploadMode: 1 } }
+  return {
+    createSession: async () => fakeSession({
+      files: () => ({
+        storageIndex: 0, pieceLength: 1_048_576, numPieces: 954, totalSize: GB, contentSize: GB,
+        files: [{ path: 'film.mkv', offset: 0, size: GB, pad: false }],
+      }),
+      setStreamWindow: () => true,
+      clearStreamWindow: () => {},
+      cancelPieceRequests: () => {},
+    }),
+    PRIORITY: { skip: 0 },
+    TORRENT_FLAG: { uploadMode: 1 },
+  }
 })
+vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
+  // nothing of the film on disk yet, so it owes its whole size
+  createHybridStorage: () => ({ usageOf: async () => 0, refusedFile: () => undefined }),
+}))
 vi.mock('idb-keyval', () => ({
   // an empty library, so every hash-named directory down there is an orphan unless something claims it
   get: async () => undefined,
@@ -73,16 +86,17 @@ describe('the orphan sweep and a directory a page is writing into', () => {
     await vi.waitFor(() => expect(rig.of('ready'), 'the engine never started').toHaveLength(1))
 
     rig.send({ type: 'reserve-storage', infoHash: RESERVED, on: true })
-    // a macrotask, so every queued command has been handled before the pass is let go
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    releaseFirstEstimate()
+    rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'a'.repeat(40)}`, ephemeral: true })
+    await vi.waitFor(() => expect(rig.of('added')).toHaveLength(1))
+    expect(dl.removed, 'a pass swept before anything was watched').toEqual([])
+    rig.send({ type: 'watch', viewer: 'player', handle: 1, fileIndex: 0, fromOffset: 0 })
 
     /*
-     * A second estimate is asked for only from `settleAfterDelete`, which the pass reaches only when
-     * a sweep has FINISHED and removed something. So this waits for the whole pass rather than for
-     * the first delete inside it, and until it holds nothing below is evidence of anything.
+     * An estimate after a removal is asked for only from `settleAfterDelete`, which the pass reaches
+     * only when a sweep has FINISHED and removed something. So this waits for the whole pass rather
+     * than for the first delete inside it, and until it holds nothing below is evidence of anything.
      */
-    await vi.waitFor(() => expect(estimates, 'no sweep ever completed').toBeGreaterThan(1))
+    await vi.waitFor(() => expect(afterSweep, 'no sweep ever completed').toBeGreaterThan(0))
 
     expect(
       dl.removed,

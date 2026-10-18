@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, cacheBudget, evictionFloor, isOriginFull, planEviction } from '../../src/torrent/storage-budget'
-import type { Budget, EvictionCandidate } from '../../src/torrent/storage-budget'
+import type { Budget, EvictionCandidate, Verdict } from '../../src/torrent/storage-budget'
 
 const GB = 1_000_000_000
+const MiB = 1024 * 1024
+const GiB = 1024 * MiB
 
 const candidate = (infoHash: string, usedAt: number, bytesOnDisk: number): EvictionCandidate =>
   ({ infoHash, usedAt, bytesOnDisk })
@@ -11,6 +13,8 @@ const candidate = (infoHash: string, usedAt: number, bytesOnDisk: number): Evict
 // a budget roomy enough that the cache ceiling never fires, so a case says what it means to say
 const budget = (over: Partial<Budget>): Budget =>
   ({ usedBytes: 0, limitBytes: 100 * GB, pendingBytes: 0, candidates: [], ...over })
+
+const verdict = (over: Partial<Verdict>): Verdict => ({ refusedBytes: 0, ...budget(over) })
 
 describe('evictionFloor', () => {
   it('caps the headroom on a large budget', () => {
@@ -103,9 +107,9 @@ describe('planEviction', () => {
     }))).toEqual(['a', 'b', 'c'])
   })
 
-  it('refuses to empty the cache for a file that can never fit', () => {
-    // a 500 GB remux against a 100 GB budget: the reservation moves out of reach no matter what is
-    // given up, so evicting past the floor buys nothing and costs everything
+  it('gives nothing up for a file that can never fit', () => {
+    // a 500 GB remux against a 100 GB budget: no amount of cache given up makes room for it, and
+    // the write that is refused anyway would leave the cache gone for nothing
     expect(planEviction(budget({
       usedBytes: 99.5 * GB,
       pendingBytes: 500 * GB,
@@ -114,11 +118,8 @@ describe('planEviction', () => {
         candidate('b', 2, 3 * GB),
         candidate('c', 3, 3 * GB),
       ],
-    }))).toEqual(['a'])
-  })
-
-  it('gives up everything when even the floor is out of reach', () => {
-    // almost nothing on disk is Ripple's, so no plan clears the floor; every byte back still helps
+    }))).toEqual([])
+    // the same when what can be given up falls short of the margin alone
     expect(planEviction(budget({
       usedBytes: 99.9 * GB,
       pendingBytes: 1 * GB,
@@ -126,6 +127,15 @@ describe('planEviction', () => {
         candidate('a', 1, 0.02 * GB),
         candidate('b', 2, 0.02 * GB),
       ],
+    }))).toEqual([])
+  })
+
+  it('settles for the margin when the floor cannot be had', () => {
+    // 4 GB free and 6 GB of cache against a 9.9 GB file: the floor needs 10.9 GB, 64 MiB needs 9.97 GB
+    expect(planEviction(budget({
+      usedBytes: 96 * GB,
+      pendingBytes: 9.9 * GB,
+      candidates: [candidate('a', 1, 3 * GB), candidate('b', 2, 3 * GB)],
     }))).toEqual(['a', 'b'])
   })
 
@@ -202,11 +212,14 @@ describe('an origin whose ceiling floats with its usage, as Chromium reports one
   const chromiumAt = (usedBytes: number, candidates: EvictionCandidate[]): Budget =>
     ({ usedBytes, limitBytes: usedBytes + HEADROOM, pendingBytes: 0, candidates })
 
-  it('never fires the pressure branch, however much is already used', () => {
-    // the floor is min(1 GB, 10% of limit) and the headroom is a constant 10 GiB, so `free < floor`
-    // is `10 GiB < 1 GB` at every usage there is
+  it('is never full from the numbers, however much is used or owed', () => {
+    // the headroom is a constant 10 GiB, so `free < min(owed, margin)` is `10 GiB < 64 MiB`. A file
+    // owing more than the headroom proves nothing here: measured on Chromium 149, a 40 GiB extent
+    // was accepted with the quota reading 53.7 GB after it
     for (const used of [0, 1 * GB, 50 * GB, 500 * GB]) {
-      expect(isOriginFull({ usedBytes: used, limitBytes: used + HEADROOM })).toBe(false)
+      for (const owed of [0, 2 * GiB, 20 * GiB, 40 * GiB]) {
+        expect(isOriginFull(verdict({ usedBytes: used, limitBytes: used + HEADROOM, pendingBytes: owed }))).toBe(false)
+      }
     }
   })
 
@@ -237,13 +250,70 @@ describe('an origin whose ceiling floats with its usage, as Chromium reports one
 })
 
 describe('isOriginFull', () => {
-  it('is true only inside the floor', () => {
-    expect(isOriginFull({ usedBytes: 99.5 * GB, limitBytes: 100 * GB })).toBe(true)
-    expect(isOriginFull({ usedBytes: 98 * GB, limitBytes: 100 * GB })).toBe(false)
+  it('is true from the numbers only when a watched file cannot finish in what is left', () => {
+    expect(isOriginFull(verdict({ usedBytes: 100 * GB - 32 * MiB, pendingBytes: 1 * GB }))).toBe(true)
+    // a file whose extent is all on disk owes nothing, so it finishes however little is left
+    expect(isOriginFull(verdict({ usedBytes: 100 * GB - 32 * MiB, pendingBytes: 0 }))).toBe(false)
+    expect(isOriginFull(verdict({ usedBytes: 100 * GB - 32 * MiB, pendingBytes: 16 * MiB }))).toBe(false)
+    // nor under a gigabyte, which the floor used to call full
+    expect(isOriginFull(verdict({ usedBytes: 99.5 * GB, pendingBytes: 0.2 * GB }))).toBe(false)
   })
 
   it('is false for a quota the browser will not report, which is not a full origin', () => {
-    expect(isOriginFull({ usedBytes: 5 * GB, limitBytes: 0 })).toBe(false)
-    expect(isOriginFull({ usedBytes: 5 * GB, limitBytes: Number.NaN })).toBe(false)
+    expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: 0, pendingBytes: 1 * GB }))).toBe(false)
+    expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: Number.NaN, pendingBytes: 1 * GB }))).toBe(false)
+  })
+})
+
+/*
+ * The frame stub plays ripple in, on Firefox: a partition held to the fixed 10 GiB group limit.
+ *
+ * MEASURED on Firefox 157, 2026-10-19, with the release the owner played (nyaa 1331946), ONE file of
+ * 10,624,058,159 bytes. The tail written, usage read 10,624,549,679, and 512 MiB written into the
+ * holes after it moved usage by 0 bytes. With 200 MiB of another file cached first, the same tail
+ * write returned 0 bytes and threw nothing.
+ */
+describe('a 9.9 GiB film in a frame Firefox holds to 10 GiB', () => {
+  const LIMIT = 10_737_418_240
+  const FILM = 10_624_058_159
+  // an earlier episode still cached, and what the partition holds beside the film when it is empty
+  const EARLIER = 1_400_000_000
+  const BESIDE = 491_520
+  const opening = { usedBytes: EARLIER + 16 * MiB + BESIDE, limitBytes: LIMIT, candidates: [candidate('earlier', 1, EARLIER)] }
+
+  it('is not full once the film is on disk, since the rest of it costs nothing more', () => {
+    expect(isOriginFull(verdict({ usedBytes: 10_624_549_679, limitBytes: LIMIT, pendingBytes: 0 }))).toBe(false)
+  })
+
+  it('gives up the cold cache so the film can open, owing its size less the head on disk', () => {
+    expect(planEviction(budget({ ...opening, pendingBytes: FILM - 16 * MiB }))).toEqual(['earlier'])
+  })
+
+  it('gives nothing up for a 20 GiB file, which can never fit', () => {
+    expect(planEviction(budget({ ...opening, pendingBytes: 20 * GiB - 16 * MiB }))).toEqual([])
+  })
+
+  it('is full when a write was refused and the cold cache cannot cover what the file owes', () => {
+    const big = 20 * GiB - 16 * MiB
+    expect(isOriginFull(verdict({ ...opening, pendingBytes: big, refusedBytes: big }))).toBe(true)
+    // the same numbers with nothing refused: Chromium's ceiling moves, so the numbers alone cannot say
+    expect(isOriginFull(verdict({ ...opening, pendingBytes: big }))).toBe(false)
+    // a refused tail the cache can make room for is not: the pass gives the cache up and the torrent
+    // is restarted into the room
+    expect(isOriginFull(verdict({ ...opening, pendingBytes: FILM - 16 * MiB, refusedBytes: FILM - 16 * MiB }))).toBe(false)
+  })
+
+  it('is full for a refused file the plan keeps the cache for, which fits only without the margin', () => {
+    const free = LIMIT - opening.usedBytes
+    const owed = free + EARLIER - 32 * MiB
+    expect(planEviction(budget({ ...opening, pendingBytes: owed }))).toEqual([])
+    expect(isOriginFull(verdict({ ...opening, pendingBytes: owed, refusedBytes: owed }))).toBe(true)
+  })
+
+  it('is not full once a refused file owes nothing, however little is left', () => {
+    // its tail landed after the refusal, which is held until the torrent is mounted again
+    const full = { usedBytes: LIMIT - 32 * MiB, limitBytes: LIMIT, candidates: [] }
+    expect(isOriginFull(verdict({ ...full, refusedBytes: 0 }))).toBe(false)
+    expect(isOriginFull(verdict({ ...full, refusedBytes: 1 }))).toBe(true)
   })
 })

@@ -14,12 +14,15 @@ import { installWorkerGlobals } from '../utils/worker-rig'
  *
  * The failure is injected the way a full origin really presents it: the library read throws. Nothing
  * guards `loadList`, and `runStorageBudget` awaits it inside the try after it has already measured
- * the origin, so the pass dies holding an honest figure. That is the case the `finally` exists for.
+ * the origin and what the watched film owes, so the pass dies holding an honest figure: 32 MiB left
+ * for a film with 1 GB still to write. That is the case the `finally` exists for.
  */
 
 const GB = 1_000_000_000
-const USED = 9.8 * GB
 const QUOTA = 10 * GB
+const USED = QUOTA - 32 * 1024 * 1024
+
+const state = vi.hoisted(() => ({ failing: false }))
 
 // installed before the worker is imported, because it reads `self` and `navigator` at module scope
 const rig = installWorkerGlobals({ estimate: async () => ({ usage: USED, quota: QUOTA }) })
@@ -28,33 +31,61 @@ vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
   const { fakeSession } = await import('../utils/worker-rig')
-  return { createSession: async () => fakeSession(), PRIORITY: { skip: 0 }, TORRENT_FLAG: { uploadMode: 1 } }
+  return {
+    createSession: async () => fakeSession({
+      files: () => ({
+        storageIndex: 0, pieceLength: 1_048_576, numPieces: 954, totalSize: GB, contentSize: GB,
+        files: [{ path: 'film.mkv', offset: 0, size: GB, pad: false }],
+      }),
+      setStreamWindow: () => true,
+      clearStreamWindow: () => {},
+      cancelPieceRequests: () => {},
+    }),
+    PRIORITY: { skip: 0 },
+    TORRENT_FLAG: { uploadMode: 1 },
+  }
 })
-vi.mock('idb-keyval', () => ({
-  // exactly the shape a full origin presents: the read-modify-write store refuses
-  get: async (key: string) => {
-    if (key === 'ripple:torrents') throw new Error('QuotaExceededError')
-    return undefined
-  },
-  set: async () => {},
-  del: async () => {},
-  update: async () => {},
+vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
+  // nothing of the film on disk yet, so it owes its whole size
+  createHybridStorage: () => ({ usageOf: async () => 0, refusedFile: () => undefined }),
 }))
+vi.mock('idb-keyval', () => {
+  const store = new Map<string, unknown>()
+  return {
+    // exactly the shape a full origin presents: the read-modify-write store refuses
+    get: async (key: string) => {
+      if (key === 'ripple:torrents' && state.failing) throw new Error('QuotaExceededError')
+      return store.get(key)
+    },
+    set: async (key: string, value: unknown) => { store.set(key, value) },
+    del: async (key: string) => { store.delete(key) },
+    update: async (key: string, fn: (prev: unknown) => unknown) => { store.set(key, fn(store.get(key))) },
+  }
+})
+
+const passFailures = () =>
+  rig.of('worker-error').filter((m) => String((m.args as string[])?.[0]).includes('storage budget pass failed'))
 
 describe('a storage budget pass that fails part way', () => {
   it('still reports the origin it had already measured', async () => {
     await import('../../src/torrent/worker')
     await vi.waitFor(() => expect(rig.of('ready'), 'the engine never started').toHaveLength(1))
+    rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'a'.repeat(40)}`, ephemeral: true })
+    await vi.waitFor(() => expect(rig.of('added')).toHaveLength(1))
+    // the pass the add ran has nothing watched to report on, so it is let finish first
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(rig.of('storage-full')).toEqual([])
+
+    state.failing = true
+    rig.send({ type: 'watch', viewer: 'player', handle: 1, fileIndex: 0, fromOffset: 0 })
 
     /*
      * THE CONTROL, and the assertion below is worth nothing without it. A pass that never ran posts
      * no message either, so "there is no storage-full" and "the fix works" are the same observation
      * until something proves the pass got as far as failing.
      */
-    await vi.waitFor(() => expect(
-      rig.of('worker-error').filter((m) => String((m.args as string[])?.[0]).includes('storage budget pass failed')),
-      'the budget pass never failed, so nothing below is evidence',
-    ).toHaveLength(1))
+    await vi.waitFor(() => expect(passFailures(), 'the budget pass never failed, so nothing below is evidence').toHaveLength(1))
 
     expect(rig.of('storage-full')).toEqual([
       { type: 'storage-full', full: true, usedBytes: USED, limitBytes: QUOTA },

@@ -16,11 +16,11 @@ import type { SaveLocation } from './library'
  * quota still and let the headroom fall by the 1,613,063,025 bytes written, byte for byte.
  *
  * At low usage those two look identical, which is why one reading stood for the other. The reason it
- * matters is in `storage-budget.ts`: a ceiling that floats means Chromium never reports the origin
- * as full, so the pressure half of the eviction budget and the "Out of storage space" notice are
- * both inert there. What is NOT affected is anything this module says. Bytes still count against the
- * cap, moving them to a folder still takes them out from under it, and Chromium still refuses to
- * raise it.
+ * matters is in `storage-budget.ts`: a ceiling that floats means Chromium's numbers never show the
+ * origin as full, so the pressure half of the eviction budget is inert there and the "Out of storage
+ * space" notice waits on a write the browser refused. What is NOT affected is anything this module
+ * says. Bytes still count against the cap, moving them to a folder still takes them out from under
+ * it, and Chromium still refuses to raise it.
  *
  * On FIREFOX that same call is not the same thing. Measured 2026-09-01 on torrent.fkn.app: granting
  * its "Store data in persistent storage" doorhanger moved the reported quota from 12 GB to 3.97 TB

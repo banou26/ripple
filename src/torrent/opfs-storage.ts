@@ -4,6 +4,7 @@
 import type { StorageBackend } from 'libtorrent-wasm/types'
 
 import { OPFSStorage, STORAGE_NEED_FULL_CHECK } from 'libtorrent-wasm/opfs'
+import { write } from '@banou/ponyfill/file-system'
 
 const RETRY_DELAYS = [50, 150, 400, 900, 1_500]
 
@@ -14,9 +15,11 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /**
  * OPFSStorage's own bookkeeping, reached into rather than re-derived.
  *
- * Two things here need it and neither has a public equivalent: dropping one cached handle so a
- * retry can re-open it, and measuring what a torrent actually occupies. The clean home for both is
- * the library, and moving them there is a dependency release away.
+ * Three things here need it and none has a public equivalent: dropping one cached handle so a
+ * retry can re-open it, measuring what a torrent actually occupies, and writing through
+ * `@banou/ponyfill`, whose `write` turns Firefox's short count into the `QuotaExceededError`
+ * Chromium throws. The clean home for all three is the library, and moving them there is a
+ * dependency release away.
  */
 type StorageInternals = {
   storages?: Map<number, {
@@ -24,12 +27,21 @@ type StorageInternals = {
     files?: Map<number, { close: () => void, getSize: () => number }>
     fileMeta?: Array<{ path: string, size: number }>
   }>
+  openFile: (id: number, fileIndex: number) => FileSystemSyncAccessHandle | Promise<FileSystemSyncAccessHandle>
 }
 
-/** Adds the one query the engine needs that a plain StorageBackend does not carry. */
+/** Adds the queries the engine needs that a plain StorageBackend does not carry. */
 export type MeasurableStorage = StorageBackend & {
-  /** Bytes the origin is charged for everything under `savePath`, or null when it is not mounted. */
-  usageOf: (savePath: string) => Promise<number | null>
+  /**
+   * Bytes the origin is charged for everything under `savePath`, or for its file `fileIndex` alone,
+   * or null when it is not mounted.
+   */
+  usageOf: (savePath: string, fileIndex?: number) => Promise<number | null>
+  /**
+   * The file under `savePath` whose write the browser last refused for want of room, held until the
+   * torrent is mounted again, or undefined when none was.
+   */
+  refusedFile: (savePath: string) => number | undefined
 }
 
 export const createResilientStorage = (): MeasurableStorage => {
@@ -39,6 +51,7 @@ export const createResilientStorage = (): MeasurableStorage => {
   // libtorrent hands JS a storage id, Ripple knows torrents by their save path, and one add is the
   // only place the two are ever seen together
   const idBySavePath = new Map<string, number>()
+  const refused = new Map<number, number>()
 
   const internals = storage as unknown as StorageInternals
 
@@ -62,13 +75,14 @@ export const createResilientStorage = (): MeasurableStorage => {
    * a live SyncAccessHandle holds exclusively, which is why the library's own `check()` releases
    * first. Only files with no open handle fall back to it.
    */
-  const usageOf = async (savePath: string): Promise<number | null> => {
+  const usageOf = async (savePath: string, only?: number): Promise<number | null> => {
     const id = idBySavePath.get(savePath)
     if (id === undefined) return null
     const entry = internals.storages?.get(id)
     if (!entry?.fileMeta || !entry.rootDir) return null
     let total = 0
     for (let fileIndex = 0; fileIndex < entry.fileMeta.length; fileIndex++) {
+      if (only !== undefined && fileIndex !== only) continue
       const open = entry.files?.get(fileIndex)
       if (open) {
         try { total += open.getSize(); continue } catch { /* closing under us: fall through */ }
@@ -108,10 +122,28 @@ export const createResilientStorage = (): MeasurableStorage => {
     }
   }
 
+  const writeAt = (id: number, fileIndex: number, offset: number, bytes: Uint8Array) => {
+    const put = (handle: FileSystemSyncAccessHandle) => {
+      try {
+        write(handle, bytes, { at: offset })
+      } catch (error) {
+        if (isFatal(error)) refused.set(id, fileIndex)
+        throw error
+      }
+    }
+    const handle = internals.openFile(id, fileIndex)
+    return handle instanceof Promise ? handle.then(put) : put(handle)
+  }
+
   return {
     usageOf,
+    refusedFile: (savePath) => {
+      const id = idBySavePath.get(savePath)
+      return id === undefined ? undefined : refused.get(id)
+    },
     onNewStorage: (id, savePath, files) => {
       dying.delete(id)
+      refused.delete(id)
       idBySavePath.set(savePath, id)
       return guard(id, -1, () => storage.onNewStorage(id, savePath, files))
     },
@@ -121,7 +153,7 @@ export const createResilientStorage = (): MeasurableStorage => {
       return storage.onRemoveStorage(id)
     },
     read: (id, fileIndex, offset, len) => guard(id, fileIndex, () => storage.read(id, fileIndex, offset, len)),
-    write: (id, fileIndex, offset, bytes) => guard(id, fileIndex, () => storage.write(id, fileIndex, offset, bytes)),
+    write: (id, fileIndex, offset, bytes) => guard(id, fileIndex, () => writeAt(id, fileIndex, offset, bytes)),
     // release and stop are routine, so they must not mark the storage dying
     release: (id) => storage.release(id),
     // a rejection reaches the engine as a disk error and stops the torrent

@@ -8,7 +8,7 @@ import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, Trac
 
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
-import type { EvictionCandidate } from './storage-budget'
+import type { EvictionCandidate, Verdict } from './storage-budget'
 import type { Persisted, Removal, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
@@ -324,7 +324,7 @@ const untrack = (h: number) => {
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
-  viewers.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
+  viewers.delete(h); newlyWatched.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
@@ -572,6 +572,9 @@ const filePieceRange = (h: number, fileIndex: number) => {
  */
 type Viewer = { fileIndex: number, fromOffset: number, held?: boolean, bulk?: boolean }
 const viewers = new Map<number, Map<string, Viewer>>()
+// torrents whose first viewer is still owed a budget pass with the layout known, so the cache is
+// given up before the tail write the stream plan asks for alongside the head
+const newlyWatched = new Set<number>()
 // the layout arrives with the torrent-ready record, later than the first watch, so a plan that
 // could not be built yet is retried from the pump instead of being dropped
 const pendingViewing = new Set<number>()
@@ -667,6 +670,7 @@ const applyViewing = (h: number) => {
   wake(h)
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
+  if (newlyWatched.delete(h)) void runStorageBudget()
   const claims = active.flatMap(({ fileIndex, fromOffset, bulk }) => {
     const head = { fileIndex, offset: fromOffset }
     const file = files.files[fileIndex]
@@ -736,7 +740,7 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
     ...(held ? { held } : {}),
     ...(kind ? { bulk: kind } : {}),
   })
-  if (first) touchUsed(h)
+  if (first) { touchUsed(h); newlyWatched.add(h) }
   applyViewing(h)
 }
 
@@ -775,39 +779,29 @@ const missingPieces = (h: number, fileIndex: number, offset: number, len: number
 }
 
 /**
- * What the torrents someone is watching still have to write, from the bitfield.
+ * What the files someone is watching still have to grow by, and what the file each of those
+ * torrents last had a write refused to still owes.
  *
- * NOT `totalWanted - totalDone`. The streaming plan skips every unwatched file, which shrinks
- * `totalWanted` to the watched selection, while `totalDone` keeps counting every piece the torrent
- * holds including the skipped ones. On a season pack that downloaded a few episodes before anyone
- * pressed play the subtraction is negative, clamps to zero, and reserves nothing for exactly the
- * file that is about to write gigabytes.
- *
- * Pieces are counted once per torrent however many viewers claim them, and a piece straddling the
- * end of the watched file is counted whole, which errs towards reserving too much.
+ * Each file owes its size less its size on disk, not its missing pieces: OPFS charges the extent
+ * (see storage-budget.ts), so a film whose tail has landed owes nothing more however many pieces it
+ * still lacks. A file claimed by several viewers is counted once. The refused file is not always a
+ * watched one: a download page holds the first file of a pack and writes the rest.
  */
-const remainingForViewers = (): number => {
-  if (!session) return 0
-  let total = 0
-  for (const [h, watching] of viewers) {
-    if (!watching.size || !handles.includes(h)) continue
-    const files = session.files(h)
-    const bf = session.bitfield(h)
-    if (!files) continue
-    if (!bf) {
-      // layout but no bitfield: reserve the whole of what is claimed rather than nothing
-      for (const { fileIndex } of watching.values()) total += files.files[fileIndex]?.size ?? 0
-      continue
-    }
-    const missing = new Set<number>()
-    for (const { fileIndex } of watching.values()) {
-      const r = filePieceRange(h, fileIndex)
-      if (!r) continue
-      for (let p = r.p0; p <= r.p1; p++) if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) missing.add(p)
-    }
-    total += missing.size * files.pieceLength
+const owedByViewers = async (): Promise<{ pendingBytes: number, refusedBytes: number }> => {
+  let pendingBytes = 0
+  let refusedBytes = 0
+  for (const [h, watching] of [...viewers]) {
+    const live = storage
+    const files = session?.files(h)
+    const savePath = savePathByHandle.get(h)
+    if (!live || !files || !watching.size || savePath === undefined || isGrantedSavePath(savePath)) continue
+    const owes = async (fileIndex: number) =>
+      Math.max(0, (files.files[fileIndex]?.size ?? 0) - ((await live.usageOf(savePath, fileIndex)) ?? 0))
+    for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) pendingBytes += await owes(fileIndex)
+    const refused = live.refusedFile(savePath)
+    if (refused !== undefined) refusedBytes += await owes(refused)
   }
-  return total
+  return { pendingBytes, refusedBytes }
 }
 
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
@@ -1041,9 +1035,15 @@ const addSource = (
   return h
 }
 
-const collectCandidates = async (list: Persisted[], now: number): Promise<EvictionCandidate[]> => {
+/**
+ * The cold cache a pass may give up, and the cold cache still inside its grace, which it may not give
+ * up yet but which a verdict on the room counts: it goes once the grace ends, and the torrent
+ * restarted after that finds the room.
+ */
+const collectCandidates = async (list: Persisted[], now: number) => {
   const byHash = new Map(list.map((e) => [e.infoHash, e]))
-  const out: EvictionCandidate[] = []
+  const evictable: EvictionCandidate[] = []
+  const graced: EvictionCandidate[] = []
   for (const h of [...handles]) {
     const ih = infoHashByHandle.get(h)
     if (!ih) continue
@@ -1051,24 +1051,24 @@ const collectCandidates = async (list: Persisted[], now: number): Promise<Evicti
     // only what the player asked for, and only where deleting a directory can reach nothing else
     if (!entry?.ephemeral || !ownsItsDirectory(entry.savePath, ih)) continue
     if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
-    if (now - (lastReadAt.get(h) ?? 0) < READ_GRACE_MS) continue
     const usedAt = entry.lastUsedAt ?? entry.addedAt
-    if (now - usedAt < RECENT_USE_MS) continue
     const bytesOnDisk = (await storage?.usageOf(entry.savePath)) ?? 0
     if (bytesOnDisk <= 0) continue
-    out.push({ infoHash: ih, usedAt, bytesOnDisk })
+    const inGrace = now - (lastReadAt.get(h) ?? 0) < READ_GRACE_MS || now - usedAt < RECENT_USE_MS
+    const found = { infoHash: ih, usedAt, bytesOnDisk }
+    if (inGrace) graced.push(found); else evictable.push(found)
   }
-  return out
+  return { evictable, graced }
 }
 
 // Reported from the estimate AFTER a pass, never from the plan: a pass that just freed 10 GB
 // announcing the origin as full is worse than saying nothing.
 let storageFull = false
-const reportSpace = (space: Space) => {
-  const full = isOriginFull(space)
+const reportSpace = (verdict: Verdict) => {
+  const full = isOriginFull(verdict)
   if (full === storageFull) return
   storageFull = full
-  post({ type: 'storage-full', full, usedBytes: space.usedBytes, limitBytes: space.limitBytes })
+  post({ type: 'storage-full', full, usedBytes: verdict.usedBytes, limitBytes: verdict.limitBytes })
 }
 
 // Slow on purpose: this walks directories and its whole job is tidying, so it is never in the way
@@ -1145,9 +1145,13 @@ const runOrphanSweep = async (): Promise<number> => {
 }
 
 let budgetPassRunning = false
+// a pass asked for while one runs, most often by a viewer attaching after that pass read what the
+// watched files owe, so it is run again rather than dropped
+let budgetPassAgain = false
 const runStorageBudget = async () => {
   const live = session
-  if (!live || budgetPassRunning) return
+  if (!live) return
+  if (budgetPassRunning) { budgetPassAgain = true; return }
   budgetPassRunning = true
   /*
    * The last thing this pass actually measured, reported in `finally` rather than at the end.
@@ -1160,17 +1164,23 @@ const runStorageBudget = async () => {
    * knows an honest figure.
    */
   let measured: Space | null = null
+  let owed = { pendingBytes: 0, refusedBytes: 0 }
+  let candidates: EvictionCandidate[] = []
+  let graced: EvictionCandidate[] = []
+  const verdict = (space: Space) => ({ ...space, ...owed, candidates: [...candidates, ...graced] })
   try {
     let space = await measureSpace()
     if (!space) return
     measured = space
-    const pendingBytes = remainingForViewers()
-    let candidates = await collectCandidates(await loadList(), Date.now())
+    owed = await owedByViewers()
+    const collected = await collectCandidates(await loadList(), Date.now())
+    candidates = collected.evictable
+    graced = collected.graced
     // One at a time, re-measured in between. The plan's sizes decide the ORDER and whether to start
     // at all; the browser's own accounting decides when there is enough room. A size that is wrong
     // then costs one extra pass rather than the whole cache.
     while (candidates.length) {
-      const [next] = planEviction({ ...space, pendingBytes, candidates })
+      const [next] = planEviction({ ...space, pendingBytes: owed.pendingBytes, candidates })
       if (!next) break
       candidates = candidates.filter((c) => c.infoHash !== next)
       const h = handles.find((x) => infoHashByHandle.get(x) === next)
@@ -1198,10 +1208,12 @@ const runStorageBudget = async () => {
       if (!after) return
       space = after
       measured = after
+      // the tail may have landed while the delete settled, and then the film owes nothing more
+      owed = await owedByViewers()
     }
     // Out of torrents it may give up, but bytes nothing owns are always fair game and are exactly
     // what an account switch leaves behind, so sweep before calling the origin full.
-    if (isOriginFull(space) && await runOrphanSweep()) {
+    if (isOriginFull(verdict(space)) && await runOrphanSweep()) {
       space = (await settleAfterDelete(space.usedBytes)) ?? space
     }
     measured = space
@@ -1209,7 +1221,8 @@ const runStorageBudget = async () => {
     console.error('[worker] storage budget pass failed', String(err))
   } finally {
     budgetPassRunning = false
-    if (measured) reportSpace(measured)
+    if (measured) reportSpace(verdict(measured))
+    if (budgetPassAgain) { budgetPassAgain = false; void runStorageBudget() }
   }
 }
 

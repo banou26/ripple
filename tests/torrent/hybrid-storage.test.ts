@@ -44,6 +44,7 @@ const fakeFolder = (files: Record<string, Uint8Array>) => {
 
 const fakeOpfs = () => ({
   usageOf: vi.fn(async () => 1234),
+  refusedFile: vi.fn(() => 2),
   onNewStorage: vi.fn(),
   onRemoveStorage: vi.fn(),
   read: vi.fn(async () => bytes(4, 9)),
@@ -171,6 +172,14 @@ describe('the quota the origin is charged', () => {
   it('still asks OPFS about an OPFS path', async () => {
     const { storage } = mounted({}, [])
     expect(await storage.usageOf('/dl/abc')).toBe(1234)
+  })
+
+  it('asks OPFS about the one file named, and about a write it refused', async () => {
+    const { storage, opfs } = mounted({}, [])
+    await storage.usageOf('/dl/abc', 1)
+    expect(opfs.usageOf).toHaveBeenCalledWith('/dl/abc', 1)
+    expect(storage.refusedFile('/dl/abc')).toBe(2)
+    expect(opfs.refusedFile).toHaveBeenCalledWith('/dl/abc')
   })
 })
 

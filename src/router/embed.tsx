@@ -10,6 +10,7 @@ import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.
 
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { isFramed } from '../utils/framed'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
@@ -129,6 +130,11 @@ const playerStyle = css`
     @media (min-width: 560px) {
       display: block;
     }
+  }
+
+  .loading-information a {
+    pointer-events: auto;
+    color: inherit;
   }
 
   /*
@@ -387,14 +393,27 @@ const Player = () => {
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
+
+  // This page's own URL, opened as a tab of its own: first party, so it gets Ripple's storage rather
+  // than the separate 10 GiB Firefox gives a frame inside another site's page.
+  const watchHref = useMemo(() => {
+    const query = new URLSearchParams(searchParams)
+    if (selectedFile) query.set('fileIndex', String(fileIndex))
+    return new URL(`${getRouterRoutePath(Route.WATCH)}?${query.toString()}`, origin).toString()
+  }, [searchParams, origin, selectedFile, fileIndex])
+
   // Why there is nothing to watch yet, or null once there is. Kept apart from the byte counter
   // because only the counter is dropped when the row runs out of room.
   //
-  // A full origin outranks the metadata line and survives past it: nothing more will ever be
-  // written, so playback stops wherever it is, and without this the player just stops with no
+  // A full origin outranks the metadata line and survives past it: the file being watched cannot
+  // finish, so playback stops wherever it is, and without this the player just stops with no
   // explanation anywhere. Ripple reclaims what it can on its own first, so seeing this at all means
-  // the space is held by torrents the user added themselves.
+  // the space is held by torrents the user added themselves, or, in a frame, whose storage holds
+  // nothing else, that the file is too big for it.
   const status = engineError
+    ?? (storageFull && isFramed()
+      ? <>Too big for this browser's storage here. <a href={watchHref} target="_blank" rel="noopener noreferrer">Open it in Ripple</a> to play it.</>
+      : null)
     ?? (storageFull ? 'Out of storage space. Remove a download in Ripple to free room.' : null)
     ?? (hasMetadata ? null : 'Loading metadata…')
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,

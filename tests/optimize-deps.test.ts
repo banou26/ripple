@@ -30,6 +30,8 @@ const isFknLib = (specifier: string) => specifier === '@fkn/lib' || specifier.st
 /** The late entries that are not `@fkn/lib`, each with the one module that brings it in. */
 const lateEntries: Record<string, string> = {
   '@banou/ponyfill': '../src/torrent/save-file.ts',
+  // the engine worker writes through it
+  '@banou/ponyfill/file-system': '../src/torrent/opfs-storage.ts',
   'react-router': '../src/router/index.tsx',
 }
 
