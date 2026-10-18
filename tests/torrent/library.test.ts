@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, savePathFor, staysEphemeral, survivesRemovals, syncedMetadata } from '../../src/torrent/library'
+import { SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, savePathFor, staysEphemeral, survivesRemovals, syncedMetadata } from '../../src/torrent/library'
 import { DEMO_MAGNET } from '../../src/torrent/constants'
 import { magnetInfoHash } from '../../src/torrent/magnet'
 import type { Persisted } from '../../src/torrent/library'
@@ -35,7 +35,16 @@ describe('savePathFor', () => {
 
   it('refuses a directory that belongs to a different torrent', () => {
     expect(ownsItsDirectory('/dl/' + 'b'.repeat(40), HASH)).toBe(false)
+    expect(ownsItsDirectory('/cache/' + 'b'.repeat(40), HASH)).toBe(false)
     expect(ownsItsDirectory(undefined, HASH)).toBe(false)
+  })
+
+  it('gives a cache torrent its own directory under the cache root, which eviction may take', () => {
+    expect(cacheSavePathFor(HASH)).toBe('/cache/' + HASH)
+    expect(isCacheSavePath(cacheSavePathFor(HASH))).toBe(true)
+    expect(isCacheSavePath(savePathFor(HASH))).toBe(false)
+    expect(isCacheSavePath('/cached/' + HASH)).toBe(false)
+    expect(ownsItsDirectory(cacheSavePathFor(HASH), HASH)).toBe(true)
   })
 })
 

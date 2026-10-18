@@ -103,6 +103,6 @@ it('gives up the cached episode the moment the film it owes room to has a layout
   // well inside the ten second timer, so the pass that did it is the one the attach asked for
   await vi.waitFor(() => expect(sessions[0]?.removed).toEqual([1]), { timeout: 2_000 })
   // and it asked what the film holds on disk, rather than counting its missing pieces
-  expect(state.usageOf).toContainEqual(['/dl/' + FILM_HASH, 0])
+  expect(state.usageOf).toContainEqual(['/cache/' + FILM_HASH, 0])
   expect(rig.of('worker-error')).toEqual([])
 })

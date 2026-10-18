@@ -14,6 +14,7 @@ import type { Persisted, Removal, SaveLocation } from './library'
 import { magnetInfoHash } from './magnet'
 import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
+import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
 import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
 import type { Totals, Uptime } from './uptime'
@@ -24,7 +25,7 @@ import { isOriginFull, planEviction } from './storage-budget'
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
-import { LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
+import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
@@ -86,6 +87,8 @@ export type { PeerInfo, TrackerInfo }
 
 let session: Session | null = null
 let storage: MeasurableStorage | null = null
+// a build-time knob, for the end to end test of a file bigger than a small room
+const cache = createChunkedStorage(Number(import.meta.env.VITE_RIPPLE_CHUNK_BYTES) || CHUNK_BYTES)
 /**
  * The directory the user granted, as handed over by a page.
  *
@@ -1122,6 +1125,8 @@ const runOrphanSweep = async (): Promise<number> => {
 
     for (const e of list) {
       const savePath = e.savePath || SHARED_ROOT
+      // its own directory under the cache root, which the second walk below accounts for by name
+      if (isCacheSavePath(savePath)) continue
       // a save path outside the root this sweeps is territory it knows nothing about
       if (savePath !== SHARED_ROOT && !savePath.startsWith(SHARED_ROOT + '/')) { attributable = false; continue }
       if (savePath !== SHARED_ROOT) continue
@@ -1133,7 +1138,11 @@ const runOrphanSweep = async (): Promise<number> => {
     }
 
     const root = await navigator.storage.getDirectory()
-    const removed = await sweepSaveRoot(root, SHARED_ROOT, { listedHashes, claimedNames, attributable })
+    const removed = [
+      ...await sweepSaveRoot(root, SHARED_ROOT, { listedHashes, claimedNames, attributable }),
+      // nothing but hash directories is ever written there, so only those can be judged
+      ...await sweepSaveRoot(root, CACHE_ROOT, { listedHashes, claimedNames: new Set(), attributable: false }),
+    ]
     await sweepProbes(root).catch(() => 0)
     // one line, only when something actually went: this deletes data, so it leaves a trace
     if (removed.length) console.log('[worker] removed storage nothing owns', removed)
@@ -1267,7 +1276,7 @@ const init = async () => {
   ])
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null)
+  storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
   session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
 
@@ -1668,12 +1677,12 @@ const handleMessage = async (session: Session, m: any) => {
         // bytes already on disk stay where they were written, so a re-add never moves a torrent to
         // a fresh directory and orphans the old one
         const known = ih ? (await loadList()).find((e) => e.infoHash === ih) : undefined
-        const savePath = m.savePath || known?.savePath || savePathFor(ih)
         // `known`, not the incoming flag alone: a torrent already in the library is not cache,
         // whatever opened it. The list has always applied this rule through mergeEntry; the engine
         // did not, so a watch link on a torrent the user owns used to hand its handle to
         // ephemeralHandles and get it idle-parked the moment the player closed.
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
+        const savePath = m.savePath || known?.savePath || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
         const h = session.addMagnet(m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
         track(h, m.magnet, ih, savePath, ephemeral)

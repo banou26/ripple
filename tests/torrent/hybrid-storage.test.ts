@@ -245,3 +245,40 @@ describe('unmounting', () => {
     expect(opfs.onRemoveStorage).toHaveBeenCalledWith(3)
   })
 })
+
+describe('the cache root', () => {
+  it('hands a /cache torrent to the chunked storage and every other browser path to OPFS', async () => {
+    const opfs = fakeOpfs()
+    const cache = fakeOpfs()
+    const storage = createHybridStorage(opfs, () => null, () => null, cache)
+    const cached = '/cache/' + 'a'.repeat(40)
+    const plain = '/dl/' + 'b'.repeat(40)
+    await storage.onNewStorage(1, cached, [{ path: 'a.mkv', size: 10 }])
+    await storage.onNewStorage(2, plain, [{ path: 'b.mkv', size: 10 }])
+    await storage.read(1, 0, 0, 4)
+    await storage.write(1, 0, 0, bytes(4, 1))
+    await storage.deleteFiles!(1, 0)
+    await storage.usageOf(cached, 0)
+    storage.refusedFile(cached)
+    await storage.read(2, 0, 0, 4)
+    await storage.check!(1)
+    await storage.release!(1)
+    await storage.stop!(1)
+    storage.onRemoveStorage(1)
+    // read as mocks, not as the storage's methods
+    const [toCache, toOpfs] = [cache, opfs] as unknown as Record<string, ReturnType<typeof vi.fn>>[]
+    for (const call of ['check', 'release', 'stop', 'onRemoveStorage']) {
+      expect(toCache![call], call).toHaveBeenCalledWith(1)
+      expect(toOpfs![call], call).not.toHaveBeenCalled()
+    }
+    expect(toCache!.onNewStorage).toHaveBeenCalledWith(1, cached, expect.anything())
+    expect(toCache!.read).toHaveBeenCalledWith(1, 0, 0, 4)
+    expect(toCache!.write).toHaveBeenCalledTimes(1)
+    expect(toCache!.deleteFiles).toHaveBeenCalledWith(1, 0)
+    expect(toCache!.usageOf).toHaveBeenCalledWith(cached, 0)
+    expect(toCache!.refusedFile).toHaveBeenCalledWith(cached)
+    expect(toOpfs!.read).toHaveBeenCalledWith(2, 0, 0, 4)
+    expect(toOpfs!.read).toHaveBeenCalledTimes(1)
+    expect(toOpfs!.write).not.toHaveBeenCalled()
+  })
+})

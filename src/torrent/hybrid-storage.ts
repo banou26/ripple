@@ -2,6 +2,7 @@ import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 
 import type { MeasurableStorage } from './opfs-storage'
 import type { SourceRef } from './walk-source'
+import { isCacheSavePath } from './library'
 import { fileFrom } from './walk-source'
 
 /**
@@ -128,13 +129,18 @@ const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<Fi
   return (await dir.getFileHandle(name)).getFile()
 }
 
+/** `cache` holds the save paths under `/cache`, and `opfs` every other one in browser storage. */
 export const createHybridStorage = (
   opfs: MeasurableStorage,
   folder: FolderSource,
   sources: SourceLookup = () => null,
+  cache: MeasurableStorage = opfs,
 ): MeasurableStorage => {
   const native = new Map<number, NativeStorage>()
   const source = new Map<number, SourceStorage>()
+  const cached = new Set<number>()
+  const browser = (id: number) => (cached.has(id) ? cache : opfs)
+  const browserAt = (savePath: string) => (isCacheSavePath(savePath) ? cache : opfs)
 
   const rootOr = (what: string): FileSystemDirectoryHandle => {
     const root = folder()
@@ -173,23 +179,24 @@ export const createHybridStorage = (
       // the origin is not charged for the user's own files, and reporting their size as OPFS usage
       // would have the budget pass trying to reclaim space that was never taken
       if (isGrantedSavePath(savePath)) return 0
-      return opfs.usageOf(savePath, fileIndex)
+      return browserAt(savePath).usageOf(savePath, fileIndex)
     },
 
-    refusedFile: (savePath) => opfs.refusedFile(savePath),
+    refusedFile: (savePath) => browserAt(savePath).refusedFile(savePath),
 
     onNewStorage: (id, savePath, files) => {
       if (isSourceSavePath(savePath)) {
         source.set(id, { savePath, files, handles: sources(savePath) })
         return
       }
-      if (!isNativeSavePath(savePath)) return opfs.onNewStorage(id, savePath, files)
+      if (isCacheSavePath(savePath)) cached.add(id); else cached.delete(id)
+      if (!isNativeSavePath(savePath)) return browser(id).onNewStorage(id, savePath, files)
       native.set(id, { savePath, files })
     },
 
     onRemoveStorage: (id) => {
       if (source.delete(id)) return
-      if (!native.delete(id)) return opfs.onRemoveStorage(id)
+      if (!native.delete(id)) return browser(id).onRemoveStorage(id)
     },
 
     read: (id, fileIndex, offset, len) => {
@@ -216,7 +223,7 @@ export const createHybridStorage = (
         })()
       }
       const entry = native.get(id)
-      if (!entry) return opfs.read(id, fileIndex, offset, len)
+      if (!entry) return browser(id).read(id, fileIndex, offset, len)
       const meta = entry.files[fileIndex]
       if (!meta) throw new Error(`hybrid storage: no file ${fileIndex} in ${entry.savePath}`)
       return (async () => {
@@ -242,7 +249,7 @@ export const createHybridStorage = (
         throw new Error(`hybrid storage: ${picked.savePath} is somebody's own files, refusing a write of ${bytes.length} at ${offset} in file ${fileIndex}`)
       }
       const entry = native.get(id)
-      if (!entry) return opfs.write(id, fileIndex, offset, bytes)
+      if (!entry) return browser(id).write(id, fileIndex, offset, bytes)
       // Unreachable by construction, and loud rather than silent if the construction ever slips. A
       // torrent on this backend is added with `uploadMode`, so libtorrent never requests a piece and
       // never writes. There is also no way to honour it: `createWritable` would publish by renaming
@@ -279,7 +286,7 @@ export const createHybridStorage = (
         return STORAGE_NEED_FULL_CHECK
       }
       const entry = native.get(id)
-      if (!entry) return opfs.check!(id)
+      if (!entry) return browser(id).check!(id)
       try {
         const root = rootOr('check')
         for (const meta of entry.files) {
@@ -297,7 +304,7 @@ export const createHybridStorage = (
       // bytes were never Ripple's. `removeTorrent(handle, true)` reaches here on an ordinary remove.
       if (source.has(id)) return
       const entry = native.get(id)
-      if (!entry) return opfs.deleteFiles!(id, flags)
+      if (!entry) return browser(id).deleteFiles!(id, flags)
       // THE USER'S FILES ARE NOT OURS TO DELETE. This backend exists because their copy is the one
       // that survived; the whole point of pointing a torrent at it was to stop keeping a second one.
       // `removeTorrent(handle, true)` is a routine call that means "delete the download", and on
@@ -305,7 +312,7 @@ export const createHybridStorage = (
       // deliberate: throwing would surface as a disk error on a torrent that is being removed anyway.
     },
 
-    release: async (id) => { if (!native.has(id) && !source.has(id)) await opfs.release!(id) },
-    stop: async (id) => { if (!native.has(id) && !source.has(id)) await opfs.stop!(id) },
+    release: async (id) => { if (!native.has(id) && !source.has(id)) await browser(id).release!(id) },
+    stop: async (id) => { if (!native.has(id) && !source.has(id)) await browser(id).stop!(id) },
   }
 }
