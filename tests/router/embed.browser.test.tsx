@@ -178,6 +178,36 @@ describe('the watch route', () => {
     } finally { state.framed = true }
   })
 
+  it('says a file bigger than the room streams as it plays, on the phone too, and says nothing for one that fits', async () => {
+    const NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
+    // THE CONTROL: a file that fits counts its bytes and carries no note
+    const fits = await mount()
+    await expect.element(fits.getByText('82')).toBeInTheDocument()
+    expect(fits.container.querySelector('.loading-information')).toBeNull()
+    expect(fits.container.querySelector('.downloaded')).not.toBeNull()
+
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, windowed: true } })
+    const screen = await mount(PHONE)
+    await expect.element(screen.getByText(NOTE)).toBeInTheDocument()
+    const note = screen.container.querySelector('.loading-information')!
+    expect(note.querySelector('a, button')).toBeNull()
+    // it wraps inside the row rather than pushing the readouts off the picture
+    const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
+    const player = screen.container.firstElementChild!.getBoundingClientRect()
+    expect(readout.right).toBeLessThanOrEqual(player.right)
+    expect(note.getBoundingClientRect().right).toBeLessThanOrEqual(readout.left + 1)
+  })
+
+  it('leaves the note out of Ripple at the top level, the page it points to', async () => {
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, windowed: true } })
+    state.framed = false
+    try {
+      const screen = await mount()
+      await expect.element(screen.getByText('82')).toBeInTheDocument()
+      expect(screen.container.querySelector('.loading-information')).toBeNull()
+    } finally { state.framed = true }
+  })
+
   it('reports an engine failure instead of counting bytes that will never arrive', async () => {
     state.current = torrent({ engineError: 'The download engine stopped. Reload the page to try again.' })
     const screen = await mount()

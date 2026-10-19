@@ -9,10 +9,11 @@ import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, Trac
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { MeasurableStorage } from './opfs-storage'
 import type { EvictionCandidate, Verdict } from './storage-budget'
+import type { Ceiling, FileGeometry, Range, WindowPlan } from './window-plan'
 import type { Persisted, Removal, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
-import { deadlineStepMsFor, shouldReanchor, windowPiecesFor } from './stream-plan'
+import { deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
 import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
@@ -20,7 +21,8 @@ import { NO_INBOUND, countInbound } from './inbound'
 import type { Totals, Uptime } from './uptime'
 
 import { NO_TOTALS, NO_UPTIME, TOTAL_KEYS, accumulate, mergeTotals, sessionUptime, totalUptime, worthWriting } from './uptime'
-import { isOriginFull, planEviction } from './storage-budget'
+import { MARGIN_BYTES, isOriginFull, planEviction } from './storage-budget'
+import { TRICKLE_BYTES_PER_SECOND, chunksReached, isWindowed, piecesOf, piecesOfChunk, planWindow, shareRoom, shouldTrickle, watchCeiling } from './window-plan'
 // aliased: `storage` at module scope here is the hybrid backend, and the ponyfill's is
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
@@ -50,6 +52,8 @@ export type TorrentSnapshot = {
   bitfield: { numPieces: number, pieceLength: number, length: number, pieces: Uint8Array } | null
   recovery: RecoveryState | null
   userPaused: boolean
+  /** The watched file is bigger than the room here, so only a window of it is kept as it plays. */
+  windowed: boolean
 }
 
 /**
@@ -162,6 +166,7 @@ const snapshot = (): TorrentSnapshot[] =>
       bitfield: bf ? { numPieces: bf.numPieces, pieceLength: bf.pieceLength, length: bf.length, pieces: bf.pieces } : null,
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
+      windowed: windows.has(h),
       // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
       uptime: uptimeOf(h),
       // and what this session put into them, so the panel can read "total (x this session)"
@@ -332,6 +337,7 @@ const untrack = (h: number) => {
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
+  windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
 }
 
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
@@ -492,10 +498,17 @@ const wantLimits = (h: number, limits: { down?: number, up?: number }): boolean 
   return true
 }
 
+// 0 is unlimited, so under no ceiling of the viewer's a trickle is the trickle alone
+const downloadLimitOf = (h: number): number | undefined => {
+  const own = limitsByHandle.get(h)?.down
+  return trickling.has(h) ? Math.min(own || TRICKLE_BYTES_PER_SECOND, TRICKLE_BYTES_PER_SECOND) : own
+}
+
 const applyLimits = (h: number) => {
   const limits = limitsByHandle.get(h)
   if (!session || !limits) return
-  if (isLimit(limits.down)) session.setDownloadLimit(h, limits.down)
+  const down = downloadLimitOf(h)
+  if (isLimit(down)) session.setDownloadLimit(h, down)
   if (isLimit(limits.up)) session.setUploadLimit(h, limits.up)
 }
 
@@ -508,11 +521,12 @@ const READ_ATTEMPTS = 18
 // piece case rather than a policy; anything past it is left alone and named in the stall message.
 const CANCEL_PER_STALL = 16
 
-const readsByHandle = new Map<number, Set<number>>()
+// the reads waiting on each torrent, by id, with the bytes each one asked for
+const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number }>>()
 const failReads = (h: number, error: string) => {
   const ids = readsByHandle.get(h)
   if (!ids?.size) return
-  for (const id of ids) post({ type: 'read-error', id, error })
+  for (const id of ids.keys()) post({ type: 'read-error', id, error })
   ids.clear()
 }
 
@@ -583,6 +597,151 @@ const newlyWatched = new Set<number>()
 const pendingViewing = new Set<number>()
 
 /**
+ * The window over each watched cache file bigger than the room a fixed ceiling leaves it
+ * (`window-plan.ts`). Absent means the whole file is wanted, as for any other torrent.
+ */
+type Windowed = WindowPlan & { fileIndex: number, file: FileGeometry, chunkBytes: number }
+const windows = new Map<number, Windowed>()
+// what each watched cache file may take on disk, from the last budget pass, while the ceiling is fixed
+const roomByHandle = new Map<number, number>()
+const trickling = new Set<number>()
+let ceiling: Ceiling | undefined
+// whether the ceiling was fixed when a session last saw, so a window is planned on the first pass
+// after a reload rather than once a chunk of growth has shown it again, at full speed meanwhile
+const CEILING_KEY = 'ripple:ceiling-fixed'
+let remembered: boolean | null | undefined
+// the last estimate, and the cache's own count when it was read, for the room left between passes
+let lastMeasured: { space: Space, footprint: number } | null = null
+
+/**
+ * The pieces of one file that something is reading now: every viewer's head and every read waiting.
+ * A window plans around one reader, and these keep the others from having their chunks dropped and
+ * their requests taken back under them.
+ */
+const pinnedOf = (h: number, fileIndex: number, file: FileGeometry): Range[] => [
+  ...activeViewers(h).filter((v) => v.fileIndex === fileIndex)
+    .map((v) => piecesOf(file, v.fromOffset, v.fromOffset + windowBytes(file.pieceLength))),
+  ...[...readsByHandle.get(h)?.values() ?? []].filter((r) => r.fileIndex === fileIndex)
+    .map((r) => piecesOf(file, r.offset, r.offset + r.len)),
+]
+
+const windowFor = (h: number, files: TorrentFiles, active: Viewer[]): Windowed | null => {
+  const room = roomByHandle.get(h)
+  const [first] = active
+  if (room === undefined || !first || !ceiling?.fixed || !ephemeralHandles.has(h)) return null
+  // one window per torrent, so players on two of its files get the whole-file plan
+  if (active.some((v) => v.fileIndex !== first.fileIndex)) return null
+  const entry = files.files[first.fileIndex]
+  const savePath = savePathByHandle.get(h)
+  if (!entry || savePath === undefined) return null
+  const file = { offset: entry.offset, size: entry.size, pieceLength: files.pieceLength }
+  const chunkBytes = cache.chunkBytesOf(savePath)
+  const held = cache.chunksOf(savePath, first.fileIndex)
+  const plan = planWindow({ file, chunkBytes, room, reader: first.fromOffset, held, pinned: pinnedOf(h, first.fileIndex, file) })
+  return plan && { ...plan, fileIndex: first.fileIndex, file, chunkBytes }
+}
+
+// what the engine is told: a window that keeps other chunks downloads the same pieces
+const samePlan = (a: Windowed, b: Windowed) =>
+  a.fileIndex === b.fileIndex && JSON.stringify(a.want) === JSON.stringify(b.want)
+
+const allHeld = (h: number, range: Range) => {
+  const bf = session?.bitfield(h)
+  if (!bf) return false
+  for (let p = range.start; p < range.end; p++) if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) return false
+  return true
+}
+
+// above the margin, which a window's room leaves out
+const roomLeft = () => lastMeasured
+  ? lastMeasured.space.limitBytes - lastMeasured.space.usedBytes - (cache.footprint() - lastMeasured.footprint) - MARGIN_BYTES
+  : Infinity
+
+// never while a read waits: a piece it is waiting on would arrive at the trickle's rate, and the
+// stall rescue takes its requests back every attempt, so it would never arrive at all
+const trickle = (h: number) => {
+  const w = windows.get(h)
+  const on = !!w && !readsByHandle.get(h)?.size && shouldTrickle(allHeld(h, w.ahead), roomLeft(), w.chunkBytes)
+  if (on === trickling.has(h)) return
+  if (on) trickling.add(h); else trickling.delete(h)
+  session?.setDownloadLimit(h, downloadLimitOf(h) ?? 0)
+}
+
+/**
+ * Forget the slack again before it is all held, since a torrent with no wanted piece missing finishes
+ * and drops its seeds, and a seek then waits for peers again (28 to 34 s measured on the local swarm,
+ * libtorrent-wasm, 2026-10-19). Its bytes stay where they are; only the engine's claim goes. The
+ * window can also be planned over data already downloaded, which is how a slack starts out held.
+ */
+const keepSlackMissing = (h: number) => {
+  const w = windows.get(h)
+  const bf = session?.bitfield(h)
+  if (!w || !bf || w.slack.end <= w.slack.start) return
+  const held: number[] = []
+  for (let p = w.slack.start; p < w.slack.end; p++) if ((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7))) held.push(p)
+  if (held.length && w.slack.end - w.slack.start - held.length < 2) session?.forgetPieces(h, held)
+}
+
+// how soon a drop that found a piece in flight, or a save already running, tries again
+const DROP_RETRY_MS = 1_000
+const dropsRunning = new Set<number>()
+const dropsAgain = new Set<number>()
+/**
+ * Give back the chunks of a windowed file that its window no longer keeps.
+ *
+ * In this order, because a restore trusts the resume blob without checking the files: the engine
+ * forgets each chunk's pieces (a chunk with a piece in flight waits for the next pass), the blob is
+ * saved without them, and only then, in one synchronous step per chunk, the pieces are forgotten
+ * again and the chunk deleted if none of them came back. A read can bring one back in between, and
+ * only the engine's answer can say so: the bitfield here lags it by several pieces.
+ */
+const dropOutside = async (h: number) => {
+  if (dropsRunning.has(h)) { dropsAgain.add(h); return }
+  dropsRunning.add(h)
+  let retry = false
+  try {
+    const savePath = savePathByHandle.get(h)
+    const doomed = () => {
+      const w = windows.get(h)
+      if (!w || savePath === undefined) return []
+      // what is being read now, as of now rather than as of the plan
+      const keep = new Set([...w.keep, ...chunksReached(w.file, w.chunkBytes, pinnedOf(h, w.fileIndex, w.file))])
+      return cache.chunksOf(savePath, w.fileIndex).filter((chunk) => !keep.has(chunk))
+        .map((chunk) => ({ chunk, fileIndex: w.fileIndex, pieces: piecesOfChunk(w.file, w.chunkBytes, chunk) }))
+    }
+    const forget = ({ start, end }: Range) => session?.forgetPieces(h, Array.from({ length: end - start }, (_, i) => start + i)) ?? null
+    const ready = doomed().filter(({ pieces }) => {
+      const reply = forget(pieces)
+      // a piece still downloading keeps its chunk, so its requests are taken back for the retry:
+      // under the trickle they would otherwise hold the room for minutes
+      if (reply?.busy) {
+        for (let p = pieces.start; p < pieces.end; p++) session?.cancelPieceRequests(h, p)
+        retry = true
+      }
+      return reply?.busy === 0
+    })
+    if (!ready.length || savePath === undefined) return
+    // false while another save is in flight
+    if (!await persistResume(h)) { retry = true; return }
+    const still = new Set(doomed().map(({ chunk }) => chunk))
+    const removals: Promise<void>[] = []
+    for (const { chunk, fileIndex, pieces } of ready) {
+      if (!still.has(chunk)) continue
+      const again = forget(pieces)
+      if (!again || again.forgotten || again.busy) continue
+      removals.push(cache.drop(savePath, fileIndex, chunk))
+    }
+    await Promise.all(removals)
+  } catch (err) {
+    console.error('[worker] dropping chunks failed', String(err))
+  } finally {
+    dropsRunning.delete(h)
+    if (dropsAgain.delete(h)) void dropOutside(h)
+    else if (retry && windows.has(h)) setTimeout(() => void dropOutside(h), DROP_RETRY_MS)
+  }
+}
+
+/**
  * Write this torrent's own priorities over the default map.
  *
  * Silent when there is nothing to say, so an ordinary torrent costs no vector copy across the
@@ -648,6 +807,8 @@ const applyViewing = (h: number) => {
      */
     if (!session.files(h)) { pendingViewing.add(h); return }
     pendingViewing.delete(h)
+    windows.delete(h)
+    trickle(h)
     session.clearStreamWindow(h)
     // clearStreamWindow just wrote normal over every piece, so anything the person chose has to be
     // written back on top of it. This is the only place that happens, which is why it is also what
@@ -694,14 +855,34 @@ const applyViewing = (h: number) => {
   // claim has to agree, because one player watching the same torrent is enough to make the clock
   // real, and the priorities the window writes are shared by all of them.
   const timed = active.some((viewer) => !viewer.bulk)
+  const window = windowFor(h, files, active)
+  if (window) windows.set(h, window); else windows.delete(h)
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
     windowPieces: windowPiecesFor(files.pieceLength),
     deadlineStepMs: deadlineStepMsFor(files.pieceLength, session.status(h)?.downloadRate || 3_000_000),
     deadlines: timed,
+    ...(window ? { keep: window.want } : {}),
   })
   if (planned) pendingViewing.delete(h)
   else pendingViewing.add(h)
+  // at once rather than on the next pass: a seek forward of gigabytes fills the margin in seconds
+  if (window) void dropOutside(h)
+  keepSlackMissing(h)
+  trickle(h)
+}
+
+/** Plan a watched torrent again after a pass moved its room, and give back what its window dropped. */
+const replan = (h: number) => {
+  const files = session?.files(h)
+  const active = activeViewers(h)
+  if (!files || !active.length) return
+  const next = windowFor(h, files, active)
+  const was = windows.get(h)
+  if (!next && !was) return
+  if (!next || !was || !samePlan(next, was)) { applyViewing(h); return }
+  windows.set(h, next)
+  void dropOutside(h)
 }
 
 /**
@@ -783,28 +964,51 @@ const missingPieces = (h: number, fileIndex: number, offset: number, len: number
 
 /**
  * What the files someone is watching still have to grow by, and what the file each of those
- * torrents last had a write refused to still owes.
+ * torrents last had a write refused to still owes, and the room each watched cache file may take
+ * while the ceiling is fixed, which is what its window is sized to.
  *
  * Each file owes its size less its size on disk, not its missing pieces: OPFS charges the extent
  * (see storage-budget.ts), so a film whose tail has landed owes nothing more however many pieces it
- * still lacks. A file claimed by several viewers is counted once. The refused file is not always a
- * watched one: a download page holds the first file of a pack and writes the rest.
+ * still lacks. A windowed file owes only what its room still has free, and its refusals are the
+ * window's to absorb. A file claimed by several viewers is counted once. The refused file is not
+ * always a watched one: a download page holds the first file of a pack and writes the rest.
  */
-const owedByViewers = async (): Promise<{ pendingBytes: number, refusedBytes: number }> => {
-  let pendingBytes = 0
-  let refusedBytes = 0
+type Owed = { pendingBytes: number, refusedBytes: number, rooms: Map<number, number> }
+const owedByViewers = async (space: Space): Promise<Owed> => {
+  const owes = (f: { size: number, held: number }) => Math.max(0, f.size - f.held)
+  const watched: { h: number, size: number, held: number, cache: boolean, chunkBytes: number }[] = []
+  const refused: { h: number, size: number, held: number }[] = []
   for (const [h, watching] of [...viewers]) {
     const live = storage
     const files = session?.files(h)
     const savePath = savePathByHandle.get(h)
     if (!live || !files || !watching.size || savePath === undefined || isGrantedSavePath(savePath)) continue
-    const owes = async (fileIndex: number) =>
-      Math.max(0, (files.files[fileIndex]?.size ?? 0) - ((await live.usageOf(savePath, fileIndex)) ?? 0))
-    for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) pendingBytes += await owes(fileIndex)
-    const refused = live.refusedFile(savePath)
-    if (refused !== undefined) refusedBytes += await owes(refused)
+    const measure = async (fileIndex: number) =>
+      ({ h, size: files.files[fileIndex]?.size ?? 0, held: (await live.usageOf(savePath, fileIndex)) ?? 0 })
+    const [player] = activeViewers(h)
+    const windowable = !!ceiling?.fixed && ephemeralHandles.has(h) && isCacheSavePath(savePath)
+    for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) {
+      watched.push({ ...await measure(fileIndex), cache: windowable && fileIndex === player?.fileIndex, chunkBytes: cache.chunkBytesOf(savePath) })
+    }
+    const refusal = live.refusedFile(savePath)
+    if (refusal !== undefined) refused.push(await measure(refusal))
   }
-  return { pendingBytes, refusedBytes }
+  const othersOwe = watched.filter((f) => !f.cache).reduce((sum, f) => sum + owes(f), 0)
+  // what the watched cache files share: what is free and what they hold, less what the rest owes
+  const mine = watched.filter((f) => f.cache)
+  const pool = space.limitBytes - space.usedBytes + mine.reduce((sum, f) => sum + f.held, 0) - othersOwe - MARGIN_BYTES
+  const shares = shareRoom(mine.map((f) => f.size), pool)
+  const rooms = new Map<number, number>()
+  const windowed = new Set<number>()
+  let pendingBytes = othersOwe
+  mine.forEach((f, i) => {
+    const room = shares[i] ?? 0
+    rooms.set(f.h, room)
+    if (isWindowed(f.size, room, f.chunkBytes)) windowed.add(f.h)
+    pendingBytes += windowed.has(f.h) ? Math.max(0, room - f.held) : owes(f)
+  })
+  const refusedBytes = refused.filter((f) => !windowed.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
+  return { pendingBytes, refusedBytes, rooms }
 }
 
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
@@ -915,6 +1119,14 @@ const measureSpace = async (): Promise<Space | null> => {
     // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
     if (!quota || usage === undefined) return null
     return { usedBytes: usage, limitBytes: quota }
+  } catch { return null }
+}
+
+// the platform's own figures, not the ponyfill's latched quota; see `watchCeiling` for why
+const platformHeadroom = async (): Promise<number | null> => {
+  try {
+    const { usage, quota } = await navigator.storage.estimate()
+    return quota && usage !== undefined ? quota - usage : null
   } catch { return null }
 }
 
@@ -1173,15 +1385,35 @@ const runStorageBudget = async () => {
    * knows an honest figure.
    */
   let measured: Space | null = null
-  let owed = { pendingBytes: 0, refusedBytes: 0 }
+  let owed: Owed = { pendingBytes: 0, refusedBytes: 0, rooms: new Map() }
   let candidates: EvictionCandidate[] = []
   let graced: EvictionCandidate[] = []
-  const verdict = (space: Space) => ({ ...space, ...owed, candidates: [...candidates, ...graced] })
+  // On a floating ceiling the numbers cannot say it: the ponyfill latches the first quota, so a
+  // chunked file that grows past it reads as owing more than is free while every write still lands.
+  const verdict = (space: Space): Verdict => ({
+    ...space,
+    pendingBytes: ceiling?.fixed === false ? 0 : owed.pendingBytes,
+    refusedBytes: owed.refusedBytes,
+    candidates: [...candidates, ...graced],
+  })
   try {
     let space = await measureSpace()
     if (!space) return
     measured = space
-    owed = await owedByViewers()
+    if (remembered === undefined) remembered = await get(CEILING_KEY).catch(() => null) ?? null
+    const seen = async (now: Space) => {
+      lastMeasured = { space: now, footprint: cache.footprint() }
+      const headroomBytes = await platformHeadroom()
+      if (headroomBytes === null) return
+      const reading = { usedBytes: now.usedBytes, headroomBytes }
+      ceiling = watchCeiling(ceiling ?? (typeof remembered === 'boolean' ? { ...reading, fixed: remembered } : undefined), reading, CHUNK_BYTES)
+      if (ceiling.fixed !== undefined && ceiling.fixed !== remembered) {
+        remembered = ceiling.fixed
+        void set(CEILING_KEY, remembered).catch(() => {})
+      }
+    }
+    await seen(space)
+    owed = await owedByViewers(space)
     const collected = await collectCandidates(await loadList(), Date.now())
     candidates = collected.evictable
     graced = collected.graced
@@ -1217,9 +1449,13 @@ const runStorageBudget = async () => {
       if (!after) return
       space = after
       measured = after
+      await seen(after)
       // the tail may have landed while the delete settled, and then the film owes nothing more
-      owed = await owedByViewers()
+      owed = await owedByViewers(space)
     }
+    roomByHandle.clear()
+    for (const [h, room] of owed.rooms) roomByHandle.set(h, room)
+    for (const h of new Set([...roomByHandle.keys(), ...windows.keys()])) replan(h)
     // Out of torrents it may give up, but bytes nothing owns are always fair game and are exactly
     // what an account switch leaves behind, so sweep before calling the origin full.
     if (isOriginFull(verdict(space)) && await runOrphanSweep()) {
@@ -1386,6 +1622,7 @@ const init = async () => {
       if (!activeViewers(h).length) applyViewing(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+    for (const h of [...windows.keys()]) { keepSlackMissing(h); trickle(h) }
 
     // a ceiling needs a REGISTERED handle and nothing more, so this gate is status rather than the
     // files() the two loops above wait on. Registration happens when the add alert is pumped, a few
@@ -1670,6 +1907,8 @@ const handleMessage = async (session: Session, m: any) => {
            * leaves it alone.
            */
           wake(existing)
+          // a kept download is never windowed, so what its window dropped downloads again
+          if (activeViewers(existing).length) applyViewing(existing)
           await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
         } else touchUsed(existing)
         post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
@@ -1909,8 +2148,8 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       let inFlight = readsByHandle.get(m.handle)
-      if (!inFlight) readsByHandle.set(m.handle, inFlight = new Set())
-      inFlight.add(m.id)
+      if (!inFlight) readsByHandle.set(m.handle, inFlight = new Map())
+      inFlight.set(m.id, { fileIndex: m.fileIndex, offset: m.offset, len: m.len })
       try {
         // Bound each attempt so stalled requests can be reassigned while the rest keeps downloading.
         for (let attempt = 0; ; attempt++) {
@@ -2035,6 +2274,7 @@ const handleMessage = async (session: Session, m: any) => {
             // is the exact state this whole feature exists to make visible.
             wake(h)
           }
+          if (activeViewers(h).length) applyViewing(h)
         }
         await patchList(m.infoHash, { ephemeral: temporary })
       }
