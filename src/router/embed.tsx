@@ -137,6 +137,12 @@ const playerStyle = css`
     color: inherit;
   }
 
+  /* two sentences, so they wrap rather than push the readouts off the row */
+  .loading-information.window-note {
+    min-width: 0;
+    white-space: normal;
+  }
+
   /*
    * The two links out, in front of everything the torrent is reporting.
    *
@@ -310,6 +316,10 @@ const playerStyle = css`
   }
 `
 
+// the owner's wording, 2026-10-19, and the one notice that says how something works: only a file playing
+// through a window in a frame shows it, since at the top level the page is already Ripple's
+const WINDOW_NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
+
 const Player = () => {
   const [searchParams] = useSearchParams()
   const { fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
@@ -416,6 +426,7 @@ const Player = () => {
       : null)
     ?? (storageFull ? 'Out of storage space. Remove a download in Ripple to free room.' : null)
     ?? (hasMetadata ? null : 'Loading metadata…')
+    ?? (snapshot?.windowed && isFramed() ? WINDOW_NOTE : null)
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
   // because a file's download percentage is not its playback percentage.
   const downloadedRanges = useMemo(
@@ -530,7 +541,7 @@ const Player = () => {
       </div>
       {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
       {status
-        ? <div className="loading-information">{status}</div>
+        ? <div className={status === WINDOW_NOTE ? 'loading-information window-note' : 'loading-information'}>{status}</div>
         : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
       <div className="media-information" data-testid="media-information">
         {stateLabel && (
