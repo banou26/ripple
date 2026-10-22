@@ -246,6 +246,15 @@ describe('a cache film bigger than a fixed ceiling', () => {
     rig.send({ type: 'cancel-read', handle: 1, id: 'r1' })
   })
 
+  it('holds a torrent at the trickle when its own limit is 0, as a restore leaves it', async () => {
+    state.limits.length = 0
+    rig.send({ type: 'set-limits', handle: 1, down: 0 })
+    state.bitfield!.pieces.fill(0xff)
+    await vi.waitFor(() => expect(state.limits).toEqual([[1, 16 * 1024]]))
+    state.bitfield!.pieces.fill(0, 10, 11)
+    await vi.waitFor(() => expect(state.limits).toEqual([[1, 16 * 1024], [1, 0]]))
+  })
+
   it('keeps a limit the viewer set when the trickle lets go', async () => {
     state.limits.length = 0
     rig.send({ type: 'set-limits', handle: 1, down: 1_000_000 })
