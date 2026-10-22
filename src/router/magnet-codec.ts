@@ -109,6 +109,12 @@ const hexDecode = (text: string): Uint8Array => {
 const hexEncode = (bytes: Uint8Array): string =>
   [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
 
+const BASE32_ID = /^[A-Z2-7]{32}$/i
+
+/** A v1 infohash as 40 hex characters, from either spelling a magnet may carry: hex, or base32. */
+export const hexInfoHash = (infoHash: string): string =>
+  (BASE32_ID.test(infoHash) ? hexEncode(base32Decode(infoHash)) : infoHash.toLowerCase())
+
 const toBase64Url = (bytes: Uint8Array): string => {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)

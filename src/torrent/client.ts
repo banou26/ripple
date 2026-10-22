@@ -6,6 +6,7 @@ import { NO_INBOUND } from './inbound'
 
 import { normalizeLimits } from './rate-limits'
 import type { Removal, SaveLocation } from './library'
+import type { Chunk, Offer } from './handover'
 import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 import type { SourceRef } from './walk-source'
@@ -23,6 +24,9 @@ export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: num
 
 // a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries
 const READ_TIMEOUT = 120_000
+// how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
+// does not know, and the player stops sending after as long without an answer
+const IMPORT_START_TIMEOUT = 30_000
 
 export type TorrentClient = {
   ready: Promise<void>
@@ -275,11 +279,28 @@ export type TorrentClient = {
    * handle offers it, and the newest offer wins.
    */
   setFolder: (handle: FileSystemDirectoryHandle | null) => void
+  /**
+   * Hand a cache torrent to Ripple's own tab: its resume blob and the chunk files holding bytes, or
+   * null when there is none to hand over. From here until `exportEnd` its window drops no chunk.
+   */
+  exportStart: (infoHash: string) => Promise<Offer | null>
+  /** One chunk file of a torrent `exportStart` offered, as it is on disk now. */
+  exportChunk: (infoHash: string, chunk: Chunk) => Promise<Uint8Array>
+  exportEnd: (infoHash: string) => void
+  /**
+   * List a torrent being copied in from the player, before any of it is in the engine. Settles once
+   * the entry is written, and rejects when the engine has not answered within 30 s.
+   */
+  importStart: (infoHash: string, magnet: string) => Promise<unknown>
+  /** Add the copied torrent with a resume blob claiming only the pieces that were checked. */
+  importTorrent: (infoHash: string, magnet: string, resume: Uint8Array) => void
   destroy: () => void
 }
 
 export type EngineClient = TorrentClient & {
   sendRaw: (msg: any) => void
+  /** Send one of `ASKS` and wait for its answer; the leader forwards a follower's through this. */
+  ask: (msg: { type: string, [key: string]: unknown }, ms?: number) => Promise<unknown>
   onRaw: (cb: (msg: any) => void) => () => void
   latestList: () => Persisted[] | null
   latestState: () => WorkerTorrentSnapshot[] | null
@@ -336,8 +357,9 @@ export const createTorrentClient = (): EngineClient => {
   let lastInboundNow: InboundNow | null = null
   const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
   const detailCbs = new Set<(d: TorrentDetail | null) => void>()
+  // the reads waiting on the engine, and the asks with them, by id
   const reads = new Map<number, {
-    resolve: (b: Uint8Array) => void, reject: (e: any) => void, timer: number,
+    resolve: (value: unknown) => void, reject: (e: unknown) => void, timer: number,
     /** Removes this read's abort listener from a signal an entire export shares. */
     off?: AbortController,
   }>()
@@ -478,6 +500,14 @@ export const createTorrentClient = (): EngineClient => {
     gate.wait(attempt)
   }
 
+  const ask = (msg: { type: string, [key: string]: unknown }, ms = READ_TIMEOUT) => new Promise<unknown>((resolve, reject) => {
+    if (fatal) { reject(fatal); return }
+    const id = ++readId
+    const timer = window.setTimeout(() => settleRead(id)?.reject(new Error(`${msg.type} timed out after ${ms}ms`)), ms)
+    reads.set(id, { resolve, reject, timer })
+    send({ ...msg, id })
+  })
+
   const host: TransportHost = {
     error: (message, isFatal) => {
       console.warn('[torrent engine] load/runtime error:', message)
@@ -542,6 +572,10 @@ export const createTorrentClient = (): EngineClient => {
       } else if (m.type === 'list') { listed = true; lastList = m.list; listCbs.forEach((cb) => cb(m.list)) }
       else if (m.type === 'read-result') settleRead(m.id)?.resolve(m.data)
       else if (m.type === 'read-error') settleRead(m.id)?.reject(new Error(m.error))
+      else if (m.type === 'answer') {
+        const pending = settleRead(m.id)
+        if (typeof m.error === 'string') pending?.reject(new Error(m.error)); else pending?.resolve(m.value)
+      }
       else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(m.message))
       else if (m.type === 'fatal') {
         die(new Error(m.message))
@@ -587,6 +621,7 @@ export const createTorrentClient = (): EngineClient => {
     started: () => started,
     owns: () => owned,
     sendRaw: (msg) => send(msg),
+    ask,
     useTransport: (factory, owns) => {
       const previous = transport
       // Taken BEFORE the reset and before the swap: a follower queues every command until a leader
@@ -624,7 +659,7 @@ export const createTorrentClient = (): EngineClient => {
           READ_TIMEOUT,
         )
         const off = signal ? new AbortController() : undefined
-        reads.set(id, { resolve, reject, timer, off })
+        reads.set(id, { resolve: (data) => resolve(data as Uint8Array), reject, timer, off })
         signal?.addEventListener('abort', () => {
           // the worker first, because that is the half that has an effect on the engine
           send({ type: 'cancel-read', id, handle })
@@ -649,6 +684,11 @@ export const createTorrentClient = (): EngineClient => {
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
     setFolder: (handle) => send({ type: 'set-folder', handle }),
+    exportStart: (infoHash) => ask({ type: 'export-start', infoHash }) as Promise<Offer | null>,
+    exportChunk: (infoHash, { fileIndex, chunk }) => ask({ type: 'export-chunk', infoHash, fileIndex, chunk }) as Promise<Uint8Array>,
+    exportEnd: (infoHash) => send({ type: 'export-end', infoHash }),
+    importStart: (infoHash, magnet) => ask({ type: 'import-start', infoHash, magnet }, IMPORT_START_TIMEOUT),
+    importTorrent: (infoHash, magnet, resume) => send({ type: 'import', infoHash, magnet, resume }, [resume.buffer]),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen, held, bulk) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen, held: held === true, bulk: bulk === true }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),

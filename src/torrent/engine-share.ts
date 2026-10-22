@@ -2,6 +2,7 @@ import type { EngineClient } from './client'
 import type { Generation, Transport, TransportHost } from './engine-protocol'
 
 import {
+  ASKS,
   BROADCAST_TYPES,
   CONTROL_CHANNEL,
   ENGINE_RESET,
@@ -165,6 +166,14 @@ export const serveFollowers = (client: EngineClient): () => void => {
         .read(msg.handle, msg.fileIndex, msg.offset, msg.len, msg.prioritize, msg.viewer)
         .then((data) => reply(from, { type: 'read-result', id: msg.id, data }))
         .catch((error) => reply(from, { type: 'read-error', id: msg.id, error: String(error?.message ?? error) }))
+      return
+    }
+
+    if (ASKS.has(msg.type)) {
+      client.ask(msg).then(
+        (value) => reply(from, { type: 'answer', id: msg.id, value }),
+        (error) => reply(from, { type: 'answer', id: msg.id, error: String(error?.message ?? error) }),
+      )
       return
     }
 

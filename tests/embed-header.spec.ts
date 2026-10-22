@@ -5,6 +5,8 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { decodeMagnetParam } from '../src/router/magnet-codec'
+
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const SINTEL_VIDEO = 5
@@ -25,13 +27,16 @@ test.describe('the embedded player header', () => {
 
     /*
      * Both links open a NEW TAB. Navigating the frame would replace the embedder's player with a page
-     * they did not ask for, and `noopener` keeps the opened tab from holding a handle on this one.
+     * they did not ask for. Ripple's tab keeps this one as its opener, to take what it downloaded;
+     * the download page gets no handle on it.
      */
     const toRipple = page.getByTestId('open-in-ripple')
     await expect(toRipple).toHaveAttribute('target', '_blank')
-    await expect(toRipple).toHaveAttribute('rel', /noopener/)
+    await expect(toRipple).toHaveAttribute('rel', 'opener')
     // the INFO HASH, never a row id: a row id is a handle, and names a different torrent in the next engine
-    await expect(toRipple).toHaveAttribute('href', new RegExp(`[?&]torrent=${SINTEL_HASH}$`))
+    const library = new URL((await toRipple.getAttribute('href'))!)
+    expect(library.searchParams.get('torrent')).toBe(SINTEL_HASH)
+    expect(decodeMagnetParam(library.searchParams), 'the magnet the add dialog falls back to').toContain(SINTEL_HASH)
 
     const toDownload = page.getByTestId('open-download-page')
     await expect(toDownload).toHaveAttribute('target', '_blank')

@@ -30,6 +30,8 @@ export type ChunkedStorage = MeasurableStorage & {
    * makes sure the engine holds no piece in it and has no write of one in flight.
    */
   drop: (savePath: string, fileIndex: number, chunk: number) => Promise<void>
+  /** One chunk file's bytes as they are now, through the handle the engine writes with; empty when it holds none. */
+  readChunk: (savePath: string, fileIndex: number, chunk: number) => Promise<Uint8Array>
 }
 
 type Mount = {
@@ -228,6 +230,16 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
       m.dropping.set(name, removal)
       void removal.then(() => { if (m.dropping.get(name) === removal) m.dropping.delete(name) })
       return removal
+    },
+
+    readChunk: async (savePath, fileIndex, chunk) => {
+      const m = mountOf(savePath)
+      const name = nameOf(fileIndex, chunk)
+      if (!m?.extents.has(name)) return new Uint8Array(0)
+      const handle = await open(m, name)
+      const out = new Uint8Array(handle.getSize())
+      handle.read(out, { at: 0 })
+      return out
     },
 
     onNewStorage: (id, savePath) => {

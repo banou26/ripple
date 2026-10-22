@@ -58,6 +58,8 @@ import { useConfirm } from '../components/confirm-dialog'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
+import { useTakeFromPlayer } from '../torrent/use-handover'
+import { decodeMagnetParam } from './magnet-codec'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
@@ -2512,6 +2514,12 @@ const Home = () => {
     applied.current = row.id
     setSelectedId(row.id)
   }, [wanted, torrents, selectedId])
+
+  // the same torrent from the player that opened this tab, or the add dialog for the link's magnet
+  useTakeFromPlayer(wanted, () => {
+    const magnet = decodeMagnetParam(params)
+    if (magnet) setParams((now) => { now.set('add', magnet); return now }, { replace: true })
+  })
 
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)

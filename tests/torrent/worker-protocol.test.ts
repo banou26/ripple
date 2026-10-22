@@ -17,7 +17,7 @@ const handled = (): string[] =>
   [...new Set([...workerSource.matchAll(/m\.type === '([^']+)'/g)].map((m) => m[1]!))]
 
 const sent = (): string[] =>
-  [...new Set([...clientSource.matchAll(/send\(\{ type: '([^']+)'/g)].map((m) => m[1]!))]
+  [...new Set([...clientSource.matchAll(/(?:send|ask)\(\{ type: '([^']+)'/g)].map((m) => m[1]!))]
 
 describe('the worker message allowlist', () => {
   it('admits every type the client sends', () => {
@@ -53,8 +53,8 @@ describe('the follower broadcast allowlist', () => {
   const clientHandles = (): string[] =>
     [...new Set([...clientSource.matchAll(/m\.type === '([^']+)'/g)].map((m) => m[1]!))]
 
-  // a read reply belongs to the one tab that asked, so it never goes to everyone
-  const PRIVATE = ['read-result', 'read-error']
+  // a read reply or an answer belongs to the one tab that asked, so it never goes to everyone
+  const PRIVATE = ['read-result', 'read-error', 'answer']
 
   it('carries every message type the client reacts to', () => {
     const allowed = broadcast()
