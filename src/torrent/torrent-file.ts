@@ -49,10 +49,10 @@ const COLON = 0x3a
 const ZERO = 0x30
 const NINE = 0x39
 
-type Bencode = number | Uint8Array | Bencode[] | Map<string, Bencode>
+export type Bencode = number | Uint8Array | Bencode[] | Map<string, Bencode>
 
 /** Decodes one value at `i`, returning it with the offset just past it. Throws on malformed input. */
-const decode = (b: Uint8Array, i: number): [Bencode, number] => {
+export const decode = (b: Uint8Array, i: number): [Bencode, number] => {
   if (i >= b.length) throw new Error('truncated')
   const kind = b[i]
 
@@ -190,7 +190,7 @@ const fromFileTree = (
  * Skipped everywhere a person sees a file list or a total, because they are not anybody's data.
  * `attr` is a string of flag letters rather than a single value, so this tests for the letter.
  */
-const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
+export const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
 
 /**
  * The infohash is the SHA-1 of the bencoded `info` value EXACTLY as it appears in the file, so its

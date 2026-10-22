@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TransportHost } from '../../src/torrent/engine-protocol'
 
-import { CONTROL_CHANNEL, ENGINE_RESET, LEADER_SILENCE_MS } from '../../src/torrent/engine-protocol'
+import { CONTROL_CHANNEL, ENGINE_RESET, LEADER_SILENCE_MS, replyChannel } from '../../src/torrent/engine-protocol'
 import { createChannelTransport, serveFollowers } from '../../src/torrent/engine-share'
 
 // BroadcastChannel delivery is a task, not a microtask, so awaiting a promise is not enough.
@@ -29,6 +29,10 @@ const makeClient = (started = true) => {
       latestState: () => null,
       started: () => started,
       read: vi.fn(async () => new Uint8Array([1, 2, 3])),
+      ask: vi.fn(async (msg: any) => {
+        if (msg.chunk === 9) throw new Error('that torrent is not being handed over')
+        return new Uint8Array([4, 5])
+      }),
     } as any,
   }
 }
@@ -96,6 +100,32 @@ describe('the leader server', () => {
     await settle()
 
     expect(sent).toContainEqual({ type: 'unwatch-owner', owner: 'tab-b' })
+    stop()
+  })
+
+  // a chunk the player hands over can come from an engine in another tab, and only the asker wants it
+  it('answers a follower\'s ask on that follower\'s own channel', async () => {
+    const { client, sent } = makeClient()
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    let gen: string | undefined
+    control.addEventListener('message', ({ data }) => { if (data?.to === 'all') gen = data.gen })
+    const stop = serveFollowers(client)
+    const replies = track(new BroadcastChannel(replyChannel('tab-b')))
+    const heard: any[] = []
+    replies.addEventListener('message', ({ data }) => heard.push(data.msg))
+    await settle()
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'hello' } })
+    await settle()
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'export-chunk', id: 5, infoHash: 'a', fileIndex: 0, chunk: 1 } })
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'export-chunk', id: 6, infoHash: 'a', fileIndex: 0, chunk: 9 } })
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'import-start', id: 7, infoHash: 'a', magnet: 'magnet:?xt=urn:btih:a' } })
+    await settle()
+
+    expect(heard).toContainEqual({ type: 'answer', id: 5, value: new Uint8Array([4, 5]) })
+    expect(heard).toContainEqual({ type: 'answer', id: 6, error: 'that torrent is not being handed over' })
+    expect(heard).toContainEqual({ type: 'answer', id: 7, value: new Uint8Array([4, 5]) })
+    expect(sent.filter((m) => m.type === 'export-chunk' || m.type === 'import-start'), 'an ask went out unanswered').toEqual([])
     stop()
   })
 

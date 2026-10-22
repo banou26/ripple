@@ -1,3 +1,5 @@
+import type { EncodedMagnet } from './magnet-codec'
+
 export enum Route {
   HOME = 'HOME',
   ADD = 'ADD',
@@ -47,13 +49,17 @@ type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: stri
  * whatever the engine happened to assign that number to by the time somebody clicked it.
  *
  * Written by the embedded player, so a viewer watching a release inside somebody else's page has a
- * way back to the whole torrent in Ripple itself.
+ * way back to the whole torrent in Ripple itself. Its magnet rides along for a tab that cannot take
+ * the torrent from the player: that one offers the add dialog.
  */
-type HomeOptions = { torrent?: string }
+type HomeOptions = { torrent?: string, magnet?: EncodedMagnet | null }
 
 const Routes = {
-  [Route.HOME]: (options?: HomeOptions) =>
-    (options?.torrent ? `/?${new URLSearchParams({ torrent: options.torrent }).toString()}` : '/'),
+  [Route.HOME]: (options?: HomeOptions) => {
+    const query = new URLSearchParams(options?.torrent ? { torrent: options.torrent } : {})
+    if (options?.magnet) query.set(options.magnet.key, options.magnet.value)
+    return query.toString() ? `/?${query.toString()}` : '/'
+  },
   [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
   [Route.WATCH]: (options: EmbedOptions) => `/watch?${new URLSearchParams(options).toString()}`,
   [Route.DOWNLOAD]: (options: EmbedOptions) => `/download?${new URLSearchParams(options).toString()}`,

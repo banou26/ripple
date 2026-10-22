@@ -76,6 +76,16 @@ describe('the chunked storage', () => {
     expect(await storage.read(1, 0, C, 16)).toEqual(bytes(C, 7).subarray(0, 16))
   })
 
+  it('reads a whole chunk file back for a handover, and nothing for one it does not hold', async () => {
+    const { storage } = await mounted()
+    await storage.write(1, 0, C, bytes(C, 5))
+    await storage.write(1, 0, 2 * C, bytes(100, 9))
+    expect(await storage.readChunk(SAVE_PATH, 0, 1)).toEqual(bytes(C, 5))
+    expect(await storage.readChunk(SAVE_PATH, 0, 2)).toEqual(bytes(100, 9))
+    expect(await storage.readChunk(SAVE_PATH, 0, 0)).toEqual(new Uint8Array(0))
+    expect(await storage.readChunk('/cache/' + 'b'.repeat(40), 0, 1)).toEqual(new Uint8Array(0))
+  })
+
   it('finds the chunks already on disk when mounted, and asks for a check only when one holds bytes', async () => {
     const empty = await mounted()
     expect(await empty.storage.check!(1)).toBe(STORAGE_NO_ERROR)

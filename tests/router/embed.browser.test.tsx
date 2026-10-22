@@ -2,6 +2,7 @@ import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 
 import { NORMALIZE_VOLUME_KEY } from '../../src/router/normalize-volume'
 import { PLAYER_VOLUME_KEY } from '../../src/router/player-volume'
+import { decodeMagnetParam } from '../../src/router/magnet-codec'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -144,6 +145,21 @@ describe('the watch route', () => {
     await expect.element(failed.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(getComputedStyle(failed.container.querySelector('.loading-information')!).display)
       .not.toBe('none')
+  })
+
+  // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
+  it('opens Ripple with this player as its opener, naming the torrent and carrying its magnet', async () => {
+    const hash = '0123456789abcdef0123456789abcdef01234567'
+    const magnet = `magnet:?xt=urn:btih:${hash}&dn=Film`
+    const screen = await mount(DESKTOP, `?magnet=${btoa(magnet)}`)
+    const link = screen.getByTestId('open-in-ripple')
+    await expect.element(link).toBeInTheDocument()
+    expect(link.element().getAttribute('rel')).toBe('opener')
+    expect(link.element().getAttribute('target')).toBe('_blank')
+    const href = new URL(link.element().getAttribute('href')!)
+    expect(`${href.origin}${href.pathname}`).toBe(`${location.origin}/`)
+    expect(href.searchParams.get('torrent')).toBe(hash)
+    expect(decodeMagnetParam(href.searchParams)).toBe(magnet)
   })
 
   /**

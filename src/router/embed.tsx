@@ -16,11 +16,12 @@ import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { useReachability } from '../torrent/use-reachability'
+import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { parseFileSelection } from './file-selection'
-import { decodeMagnetParam } from './magnet-codec'
+import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
@@ -457,18 +458,22 @@ const Player = () => {
    * This component is usually running inside somebody else's page, where the person watching has no
    * address bar for it and no other route to the torrent: not to the rest of its files, not to the
    * download page, not to Ripple. Both open in a NEW TAB, because navigating the frame would replace
-   * the embedder's player with a page they did not ask for, and both carry `rel="noopener"` so the
-   * opened tab gets no handle on this one.
+   * the embedder's player with a page they did not ask for. Ripple's tab keeps this page as its
+   * opener, to take what this player downloaded (`use-handover.ts`); the download page gets no handle.
    *
    * Absolute, built from this document's own origin rather than left relative: the href is read by an
    * embedder's page in some contexts, and a bare path there resolves against THEIR origin.
    */
-  const libraryHref = useMemo(() => {
-    // an INFO HASH, never the row id: a row id is a libtorrent handle and names a different torrent
-    // in the next engine, so a link carrying one would open whatever got that number later
-    const infoHash = magnet ? magnetInfoHash(magnet) : null
-    return infoHash ? new URL(getRoutePath(Route.HOME, { torrent: infoHash }), origin).toString() : null
-  }, [magnet, origin])
+  // an INFO HASH, never the row id: a row id is a libtorrent handle and names a different torrent
+  // in the next engine, so a link carrying one would open whatever got that number later
+  const infoHash = useMemo(() => (magnet ? magnetInfoHash(magnet) : null), [magnet])
+  useGiveToRipple(infoHash)
+  const libraryHref = useMemo(
+    () => (magnet && infoHash
+      ? new URL(getRoutePath(Route.HOME, { torrent: infoHash, magnet: encodeMagnetParam(magnet) }), origin).toString()
+      : null),
+    [magnet, infoHash, origin],
+  )
 
   /*
    * This page's own URL under the other PATH, rather than a link built from scratch.
@@ -507,7 +512,7 @@ const Player = () => {
                 className="item link"
                 href={libraryHref}
                 target="_blank"
-                rel="noopener noreferrer"
+                rel="opener"
                 data-testid="open-in-ripple"
                 /* The glyph carries no text, and react-tooltip never wires aria-describedby, so the
                    tooltip is invisible to a screen reader. The name has to be stated. */

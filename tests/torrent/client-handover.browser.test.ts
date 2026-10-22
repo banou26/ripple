@@ -11,7 +11,7 @@
  *
  * These run in a browser project because the client registers window listeners as it is built.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Transport, TransportHost } from '../../src/torrent/engine-protocol'
 
@@ -257,5 +257,38 @@ describe('what an add carries', () => {
     expect(rig.posted.find((m) => m.type === 'watch')).toMatchObject({
       viewer: 'viewer-1', handle: 7, fileIndex: 3, held: false, bulk: true,
     })
+  })
+})
+
+describe('listing a torrent copied in from the player', () => {
+  const HASH = 'a'.repeat(40)
+  const MAGNET = `magnet:?xt=urn:btih:${HASH}`
+
+  it('settles once the engine has listed it', async () => {
+    const rig = makeRig()
+    running(rig)
+    const listed = rig.client.importStart(HASH, MAGNET)
+    await Promise.resolve()
+    const sent = rig.posted.find((m) => m.type === 'import-start')
+    expect(sent).toMatchObject({ infoHash: HASH, magnet: MAGNET })
+    rig.say({ type: 'answer', id: sent.id, value: true })
+    await expect(listed).resolves.toBe(true)
+  })
+
+  // an engine on an older build drops the command, and the player stops sending after 30 s too
+  it('gives up after 30 s on an engine that never answers', async () => {
+    const rig = makeRig()
+    running(rig)
+    vi.useFakeTimers()
+    try {
+      let outcome = 'waiting'
+      rig.client.importStart(HASH, MAGNET).then(() => { outcome = 'listed' }, () => { outcome = 'gave up' })
+      await vi.advanceTimersByTimeAsync(29_999)
+      expect(outcome).toBe('waiting')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(outcome).toBe('gave up')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -27,6 +27,7 @@ import { TRICKLE_BYTES_PER_SECOND, chunksReached, isWindowed, piecesOf, piecesOf
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
+import { ASKS } from './engine-protocol'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
@@ -36,7 +37,7 @@ import type { RateLimits } from './rate-limits'
 import type { SourceRef } from './walk-source'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -338,6 +339,7 @@ const untrack = (h: number) => {
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
+  exporting.delete(h)
 }
 
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
@@ -657,6 +659,16 @@ const roomLeft = () => lastMeasured
   ? lastMeasured.space.limitBytes - lastMeasured.space.usedBytes - (cache.footprint() - lastMeasured.footprint) - MARGIN_BYTES
   : Infinity
 
+/**
+ * Cache torrents the player is handing to Ripple's own tab: how many handovers are running, and until
+ * when. While one is, its window gives back no chunk and forgets no slack, so what a tab was offered
+ * is still there to send. A lease rather than a flag: every chunk read renews it, and a page gone
+ * mid-copy lets it lapse. Counted, because two tabs can take the same torrent at once.
+ */
+const EXPORT_LEASE_MS = 30_000
+const exporting = new Map<number, { running: number, until: number }>()
+const exported = (h: number) => (exporting.get(h)?.until ?? 0) > Date.now()
+
 // never while a read waits: a piece it is waiting on would arrive at the trickle's rate, and the
 // stall rescue takes its requests back every attempt, so it would never arrive at all
 const trickle = (h: number) => {
@@ -676,7 +688,7 @@ const trickle = (h: number) => {
 const keepSlackMissing = (h: number) => {
   const w = windows.get(h)
   const bf = session?.bitfield(h)
-  if (!w || !bf || w.slack.end <= w.slack.start) return
+  if (!w || !bf || w.slack.end <= w.slack.start || exported(h)) return
   const held: number[] = []
   for (let p = w.slack.start; p < w.slack.end; p++) if ((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7))) held.push(p)
   if (held.length && w.slack.end - w.slack.start - held.length < 2) session?.forgetPieces(h, held)
@@ -700,6 +712,7 @@ const dropOutside = async (h: number) => {
   dropsRunning.add(h)
   let retry = false
   try {
+    if (exported(h)) { retry = true; return }
     const savePath = savePathByHandle.get(h)
     const doomed = () => {
       const w = windows.get(h)
@@ -2278,6 +2291,58 @@ const handleMessage = async (session: Session, m: any) => {
         }
         await patchList(m.infoHash, { ephemeral: temporary })
       }
+    } else if (m.type === 'export-start') {
+      // a fresh blob for the metadata and the chunk files holding bytes; only a chunked cache torrent
+      // can be handed over, since the tab keeps what it receives as the same chunk files
+      const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
+      const savePath = h === undefined ? undefined : savePathByHandle.get(h)
+      const files = h === undefined ? null : session.files(h)
+      if (h === undefined || !files || savePath === undefined || !isCacheSavePath(savePath)) {
+        post({ type: 'answer', id: m.id, value: null })
+        return
+      }
+      exporting.set(h, { running: (exporting.get(h)?.running ?? 0) + 1, until: Date.now() + EXPORT_LEASE_MS })
+      const resume = await session.saveResumeData(h)
+      const chunks = files.files.flatMap((file, fileIndex) =>
+        file.pad ? [] : cache.chunksOf(savePath, fileIndex).map((chunk) => ({ fileIndex, chunk })))
+      post({ type: 'answer', id: m.id, value: { magnet: magnetByHandle.get(h) ?? '', resume, chunkBytes: cache.chunkBytesOf(savePath), chunks } })
+    } else if (m.type === 'export-chunk') {
+      const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
+      const savePath = h === undefined ? undefined : savePathByHandle.get(h)
+      const lease = h === undefined ? undefined : exporting.get(h)
+      if (!lease || savePath === undefined) throw new Error('that torrent is not being handed over')
+      lease.until = Date.now() + EXPORT_LEASE_MS
+      const data = await cache.readChunk(savePath, m.fileIndex, m.chunk)
+      post({ type: 'answer', id: m.id, value: data }, [data.buffer])
+    } else if (m.type === 'export-end') {
+      const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
+      const lease = h === undefined ? undefined : exporting.get(h)
+      if (h === undefined || !lease) return
+      lease.running -= 1
+      if (!lease.running) exporting.delete(h)
+    } else if (m.type === 'import-start') {
+      // the row a tab shows while it copies a torrent in from the player, which also keeps the orphan
+      // sweep off the directory it copies into, so the tab writes nothing before this answers
+      if (typeof m.infoHash !== 'string' || typeof m.magnet !== 'string') throw new Error('nothing to list')
+      const at = Date.now()
+      await upsertList({ infoHash: m.infoHash, magnet: m.magnet, savePath: cacheSavePathFor(m.infoHash), addedAt: at, lastUsedAt: at, ephemeral: false, started: true, paused: false })
+      post({ type: 'answer', id: m.id, value: true })
+    } else if (m.type === 'import') {
+      // the copy that landed, added with a blob claiming only the pieces the tab checked, which
+      // libtorrent believes without reading the files
+      const ih = m.infoHash
+      if (typeof ih !== 'string' || !(m.resume instanceof Uint8Array) || handles.some((x) => infoHashByHandle.get(x) === ih)) return
+      const savePath = cacheSavePathFor(ih)
+      await set(resumeKey(ih), m.resume)
+      const h = session.addTorrentWithResume(m.resume, savePath)
+      if (addFailed(h)) { post({ type: 'add-failed', message: 'That torrent could not be read' }); return }
+      track(h, m.magnet, ih, savePath)
+      needsPriorityReset.add(h)
+      // the blob carries the player's own limit, a window's trickle included
+      wantLimits(h, { down: 0 })
+      wantStart(h)
+      recovery.hold(h, Date.now())
+      post({ type: 'added', handle: h, magnet: m.magnet })
     } else if (m.type === 'reserve-storage') {
       // a page is about to write into `/dl/<infoHash>` before any torrent exists there; see
       // `reservedHashes`. Idempotent, and releasing one that was never held is not an error.
@@ -2545,14 +2610,15 @@ const handleMessage = async (session: Session, m: any) => {
     }
   } catch (err: any) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })
+    else if (ASKS.has(m.type)) post({ type: 'answer', id: m.id, error: String(err?.message ?? err) })
     else post({ type: 'error', message: String(err?.stack ?? err) })
   }
 }
 
 // command handlers read, modify and write one shared IndexedDB list across awaits, so two of them interleaving can drop an entry or post a stale list
 // add-torrent-file is unqueued because its infohash poll can hold the lane for ten seconds; it guards itself instead, with the handle re-check after the poll
-// read is unqueued because reads are pure, can park indefinitely, and playback must never wait behind a list mutation
-const UNQUEUED = new Set(['read', 'add-torrent-file'])
+// read and export-chunk are unqueued because reads are pure, and playback must never wait behind a list mutation
+const UNQUEUED = new Set(['read', 'add-torrent-file', 'export-chunk'])
 let commands: Promise<void> = Promise.resolve()
 
 self.addEventListener('message', (e: MessageEvent) => {
