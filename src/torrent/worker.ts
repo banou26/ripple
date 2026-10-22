@@ -1574,10 +1574,9 @@ const init = async () => {
       // before needsPriorityReset, so the pass that clears the window has the plan to write back
       planByHandle.set(h, { wanted: e.wantedFiles, firstLast: e.firstLast })
       needsPriorityReset.add(h)
-      // the resume blob does carry a limit, which is exactly why this does not rely on it: ripple
-      // deletes the blob on a recheck and on the cleared-storage path, and falls back to addMagnet
-      // when there is none, so the entry is the only record that is always there
-      wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
+      // the resume blob carries the limit in force when it was saved, a window's trickle included,
+      // so the entry decides, and an entry with no limit gets 0, which is none
+      wantLimits(h, { down: e.downloadLimit ?? 0, up: e.uploadLimit })
       uptimeStored.set(h, { activeSeconds: e.activeSeconds ?? 0, seedingSeconds: e.seedingSeconds ?? 0 })
       totalsStored.set(h, storedTotals(e))
       /*
