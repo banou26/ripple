@@ -8,6 +8,8 @@ import type { BrowserContext, Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
+
 const firstRow = (page: Page) => page.locator('.torrent').first()
 
 const openTab = async (context: BrowserContext): Promise<Page> => {
@@ -21,7 +23,7 @@ test('the survivor shows its library reconnecting, not live rows it cannot act o
   const context = await browser.newContext()
 
   const a = await openTab(context)
-  await expect(firstRow(a)).toBeVisible({ timeout: 60_000 })
+  await addSample(a, { pause: true })
   const b = await openTab(context)
   await expect(firstRow(b)).toBeVisible({ timeout: 60_000 })
   // a live row, which is what must go away when the engine behind it does

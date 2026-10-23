@@ -898,24 +898,6 @@ const replan = (h: number) => {
   void dropOutside(h)
 }
 
-/**
- * Stop a torrent that was just added, the way pressing Pause stops one.
- *
- * Writing `paused: true` into the library entry alone is not enough and the gap is not cosmetic: the
- * entry only decides what a RESTORE does, so until the next reload the torrent would sit there
- * downloading with a row that says it is stopped. The engine has to be told, `recovery` has to be
- * told this is a deliberate stop rather than one it should retry, and `wantPause` has to record it
- * because `lt_torrent_pause` is a silent no-op against a handle the alert pump has not registered
- * yet, which is exactly the window an add is in.
- */
-const pauseAdded = (h: number) => {
-  userPaused.add(h)
-  cacheIdle.delete(h)
-  wantPause(h)
-  recovery.forget(h)
-  session?.pauseTorrent(h)
-}
-
 const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false, bulk?: boolean) => {
   // A read is dispatched without waiting on the command queue, so one issued against a torrent the
   // budget pass has just evicted arrives here afterwards. Recreating the entry would resurrect a
@@ -1965,11 +1947,7 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
-        // `paused` is a deliberate stop, so it takes the same route pressing Pause does rather than
-        // just being written to the entry: the engine has to be told, and `recovery` has to be told
-        // it is not a torrent that stopped on its own.
-        if (m.paused === true) pauseAdded(h)
-        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: m.paused === true })
+        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
         post({ type: 'added', handle: h, magnet: m.magnet })
         void runStorageBudget()
       }
@@ -2086,8 +2064,8 @@ const handleMessage = async (session: Session, m: any) => {
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { post({ type: 'add-failed', message: 'That file is not a valid .torrent' }); return }
-      // ephemeral is passed through now: a .torrent added ON THE USER'S BEHALF, as the first-run demo
-      // is, belongs in the cache the budget pass may reclaim rather than in their library for good
+      // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may
+      // reclaim rather than in the library for good
       track(h, '', null, savePath, m.ephemeral === true)
       recovery.hold(h, Date.now())
       // the infohash lands with the add alert, popped by the 500ms loop
@@ -2125,11 +2103,10 @@ const handleMessage = async (session: Session, m: any) => {
       track(h, magnet, ih, savePath)
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()
-      if (m.paused === true) pauseAdded(h)
       // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
       // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, ...saveTo, ...(m.created === true ? { created: true } : {}) })
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: false, ...saveTo, ...(m.created === true ? { created: true } : {}) })
       /*
        * Released HERE and not by the page, because the gap is between the two.
        *

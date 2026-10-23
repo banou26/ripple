@@ -211,28 +211,10 @@ describe('cancelling a read', () => {
 })
 
 /*
- * The add options, pinned by shape rather than by behaviour.
- *
- * Both of these are positional-adjacent booleans that travel to the worker as named fields, and both
- * decide whether a person is charged for a transfer they did not ask for. `paused` in particular has
- * a silent failure: an add that writes the flag to the library entry but never reaches the engine
- * downloads at full speed behind a row that says it is stopped, and only looks wrong after a reload.
+ * The add options, pinned by shape rather than by behaviour: booleans that travel to the worker as
+ * named fields, and decide whether a person is charged for a transfer they did not ask for.
  */
 describe('what an add carries', () => {
-  it('sends the demo add as paused and temporary, on both the file and magnet routes', async () => {
-    const rig = makeRig()
-    running(rig)
-
-    rig.client.addTorrentFile(new Uint8Array([1, 2, 3]), { ephemeral: true, paused: true })
-    rig.client.addMagnet('magnet:?xt=urn:btih:abc', { ephemeral: true, paused: true })
-    await Promise.resolve()
-
-    const file = rig.posted.find((m) => m.type === 'add-torrent-file')
-    expect(file).toMatchObject({ ephemeral: true, paused: true })
-    const magnet = rig.posted.find((m) => m.type === 'add-magnet')
-    expect(magnet).toMatchObject({ ephemeral: true, paused: true })
-  })
-
   it('leaves an ordinary add started and permanent', async () => {
     const rig = makeRig()
     running(rig)
@@ -241,10 +223,10 @@ describe('what an add carries', () => {
     rig.client.addMagnet('magnet:?xt=urn:btih:abc')
     await Promise.resolve()
 
-    // false rather than undefined: the worker branches on `=== true`, and an add that has always
-    // meant "start it" must keep saying so explicitly rather than relying on a missing field
-    expect(rig.posted.find((m) => m.type === 'add-torrent-file')).toMatchObject({ ephemeral: false, paused: false })
-    expect(rig.posted.find((m) => m.type === 'add-magnet')).toMatchObject({ ephemeral: false, paused: false, hold: false })
+    // false rather than undefined: the worker branches on `=== true`, and an ordinary add must keep
+    // saying so explicitly rather than relying on a missing field
+    expect(rig.posted.find((m) => m.type === 'add-torrent-file')).toMatchObject({ ephemeral: false })
+    expect(rig.posted.find((m) => m.type === 'add-magnet')).toMatchObject({ ephemeral: false, hold: false })
   })
 
   it('marks a download-page claim bulk, so the export gets no piece deadlines', async () => {

@@ -6,10 +6,6 @@
 // skipping the next on the same machine, which is what a swarm dependency looks like from inside a
 // lane whose rule is "deterministic anywhere": the skip is honest, and its being invisible in a
 // gate is not.
-//
-// It also has to START the demo now. A first run adds it PAUSED since `5a416fa`, so the wait below
-// was for bytes that were never coming, and the test would have skipped every time on a clean
-// profile whatever the network did.
 
 import { expect, test } from '@playwright/test'
 
@@ -44,9 +40,14 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
 
   await page.goto('/')
 
-  // the demo arrives paused since `5a416fa`; nothing downloads until something presses this
-  const resume = page.locator('.torrent').first().getByRole('button', { name: 'Resume' })
-  if (await resume.isVisible().catch(() => false)) await resume.click()
+  /*
+   * The bundled Sintel added as the person's OWN torrent, not through the sample offer.
+   *
+   * The sample is temporary, and a temporary torrent restored with nobody watching is parked by
+   * design, in its hash pass: measured 2026-10-23, it sat in checking at 0 bytes for over a minute
+   * and showed its bytes one second after Watch. That would test the parking, not the restore.
+   */
+  await page.locator('label.file-button input[type="file"]').setInputFiles('src/assets/sintel.torrent')
 
   const downloaded = await page
     .waitForFunction(
@@ -60,7 +61,7 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
     .then((h) => h.jsonValue() as Promise<number>)
     .catch(() => 0)
 
-  test.skip(downloaded === 0, 'no network: the demo torrent never started downloading')
+  test.skip(downloaded === 0, 'no network: the torrent never started downloading')
 
   // without a resume blob the restore falls back to re-adding the .torrent, a different path
   const gotResume = await page

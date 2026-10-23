@@ -11,11 +11,14 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
+
 const SPEEDS = ['0 B/s', '9.9 kB/s', '999.9 kB/s', '9.9 MB/s', '99.9 MB/s', '999.9 MB/s', '1.23 GB/s']
 
 test('the global rate readouts hold their width as the number changes', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/')
+  await addSample(page, { pause: true })
   await page.locator('.stats .stat.big.rate strong').waitFor({ timeout: 90_000 })
 
   const lefts = await page.evaluate((speeds) => {
@@ -36,6 +39,7 @@ test('the global rate readouts hold their width as the number changes', async ({
 test('a row holds its layout as its own figures change', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/')
+  await addSample(page, { pause: true })
   await page.locator('.torrent .meta .pair').first().waitFor({ timeout: 90_000 })
 
   const moved = await page.evaluate((speeds) => {

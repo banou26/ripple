@@ -64,6 +64,7 @@ import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
 import { PersistControl } from '../components/persist-control'
+import { SampleOffer } from '../components/sample-offer'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnStat } from '../components/vpn-stat'
@@ -735,7 +736,7 @@ export const style = css`
     padding: 14px 16px;
   }
 
-  .torrent {
+  .torrent, .sample {
     /* the row whose details are in the dock, marked clearly enough to find at a glance in a long
        library without shouting over the rest of it */
     &.selected {
@@ -1277,6 +1278,12 @@ export const style = css`
     }
   }
 
+  /* the one row whose actions are words: the strip above sizes every control as a 32px icon */
+  .sample .actions button {
+    width: auto;
+    padding: 0 12px;
+  }
+
   /* a plain word that behaves like a link, for the two places an action sits inside a sentence */
   .link {
     border: none;
@@ -1524,21 +1531,21 @@ export const style = css`
     }
 
     /* the right-hand group takes its own line rather than squeezing the name out of existence */
-    .torrent .main {
+    .torrent .main, .sample .main {
       flex-wrap: wrap;
     }
 
-    .torrent .side {
+    .torrent .side, .sample .side {
       flex-basis: 100%;
       flex-wrap: wrap;
       justify-content: flex-start;
     }
 
-    .torrent .actions {
+    .torrent .actions, .sample .actions {
       justify-content: flex-start;
     }
 
-    .torrent .poster {
+    .torrent .poster, .sample .poster {
       width: 96px;
       min-height: 64px;
     }
@@ -1936,7 +1943,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
 }
 
 const Home = () => {
-  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client } = useTorrents()
+  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -3238,6 +3245,7 @@ const Home = () => {
       )}
 
       <main {...interaction}>
+        {sampleOffered && torrents.length === 0 && <SampleOffer onAnswer={answerSample}/>}
         {torrents.length === 0
           ? (
             <div className="empty">

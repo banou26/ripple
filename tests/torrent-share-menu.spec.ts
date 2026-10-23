@@ -7,6 +7,7 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 import { magnetParam, magnetParams } from '../src/torrent/magnet'
 
@@ -15,8 +16,7 @@ test('a torrent offers its magnet and its .torrent from the right-click menu', a
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
 
-  const row = page.locator('.torrent').first()
-  await expect(row).toBeVisible({ timeout: 90_000 })
+  const row = await addSample(page, { pause: true })
   await row.click({ button: 'right' })
 
   const copy = page.getByRole('menuitem', { name: 'Copy magnet' })
@@ -26,7 +26,7 @@ test('a torrent offers its magnet and its .torrent from the right-click menu', a
   await copy.click()
   const clipboard = await page.evaluate(() => navigator.clipboard.readText())
   expect(clipboard, 'the clipboard did not get a magnet').toMatch(/^magnet:\?xt=urn:btih:[0-9a-f]{40}/)
-  // the demo is added from the bundled sintel.torrent, whose identity is stored as `xt` alone
+  // the sample is added from the bundled sintel.torrent, whose identity is stored as `xt` alone
   expect(magnetParam(clipboard, 'dn'), 'the copied magnet has no name').toBe('Sintel')
   expect(magnetParams(clipboard, 'tr').length, 'the copied magnet has no trackers').toBeGreaterThanOrEqual(2)
 

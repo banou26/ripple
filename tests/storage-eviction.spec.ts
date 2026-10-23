@@ -23,7 +23,9 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
-// the bundled demo: instant metadata and a webseed that carries the download with no swarm at all
+import { addSample } from './sample-offer'
+
+// the bundled sample: instant metadata and a webseed that carries the download with no swarm at all
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 // Sintel/Sintel.mp4, 129,241,752 bytes. Index 0 is a subtitle track, and pointing the player at
@@ -214,19 +216,6 @@ const squeezeTo = async (page: Page, freeBytes: number): Promise<Squeeze> => {
   return settle(await estimate(page), 64)
 }
 
-/**
- * Start the bundled demo, which now arrives PAUSED.
- *
- * A first run used to add it started, so every test here got a real torrent moving bytes for free.
- * It is added paused and temporary since `5a416fa`, because a first run should not spend somebody's
- * metered allowance on 129 MB nobody asked for. Anything that needs the demo to actually download
- * has to say so now, and this is that.
- */
-const startDemo = async (page: Page) => {
-  const resume = page.locator('.torrent').first().getByRole('button', { name: 'Resume' })
-  if (await resume.isVisible().catch(() => false)) await resume.click()
-}
-
 const downloadSome = async (page: Page, atLeast: number) => {
   const baseline = (await estimate(page)).used
   await expect.poll(
@@ -271,9 +260,8 @@ test.describe('orphan sweep', () => {
     test.setTimeout(240_000)
 
     await page.goto('/')
-    await expect(page.locator('.torrent').first()).toBeVisible()
-    // let the demo publish its layout, which is what lets the shared root be accounted for at all
-    await startDemo(page)
+    // let the sample publish its layout, which is what lets the shared root be accounted for at all
+    await addSample(page)
     await downloadSome(page, 5_000_000)
     const entries = await library(page)
     expect(entries).toHaveLength(1)
@@ -298,7 +286,7 @@ test.describe('orphan sweep', () => {
       { timeout: 150_000, intervals: [3_000], message: 'the orphans were never swept' },
     ).toEqual([false, false])
 
-    // The bytes come back, and the torrent the library DOES know about is untouched. The demo keeps
+    // The bytes come back, and the torrent the library DOES know about is untouched. The sample keeps
     // downloading through the wait, so the drop is netted against the most it could possibly add,
     // which is the whole torrent.
     expect((await estimate(page)).used).toBeLessThan(before.used - (PLANTED - SINTEL_TORRENT_BYTES))
@@ -429,19 +417,8 @@ test.describe('storage eviction', () => {
   test('never gives up a torrent the user added themselves', async ({ page }) => {
     test.setTimeout(240_000)
 
-    /*
-     * A torrent the USER added, pasted into the toolbar, which is the whole subject of this test.
-     *
-     * It used to lean on the bundled demo, and the demo stopped being an example of what this
-     * protects: since `5a416fa` a first run adds it TEMPORARY and PAUSED, so it is a cache entry and
-     * a legitimate eviction candidate, and it downloads nothing until something presses Resume. This
-     * test asserted `ephemeral === false` about it and waited for 30 MB that were never coming, so it
-     * had a second reason to fail underneath the one that took the other three, and being `fixme`
-     * is what let that sit unnoticed. Bunny rather than Sintel because the demo already holds
-     * Sintel's infohash and a second add of it answers "Already in your list".
-     */
+    // a torrent the USER added, pasted into the toolbar, which is the whole subject of this test
     await page.goto('/')
-    await expect(page.locator('.torrent').first()).toBeVisible()
     await page.getByPlaceholder('Add a magnet link').fill(BUNNY)
     await page.getByRole('button', { name: 'Add', exact: true }).click()
     await downloadSome(page, 30_000_000)

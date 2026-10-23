@@ -10,10 +10,12 @@
 // knew the answer looks perfect, and the only thing that changes is the phone in someone's pocket,
 // which nobody has open while they work.
 //
-// Headless on purpose. Nothing here waits on a swarm: the app seeds itself from the bundled
-// sintel.torrent, and a .torrent carries its own layout, so the metadata is known at boot.
+// Headless on purpose. Nothing here waits on a swarm: the sample is added from the bundled
+// sintel.torrent, and a .torrent carries its own layout, so the metadata is known at once.
 
 import { expect, test } from '@playwright/test'
+
+import { addSample } from './sample-offer'
 
 type ListEntry = { infoHash?: string, name?: string, size?: number, files?: { name: string, size: number }[] }
 
@@ -39,7 +41,7 @@ test('a torrent whose metadata just landed is announced to the page, not only st
   })
 
   await page.goto('/')
-  await expect(page.locator('.torrent').first().locator('.title strong')).toHaveText('Sintel')
+  await addSample(page, { pause: true })
 
   const withMetadata = async () => await page.evaluate(() => {
     const lists = (window as any).__lists as ListEntry[][]
