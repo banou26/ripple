@@ -5,6 +5,8 @@ import type { BrowserContext, Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
+
 const recordWorkers = () => {
   const scope = window as unknown as { __workers: string[] }
   scope.__workers = []
@@ -52,12 +54,21 @@ test('a second tab borrows the first tab\'s engine, then takes it over when that
   await context.addInitScript(recordWorkers)
 
   const a = await openTab(context)
-  await expect(firstRow(a)).toBeVisible({ timeout: 60_000 })
-  expect(await engineWorkers(a), 'the first tab should host exactly one engine').toHaveLength(1)
+  const offer = (page: Page) => page.getByRole('button', { name: 'Add Sintel' })
+  await expect(offer(a)).toBeVisible({ timeout: 20_000 })
 
   const b = await openTab(context)
 
   await expect(b.getByText('Ripple is open in another tab.')).toHaveCount(0)
+
+  // only the tab running the engine decides, so a first visit open twice is offered the sample once.
+  // Past DEMO_GRACE (8 s), which a borrowing tab that decided would wait out from its first state.
+  await b.waitForTimeout(12_000)
+  await expect(offer(b)).toHaveCount(0)
+  await expect(offer(a)).toHaveCount(1)
+
+  await addSample(a, { pause: true })
+  expect(await engineWorkers(a), 'the first tab should host exactly one engine').toHaveLength(1)
 
   await expect(firstRow(b)).toBeVisible({ timeout: 60_000 })
   expect(await engineWorkers(b), 'the borrowing tab must not build a second engine').toHaveLength(0)
@@ -65,13 +76,7 @@ test('a second tab borrows the first tab\'s engine, then takes it over when that
   const nameInA = await firstRow(a).locator('.title strong').innerText()
   await expect(firstRow(b).locator('.title strong')).toHaveText(nameInA)
 
-  /*
-   * RESUME, not Pause, because the demo now arrives paused (`5a416fa`).
-   *
-   * What is under test is unchanged: a command issued in the tab that only BORROWS the engine has to
-   * reach the tab hosting it, and be visible there. Resume is simply the direction that exists from
-   * the state a first run starts in, and the second test in this file already handles both.
-   */
+  // a command issued in the tab that only BORROWS the engine has to reach the tab hosting it
   const resumeInB = firstRow(b).getByRole('button', { name: 'Resume' })
   await expect(resumeInB).toBeVisible({ timeout: 30_000 })
   await resumeInB.click()
@@ -93,7 +98,9 @@ test('a tab that was not promoted still drives the engine after the handover', a
   const context = await browser.newContext()
   await context.addInitScript(recordWorkers)
 
-  const tabs = [await openTab(context), await openTab(context), await openTab(context)]
+  const host = await openTab(context)
+  await addSample(host, { pause: true })
+  const tabs = [host, await openTab(context), await openTab(context)]
   for (const tab of tabs) await expect(firstRow(tab)).toBeVisible({ timeout: 60_000 })
 
   const hosting = await Promise.all(tabs.map(async (tab) => (await engineWorkers(tab)).length))
@@ -101,7 +108,7 @@ test('a tab that was not promoted still drives the engine after the handover', a
 
   const survivors = [tabs[1]!, tabs[2]!]
   for (const tab of survivors) await listenForPause(tab)
-  // the demo arrives paused, and has to be in the library that way before its engine goes
+  // the sample has to be in the library paused before its engine goes
   await expect.poll(() => pausedBy(survivors[0]!), { timeout: 30_000 }).toBeTruthy()
   const before = await pausedBy(survivors[0]!)
 

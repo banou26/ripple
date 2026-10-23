@@ -102,7 +102,7 @@ export const classifyAvailability = (
   return { connected: false, status: 'off', reason: 'signed-out', retry: false }
 }
 
-// Resolves once the first cloud restore has settled; useTorrents waits on this before deciding to seed the demo
+// Resolves once the first cloud restore has settled; useTorrents waits on this before deciding to offer the sample
 let settle: () => void
 export const cloudRestoreSettled = new Promise<void>((resolve) => { settle = resolve })
 
@@ -201,7 +201,7 @@ const portableOf = (e: Persisted) => ({
  * latest add: a torrent removed and then added again elsewhere is back, and this device's older copy
  * must not publish it as still removed.
  *
- * The first-run demo stays out until someone claims it. Nobody asked for it, so it is no device's
+ * The first-run sample stays out until someone claims it. It is temporary, so it is no device's
  * library, and publishing it is how it became a row with no files on every other one.
  */
 export const backupOf = (local: Persisted[], cloud: Persisted[] | null, removals: readonly Removal[]) => {
@@ -446,7 +446,7 @@ export const useCloudBackup = (): SyncState => {
         let list: unknown
         try { list = JSON.parse(text) } catch {}
         if (Array.isArray(list)) {
-          // A restorable backup - even an empty one - means a returning user, so suppress the demo
+          // A restorable backup - even an empty one - means a returning user, so no sample is offered
           try { localStorage.setItem(DEMO_SEEDED_KEY, '1') } catch {}
           // read only once the list has, since a read of a locked scope is what raises the unlock
           // card. A failed read imports no removals: rows removed elsewhere wait for a later mount.

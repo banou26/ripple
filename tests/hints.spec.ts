@@ -13,6 +13,8 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
+
 /** Comfortably under the native delay, and far enough over zero to survive a busy machine. */
 const INSTANT_MS = 500
 
@@ -26,6 +28,7 @@ test('a hint appears at once, and never leaves the page', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(String(error)))
 
   await page.goto('/')
+  await addSample(page, { pause: true })
   await expect(page.locator('.stats')).toBeVisible({ timeout: 60_000 })
 
   /*

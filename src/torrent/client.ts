@@ -93,30 +93,20 @@ export type TorrentClient = {
   importList: (list: Persisted[], removed?: Removal[]) => void
   clearList: () => void
   /**
-   * `ephemeral` marks a torrent the PLAYER asked for rather than the user. Its bytes become a cache
-   * the engine may reclaim under storage pressure, so only the player passes it; every path where a
-   * person deliberately added something leaves it off, and a deliberate add clears it for good.
+   * `ephemeral` marks a torrent the PLAYER asked for, or the first-run sample. Its bytes become a
+   * cache the engine may reclaim under storage pressure; an add a person confirms leaves it off and
+   * clears it for good.
    */
   /**
    * `hold` fetches the torrent's file list and then stops, transferring nothing until somebody
    * watches or reads it. For a page that offers a Download button rather than starting one.
    */
-  /**
-   * `paused` adds the torrent STOPPED, exactly as if the person had pressed Pause on it.
-   *
-   * Not the same as `hold`, and the difference is what the row can offer. A held torrent is parked
-   * by `applyViewing` with `userPaused` clear, so it reads as Queued and shows no Resume; this is a
-   * deliberate stop, so the entry carries `paused: true`, it comes back stopped after a reload, and
-   * there is a button to start it. For anything added on the user's behalf rather than at their
-   * request, which should cost them no transfer at all until they ask for it.
-   */
-  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean, paused?: boolean }) => void
+  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean }) => void
   addTorrentFile: (
     bytes: Uint8Array,
     options?: {
       savePath?: string
       ephemeral?: boolean
-      paused?: boolean
       /**
        * Where this torrent's files BELONG, written with the entry rather than set after it.
        *
@@ -641,8 +631,8 @@ export const createTorrentClient = (): EngineClient => {
     },
     importList: (list, removed = []) => send({ type: 'import-list', list, removed }),
     clearList: () => send({ type: 'clear-list' }),
-    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true, paused: options?.paused === true }),
-    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, paused: options?.paused === true, saveTo: options?.saveTo, created: options?.created === true }, [bytes.buffer]),
+    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
+    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, saveTo: options?.saveTo, created: options?.created === true }, [bytes.buffer]),
     // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
     // offer the .torrent as a download afterwards, and a transferred buffer would be detached.
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),

@@ -310,6 +310,10 @@ export type UseTorrents = {
   reachable: Reachability | null
   /** Peers dialled IN right now, which is not the running total `reachable` carries. */
   inboundNow: InboundNow
+  /** A first visit in this browser, with an empty library: offer the sample torrent. */
+  sampleOffered: boolean
+  /** Answers the offer for good in this browser; true adds the sample. */
+  answerSample: (add: boolean) => void
   client: TorrentClient
 }
 
@@ -317,29 +321,23 @@ export type UseTorrents = {
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
 /** Its own directory, which is what makes the temporary label above true. See DEMO_MAGNET. */
 const DEMO_SAVE_PATH = savePathFor(magnetInfoHash(DEMO_MAGNET))
-// longest a new user waits on a stalled cloud restore before the demo seeds anyway
+// longest a new user waits on a stalled cloud restore before the sample is offered anyway
 const DEMO_GRACE = 8_000
 
 /**
- * PAUSED and TEMPORARY, because nobody asked for it.
- *
- * This used to add Sintel started and permanent, so a first run quietly pulled 129.3 MB and then
- * seeded it for as long as the tab was open, on every visit, against a metered allowance the person
- * had not spent on anything they chose. As a library entry the storage budget could never reclaim it
- * either. Paused, it is an empty row offering a Start button and costing nothing; temporary, its
- * bytes are a cache the budget pass may take back once it has any.
+ * Started, since somebody asked for it, and TEMPORARY: its bytes are a cache the budget pass may
+ * take back, and `backupOf` keeps it out of the synced library, so it never becomes a row with no
+ * files on another device.
  */
 const addDemo = (client: TorrentClient) =>
   fetch(DEMO_TORRENT_URL)
     .then(async (res) => {
       if (!res.ok) throw new Error(String(res.status))
-      client.addTorrentFile(new Uint8Array(await res.arrayBuffer()), {
-        savePath: DEMO_SAVE_PATH,
-        ephemeral: true,
-        paused: true,
-      })
+      client.addTorrentFile(new Uint8Array(await res.arrayBuffer()), { savePath: DEMO_SAVE_PATH, ephemeral: true })
     })
-    .catch(() => client.addMagnet(DEMO_MAGNET, { ephemeral: true, paused: true }))
+    .catch(() => client.addMagnet(DEMO_MAGNET, { ephemeral: true }))
+
+const sampleAnswered = () => { try { localStorage.setItem(DEMO_SEEDED_KEY, '1') } catch { } }
 
 export const useTorrents = (): UseTorrents => {
   const client = getTorrentClient()
@@ -349,6 +347,7 @@ export const useTorrents = (): UseTorrents => {
   const [workerError, setWorkerError] = useState<string | null>(null)
   const [reachable, setReachable] = useState<Reachability | null>(null)
   const [inboundNow, setInboundNow] = useState<InboundNow>(NO_INBOUND)
+  const [sampleOffered, setSampleOffered] = useState(false)
   useEffect(() => {
     const offReachable = client.onReachable(setReachable)
     const offInbound = client.onInboundNow(setInboundNow)
@@ -373,20 +372,22 @@ export const useTorrents = (): UseTorrents => {
      */
     const offReset = client.onEngineReset(() => { setWorkerError(null); setStorageUnavailable(false); setSnaps([]) })
     let checkedDemo = false
-    const libraryCount = { current: 0 }
-    const offList = client.onList((l) => { libraryCount.current = l.length; setList(l) })
+    const offList = client.onList((l) => {
+      setList(l)
+      // a torrent of one's own answers the offer for good; a temporary one (the sample, or a link
+      // still waiting on its add dialog) does not, so a link turned down brings the offer back
+      if (l.some((e) => !e.ephemeral)) { sampleAnswered(); setSampleOffered(false) }
+    })
     const offState = client.onState((s) => {
       setSnaps(s)
       if (checkedDemo) return
-      // only the engine owner may seed: the cloud restore waited on below runs there alone
+      // only the engine owner decides: the cloud restore waited on below runs there alone
       if (!client.owns()) return
       checkedDemo = true
       void Promise.race([cloudRestoreSettled, new Promise<void>((r) => setTimeout(r, DEMO_GRACE))])
         .then(() => {
           try {
-            if (localStorage.getItem(DEMO_SEEDED_KEY)) return
-            localStorage.setItem(DEMO_SEEDED_KEY, '1')
-            if (libraryCount.current === 0) addDemo(client)
+            if (!localStorage.getItem(DEMO_SEEDED_KEY)) setSampleOffered(true)
           } catch { }
         })
     })
@@ -432,5 +433,10 @@ export const useTorrents = (): UseTorrents => {
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
   const start = useCallback((infoHash: string) => client.start(infoHash), [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
-  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, client }
+  const answerSample = useCallback((add: boolean) => {
+    sampleAnswered()
+    setSampleOffered(false)
+    if (add) void addDemo(client)
+  }, [client])
+  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, sampleOffered, answerSample, client }
 }

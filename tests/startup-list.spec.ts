@@ -17,6 +17,8 @@
 
 import { expect, test } from '@playwright/test'
 
+import { addSample } from './sample-offer'
+
 test('a reload shows the library before the engine is ready', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))
@@ -48,7 +50,8 @@ test('a reload shows the library before the engine is ready', async ({ page }) =
   })
 
   await page.goto('/')
-  // the demo seeds itself on a first run, which is what gives the reload something to restore
+  // the sample is what gives the reload something to restore
+  await addSample(page, { pause: true })
   await expect(page.locator('.torrent')).toHaveCount(1)
   await page.waitForTimeout(4000)
 
@@ -65,6 +68,7 @@ test('a reload shows the library before the engine is ready', async ({ page }) =
 
 test('a starting row carries the torrent name, and becomes the real row', async ({ page }) => {
   await page.goto('/')
+  await addSample(page, { pause: true })
   await expect(page.locator('.torrent')).toHaveCount(1)
   await page.waitForTimeout(4000)
 
@@ -72,7 +76,7 @@ test('a starting row carries the torrent name, and becomes the real row', async 
 
   const starting = page.locator('.torrent.starting').first()
   await starting.waitFor({ timeout: 10_000 })
-  // The NAME, not an info hash. Most stored magnets carry no `dn` at all (the demo entry is a bare
+  // The NAME, not an info hash. Most stored magnets carry no `dn` at all (the sample's entry is a bare
   // `magnet:?xt=urn:btih:...`), so this falls back to the name the torrent occupies on disk. Without
   // it the row shows eight hex characters where a title belongs, which reads as a different torrent
   // rather than as this one still loading.
