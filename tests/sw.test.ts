@@ -162,7 +162,13 @@ describe('service worker', () => {
  * every test against the raw source still passed. So these run `stamp()` first, exactly as the build
  * does, and boot the result.
  */
-const bootStamped = (opts: { mode: string, build: string, manifest: [string, string][] }, caches: any) => {
+type Fetch = (path: string) => Promise<Response>
+
+const bootStamped = (
+  opts: { mode: string, build: string, manifest: [string, string][] },
+  caches: any,
+  { fetch = () => Promise.reject(new Error('no fetch')), active = null }: { fetch?: Fetch, active?: unknown } = {},
+) => {
   const src = source
     .replace(/^const MODE = .*\/\/ @stamp:mode$/m, `const MODE = ${JSON.stringify(opts.mode)}    // @stamp:mode`)
     .replace(/^const BUILD = .*\/\/ @stamp:build$/m, `const BUILD = ${JSON.stringify(opts.build)}   // @stamp:build`)
@@ -176,11 +182,10 @@ const bootStamped = (opts: { mode: string, build: string, manifest: [string, str
     addEventListener: (type: string, cb: Handler) => { on[type] = cb },
     skipWaiting: () => skipped.push(true),
     clients: { claim: () => Promise.resolve() },
+    registration: { active },
     caches,
   }
-  new Function('self', 'caches', 'fetch', 'URL', src)(
-    self, caches, (self as any).__fetch ?? (() => Promise.reject(new Error('no fetch'))), URL,
-  )
+  new Function('self', 'caches', 'fetch', 'URL', src)(self, caches, fetch, URL)
   return { on, skipped }
 }
 
@@ -256,6 +261,60 @@ describe('the caching half of the worker', () => {
     const r = requestFor(`${ORIGIN}/__ripple-stream/abc`)
     on.fetch?.({ ...r.event, request: { url: `${ORIGIN}/__ripple-stream/abc`, method: 'GET' } })
     expect(r.taken(), 'the download path must still be answered').not.toBeNull()
+  })
+
+  /**
+   * An install is what the page reads as "the update is downloaded", so with a worker already
+   * active it has to mean every chunk arrived. Failing it drops the new worker and the browser
+   * installs it again at its next check, while the active one keeps serving.
+   */
+  describe('the precache', () => {
+    const script = () => new Response('export {}', { headers: { 'content-type': 'application/javascript' } })
+    const install = (on: Record<string, Handler>) => {
+      let done: Promise<unknown> = Promise.resolve()
+      on.install!({ waitUntil: (p: Promise<unknown>) => { done = p } })
+      return done
+    }
+    const stored = async (caches: ReturnType<typeof fakeCaches>) =>
+      [...(caches._stores.get('ripple-assets-b2')?.keys() ?? [])].sort()
+
+    it('fails an update whose chunks did not all arrive', async () => {
+      const caches = fakeCaches()
+      const fetch = async (path: string) => path.includes('worker-') ? new Response('', { status: 503 }) : script()
+      const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest: MANIFEST }, caches, { fetch, active: {} })
+      await expect(install(on)).rejects.toThrow()
+    })
+
+    it('counts the SPA fallback as a chunk that did not arrive', async () => {
+      const caches = fakeCaches()
+      const html = () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
+      const fetch = async (path: string) => path.includes('worker-') ? html() : script()
+      const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest: MANIFEST }, caches, { fetch, active: {} })
+      await expect(install(on)).rejects.toThrow()
+      expect(await stored(caches)).toEqual(['/assets/libtorrent-BBBB2222.js'])
+    })
+
+    it('asks again for a chunk that failed once, and installs with every chunk', async () => {
+      const caches = fakeCaches()
+      const asked: string[] = []
+      const fetch = async (path: string) => {
+        asked.push(path)
+        if (path.includes('worker-') && asked.filter((p) => p === path).length === 1) throw new TypeError('network')
+        return script()
+      }
+      const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest: MANIFEST }, caches, { fetch, active: {} })
+      await expect(install(on)).resolves.toBeUndefined()
+      expect(await stored(caches)).toEqual(['/assets/libtorrent-BBBB2222.js', '/assets/worker-AAAA1111.js'])
+      expect(asked.filter((p) => p.includes('libtorrent-')), 'a chunk already stored was asked for again').toHaveLength(1)
+    })
+
+    /** A first visit has no worker to fall back on, and one with a cold cache still routes. */
+    it('installs the first worker even when chunks are missing', async () => {
+      const caches = fakeCaches()
+      const fetch = async (path: string) => path.includes('worker-') ? new Response('', { status: 503 }) : script()
+      const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest: MANIFEST }, caches, { fetch })
+      await expect(install(on)).resolves.toBeUndefined()
+    })
   })
 
   it('names its cache after the build, so generations cannot collide', () => {
