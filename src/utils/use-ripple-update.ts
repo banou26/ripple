@@ -18,8 +18,8 @@ import { reloadPage } from './reload'
  * itself), with no save to disk running (the page writes it, so a reload cuts the file off) and no
  * video playing. A due update looks for that moment again every `recheckMs`.
  *
- * GUARDED per tab (sessionStorage): at most two automatic reloads in five minutes, and one onto any
- * given build. A refused reload does nothing visible.
+ * GUARDED per tab (sessionStorage): at most two automatic reloads in five minutes. A refused reload
+ * shows nothing and goes once the window has room.
  */
 export type UpdateTiming = {
   /**
@@ -43,8 +43,8 @@ export type UpdateTiming = {
 
 export const UPDATE_TIMING: UpdateTiming = {
   adoptWindowMs: 10_000,
-  // Chromium can drop a `skipWaiting()` activation (the fkn.app lesson of 2026-10-08). The document,
-  // index.js and sw.js are never cached, so a reload without it still runs the new code and adopts.
+  // Chromium can drop a `skipWaiting()` activation when an event restarts the old worker mid-stop. The
+  // document, index.js and sw.js are never cached, so a reload without it still runs the new code.
   takeWaitMs: 5_000,
   recheckMs: 1_000,
 }
@@ -52,22 +52,18 @@ export const UPDATE_TIMING: UpdateTiming = {
 /** Browsers check on navigation; a tab left open for hours needs asking. */
 const POLL_MS = 15 * 60_000
 
-const BUILD_ASK_MS = 1_000
-
 const RELOADS_KEY = 'ripple-update-reloads'
 const RELOAD_LIMIT = 2
 const RELOAD_WINDOW_MS = 5 * 60_000
 
-type Reload = { at: number, build?: string }
-
-/** Records an automatic reload and answers true, or answers false when the guard refuses it. */
-const mayReload = (build: string | undefined): boolean => {
+/** Records an automatic reload and answers true, or answers false while the guard refuses one. */
+const mayReload = (): boolean => {
   try {
     const now = Date.now()
-    const past = JSON.parse(sessionStorage.getItem(RELOADS_KEY) ?? '[]') as Reload[]
-    if (past.filter((reload) => now - reload.at < RELOAD_WINDOW_MS).length >= RELOAD_LIMIT) return false
-    if (build !== undefined && past.some((reload) => reload.build === build)) return false
-    sessionStorage.setItem(RELOADS_KEY, JSON.stringify([...past, { at: now, build }]))
+    const recent = (JSON.parse(sessionStorage.getItem(RELOADS_KEY) ?? '[]') as number[])
+      .filter((at) => now - at < RELOAD_WINDOW_MS)
+    if (recent.length >= RELOAD_LIMIT) return false
+    sessionStorage.setItem(RELOADS_KEY, JSON.stringify([...recent, now]))
     return true
   } catch {
     // no record means no guard, and an unguarded reload can loop
@@ -76,23 +72,6 @@ const mayReload = (build: string | undefined): boolean => {
 }
 
 const playing = (): boolean => [...document.querySelectorAll('video')].some((video) => !video.paused && !video.ended)
-
-/** The build a worker reports (`which-build` in sw.js), or undefined when it does not answer in time. */
-const buildOf = (container: ServiceWorkerContainer, worker: ServiceWorker | null): Promise<string | undefined> =>
-  new Promise((resolve) => {
-    if (!worker) { resolve(undefined); return }
-    const done = (build?: string) => {
-      container.removeEventListener('message', onMessage)
-      clearTimeout(timer)
-      resolve(build)
-    }
-    const onMessage = (event: MessageEvent) => {
-      if (event.source === worker && event.data?.type === 'build') done(String(event.data.build))
-    }
-    const timer = setTimeout(done, BUILD_ASK_MS)
-    container.addEventListener('message', onMessage)
-    worker.postMessage({ type: 'which-build' })
-  })
 
 /** Asks a waiting worker to take over; resolves on `controllerchange`, or after `waitMs` without one. */
 const takeOver = (container: ServiceWorkerContainer, worker: ServiceWorker, waitMs: number): Promise<void> =>
@@ -126,37 +105,31 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
      * different one is the real thing, and after that first claim every page has one.
      */
     let hadController = container !== null && container.controller !== null
-    /** 'ripple' when this app's own build moved, 'fkn' when only fkn.app's did. */
-    let due: 'ripple' | 'fkn' | null = null
+    let due = false
     let going = false
     let recheck: number | undefined
 
     const go = async () => {
       going = true
-      window.clearInterval(recheck)
-      recheck = undefined
-      const waiting = registration?.waiting ?? null
-      const build = due === 'ripple' && container ? await buildOf(container, waiting ?? container.controller) : undefined
-      if (cancelled) return
-      if (!mayReload(build)) { going = false; due = null; return }
       setUpdating(true)
+      const waiting = registration?.waiting
       if (waiting && container) await takeOver(container, waiting, timing.takeWaitMs)
       if (!cancelled) reloadPage()
     }
 
     const check = () => {
-      if (cancelled || going || due === null || savesRunning() > 0 || playing()) return
+      if (cancelled || going || !due || savesRunning() > 0 || playing() || !mayReload()) return
       void go()
     }
 
-    const markDue = (reason: 'ripple' | 'fkn') => {
-      if (cancelled || going || isFramed()) return
-      if (due !== 'ripple') due = reason
+    const markDue = () => {
+      if (cancelled || isFramed()) return
+      due = true
       recheck ??= window.setInterval(check, timing.recheckMs)
       check()
     }
 
-    const offShell = shell.onUpdateTaken(() => markDue('fkn'))
+    const offShell = shell.onUpdateTaken(markDue)
 
     const look = () => {
       const waiting = registration?.waiting
@@ -166,15 +139,14 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
         waiting.postMessage({ type: 'take-over' })
         return
       }
-      markDue('ripple')
+      markDue()
     }
 
     const onControllerChange = () => {
       const had = hadController
       hadController = true
-      if (going) return
       if (adopting) { adopting = false; look(); return }
-      if (had) markDue('ripple')
+      if (had) markDue()
     }
 
     const watch = (r: ServiceWorkerRegistration) => {
