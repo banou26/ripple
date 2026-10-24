@@ -248,6 +248,42 @@ describe('an update that arrives while the page sits open', () => {
     await expect.poll(() => reloaded.count).toBe(1)
   })
 
+  it('waits for a focused text field to let go', async () => {
+    const field = document.body.appendChild(document.createElement('input'))
+    field.focus()
+    const { sw, worker } = await openWithUpdate()
+    await sleep(200)
+    expect(worker.takeOvers(), 'took the update while a field was typed in').toBe(0)
+
+    field.blur()
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+    field.remove()
+  })
+
+  it('does not wait on a focused checkbox, which holds nothing a reload loses', async () => {
+    const box = document.body.appendChild(Object.assign(document.createElement('input'), { type: 'checkbox' }))
+    box.focus()
+    const { worker } = await openWithUpdate()
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    box.remove()
+  })
+
+  it('waits for an open dialog to close', async () => {
+    const dialog = document.body.appendChild(document.createElement('div'))
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('aria-modal', 'true')
+    const { sw, worker } = await openWithUpdate()
+    await sleep(200)
+    expect(worker.takeOvers(), 'took the update under an open dialog').toBe(0)
+
+    dialog.remove()
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+  })
+
   it('waits to be back online', async () => {
     let online = false
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online })

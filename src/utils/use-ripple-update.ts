@@ -16,11 +16,11 @@ import { reloadPage } from './reload'
  *
  * SAFE at top level only (an embedded /watch or /download is reloaded by the page around it, never by
  * itself), online (the document is never cached, so a reload offline is the browser's error page),
- * with no video playing and no page work (page-work.ts) running in ANY Ripple page: taking
- * the new worker over is what ends another page's save, since Firefox ends the old worker's download
- * streams the moment the new one activates. A due update looks for that moment again every
- * `recheckMs`. A worker found inside the adopt window is taken over without a reload, under the same
- * page work rule.
+ * with no video playing, no text field focused and no dialog open, and no page work (page-work.ts)
+ * running in ANY Ripple page: taking the new worker over is what ends another page's save, since
+ * Firefox ends the old worker's download streams the moment the new one activates. A due update looks
+ * for that moment again every `recheckMs`. A worker found inside the adopt window is taken over
+ * without a reload, under the same page work rule.
  *
  * GUARDED per tab (sessionStorage): at most two automatic reloads in five minutes. A refused reload
  * shows nothing and goes once the window has room.
@@ -75,7 +75,16 @@ const mayReload = (): boolean => {
   }
 }
 
-const playing = (): boolean => [...document.querySelectorAll('video')].some((video) => !video.paused && !video.ended)
+const NOT_TYPED = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'])
+
+/** A video playing, a field being typed in or a dialog open: what a reload would throw away in this page. */
+const busy = (): boolean => {
+  if ([...document.querySelectorAll('video')].some((video) => !video.paused && !video.ended)) return true
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return true
+  const focused = document.activeElement
+  if (focused instanceof HTMLInputElement) return !NOT_TYPED.has(focused.type)
+  return focused instanceof HTMLTextAreaElement || (focused instanceof HTMLElement && focused.isContentEditable)
+}
 
 /** Asks a waiting worker to take over; resolves on `controllerchange`, or after `waitMs` without one. */
 const takeOver = (container: ServiceWorkerContainer, worker: ServiceWorker, waitMs: number): Promise<void> =>
@@ -134,7 +143,7 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
         window.clearInterval(recheck)
         recheck = undefined
         registration?.waiting?.postMessage({ type: 'take-over' })
-      } else if (navigator.onLine && !playing() && mayReload()) void go()
+      } else if (navigator.onLine && !busy() && mayReload()) void go()
     }
 
     const want = (action: 'adopt' | 'reload') => {
