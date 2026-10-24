@@ -221,6 +221,21 @@ const readChunk = async (
     : last
 }
 
+let running = 0
+
+/** How many saves to disk this page is writing right now. A reload cuts every one of them off. */
+export const savesRunning = (): number => running
+
+/** Runs `save` synchronously up to its first await, so a sink opened there keeps the click's activation. */
+const counted = async (save: () => Promise<void>): Promise<void> => {
+  running++
+  try {
+    await save()
+  } finally {
+    running--
+  }
+}
+
 /** One file of a torrent, named by the index the ENGINE knows it by rather than by list position. */
 export type SaveEntry = {
   /** The engine's file index. Never a position in a filtered array; those stop matching on a subset. */
@@ -237,7 +252,7 @@ export const saveTorrentFileToDisk = async (
   fileBytes: number,
   onProgress?: (fraction: number) => void,
   options: SaveOptions = {},
-): Promise<void> => {
+): Promise<void> => counted(async () => {
   const baseName = filePath.split('/').pop() || 'download'
   const sink = await openSink(baseName, { contentLength: fileBytes, totalBytes: fileBytes })
   try {
@@ -252,7 +267,7 @@ export const saveTorrentFileToDisk = async (
     await sink.abort()
     throw e
   }
-}
+})
 
 /**
  * Any set of a torrent's files, as one zip.
@@ -268,7 +283,7 @@ export const saveTorrentEntriesAsZipToDisk = async (
   entries: SaveEntry[],
   onProgress?: (fraction: number) => void,
   options: SaveOptions = {},
-): Promise<void> => {
+): Promise<void> => counted(async () => {
   const baseName = (zipName.replace(/[/\\]/g, '_') || 'torrent') + '.zip'
   const totalBytes = entries.reduce((n, e) => n + e.size, 0)
   // contentLength stays 0: a zip's length is not known until its central directory has been written
@@ -288,7 +303,7 @@ export const saveTorrentEntriesAsZipToDisk = async (
     await sink.abort()
     throw e
   }
-}
+})
 
 export const saveTorrentAsZipToDisk = async (
   client: TorrentClient,

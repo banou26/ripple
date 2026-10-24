@@ -5,7 +5,8 @@ import Router from '../router'
 import { destroyTorrentClient } from '../torrent/client'
 import { hasWebLocks } from '../torrent/engine-protocol'
 import { useActiveWindow } from '../utils/active-window-effect'
-import { useShellUpdate } from '../torrent/use-shell-update'
+import { useRippleUpdate } from '../utils/use-ripple-update'
+import Updating from './updating'
 
 const style = css`
   display: flex;
@@ -43,12 +44,17 @@ const SingleTabMount = () => {
 }
 
 /**
- * Subscribed here rather than in a route, because an update reaches every page and the pages most
- * likely to be open are `/watch` and the download page, not the library.
+ * The update gate lives here rather than in a route, because an update reaches every page and the
+ * pages most likely to be open are `/watch` and the download page, not the library.
  */
 const Mount = () => {
-  useShellUpdate()
-  return hasWebLocks() ? <Router/> : <SingleTabMount/>
+  const updating = useRippleUpdate()
+  return (
+    <>
+      {hasWebLocks() ? <Router/> : <SingleTabMount/>}
+      {updating && <Updating/>}
+    </>
+  )
 }
 
 export default Mount
