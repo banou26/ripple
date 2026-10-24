@@ -5,6 +5,7 @@ import type { Torrent } from './types'
 import { contentFiles } from './types'
 import { savePathIn } from './save-location'
 import { syncTorrentToDirectory } from './sync'
+import { pageWork } from '../utils/page-work'
 
 /**
  * Carrying a torrent's files from one storage to the other.
@@ -105,7 +106,7 @@ export const moveTorrentFiles = async (
     opfsRoot?: FileSystemDirectoryHandle
     onProgress?: (progress: MoveProgress) => void
   },
-): Promise<void> => {
+): Promise<void> => pageWork(async () => {
   if (to === 'folder') {
     await syncTorrentToDirectory(client, torrent, folder)
   } else {
@@ -120,4 +121,4 @@ export const moveTorrentFiles = async (
    */
   if (!torrent.infoHash) throw new Error('the torrent has no info hash, so the move cannot be finished safely')
   client.relocate(torrent.infoHash, to)
-}
+})

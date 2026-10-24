@@ -17,8 +17,9 @@ vi.mock('../../src/utils/reload', () => ({ reloadPage: () => { reloaded.count++ 
 const framed = { value: false }
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => framed.value }))
 
-const saves = { running: 0 }
-vi.mock('../../src/torrent/save-file', () => ({ savesRunning: () => saves.running }))
+/** page work (a save, a create, a move) running in this page or any other Ripple page */
+const work = { running: false }
+vi.mock('../../src/utils/page-work', () => ({ pageWorkRunning: async () => work.running }))
 
 /** the handler ripple hands to @fkn/lib for "fkn.app's update was taken", captured so a test can fire it */
 const shellUpdate = { taken: null as (() => void) | null, unsubscribed: 0 }
@@ -110,7 +111,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 afterEach(() => {
   reloaded.count = 0
   framed.value = false
-  saves.running = 0
+  work.running = false
   sessionStorage.clear()
   vi.restoreAllMocks()
   for (const video of document.querySelectorAll('video')) video.remove()
@@ -149,6 +150,54 @@ describe('a refresh that lands on a new build', () => {
     expect(screen.container.textContent).toBe('idle')
     expect(reloaded.count, 'the page reloaded onto the build it was already running').toBe(0)
   })
+
+  /** Taking a worker over ends the old one's download streams in Firefox, whichever page asks. */
+  it('adopts only once no page work runs', async () => {
+    work.running = true
+    const sw = fakeContainer()
+    const worker = sw.worker()
+    sw.registration.waiting = worker
+    sw.install()
+
+    await mount(LOADING)
+    await sleep(200)
+    expect(worker.takeOvers(), 'took the worker over under running page work').toBe(0)
+    work.running = false
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    sw.controllerChange()
+    await sleep(100)
+    expect(reloaded.count).toBe(0)
+  })
+
+  it('does not reload when another page takes the worker it was waiting to adopt', async () => {
+    work.running = true
+    const sw = fakeContainer()
+    sw.registration.waiting = sw.worker()
+    sw.install()
+
+    await mount(LOADING)
+    await sleep(100)
+    sw.controllerChange()
+    work.running = false
+    await sleep(200)
+    expect(reloaded.count).toBe(0)
+  })
+
+  /** A reload takes the waiting worker too, and fkn.app's update needs the reload. */
+  it('reloads rather than only adopting when fkn.app\'s update was taken as well', async () => {
+    work.running = true
+    const sw = fakeContainer({ registeredYet: false })
+    sw.registration.waiting = sw.worker()
+    sw.install()
+    await mount(LOADING)
+    await expect.poll(() => shellUpdate.taken).not.toBeNull()
+
+    shellUpdate.taken!()
+    sw.registers()
+    await sleep(100)
+    work.running = false
+    await expect.poll(() => reloaded.count, { timeout: 2000 }).toBe(1)
+  })
 })
 
 describe('an update that arrives while the page sits open', () => {
@@ -172,14 +221,14 @@ describe('an update that arrives while the page sits open', () => {
     await expect.poll(() => reloaded.count, { timeout: 2000 }).toBe(1)
   })
 
-  it('waits for a save to disk to end', async () => {
-    saves.running = 1
+  it('waits for page work in any Ripple page to end', async () => {
+    work.running = true
     const { sw, screen, worker } = await openWithUpdate()
     await sleep(200)
-    expect(worker.takeOvers(), 'took the update under a running save').toBe(0)
+    expect(worker.takeOvers(), 'took the update under running page work').toBe(0)
     expect(screen.container.textContent).toBe('idle')
 
-    saves.running = 0
+    work.running = false
     await expect.poll(() => worker.takeOvers()).toBe(1)
     sw.controllerChange()
     await expect.poll(() => reloaded.count).toBe(1)
@@ -213,7 +262,7 @@ describe('an update that arrives while the page sits open', () => {
 
 describe('another tab taking the update', () => {
   it('reloads this one at its own safe moment', async () => {
-    saves.running = 1
+    work.running = true
     const sw = fakeContainer()
     sw.install()
     const screen = await mount(OPEN)
@@ -221,8 +270,8 @@ describe('another tab taking the update', () => {
 
     sw.controllerChange(sw.worker())
     await sleep(200)
-    expect(reloaded.count, 'reloaded under a running save').toBe(0)
-    saves.running = 0
+    expect(reloaded.count, 'reloaded under running page work').toBe(0)
+    work.running = false
     await expect.poll(() => reloaded.count).toBe(1)
     await expect.poll(() => screen.container.textContent).toBe('Updating Ripple')
   })

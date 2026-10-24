@@ -1,8 +1,8 @@
 import { shell } from '@fkn/lib'
 import { useEffect, useState } from 'react'
 
-import { savesRunning } from '../torrent/save-file'
 import { isFramed } from './framed'
+import { pageWorkRunning } from './page-work'
 import { reloadPage } from './reload'
 
 /**
@@ -15,8 +15,11 @@ import { reloadPage } from './reload'
  * fkn.app's update was taken, which leaves this document on the old build under the new shell.
  *
  * SAFE at top level only (an embedded /watch or /download is reloaded by the page around it, never by
- * itself), with no save to disk running (the page writes it, so a reload cuts the file off) and no
- * video playing. A due update looks for that moment again every `recheckMs`.
+ * itself), with no video playing and no page work (page-work.ts) running in ANY Ripple page: taking
+ * the new worker over is what ends another page's save, since Firefox ends the old worker's download
+ * streams the moment the new one activates. A due update looks for that moment again every
+ * `recheckMs`. A worker found inside the adopt window is taken over without a reload, under the same
+ * page work rule.
  *
  * GUARDED per tab (sessionStorage): at most two automatic reloads in five minutes. A refused reload
  * shows nothing and goes once the window has room.
@@ -97,7 +100,7 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
     const container = typeof navigator !== 'undefined' && 'serviceWorker' in navigator ? navigator.serviceWorker : null
     let cancelled = false
     let registration: ServiceWorkerRegistration | null = null
-    /** Set while THIS page adopts at load, so the adoption does not also reload it. */
+    /** Set from finding a worker to adopt until its `controllerchange`, so the adoption does not also reload. */
     let adopting = false
     /**
      * `controllerchange` also fires the first time a worker ever claims this page, which is an
@@ -105,7 +108,9 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
      * different one is the real thing, and after that first claim every page has one.
      */
     let hadController = container !== null && container.controller !== null
-    let due = false
+    /** 'adopt' takes the waiting worker over without a reload, 'reload' takes it when there is one and reloads. */
+    let next: 'adopt' | 'reload' | null = null
+    let checking = false
     let going = false
     let recheck: number | undefined
 
@@ -117,36 +122,47 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
       if (!cancelled) reloadPage()
     }
 
-    const check = () => {
-      if (cancelled || going || !due || savesRunning() > 0 || playing() || !mayReload()) return
-      void go()
+    const check = async () => {
+      if (cancelled || checking || going || next === null) return
+      checking = true
+      const held = await pageWorkRunning()
+      checking = false
+      if (cancelled || held) return
+      if (next === 'adopt') {
+        next = null
+        window.clearInterval(recheck)
+        recheck = undefined
+        registration?.waiting?.postMessage({ type: 'take-over' })
+      } else if (!playing() && mayReload()) void go()
     }
 
-    const markDue = () => {
-      if (cancelled || isFramed()) return
-      due = true
+    const want = (action: 'adopt' | 'reload') => {
+      if (cancelled || (action === 'reload' && isFramed())) return
+      if (next !== 'reload') next = action
       recheck ??= window.setInterval(check, timing.recheckMs)
-      check()
+      void check()
     }
 
-    const offShell = shell.onUpdateTaken(markDue)
+    const offShell = shell.onUpdateTaken(() => want('reload'))
 
     const look = () => {
-      const waiting = registration?.waiting
-      if (cancelled || !waiting) return
+      if (cancelled || !registration?.waiting) return
       if (performance.now() < timing.adoptWindowMs) {
         adopting = true
-        waiting.postMessage({ type: 'take-over' })
-        return
-      }
-      markDue()
+        want('adopt')
+      } else want('reload')
     }
 
     const onControllerChange = () => {
       const had = hadController
       hadController = true
-      if (adopting) { adopting = false; look(); return }
-      if (had) markDue()
+      if (adopting) {
+        // this page's adoption, or another page taking the same worker first
+        adopting = false
+        look()
+        return
+      }
+      if (had) want('reload')
     }
 
     const watch = (r: ServiceWorkerRegistration) => {
