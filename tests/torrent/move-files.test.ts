@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { copyFolderIntoBrowserStorage, moveTorrentFiles } from '../../src/torrent/move-files'
+import { pageWorkRunning } from '../../src/utils/page-work'
 import type { TorrentClient } from '../../src/torrent/client'
 import type { Torrent } from '../../src/torrent/types'
 
@@ -225,4 +226,19 @@ describe('the order of a move', () => {
     expect(client.read).toHaveBeenCalled()
     expect(client.relocate).toHaveBeenCalledWith('abc', 'folder')
   })
+})
+
+/** Ripple's update gate waits for page work, since the copy runs in this page and a reload ends it. */
+it('holds updates for as long as the move runs', async () => {
+  let during: Promise<boolean> = Promise.resolve(false)
+  await moveTorrentFiles({
+    client: fakeClient(),
+    torrent: torrentOf([{ name: 'a.bin', size: 4 }]),
+    folder: fakeDir({ 'a.bin': bytes(4, 1) }),
+    opfsRoot: fakeDir({}),
+    to: 'browser',
+    onProgress: () => { during = pageWorkRunning() },
+  })
+  expect(await during).toBe(true)
+  expect(await pageWorkRunning()).toBe(false)
 })

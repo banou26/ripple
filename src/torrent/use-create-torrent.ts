@@ -19,6 +19,7 @@ import { HashCancelled, hashPieces } from './hash-pieces'
 import { copyPickIntoBrowserStorage, measureRoomForCopy } from './copy-source'
 import { plan } from './make-torrent'
 import { changedSince, fileFrom, pickedFile, readPicked, walkDirectory } from './walk-source'
+import { pageWork } from '../utils/page-work'
 
 /**
  * Creating a torrent from something on this device, and keeping it seeding across loads.
@@ -272,7 +273,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       }
   }, [])
 
-  const take = useCallback(async (root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
+  const take = useCallback((root: FileSystemDirectoryHandle | FileSystemFileHandle) => pageWork(async () => {
     const controller = new AbortController()
     abort.current = controller
     setState({ ...IDLE, stage: 'reading' })
@@ -284,7 +285,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
       })
       accept(read, root.name, root)
     } catch (error) { fail(error) }
-  }, [accept])
+  }), [accept])
 
   /**
    * Both pickers, on every engine, through `@banou/ponyfill`.
@@ -314,7 +315,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
     if (picked?.[0]) await take(picked[0])
   }, [take])
 
-  const publish = useCallback(async (options: CreateOptions) => {
+  const publish = useCallback((options: CreateOptions) => pageWork(async () => {
     const pick = source.current
     if (!pick) return
     const invalid = optionsError(options)
@@ -510,7 +511,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        */
       setState((prev) => ({ ...prev, stage: 'done', built: out, plan: out.plan, reopenable: stored }))
     } catch (error) { fail(error) }
-  }, [client])
+  }), [client])
 
   /**
    * Re-plan the pick under a different piece length, for the readout beside the selector.

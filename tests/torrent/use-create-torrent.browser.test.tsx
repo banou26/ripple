@@ -2,13 +2,22 @@ import type { CreateOptions } from '../../src/torrent/create-source'
 import type { TorrentClient } from '../../src/torrent/client'
 import type { UseCreateTorrent } from '../../src/torrent/use-create-torrent'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { DEFAULT_TRACKERS, useCreateTorrent } from '../../src/torrent/use-create-torrent'
 import { readTorrentFile } from '../../src/torrent/torrent-file'
 
 type Add = { options: unknown, lengthAtCall: number }
+
+/** page work in flight, counted here rather than through the lock, which other test files share */
+const work = vi.hoisted(() => ({ running: 0 }))
+vi.mock('../../src/utils/page-work', () => ({
+  pageWork: async <T,>(fn: () => Promise<T>): Promise<T> => {
+    work.running++
+    try { return await fn() } finally { work.running-- }
+  },
+}))
 
 const fakeClient = () => {
   const adds: Add[] = []
@@ -107,7 +116,7 @@ const settle = async (api: () => UseCreateTorrent) => {
  * with a stalled `stream()`, which no real picker can produce. That the ponyfill's actual wrapper is
  * walkable is pinned separately, in tests/torrent/walk-ponyfill-pick.test.ts.
  */
-const wrappedDirectory = (name: string, files: File[]): FileSystemDirectoryHandle => {
+const wrappedDirectory = (name: string, files: File[], walkable = Promise.resolve()): FileSystemDirectoryHandle => {
   const entries = files.map((file) => [file.name, {
     kind: 'file',
     name: file.name,
@@ -117,8 +126,8 @@ const wrappedDirectory = (name: string, files: File[]): FileSystemDirectoryHandl
   return {
     kind: 'directory',
     name,
-    entries: async function * () { for (const entry of entries) yield entry },
-    values: async function * () { for (const [, handle] of entries) yield handle },
+    entries: async function * () { await walkable; for (const entry of entries) yield entry },
+    values: async function * () { await walkable; for (const [, handle] of entries) yield handle },
     isSameEntry: async () => false,
   } as unknown as FileSystemDirectoryHandle
 }
@@ -320,5 +329,49 @@ describe('publishing a pick that cannot be re-opened', () => {
     expect(api().state.error).toBeNull()
     expect(adds).toEqual([])
     expect(reserved.map((call) => call.on)).toEqual([true, false])
+  })
+})
+
+/** Ripple's update gate waits for page work, since a reload in the middle of a create throws it away. */
+describe('a create holds updates', () => {
+  it('while it reads the pick and while it publishes, and not in between', async () => {
+    const { client } = fakeClient()
+    const api = await mount(client)
+
+    let walked = () => {}
+    const walking = new Promise<void>((resolve) => { walked = resolve })
+    let copied = () => {}
+    const copying = new Promise<void>((resolve) => { copied = resolve })
+    const slow = new Uint8Array(40_002).fill(0x22)
+    const slowWalk = wrappedDirectory('Hold Pack', [
+      pick('a.mkv', new Uint8Array(40_001).fill(0x11)),
+      pick('b.mkv', slow, {
+        stream: () => new ReadableStream({
+          async start (controller) {
+            await copying
+            controller.enqueue(slow)
+            controller.close()
+          },
+        }),
+      }),
+    ], walking)
+    ;(window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = async () => slowWalk
+
+    const picking = api().pickFolder()
+    await expect.poll(() => api().state.stage).toBe('reading')
+    expect(work.running, 'reading the pick').toBe(1)
+    walked()
+    await picking
+    await expect.poll(() => api().state.stage).toBe('ready')
+    expect(work.running, 'a pick waiting to be confirmed').toBe(0)
+    await expect.poll(() => api().state.room?.kind).toBe('fits')
+
+    const publishing = api().publish(options('Hold Pack'))
+    await expect.poll(() => api().state.copy?.file, { timeout: 20_000 }).toBe(1)
+    expect(work.running, 'publishing').toBe(1)
+    copied()
+    await publishing
+    await settle(api)
+    expect(work.running).toBe(0)
   })
 })
