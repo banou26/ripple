@@ -70,17 +70,14 @@ const fakeContainer = (
   if (registeredYet) arrive(registration)
   return {
     registration,
-    /** A worker of build `build`, which answers `which-build` as sw.js does and records the rest. */
-    worker: (build: string) => {
+    /** A worker that records what the page posts to it. */
+    worker: () => {
       const posted: { type: string }[] = []
       const own: Record<string, Listener[]> = {}
       const worker = {
         posted,
         takeOvers: () => posted.filter((m) => m.type === 'take-over').length,
-        postMessage: (data: { type: string }) => {
-          posted.push(data)
-          if (data.type === 'which-build') queueMicrotask(() => fire('message', { source: worker, data: { type: 'build', build } }))
-        },
+        postMessage: (data: { type: string }) => { posted.push(data) },
         addEventListener: (type: string, cb: Listener) => { (own[type] ??= []).push(cb) },
         fire: (type: string) => { for (const cb of own[type] ?? []) cb() },
       }
@@ -115,6 +112,7 @@ afterEach(() => {
   framed.value = false
   saves.running = 0
   sessionStorage.clear()
+  vi.restoreAllMocks()
   for (const video of document.querySelectorAll('video')) video.remove()
   // the own property shadows the real container; deleting it hands the real one back
   delete (navigator as unknown as Record<string, unknown>).serviceWorker
@@ -127,12 +125,12 @@ const mount = async (timing: UpdateTiming) => {
 }
 
 /** A worker that installs while the page sits open, past the adopt window. */
-const openWithUpdate = async (build = 'b2') => {
+const openWithUpdate = async () => {
   const sw = fakeContainer()
   sw.install()
   const screen = await mount(OPEN)
   await expect.poll(() => screen.container.textContent).toBe('idle')
-  const worker = sw.worker(build)
+  const worker = sw.worker()
   sw.installs(worker)
   return { sw, screen, worker }
 }
@@ -140,7 +138,7 @@ const openWithUpdate = async (build = 'b2') => {
 describe('a refresh that lands on a new build', () => {
   it('adopts the waiting worker without a reload or a label', async () => {
     const sw = fakeContainer()
-    const worker = sw.worker('b2')
+    const worker = sw.worker()
     sw.registration.waiting = worker
     sw.install()
 
@@ -221,7 +219,7 @@ describe('another tab taking the update', () => {
     const screen = await mount(OPEN)
     await expect.poll(() => screen.container.textContent).toBe('idle')
 
-    sw.controllerChange(sw.worker('b2'))
+    sw.controllerChange(sw.worker())
     await sleep(200)
     expect(reloaded.count, 'reloaded under a running save').toBe(0)
     saves.running = 0
@@ -238,19 +236,18 @@ describe('another tab taking the update', () => {
     await sleep(200)
     expect(reloaded.count, 'the first claim reloaded the page').toBe(0)
 
-    sw.controllerChange(sw.worker('b2'))
+    sw.controllerChange(sw.worker())
     await expect.poll(() => reloaded.count).toBe(1)
   })
 
-  /** Only home listened before the gate moved to Mount, so a /legal tab kept the old build. */
-  it('reloads a page on any route', async () => {
+  it('reloads a page on any route, not only the library', async () => {
     const sw = fakeContainer()
     sw.install()
     const { default: Mount } = await import('../../src/components/mount')
     const screen = await render(<Mount/>)
     await expect.poll(() => screen.container.textContent).toContain('a route')
 
-    sw.controllerChange(sw.worker('b2'))
+    sw.controllerChange(sw.worker())
     await expect.poll(() => reloaded.count).toBe(1)
     await expect.poll(() => document.body.textContent).toContain('Updating Ripple')
   })
@@ -283,32 +280,51 @@ describe('fkn.app\'s update taken', () => {
 })
 
 describe('the loop guard', () => {
+  const record = () => JSON.parse(sessionStorage.getItem('ripple-update-reloads') ?? '[]') as number[]
+
   it('refuses a third automatic reload within five minutes, and shows nothing', async () => {
     const now = Date.now()
-    sessionStorage.setItem('ripple-update-reloads', JSON.stringify([{ at: now - 60_000 }, { at: now - 1000, build: 'b1' }]))
-    const { screen, worker } = await openWithUpdate('b2')
+    sessionStorage.setItem('ripple-update-reloads', JSON.stringify([now - 60_000, now - 1000]))
+    const { screen, worker } = await openWithUpdate()
     await sleep(300)
     expect(worker.takeOvers()).toBe(0)
     expect(reloaded.count).toBe(0)
     expect(screen.container.textContent).toBe('idle')
   })
 
-  it('refuses a second reload onto the same build', async () => {
-    sessionStorage.setItem('ripple-update-reloads', JSON.stringify([{ at: Date.now() - 3_600_000, build: 'b2' }]))
-    const { worker } = await openWithUpdate('b2')
+  it('takes a refused update once the window has room again', async () => {
+    const now = Date.now()
+    // the older of the two leaves the five minute window 400 ms from now
+    sessionStorage.setItem('ripple-update-reloads', JSON.stringify([now - 5 * 60_000 + 400, now - 1000]))
+    const { sw, worker } = await openWithUpdate()
+    await sleep(100)
+    expect(worker.takeOvers(), 'went with two reloads in the window').toBe(0)
+    await expect.poll(() => worker.takeOvers(), { timeout: 3000 }).toBe(1)
+    sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+    expect(record()).toHaveLength(2)
+  })
+
+  /** A reload can land on an edge still serving the old build, which then finds the same update again. */
+  it('reloads for the same update again when the first reload did not land on it', async () => {
+    const first = await openWithUpdate()
+    await expect.poll(() => first.worker.takeOvers()).toBe(1)
+    first.sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+    first.screen.unmount()
+
+    const again = await openWithUpdate()
+    await expect.poll(() => again.worker.takeOvers()).toBe(1)
+    again.sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(2)
+  })
+
+  it('refuses the reload when it cannot keep a record', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError') })
+    const { worker } = await openWithUpdate()
     await sleep(300)
     expect(worker.takeOvers()).toBe(0)
     expect(reloaded.count).toBe(0)
-  })
-
-  it('allows a reload onto a build it has not reloaded onto, and records it', async () => {
-    sessionStorage.setItem('ripple-update-reloads', JSON.stringify([{ at: Date.now() - 3_600_000, build: 'b1' }]))
-    const { sw, worker } = await openWithUpdate('b2')
-    await expect.poll(() => worker.takeOvers()).toBe(1)
-    sw.controllerChange()
-    await expect.poll(() => reloaded.count).toBe(1)
-    const builds = (JSON.parse(sessionStorage.getItem('ripple-update-reloads') ?? '[]') as { build?: string }[]).map((r) => r.build)
-    expect(builds).toEqual(['b1', 'b2'])
   })
 })
 
@@ -322,7 +338,7 @@ it('watches a registration that only exists after the first look', async () => {
   await mount(OPEN)
 
   sw.registers()
-  const worker = sw.worker('b2')
+  const worker = sw.worker()
   sw.installs(worker)
   await expect.poll(() => worker.takeOvers()).toBe(1)
 })
