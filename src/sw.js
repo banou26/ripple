@@ -32,23 +32,47 @@ const CACHE = 'ripple-assets-' + BUILD
  */
 const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js$/
 
+// An HTML answer for a chunk path is Cloudflare's SPA fallback for a chunk that is gone, not the chunk.
+const isScript = (response) => response.ok && (response.headers.get('content-type') || '').includes('javascript')
+
+const PRECACHE_ATTEMPTS = 3
+
+/** Resolves once every manifest chunk is stored, asking again only for the ones that failed. */
+const precache = async () => {
+  const cache = await caches.open(CACHE)
+  let missing = MANIFEST.map(([path]) => path)
+  for (let attempt = 0; attempt < PRECACHE_ATTEMPTS && missing.length > 0; attempt++) {
+    const failed = await Promise.all(missing.map(async (path) => {
+      try {
+        const response = await fetch(path)
+        if (!isScript(response)) return path
+        await cache.put(path, response)
+        return null
+      } catch {
+        return path
+      }
+    }))
+    missing = failed.filter((path) => path !== null)
+  }
+  if (missing.length > 0) throw new Error('precache incomplete: ' + missing.join(', '))
+}
+
 self.addEventListener('install', (event) => {
   // PURGE is the remote kill switch: ship src/sw.mode as `purge` and the next deploy's worker takes
   // over at once, deletes every cache, and answers nothing. It needs no cooperation from the page.
   if (MODE === 'purge') { self.skipWaiting(); return }
   /*
-   * No skipWaiting. A new worker installs and WAITS, so a page keeps the build it loaded with until
-   * somebody presses Update. That is the opposite of what this worker used to do, and it is the
-   * point: taking over immediately is what would swap the chunk set under a running engine.
+   * No skipWaiting: a new worker installs and WAITS, and the page decides when it takes over.
+   *
+   * An installed worker is what the page reads as "the update is downloaded", so with a worker
+   * already active an incomplete precache fails the install: the browser drops this worker and
+   * installs it again at its next update check, while the active one keeps serving. The first
+   * install never fails on it, because an origin with no worker at all is worse than one whose
+   * cache fills on demand.
    */
-  event.waitUntil(
-    caches.open(CACHE)
-      .then((cache) => cache.addAll(MANIFEST.map(([path]) => path)))
-      // A failed precache must not fail the install. The worker still routes and still fills the
-      // cache on demand; a rejected install would leave the origin with no worker at all, which is
-      // strictly worse than one with a cold cache.
-      .catch(() => undefined),
-  )
+  event.waitUntil(precache().catch((error) => {
+    if (self.registration.active) throw error
+  }))
 })
 
 self.addEventListener('activate', (event) => {
@@ -117,8 +141,7 @@ self.addEventListener('fetch', (event) => {
         // An HTML answer here IS the bug this worker exists for: the chunk is gone and Cloudflare
         // served the SPA fallback with a 200. Never store that, or the cache would preserve the
         // failure across the very reload meant to cure it.
-        const type = fresh.headers.get('content-type') || ''
-        if (fresh.ok && type.includes('javascript')) await cache.put(path, fresh.clone())
+        if (isScript(fresh)) await cache.put(path, fresh.clone())
         return fresh
       })())
       return
