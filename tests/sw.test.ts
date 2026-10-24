@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 // Text rather than fs: node's fs is shimmed away in this browser-targeted vitest environment
 import source from '../src/sw.js?raw'
+import buildScript from '../scripts/build-sw.mjs?raw'
 
 const ORIGIN = 'https://torrent.fkn.app'
 
@@ -239,6 +240,8 @@ describe('the caching half of the worker', () => {
     for (const path of [
       '/', '/watch', '/download', '/index.js', '/sw.js', '/assets/logo.png',
       '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/default.woff2',
+      // unhashed, but `-worklet` after `-normalizer` once passed for an eight-character hash
+      '/volume-normalizer-worklet.js',
     ]) {
       const r = requestFor(ORIGIN + path)
       on.fetch?.({ ...r.event, request: { url: ORIGIN + path, method: 'GET' } })
@@ -261,4 +264,15 @@ describe('the caching half of the worker', () => {
     on.install?.({ waitUntil: (p: Promise<unknown>) => p })
     expect(source).toContain("'ripple-assets-' + BUILD")
   })
+})
+
+/**
+ * The build decides what is precached and the worker what is served from cache, so the two rules
+ * must be the same rule. Compared as text: build-sw.mjs does its work at import, so it cannot be
+ * imported.
+ */
+it('precaches exactly what the worker serves from cache', () => {
+  const rule = (text: string) => text.match(/^(?:export )?const HASHED = (.+)$/m)?.[1]
+  expect(rule(source)).toBeTruthy()
+  expect(rule(buildScript)).toBe(rule(source))
 })

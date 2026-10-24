@@ -30,7 +30,7 @@ const CACHE = 'ripple-assets-' + BUILD
  * SPA fallback: 200, text/html, which the browser then runs as a module worker. Measured against
  * production, an earlier build's chunk is byte-identical to one that never existed.
  */
-const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8,}\.js$/
+const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js$/
 
 self.addEventListener('install', (event) => {
   // PURGE is the remote kill switch: ship src/sw.mode as `purge` and the next deploy's worker takes
