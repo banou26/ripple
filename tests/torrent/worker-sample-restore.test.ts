@@ -3,6 +3,7 @@ import type { Persisted } from '../../src/torrent/library'
 import { expect, it, vi } from 'vitest'
 
 import { DEMO_MAGNET, DEMO_SAVE_PATH } from '../../src/torrent/constants'
+import { savePathFor } from '../../src/torrent/library'
 import { magnetInfoHash } from '../../src/torrent/magnet'
 import { fakeDir, installWorkerGlobals, sessions } from '../utils/worker-rig'
 
@@ -12,15 +13,18 @@ import { fakeDir, installWorkerGlobals, sessions } from '../utils/worker-rig'
  * It is temporary, and the restore used to idle-park it like a cache torrent nobody was watching,
  * inside its check, where the row offers neither Pause nor Resume: "0 B / 129.3 MB, Checking" for
  * as long as anybody waited (ripple 7229a26, 2026-10-24). Every other temporary torrent is still
- * parked, Sintel included when a page opens it: telling the two apart by infohash alone kept the
- * download page's held Sintel downloading.
+ * parked, including a legacy one at /dl/<infoHash> (written before the /cache root) and Sintel when
+ * a page opens it: telling the sample apart by its root, or by infohash alone, stops parking one of
+ * those, and the infohash version kept the download page's held Sintel downloading.
  */
 
 const SINTEL = magnetInfoHash(DEMO_MAGNET)!
 const CACHED = 'c'.repeat(40)
+const LEGACY = 'd'.repeat(40)
 const SAMPLE_HANDLE = 1
 const CACHED_HANDLE = 2
-const PAGE_HANDLE = 3
+const LEGACY_HANDLE = 3
+const PAGE_HANDLE = 4
 
 const engine = vi.hoisted(() => ({ added: [] as number[], registered: new Set<number>(), paused: [] as number[] }))
 
@@ -30,7 +34,7 @@ const entry = (infoHash: string, savePath: string): Persisted => ({
 
 const rig = installWorkerGlobals({
   estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }),
-  root: fakeDir('', [fakeDir('dl', [fakeDir(SINTEL)]), fakeDir('cache', [fakeDir(CACHED)])]),
+  root: fakeDir('', [fakeDir('dl', [fakeDir(SINTEL), fakeDir(LEGACY)]), fakeDir('cache', [fakeDir(CACHED)])]),
 })
 
 vi.mock('@fkn/lib/net', () => ({}))
@@ -74,9 +78,10 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
 }))
 vi.mock('idb-keyval', () => {
   const store = new Map<string, unknown>([
-    ['ripple:torrents', [entry(SINTEL, DEMO_SAVE_PATH), entry(CACHED, '/cache/' + CACHED)]],
+    ['ripple:torrents', [entry(SINTEL, DEMO_SAVE_PATH), entry(CACHED, '/cache/' + CACHED), entry(LEGACY, savePathFor(LEGACY))]],
     ['ripple:resume:' + SINTEL, new Uint8Array([1])],
     ['ripple:resume:' + CACHED, new Uint8Array([1])],
+    ['ripple:resume:' + LEGACY, new Uint8Array([1])],
   ])
   return {
     get: async (key: string) => store.get(key),
@@ -89,8 +94,9 @@ vi.mock('idb-keyval', () => {
 it('keeps a reloaded sample downloading, and still parks every other temporary torrent', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
-  // THE CONTROL: the pump reached the idle park, which decides both torrents in the same pass
+  // THE CONTROL: the pump reached the idle park, which decides every restored torrent in the same pass
   await vi.waitFor(() => expect(engine.paused).toContain(CACHED_HANDLE))
+  await vi.waitFor(() => expect(engine.paused, 'a legacy /dl temporary torrent was not parked').toContain(LEGACY_HANDLE))
   await new Promise((resolve) => setTimeout(resolve, 1_100))
   expect(engine.paused, 'the sample was parked').not.toContain(SAMPLE_HANDLE)
 
