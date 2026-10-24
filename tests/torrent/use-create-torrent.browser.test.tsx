@@ -10,14 +10,17 @@ import { readTorrentFile } from '../../src/torrent/torrent-file'
 
 type Add = { options: unknown, lengthAtCall: number }
 
-/** page work in flight, counted here rather than through the lock, which other test files share */
-const work = vi.hoisted(() => ({ running: 0 }))
+/** every page work call and whether it has ended, kept here rather than in the lock, which other test files share */
+const work = vi.hoisted(() => ({ calls: [] as { done: boolean }[] }))
 vi.mock('../../src/utils/page-work', () => ({
   pageWork: async <T,>(fn: () => Promise<T>): Promise<T> => {
-    work.running++
-    try { return await fn() } finally { work.running-- }
+    const call = { done: false }
+    work.calls.push(call)
+    try { return await fn() } finally { call.done = true }
   },
 }))
+/** page work still running among the calls made since `from` */
+const running = (from: number) => work.calls.slice(from).filter((call) => !call.done).length
 
 const fakeClient = () => {
   const adds: Add[] = []
@@ -334,9 +337,10 @@ describe('publishing a pick that cannot be re-opened', () => {
 
 /** Ripple's update gate waits for page work, since a reload in the middle of a create throws it away. */
 describe('a create holds updates', () => {
-  it('while it reads the pick and while it publishes, and not in between', async () => {
+  it('while it reads the pick, while it publishes and while the engine stores it, and not in between', async () => {
     const { client } = fakeClient()
     const api = await mount(client)
+    const from = work.calls.length
 
     let walked = () => {}
     const walking = new Promise<void>((resolve) => { walked = resolve })
@@ -359,19 +363,33 @@ describe('a create holds updates', () => {
 
     const picking = api().pickFolder()
     await expect.poll(() => api().state.stage).toBe('reading')
-    expect(work.running, 'reading the pick').toBe(1)
+    expect(running(from), 'reading the pick').toBe(1)
     walked()
     await picking
     await expect.poll(() => api().state.stage).toBe('ready')
-    expect(work.running, 'a pick waiting to be confirmed').toBe(0)
+    expect(running(from), 'a pick waiting to be confirmed').toBe(0)
     await expect.poll(() => api().state.room?.kind).toBe('fits')
 
     const publishing = api().publish(options('Hold Pack'))
     await expect.poll(() => api().state.copy?.file, { timeout: 20_000 }).toBe(1)
-    expect(work.running, 'publishing').toBe(1)
+    expect(running(from), 'publishing').toBe(1)
     copied()
     await publishing
     await settle(api)
-    expect(work.running).toBe(0)
+    expect(running(from), 'let go before the engine stored the torrent').toBe(1)
+  })
+
+  it('while the engine stores a torrent shared from a pick that can be re-opened', async () => {
+    const { client } = fakeClient()
+    const api = await mount(client)
+    const from = work.calls.length
+    // a real File, so the pick clones and takes the re-openable branch
+    await pickNative(api, 'Native Hold', [new File([new Uint8Array(40_001).fill(0x11)], 'a.mkv', { lastModified: 1_700_000_000_000 })])
+    await expect.poll(() => api().state.stage).toBe('ready')
+    expect(api().state.reopenable).toBe(true)
+    await api().publish(options('Native Hold'))
+    await settle(api)
+    expect(work.calls.length - from, 'the pick, the publish and the hold after it').toBe(3)
+    expect(running(from)).toBe(1)
   })
 })

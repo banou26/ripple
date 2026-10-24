@@ -1,5 +1,7 @@
 // src/sw.js is the other half. The two files cannot import from each other, so the prefix and the message names are duplicated deliberately.
 
+import { pageWork } from '../utils/page-work'
+
 const PREFIX = '/__ripple-stream/'
 // Short enough to stay inside the click's transient activation so the download is not treated as unsolicited.
 const READY_MS = 3_000
@@ -20,6 +22,8 @@ const MISSED_PONGS = 3
  * small ones, a subtitle track or a short archive, that lose the race.
  */
 const CLOSE_GRACE_MS = 10_000
+
+const grace = (then: () => void) => new Promise<void>((resolve) => setTimeout(() => { then(); resolve() }, CLOSE_GRACE_MS))
 
 export type Sink = {
   write: (chunk: Uint8Array) => Promise<void>
@@ -146,7 +150,9 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
       port.postMessage({ type: 'end' })
       // Deliberately NOT torn down here: see CLOSE_GRACE_MS. The frame has to outlive the commit or
       // the download is cancelled before it exists, silently, and this resolves as a success anyway.
-      setTimeout(teardown, CLOSE_GRACE_MS)
+      // Updates wait for it as well: the worker still holds the last chunks, and Firefox ends its
+      // streams the moment a new worker takes over (a 512 MB save ended 11 MB short, measured).
+      void pageWork(() => grace(teardown))
     },
     abort: async () => {
       try { port.postMessage({ type: 'abort', reason: 'cancelled' }) } catch { /* already gone */ }

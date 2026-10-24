@@ -90,6 +90,16 @@ const IDLE: CreateState = {
 
 const sourceKey = (infoHash: string) => 'ripple:source:' + infoHash
 
+/**
+ * How long a create keeps holding updates once the engine has the torrent. The engine stores the
+ * entry only after libtorrent reports its infohash, polled every 250 ms for up to 10 s (worker.ts,
+ * add-torrent-file), and a reload before that loses the torrent: in Firefox 146, reloads 0.07 and
+ * 0.33 s after "is being shared" left no row, 2 of 2.
+ */
+const ENGINE_STORE_MS = 12_000
+
+const holdWhileStored = () => { void pageWork(() => new Promise<void>((resolve) => setTimeout(resolve, ENGINE_STORE_MS))) }
+
 type PermissionCapable = FileSystemHandle & {
   queryPermission?: (descriptor: { mode: 'read' }) => Promise<PermissionState>
   requestPermission?: (descriptor: { mode: 'read' }) => Promise<PermissionState>
@@ -429,6 +439,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
              * handler is unqueued and a following command would run before the entry exists.
              */
             client.addTorrentFile(out.bytes.slice(), { savePath, saveTo: 'browser', created: true })
+            holdWhileStored()
           } catch (error) {
             client.reserveStorage(out.infoHash, false)
             throw error
@@ -499,6 +510,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
          */
         reopenable: stored,
       })
+      holdWhileStored()
       /*
        * `reopenable` is REPLACED by what the store actually did, not left at what the probe guessed.
        *
