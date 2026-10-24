@@ -15,7 +15,8 @@ import { reloadPage } from './reload'
  * fkn.app's update was taken, which leaves this document on the old build under the new shell.
  *
  * SAFE at top level only (an embedded /watch or /download is reloaded by the page around it, never by
- * itself), with no video playing and no page work (page-work.ts) running in ANY Ripple page: taking
+ * itself), online (the document is never cached, so a reload offline is the browser's error page),
+ * with no video playing and no page work (page-work.ts) running in ANY Ripple page: taking
  * the new worker over is what ends another page's save, since Firefox ends the old worker's download
  * streams the moment the new one activates. A due update looks for that moment again every
  * `recheckMs`. A worker found inside the adopt window is taken over without a reload, under the same
@@ -133,7 +134,7 @@ export const useRippleUpdate = (timing: UpdateTiming = UPDATE_TIMING): boolean =
         window.clearInterval(recheck)
         recheck = undefined
         registration?.waiting?.postMessage({ type: 'take-over' })
-      } else if (!playing() && mayReload()) void go()
+      } else if (navigator.onLine && !playing() && mayReload()) void go()
     }
 
     const want = (action: 'adopt' | 'reload') => {
