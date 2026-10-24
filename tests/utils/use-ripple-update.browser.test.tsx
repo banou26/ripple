@@ -117,6 +117,7 @@ afterEach(() => {
   for (const video of document.querySelectorAll('video')) video.remove()
   // the own property shadows the real container; deleting it hands the real one back
   delete (navigator as unknown as Record<string, unknown>).serviceWorker
+  delete (navigator as unknown as Record<string, unknown>).onLine
 })
 
 const mount = async (timing: UpdateTiming) => {
@@ -242,6 +243,19 @@ describe('an update that arrives while the page sits open', () => {
     expect(worker.takeOvers(), 'took the update under a playing video').toBe(0)
 
     Object.defineProperty(video, 'paused', { configurable: true, value: true })
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+  })
+
+  it('waits to be back online', async () => {
+    let online = false
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online })
+    const { sw, worker } = await openWithUpdate()
+    await sleep(200)
+    expect(worker.takeOvers(), 'took the update offline').toBe(0)
+
+    online = true
     await expect.poll(() => worker.takeOvers()).toBe(1)
     sw.controllerChange()
     await expect.poll(() => reloaded.count).toBe(1)
