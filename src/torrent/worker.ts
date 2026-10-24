@@ -28,6 +28,7 @@ import { TRICKLE_BYTES_PER_SECOND, chunksReached, isWindowed, piecesOf, piecesOf
 import { storage as originStorage } from '@banou/ponyfill'
 import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { ASKS } from './engine-protocol'
+import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
@@ -836,7 +837,11 @@ const applyViewing = (h: number) => {
     // one that is still fetching its metadata stops it ever getting any. Every other caller of this
     // branch already has metadata by construction; a held claim registered the moment a handle
     // exists does not, and that is the one that would have hung the page it was protecting.
-    if (ephemeralHandles.has(h) && !userPaused.has(h) && !cacheIdle.has(h)) {
+    //
+    // Never the sample either, though it is temporary: the person pressed Add for all of it, so it
+    // downloads like their own. Parked on a restore, it stops inside its check, where the row
+    // offers neither Pause nor Resume.
+    if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPause(h)
       session.pauseTorrent(h)
