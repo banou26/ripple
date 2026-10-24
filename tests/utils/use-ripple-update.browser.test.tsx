@@ -189,3 +189,25 @@ it('watches a registration that only exists after the first look', async () => {
   sw.installs(worker)
   await expect.poll(() => screen.container.textContent).toBe('ready')
 })
+
+/**
+ * The first claim gives a first visit's page its controller, so every LATER controllerchange is a
+ * real update. Read once at mount, the page stayed "never controlled" for its whole life and a
+ * pressed update deleted its cache without reloading it.
+ */
+it('reloads a first visit\'s tab on a later update, once the first claim gave it a controller', async () => {
+  const worker = fakeWorker()
+  const sw = fakeContainer({ waiting: null, controller: false })
+  sw.install()
+
+  const screen = await mount(0)
+  ;(navigator.serviceWorker as unknown as { controller: unknown }).controller = {}
+  sw.controllerChange()
+  await expect.poll(() => reloaded.count).toBe(0)
+
+  sw.installs(worker)
+  await expect.poll(() => screen.container.textContent).toBe('ready')
+  await screen.getByRole('button').click()
+  sw.controllerChange()
+  await expect.poll(() => reloaded.count, { timeout: 2000 }).toBe(1)
+})
