@@ -24,8 +24,11 @@ const SOURCE = 'src/sw.js'
 const OUT = join(BUILD_DIR, 'sw.js')
 const MODE_FILE = 'src/sw.mode'
 
-/** The same rule the worker itself routes on. Kept in step by the test that imports both. */
-export const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8,}\.js$/
+/**
+ * The same rule the worker routes on (tests/sw.test.ts compares the two literals). Exactly eight hash
+ * characters, the length Vite writes: with more allowed, `/volume-normalizer-worklet.js` passes too.
+ */
+const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js$/
 
 const MAX_CACHE_BYTES = 8 * 1024 * 1024
 
