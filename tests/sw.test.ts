@@ -218,7 +218,7 @@ describe('the caching half of the worker', () => {
     expect(skipped).toHaveLength(0)
   })
 
-  it('takes over the moment a page presses Update, which is what reloads every tab', () => {
+  it('takes over when a page asks, which is what moves every tab onto the new build', () => {
     const caches = fakeCaches()
     const { on, skipped } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)
     on.message?.({ data: { type: 'take-over' } })

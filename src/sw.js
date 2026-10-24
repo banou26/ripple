@@ -106,8 +106,8 @@ self.addEventListener('message', (event) => {
     event.source.postMessage({ type: 'pong', id: data.id })
     return
   }
-  // Pressed Update. Only a WAITING worker ever receives this, and taking over fires controllerchange
-  // in every open page, which is what reloads them all together.
+  // From a page's update gate. Only a WAITING worker ever receives this, and taking over fires
+  // controllerchange in every open page, each of which then reloads at its own safe moment.
   if (data.type === 'take-over') self.skipWaiting()
   if (data.type === 'which-build' && event.source) {
     event.source.postMessage({ type: 'build', build: BUILD, mode: MODE })
