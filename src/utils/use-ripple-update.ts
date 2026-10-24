@@ -64,23 +64,23 @@ export const useRippleUpdate = (adoptWindowMs: number = ADOPT_WINDOW_MS): Ripple
     let adopting = false
 
     /**
-     * Captured BEFORE anything can change it.
-     *
      * `controllerchange` also fires the first time a worker ever claims this page, which is an
      * ordinary first visit and not an update. Reloading there would spend a page load on nothing and
      * look like a flicker on somebody's first ever visit. A page that already had a controller and
-     * then gets a different one is the real thing.
+     * then gets a different one is the real thing, and after that first claim every page has one.
      */
-    const hadController = navigator.serviceWorker.controller !== null
+    let hadController = navigator.serviceWorker.controller !== null
 
     const onControllerChange = () => {
+      const had = hadController
+      hadController = true
       /*
        * The adopting page does not reload, because it has nothing to reload ONTO: it is already
        * running the build the new worker belongs to. Every OTHER tab does, which is what the press
        * has always done and what carries a long-open tab onto the new build.
        */
       if (adopting) { adopting = false; look(); return }
-      if (hadController) reloadPage()
+      if (had) reloadPage()
     }
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
 
