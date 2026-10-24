@@ -5,9 +5,8 @@ import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getTorrentClient } from './client'
-import { DEMO_MAGNET, DEMO_SEEDED_KEY } from './constants'
+import { DEMO_MAGNET, DEMO_SAVE_PATH, DEMO_SEEDED_KEY } from './constants'
 import { NO_INBOUND } from './inbound'
-import { savePathFor } from './library'
 import { magnetInfoHash, magnetParam } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
 
@@ -319,8 +318,6 @@ export type UseTorrents = {
 
 // the bundled Sintel .torrent gives instant metadata and its webseed carries the download with zero peers, which is why tests can rely on it with no swarm
 const DEMO_TORRENT_URL = new URL('../assets/sintel.torrent', import.meta.url)
-/** Its own directory, which is what makes the temporary label above true. See DEMO_MAGNET. */
-const DEMO_SAVE_PATH = savePathFor(magnetInfoHash(DEMO_MAGNET))
 // longest a new user waits on a stalled cloud restore before the sample is offered anyway
 const DEMO_GRACE = 8_000
 
@@ -335,7 +332,7 @@ const addDemo = (client: TorrentClient) =>
       if (!res.ok) throw new Error(String(res.status))
       client.addTorrentFile(new Uint8Array(await res.arrayBuffer()), { savePath: DEMO_SAVE_PATH, ephemeral: true })
     })
-    .catch(() => client.addMagnet(DEMO_MAGNET, { ephemeral: true }))
+    .catch(() => client.addMagnet(DEMO_MAGNET, { savePath: DEMO_SAVE_PATH, ephemeral: true }))
 
 const sampleAnswered = () => { try { localStorage.setItem(DEMO_SEEDED_KEY, '1') } catch { } }
 

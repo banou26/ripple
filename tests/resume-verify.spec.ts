@@ -40,13 +40,6 @@ test('a reload keeps the bytes a torrent already downloaded', async ({ page }) =
 
   await page.goto('/')
 
-  /*
-   * The bundled Sintel added as the person's OWN torrent, not through the sample offer.
-   *
-   * The sample is temporary, and a temporary torrent restored with nobody watching is parked by
-   * design, in its hash pass: measured 2026-10-23, it sat in checking at 0 bytes for over a minute
-   * and showed its bytes one second after Watch. That would test the parking, not the restore.
-   */
   await page.locator('label.file-button input[type="file"]').setInputFiles('src/assets/sintel.torrent')
 
   const downloaded = await page
