@@ -31,8 +31,8 @@ export type UpdateTiming = {
    * across further refreshes. So within this window the page adopts the waiting worker without a
    * reload: the document, `/index.js` and `/sw.js` are all revalidated by the same navigation, so a
    * worker that installs in its wake belongs to the code this page is already running. An update that
-   * turns up LATER does not, and activating it deletes the cache generation that page's lazy chunks
-   * come from, so that page reloads.
+   * turns up LATER does not, so that page reloads: its own chunks stay cached only until the
+   * activation after this one (sw.js).
    */
   adoptWindowMs: number
   /** How long the page waits for the taken worker's `controllerchange` before reloading anyway. */

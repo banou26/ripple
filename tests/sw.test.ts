@@ -196,10 +196,15 @@ const fakeCaches = () => {
       if (!stores.has(name)) stores.set(name, new Map())
       const store = stores.get(name)!
       return {
-        match: async (k: string) => store.get(k),
+        // a copy per match, as the Cache API gives, so a body can be read on every match
+        match: async (k: string) => store.get(k)?.clone(),
         put: async (k: string, v: Response) => { store.set(k, v) },
         addAll: async (keys: string[]) => { for (const k of keys) store.set(k, new Response('x')) },
       }
+    },
+    match: async (k: string) => {
+      for (const store of stores.values()) if (store.has(k)) return store.get(k)!.clone()
+      return undefined
     },
     keys: async () => [...stores.keys()],
     delete: async (name: string) => stores.delete(name),
@@ -245,7 +250,7 @@ describe('the caching half of the worker', () => {
     for (const path of [
       '/', '/watch', '/download', '/index.js', '/sw.js', '/assets/logo.png',
       '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/default.woff2',
-      // unhashed, but `-worklet` after `-normalizer` once passed for an eight-character hash
+      // unhashed: `normalizer-worklet` would pass for a hash under a rule allowing more than eight
       '/volume-normalizer-worklet.js',
     ]) {
       const r = requestFor(ORIGIN + path)
@@ -314,6 +319,59 @@ describe('the caching half of the worker', () => {
       const fetch = async (path: string) => path.includes('worker-') ? new Response('', { status: 503 }) : script()
       const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest: MANIFEST }, caches, { fetch })
       await expect(install(on)).resolves.toBeUndefined()
+    })
+  })
+
+  /**
+   * The update gate leaves some pages on the build before (a save or a video holds them, another
+   * page frames them), and the new worker controls them once it claims, so their chunks stay.
+   */
+  describe('cache generations', () => {
+    const script = (body: string) => new Response(body, { headers: { 'content-type': 'application/javascript' } })
+    const fallback = () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
+    /** installs `build` (its cache exists from then on) and activates it */
+    const activate = async (caches: ReturnType<typeof fakeCaches>, build: string) => {
+      await caches.open('ripple-assets-' + build)
+      const { on } = bootStamped({ mode: 'cache', build, manifest: MANIFEST }, caches, { fetch: async () => fallback() })
+      let done: Promise<unknown> = Promise.resolve()
+      on.activate!({ waitUntil: (p: Promise<unknown>) => { done = p } })
+      await done
+      return on
+    }
+    const ask = async (on: Record<string, Handler>, path: string): Promise<Response> => {
+      const r = requestFor(ORIGIN + path)
+      on.fetch!({ ...r.event, request: { url: ORIGIN + path, method: 'GET' } })
+      // respondWith was handed the route's promise
+      return await (r.taken() as unknown as Promise<Response>)
+    }
+    const generations = (caches: ReturnType<typeof fakeCaches>) =>
+      [...caches._stores.keys()].filter((key) => key.startsWith('ripple-assets-'))
+
+    it('serves a page still on the previous build its own chunks', async () => {
+      const caches = fakeCaches()
+      await activate(caches, 'b1')
+      await (await caches.open('ripple-assets-b1')).put('/assets/worker-OLDOLD11.js', script('old engine'))
+      const on = await activate(caches, 'b2')
+      const response = await ask(on, '/assets/worker-OLDOLD11.js')
+      expect(response.headers.get('content-type')).toContain('javascript')
+      expect(await response.text()).toBe('old engine')
+    })
+
+    it('drops the generation before that, and a build that waited and never took over', async () => {
+      const caches = fakeCaches()
+      await activate(caches, 'b1')
+      await activate(caches, 'b2')
+      // installed and waiting, then replaced by b4 before anything took it
+      await caches.open('ripple-assets-b3')
+      await activate(caches, 'b4')
+      expect(generations(caches)).toEqual(['ripple-assets-b2', 'ripple-assets-b4'])
+    })
+
+    it('deletes nothing on the first activation that keeps a record', async () => {
+      const caches = fakeCaches()
+      await caches.open('ripple-assets-a1')
+      await activate(caches, 'b1')
+      expect(generations(caches)).toEqual(['ripple-assets-a1', 'ripple-assets-b1'])
     })
   })
 

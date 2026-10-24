@@ -12,6 +12,8 @@ const BUILD = 'dev'   // @stamp:build
 const MANIFEST = []   // @stamp:manifest
 
 const CACHE = 'ripple-assets-' + BUILD
+/** Holds the name of the generation that activated last, so the next activation can keep it. */
+const ACTIVE = 'ripple-active'
 
 /**
  * Which requests this worker may answer from its cache, and the whole of it.
@@ -82,11 +84,21 @@ self.addEventListener('activate', (event) => {
       await self.clients.claim()
       return
     }
-    // every generation but this one: a hashed chunk is immutable, so old generations are only ever
-    // wasted room, never wrong answers
-    for (const key of await caches.keys()) {
-      if (key.startsWith('ripple-assets-') && key !== CACHE) await caches.delete(key)
+    /*
+     * Every generation but this one and the one active before it. A page the update gate leaves on
+     * the previous build (held by a save or a video, or framed by another page) still loads its lazy
+     * chunks, the torrent engine's included, and this worker controls it from the claim below. Older
+     * generations are only wasted room: a hashed chunk is immutable, so none of them is ever wrong.
+     * With no record yet (the first activation that keeps one) nothing is deleted.
+     */
+    const record = await caches.open(ACTIVE)
+    const previous = await (await record.match('/'))?.text()
+    if (previous !== undefined) {
+      for (const key of await caches.keys()) {
+        if (key.startsWith('ripple-assets-') && key !== CACHE && key !== previous) await caches.delete(key)
+      }
     }
+    await record.put('/', new Response(CACHE))
     await self.clients.claim()
   })())
 })
@@ -134,14 +146,14 @@ self.addEventListener('fetch', (event) => {
     const path = new URL(url).pathname
     if (new URL(url).origin === self.location.origin && HASHED.test(path)) {
       event.respondWith((async () => {
-        const cache = await caches.open(CACHE)
-        const hit = await cache.match(path)
+        // any generation: a page still on the previous build asks for that build's chunks
+        const hit = await caches.match(path)
         if (hit) return hit
         const fresh = await fetch(event.request)
         // An HTML answer here IS the bug this worker exists for: the chunk is gone and Cloudflare
         // served the SPA fallback with a 200. Never store that, or the cache would preserve the
         // failure across the very reload meant to cure it.
-        if (isScript(fresh)) await cache.put(path, fresh.clone())
+        if (isScript(fresh)) await (await caches.open(CACHE)).put(path, fresh.clone())
         return fresh
       })())
       return
