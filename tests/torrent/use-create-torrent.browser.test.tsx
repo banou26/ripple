@@ -12,13 +12,16 @@ type Add = { options: unknown, lengthAtCall: number }
 
 /** every page work call and whether it has ended, kept here rather than in the lock, which other test files share */
 const work = vi.hoisted(() => ({ calls: [] as { done: boolean }[] }))
-vi.mock('../../src/utils/page-work', () => ({
-  pageWork: async <T,>(fn: () => Promise<T>): Promise<T> => {
+vi.mock('../../src/utils/page-work', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/page-work')>()
+  const pageWork = async <T,>(fn: () => Promise<T>): Promise<T> => {
     const call = { done: false }
     work.calls.push(call)
     try { return await fn() } finally { call.done = true }
-  },
-}))
+  }
+  const holdWhileStored = () => { void pageWork(() => new Promise<void>((resolve) => setTimeout(resolve, actual.ENGINE_STORE_MS))) }
+  return { ...actual, pageWork, holdWhileStored }
+})
 /** page work still running among the calls made since `from` */
 const running = (from: number) => work.calls.slice(from).filter((call) => !call.done).length
 
