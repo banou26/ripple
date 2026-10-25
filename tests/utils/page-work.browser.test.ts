@@ -20,7 +20,8 @@ describe('page work', () => {
     expect(await pageWorkRunning()).toBe(true)
     work.release(true)
     await expect(running).rejects.toThrow('failed')
-    expect(await pageWorkRunning()).toBe(false)
+    // the browser lets the shared lock go a moment after the work settles
+    await expect.poll(pageWorkRunning).toBe(false)
   })
 
   it('starts the work at once, so a picker it opens keeps the click', () => {
