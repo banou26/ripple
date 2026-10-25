@@ -9,6 +9,7 @@ import { DEMO_MAGNET, DEMO_SAVE_PATH, DEMO_SEEDED_KEY } from './constants'
 import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
+import { holdWhileStored } from '../utils/page-work'
 
 // keys are libtorrent torrent_status state_t
 const STATE: Record<number, TorrentState> = {
@@ -421,8 +422,8 @@ export const useTorrents = (): UseTorrents => {
     return [...live, ...rowsForEntriesNotInTheEngine(list, liveHashes)]
   }, [snaps, list])
 
-  const addMagnet = useCallback((magnet: string) => client.addMagnet(magnet), [client])
-  const addTorrentFile = useCallback((bytes: Uint8Array) => client.addTorrentFile(bytes), [client])
+  const addMagnet = useCallback((magnet: string) => { holdWhileStored(); return client.addMagnet(magnet) }, [client])
+  const addTorrentFile = useCallback((bytes: Uint8Array) => { holdWhileStored(); return client.addTorrentFile(bytes) }, [client])
   const pause = useCallback((handle: number) => client.pause(handle), [client])
   const resume = useCallback((handle: number) => client.resume(handle), [client])
   const retry = useCallback((handle: number) => client.retry(handle), [client])

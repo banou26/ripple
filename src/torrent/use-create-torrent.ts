@@ -19,7 +19,7 @@ import { HashCancelled, hashPieces } from './hash-pieces'
 import { copyPickIntoBrowserStorage, measureRoomForCopy } from './copy-source'
 import { plan } from './make-torrent'
 import { changedSince, fileFrom, pickedFile, readPicked, walkDirectory } from './walk-source'
-import { pageWork } from '../utils/page-work'
+import { holdWhileStored, pageWork } from '../utils/page-work'
 
 /**
  * Creating a torrent from something on this device, and keeping it seeding across loads.
@@ -89,16 +89,6 @@ const IDLE: CreateState = {
 }
 
 const sourceKey = (infoHash: string) => 'ripple:source:' + infoHash
-
-/**
- * How long a create keeps holding updates once the engine has the torrent. The engine stores the
- * entry only after libtorrent reports its infohash, polled every 250 ms for up to 10 s (worker.ts,
- * add-torrent-file), and a reload before that loses the torrent: in Firefox 146, reloads 0.07 and
- * 0.33 s after "is being shared" left no row, 2 of 2.
- */
-const ENGINE_STORE_MS = 12_000
-
-const holdWhileStored = () => { void pageWork(() => new Promise<void>((resolve) => setTimeout(resolve, ENGINE_STORE_MS))) }
 
 type PermissionCapable = FileSystemHandle & {
   queryPermission?: (descriptor: { mode: 'read' }) => Promise<PermissionState>
