@@ -16,6 +16,7 @@ const EXPECTED: [string, number][] = [
   ['jassub-worker-modern.wasm', 1_000_000],
   ['jassub-worker.wasm', 1_000_000],
   ['default.woff2', 50_000],
+  ['noto-sans-jp.otf', 2_000_000],
 ]
 
 /**
