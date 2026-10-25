@@ -38,6 +38,7 @@ const SITE = [
   'jassub/jassub-worker.wasm',
   'jassub/jassub-worker-modern.wasm',
   'jassub/default.woff2',
+  'jassub/noto-sans-jp.otf',
 ]
 
 const ENTRY = 'import"./api.js";const w=new Worker(new URL("/assets/worker-SJZDGuG-.js",import.meta.url));fetch("/libav-worker.js");navigator.serviceWorker.register("/sw.js")'

@@ -394,6 +394,7 @@ const Player = () => {
   // rather than plain simd, so the fallback covers current browsers and not only ancient ones.
   const jassubLegacyWasmUrl = useMemo(() => new URL('jassub-worker.wasm', jassubBase).toString(), [jassubBase])
   const defaultFontUrl = useMemo(() => new URL('default.woff2', jassubBase).toString(), [jassubBase])
+  const cjkFontUrl = useMemo(() => new URL('noto-sans-jp.otf', jassubBase).toString(), [jassubBase])
 
   const st = snapshot?.status
   const info = {
@@ -610,6 +611,7 @@ const Player = () => {
         jassubWasmUrl={jassubWasmUrl}
         jassubLegacyWasmUrl={jassubLegacyWasmUrl}
         defaultFontUrl={defaultFontUrl}
+        cjkFontUrl={cjkFontUrl}
         normalizerWorkletUrl={normalizerWorkletUrl}
         normalizeVolume={normalizeVolume}
         onNormalizeVolumeChange={chooseNormalizeVolume}

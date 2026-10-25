@@ -20,7 +20,7 @@ import ENTRY from '../src/jassub-assets.ts?raw'
  */
 
 /** Every name the app builds a url for, and the base it builds them against. */
-const ASSETS = ['worker.js', 'jassub-worker-modern.wasm', 'jassub-worker.wasm', 'default.woff2']
+const ASSETS = ['worker.js', 'jassub-worker-modern.wasm', 'jassub-worker.wasm', 'default.woff2', 'noto-sans-jp.otf']
 
 describe('jassub asset names', () => {
   it('are the same in the build pass and in the app', () => {

@@ -33,6 +33,7 @@ const RESOLVED_AT_RUNTIME = [
   'jassub/jassub-worker.wasm',
   'jassub/jassub-worker-modern.wasm',
   'jassub/default.woff2',
+  'jassub/noto-sans-jp.otf',
 ]
 
 /**
