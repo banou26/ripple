@@ -250,6 +250,7 @@ describe('an update that arrives while the page sits open', () => {
 
   it('waits for a focused text field to let go', async () => {
     const field = document.body.appendChild(document.createElement('input'))
+    field.value = 'magnet:?xt=urn:btih:'
     field.focus()
     const { sw, worker } = await openWithUpdate()
     await sleep(200)
@@ -259,6 +260,29 @@ describe('an update that arrives while the page sits open', () => {
     await expect.poll(() => worker.takeOvers()).toBe(1)
     sw.controllerChange()
     await expect.poll(() => reloaded.count).toBe(1)
+    field.remove()
+  })
+
+  it('waits for typed trackers in a focused textarea', async () => {
+    const field = document.body.appendChild(document.createElement('textarea'))
+    field.value = 'udp://tracker.example:1337'
+    field.focus()
+    const { sw, worker } = await openWithUpdate()
+    await sleep(200)
+    expect(worker.takeOvers(), 'took the update over typed trackers').toBe(0)
+
+    field.blur()
+    await expect.poll(() => worker.takeOvers()).toBe(1)
+    sw.controllerChange()
+    await expect.poll(() => reloaded.count).toBe(1)
+    field.remove()
+  })
+
+  it('does not wait on an empty focused field, as the one left after an add', async () => {
+    const field = document.body.appendChild(document.createElement('input'))
+    field.focus()
+    const { worker } = await openWithUpdate()
+    await expect.poll(() => worker.takeOvers()).toBe(1)
     field.remove()
   })
 
