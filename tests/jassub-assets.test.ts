@@ -30,6 +30,14 @@ describe('jassub asset names', () => {
     }
   })
 
+  it('each reach the player', () => {
+    for (const name of ASSETS) {
+      const url = EMBED.match(new RegExp(`const (\\w+) = useMemo\\(\\(\\) => new URL\\('${name.replaceAll('.', '\\.')}'`))?.[1]
+      expect(url, `${name} has no url built for it`).toBeDefined()
+      expect(EMBED, `${name} is built into ${url} but never handed to the player`).toContain(`${url}={${url}}`)
+    }
+  })
+
   it('are served from the directory the build pass writes to', () => {
     // outDir and the url base have to name the same directory, or every asset 404s together
     expect(CONFIG, 'the build pass no longer writes to build/jassub').toContain("outDir: 'build/jassub'")
