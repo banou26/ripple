@@ -78,4 +78,28 @@ test('the embed serves its player to the page that frames it', async ({ page, ba
   const inFrame = await embed.evaluate(() => { const v = document.querySelector('video')!; return { paused: v.paused, time: v.currentTime } })
   expect(inFrame.paused).toBe(false)
   expect(inFrame.time).toBeGreaterThan(target)
+
+  // HOR-1014: a mirror made with `fullscreen: true` takes the player's fullscreen over, which is how stub keeps it
+  // across episodes: the player shows the state the mirror sets, and its button asks the mirror and fullscreens
+  // nothing itself. Then, the mirror gone, the same click fullscreens the player again, which is the control.
+  type Held = { holder: ReturnType<Window['mediaPlayer']>, requests: number }
+  await page.evaluate(async () => {
+    const w = window as unknown as Held
+    w.requests = 0
+    w.holder = window.mediaPlayer(document.getElementById('embed') as HTMLIFrameElement, { origin: location.origin, fullscreen: true })
+    w.holder.addEventListener('fullscreenrequest', () => { w.requests++ })
+    await w.holder.ready
+    w.holder.fullscreen = true
+  })
+  const fullscreen = page.frameLocator('#embed').locator('button.full-screen')
+  await expect(fullscreen, 'the player shows the state the mirror set').toHaveAttribute('aria-pressed', 'true')
+  const inEmbed = () => embed.evaluate(() => Boolean(document.fullscreenElement))
+  await fullscreen.click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as Held).requests), { message: 'the press asks the mirror' }).toBe(1)
+  expect(await inEmbed(), 'and fullscreens nothing itself').toBe(false)
+  await page.evaluate(() => (window as unknown as Held).holder.destroy())
+  await expect(fullscreen).toHaveAttribute('aria-pressed', 'false')
+  await fullscreen.click()
+  await expect.poll(inEmbed, { message: 'with no mirror holding it, the player fullscreens itself' }).toBe(true)
+  await embed.evaluate(() => document.exitFullscreen())
 })
