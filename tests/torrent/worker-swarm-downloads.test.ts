@@ -67,3 +67,22 @@ it('asks only the watched torrents\' trackers, and reports the highest download 
   expect(downloadsOf(3)).toBe(-1)
   expect(rig.of('worker-error')).toEqual([])
 })
+
+// The player claims its file on its first snapshot, before any announce has come back, so the first ask
+// reads nothing and the count has to be asked for again within a tracker poll, not half a minute on.
+it('asks again within five seconds, for a count that lands after the first ask', async () => {
+  rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'d'.repeat(40)}` })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(4))
+  state.trackers.set(4, [{ downloaded: -1 }])
+  rig.send({ type: 'watch', viewer: 'player', handle: 4, fileIndex: 0, fromOffset: 0 })
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(Date.now() + 5_000)
+    await vi.waitFor(() => expect(state.answered.get(4)).toEqual([{ downloaded: -1 }]), { timeout: 2_000 })
+    state.trackers.set(4, [{ downloaded: 50 }])
+    vi.setSystemTime(Date.now() + 5_000)
+    await vi.waitFor(() => expect(downloadsOf(4)).toBe(50), { timeout: 2_000 })
+  } finally {
+    vi.useRealTimers()
+  }
+})
