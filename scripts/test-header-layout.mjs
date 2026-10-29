@@ -188,6 +188,27 @@ try {
     }
   }
 
+  // framed by another origin (localhost against 127.0.0.1, the same server), the download page leaves the mark to the
+  // page around it; the unframed runs above are the control that this selector finds one
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
+  await page.evaluate((src) => {
+    const frame = document.createElement('iframe')
+    frame.src = src
+    frame.style.cssText = 'position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 9999'
+    document.body.append(frame)
+  }, `http://localhost:${PORT}/download?magnet=${Buffer.from(NO_PEERS).toString('base64')}`)
+  // the page's own FKN frames are iframes too
+  const framed = page.frameLocator('iframe[src*="localhost"]')
+  // the wordmark opens a new tab only when the page knows it is framed
+  const knowsFramed = await framed.locator('header .wordmark[target="_blank"]').waitFor({ timeout: 30_000 }).then(() => true, () => false)
+  const marks = await framed.locator('header .powered').count()
+  const badFramed = []
+  if (!knowsFramed) badFramed.push('the framed page never drew a header that knows it is framed')
+  if (marks) badFramed.push(`the framed page shows ${marks} FKN mark(s)`)
+  console.log(`mark framed  download  marks=${marks}  ${badFramed.length ? 'FAIL: ' + badFramed.join('; ') : 'PASS'}`)
+  if (badFramed.length) code = 1
+
   if (errors.length) { console.log(`page errors: ${errors.slice(0, 3).join(' | ')}`); code = 1 }
   await browser.close()
 } finally {
