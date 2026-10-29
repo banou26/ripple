@@ -88,6 +88,7 @@ test.describe('the embedded player header', () => {
   /*
    * Adding the state and the two links pushed this row past a phone's width: at 480px the links were
    * off the right edge entirely, and nothing failed, because an overlay that overflows still renders.
+   * At 360px the peer count then got 2 of its 14px, so the row is measured on the narrowest phone.
    * Measured against the VIEWPORT rather than eyeballed in a screenshot, which only ever shows the
    * part that fits and is therefore blind to exactly this.
    *
@@ -99,7 +100,7 @@ test.describe('the embedded player header', () => {
    */
   test('the whole row fits on a phone, with nothing pushed off the edge', async ({ page }) => {
     test.setTimeout(180_000)
-    await page.setViewportSize({ width: 480, height: 720 })
+    await page.setViewportSize({ width: 360, height: 720 })
     await page.goto(watchUrl)
     await expect(page.getByTestId('torrent-state')).toBeVisible({ timeout: 90_000 })
 
@@ -127,10 +128,11 @@ test.describe('the embedded player header', () => {
        *
        * The links used to end the row and were what this measured. They are at its head now, so
        * reading the download link here would measure something 40px from the left edge and pass
-       * whatever the row did on the right, which is a check that cannot fail.
+       * whatever the row did on the right, which is a check that cannot fail. The same goes for a
+       * hidden readout, whose box is all zeros: the upload speed is one below 480px.
        */
-      const readouts = document.querySelectorAll('.media-information .item')
-      const last = readouts[readouts.length - 1]
+      const last = [...document.querySelectorAll('.media-information .item')].filter((el) => el.getClientRects().length).at(-1)
+      const shown = count?.querySelector(':scope > span')
       const links = document.querySelector('.player-links')
       const name = document.querySelector('.file-name')
       const counter = document.querySelector('.downloaded') ?? document.querySelector('.loading-information')
@@ -144,10 +146,13 @@ test.describe('the embedded player header', () => {
         counterLeft: counter ? counter.getBoundingClientRect().left : null,
         groupLeft: group.getBoundingClientRect().left,
         width: window.innerWidth,
+        countCut: shown ? shown.scrollWidth > shown.clientWidth : null,
       }
     })
     expect(edges, 'the row is missing the items this measures').not.toBeNull()
     expect(edges!.lastRight, 'the last readout hangs off the right edge').toBeLessThanOrEqual(edges!.width)
+    // a count that loses a digit is wrong, where a speed that ellipsizes is still a speed
+    expect(edges!.countCut, 'the peer count is cut').toBe(false)
     expect(edges!.linksLeft, 'the links start off the left edge').toBeGreaterThanOrEqual(0)
     /*
      * The links lead the RIGHT-HAND side of the row: after the filename, in front of everything the
@@ -162,6 +167,8 @@ test.describe('the embedded player header', () => {
 
     // the readouts fold their words at this width and their icons stay, which is what makes it fit
     await expect(page.getByTestId('torrent-state').locator('span')).toBeHidden()
+    // and the figure needed least while watching goes
+    await expect(page.locator('[data-tooltip-id="upload-speed"]')).toBeHidden()
     // the links never carry a word at any width: the glyph is the control and the tooltip is the label
     await expect(page.getByTestId('open-in-ripple').locator('span')).toHaveCount(0)
     await expect(page.getByTestId('open-in-ripple')).toHaveAttribute('aria-label', /Ripple/)
@@ -169,6 +176,7 @@ test.describe('the embedded player header', () => {
     // and the readouts get their words back when there is room
     await page.setViewportSize({ width: 1280, height: 720 })
     await expect(page.getByTestId('torrent-state').locator('span')).toBeVisible()
+    await expect(page.locator('[data-tooltip-id="upload-speed"]')).toBeVisible()
     await expect(page.getByTestId('open-in-ripple').locator('span')).toHaveCount(0)
   })
 

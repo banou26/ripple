@@ -42,7 +42,7 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
   ...over,
 } as PlayerTorrent)
 
-const state = { current: torrent(), named: [] as (number | undefined)[], framed: true }
+const state = { current: torrent(), named: [] as (number | undefined)[], framed: true, reachable: null as unknown }
 vi.mock('../../src/torrent/use-player-torrent', () => ({
   usePlayerTorrent: (_: string | undefined, fileIndex: number | undefined) => {
     state.named.push(fileIndex)
@@ -50,9 +50,11 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
   },
 }))
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
+vi.mock('../../src/torrent/use-reachability', () => ({ useReachability: () => state.reachable }))
 
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
+const SMALL_PHONE = { width: 360, height: 720 }
 
 // the engine's status, with the swarm the trackers reported and the downloads they counted
 const withSwarm = (status: Record<string, number>, swarmDownloads = -1, displayDownloadRate = 8_700_000) => {
@@ -99,7 +101,7 @@ const hoverText = async (screen: Awaited<ReturnType<typeof mount>>, testId: stri
 }
 
 describe('the watch route', () => {
-  beforeEach(() => { state.current = torrent() })
+  beforeEach(() => { state.current = torrent(); state.reachable = null })
   // the viewport is shared by every test in the file, so a phone-sized one has to be handed back
   afterEach(async () => { await page.viewport(DESKTOP.width, DESKTOP.height) })
 
@@ -200,6 +202,43 @@ describe('the watch route', () => {
     const screen = await mount(PHONE)
     await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
     expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 · 3')
+  })
+
+  /*
+   * At 360 to 412px the peer count used to get 2 of its 14px and both speeds lost about half
+   * (measured 2026-10-29), and nothing failed, because a readout that ellipsizes still fits the row.
+   * So this asserts what the row SHOWS: the count whole whatever it reads, and with a phone's
+   * ordinary figures every readout whole.
+   */
+  it('shows the whole peer count on a 360px phone, and every readout whole with ordinary figures', async () => {
+    const VPN_ON = { port: 1, listeners: [{ up: true, healing: false }] }
+    // what a player shows as it starts
+    const VPN_RECONNECTING = { port: null, listeners: [{ up: false, healing: true }] }
+    const ORDINARY = { numPeers: 28, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }
+    const WIDEST = { numPeers: 99999, swarmSeeds: 99999, swarmPeers: 99999, uploadRate: 999_900_000 }
+    const cases = [
+      { name: 'ordinary', reachable: VPN_ON, status: ORDINARY, rate: 10_400_000, metadata: true },
+      { name: 'widest', reachable: VPN_RECONNECTING, status: WIDEST, rate: 999_900_000, metadata: true },
+      // a tracker answers before the metadata lands, and "Loading metadata…" does not shrink
+      { name: 'starting', reachable: VPN_RECONNECTING, status: ORDINARY, rate: 0, metadata: false },
+    ]
+    for (const { name, reachable, status, rate, metadata } of cases) {
+      state.reachable = reachable
+      const playing = withSwarm(status, 8054, rate)
+      state.current = metadata ? playing : { ...playing, snapshot: { ...playing.snapshot!, files: null } }
+      const screen = await mount(SMALL_PHONE)
+      await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+      const shown = [...screen.container.querySelectorAll('.media-information .item')].filter((item) => item.getClientRects().length)
+      const cut = shown.map((item) => item.querySelector(':scope > span')!)
+        .filter((span) => span.scrollWidth > span.clientWidth)
+        .map((span) => span.textContent)
+      expect(cut, `${name}: the peer count is cut`).not.toContain(screen.getByTestId('peers').element().textContent)
+      if (name === 'ordinary') expect(cut, name).toEqual([])
+      expect(shown.at(-1)!.getBoundingClientRect().right, `${name}: the last readout hangs off the right edge`)
+        .toBeLessThanOrEqual(screen.container.firstElementChild!.getBoundingClientRect().right)
+      expect(getComputedStyle(screen.container.querySelector('[data-tooltip-id="upload-speed"]')!).display, name).toBe('none')
+      await screen.unmount()
+    }
   })
 
   // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
