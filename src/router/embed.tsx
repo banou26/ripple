@@ -421,9 +421,12 @@ const Player = () => {
     downloadSpeed: snapshot?.displayDownloadRate ?? 0,
     uploadSpeed: st?.uploadRate ?? 0,
   }
-  // the whole swarm per the trackers; until one answers with both counts, and on a magnet with none,
-  // the connected peers stand in
-  const swarm = st && st.swarmSeeds >= 0 && st.swarmPeers >= 0 ? { seeders: st.swarmSeeds, leechers: st.swarmPeers } : null
+  // the whole swarm per the trackers, never fewer than are connected (a tracker that does not carry the
+  // hash answers 0 and 0); until one answers with both counts, and on a magnet with none, the
+  // connected peers stand in
+  const swarm = st && st.swarmSeeds >= 0 && st.swarmPeers >= 0
+    ? { seeders: Math.max(st.swarmSeeds, st.numSeeds), leechers: Math.max(st.swarmPeers, st.numPeers - st.numSeeds) }
+    : null
   const downloads = snapshot?.swarmDownloads ?? -1
 
   const hasMetadata = Boolean(snapshot?.files)
@@ -600,7 +603,7 @@ const Player = () => {
             ? (
               <div className="item count" data-testid="peers">
                 <Users />
-                <span>{swarm.seeders}<span className="word"> seeders</span> · {swarm.leechers}<span className="word"> leechers</span></span>
+                <span>{swarm.seeders}<span className="word"> seeder{swarm.seeders === 1 ? '' : 's'}</span> · {swarm.leechers}<span className="word"> leecher{swarm.leechers === 1 ? '' : 's'}</span></span>
               </div>
             )
             : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}

@@ -28,7 +28,7 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
     handle: 1,
     magnet: 'magnet:?xt=urn:btih:abc',
     files: { storageIndex: 0, pieceLength: 1 << 20, numPieces: 1400, totalSize: FILE.size, files: [FILE] },
-    status: { numPeers: 82, uploadRate: 0 },
+    status: { numPeers: 82, numSeeds: 0, uploadRate: 0 },
     bitfield: null,
     recovery: null,
     userPaused: false,
@@ -124,6 +124,8 @@ describe('the watch route', () => {
     // inside the player, not merely near its right edge: the readout ran off the end and lost its
     // upload figure, and an overhang reads as a negative distance, which passes the check above
     expect(readout.right).toBeLessThanOrEqual(player.right)
+    // a phone hides the upload figure, and a desktop has to get it back
+    expect(getComputedStyle(screen.container.querySelector('[data-tooltip-id="upload-speed"]')!).display).not.toBe('none')
   })
 
   it('says what it is waiting for while there is no metadata yet', async () => {
@@ -171,7 +173,7 @@ describe('the watch route', () => {
   })
 
   it('counts the swarm the trackers report, with the downloads and the connected peers in its hover', async () => {
-    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 }, 8054)
+    state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 }, 8054)
     const screen = await mount()
     await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
     expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 seeders · 3 leechers')
@@ -180,15 +182,32 @@ describe('the watch route', () => {
 
   // a UDP tracker never sends the count
   it('leaves the downloads out of the hover when no tracker counted them', async () => {
-    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 })
+    state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 })
     const screen = await mount()
     expect(await hoverText(screen, 'peers')).toBe('Seeders: 216\nLeechers: 3\nConnected peers: 28')
+  })
+
+  // a release just out, with its uploader as the only seeder
+  it('says seeder and leecher for a swarm of one', async () => {
+    state.current = withSwarm({ numPeers: 2, numSeeds: 1, swarmSeeds: 1, swarmPeers: 1 })
+    const screen = await mount()
+    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('1 seeder · 1 leecher')
+  })
+
+  // a tracker that does not carry the hash answers 0 and 0, which is not a dead torrent with 31 peers connected
+  it('never counts fewer seeders or leechers than are connected', async () => {
+    state.current = withSwarm({ numPeers: 31, numSeeds: 12, swarmSeeds: 0, swarmPeers: 0 }, 0)
+    const screen = await mount()
+    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('12 seeders · 19 leechers')
+    expect(await hoverText(screen, 'peers')).toBe('Seeders: 12\nLeechers: 19\nDownloads: 0\nConnected peers: 31')
   })
 
   // the first seconds, and a magnet with no trackers
   it('shows the connected peers until a tracker has answered with both counts', async () => {
     for (const swarm of [{ swarmSeeds: -1, swarmPeers: -1 }, { swarmSeeds: 216, swarmPeers: -1 }]) {
-      state.current = withSwarm({ numPeers: 28, ...swarm }, 8054)
+      state.current = withSwarm({ numPeers: 28, numSeeds: 26, ...swarm }, 8054)
       const screen = await mount()
       await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
       expect((screen.getByTestId('peers').element() as HTMLElement).innerText, JSON.stringify(swarm)).toBe('28')
@@ -198,7 +217,7 @@ describe('the watch route', () => {
   })
 
   it('folds the swarm\'s words on a phone and keeps both numbers', async () => {
-    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 })
+    state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 })
     const screen = await mount(PHONE)
     await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
     expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 · 3')
@@ -214,8 +233,8 @@ describe('the watch route', () => {
     const VPN_ON = { port: 1, listeners: [{ up: true, healing: false }] }
     // what a player shows as it starts
     const VPN_RECONNECTING = { port: null, listeners: [{ up: false, healing: true }] }
-    const ORDINARY = { numPeers: 28, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }
-    const WIDEST = { numPeers: 99999, swarmSeeds: 99999, swarmPeers: 99999, uploadRate: 999_900_000 }
+    const ORDINARY = { numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }
+    const WIDEST = { numPeers: 99999, numSeeds: 0, swarmSeeds: 99999, swarmPeers: 99999, uploadRate: 999_900_000 }
     const cases = [
       { name: 'ordinary', reachable: VPN_ON, status: ORDINARY, rate: 10_400_000, metadata: true },
       { name: 'widest', reachable: VPN_RECONNECTING, status: WIDEST, rate: 999_900_000, metadata: true },
