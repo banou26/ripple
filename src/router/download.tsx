@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
+import { PoweredByFkn } from '@fkn/lib/react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -82,10 +83,20 @@ const style = css`
     border-bottom: 1px solid ${BORDER};
   }
 
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  /* FKN's mark is 1cap of its own font size, so it takes the wordmark's to stand as tall as its capitals */
+  .wordmark, .powered {
+    font-size: 1.2rem;
+  }
+
   /* Centred inside the card before, where it was a caption. In the bar it is the brand and the link,
      so it sits at the top text tier and brightens under the cursor like every other link here. */
   .wordmark {
-    font-size: 1.2rem;
     font-weight: 900;
     letter-spacing: 0.06em;
     color: ${TEXT};
@@ -995,9 +1006,13 @@ const DownloadPage = ({ magnet, selection }: Props) => {
           * not a place ripple should put itself. Unframed it is an ordinary in-app navigation, so
           * the engine and anything it is running survive the trip.
           */}
-        <Link className="wordmark" to="/" target={framed ? '_blank' : undefined} rel={framed ? 'noreferrer' : undefined}>
-          Ripple
-        </Link>
+        <span className="brand">
+          <Link className="wordmark" to="/" target={framed ? '_blank' : undefined} rel={framed ? 'noreferrer' : undefined}>
+            Ripple
+          </Link>
+          {/* a page framing this one shows its own */}
+          {!framed && <PoweredByFkn className="powered"/>}
+        </span>
         <VpnStat reachable={reachable}/>
       </header>
 

@@ -1,6 +1,7 @@
 import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
+import { PoweredByFkn } from '@fkn/lib/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -334,8 +335,18 @@ export const style = css`
     background: ${SURFACE_BG};
     border-bottom: 1px solid ${BORDER};
 
-    .wordmark {
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    /* FKN's mark is 1cap of its own font size, so it takes the wordmark's to stand as tall as its capitals */
+    .wordmark, .powered {
       font-size: 1.35rem;
+    }
+
+    .wordmark {
       font-weight: 900;
       letter-spacing: 0.06em;
       color: ${TEXT};
@@ -2926,7 +2937,10 @@ const Home = () => {
       <header>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
-        <Link className="wordmark" to="/">Ripple</Link>
+        <span className="brand">
+          <Link className="wordmark" to="/">Ripple</Link>
+          <PoweredByFkn className="powered"/>
+        </span>
         <form
           onSubmit={(e) => {
             e.preventDefault()

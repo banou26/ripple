@@ -58,11 +58,36 @@ const measure = () => {
   }
 }
 
+// FKN's mark beside the wordmark (HOR-1066): on its baseline, as tall as its capitals, and clear of what follows
+const measureMark = () => {
+  const brand = document.querySelector('header .brand')
+  const svg = brand?.querySelector('.powered svg')
+  if (!svg) return null
+  // an empty inline block sits on the baseline, so its bottom is the wordmark's baseline and its height the cap height
+  const probe = document.createElement('span')
+  probe.style.cssText = 'display: inline-block; width: 0; height: 1cap'
+  brand.querySelector('.wordmark').append(probe)
+  const line = probe.getBoundingClientRect()
+  probe.remove()
+  const mark = svg.getBoundingClientRect()
+  const own = brand.getBoundingClientRect()
+  const next = brand.nextElementSibling?.getBoundingClientRect()
+  return {
+    offBaseline: Math.round((mark.bottom - line.bottom) * 10) / 10,
+    offCap: Math.round((mark.height - line.height) * 10) / 10,
+    overlaps: !!next && own.right > next.left && next.right > own.left && own.bottom > next.top && next.bottom > own.top,
+    docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }
+}
+
+const NO_PEERS = 'magnet:?xt=urn:btih:0000000000000000000000000000000000000000'
+
 const server = serve()
 let code = 0
 try {
   await waitUp()
-  const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
+  // the system Chrome when one is named, as playwright.config.ts does
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.RIPPLE_CHROME || undefined, args: ['--mute-audio'] })
   const page = await browser.newPage({ viewport: { width: WIDTHS[0], height: 800 } })
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
@@ -132,6 +157,36 @@ try {
   if (!cleared.focused) badClear.push('focus was not returned to the field')
   console.log(`cleared      value=${JSON.stringify(cleared.value)} icons=${cleared.icons} focused=${cleared.focused}  ${badClear.length ? 'FAIL: ' + badClear.join('; ') : 'PASS'}`)
   if (badClear.length) code = 1
+
+  for (const [name, path] of [['home', '/'], ['download', `/download?magnet=${Buffer.from(NO_PEERS).toString('base64')}`]]) {
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto(ORIGIN + path, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('header .powered button', { timeout: 30_000 })
+      const m = await page.evaluate(measureMark)
+      const bad = []
+      if (!m) bad.push('no mark')
+      else {
+        if (Math.abs(m.offBaseline) > 1) bad.push(`the mark sits ${m.offBaseline}px off the baseline`)
+        if (Math.abs(m.offCap) > 0.5) bad.push(`the mark is ${m.offCap}px off a capital's height`)
+        if (m.overlaps) bad.push('the wordmark and mark run into what follows them')
+        if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
+      }
+      await page.hover('header .powered button')
+      const card = page.getByRole('group', { name: 'Powered by FKN' })
+      const opened = await card.waitFor({ timeout: 2_000 }).then(() => true, () => false)
+      const href = opened ? await card.getByRole('link', { name: 'How it works' }).getAttribute('href') : null
+      const box = opened ? await card.boundingBox() : null
+      if (!opened) bad.push('the card did not open on hover')
+      else if (href !== 'https://docs.fkn.dev/') bad.push(`the card links to ${href}`)
+      else if (box.x < 0 || box.x + box.width > width) bad.push('the card runs out of the viewport')
+      if (width === 1440 || width === 390) await page.screenshot({ path: `${OUT}/mark-${name}-${width}.png`, clip: { x: 0, y: 0, width: Math.min(width, 520), height: 200 } })
+      await page.mouse.move(width / 2, 600)
+      if (opened && !(await card.waitFor({ state: 'hidden', timeout: 2_000 }).then(() => true, () => false))) bad.push('the card stayed open after the pointer left')
+      console.log(`mark ${name.padEnd(8)} ${String(width).padStart(4)}px  ${JSON.stringify(m)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
+      if (bad.length) code = 1
+    }
+  }
 
   if (errors.length) { console.log(`page errors: ${errors.slice(0, 3).join(' | ')}`); code = 1 }
   await browser.close()
