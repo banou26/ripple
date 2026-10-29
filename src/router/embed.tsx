@@ -253,10 +253,21 @@ const playerStyle = css`
     }
 
     /* whatever is pressable holds its size, matched on what it IS rather than on a list of ids that
-       the next one added here would have to be remembered into */
+       the next one added here would have to be remembered into; and so does the peer count, which is
+       wrong once it loses a digit */
     > [data-tooltip-id]:has(.item.link),
-    > [data-tooltip-id]:has(.item.state) {
+    > [data-tooltip-id]:has(.item.state),
+    > [data-tooltip-id]:has(.item.count) {
       flex-shrink: 0;
+    }
+
+    /* the figure needed least while watching, and the one a phone has no room for: measured at 360
+       to 412px, the peer count and both speeds were cut with it there */
+    > [data-tooltip-id='upload-speed'] {
+      display: none;
+      @media (min-width: 480px) {
+        display: block;
+      }
     }
 
     .item {
