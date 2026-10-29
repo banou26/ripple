@@ -54,6 +54,12 @@ vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
 
+// the engine's status, with the swarm the trackers reported and the downloads they counted
+const withSwarm = (status: Record<string, number>, swarmDownloads = -1, displayDownloadRate = 8_700_000) => {
+  const { snapshot } = torrent()
+  return torrent({ snapshot: { ...snapshot!, status: { ...snapshot!.status!, ...status }, swarmDownloads, displayDownloadRate } })
+}
+
 const sized = ({ width, height }: { width: number, height: number }) => {
   const container = document.createElement('div')
   container.style.cssText = `width: ${width}px; height: ${height}px;`
@@ -75,6 +81,21 @@ const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
     </MemoryRouter>,
     sized(size),
   )
+}
+
+/**
+ * The chip's text, read on a real hover. The pointer starts and ends on the video, away from the row:
+ * a pointer left on a readout opens the chip of whatever the next mount draws under it, and a later
+ * `getByText('82')` then also matches "Peers: 82".
+ */
+const hoverText = async (screen: Awaited<ReturnType<typeof mount>>, testId: string) => {
+  const video = screen.container.querySelector('video')!
+  await userEvent.hover(video)
+  await userEvent.hover(screen.getByTestId(testId).element())
+  await expect.poll(() => screen.container.querySelector('[role="tooltip"]')).not.toBeNull()
+  const text = (screen.container.querySelector('[role="tooltip"]') as HTMLElement).innerText
+  await userEvent.hover(video)
+  return text
 }
 
 describe('the watch route', () => {
@@ -145,6 +166,40 @@ describe('the watch route', () => {
     await expect.element(failed.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(getComputedStyle(failed.container.querySelector('.loading-information')!).display)
       .not.toBe('none')
+  })
+
+  it('counts the swarm the trackers report, with the downloads and the connected peers in its hover', async () => {
+    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 }, 8054)
+    const screen = await mount()
+    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 seeders · 3 leechers')
+    expect(await hoverText(screen, 'peers')).toBe('Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28')
+  })
+
+  // a UDP tracker never sends the count
+  it('leaves the downloads out of the hover when no tracker counted them', async () => {
+    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 })
+    const screen = await mount()
+    expect(await hoverText(screen, 'peers')).toBe('Seeders: 216\nLeechers: 3\nConnected peers: 28')
+  })
+
+  // the first seconds, and a magnet with no trackers
+  it('shows the connected peers until a tracker has answered with both counts', async () => {
+    for (const swarm of [{ swarmSeeds: -1, swarmPeers: -1 }, { swarmSeeds: 216, swarmPeers: -1 }]) {
+      state.current = withSwarm({ numPeers: 28, ...swarm }, 8054)
+      const screen = await mount()
+      await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+      expect((screen.getByTestId('peers').element() as HTMLElement).innerText, JSON.stringify(swarm)).toBe('28')
+      expect(await hoverText(screen, 'peers'), JSON.stringify(swarm)).toBe('Peers: 28')
+      await screen.unmount()
+    }
+  })
+
+  it('folds the swarm\'s words on a phone and keeps both numbers', async () => {
+    state.current = withSwarm({ numPeers: 28, swarmSeeds: 216, swarmPeers: 3 })
+    const screen = await mount(PHONE)
+    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 · 3')
   })
 
   // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
