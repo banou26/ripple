@@ -104,23 +104,23 @@ test.describe('the embedded player header', () => {
     await expect(page.getByTestId('torrent-state')).toBeVisible({ timeout: 90_000 })
 
     const edges = await page.evaluate(() => {
-      // the longest each item can be: the widest VPN label, a five-digit peer count, and a speed at
-      // its longest form. Written into the live DOM, so this measures the real layout rules.
+      // the longest each item can be: the widest VPN label, five digits for every count, and a speed
+      // at its longest form. Written into the live DOM, so this measures the real layout rules.
       const widest = (selector: string, text: string) => {
         const span = document.querySelector(`${selector} span`)
         if (span) span.textContent = text
       }
       widest('.item.vpn', 'VPN Reconnecting')
       widest('[data-testid="torrent-state"]', 'Downloading')
-      // peers is a COUNT and the two after it are speeds, so they get different worst cases: giving
-      // the peer count a speed's width invents 60px this row will never actually be asked to hold
-      const numbers = [...document.querySelectorAll('.media-information .item')]
-        .filter((el) => !el.className.includes('vpn') && !el.getAttribute('data-testid'))
-      const widths = ['99999', '999.9 MB/s', '999.9 MB/s']
-      numbers.forEach((el, index) => {
-        const span = el.querySelector('span')
-        if (span && widths[index]) span.textContent = widths[index]!
-      })
+      widest('[data-tooltip-id="download-speed"] .item', '999.9 MB/s')
+      widest('[data-tooltip-id="upload-speed"] .item', '999.9 MB/s')
+      // the connected peers, or the swarm's seeders and leechers once a tracker has answered: only the
+      // digits change, so the words the readout folds stay where they are
+      const count = document.querySelector('[data-testid="peers"]')
+      const digits = count && document.createTreeWalker(count, NodeFilter.SHOW_TEXT)
+      for (let node = digits?.nextNode(); node; node = digits!.nextNode()) {
+        node.textContent = node.textContent!.replace(/\d+/g, '99999')
+      }
 
       /*
        * The LAST item is the rightmost readout, not a link.

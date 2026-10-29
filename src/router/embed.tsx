@@ -4,7 +4,7 @@ import type { EmbedMode } from './file-selection'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useSearchParams } from 'react-router-dom'
-import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
@@ -306,10 +306,12 @@ const playerStyle = css`
      * carries off and reconnecting, and the tooltip carries the sentence.
      *
      * The torrent state folds with them for the plainer reason that Downloading is the longest word
-     * in the row, with Retrying not far behind.
+     * in the row, with Retrying not far behind. The peer count folds its two words and keeps both
+     * numbers, which are the readout.
      */
     .item.state span,
-    .item.vpn span {
+    .item.vpn span,
+    .item.count .word {
       display: none;
       @media (min-width: 560px) {
         display: inline;
@@ -408,6 +410,10 @@ const Player = () => {
     downloadSpeed: snapshot?.displayDownloadRate ?? 0,
     uploadSpeed: st?.uploadRate ?? 0,
   }
+  // the whole swarm per the trackers; until one answers with both counts, and on a magnet with none,
+  // the connected peers stand in
+  const swarm = st && st.swarmSeeds >= 0 && st.swarmPeers >= 0 ? { seeders: st.swarmSeeds, leechers: st.swarmPeers } : null
+  const downloads = snapshot?.swarmDownloads ?? -1
 
   const hasMetadata = Boolean(snapshot?.files)
   const downloaded = snapshot?.status?.totalDone ?? 0
@@ -579,8 +585,24 @@ const Player = () => {
         <TooltipDisplay
           id="peers"
           tooltipPlace="bottom-end"
-          text={<div className="item"><User /><span>{info.peers}</span></div>}
-          toolTipText={<span>Peers: {info.peers}</span>}
+          text={swarm
+            ? (
+              <div className="item count" data-testid="peers">
+                <Users />
+                <span>{swarm.seeders}<span className="word"> seeders</span> · {swarm.leechers}<span className="word"> leechers</span></span>
+              </div>
+            )
+            : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}
+          toolTipText={swarm
+            ? (
+              <span>
+                Seeders: {swarm.seeders}<br />
+                Leechers: {swarm.leechers}<br />
+                {downloads >= 0 && <>Downloads: {downloads}<br /></>}
+                Connected peers: {info.peers}
+              </span>
+            )
+            : <span>Peers: {info.peers}</span>}
         />
         <TooltipDisplay
           id="download-speed"

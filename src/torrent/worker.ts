@@ -56,6 +56,11 @@ export type TorrentSnapshot = {
   userPaused: boolean
   /** The watched file is bigger than the room here, so only a window of it is kept as it plays. */
   windowed: boolean
+  /**
+   * Completed downloads per the trackers, the highest any of them reports, or -1 when none has. Kept
+   * fresh only while the torrent has a viewer (see SWARM_POLL_MS). A UDP tracker never sends it.
+   */
+  swarmDownloads: number
 }
 
 /**
@@ -169,6 +174,7 @@ const snapshot = (): TorrentSnapshot[] =>
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
       windowed: windows.has(h),
+      swarmDownloads: Math.max(-1, ...(session?.lastTrackers(h).map((t) => t.downloaded) ?? [])),
       // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
       uptime: uptimeOf(h),
       // and what this session put into them, so the panel can read "total (x this session)"
@@ -277,6 +283,15 @@ let trackersPolledAt = 0
 // Trackers move on the announce interval, which is minutes, so re-asking twice a second would be
 // pure waste. Peers ride the ordinary 500ms broadcast because they genuinely change that fast.
 const TRACKER_POLL_MS = 5_000
+/**
+ * How often the trackers of every WATCHED torrent are asked, for the download count the player shows.
+ *
+ * Not through `inspect`, which has one subject per engine and belongs to the library's detail panel,
+ * possibly in another tab. A tracker refreshes the count once per announce (about every 31 minutes
+ * on Nyaa's), so this is generous already.
+ */
+const SWARM_POLL_MS = 30_000
+let swarmPolledAt = 0
 
 /**
  * How often every torrent is asked for its peer list, for the live inbound count on the strip.
@@ -1780,6 +1795,11 @@ const init = async () => {
       for (const h of handles) void session.peers(h)
     }
     inboundNow = countInbound(handles.map((h) => session!.lastPeers(h)))
+    // timed from the first viewer, so a player opened on a fresh engine is not left waiting a full period
+    if (viewers.size && now - swarmPolledAt >= SWARM_POLL_MS) {
+      swarmPolledAt = now
+      for (const h of viewers.keys()) void session.trackers(h)
+    }
 
     post({ type: 'state', torrents: snapshot(), reachable: session.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
