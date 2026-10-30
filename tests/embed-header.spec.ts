@@ -130,8 +130,16 @@ test.describe('the embedded player header', () => {
        * reading the download link here would measure something 40px from the left edge and pass
        * whatever the row did on the right, which is a check that cannot fail. The same goes for a
        * hidden readout, whose box is all zeros: the upload speed is one below 480px.
+       *
+       * Each readout is measured where it is PAINTED, its icon included: one squeezed narrower than its
+       * icon keeps a box that fits and draws the icon past it, and a 360px row passed here that way
+       * with the VPN icon over the peer count and the speed's icon 24px past the edge.
        */
-      const last = [...document.querySelectorAll('.media-information .item')].filter((el) => el.getClientRects().length).at(-1)
+      const painted = [...document.querySelectorAll('.media-information .item')]
+        .filter((el) => el.getClientRects().length)
+        .map((el) => [el.getBoundingClientRect(), el.querySelector('svg')!.getBoundingClientRect()] as const)
+        .map(([box, icon]) => ({ left: Math.min(box.left, icon.left), right: Math.max(box.right, icon.right) }))
+      const last = painted.at(-1)
       const shown = count?.querySelector(':scope > span')
       const links = document.querySelector('.player-links')
       const name = document.querySelector('.file-name')
@@ -139,7 +147,8 @@ test.describe('the embedded player header', () => {
       const group = document.querySelector('.media-information')
       if (!last || !links || !name || !group) return null
       return {
-        lastRight: last.getBoundingClientRect().right,
+        lastRight: last.right,
+        overlapping: painted.filter((item, i) => i > 0 && item.left < painted[i - 1]!.right - 0.5).length,
         linksLeft: links.getBoundingClientRect().left,
         linksRight: links.getBoundingClientRect().right,
         nameRight: name.getBoundingClientRect().right,
@@ -151,6 +160,7 @@ test.describe('the embedded player header', () => {
     })
     expect(edges, 'the row is missing the items this measures').not.toBeNull()
     expect(edges!.lastRight, 'the last readout hangs off the right edge').toBeLessThanOrEqual(edges!.width)
+    expect(edges!.overlapping, 'a readout is drawn over the one before it').toBe(0)
     // a count that loses a digit is wrong, where a speed that ellipsizes is still a speed
     expect(edges!.countCut, 'the peer count is cut').toBe(false)
     expect(edges!.linksLeft, 'the links start off the left edge').toBeGreaterThanOrEqual(0)
