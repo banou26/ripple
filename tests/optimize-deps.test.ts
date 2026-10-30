@@ -33,6 +33,7 @@ const lateEntries: Record<string, string> = {
   // the engine worker writes through it
   '@banou/ponyfill/file-system': '../src/torrent/opfs-storage.ts',
   'react-router': '../src/router/index.tsx',
+  'react-intl': '../src/i18n/index.ts',
 }
 
 const optimizeInclude = (config: string): string[] => {

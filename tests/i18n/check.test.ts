@@ -1,0 +1,237 @@
+// scripts/i18n-check.mjs on trees written for each case, every rule against an input that breaks it, then on the repo.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+
+import { afterAll, describe, expect, test } from 'vitest'
+
+// a plain .mjs beside the other build scripts, so its exports arrive untyped
+import { check, extract, fix } from '../../scripts/i18n-check.mjs'
+
+type Problem = { file: string, line?: number, message: string }
+
+const EPISODES = '{count, plural, one {# episode} other {# episodes}}'
+const VIEW = 'src/view.tsx'
+
+// the code's messages, declared as a table of them
+const messages = (...english: string[]) =>
+  `import { defineMessages } from 'react-intl'\nexport const MESSAGES = defineMessages({\n${english.map((text, index) => `  m${index}: { id: ${JSON.stringify(text)}, defaultMessage: ${JSON.stringify(text)} },`).join('\n')}\n})\n`
+
+const roots: string[] = []
+afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }) })
+
+const tree = ({ english = [EPISODES, 'Play'], code = {}, catalogues = {}, offered = ['en'], unwrapped = {} }: {
+  english?: string[]
+  code?: Record<string, string>
+  catalogues?: Record<string, Record<string, string>>
+  offered?: string[]
+  unwrapped?: Record<string, string[]>
+}) => {
+  const root = mkdtempSync(join(tmpdir(), 'ripple-i18n-check-'))
+  roots.push(root)
+  const write = (path: string, content: string) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), content)
+  }
+  write('package.json', '{}')
+  write('src/i18n/offered.json', JSON.stringify(offered))
+  write('scripts/i18n-unwrapped.json', JSON.stringify(unwrapped))
+  write('src/messages.ts', messages(...english))
+  for (const [file, source] of Object.entries(code)) write(file, source)
+  for (const [language, catalogue] of Object.entries(catalogues)) write(`src/locales/${language}.json`, JSON.stringify(catalogue))
+  return root
+}
+
+const problems = (input: Parameters<typeof tree>[0]): Problem[] => check(tree(input))
+const said = (input: Parameters<typeof tree>[0]) => problems(input).map(({ file, line, message }) => `${file}${line ? `:${line}` : ''} ${message}`)
+
+// a component formatting `call`, on line 4
+const formatting = (call: string) =>
+  `import { useIntl } from 'react-intl'\nexport const View = ({ text }: { text: string }) => {\n  const intl = useIntl()\n  return <p>{${call}}</p>\n}\n`
+
+const FRENCH = { Play: 'Lecture', [EPISODES]: '{count, plural, one {# épisode} other {# épisodes}}' }
+
+test('the repo passes', () => {
+  expect(check(resolve(__dirname, '../..'))).toEqual([])
+}, 60_000)
+
+test('a tree as ripple keeps it passes: an offered catalogue complete, another partial, a listed file still holding text', () => {
+  expect(problems({
+    catalogues: { fr: FRENCH, ru: { Play: 'Воспроизвести' } },
+    offered: ['en', 'fr'],
+    code: { [VIEW]: 'export const View = () => <p>Play</p>\n' },
+    unwrapped: { home: [VIEW] },
+  })).toEqual([])
+}, 60_000)
+
+// src/i18n/said.ts's forPage is named as react-intl's so that both tools read the engine worker's messages
+test('a message the worker writes through forPage is extracted and linted like any other', () => {
+  const worker = (id: string) => `import { forPage } from './said'\nexport const failed = forPage.formatMessage({ id: '${id}', defaultMessage: 'Not a magnet link' })\n`
+  expect(extract(tree({ english: [], code: { 'src/worker.ts': worker('Not a magnet link') } }))).toEqual({ 'Not a magnet link': 'Not a magnet link' })
+  expect(said({ english: [], code: { 'src/worker.ts': worker('not-a-magnet') } }).map(line => line.slice(0, line.indexOf(':', line.indexOf(':') + 1)))).toEqual(['src/worker.ts:2 formatjs(enforce-id)'])
+}, 60_000)
+
+describe('the plural forms each language needs', () => {
+  test('English needs one and other, which a =1 branch stands in for', () => {
+    expect(said({ english: ['{count, plural, other {# episodes}}'] })).toEqual(['src "{count, plural, other {# episodes}}" lacks the plural branch count: one'])
+    expect(said({ english: ['{count, plural, =1 {one episode} other {# episodes}}'] })).toEqual([])
+  })
+
+  test('Russian needs few and many, Arabic all six', () => {
+    expect(said({ catalogues: { ru: { [EPISODES]: '{count, plural, one {# серия} other {# серий}}' } } })).toEqual([
+      `src/locales/ru.json "${EPISODES}" lacks the plural branch count: few`,
+      `src/locales/ru.json "${EPISODES}" lacks the plural branch count: many`,
+    ])
+    expect(said({ catalogues: { ar: { [EPISODES]: '{count, plural, zero {a} one {b} two {c} few {d} many {e} other {f}}' } } })).toEqual([])
+    expect(said({ catalogues: { ar: { [EPISODES]: '{count, plural, one {b} other {f}}' } } })).toHaveLength(4)
+  })
+
+  test('Japanese needs other alone, and French no many', () => {
+    expect(said({ catalogues: { ja: { [EPISODES]: '{count, plural, other {#話}}' }, fr: FRENCH } })).toEqual([])
+  })
+
+  test('an offset applies to the forms, not to an =N branch', () => {
+    const OTHERS = '{count, plural, offset:1 =0 {Nobody} =1 {You} other {You and # others}}'
+    expect(said({ english: [OTHERS] })).toEqual([`src "${OTHERS}" lacks the plural branch count: one`])
+  })
+
+  test('a selectordinal needs the ordinal forms', () => {
+    expect(said({ english: ['{n, selectordinal, one {#st} other {#th}}'] })).toEqual([
+      'src "{n, selectordinal, one {#st} other {#th}}" lacks the plural branch n: few',
+      'src "{n, selectordinal, one {#st} other {#th}}" lacks the plural branch n: two',
+    ])
+    expect(said({ english: ['{n, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}'] })).toEqual([])
+  })
+
+  test('a plural inside a select or a tag needs its forms too', () => {
+    const KIND = '{kind, select, audio {{count, plural, one {# track} other {# tracks}}} other {{count, plural, one {# file} other {# files}}}}'
+    expect(said({ english: [KIND], catalogues: { ru: { [KIND]: '{kind, select, audio {{count, plural, one {# дорожка} other {# дорожек}}} other {{count, plural, one {# файл} other {# файлов}}}}' } } })).toEqual(
+      ['few', 'many', 'few', 'many'].map(form => `src/locales/ru.json "${KIND}" lacks the plural branch count: ${form}`),
+    )
+    const BOLD = '<b>{count, plural, one {# episode} other {# episodes}}</b>'
+    expect(said({ english: [BOLD], catalogues: { ru: { [BOLD]: '<b>{count, plural, one {# серия} other {# серий}}</b>' } } })).toEqual(
+      ['few', 'many'].map(form => `src/locales/ru.json "${BOLD}" lacks the plural branch count: ${form}`),
+    )
+  })
+})
+
+// `#` and `{count, number}` group a count where `{count}` writes it as given, and formatjs verify takes them alike: a
+// German # writes One Piece's 1100 episodes as 1.100
+test('a translation writes # or {count, number} only where its English does', () => {
+  const GIVEN = '{count, plural, one {{count} Episode} other {{count} Episodes}}'
+  expect(said({ english: [GIVEN], catalogues: { de: { [GIVEN]: '{count, plural, one {{count} Folge} other {{count} Folgen}}' } } })).toEqual([])
+  expect(said({ english: [GIVEN], catalogues: { de: { [GIVEN]: '{count, plural, one {eine Folge} other {# Folgen}}' } } })).toEqual([
+    `src/locales/de.json "${GIVEN}" writes #, which groups a count, where its English does not`,
+  ])
+  expect(said({ english: [GIVEN], catalogues: { de: { [GIVEN]: '{count, plural, one {{count, number} Folge} other {{count, number} Folgen}}' } } })).toEqual([
+    `src/locales/de.json "${GIVEN}" writes {count, number}, which groups a count, where its English does not`,
+  ])
+  const VIEWS = '{count, number} views'
+  expect(said({ english: [VIEWS], catalogues: { de: { [VIEWS]: '{count, number} Aufrufe' } } })).toEqual([])
+})
+
+// formatjs verify counts a message's values across all its branches and reads no select key
+test('a translation keeps each select branch of its English, naming the values that branch names', () => {
+  const AUDIO = '{who, select, self {you set audio to {track}} other {{member} set audio to {track}}}'
+  const PAUSED = '{who, select, self {you paused} other {{member} paused}}'
+  expect(said({ english: [AUDIO, PAUSED], catalogues: { pl: { [PAUSED]: '{who, select, self {ty: pauza} other {{member}: pauza}}', [AUDIO]: '{who, select, other {{member}: dźwięk {track}} self {ty: dźwięk {track}}}' } } })).toEqual([])
+  expect(said({ english: [AUDIO], catalogues: { ko: { [AUDIO]: '{who, select, self {오디오를 바꿨어요} other {{member} 님이 오디오를 {track}(으)로 바꿨어요}}' } } })).toEqual([
+    `src/locales/ko.json "${AUDIO}" names no value in the select branch who: self, where its English names {track}`,
+  ])
+  expect(said({ english: [PAUSED], catalogues: { ja: { [PAUSED]: '{who, select, me {あなたが一時停止しました} other {{member} が一時停止しました}}' } } })).toEqual([
+    `src/locales/ja.json "${PAUSED}" lacks the select branch who: self`,
+    `src/locales/ja.json "${PAUSED}" has the select branch who: me, which its English lacks`,
+  ])
+})
+
+describe('each message as the linter holds it, since no gate runs the linter', () => {
+  // each problem's file, line and rule
+  const rules = (call: string) => problems({ code: { [VIEW]: formatting(call) } }).map(({ file, line, message }) => `${file}:${line} ${message.slice(0, message.indexOf(':'))}`)
+
+  test('a message written as ripple writes them passes', () => {
+    expect(rules("intl.formatMessage({ id: 'Hi {name}#greeting', defaultMessage: 'Hi {name}', description: 'greeting' }, { name: text })")).toEqual([])
+  })
+
+  test.each<[string, string, string[]]>([
+    ['no id', "intl.formatMessage({ defaultMessage: 'Play' })", ['formatjs(enforce-id)']],
+    ['an id other than its English', "intl.formatMessage({ id: 'play', defaultMessage: 'Play' })", ['formatjs(enforce-id)']],
+    ['no English', "intl.formatMessage({ id: 'Pause' })", ['formatjs(enforce-default-message)', 'formatjs(enforce-id)']],
+    ['a value left out', "intl.formatMessage({ id: 'Hi {name}', defaultMessage: 'Hi {name}' })", ['formatjs(enforce-placeholders)']],
+    ['English that does not parse', "intl.formatMessage({ id: '{count, plural, one {#}', defaultMessage: '{count, plural, one {#}' }, { count: 1 })", ['formatjs(enforce-placeholders)', 'formatjs(no-invalid-icu)', 'formatjs(no-multiple-whitespaces)']],
+    ['two spaces in a row', "intl.formatMessage({ id: 'Hi  there', defaultMessage: 'Hi  there' })", ['formatjs(no-multiple-whitespaces)']],
+  ])('%s fails', (_, call, broken) => {
+    expect(rules(call)).toEqual(broken.map(rule => `${VIEW}:4 ${rule}`))
+  })
+
+  test('English that is no literal stops the check, and --fix before it drops that message\'s translation', () => {
+    const root = tree({ code: { [VIEW]: formatting("intl.formatMessage({ id: 'Pause', defaultMessage: text })") }, catalogues: { fr: { Pause: 'Pause', ...FRENCH } } })
+    const french = readFileSync(join(root, 'src/locales/fr.json'), 'utf8')
+    expect(() => check(root)).toThrow(/`defaultMessage` must be a string literal/)
+    expect(() => fix(root)).toThrow(/`defaultMessage` must be a string literal/)
+    expect(readFileSync(join(root, 'src/locales/fr.json'), 'utf8')).toBe(french)
+  })
+})
+
+describe('no em or en dash', () => {
+  test('in the English', () => {
+    expect(said({ english: ['Play \u2014 now'] })).toEqual(['src "Play \u2014 now" has an em or en dash: "Play \u2014 now"'])
+  })
+
+  test('in a catalogue', () => {
+    expect(said({ catalogues: { fr: { Play: 'Lecture \u2013 maintenant' } } })).toEqual(['src/locales/fr.json "Play" has an em or en dash: "Lecture \u2013 maintenant"'])
+  })
+})
+
+test('a catalogue not sorted by id fails', () => {
+  expect(said({ catalogues: { fr: { [EPISODES]: FRENCH[EPISODES], Play: 'Lecture' } } })).toEqual(['src/locales/fr.json is not sorted by id'])
+})
+
+describe('the catalogues against the English, by formatjs verify', () => {
+  test('an offered language lacking an id fails, one not offered yet may', () => {
+    const lacking = said({ catalogues: { fr: { Play: 'Lecture' } }, offered: ['en', 'fr'] })
+    expect(lacking).toHaveLength(1)
+    expect(lacking[0]).toMatch(/^src\/locales formatjs verify --missing-keys: .*locale fr:\n\{count, plural/s)
+    expect(said({ catalogues: { fr: { Play: 'Lecture' } } })).toEqual([])
+  })
+
+  test('an offered language with no catalogue fails', () => {
+    expect(said({ offered: ['en', 'fr'] })).toEqual(['src/locales/fr.json fr is offered and has no catalogue'])
+  })
+
+  test('an id no code uses fails', () => {
+    expect(said({ catalogues: { fr: { Old: 'Vieux', Play: 'Lecture' } } }).join()).toMatch(/--extra-keys: .*locale fr:\nOld/s)
+  })
+
+  test('a translation naming other values than its English fails, and one that does not parse', () => {
+    expect(said({ english: ['Signed in to {site}.'], catalogues: { fr: { 'Signed in to {site}.': 'Connecté à {name}.' } } }).join()).toMatch(/--structural-equality --extra-keys: .*Missing variable site/s)
+    expect(said({ catalogues: { fr: { [EPISODES]: '{count, plural, one {# épisode}' } } }).join()).toMatch(/--structural-equality --extra-keys: .*MISSING_OTHER_CLAUSE/s)
+  })
+})
+
+describe('text outside a message, which only the unwrapped list\'s files may hold', () => {
+  const VIEW_CODE = 'export const View = () => (\n  <div>\n    <p>Play</p>\n    <input placeholder="Search torrents" />\n  </div>\n)\n'
+
+  test('a file it does not list fails on each string, by line', () => {
+    expect(said({ code: { [VIEW]: VIEW_CODE } })).toEqual([`${VIEW}:3 "Play" is not in a message`, `${VIEW}:4 "placeholder=\\"Search torrents\\"" is not in a message`])
+  })
+
+  test('a file it lists that has no text left, or is gone, fails', () => {
+    expect(said({ code: { [VIEW]: 'export const View = () => <p>{1}</p>\n' }, unwrapped: { home: [VIEW, 'src/gone.tsx'] } })).toEqual([
+      `scripts/i18n-unwrapped.json lists ${VIEW}, which has no text left to wrap`,
+      'scripts/i18n-unwrapped.json lists src/gone.tsx, which has no text left to wrap',
+    ])
+  })
+})
+
+test('--fix sorts each catalogue, drops ids no code uses beside the ids it lacks, and the listed files with no text', () => {
+  const root = tree({
+    english: [EPISODES, 'Play', 'Pause'],
+    catalogues: { fr: { [EPISODES]: FRENCH[EPISODES], Old: 'Vieux', Play: 'Lecture' } },
+    code: { [VIEW]: 'export const View = () => <p>Play</p>\n', 'src/done.tsx': 'export const Done = () => null\n' },
+    unwrapped: { home: [VIEW, 'src/done.tsx'] },
+  })
+  expect(fix(root)).toEqual(['src/locales/fr.json: dropped, no code uses them:\n  "Old": "Vieux"\n  beside the ids it lacks:\n  "Pause"'])
+  expect(readFileSync(join(root, 'src/locales/fr.json'), 'utf8')).toBe(`${JSON.stringify({ Play: 'Lecture', [EPISODES]: FRENCH[EPISODES] }, null, 2)}\n`)
+  expect(JSON.parse(readFileSync(join(root, 'scripts/i18n-unwrapped.json'), 'utf8'))).toEqual({ home: [VIEW] })
+  expect(existsSync(join(root, 'src/done.tsx'))).toBe(true)
+}, 60_000)
