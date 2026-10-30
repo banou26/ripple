@@ -1,3 +1,4 @@
+import type { LinkLanguages } from './embed-link'
 import type { EncodedMagnet } from './magnet-codec'
 
 export enum Route {
@@ -39,7 +40,7 @@ type AddOptions = { magnet: string, name?: string }
 
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
 /** No `mode`: the path is what chooses the page, and neither page reads a parameter for it. */
-type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: string, language?: string }
+type EmbedOptions = EmbedSource & LinkLanguages & { fileIndex?: string, files?: string, f?: string }
 
 /**
  * What the library page accepts, which is one torrent to open when it loads.

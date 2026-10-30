@@ -40,7 +40,8 @@ export const compileFileSelection = (indices: number[], fileCount: number): stri
 
 /**
  * The languages a link names, which every link a page writes from its own carries on: a parameter of this kind is
- * read in `linkLanguages`, written in `embedPath`, and nowhere else. `language` is the embedder's page's, a BCP 47 tag.
+ * read in `linkLanguages` and nowhere else, and `embedPath` writes every key it is given, so a parameter the link does
+ * not name is left out, never undefined. `language` is the embedder's page's, a BCP 47 tag.
  */
 export type LinkLanguages = { language?: string }
 
@@ -92,7 +93,7 @@ export type EmbedLink = LinkLanguages & {
  * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
  * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
-export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, language }: EmbedLink): string | null => {
+export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, ...linked }: EmbedLink): string | null => {
   const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
   // spread rather than a computed key, so the two parameter names stay distinguishable to the type
@@ -106,7 +107,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, languag
    * putting it first buried the one part of the URL a person can actually parse behind forty
    * characters of noise. A link is read left to right, and truncated from the right.
    */
-  const options: { files?: string, fileIndex?: string, language?: string } = {}
+  const options: { files?: string, fileIndex?: string } = {}
   if (mode === 'download') {
     /*
      * The selection and NOTHING about the files themselves.
@@ -125,10 +126,9 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, languag
   } else if (fileIndex != null) {
     options.fileIndex = String(fileIndex)
   }
-  if (language) options.language = language
 
   // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
-  return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.WATCH, { ...options, ...source })
+  return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.WATCH, { ...options, ...linked, ...source })
 }
 
 /** The absolute link to hand somebody, against the origin this app is served from. */
