@@ -252,12 +252,13 @@ test.describe('startup breakdown', () => {
 //
 // The embedder is a page of this origin that runs no engine (/legal): Chrome refuses a page
 // Playwright fulfils a frame of a loopback address. Nothing asserts a duration; the table and the
-// JSON carry the result.
+// JSON carry the result. It runs only when asked (RIPPLE_NEXT_ROUNDS), since a round takes minutes
+// and holds the whole of Sintel first, and what it checks is next-in-place.spec.ts's.
 
 const PLAYING = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const NEXT = process.env.RIPPLE_NEXT_MAGNET ?? DEFAULT_MAGNET
 const ARMS = (process.env.RIPPLE_NEXT_ARMS ?? 'cold,button,80').split(',')
-const ROUNDS = Number(process.env.RIPPLE_NEXT_ROUNDS ?? 1)
+const ROUNDS = Number(process.env.RIPPLE_NEXT_ROUNDS ?? 0)
 const BUTTON_LEAD_MS = 3_000
 const LONG_LEAD_MS = 150_000
 const HOLD_BUDGET_MS = Number(process.env.RIPPLE_HOLD_BUDGET_MS ?? 300_000)
@@ -352,6 +353,7 @@ const runSwitch = async (browser: Browser, arm: string, index: number) => {
 }
 
 test.describe('next file in place', () => {
+  test.skip(!ROUNDS, 'a measurement taken on request: RIPPLE_NEXT_ROUNDS=3')
   test('times an in-place open of the next file, cold and prepared', async ({ browser }, testInfo) => {
     test.setTimeout((HOLD_BUDGET_MS + LONG_LEAD_MS + FRAME_BUDGET_MS + 60_000) * ROUNDS * ARMS.length)
     const runs: Awaited<ReturnType<typeof runSwitch>>[] = []
