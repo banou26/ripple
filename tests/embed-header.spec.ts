@@ -144,6 +144,7 @@ test.describe('the embedded player header', () => {
       const links = document.querySelector('.player-links')
       const name = document.querySelector('.file-name')
       const counter = document.querySelector('.downloaded') ?? document.querySelector('.loading-information')
+      const status = document.querySelector('.loading-information')
       const group = document.querySelector('.media-information')
       if (!last || !links || !name || !group) return null
       return {
@@ -154,6 +155,8 @@ test.describe('the embedded player header', () => {
         nameRight: name.getBoundingClientRect().right,
         counterLeft: counter ? counter.getBoundingClientRect().left : null,
         groupLeft: group.getBoundingClientRect().left,
+        groupBottom: group.getBoundingClientRect().bottom,
+        statusTop: status ? status.getBoundingClientRect().top : null,
         width: window.innerWidth,
         countCut: shown ? shown.scrollWidth > shown.clientWidth : null,
       }
@@ -174,6 +177,15 @@ test.describe('the embedded player header', () => {
       expect(edges!.linksRight, 'the links are not in front of the byte counter').toBeLessThanOrEqual(edges!.counterLeft)
     }
     expect(edges!.linksRight, 'the links are not in front of the readouts').toBeLessThanOrEqual(edges!.groupLeft)
+    /*
+     * With both links and four readouts a 360px row has no room left for the status line in any font,
+     * so it goes under the readouts. Squeezed beside them it wraps in a narrow box that fits the row
+     * and passes every check above.
+     */
+    if (edges!.statusTop !== null) {
+      expect(edges!.statusTop, 'the status line is squeezed beside the readouts, not under them')
+        .toBeGreaterThanOrEqual(edges!.groupBottom - 0.5)
+    }
 
     // the readouts fold their words at this width and their icons stay, which is what makes it fit
     await expect(page.getByTestId('torrent-state').locator('span')).toBeHidden()
