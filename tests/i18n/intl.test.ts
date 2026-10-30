@@ -83,7 +83,10 @@ describe('a description tells apart two messages spelled alike, and is part of t
 
 describe('fallbacks', () => {
   beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}) })
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
 
   test('a key the catalogue lacks renders the English, with English plurals and numbers', async () => {
     const fr = await start('fr', {}, ['fr-FR'])
@@ -105,6 +108,34 @@ describe('fallbacks', () => {
     const english = await startLanguage({ language: 'fr', languages: ['fr-FR'], html: html(shown), catalogues: { '../locales/fr.json': () => Promise.reject(new Error('offline')) } })
     expect(english.formatMessage(FILES, { count: 1180 })).toBe('1,180 files')
     expect(shown.lang).toBe('en')
+  })
+
+  describe('a catalogue that takes its time', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+
+    const answer = (language: Parameters<typeof startLanguage>[0]) => {
+      const shown = element()
+      const seen = { done: false }
+      const started = startLanguage({ ...language, languages: ['fr-FR'], html: html(shown) }).finally(() => { seen.done = true })
+      return { shown, seen, started }
+    }
+
+    test('is waited for 3 seconds, and past that leaves English and English marks', async () => {
+      const { shown, seen, started } = answer({ language: 'fr', catalogues: { '../locales/fr.json': () => new Promise(() => {}) } })
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect(seen.done).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await started).formatMessage(FILES, { count: 1180 })).toBe('1,180 files')
+      expect(shown.lang).toBe('en')
+    })
+
+    test('still shows when it answers inside them', async () => {
+      const catalogue = new Promise<Catalogue>(resolve => { setTimeout(() => resolve({ Pause: 'Mettre en pause' }), 2_999) })
+      const { shown, started } = answer({ language: 'fr', catalogues: { '../locales/fr.json': () => catalogue } })
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect((await started).formatMessage(message('Pause'))).toBe('Mettre en pause')
+      expect(shown.lang).toBe('fr')
+    })
   })
 
   test('a language with no catalogue at all leaves English', async () => {
