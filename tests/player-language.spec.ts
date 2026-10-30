@@ -15,12 +15,14 @@ const expectLabels = async (scope: Pick<import('@playwright/test').Page, 'getByL
   for (const label of labels) await expect(scope.getByLabel(label, { exact: true })).toBeVisible()
 }
 
-/** Every catalogue the page fetches, from here on. */
+/** Every catalogue the page fetches from here on, and FormatJS's chunk, which comes with the first of them. */
 const catalogues = (page: import('@playwright/test').Page) => {
   const fetched: string[] = []
   page.on('request', (request) => {
-    const language = /\/([a-z]{2}(?:-[A-Za-z0-9]+)?)-[\w-]{8}-[\w-]{8}\.js$/.exec(new URL(request.url()).pathname)?.[1]
+    const { pathname } = new URL(request.url())
+    const language = /\/([a-z]{2}(?:-[A-Za-z0-9]+)?)-[\w-]{8}-[\w-]{8}\.js$/.exec(pathname)?.[1]
     if (language) fetched.push(language)
+    if (/\/intl-[\w-]{8}\.js$/.test(pathname)) fetched.push('intl')
   })
   return fetched
 }
@@ -32,10 +34,10 @@ test.describe('in an English browser', () => {
     const fetched = catalogues(page)
     await page.goto(watch('&language=fr'))
     await expectLabels(page, FRENCH)
-    expect(fetched).toEqual(['fr'])
+    expect(fetched.sort()).toEqual(['fr', 'intl'])
   })
 
-  test('a link with an unknown language shows the player in the browser\'s, and fetches nothing', async ({ page }) => {
+  test('a link with an unknown language shows the player in English, and fetches nothing', async ({ page }) => {
     const fetched = catalogues(page)
     await page.goto(watch('&language=xx'))
     await expectLabels(page, ENGLISH)
@@ -65,13 +67,15 @@ test.describe('in a French browser', () => {
     const fetched = catalogues(page)
     await page.goto(watch())
     await expectLabels(page, FRENCH)
-    expect(fetched).toEqual(['fr'])
+    expect(fetched.sort()).toEqual(['fr', 'intl'])
   })
 
-  test('a malformed language shows the player in the browser\'s', async ({ page }) => {
-    await page.goto(watch('&language=fr_FR'))
-    await expectLabels(page, FRENCH)
-  })
+  for (const tag of ['fr_FR', 'xx', 'sv']) {
+    test(`a link with language=${tag}, which the player cannot use, shows it in the browser's`, async ({ page }) => {
+      await page.goto(watch(`&language=${tag}`))
+      await expectLabels(page, FRENCH)
+    })
+  }
 
   // the viewer picked English in the page around the frame: nothing of the browser's French is fetched
   test('a link with language=en shows the player in English', async ({ page }) => {
