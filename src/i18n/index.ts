@@ -9,7 +9,7 @@ import { createIntl, createIntlCache, RawIntlProvider, type IntlShape } from 're
 
 import type { Said } from './said'
 
-import { formatLocale, isRightToLeft, uiLanguage } from './languages'
+import { formatLocale, isRightToLeft, setUnitLocale, uiLanguage } from './languages'
 
 export { LANGUAGE_KEY, OFFERED, bestLanguage, formatLocale, isRightToLeft, readPickedLanguage, uiLanguage } from './languages'
 export type { Said } from './said'
@@ -76,6 +76,7 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
   ])
   const shown = catalogue ? language : 'en'
   intl = intlOf(shown, formatLocale(shown, languages), catalogue ?? {})
+  setUnitLocale(intl.locale)
   if (html) {
     html.lang = shown
     if (isRightToLeft(shown)) html.dir = 'rtl'

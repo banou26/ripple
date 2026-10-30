@@ -1,8 +1,9 @@
 import type { TorrentSnapshot } from '../../src/torrent/client'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { isActive, snapshotState } from '../../src/torrent/use-torrents'
+import { startLanguage } from '../../src/i18n'
+import { isActive, snapshotState, snapshotToTorrent } from '../../src/torrent/use-torrents'
 
 /**
  * What a row CALLS a torrent, which is the only description of it most people ever read.
@@ -113,5 +114,23 @@ describe('which torrents count as active', () => {
     expect(isActive(snapshotState(snap({ state: 3 })))).toBe(true)
     // and a complete torrent the engine parked is genuinely not transferring
     expect(isActive(snapshotState(snap({ state: 5, paused: true })))).toBe(false)
+  })
+})
+
+describe('how long a download has left', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+  const eta = (seconds: number) =>
+    snapshotToTorrent(snap({ state: 3, totalWanted: seconds * 1000, totalDone: 0, downloadRate: 1000 })).eta
+
+  it('seconds, then minutes and padded seconds, then hours and minutes', () => {
+    expect(eta(45)).toBe('45s')
+    expect(eta(65)).toBe('1m 05s')
+    expect(eta(3_900)).toBe('1h 5m')
+  })
+
+  it('follows the language of the page', async () => {
+    await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
+    expect(eta(3_900)).toBe('1h 5min')
   })
 })

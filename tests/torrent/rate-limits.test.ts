@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import { startLanguage } from '../../src/i18n'
 import {
   BYTES_PER_KB,
   NO_LIMITS,
@@ -140,6 +141,19 @@ describe('how a limit reads', () => {
     expect(formatLimit(12_000_000)).toBe('12 MB/s')
   })
 
+  it('never groups a number', () => {
+    expect(formatLimit(999_999)).toBe('1000 kB/s')
+    expect(formatLimit(1_234_000_000)).toBe('1234 MB/s')
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+    it('French writes its own units and its own decimal comma', async () => {
+      await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
+      expect([formatLimit(500_000), formatLimit(1_500_000)].map(limit => limit.replace(/\s/gu, ' '))).toEqual(['500 ko/s', '1,5 Mo/s'])
+    })
+  })
 })
 
 /**

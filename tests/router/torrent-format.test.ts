@@ -1,8 +1,9 @@
 import type { Torrent } from '../../src/torrent/types'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { relativeDay, retryLine } from '../../src/router/torrent-format'
+import { startLanguage } from '../../src/i18n'
+import { relativeDay, retryLine, speed } from '../../src/router/torrent-format'
 
 /**
  * The strings a row says about itself.
@@ -61,6 +62,23 @@ describe('what a retrying row says', () => {
     expect(retryLine(t(), retry({ retryInSeconds: 2 }))).toContain('retrying in 2s')
     expect(retryLine(t(), retry({ retryInSeconds: 90 }))).toContain('retrying in 2m')
     expect(retryLine(t(), retry({ retryInSeconds: 0 }))).toContain('retrying now')
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+  it('writes how long ago, and how long until a retry, in French units', async () => {
+    await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
+    const now = Date.UTC(2026, 9, 26)
+    expect(relativeDay(now - 3 * 3_600_000, now)).toBe('3h')
+    expect(relativeDay(now - 3 * 86_400_000, now)).toBe('3j')
+    expect(retryLine(t(), retry({ retryInSeconds: 90 }))).toContain('retrying in 2min')
+  })
+
+  it('writes a row\'s speed with the language\'s own per second', async () => {
+    await startLanguage({ language: 'ja', languages: ['ja-JP'], catalogues: { '../locales/ja.json': async () => ({}) } })
+    expect(speed(1_500_000).replace(/\s/gu, ' ')).toBe('1.5 MB/秒')
   })
 })
 

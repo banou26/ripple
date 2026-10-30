@@ -10,6 +10,7 @@ import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
 import { cloudRestoreSettled } from './use-cloud-backup'
 import { holdWhileStored } from '../utils/page-work'
+import { writeDuration } from './uptime'
 
 // keys are libtorrent torrent_status state_t
 const STATE: Record<number, TorrentState> = {
@@ -57,9 +58,9 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
   if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return 'queued'
   const s = Math.round(remain / status.downloadRate)
-  if (s < 60) return s + 's'
-  if (s < 3600) return Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'
-  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
+  if (s < 60) return writeDuration({ seconds: s })
+  if (s < 3600) return writeDuration({ minutes: Math.floor(s / 60), seconds: s % 60 })
+  return writeDuration({ hours: Math.floor(s / 3600), minutes: Math.floor((s % 3600) / 60) })
 }
 
 /**

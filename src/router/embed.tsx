@@ -10,7 +10,7 @@ import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
-import { getHumanReadableByteString } from '../utils/bytes'
+import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
@@ -664,14 +664,14 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
           <TooltipDisplay
             id="download-speed"
             tooltipPlace="bottom-end"
-            text={<div className="item"><ArrowDown /><span>{getHumanReadableByteString(info.downloadSpeed, true)}/s</span></div>}
-            toolTipText={<span>Download speed: {getHumanReadableByteString(info.downloadSpeed)}/s</span>}
+            text={<div className="item"><ArrowDown /><span>{getHumanReadableSpeed(info.downloadSpeed, true)}</span></div>}
+            toolTipText={<span>Download speed: {getHumanReadableSpeed(info.downloadSpeed)}</span>}
           />
           <TooltipDisplay
             id="upload-speed"
             tooltipPlace="bottom-end"
-            text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
-            toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
+            text={<div className="item"><ArrowUp /><span>{getHumanReadableSpeed(info.uploadSpeed, true)}</span></div>}
+            toolTipText={<span>Upload speed: {getHumanReadableSpeed(info.uploadSpeed)}</span>}
           />
           {/* audio and subtitle pickers live in the player's own settings menu now */}
         </div>

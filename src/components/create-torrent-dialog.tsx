@@ -26,6 +26,7 @@ import type { TorrentFormat } from '../torrent/make-torrent'
 
 import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH, contentFiles, dropsFolderName } from '../torrent/make-torrent'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { writeDuration } from '../torrent/uptime'
 import { hashEta } from '../torrent/hash-pieces'
 import { Modal } from './modal'
 
@@ -462,7 +463,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               <p className="faint">
                 {state.progress
                   ? `${getHumanReadableByteString(state.progress.hashedBytes)} of ${getHumanReadableByteString(state.progress.totalBytes)}`
-                    + (eta === undefined ? '' : ` · about ${eta}s left`)
+                    + (eta === undefined ? '' : ` · about ${writeDuration({ seconds: eta })} left`)
                     + ` · ${state.progress.path}`
                   : 'starting…'}
               </p>

@@ -35,7 +35,7 @@ import {
 } from '../torrent/save-file'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useReachability } from '../torrent/use-reachability'
-import { getHumanReadableByteString } from '../utils/bytes'
+import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { magnetInfoHash, magnetParam } from '../torrent/magnet'
@@ -1107,7 +1107,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
           {busy && !status && (
             <div className="swarm" data-testid="swarm">
               <span className="item"><User />{peers} peers</span>
-              <span className="item"><ArrowDown />{getHumanReadableByteString(rate, true)}/s</span>
+              <span className="item"><ArrowDown />{getHumanReadableSpeed(rate, true)}</span>
             </div>
           )}
 

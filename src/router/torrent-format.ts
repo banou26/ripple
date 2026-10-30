@@ -1,6 +1,7 @@
 import type { Torrent } from '../torrent/types'
 
-import { getHumanReadableByteString } from '../utils/bytes'
+import { writeDuration } from '../torrent/uptime'
+import { getHumanReadableSpeed } from '../utils/bytes'
 
 /**
  * The few strings both views of the library need.
@@ -22,7 +23,7 @@ export const STATE_LABEL: Record<Torrent['state'], string> = {
   starting: 'Starting',
 }
 
-export const speed = (bps: number): string => `${getHumanReadableByteString(bps, true)}/s`
+export const speed = (bps: number): string => getHumanReadableSpeed(bps, true)
 
 /**
  * How long ago, in the shortest form that is still true.
@@ -33,8 +34,8 @@ export const speed = (bps: number): string => `${getHumanReadableByteString(bps,
 export const relativeDay = (ms: number | undefined, now = Date.now()): string => {
   if (!ms) return '-'
   const days = (now - ms) / 86_400_000
-  if (days < 1) return Math.max(1, Math.round(days * 24)) + 'h'
-  if (days < 7) return Math.round(days) + 'd'
+  if (days < 1) return writeDuration({ hours: Math.max(1, Math.round(days * 24)) })
+  if (days < 7) return writeDuration({ days: Math.round(days) })
   const d = new Date(ms)
   return d.toLocaleDateString(
     undefined,
@@ -62,7 +63,7 @@ export const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): str
   const wait = retry.retryInSeconds <= 0
     ? 'retrying now'
     : retry.retryInSeconds < 60
-      ? `retrying in ${retry.retryInSeconds}s`
-      : `retrying in ${Math.ceil(retry.retryInSeconds / 60)}m`
+      ? `retrying in ${writeDuration({ seconds: retry.retryInSeconds })}`
+      : `retrying in ${writeDuration({ minutes: Math.ceil(retry.retryInSeconds / 60) })}`
   return `${reason} · ${wait}`
 }

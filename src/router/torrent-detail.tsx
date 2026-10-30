@@ -15,6 +15,8 @@ import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { getHumanReadableByteString } from '../utils/bytes'
+import { writeDuration } from '../torrent/uptime'
+import { speed } from './torrent-format'
 import { contentFiles } from '../torrent/types'
 import { hint } from '../components/hint'
 
@@ -47,7 +49,6 @@ const MAX_HEIGHT = 720
 const DEFAULT_HEIGHT = 300
 
 const bytes = (n: number) => getHumanReadableByteString(n, true)
-const speed = (n: number) => `${bytes(n)}/s`
 const pct = (fraction: number) => `${(fraction * 100).toFixed(fraction > 0 && fraction < 0.01 ? 2 : 0)}%`
 
 /** `Pack/Season 1/E01.mkv` reads as `E01.mkv` with the rest kept, quieter, in front of it. */
@@ -58,10 +59,10 @@ const splitPath = (path: string): [string, string] => {
 
 const seconds = (s: number): string => {
   if (s < 0) return '-'
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.round(s / 60)}m`
-  if (s < 86_400) return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`
-  return `${Math.floor(s / 86_400)}d ${Math.round((s % 86_400) / 3600)}h`
+  if (s < 60) return writeDuration({ seconds: s })
+  if (s < 3600) return writeDuration({ minutes: Math.round(s / 60) })
+  if (s < 86_400) return writeDuration({ hours: Math.floor(s / 3600), minutes: Math.round((s % 3600) / 60) })
+  return writeDuration({ days: Math.floor(s / 86_400), hours: Math.round((s % 86_400) / 3600) })
 }
 
 /** Unix SECONDS, which is what libtorrent deals in; 0 means it has not happened. */
