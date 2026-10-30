@@ -37,6 +37,8 @@ export default defineConfig({
   outputDir: 'test-results/ramp',
   use: {
     baseURL: BASE_URL ?? `http://127.0.0.1:${PORT}`,
+    // ripple's text, dates and numbers follow the browser's language, so a runner's own never changes what a test reads
+    locale: 'en-US',
     trace: process.env.RIPPLE_BENCH_TRACE === '1' ? 'retain-on-failure' : 'off',
   },
   webServer: BASE_URL

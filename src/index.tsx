@@ -4,6 +4,7 @@ import { css, Global } from '@emotion/react'
 import { createRoot } from 'react-dom/client'
 
 import Mount from './components/mount'
+import { IntlRoot, startLanguage } from './i18n'
 import { PAGE_BG, TEXT } from './theme'
 
 const style = css`
@@ -64,12 +65,13 @@ const rootElem = document.body.appendChild(document.createElement('div'))
 rootElem.classList.add('mount')
 const root = createRoot(rootElem)
 
-root.render(
-  <>
+// no top-level await: the service worker's load listener below must be added before a catalogue arrives
+void startLanguage().then(() => root.render(
+  <IntlRoot>
     <Global styles={style}/>
     <Mount/>
-  </>
-)
+  </IntlRoot>
+))
 
 /**
  * The worker makes the app installable, which is what lets the OS route .torrent files and magnet

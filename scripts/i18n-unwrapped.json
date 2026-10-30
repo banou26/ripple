@@ -1,0 +1,41 @@
+{
+  "a-home": [
+    "src/router/home.tsx"
+  ],
+  "b-list": [
+    "src/components/account-widget.tsx",
+    "src/components/list-toolbar.tsx",
+    "src/components/mount.tsx",
+    "src/components/persist-control.tsx",
+    "src/components/sample-offer.tsx",
+    "src/components/storage-warning.tsx",
+    "src/components/updating.tsx",
+    "src/components/vpn-stat.tsx",
+    "src/router/torrent-table.tsx"
+  ],
+  "c-options": [
+    "src/components/confirm-dialog.tsx",
+    "src/components/menu.tsx",
+    "src/components/rate-limit-dialog.tsx",
+    "src/components/torrent-options-dialog.tsx"
+  ],
+  "d-details": [
+    "src/router/torrent-detail.tsx"
+  ],
+  "e-add-share-create": [
+    "src/components/add-torrent-dialog.tsx",
+    "src/components/create-torrent-dialog.tsx",
+    "src/components/share-link-dialog.tsx"
+  ],
+  "f-download": [
+    "src/router/download.tsx"
+  ],
+  "g-player": [
+    "src/router/embed.tsx"
+  ],
+  "kept-in-english": [
+    "src/components/legal-doc.tsx",
+    "src/router/legal.tsx",
+    "src/router/privacy.tsx"
+  ]
+}

@@ -31,6 +31,7 @@
     "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && shx cp README.md build/README.md && shx cp LICENSE build/LICENSE && copyfiles -u 2 ./src/assets/* build/assets && node scripts/build-sw.mjs",
     "lint": "vp lint",
     "typecheck": "tsc --noEmit",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "test": "vitest run --project unit",
     "test:e2e": "npm run test:e2e:local && npm run test:e2e:machine && npm run test:e2e:swarm",
     "test:pause": "npm run build && playwright test --project=chromium tests/stale-pause-flag.spec.ts",
@@ -73,6 +74,7 @@
     "osra": "^0.6.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-intl": "^12.1.5",
     "react-router": "^7.4.0",
     "react-router-dom": "^7.4.0",
     "react-tooltip": "^5.28.0"
@@ -83,6 +85,8 @@
     "vitest": "4.1.11"
   },
   "devDependencies": {
+    "@formatjs/cli": "^6.16.35",
+    "@formatjs/icu-messageformat-parser": "^3.5.22",
     "@playwright/test": "1.58.0",
     "@rollup/plugin-inject": "^5.0.3",
     "@types/node": "^25.9.3",
@@ -95,6 +99,7 @@
     "@vitest/browser-playwright": "4.1.11",
     "copyfiles": "^2.4.1",
     "eslint": "^8.45.0",
+    "eslint-plugin-formatjs": "^8.1.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
     "jassub": "^2.5.23",

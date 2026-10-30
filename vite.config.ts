@@ -7,6 +7,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
 import jassubOwnAssets from './vite-plugin-jassub-own-assets.mjs'
+import { MESSAGE_RULES } from './scripts/i18n-check.mjs'
+
+// Node reads its default locale (Intl's, navigator.languages) from the environment once, as a worker starts, so the
+// test runner sets it here, before any worker: a runner's own locale never changes what a unit test reads
+if (process.env.VITEST) process.env.LC_ALL = 'en_US.UTF-8'
 
 /** system Chrome, because playwright's own browser download does not work on NixOS */
 const findChrome = () => {
@@ -118,7 +123,7 @@ type ServerResponseLike = { setHeader: (name: string, value: string) => void, en
 export default defineConfig((env) => ({
   fmt: { semi: false, singleQuote: true },
   lint: {
-    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }, { name: 'formatjs', specifier: 'eslint-plugin-formatjs' }],
     /*
      * `react` is OFF in oxlint by default, and a rule from a disabled plugin is IGNORED IN SILENCE:
      * no "unknown rule", no warning, just nothing. Naming the two hooks rules without this line
@@ -173,6 +178,7 @@ export default defineConfig((env) => ({
        */
       'typescript/no-non-null-assertion': 'error',
       'typescript/no-explicit-any': 'error',
+      ...MESSAGE_RULES,
     },
     options: { typeAware: true, typeCheck: true },
     overrides: [
@@ -258,6 +264,8 @@ export default defineConfig((env) => ({
       // back to index.html, vite pre-transforms its /src/index.tsx, and that reaches the only
       // `react-router` import. A tree with a build never shows it.
       'react-router',
+      // the same way: /src/index.tsx reaches it through src/i18n
+      'react-intl',
     ],
   },
   worker: {
@@ -305,7 +313,8 @@ export default defineConfig((env) => ({
             headless: !process.env.RIPPLE_HEADFUL,
             // --mute-audio because this is the owner's machine and a browser test can autoplay
             // whatever a component renders. Output only, so no measurement here can change.
-            provider: playwright({ launchOptions: { executablePath: findChrome(), args: ['--mute-audio'] } }),
+            // en-US because ripple's text, dates and numbers follow the browser's language
+            provider: playwright({ launchOptions: { executablePath: findChrome(), args: ['--mute-audio'] }, contextOptions: { locale: 'en-US' } }),
             // explicit: the default is a 414px phone, and the player chrome branches on 768px
             instances: [{ browser: 'chromium', viewport: { width: 1280, height: 720 } }],
           },
