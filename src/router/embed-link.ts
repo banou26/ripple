@@ -38,7 +38,32 @@ export const compileFileSelection = (indices: number[], fileCount: number): stri
   return parts.join(',')
 }
 
-export type EmbedLink = {
+/**
+ * The languages a link names, which every link a page writes from its own carries on: a parameter of this kind is
+ * read in `linkLanguages`, written in `embedPath`, and nowhere else. `language` is the embedder's page's, a BCP 47 tag.
+ */
+export type LinkLanguages = { language?: string }
+
+/**
+ * `@banou/media-player`'s languages as it matches them, by language alone (`es-MX` finds `es-419`). It exports none,
+ * so tests/router/embed-link.test.ts holds this to the installed player.
+ */
+const PLAYER_LANGUAGES = new Set(['de', 'en', 'es', 'fr', 'it', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'zh'])
+
+/**
+ * Embedder-written text, so nothing of it is handed on as written: `language` is left out for a tag Intl cannot read
+ * or a language the player has no text in, and comes back canonical, without extensions.
+ */
+export const linkLanguages = (params: URLSearchParams): LinkLanguages => {
+  try {
+    const { language, baseName } = new Intl.Locale(params.get('language') ?? '')
+    return PLAYER_LANGUAGES.has(language) ? { language: baseName } : {}
+  } catch {
+    return {}
+  }
+}
+
+export type EmbedLink = LinkLanguages & {
   magnet: string
   mode: EmbedMode
   /**
@@ -67,7 +92,7 @@ export type EmbedLink = {
  * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
  * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
-export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: EmbedLink): string | null => {
+export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, language }: EmbedLink): string | null => {
   const encoded = encodeMagnetParam(magnet)
   if (encoded === null) return null
   // spread rather than a computed key, so the two parameter names stay distinguishable to the type
@@ -81,7 +106,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
    * putting it first buried the one part of the URL a person can actually parse behind forty
    * characters of noise. A link is read left to right, and truncated from the right.
    */
-  const options: { files?: string, fileIndex?: string } = {}
+  const options: { files?: string, fileIndex?: string, language?: string } = {}
   if (mode === 'download') {
     /*
      * The selection and NOTHING about the files themselves.
@@ -100,6 +125,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex }: Embed
   } else if (fileIndex != null) {
     options.fileIndex = String(fileIndex)
   }
+  if (language) options.language = language
 
   // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
   return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.WATCH, { ...options, ...source })

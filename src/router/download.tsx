@@ -25,6 +25,7 @@ import {
 import { ArrowDown, Check, Download, File as FileIcon, Folder, Link2, Play, User } from 'lucide-react'
 
 import type { SaveEntry } from '../torrent/save-file'
+import type { LinkLanguages } from './embed-link'
 import type { FileSelection } from './file-selection'
 import {
   DownloadUnavailableError,
@@ -536,9 +537,10 @@ type Props = {
    * can ask for files and can never assert what they are.
    */
   selection: FileSelection
+  linked: LinkLanguages
 }
 
-const DownloadPage = ({ magnet, selection }: Props) => {
+const DownloadPage = ({ magnet, selection, linked }: Props) => {
   const { client, snapshot, handle, viewer, claim, release, engineError, storageFull } = useDownloadTorrent(magnet)
   /**
    * Whether anything is carrying peer traffic, which is the one explanation this page never had.
@@ -853,8 +855,8 @@ const DownloadPage = ({ magnet, selection }: Props) => {
   const watchHere = useMemo(() => {
     if (!magnet || !watchable) return null
     // null when the magnet cannot be encoded at all, which is the same answer as having no link
-    return embedPath({ magnet, mode: 'watch', fileIndex: watchable.index })
-  }, [magnet, watchable])
+    return embedPath({ magnet, mode: 'watch', fileIndex: watchable.index, ...linked })
+  }, [magnet, watchable, linked])
 
   // libtorrent reports a path relative to the torrent root, so a multi-file release repeats its
   // folder in front of every entry; the folder is already the heading here

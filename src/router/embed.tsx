@@ -21,7 +21,7 @@ import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
-import { embedPath } from './embed-link'
+import { embedPath, linkLanguages } from './embed-link'
 import { useEmbedder } from './embedder'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
@@ -380,6 +380,7 @@ const Player = () => {
    * empty player.
    */
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
+  const linked = useMemo(() => linkLanguages(searchParams), [searchParams])
   // parsed as /download parses it, so the two routes agree on what a link names. With no file
   // named, the hook plays the torrent's video file.
   const named = useMemo(() => {
@@ -391,7 +392,7 @@ const Player = () => {
   const prepare = usePrepare()
   useEmbedder((ask) => {
     if (ask.ripple === 'prepare') return prepare({ magnet: ask.magnet, fileIndex: ask.fileIndex })
-    const path = embedPath({ magnet: ask.magnet, mode: 'watch', fileIndex: ask.fileIndex })
+    const path = embedPath({ magnet: ask.magnet, mode: 'watch', fileIndex: ask.fileIndex, ...linked })
     if (path) void navigate(path, { replace: true })
   })
   // a player of its own for each file, so nothing of the last one's state reaches the next
@@ -705,6 +706,7 @@ const Player = () => {
         preferredSubtitleLanguage={languages.subtitles}
         onPreferredAudioLanguageChange={(audio) => chooseLanguage({ audio })}
         onPreferredSubtitleLanguageChange={(subtitles) => chooseLanguage({ subtitles })}
+        language={linked.language ?? navigator.languages[0]}
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}
@@ -731,6 +733,7 @@ const Player = () => {
 const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
   const [searchParams] = useSearchParams()
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
+  const linked = useMemo(() => linkLanguages(searchParams), [searchParams])
   const selection = useMemo(
     () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),
     [searchParams],
@@ -740,7 +743,7 @@ const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
    * the real one. Undefined for anything unreadable, which is the same as it never being there.
    */
 
-  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} />
+  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} linked={linked} />
   return <Player />
 }
 

@@ -611,6 +611,14 @@ describe('offering to watch instead', () => {
     expect(href, 'the position was used instead of the engine index').not.toContain('fileIndex=1')
   })
 
+  it('keeps the link\'s language on the way to the player, and refuses what the player would', async () => {
+    const screen = await mount('&language=fr')
+    expect((screen.container.querySelector('a.watch') as HTMLAnchorElement).getAttribute('href')).toContain('language=fr')
+    await screen.unmount()
+    const refused = await mount('&language=xx')
+    expect((refused.container.querySelector('a.watch') as HTMLAnchorElement).getAttribute('href')).not.toContain('language')
+  })
+
   /** A link naming the subtitles should not offer to play the video it did not ask for. */
   it('asks only about the files the link named', async () => {
     const screen = await mount('&files=3')
