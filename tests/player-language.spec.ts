@@ -35,7 +35,7 @@ test.describe('in an English browser', () => {
     const fetched = catalogues(page)
     await page.goto(watch('&language=fr'))
     await expectLabels(page, FRENCH)
-    expect(fetched.sort()).toEqual(['fr', 'intl'])
+    expect(fetched.sort()).toEqual(['fr'])
   })
 
   test('a link with an unknown language shows the player in English, and fetches nothing', async ({ page }) => {
@@ -68,7 +68,7 @@ test.describe('in a French browser', () => {
     const fetched = catalogues(page)
     await page.goto(watch())
     await expectLabels(page, FRENCH)
-    expect(fetched.sort()).toEqual(['fr', 'intl'])
+    expect(fetched.sort()).toEqual(['fr'])
   })
 
   for (const tag of ['fr_FR', 'xx', 'sv']) {
