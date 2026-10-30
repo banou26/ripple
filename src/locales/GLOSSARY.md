@@ -27,24 +27,35 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 
 ## Register and torrent terms
 
-The words each language's own torrent clients use, qBittorrent's first, so a ripple user reads what they expect. The
-options menu's names (Force recheck, Download in sequential order, Super seeding mode and the like) follow that
-language's qBittorrent the same way.
+The words of each language's qBittorrent (`src/lang/qbittorrent_<lang>.ts` in its repo, finished translations only, `es`
+for `es-419`), so a ripple user reads what they expect. This table decides: the notes under it name each cell that
+differs from qBittorrent, and why. The options menu's names (Force recheck, Download in sequential order, Super seeding
+mode and the like) have no column here and follow that language's qBittorrent the same way.
 
 | | register | torrent | magnet link | seeder, leecher | peer | tracker | piece |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `es-419` | tú, infinitive on buttons | torrent | enlace magnet | semilla, leecher | par | tracker | pieza |
-| `pt-BR` | você, infinitive on buttons | torrent | link magnet | seeder, leecher | par | tracker | pedaço |
-| `fr` | vous, infinitive on buttons | torrent | lien magnet | seeder, leecher | pair | tracker | morceau |
+| `pt-BR` | você, infinitive on buttons | torrent | link magnético | semeador, leecher | par | rastreador | pedaço |
+| `fr` | vous, infinitive on buttons | torrent | lien magnet | source complète, source partielle | pair | tracker | morceau |
 | `de` | du, infinitive on buttons | Torrent | Magnet-Link | Seeder, Leecher | Peer | Tracker | Teil |
-| `it` | tu | torrent | link magnet | seeder, leecher | peer | tracker | parte |
-| `ru` | вы | торрент | магнет-ссылка | сид, лич | пир | трекер | часть |
-| `ja` | です・ます where a sentence is needed | トレント | マグネットリンク | シーダー, リーチャー | ピア | トラッカー | ピース |
-| `ko` | 해요체 where a sentence is needed | 토렌트 | 마그넷 링크 | 시더, 리처 | 피어 | 트래커 | 조각 |
-| `zh-Hans` | 你 | 种子 | 磁力链接 | 做种者, 下载者 | 节点 | Tracker | 区块 |
-| `zh-Hant` | 你 | 種子 | 磁力連結 | 做種者, 下載者 | 節點 | Tracker | 區塊 |
-| `tr` | siz | torrent | magnet bağlantısı | gönderen, çeken | eş | izleyici | parça |
-| `pl` | ty, or impersonal | torrent | link magnet | seed, leech | peer | tracker | część |
+| `it` | tu | torrent | collegamento magnet | sorgente, sorgente parziale | peer | tracker | parte |
+| `ru` | вы | торрент | магнит-ссылка | сид, лич | пир | трекер | часть |
+| `ja` | です・ます where a sentence is needed | Torrent | マグネットリンク | シーダー, リーチャー | ピア | トラッカー | ピース |
+| `ko` | 해요체 where a sentence is needed | 토렌트 | 마그넷 링크 | 배포자, 공유자 | 피어 | 트래커 | 조각 |
+| `zh-Hans` | 你 | torrent | 磁力链接 | 做种者, 下载者 | 用户 | Tracker | 区块 |
+| `zh-Hant` | 你 | torrent | 磁力連結 | 種子, 下載者 | 用戶 | 追蹤者 | 分塊 |
+| `tr` | siz | torrent | magnet bağlantısı | gönderen, çeken | kişi | izleyici | parça |
+| `pl` | ty, or impersonal | torrent | odnośnik magnet | seedujący, pijawka | partner | tracker | część |
+
+Where this differs from qBittorrent:
+
+- `es-419` leecher: qBittorrent's `Pares` is its word for a peer.
+- `it` peer: qBittorrent mostly writes `Nodi`, its word for a DHT node too, and sometimes `Peer`.
+- `zh-Hans` seeder and leecher: qBittorrent's `做种` and `下载` are column titles, and `下载` alone reads as a download.
+- `zh-Hant` peer: qBittorrent's `下載者` is its word for a leecher too, and ripple shows both, so it takes the word
+  `zh-Hans` uses. Never `節點` or `节点`, which is a DHT node.
+
+In Chinese `种子` and `種子` are a seed and never a torrent, which stays `torrent` as qBittorrent writes it.
 
 ## Ripple's own words
 
