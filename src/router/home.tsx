@@ -50,7 +50,7 @@ import {
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
-import { getHumanReadableByteString } from '../utils/bytes'
+import { getHumanReadableByteString, getRoundedSpeed } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
@@ -109,13 +109,6 @@ const droppable = (data: DataTransfer | null): boolean => {
 }
 
 
-const rate = (bytesPerSecond: number): string => {
-  const mbs = bytesPerSecond / 1_000_000
-  if (mbs >= 1000) return `${Math.round(mbs / 1000)} GB/s`
-  if (mbs >= 1) return `${Math.round(mbs)} MB/s`
-  return `${Math.round(bytesPerSecond / 1000)} KB/s`
-}
-
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   if (quota.premium) {
     return (
@@ -129,7 +122,7 @@ const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
     return (
       <div className="stat quota throttled">
         <label>FKN quota</label>
-        <strong>Throttled · {rate(quota.bytesPerSecond)}</strong>
+        <strong>Throttled · {getRoundedSpeed(quota.bytesPerSecond)}</strong>
         <a href="https://fkn.app/account" target="_blank" rel="noreferrer">Get full speed</a>
       </div>
     )

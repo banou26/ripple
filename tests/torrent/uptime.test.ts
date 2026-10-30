@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import type { Totals } from '../../src/torrent/uptime'
 
-import { NO_UPTIME, WRITE_EVERY_SECONDS, accumulate, formatDuration, mergeTotals, sessionTotals, totalUptime, worthWriting } from '../../src/torrent/uptime'
+import { startLanguage } from '../../src/i18n'
+import { NO_UPTIME, WRITE_EVERY_SECONDS, accumulate, formatDuration, mergeTotals, sessionTotals, totalUptime, worthWriting, writeDuration } from '../../src/torrent/uptime'
 
 const at = (activeSeconds: number, seedingSeconds = 0) => ({ activeSeconds, seedingSeconds })
 
@@ -61,6 +62,44 @@ describe('when it is worth writing to disk', () => {
   it('writes for a torrent with nothing stored yet', () => {
     expect(worthWriting(undefined, at(WRITE_EVERY_SECONDS, 0))).toBe(true)
     expect(worthWriting(undefined, at(1, 0))).toBe(false)
+  })
+})
+
+describe('writing a duration', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+  it('writes every unit it is given, a zero included', () => {
+    expect(writeDuration({ hours: 1, minutes: 0 })).toBe('1h 0m')
+    expect(writeDuration({ days: 1, hours: 0 })).toBe('1d 0h')
+  })
+
+  it('pads seconds after minutes, and only there', () => {
+    expect(writeDuration({ minutes: 5, seconds: 3 })).toBe('5m 03s')
+    expect(writeDuration({ seconds: 3 })).toBe('3s')
+  })
+
+  it('never groups a long one', () => {
+    expect(formatDuration(86_400 * 1_000)).toBe('1000d')
+  })
+
+  it('writes rather than throwing on what no duration should be', () => {
+    expect(writeDuration({ seconds: 1.5 })).toBe('1.5s')
+    expect(() => writeDuration({ days: NaN, hours: NaN })).not.toThrow()
+    expect(() => writeDuration({ days: Infinity })).not.toThrow()
+    expect(() => writeDuration({ days: 1e300 })).not.toThrow()
+  })
+
+  it('follows the language of the page', async () => {
+    const duration = (language: string) => startLanguage({ language, languages: [language], catalogues: { [`../locales/${language}.json`]: async () => ({}) } })
+      .then(() => formatDuration(3_900).replace(/\s/gu, ' '))
+    expect(await duration('fr')).toBe('1h 5min')
+    expect(await duration('ru')).toBe('1 ч 5 мин')
+    expect(await duration('ko')).toBe('1시간 5분')
+  })
+
+  it('any English reads as ripple has always written it', async () => {
+    await startLanguage({ language: 'en', languages: ['en-CA'] })
+    expect(formatDuration(3_900)).toBe('1h 5m')
   })
 })
 

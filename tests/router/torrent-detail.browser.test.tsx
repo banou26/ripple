@@ -1,7 +1,7 @@
 import type { Torrent } from '../../src/torrent/types'
 import type { PeerInfo, TrackerInfo } from '../../src/torrent/worker'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 /**
@@ -27,6 +27,7 @@ vi.mock('../../src/torrent/client', () => ({
 }))
 
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')
+const { startLanguage } = await import('../../src/i18n')
 // the dock carries its own css template, so unlike the old per-row panel it needs no page around it
 
 const torrent = (over: Partial<Torrent> = {}): Torrent => ({
@@ -216,6 +217,16 @@ describe('the docked torrent details', () => {
     const screen = await mount()
     await expect.element(screen.getByText('1h 0m (15m this session)')).toBeInTheDocument()
     await expect.element(screen.getByText('2m (1m this session)')).toBeInTheDocument()
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+    it('writes its durations in it', async () => {
+      await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
+      const screen = await mount()
+      await expect.element(screen.getByText('1h 0min (15min this session)')).toBeInTheDocument()
+    })
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {

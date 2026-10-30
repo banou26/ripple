@@ -52,6 +52,20 @@ export const readPickedLanguage = (): string | undefined => {
   return kept && OFFERED.includes(kept) ? kept : undefined
 }
 
+let unitTag = 'en-US'
+
+/**
+ * The locale sizes, speeds and durations are written in: the page's, any English as US English, as ripple has always
+ * written them. Here rather than beside `intl` because the worker imports rate-limits.ts and uptime.ts, which read it,
+ * and must not load react-intl.
+ */
+export const unitLocale = () => unitTag
+
+/** Makes `locale`, the page's `intl.locale`, unitLocale()'s answer. */
+export const setUnitLocale = (locale: string) => {
+  unitTag = localeOf(locale)?.language === 'en' ? 'en-US' : locale
+}
+
 /** The language ripple's text is shown in: the one picked, else the offered one best serving the browser's, else English. */
 export const uiLanguage = (languages = browserLanguages(), offered = OFFERED) =>
   readPickedLanguage() ?? bestLanguage(languages, offered) ?? 'en'

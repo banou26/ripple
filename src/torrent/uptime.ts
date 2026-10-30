@@ -17,6 +17,8 @@
  * this only accumulates.
  */
 
+import { unitLocale } from '../i18n/languages'
+
 export type Uptime = {
   /** Seconds this torrent has been in the session, running, across all time. */
   activeSeconds: number
@@ -139,6 +141,24 @@ export const worthWriting = (stored: Uptime | undefined, next: Uptime): boolean 
   next.activeSeconds - clamp(stored?.activeSeconds) >= WRITE_EVERY_SECONDS
   || next.seedingSeconds - clamp(stored?.seedingSeconds) >= WRITE_EVERY_SECONDS
 
+const DURATION_UNIT = { days: 'day', hours: 'hour', minutes: 'minute', seconds: 'second' } as const
+
+/**
+ * `parts`, largest first, in the page's language: `2h 5m`, `2h 5min`, `2 ч 5 мин`, seconds after minutes in two digits.
+ * One NumberFormat per unit rather than Intl.DurationFormat, which writes English's 1000 days `1,000d` and throws on a
+ * fraction or a NaN, where a row should still render.
+ */
+export const writeDuration = (parts: Partial<Record<keyof typeof DURATION_UNIT, number>>): string =>
+  Object.entries(parts)
+    .map(([unit, count]) => new Intl.NumberFormat(unitLocale(), {
+      unit: DURATION_UNIT[unit],
+      style: 'unit',
+      unitDisplay: 'narrow',
+      useGrouping: false,
+      minimumIntegerDigits: unit === 'seconds' && parts.minutes !== undefined ? 2 : 1,
+    }).format(count))
+    .join(' ')
+
 /**
  * `3d 4h`, `2h 5m`, `45s`. Two units at most, largest first, and never a bare zero unit beside it.
  *
@@ -148,11 +168,11 @@ export const worthWriting = (stored: Uptime | undefined, next: Uptime): boolean 
  */
 export const formatDuration = (totalSeconds: number): string => {
   const seconds = clamp(totalSeconds)
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return writeDuration({ seconds })
   const days = Math.floor(seconds / 86_400)
   const hours = Math.floor((seconds % 86_400) / 3_600)
   const minutes = Math.floor((seconds % 3_600) / 60)
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  return `${minutes}m`
+  if (days > 0) return writeDuration(hours > 0 ? { days, hours } : { days })
+  if (hours > 0) return writeDuration(minutes > 0 ? { hours, minutes } : { hours })
+  return writeDuration({ minutes })
 }

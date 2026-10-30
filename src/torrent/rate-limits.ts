@@ -21,6 +21,8 @@
  * `worker.ts` carries them out.
  */
 
+import { writeSpeed } from '../utils/bytes'
+
 /** What a caller stores and what the engine is handed. Bytes per second, 0 meaning unlimited. */
 export type RateLimits = {
   down: number
@@ -115,9 +117,9 @@ export const formatLimit = (limit: number | undefined): string => {
   if (!isLimit(limit) || limit === UNLIMITED) return 'Unlimited'
   if (limit >= 1_000_000) {
     const mb = limit / 1_000_000
-    return `${mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10} MB/s`
+    return writeSpeed(mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10, 'megabyte')
   }
-  return `${Math.round(limit / BYTES_PER_KB)} kB/s`
+  return writeSpeed(Math.round(limit / BYTES_PER_KB), 'kilobyte')
 }
 
 /**
