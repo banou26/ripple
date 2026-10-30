@@ -1,4 +1,5 @@
 import type { MediaPlayerSource } from '@banou/media-player'
+import type { LinkLanguages } from './embed-link'
 import type { EmbedMode } from './file-selection'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -367,7 +368,7 @@ const playerStyle = css`
 // through a window in a frame shows it, since at the top level the page is already Ripple's
 const WINDOW_NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
 
-const Player = () => {
+const Player = ({ linked }: { linked: LinkLanguages }) => {
   const [searchParams] = useSearchParams()
   const { fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   /**
@@ -380,7 +381,6 @@ const Player = () => {
    * empty player.
    */
   const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
-  const linked = useMemo(() => linkLanguages(searchParams), [searchParams])
   // parsed as /download parses it, so the two routes agree on what a link names. With no file
   // named, the hook plays the torrent's video file.
   const named = useMemo(() => {
@@ -738,13 +738,9 @@ const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
     () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),
     [searchParams],
   )
-  /**
-   * The link's own description of the torrent, for the download page to show until the swarm sends
-   * the real one. Undefined for anything unreadable, which is the same as it never being there.
-   */
 
   if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} linked={linked} />
-  return <Player />
+  return <Player linked={linked} />
 }
 
 export default Embed
