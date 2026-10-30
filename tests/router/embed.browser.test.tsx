@@ -62,6 +62,11 @@ const withSwarm = (status: Record<string, number>, swarmDownloads = -1, displayD
   return torrent({ snapshot: { ...snapshot!, status: { ...snapshot!.status!, ...status }, swarmDownloads, displayDownloadRate } })
 }
 
+const VPN_ON = { port: 1, listeners: [{ up: true, healing: false }] }
+const ORDINARY = { numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }
+// an info hash, so both links are on the row as they are on a real watch link
+const WITH_LINKS = `?magnet=${btoa('magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film')}`
+
 const sized = ({ width, height }: { width: number, height: number }) => {
   const container = document.createElement('div')
   container.style.cssText = `width: ${width}px; height: ${height}px;`
@@ -230,10 +235,8 @@ describe('the watch route', () => {
    * ordinary figures every readout whole.
    */
   it('shows the whole peer count on a 360px phone, and every readout whole with ordinary figures', async () => {
-    const VPN_ON = { port: 1, listeners: [{ up: true, healing: false }] }
     // what a player shows as it starts
     const VPN_RECONNECTING = { port: null, listeners: [{ up: false, healing: true }] }
-    const ORDINARY = { numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }
     const WIDEST = { numPeers: 99999, numSeeds: 0, swarmSeeds: 99999, swarmPeers: 99999, uploadRate: 999_900_000 }
     const cases = [
       { name: 'ordinary', reachable: VPN_ON, status: ORDINARY, rate: 10_400_000, metadata: true },
@@ -242,13 +245,11 @@ describe('the watch route', () => {
       { name: 'starting', reachable: VPN_RECONNECTING, status: ORDINARY, rate: 0, metadata: false },
       { name: 'widest starting', reachable: VPN_RECONNECTING, status: WIDEST, rate: 0, metadata: false },
     ]
-    // an info hash, so both links are on the row as they are on a real watch link
-    const search = `?magnet=${btoa('magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film')}`
     for (const { name, reachable, status, rate, metadata } of cases) {
       state.reachable = reachable
       const playing = withSwarm(status, 8054, rate)
       state.current = metadata ? playing : { ...playing, snapshot: { ...playing.snapshot!, files: null } }
-      const screen = await mount(SMALL_PHONE, search)
+      const screen = await mount(SMALL_PHONE, WITH_LINKS)
       await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
       const shown = [...screen.container.querySelectorAll('.media-information .item')].filter((item) => item.getClientRects().length)
       const cut = shown.map((item) => item.querySelector(':scope > span')!)
@@ -265,6 +266,24 @@ describe('the watch route', () => {
         .toBeLessThanOrEqual(screen.container.firstElementChild!.getBoundingClientRect().right)
       expect(getComputedStyle(screen.container.querySelector('[data-tooltip-id="upload-speed"]')!).display, name).toBe('none')
       await screen.unmount()
+    }
+  })
+
+  // a frame is often 560 to 700px wide, and the swarm's words alone take about 140px of it
+  it('keeps every readout whole with ordinary figures in a frame of any width', async () => {
+    const forms = { swarm: ORDINARY, peers: { ...ORDINARY, swarmSeeds: -1, swarmPeers: -1 } }
+    for (const width of [480, 560, 640, 720, 768, 880, 960, 1280]) {
+      for (const [form, status] of Object.entries(forms)) {
+        state.reachable = VPN_ON
+        state.current = withSwarm(status, 8054, 10_400_000)
+        const screen = await mount({ width, height: 720 }, WITH_LINKS)
+        await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+        const cut = [...screen.container.querySelectorAll('.media-information .item > span')]
+          .filter((span) => span.getClientRects().length && span.scrollWidth > span.clientWidth)
+          .map((span) => span.textContent)
+        expect(cut, `${form} at ${width}px`).toEqual([])
+        await screen.unmount()
+      }
     }
   })
 

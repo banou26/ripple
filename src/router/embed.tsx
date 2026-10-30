@@ -333,9 +333,12 @@ const playerStyle = css`
     /*
      * The WORDS go when the row runs out of room, never the icons.
      *
-     * Same threshold and same reasoning as the downloaded counter above: on a phone this row is
-     * competing with the filename, and an icon still says which one is which where a truncated word
-     * does not. The tooltip carries the full sentence at every width.
+     * This row is competing with the filename, and an icon still says which one is which where a
+     * truncated word does not. The tooltip carries the full sentence at every width.
+     *
+     * Up to 768px, not the byte counter's 560: with the swarm's words an ordinary row (216 seeders ·
+     * 3 leechers, VPN On, 10.4 MB/s) showed 3px of VPN On and 9px of the speed at 560px in the runner's
+     * DejaVu Sans, and was whole only from 700px (measured 2026-10-30). A frame is often that wide.
      *
      * Three items fold, and the VPN one is here for a reason worth writing down. Its label is the
      * WIDEST thing in the row and it is only wide TRANSIENTLY: VPN On measures 72px and
@@ -353,7 +356,7 @@ const playerStyle = css`
     .item.vpn span,
     .item.count .word {
       display: none;
-      @media (min-width: 560px) {
+      @media (min-width: 768px) {
         display: inline;
       }
     }
