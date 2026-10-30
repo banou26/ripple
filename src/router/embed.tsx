@@ -78,7 +78,13 @@ const playerStyle = css`
 
     display: flex;
     align-items: center;
-    gap: calc(1.2 * var(--mp-unit));
+    /* the one spacing of this row and of the readouts in it, tighter on a phone: with 12px gaps a
+       360px row holding both links and four readouts cut an ordinary "10.4 MB/s" */
+    --ripple-gap: calc(0.8 * var(--mp-unit));
+    @media (min-width: 480px) {
+      --ripple-gap: calc(1.2 * var(--mp-unit));
+    }
+    gap: var(--ripple-gap);
 
     font-weight: 400;
     font-size: calc(1.2 * var(--mp-unit));
@@ -142,10 +148,24 @@ const playerStyle = css`
     color: inherit;
   }
 
-  /* two sentences, so they wrap rather than push the readouts off the row */
-  .loading-information.window-note {
+  .loading-information {
     min-width: 0;
     white-space: normal;
+  }
+
+  /*
+   * The status line (or the byte counter) and the readouts, on one line while both fit. When they do
+   * not, the status line goes UNDER the readouts and wraps there, so it is never cut and never pushes
+   * them off the row: in the runner's DejaVu Sans "Loading metadata…" alone is 121px, a third of a
+   * 360px phone's row (measured 2026-10-30).
+   */
+  .torrent-report {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap-reverse;
+    justify-content: flex-end;
+    align-items: center;
+    column-gap: var(--ripple-gap);
   }
 
   /*
@@ -164,6 +184,8 @@ const playerStyle = css`
    */
   .player-links {
     flex: none;
+    /* level with the readouts when the status line under them makes the row two lines tall */
+    align-self: flex-start;
     pointer-events: auto;
     display: flex;
     align-items: center;
@@ -216,7 +238,7 @@ const playerStyle = css`
     pointer-events: auto;
     display: flex;
     align-items: center;
-    gap: calc(1.2 * var(--mp-unit));
+    gap: var(--ripple-gap);
 
     /*
      * THE NUMBERS GIVE WAY FIRST.
@@ -250,9 +272,13 @@ const playerStyle = css`
      * The chain needs min-width at every level, because a flex item's automatic minimum is its own
      * content: leave it out anywhere and everything below is pinned to the text it is refusing to
      * shrink for.
+     *
+     * Never below the icons' 24px, though: the shrink is shared out by width, so a readout whose word
+     * is folded got squeezed under its own icon while a speed beside it still had text to give, and
+     * the icon was drawn over the next readout.
      */
     > [data-tooltip-id] {
-      min-width: 0;
+      min-width: 24px;
     }
 
     /* whatever is pressable holds its size, matched on what it IS rather than on a list of ids that
@@ -583,66 +609,68 @@ const Player = () => {
           />
         )}
       </div>
-      {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
-      {status
-        ? <div className={status === WINDOW_NOTE ? 'loading-information window-note' : 'loading-information'}>{status}</div>
-        : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
-      <div className="media-information" data-testid="media-information">
-        {stateLabel && (
+      <div className="torrent-report">
+        {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
+        {status
+          ? <div className="loading-information">{status}</div>
+          : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
+        <div className="media-information" data-testid="media-information">
+          {stateLabel && (
+            <TooltipDisplay
+              id="torrent-state"
+              tooltipPlace="bottom-end"
+              text={<div className="item state" data-testid="torrent-state"><Activity /><span>{stateLabel}</span></div>}
+              toolTipText={<span>Torrent: {stateLabel}</span>}
+            />
+          )}
+          {vpn && (
+            <TooltipDisplay
+              id="vpn"
+              /* The row is at the TOP of the picture, so a chip placed above it has nowhere to go and
+                 floating-ui rescues it by flipping to the SIDE, which lands the two rightmost chips
+                 150 to 220px away from the item they belong to. Naming the placement it would flip to
+                 anyway keeps every chip under its own item. */
+              tooltipPlace="bottom-end"
+              text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
+              toolTipText={<span>VPN: {vpn.label}</span>}
+            />
+          )}
           <TooltipDisplay
-            id="torrent-state"
+            id="peers"
             tooltipPlace="bottom-end"
-            text={<div className="item state" data-testid="torrent-state"><Activity /><span>{stateLabel}</span></div>}
-            toolTipText={<span>Torrent: {stateLabel}</span>}
+            text={swarm
+              ? (
+                <div className="item count" data-testid="peers">
+                  <Users />
+                  <span>{swarm.seeders}<span className="word"> seeder{swarm.seeders === 1 ? '' : 's'}</span> · {swarm.leechers}<span className="word"> leecher{swarm.leechers === 1 ? '' : 's'}</span></span>
+                </div>
+              )
+              : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}
+            toolTipText={swarm
+              ? (
+                <span>
+                  Seeders: {swarm.seeders}<br />
+                  Leechers: {swarm.leechers}<br />
+                  {downloads >= 0 && <>Downloads: {downloads}<br /></>}
+                  Connected peers: {info.peers}
+                </span>
+              )
+              : <span>Peers: {info.peers}</span>}
           />
-        )}
-        {vpn && (
           <TooltipDisplay
-            id="vpn"
-            /* The row is at the TOP of the picture, so a chip placed above it has nowhere to go and
-               floating-ui rescues it by flipping to the SIDE, which lands the two rightmost chips
-               150 to 220px away from the item they belong to. Naming the placement it would flip to
-               anyway keeps every chip under its own item. */
+            id="download-speed"
             tooltipPlace="bottom-end"
-            text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
-            toolTipText={<span>VPN: {vpn.label}</span>}
+            text={<div className="item"><ArrowDown /><span>{getHumanReadableByteString(info.downloadSpeed, true)}/s</span></div>}
+            toolTipText={<span>Download speed: {getHumanReadableByteString(info.downloadSpeed)}/s</span>}
           />
-        )}
-        <TooltipDisplay
-          id="peers"
-          tooltipPlace="bottom-end"
-          text={swarm
-            ? (
-              <div className="item count" data-testid="peers">
-                <Users />
-                <span>{swarm.seeders}<span className="word"> seeder{swarm.seeders === 1 ? '' : 's'}</span> · {swarm.leechers}<span className="word"> leecher{swarm.leechers === 1 ? '' : 's'}</span></span>
-              </div>
-            )
-            : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}
-          toolTipText={swarm
-            ? (
-              <span>
-                Seeders: {swarm.seeders}<br />
-                Leechers: {swarm.leechers}<br />
-                {downloads >= 0 && <>Downloads: {downloads}<br /></>}
-                Connected peers: {info.peers}
-              </span>
-            )
-            : <span>Peers: {info.peers}</span>}
-        />
-        <TooltipDisplay
-          id="download-speed"
-          tooltipPlace="bottom-end"
-          text={<div className="item"><ArrowDown /><span>{getHumanReadableByteString(info.downloadSpeed, true)}/s</span></div>}
-          toolTipText={<span>Download speed: {getHumanReadableByteString(info.downloadSpeed)}/s</span>}
-        />
-        <TooltipDisplay
-          id="upload-speed"
-          tooltipPlace="bottom-end"
-          text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
-          toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
-        />
-        {/* audio and subtitle pickers live in the player's own settings menu now */}
+          <TooltipDisplay
+            id="upload-speed"
+            tooltipPlace="bottom-end"
+            text={<div className="item"><ArrowUp /><span>{getHumanReadableByteString(info.uploadSpeed, true)}/s</span></div>}
+            toolTipText={<span>Upload speed: {getHumanReadableByteString(info.uploadSpeed)}/s</span>}
+          />
+          {/* audio and subtitle pickers live in the player's own settings menu now */}
+        </div>
       </div>
     </div>
   )

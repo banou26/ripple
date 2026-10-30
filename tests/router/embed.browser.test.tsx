@@ -238,14 +238,17 @@ describe('the watch route', () => {
     const cases = [
       { name: 'ordinary', reachable: VPN_ON, status: ORDINARY, rate: 10_400_000, metadata: true },
       { name: 'widest', reachable: VPN_RECONNECTING, status: WIDEST, rate: 999_900_000, metadata: true },
-      // a tracker answers before the metadata lands, and "Loading metadata…" does not shrink
+      // a tracker answers before the metadata lands, so "Loading metadata…" is on the row too
       { name: 'starting', reachable: VPN_RECONNECTING, status: ORDINARY, rate: 0, metadata: false },
+      { name: 'widest starting', reachable: VPN_RECONNECTING, status: WIDEST, rate: 0, metadata: false },
     ]
+    // an info hash, so both links are on the row as they are on a real watch link
+    const search = `?magnet=${btoa('magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film')}`
     for (const { name, reachable, status, rate, metadata } of cases) {
       state.reachable = reachable
       const playing = withSwarm(status, 8054, rate)
       state.current = metadata ? playing : { ...playing, snapshot: { ...playing.snapshot!, files: null } }
-      const screen = await mount(SMALL_PHONE)
+      const screen = await mount(SMALL_PHONE, search)
       await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
       const shown = [...screen.container.querySelectorAll('.media-information .item')].filter((item) => item.getClientRects().length)
       const cut = shown.map((item) => item.querySelector(':scope > span')!)
@@ -253,7 +256,12 @@ describe('the watch route', () => {
         .map((span) => span.textContent)
       expect(cut, `${name}: the peer count is cut`).not.toContain(screen.getByTestId('peers').element().textContent)
       if (name === 'ordinary') expect(cut, name).toEqual([])
-      expect(shown.at(-1)!.getBoundingClientRect().right, `${name}: the last readout hangs off the right edge`)
+      // where each readout is painted: one squeezed under its icon keeps a box that fits and draws the icon past it
+      const painted = shown.map((item) => [item.getBoundingClientRect(), item.querySelector('svg')!.getBoundingClientRect()] as const)
+        .map(([box, icon]) => ({ left: Math.min(box.left, icon.left), right: Math.max(box.right, icon.right) }))
+      expect(painted.filter((item, i) => i > 0 && item.left < painted[i - 1]!.right - 0.5), `${name}: a readout is drawn over the one before it`)
+        .toEqual([])
+      expect(painted.at(-1)!.right, `${name}: the last readout hangs off the right edge`)
         .toBeLessThanOrEqual(screen.container.firstElementChild!.getBoundingClientRect().right)
       expect(getComputedStyle(screen.container.querySelector('[data-tooltip-id="upload-speed"]')!).display, name).toBe('none')
       await screen.unmount()
@@ -320,11 +328,12 @@ describe('the watch route', () => {
     await expect.element(screen.getByText(NOTE)).toBeInTheDocument()
     const note = screen.container.querySelector('.loading-information')!
     expect(note.querySelector('a, button')).toBeNull()
-    // it wraps inside the row rather than pushing the readouts off the picture
+    // it wraps under the readouts rather than pushing them off the picture
     const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
     const player = screen.container.firstElementChild!.getBoundingClientRect()
     expect(readout.right).toBeLessThanOrEqual(player.right)
-    expect(note.getBoundingClientRect().right).toBeLessThanOrEqual(readout.left + 1)
+    expect(note.getBoundingClientRect().top).toBeGreaterThanOrEqual(readout.bottom - 1)
+    expect(note.getBoundingClientRect().right).toBeLessThanOrEqual(player.right)
   })
 
   it('leaves the note out of Ripple at the top level, the page it points to', async () => {
