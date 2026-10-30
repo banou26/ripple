@@ -992,6 +992,17 @@ const missingPieces = (h: number, fileIndex: number, offset: number, len: number
 }
 
 /**
+ * What a prepared file is charged on disk once its two bands land. OPFS charges a file from its start, so the tail
+ * costs its chunk from that chunk's start (up to 64 MiB for a few MiB fetched), and all of the file when it is one
+ * file on disk (no `chunkBytes`) or the head shares the tail's chunk.
+ */
+const bandsCharge = (size: number, pieceLength: number, chunkBytes?: number) => {
+  const tailFrom = Math.max(0, size - READ_SIZE - pieceLength)
+  const tailChunk = chunkBytes ? Math.floor(tailFrom / chunkBytes) * chunkBytes : 0
+  return Math.min(size, windowBytes(pieceLength) + size - tailChunk)
+}
+
+/**
  * What the files someone is watching still have to grow by, and what the file each of those
  * torrents last had a write refused to still owes, and the room each watched cache file may take
  * while the ceiling is fixed, which is what its window is sized to.
@@ -1001,6 +1012,8 @@ const missingPieces = (h: number, fileIndex: number, offset: number, len: number
  * still lacks. A windowed file owes only what its room still has free, and its refusals are the
  * window's to absorb. A file claimed by several viewers is counted once. The refused file is not
  * always a watched one: a download page holds the first file of a pack and writes the rest.
+ *
+ * A file only prepared owes what its two bands are charged ({@link bandsCharge}), not its size.
  */
 type Owed = { pendingBytes: number, refusedBytes: number, rooms: Map<number, number> }
 const owedByViewers = async (space: Space): Promise<Owed> => {
@@ -1012,13 +1025,21 @@ const owedByViewers = async (space: Space): Promise<Owed> => {
     const files = session?.files(h)
     const savePath = savePathByHandle.get(h)
     if (!live || !files || !watching.size || savePath === undefined || isGrantedSavePath(savePath)) continue
-    const measure = async (fileIndex: number) =>
-      ({ h, size: files.files[fileIndex]?.size ?? 0, held: (await live.usageOf(savePath, fileIndex)) ?? 0 })
+    const played = new Set([...watching.values()].filter((v) => !v.prepare).map((v) => v.fileIndex))
+    const chunkBytes = cache.chunkBytesOf(savePath)
+    const measure = async (fileIndex: number) => {
+      const size = files.files[fileIndex]?.size ?? 0
+      const bandsOnly = !played.has(fileIndex) && [...watching.values()].some((v) => v.prepare && v.fileIndex === fileIndex)
+      return {
+        h,
+        size: bandsOnly ? bandsCharge(size, files.pieceLength, isCacheSavePath(savePath) ? chunkBytes : undefined) : size,
+        held: (await live.usageOf(savePath, fileIndex)) ?? 0,
+      }
+    }
     const player = activeViewers(h).find((v) => !v.prepare)
     const windowable = !!ceiling?.fixed && ephemeralHandles.has(h) && isCacheSavePath(savePath)
-    // a prepared file wants its two bands and never its size, which the margin covers
-    for (const fileIndex of new Set([...watching.values()].filter((v) => !v.prepare).map((v) => v.fileIndex))) {
-      watched.push({ ...await measure(fileIndex), cache: windowable && fileIndex === player?.fileIndex, chunkBytes: cache.chunkBytesOf(savePath) })
+    for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) {
+      watched.push({ ...await measure(fileIndex), cache: windowable && fileIndex === player?.fileIndex, chunkBytes })
     }
     const refusal = live.refusedFile(savePath)
     if (refusal !== undefined) refused.push(await measure(refusal))

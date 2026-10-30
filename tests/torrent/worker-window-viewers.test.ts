@@ -123,7 +123,7 @@ const forgotten = (h: number) => state.events.filter(([what, of]) => what === 'f
 const lastKeep = (h: number) => state.keeps.get(h)?.at(-1) as { start: number, end: number }[] | undefined
 // the stretch the window wants ahead of the reader, in pieces
 const stretch = (h: number) => { const keep = lastKeep(h)!; return keep[1]!.end - keep[1]!.start }
-const pass = (n: number) => rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + String(n).repeat(40) })
+const pass = (n: number | string) => rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + String(n).repeat(40) })
 const add = async (hash: string, ephemeral: boolean): Promise<number> => {
   const before = rig.of('added').length
   rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + hash, ephemeral })
@@ -219,18 +219,30 @@ describe('a window and everything else reading', () => {
     await vi.waitFor(() => expect(stretch(b)).toBe((79 - 6) * 4))
   })
 
-  // a prepared file wants its head and tail, a few MiB the margin covers, never its size
-  it('takes none of the room for a file only prepared', async () => {
-    rig.send({ type: 'watch', viewer: 'next', handle: library, fileIndex: 0, fromOffset: 0, prepare: true })
+  // its head band (two pieces) and its last chunk, which the tail band is charged from its start
+  it('takes the room a prepared file is charged for its head and tail, never its size', async () => {
+    rig.send({ type: 'watch', viewer: 'next', handle: pack, fileIndex: 0, fromOffset: 0, prepare: true })
     pass(7)
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(stretch(a)).toBe((79 - 6) * 4)
-    // THE CONTROL: the same file watched owes its size
-    rig.send({ type: 'watch', viewer: 'l', handle: library, fileIndex: 0, fromOffset: 0 })
-    pass(8)
-    await vi.waitFor(() => expect(stretch(a)).not.toBe((79 - 6) * 4))
-    rig.send({ type: 'unwatch', viewer: 'l' })
+    // 32 MiB and 64 MiB less in the pool is 48 MiB less each, so 78 chunks
+    await vi.waitFor(() => expect(stretch(a)).toBe((78 - 6) * 4))
     rig.send({ type: 'unwatch', viewer: 'next' })
+    pass(8)
+    await vi.waitFor(() => expect(stretch(a)).toBe((79 - 6) * 4))
+  })
+
+  it('takes all of a prepared file that is one file on disk, as a player watching it would', async () => {
+    rig.send({ type: 'watch', viewer: 'next', handle: library, fileIndex: 0, fromOffset: 0, prepare: true })
+    pass('e')
+    // three GiB is 48 chunks, 24 from each film's share
+    await vi.waitFor(() => expect(stretch(a)).toBe((79 - 24 - 6) * 4))
+    rig.send({ type: 'unwatch', viewer: 'next' })
+    pass(0)
+    await vi.waitFor(() => expect(stretch(a)).toBe((79 - 6) * 4))
+    // THE CONTROL: the same file watched owes the same
+    rig.send({ type: 'watch', viewer: 'l', handle: library, fileIndex: 0, fromOffset: 0 })
+    pass('f')
+    await vi.waitFor(() => expect(stretch(a)).toBe((79 - 24 - 6) * 4))
+    rig.send({ type: 'unwatch', viewer: 'l' })
   })
 
   it('leaves a film its window beside the next file of its torrent being prepared', async () => {
