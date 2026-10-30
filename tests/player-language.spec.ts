@@ -10,6 +10,7 @@ const watch = (search = '') => `/watch?${new URLSearchParams({ magnet: Buffer.fr
 
 const FRENCH = ['Lecture', 'Paramètres', 'Plein écran']
 const ENGLISH = ['Play', 'Settings', 'Full screen']
+const RUSSIAN = ['Воспроизвести', 'Настройки', 'Во весь экран']
 
 const expectLabels = async (scope: Pick<import('@playwright/test').Page, 'getByLabel'>, labels: string[]) => {
   for (const label of labels) await expect(scope.getByLabel(label, { exact: true })).toBeVisible()
@@ -83,5 +84,35 @@ test.describe('in a French browser', () => {
     await page.goto(watch('&language=en'))
     await expectLabels(page, ENGLISH)
     expect(fetched).toEqual([])
+  })
+})
+
+test.describe('in a browser with no text in its first language', () => {
+  const listing = (page: import('@playwright/test').Page, ...languages: string[]) =>
+    page.addInitScript((list) => Object.defineProperty(navigator, 'languages', { get: () => list }), languages)
+
+  test('a link with no language shows the next language it lists', async ({ page }) => {
+    await listing(page, 'uk', 'ru')
+    await page.goto(watch())
+    await expectLabels(page, RUSSIAN)
+  })
+
+  // stub writes the browser's first language on its link whatever it is
+  test('a link naming that language shows the next one too', async ({ page }) => {
+    await listing(page, 'sv', 'fr')
+    await page.goto(watch('&language=sv'))
+    await expectLabels(page, FRENCH)
+  })
+})
+
+test.describe('in an Arabic browser', () => {
+  test.use({ locale: 'ar-EG' })
+
+  // English labels are shown here, so the numbers in them are written as English writes them
+  test('the speed menu keeps the digits of its labels', async ({ page }) => {
+    await page.goto(watch())
+    await page.getByLabel('Settings', { exact: true }).click()
+    await page.getByText('Playback speed', { exact: true }).click()
+    await expect(page.getByText('0.5x', { exact: true })).toBeVisible()
   })
 })

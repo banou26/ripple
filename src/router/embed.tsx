@@ -22,7 +22,7 @@ import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
-import { embedPath, linkLanguages } from './embed-link'
+import { browserLanguage, embedPath, linkLanguages } from './embed-link'
 import { useEmbedder } from './embedder'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
@@ -706,7 +706,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         preferredSubtitleLanguage={languages.subtitles}
         onPreferredAudioLanguageChange={(audio) => chooseLanguage({ audio })}
         onPreferredSubtitleLanguageChange={(subtitles) => chooseLanguage({ subtitles })}
-        language={linked.language ?? navigator.languages[0]}
+        language={linked.language ?? browserLanguage()}
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}

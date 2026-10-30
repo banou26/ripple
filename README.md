@@ -87,7 +87,7 @@ same query; the path chooses which one renders. `/watch` plays a file, `/downloa
 | `m` | the packed magnet, base64url | what Ripple's own share links write |
 | `fileIndex` | a file index | the file `/watch` plays (the largest video if absent); the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
-| `language` | a BCP 47 tag, such as `fr` or `es-MX` | the language of the player's controls (the browser's if absent, unreadable, or one the player has no text in) |
+| `language` | a BCP 47 tag, such as `fr` or `es-MX` | the language of the player's controls (if absent, unreadable, or one the player has no text in: the first of the browser's languages it has text in) |
 
 One of `magnet` or `m` is required, and `m` is read first when both are present. `magnet=` is the
 original form and every link written with it keeps working. `m=` is the same torrent packed into a
