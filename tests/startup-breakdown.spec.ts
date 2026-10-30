@@ -75,6 +75,7 @@ const instrument = async (page: import('@playwright/test').Page) => {
         else if (m.type === 'read-stalled') {
           marks.push({ name: 'engine:readStalled', at: performance.now(), detail: { offset: m.offset, waitedMs: m.waitedMs, missingCount: m.missing?.length, numPeers: m.numPeers, downloadRate: m.downloadRate } })
         } else if (m.type === 'state' && Array.isArray(m.torrents)) {
+          root.__startup.torrents = m.torrents
           for (const t of m.torrents) {
             downloaded = t.status?.totalDone ?? 0
             if (t.files) mark('torrent:metadata')
@@ -235,5 +236,131 @@ test.describe('startup breakdown', () => {
     })
 
     expect(trials.every((t) => at(t.marks, 'video:firstFrame') != null), 'every trial must render a frame').toBe(true)
+  })
+})
+
+// ---- the next file, opened in place -------------------------------------------------------------
+//
+// From the embedder's `open` to the next file's first rendered frame, with the file playing held to
+// its end first (the gate a `prepare` waits on). Three arms, alternated round by round, each in a
+// fresh context so the next file is cold in every one:
+//
+//   cold     `open` with nothing asked ahead
+//   button   `prepare` at the moment Next appears, then a press 3 s later
+//   80       `prepare` at 80% of an episode: its two bands are waited for, up to the 150 s an episode
+//            of 24 minutes leaves between 80% and its ending, then `open`
+//
+// The embedder is a page of this origin that runs no engine (/legal): Chrome refuses a page
+// Playwright fulfils a frame of a loopback address. Nothing asserts a duration; the table and the
+// JSON carry the result.
+
+const PLAYING = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
+const NEXT = process.env.RIPPLE_NEXT_MAGNET ?? DEFAULT_MAGNET
+const ARMS = (process.env.RIPPLE_NEXT_ARMS ?? 'cold,button,80').split(',')
+const ROUNDS = Number(process.env.RIPPLE_NEXT_ROUNDS ?? 3)
+const BUTTON_LEAD_MS = 3_000
+const LONG_LEAD_MS = 150_000
+const HOLD_BUDGET_MS = Number(process.env.RIPPLE_HOLD_BUDGET_MS ?? 300_000)
+const READ = 2_500_000
+
+const hashOf = (magnet: string) => /btih:([0-9a-f]{40})/i.exec(magnet)![1]!.toLowerCase()
+
+/** Whether the frame's last state holds the largest file of `hash` over [from, to), by its bitfield. */
+const holds = (frame: import('@playwright/test').Frame, hash: string, band: 'all' | 'bands') => frame.evaluate(({ hash, band, read }) => {
+  const t = ((window as any).__startup?.torrents ?? []).find((t: any) => String(t.magnet).toLowerCase().includes(hash))
+  const files = t?.files?.files as { offset: number, size: number }[] | undefined
+  const bf = t?.bitfield
+  if (!files?.length || !bf) return false
+  const file = files.reduce((a, b) => (b.size > a.size ? b : a))
+  const has = (from: number, to: number) => {
+    for (let p = Math.floor((file.offset + from) / bf.pieceLength); p <= Math.floor((file.offset + to - 1) / bf.pieceLength); p++) {
+      if (!((bf.pieces[p >> 3] ?? 0) & (0x80 >> (p & 7)))) return false
+    }
+    return true
+  }
+  return band === 'all' ? has(0, file.size) : has(0, Math.min(read, file.size)) && has(Math.max(0, file.size - read), file.size)
+}, { hash, band, read: READ })
+
+const runSwitch = async (browser: Browser, arm: string, index: number) => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  try {
+    await instrument(page)
+    const src = `/watch?${new URLSearchParams({ magnet: Buffer.from(PLAYING).toString('base64'), fileIndex: '5' })}`
+    await page.goto('/legal')
+    await page.bringToFront()
+    await page.evaluate((src) => {
+      const frame = Object.assign(document.createElement('iframe'), { id: 'ripple', src, allow: 'autoplay; fullscreen' })
+      Object.assign(frame.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', border: 'none' })
+      document.body.append(frame)
+    }, src)
+    const rippleFrame = () => page.frames().find(f => f.url().includes('/watch?'))
+    await expect.poll(() => Boolean(rippleFrame())).toBe(true)
+    const frame = rippleFrame()!
+    const started = Date.now()
+    await expect.poll(() => holds(frame, hashOf(PLAYING), 'all'), { timeout: HOLD_BUDGET_MS, intervals: [1_000] }).toBe(true)
+    const heldAfterMs = Date.now() - started
+    const history = await page.evaluate(() => history.length)
+    const post = (message: unknown) => page.evaluate((message) => (document.getElementById('ripple') as HTMLIFrameElement).contentWindow!.postMessage(message, '*'), message)
+
+    let preparedMs: number | null = null
+    if (arm !== 'cold') {
+      const asked = Date.now()
+      await post({ ripple: 'prepare', magnet: NEXT })
+      if (arm === 'button') await page.waitForTimeout(BUTTON_LEAD_MS)
+      else {
+        await expect.poll(() => holds(frame, hashOf(NEXT), 'bands'), { timeout: LONG_LEAD_MS, intervals: [500] }).toBe(true).catch(() => {})
+      }
+      if (await holds(frame, hashOf(NEXT), 'bands')) preparedMs = Date.now() - asked
+    }
+    const bandsAtOpen = await holds(frame, hashOf(NEXT), 'bands')
+
+    // the next file's <video> is a new element (a player per file), so its first frame is that element's first
+    await frame.evaluate(() => {
+      const old = document.querySelector('video')
+      const s = (window as any).__switch = { at: performance.now(), frameAt: null as number | null, marker: (window as any).__marker ??= Math.random() }
+      const poll = setInterval(() => {
+        const video = document.querySelector('video') as any
+        if (!video || video === old || typeof video.requestVideoFrameCallback !== 'function') return
+        video.requestVideoFrameCallback(() => { s.frameAt ??= performance.now() })
+        if (s.frameAt != null) clearInterval(poll)
+      }, 100)
+    })
+    const marker = await frame.evaluate(() => (window as any).__marker)
+    await post({ ripple: 'open', magnet: NEXT })
+    await frame.waitForFunction(() => (window as any).__switch?.frameAt != null, undefined, { timeout: FRAME_BUDGET_MS }).catch(() => {})
+    const result = await frame.evaluate(() => (window as any).__switch)
+    const engines = await frame.evaluate(() => ((window as any).__startup.marks as Mark[]).filter(m => m.name === 'worker:engine:created').length)
+    return {
+      index,
+      arm,
+      heldAfterMs,
+      preparedMs,
+      bandsAtOpen,
+      openToFrameMs: result.frameAt == null ? null : Math.round(result.frameAt - result.at),
+      sameDocument: (await frame.evaluate(() => (window as any).__marker)) === marker,
+      engines,
+      historySteps: (await page.evaluate(() => history.length)) - history,
+    }
+  } finally {
+    await context.close()
+  }
+}
+
+test.describe('next file in place', () => {
+  test('times an in-place open of the next file, cold and prepared', async ({ browser }, testInfo) => {
+    test.setTimeout((HOLD_BUDGET_MS + LONG_LEAD_MS + FRAME_BUDGET_MS + 60_000) * ROUNDS * ARMS.length)
+    const runs: Awaited<ReturnType<typeof runSwitch>>[] = []
+    for (let round = 0; round < ROUNDS; round++) {
+      // rotated per round, so no arm always runs first on a warm swarm
+      for (const arm of [...ARMS.slice(round % ARMS.length), ...ARMS.slice(0, round % ARMS.length)]) {
+        const run = await runSwitch(browser, arm, runs.length)
+        runs.push(run)
+        // eslint-disable-next-line no-console
+        console.log(`run ${run.index + 1} ${arm}: open to frame ${run.openToFrameMs ?? '-'} ms, bands ${run.bandsAtOpen ? 'held' : 'not held'} at open${run.preparedMs != null ? ` (after ${run.preparedMs} ms)` : ''}, first file held after ${run.heldAfterMs} ms, same document ${run.sameDocument}, engines ${run.engines}, history +${run.historySteps}`)
+      }
+    }
+    await testInfo.attach('next-in-place.json', { body: JSON.stringify({ playing: PLAYING, next: NEXT, runs }, null, 2), contentType: 'application/json' })
+    expect(runs.every(run => run.sameDocument && run.engines === 1 && run.historySteps === 0)).toBe(true)
   })
 })
