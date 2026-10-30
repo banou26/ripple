@@ -19,6 +19,9 @@ export type Catalogue = Readonly<Record<string, string>>
 
 const cache = createIntlCache()
 
+// the page stays empty while it waits, so a catalogue this late is a catalogue that failed to load
+const CATALOGUE_WAIT_MS = 3_000
+
 // English shown, the defaultLocale is the browser's own English: against plain `en`, react-intl reports each message
 // of an en-GB page missing and writes its numbers in `en`
 const intlOf = (language: string, locale: string, messages: Catalogue) =>
@@ -56,7 +59,8 @@ const CATALOGUES = import.meta.glob('../locales/*.json', { import: 'default' }) 
 /**
  * Shows `language` on this page from now on: loads its catalogue, makes `intl` write in it, with dates and numbers in
  * formatLocale(), marks `<html>` with its `lang` and, right to left, its `dir`, and renders IntlRoot's tree again. A
- * catalogue that fails to load leaves the page in English until the next start. Returns the new `intl`.
+ * catalogue that fails to load, or takes over 3 seconds, leaves the page in English until the next start. Returns the
+ * new `intl`.
  */
 export const startLanguage = async ({ language = uiLanguage(), languages, catalogues = CATALOGUES, html = globalThis.document?.documentElement }: {
   language?: string
@@ -66,7 +70,10 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
   catalogues?: Readonly<Record<string, () => Promise<Catalogue>>>
   html?: HTMLElement
 } = {}) => {
-  const catalogue = language === 'en' ? {} : await catalogues[`../locales/${language}.json`]?.().catch(() => undefined)
+  const catalogue = language === 'en' ? {} : await Promise.race([
+    catalogues[`../locales/${language}.json`]?.().catch(() => undefined),
+    new Promise<undefined>(resolve => setTimeout(resolve, CATALOGUE_WAIT_MS)),
+  ])
   const shown = catalogue ? language : 'en'
   intl = intlOf(shown, formatLocale(shown, languages), catalogue ?? {})
   if (html) {
