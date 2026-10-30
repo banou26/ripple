@@ -143,7 +143,8 @@ test.describe('the embedded player header', () => {
       const shown = count?.querySelector(':scope > span')
       const links = document.querySelector('.player-links')
       const name = document.querySelector('.file-name')
-      const counter = document.querySelector('.downloaded') ?? document.querySelector('.loading-information')
+      // the byte counter is rendered and display:none at this width, so its box is all zeros
+      const counter = [...document.querySelectorAll('.downloaded, .loading-information')].find((el) => el.getClientRects().length)
       const status = document.querySelector('.loading-information')
       const group = document.querySelector('.media-information')
       if (!last || !links || !name || !group) return null
