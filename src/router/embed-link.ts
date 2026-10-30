@@ -51,18 +51,27 @@ export type LinkLanguages = { language?: string }
  */
 const PLAYER_LANGUAGES = new Set(['de', 'en', 'es', 'fr', 'it', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'zh'])
 
-/**
- * Embedder-written text, so nothing of it is handed on as written: `language` is left out for a tag Intl cannot read
- * or a language the player has no text in, and comes back canonical, without extensions.
- */
-export const linkLanguages = (params: URLSearchParams): LinkLanguages => {
+/** `tag` canonical and without extensions, or undefined for one Intl cannot read or a language the player has no text in. */
+const playerLanguage = (tag: string) => {
   try {
-    const { language, baseName } = new Intl.Locale(params.get('language') ?? '')
-    return PLAYER_LANGUAGES.has(language) ? { language: baseName } : {}
+    const { language, baseName } = new Intl.Locale(tag)
+    return PLAYER_LANGUAGES.has(language) ? baseName : undefined
   } catch {
-    return {}
+    return undefined
   }
 }
+
+/** Embedder-written text, so nothing of it is handed on as written. */
+export const linkLanguages = (params: URLSearchParams): LinkLanguages => {
+  const language = playerLanguage(params.get('language') ?? '')
+  return language ? { language } : {}
+}
+
+/**
+ * The first of the browser's languages the player has text in. With none, the player is given no language rather than
+ * one it would write only its numbers in (an Arabic browser's digits inside English labels).
+ */
+export const browserLanguage = () => navigator.languages.map(playerLanguage).find(Boolean)
 
 export type EmbedLink = LinkLanguages & {
   magnet: string

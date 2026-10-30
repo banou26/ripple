@@ -98,9 +98,24 @@ describe('the language of the player on /watch', () => {
     expect(await shown()).toBe('fr-FR')
   })
 
+  it('is the first of the browser\'s the player has text in', async () => {
+    browser('uk', 'sv', 'ru', 'en')
+    expect(await shown()).toBe('ru')
+  })
+
+  it('is none when the browser lists nothing the player has text in', async () => {
+    browser('ar-EG', 'fa-IR')
+    expect(await shown()).toBeUndefined()
+  })
+
   it.each(['fr_FR', '%3Cscript%3E', 'xx', 'sv'])('is the browser\'s when the link says %s', async (tag) => {
     browser('de-DE', 'en')
     expect(await shown(`&language=${tag}`)).toBe('de-DE')
+  })
+
+  it('walks the browser\'s list when the link names its first language and the player has no text in it', async () => {
+    browser('sv', 'fr')
+    expect(await shown('&language=sv')).toBe('fr')
   })
 
   it('stays the link\'s when the embedder opens the next file in place', async () => {
