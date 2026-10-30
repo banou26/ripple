@@ -1,6 +1,8 @@
+import { readdirSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
-import { compileFileSelection, embedIframe, embedPath, embedUrl } from '../../src/router/embed-link'
+import { compileFileSelection, embedIframe, embedPath, embedUrl, linkLanguages } from '../../src/router/embed-link'
 import { parseFileSelection, resolveSelection } from '../../src/router/file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from '../../src/router/magnet-codec'
 
@@ -299,3 +301,55 @@ describe('a link describes no files, only which ones it wants', () => {
   })
 })
 
+describe('the language on a link', () => {
+  const read = (language: string) => linkLanguages(new URLSearchParams({ language }))
+  const queryOf = (path: string) => new URLSearchParams(path.slice(path.indexOf('?')))
+
+  it('names no language when the link names none', () => {
+    expect(linkLanguages(new URLSearchParams())).toEqual({})
+    expect(read('')).toEqual({})
+  })
+
+  it('reads a language the player has, written as Intl writes it and without extensions', () => {
+    expect(read('fr')).toEqual({ language: 'fr' })
+    expect(read('FR-ca')).toEqual({ language: 'fr-CA' })
+    expect(read('fr-u-nu-arab')).toEqual({ language: 'fr' })
+    expect(read('en-GB')).toEqual({ language: 'en-GB' })
+  })
+
+  // the tags the player's own matching serves through another catalogue, which a list of its catalogues would refuse
+  it('reads a region of a language the player has', () => {
+    for (const language of ['es-MX', 'pt-PT', 'zh-TW']) expect(read(language)).toEqual({ language })
+  })
+
+  it.each(['fr_FR', 'fr-CA-', '<script>', 'x'.repeat(300)])('leaves out %s, which Intl cannot read', (tag) => {
+    expect(read(tag)).toEqual({})
+  })
+
+  it.each(['xx', 'tlh', 'sv', 'und', 'und-FR'])('leaves out %s, which the player has no text in', (tag) => {
+    expect(read(tag)).toEqual({})
+  })
+
+  // fails when a media-player update brings a language this list has not heard of
+  it('reads every language of the installed player', () => {
+    const catalogues = readdirSync(new URL('../../node_modules/@banou/media-player/src/lib/locales', import.meta.url))
+      .filter(file => file.endsWith('.json')).map(file => file.replace('.json', ''))
+    expect(catalogues).toContain('fr')
+    for (const language of catalogues) expect(read(language), language).toEqual({ language })
+  })
+
+  it('is written on both routes, ahead of the packed torrent', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 2, language: 'fr' })).toMatch(/^\/watch\?fileIndex=2&language=fr&m=/)
+    expect(embedPath({ magnet: MAGNET, mode: 'download', indices: [1, 2], fileCount: 9, language: 'fr' })).toMatch(/^\/download\?files=1-2&language=fr&m=/)
+  })
+
+  it('is left off a link naming none', () => {
+    expect(embedPath({ magnet: MAGNET, mode: 'watch' })).not.toContain('language')
+  })
+
+  it('reads back as written', () => {
+    const written = linkLanguages(queryOf(embedPath({ magnet: MAGNET, mode: 'watch', language: 'zh-TW' })!))
+    expect(written).toEqual({ language: 'zh-TW' })
+    expect(linkLanguages(queryOf(embedPath({ magnet: MAGNET, mode: 'watch', ...written })!))).toEqual(written)
+  })
+})

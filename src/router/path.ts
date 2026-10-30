@@ -39,7 +39,7 @@ type AddOptions = { magnet: string, name?: string }
 
 type EmbedSource = { magnet: string } | { m: string } | { torrentFile: string }
 /** No `mode`: the path is what chooses the page, and neither page reads a parameter for it. */
-type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: string }
+type EmbedOptions = EmbedSource & { fileIndex?: string, files?: string, f?: string, language?: string }
 
 /**
  * What the library page accepts, which is one torrent to open when it loads.
