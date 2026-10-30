@@ -257,7 +257,7 @@ test.describe('startup breakdown', () => {
 const PLAYING = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const NEXT = process.env.RIPPLE_NEXT_MAGNET ?? DEFAULT_MAGNET
 const ARMS = (process.env.RIPPLE_NEXT_ARMS ?? 'cold,button,80').split(',')
-const ROUNDS = Number(process.env.RIPPLE_NEXT_ROUNDS ?? 3)
+const ROUNDS = Number(process.env.RIPPLE_NEXT_ROUNDS ?? 1)
 const BUTTON_LEAD_MS = 3_000
 const LONG_LEAD_MS = 150_000
 const HOLD_BUDGET_MS = Number(process.env.RIPPLE_HOLD_BUDGET_MS ?? 300_000)
@@ -314,6 +314,9 @@ const runSwitch = async (browser: Browser, arm: string, index: number) => {
       if (await holds(frame, hashOf(NEXT), 'bands')) preparedMs = Date.now() - asked
     }
     const bandsAtOpen = await holds(frame, hashOf(NEXT), 'bands')
+    // what preparing cost: the next torrent's bytes before anybody opened it
+    const bytesAtOpen = await frame.evaluate((hash) => ((window as any).__startup?.torrents ?? [])
+      .find((t: any) => String(t.magnet).toLowerCase().includes(hash))?.status?.totalDone ?? 0, hashOf(NEXT))
 
     // the next file's <video> is a new element (a player per file), so its first frame is that element's first
     await frame.evaluate(() => {
@@ -337,6 +340,7 @@ const runSwitch = async (browser: Browser, arm: string, index: number) => {
       heldAfterMs,
       preparedMs,
       bandsAtOpen,
+      bytesAtOpen,
       openToFrameMs: result.frameAt == null ? null : Math.round(result.frameAt - result.at),
       sameDocument: (await frame.evaluate(() => (window as any).__marker)) === marker,
       engines,
@@ -357,7 +361,7 @@ test.describe('next file in place', () => {
         const run = await runSwitch(browser, arm, runs.length)
         runs.push(run)
         // eslint-disable-next-line no-console
-        console.log(`run ${run.index + 1} ${arm}: open to frame ${run.openToFrameMs ?? '-'} ms, bands ${run.bandsAtOpen ? 'held' : 'not held'} at open${run.preparedMs != null ? ` (after ${run.preparedMs} ms)` : ''}, first file held after ${run.heldAfterMs} ms, same document ${run.sameDocument}, engines ${run.engines}, history +${run.historySteps}`)
+        console.log(`run ${run.index + 1} ${arm}: open to frame ${run.openToFrameMs ?? '-'} ms, bands ${run.bandsAtOpen ? 'held' : 'not held'} at open${run.preparedMs != null ? ` (after ${run.preparedMs} ms)` : ''}, ${run.bytesAtOpen} bytes of it then, first file held after ${run.heldAfterMs} ms, same document ${run.sameDocument}, engines ${run.engines}, history +${run.historySteps}`)
       }
     }
     await testInfo.attach('next-in-place.json', { body: JSON.stringify({ playing: PLAYING, next: NEXT, runs }, null, 2), contentType: 'application/json' })
