@@ -13,7 +13,7 @@ import type { Ceiling, FileGeometry, Range, WindowPlan } from './window-plan'
 import type { Persisted, Removal, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
-import { deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
+import { READ_SIZE, deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
 import { createResilientStorage } from './opfs-storage'
 import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
 import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
@@ -599,8 +599,18 @@ const filePieceRange = (h: number, fileIndex: number) => {
  * 8 MB and 1.011x without, the latter being exactly what the same torrent costs as a library add.
  * On a metered relay the user pays for both copies.
  */
-type Viewer = { fileIndex: number, fromOffset: number, held?: boolean, bulk?: boolean }
+/**
+ * `prepare` marks the file an embedder expects to play next: only its head and its last READ_SIZE are
+ * wanted, the bytes a player waits on before its first frame, and only once every player's file is held
+ * from its reader to its end (`preparing`), so it never takes bandwidth from what is playing. Until
+ * then it counts as no claim, which parks a cache torrent with its file list fetched.
+ */
+type Viewer = { fileIndex: number, fromOffset: number, held?: boolean, bulk?: boolean, prepare?: boolean }
 const viewers = new Map<number, Map<string, Viewer>>()
+let preparing = false
+const playersHeld = () => [...viewers].every(([h, watching]) => [...watching.values()]
+  .every((v) => v.held || v.bulk || v.prepare || hasBytes(h, v.fileIndex, v.fromOffset, Infinity)))
+const preparedHandles = () => [...viewers].filter(([, watching]) => [...watching.values()].some((v) => v.prepare)).map(([h]) => h)
 // torrents whose first viewer is still owed a budget pass with the layout known, so the cache is
 // given up before the tail write the stream plan asks for alongside the head
 const newlyWatched = new Set<number>()
@@ -795,7 +805,7 @@ const applyPiecePlan = (h: number) => {
  */
 const activeViewers = (h: number): Viewer[] => {
   const watching = viewers.get(h)
-  return watching ? [...watching.values()].filter((v) => !v.held) : []
+  return watching ? [...watching.values()].filter((v) => !v.held && (!v.prepare || preparing)) : []
 }
 
 const applyViewing = (h: number) => {
@@ -862,14 +872,16 @@ const applyViewing = (h: number) => {
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
   if (newlyWatched.delete(h)) void runStorageBudget()
-  const claims = active.flatMap(({ fileIndex, fromOffset, bulk }) => {
+  const claims = active.flatMap(({ fileIndex, fromOffset, bulk, prepare }) => {
     const head = { fileIndex, offset: fromOffset }
     const file = files.files[fileIndex]
+    if (prepare) return file?.size ? [head, { fileIndex, offset: Math.max(0, file.size - READ_SIZE) }] : []
     // Fetch trailing container metadata alongside the head, before the demuxer asks for it.
     return !bulk && file?.size
       ? [head, { fileIndex, offset: file.size - 1 }]
       : [head]
   })
+  const players = active.filter((viewer) => !viewer.prepare)
   // Skipping the unwatched files is not a bandwidth optimization: libtorrent's sequential cursor
   // sits at the first piece the torrent does not have, so without it the capacity beyond the
   // deadline window goes to the first file in the torrent rather than the one being watched.
@@ -881,15 +893,20 @@ const applyViewing = (h: number) => {
   // priorities and the sequential order and nothing else; see the note on `Viewer`. Every active
   // claim has to agree, because one player watching the same torrent is enough to make the clock
   // real, and the priorities the window writes are shared by all of them.
-  const timed = active.some((viewer) => !viewer.bulk)
-  const window = windowFor(h, files, active)
+  const timed = players.some((viewer) => !viewer.bulk)
+  const window = windowFor(h, files, players)
   if (window) windows.set(h, window); else windows.delete(h)
+  // a prepared file outside every other claim's pieces keeps only its two bands
+  const keep = window?.want ?? (players.length < active.length
+    ? players.map(({ fileIndex }) => files.files[fileIndex])
+      .flatMap((file) => file?.size ? [piecesOf({ ...file, pieceLength: files.pieceLength }, 0, file.size)] : [])
+    : undefined)
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
     windowPieces: windowPiecesFor(files.pieceLength),
     deadlineStepMs: deadlineStepMsFor(files.pieceLength, session.status(h)?.downloadRate || 3_000_000),
     deadlines: timed,
-    ...(window ? { keep: window.want } : {}),
+    ...(keep ? { keep } : {}),
   })
   if (planned) pendingViewing.delete(h)
   else pendingViewing.add(h)
@@ -902,9 +919,9 @@ const applyViewing = (h: number) => {
 /** Plan a watched torrent again after a pass moved its room, and give back what its window dropped. */
 const replan = (h: number) => {
   const files = session?.files(h)
-  const active = activeViewers(h)
-  if (!files || !active.length) return
-  const next = windowFor(h, files, active)
+  const players = activeViewers(h).filter((viewer) => !viewer.prepare)
+  if (!files || !players.length) return
+  const next = windowFor(h, files, players)
   const was = windows.get(h)
   if (!next && !was) return
   if (!next || !was || !samePlan(next, was)) { applyViewing(h); return }
@@ -912,7 +929,7 @@ const replan = (h: number) => {
   void dropOutside(h)
 }
 
-const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false, bulk?: boolean) => {
+const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number, held = false, bulk?: boolean, prepare = false) => {
   // A read is dispatched without waiting on the command queue, so one issued against a torrent the
   // budget pass has just evicted arrives here afterwards. Recreating the entry would resurrect a
   // dead handle, and the engine reuses a handle number for the same infohash, so the entry would
@@ -932,8 +949,11 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
     fromOffset,
     ...(held ? { held } : {}),
     ...(kind ? { bulk: kind } : {}),
+    ...(prepare ? { prepare } : {}),
   })
   if (first) { touchUsed(h); newlyWatched.add(h) }
+  // read now rather than at the next pump, which may be half a second away and from before this player
+  if (prepare) preparing = playersHeld()
   applyViewing(h)
 }
 
@@ -994,9 +1014,10 @@ const owedByViewers = async (space: Space): Promise<Owed> => {
     if (!live || !files || !watching.size || savePath === undefined || isGrantedSavePath(savePath)) continue
     const measure = async (fileIndex: number) =>
       ({ h, size: files.files[fileIndex]?.size ?? 0, held: (await live.usageOf(savePath, fileIndex)) ?? 0 })
-    const [player] = activeViewers(h)
+    const player = activeViewers(h).find((v) => !v.prepare)
     const windowable = !!ceiling?.fixed && ephemeralHandles.has(h) && isCacheSavePath(savePath)
-    for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) {
+    // a prepared file wants its two bands and never its size, which the margin covers
+    for (const fileIndex of new Set([...watching.values()].filter((v) => !v.prepare).map((v) => v.fileIndex))) {
       watched.push({ ...await measure(fileIndex), cache: windowable && fileIndex === player?.fileIndex, chunkBytes: cache.chunkBytesOf(savePath) })
     }
     const refusal = live.refusedFile(savePath)
@@ -1630,6 +1651,11 @@ const init = async () => {
       if (!activeViewers(h).length) applyViewing(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+    const prepared = preparedHandles()
+    if (prepared.length && playersHeld() !== preparing) {
+      preparing = !preparing
+      for (const h of prepared) applyViewing(h)
+    }
     for (const h of [...windows.keys()]) { keepSlackMissing(h); trickle(h) }
 
     // a ceiling needs a REGISTERED handle and nothing more, so this gate is status rather than the
@@ -2550,7 +2576,7 @@ const handleMessage = async (session: Session, m: any) => {
       // a move carrying a read length is a reader advancing, so it takes the same re-anchor test a read
       // takes; without one it is a user seek, which moves the anchor unconditionally
       if (m.readLen != null) anchorSequential(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.readLen)
-      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.held === true, m.bulk === true ? true : undefined)
+      else watch(m.viewer, m.handle, m.fileIndex, m.fromOffset ?? 0, m.held === true, m.bulk === true ? true : undefined, m.prepare === true)
     } else if (m.type === 'unwatch') {
       unwatch((viewer) => viewer === m.viewer)
     } else if (m.type === 'set-flags') {

@@ -33,6 +33,9 @@ const state = vi.hoisted(() => ({
   hashes: new Map<number, string>(),
   // what a resume save waits on before it lands
   saving: Promise.resolve() as Promise<unknown>,
+  // whether the pack's every piece is held, which is what lets a prepare beside its film go ahead
+  packHeld: false,
+  claims: new Map<number, { fileIndex: number }[]>(),
 }))
 
 // what every chunk held costs, and a MiB besides
@@ -56,8 +59,10 @@ vi.mock('libtorrent-wasm', async () => {
         if (hash === 'c'.repeat(40)) return one('library.mkv', 3 * GiB)
         return hash === 'b'.repeat(40) || hash === 'd'.repeat(40) ? one('film.mkv', FILM) : null
       },
-      setStreamWindow: (h: number, _claims: unknown, opts: { keep?: unknown }) => {
+      bitfield: (h: number) => state.packHeld && state.hashes.get(h) === 'a'.repeat(40) ? { pieces: new Uint8Array(256).fill(255) } : null,
+      setStreamWindow: (h: number, claims: unknown, opts: { keep?: unknown }) => {
         state.keeps.set(h, [...state.keeps.get(h) ?? [], opts.keep])
+        state.claims.set(h, claims as { fileIndex: number }[])
         return true
       },
       clearStreamWindow: () => {},
@@ -212,5 +217,32 @@ describe('a window and everything else reading', () => {
     // half of 10 GiB less the margin and the MiB each: 79 chunks
     await vi.waitFor(() => expect(stretch(a)).toBe((79 - 6) * 4))
     await vi.waitFor(() => expect(stretch(b)).toBe((79 - 6) * 4))
+  })
+
+  // a prepared file wants its head and tail, a few MiB the margin covers, never its size
+  it('takes none of the room for a file only prepared', async () => {
+    rig.send({ type: 'watch', viewer: 'next', handle: library, fileIndex: 0, fromOffset: 0, prepare: true })
+    pass(7)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(stretch(a)).toBe((79 - 6) * 4)
+    // THE CONTROL: the same file watched owes its size
+    rig.send({ type: 'watch', viewer: 'l', handle: library, fileIndex: 0, fromOffset: 0 })
+    pass(8)
+    await vi.waitFor(() => expect(stretch(a)).not.toBe((79 - 6) * 4))
+    rig.send({ type: 'unwatch', viewer: 'l' })
+    rig.send({ type: 'unwatch', viewer: 'next' })
+  })
+
+  it('leaves a film its window beside the next file of its torrent being prepared', async () => {
+    rig.send({ type: 'unwatch', viewer: 'a' })
+    rig.send({ type: 'unwatch', viewer: 'bb' })
+    state.packHeld = true
+    rig.send({ type: 'watch', viewer: 'p1', handle: pack, fileIndex: 0, fromOffset: 0 })
+    rig.send({ type: 'watch', viewer: 'next', handle: pack, fileIndex: 1, fromOffset: 0, prepare: true })
+    pass(9)
+    await vi.waitFor(() => expect(state.claims.get(pack)?.map(claim => claim.fileIndex)).toEqual([0, 0, 1, 1]))
+    expect(lastKeep(pack)).toContainEqual({ start: 0, end: 4 })
+    rig.send({ type: 'unwatch', viewer: 'p1' })
+    rig.send({ type: 'unwatch', viewer: 'next' })
   })
 })

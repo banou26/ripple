@@ -190,6 +190,11 @@ export type TorrentClient = {
    * what it is worth (measured 1.617x the payload fetched without it, 1.011x with).
    */
   watch: (viewer: string, handle: number, fileIndex: number, fromOffset?: number, readLen?: number, held?: boolean, bulk?: boolean) => void
+  /**
+   * Claim a file's head and tail ahead of playing it, once every player's file is held to its end. The
+   * claim is the viewer's, so `unwatch` drops it, and a player opening the file claims it as any other.
+   */
+  prepare: (viewer: string, handle: number, fileIndex: number) => void
   unwatch: (viewer: string) => void
   pause: (handle: number) => void
   resume: (handle: number) => void
@@ -681,6 +686,7 @@ export const createTorrentClient = (): EngineClient => {
     importTorrent: (infoHash, magnet, resume) => send({ type: 'import', infoHash, magnet, resume }, [resume.buffer]),
     newViewerId: () => `${docId}:${++viewerId}`,
     watch: (viewer, handle, fileIndex, fromOffset = 0, readLen, held, bulk) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset, readLen, held: held === true, bulk: bulk === true }),
+    prepare: (viewer, handle, fileIndex) => send({ type: 'watch', viewer, handle, fileIndex, fromOffset: 0, prepare: true }),
     unwatch: (viewer) => send({ type: 'unwatch', viewer }),
     destroy: () => {
       window.removeEventListener('online', onOnline)
