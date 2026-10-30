@@ -79,6 +79,8 @@ export default defineConfig({
             // headful ramp runs play real video
             'media.volume_scale': '0.0',
           },
+          // the store's Firefox, for the same version skew as RIPPLE_CHROME above
+          executablePath: process.env.RIPPLE_FIREFOX || undefined,
         },
       },
     },

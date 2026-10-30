@@ -3,7 +3,7 @@ import type { EmbedMode } from './file-selection'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
@@ -15,11 +15,14 @@ import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
+import { usePrepare } from '../torrent/use-prepare'
 import { useReachability } from '../torrent/use-reachability'
 import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
+import { embedPath } from './embed-link'
+import { useEmbedder } from './embedder'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
@@ -355,6 +358,15 @@ const Player = () => {
     return selection.kind === 'single' ? selection.index : undefined
   }, [_fileIndex])
   const { snapshot, engineError, storageFull, fileIndex, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, named)
+  const navigate = useNavigate()
+  const prepare = usePrepare()
+  useEmbedder((ask) => {
+    if (ask.ripple === 'prepare') return prepare({ magnet: ask.magnet, fileIndex: ask.fileIndex })
+    const path = embedPath({ magnet: ask.magnet, mode: 'watch', fileIndex: ask.fileIndex })
+    if (path) void navigate(path, { replace: true })
+  })
+  // a player of its own for each file, so nothing of the last one's state reaches the next
+  const played = `${magnet}#${named ?? ''}`
   const [normalizeVolume, setNormalizeVolume] = useState(() => normalizeVolumeSaved((k) => localStorage.getItem(k)))
   const chooseNormalizeVolume = (on: boolean) => {
     setNormalizeVolume(on)
@@ -371,7 +383,7 @@ const Player = () => {
   useEffect(() => {
     const video = box.current?.querySelector('video')
     return video ? keepPlayerVolume(video) : undefined
-  }, [])
+  }, [played])
   /**
    * Whether anything is carrying peer traffic, drawn beside the peer count it explains.
    *
@@ -638,6 +650,7 @@ const Player = () => {
   return (
     <div css={playerStyle} ref={box}>
       <MediaPlayer
+        key={played}
         {...source}
         // Served to whoever frames this page, and only them, through @banou/media-player/remote: a
         // watch-together host's followers are made to match this player through it. A tab that opens
