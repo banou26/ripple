@@ -35,6 +35,7 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   peers: 82,
   seeds: 12,
   eta: '4m',
+  etaSeconds: 240,
   flags: 0,
   queuePosition: -1,
   stats: {
@@ -308,6 +309,14 @@ describe('a library row', () => {
     )
     await expect.element(screen.getByText('Source files unavailable. Create it again from the same files.')).toBeInTheDocument()
     expect(screen.container.querySelector('button[aria-label^="Download "]')).toBeNull()
+  })
+
+  it('says how long is left, or that nothing is coming in', async () => {
+    thumbnail.current = null
+    const { screen } = await inPage(torrent())
+    expect(screen.container.querySelector('.meta')?.textContent).toContain('4m left')
+    const { screen: stalled } = await inPage(torrent({ eta: 'queued', etaSeconds: undefined }))
+    expect(stalled.container.querySelector('.meta')?.textContent).toContain('queued left')
   })
 
   /**

@@ -75,6 +75,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 const magnetOf = (hash: string, name: string) => `magnet:?xt=urn:btih:${hash.repeat(40)}&dn=${name}`
+const NAMELESS = `magnet:?xt=urn:btih:${'6'.repeat(40)}`
 
 const GB = 1_000_000_000
 const uptime = (seedingSeconds = 0) => ({ activeSeconds: seedingSeconds, seedingSeconds })
@@ -105,6 +106,8 @@ const TORRENTS = [
   snapshot(3, 'c', 'Kept.Paused', { paused: true }, { userPaused: true }),
   snapshot(4, 'd', 'Having.Trouble', {}, { recovery: { reason: 'stalled', attempt: 1, retryAt: Date.now() + 60_000 } }),
   snapshot(6, '4', 'Also.Temporary', {}),
+  snapshot(7, '5', 'Stalled', { downloadRate: 0 }),
+  snapshot(8, '6', '', {}, { magnet: NAMELESS, files: null }),
 ]
 const LIST = [
   entry('a', 'Some.Release.Name.S01.1080p', { downloadLimit: 2_000_000, uploadLimit: 500_000 }),
@@ -112,6 +115,8 @@ const LIST = [
   entry('c', 'Kept.Paused', { ephemeral: true }),
   entry('d', 'Having.Trouble'),
   entry('4', 'Also.Temporary', { ephemeral: true }),
+  entry('5', 'Stalled'),
+  { ...entry('6', ''), magnet: NAMELESS, name: undefined },
   entry('e', 'On.Its.Way'),
   entry('f', 'Elsewhere', { started: false }),
   entry('2', 'Made.Here', { started: false, saveTo: 'source' }),
@@ -142,8 +147,8 @@ const library = async (page: Page, list: object[], torrents: object[], extra: ob
   await drawn(page)
 }
 
-// words of parts wrapped elsewhere that read as this page's: the list toolbar, the footer's storage control, FKN's mark
-const NOT_THIS_PAGE = '.list-toolbar, footer .controls > :nth-child(3), .powered'
+// words of parts wrapped elsewhere that read as this page's: the list toolbar, the footer's storage control
+const NOT_THIS_PAGE = '.list-toolbar, footer .controls > :nth-child(3)'
 
 /** The page's text and the words its controls carry for a screen reader, a tooltip or an empty field. */
 const wordsOf = (page: Page) => page.evaluate(skipped => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].filter(element => !element.closest(skipped)).flatMap(element => [
@@ -194,6 +199,11 @@ const everySurface = async (page: Page, width: number) => {
   await library(page, LIST, TORRENTS)
   await expect(page.locator('.torrent')).toHaveCount(LIST.length)
   await read('library')
+
+  await page.locator('.powered button').click()
+  await expect(page.locator('.powered [popover]')).toBeVisible()
+  await read('FKN mark')
+  await page.locator('.powered button').click()
 
   // an account brings two more readouts, the quota and the sync state, and this page has no account: two written in
   const readouts = page.locator('.stats .readouts')
@@ -290,6 +300,11 @@ test.describe('in a language ripple does not offer yet', () => {
     await expect(page.locator('.storage-warning.offline')).toHaveText('Ein Download hatte ein Problem, neuer Versuch läuft')
     await expect(downloading.getByRole('button', { name: 'Some.Release.Name.S01.1080p pausieren' })).toBeVisible()
     await expect(seeding.locator('.pct')).toHaveText(/^100\s%$/u)
+    const stalled = page.locator('.torrent', { hasText: 'Stalled' })
+    await expect(stalled.locator('.meta > span').last()).toHaveText('eingereiht')
+    await expect(page.locator('.torrent', { hasText: 'Metadaten werden geladen…' })).toBeVisible()
+    await stalled.click()
+    await expect(page.locator('main + section')).toContainText('eingereiht')
     await post(page, { type: 'state', torrents: [{ ...TORRENTS[3]!, handle: 5 }, ...TORRENTS.slice(3)] })
     await expect(page.locator('.storage-warning.offline')).toHaveText('2 Downloads hatten ein Problem, neuer Versuch läuft')
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'library'])
@@ -297,6 +312,18 @@ test.describe('in a language ripple does not offer yet', () => {
     await library(page, LIST, TORRENTS)
     await expect(page.locator('.hidden-note')).toContainText(/^2 temporäre Downloads ausgeblendet · 9\sGB/u)
   })
+})
+
+test.describe('the Inbound tooltip joins its two sentences as the language does', () => {
+  const JOINS = { ja: '。このセッション', 'zh-Hans': '。本次', 'zh-Hant': '。本次', fr: '\\. Acceptés' }
+  for (const [language, join] of Object.entries(JOINS)) {
+    test(language, async ({ page }) => {
+      await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      await expect(page.locator('.stats [data-tooltip-content*="41337"]')).toHaveAttribute('data-tooltip-content', new RegExp(join))
+    })
+  }
 })
 
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {

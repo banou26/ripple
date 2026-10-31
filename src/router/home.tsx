@@ -254,15 +254,17 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
    * is not the same as "nothing has ever reached this port", and only the second is a reason to go
    * looking at a router.
    */
-  const total = inbound > 0 ? ` ${intl.formatMessage({ id: '{count} accepted this session.', defaultMessage: '{count} accepted this session.' }, { count: inbound })}` : ''
+  const withTotal = (sentence: string) => inbound > 0
+    ? intl.formatMessage({ id: '{sentence} {count} accepted this session.', defaultMessage: '{sentence} {count} accepted this session.' }, { sentence, count: inbound })
+    : sentence
   const title =
     failed ? listenFailed.join('\n')
     : healing ? intl.formatMessage({ id: 'Connection dropped. Reconnecting.', defaultMessage: 'Connection dropped. Reconnecting.' })
     : port && !portOpen ? intl.formatMessage({ id: 'Port {port} is closed. Reload to get a new one.', defaultMessage: 'Port {port} is closed. Reload to get a new one.' }, { port })
     : !port ? undefined
-    : inboundNow.total > 0
-      ? `${intl.formatMessage({ id: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}', defaultMessage: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}' }, { count: inboundNow.total, port, detail })}${total}`
-      : `${intl.formatMessage({ id: 'Nobody connected in on port {port}.', defaultMessage: 'Nobody connected in on port {port}.' }, { port })}${total}`
+    : withTotal(inboundNow.total > 0
+      ? intl.formatMessage({ id: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}', defaultMessage: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}' }, { count: inboundNow.total, port, detail })
+      : intl.formatMessage({ id: 'Nobody connected in on port {port}.', defaultMessage: 'Nobody connected in on port {port}.' }, { port }))
   return (
     <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
       <label>{intl.formatMessage({ id: 'Inbound', defaultMessage: 'Inbound' })}</label>
@@ -604,7 +606,6 @@ export const style = css`
     border-radius: 8px;
 
     .readouts {
-      min-width: 0;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
@@ -1858,7 +1859,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
               <span className="rate">{intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(t.down) })}</span>
               <span className="rate">{intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(t.up) })}</span>
               <span className="peers">{intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: t.peers })}</span>
-              {t.state === 'downloading' && t.eta !== '-' && <span>{intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
+              {t.state === 'downloading' && t.eta !== '-' && <span>{t.etaSeconds === undefined ? intl.formatMessage({ id: 'queued left', defaultMessage: 'queued left' }) : intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
                   and a row carrying both reads as two competing answers to "how long". */}
@@ -2969,7 +2970,11 @@ const Home = () => {
             link on the download page and dead text on this one */}
         <span className="brand">
           <Link className="wordmark" to="/">{WORDMARK}</Link>
-          <PoweredByFkn className="powered"/>
+          <PoweredByFkn
+            className="powered"
+            label={intl.formatMessage({ id: 'Powered by FKN', defaultMessage: 'Powered by FKN' })}
+            linkLabel={intl.formatMessage({ id: 'How it works', defaultMessage: 'How it works' })}
+          />
         </span>
         <form
           onSubmit={(e) => {
