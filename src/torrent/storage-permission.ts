@@ -26,6 +26,8 @@
  * testing without a browser, a prompt or an engine.
  */
 
+import { intl } from '../i18n'
+
 /**
  * What `permissions.query({ name: 'persistent-storage' })` answered.
  *
@@ -61,6 +63,8 @@ export type PersistOffer = {
   action: string | null
 }
 
+const askLabel = () => intl.formatMessage({ id: 'Ask for more room', defaultMessage: 'Ask for more room' })
+
 export const persistOffer = ({ persisted, permission, attempted, granted }: PersistState): PersistOffer => {
   // persist() on an origin that is already persistent is a call whose success changes nothing
   if (persisted) return { kind: 'none', action: null }
@@ -71,7 +75,7 @@ export const persistOffer = ({ persisted, permission, attempted, granted }: Pers
   // again this session would get the same answer
   if (attempted && !granted) return { kind: 'asked-and-refused', action: null }
   // 'prompt' lands here, which after the ponyfill's collapse also means "this engine cannot be asked"
-  return { kind: 'ask', action: 'Ask for more room' }
+  return { kind: 'ask', action: askLabel() }
 }
 
 /**
@@ -87,10 +91,10 @@ export type PersistControl = { label: string, hint: string | null, on: boolean, 
 export const persistControl = (state: PersistState): PersistControl => {
   const offer = persistOffer(state)
   // 'on' means the good state is in effect, matching the footer's other controls
-  if (state.persisted) return { label: 'Persistent', hint: null, on: true, actionable: false }
+  if (state.persisted) return { label: intl.formatMessage({ id: 'Persistent', defaultMessage: 'Persistent' }), hint: null, on: true, actionable: false }
   if (state.permission === 'denied') {
-    return { label: 'Blocked', hint: 'Turned off in the browser settings', on: false, actionable: false }
+    return { label: intl.formatMessage({ id: 'Blocked', defaultMessage: 'Blocked' }), hint: intl.formatMessage({ id: 'Turned off in the browser settings', defaultMessage: 'Turned off in the browser settings' }), on: false, actionable: false }
   }
-  if (offer.kind === 'asked-and-refused') return { label: 'Not granted', hint: null, on: false, actionable: false }
-  return { label: offer.action ?? 'Ask for more room', hint: null, on: false, actionable: true }
+  if (offer.kind === 'asked-and-refused') return { label: intl.formatMessage({ id: 'Not granted', defaultMessage: 'Not granted' }), hint: null, on: false, actionable: false }
+  return { label: offer.action ?? askLabel(), hint: null, on: false, actionable: true }
 }

@@ -82,10 +82,11 @@ const sized = ({ width, height }: { width: number, height: number }) => {
 const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
   await page.viewport(size.width, size.height)
   const { default: Embed } = await import('../../src/router/embed')
+  const { IntlRoot } = await import('../../src/i18n')
   return render(
-    <MemoryRouter initialEntries={[`/watch${search}`]}>
+    <IntlRoot><MemoryRouter initialEntries={[`/watch${search}`]}>
       <Embed />
-    </MemoryRouter>,
+    </MemoryRouter></IntlRoot>,
     sized(size),
   )
 }
@@ -131,6 +132,15 @@ describe('the watch route', () => {
     expect(readout.right).toBeLessThanOrEqual(player.right)
     // a phone hides the upload figure, and a desktop has to get it back
     expect(getComputedStyle(screen.container.querySelector('[data-tooltip-id="upload-speed"]')!).display).not.toBe('none')
+  })
+
+  it('names the torrent\'s state in the language of the page, as a library row does', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const { default: de } = await import('../../src/locales/de.json')
+    await showIn('de', de)
+    const screen = await mount()
+    await expect.element(screen.getByTestId('torrent-state')).toHaveTextContent('Lädt herunter')
+    await showEnglish()
   })
 
   it('says what it is waiting for while there is no metadata yet', async () => {

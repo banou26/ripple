@@ -1,5 +1,8 @@
 import type { Torrent } from '../torrent/types'
 
+import { defineMessages } from 'react-intl'
+
+import { intl } from '../i18n'
 import { writeDuration } from '../torrent/uptime'
 import { getHumanReadableSpeed } from '../utils/bytes'
 
@@ -10,18 +13,18 @@ import { getHumanReadableSpeed } from '../utils/bytes'
  * from `home.tsx` for these. Small, but a cycle through a 3000 line module is not a small problem.
  */
 
-export const STATE_LABEL: Record<Torrent['state'], string> = {
-  downloading: 'Downloading',
-  seeding: 'Seeding',
-  paused: 'Paused',
-  queued: 'Queued',
-  done: 'Done',
-  error: 'Error',
-  missing: 'Files missing',
-  retrying: 'Retrying',
-  checking: 'Checking',
-  starting: 'Starting',
-}
+export const STATE_LABEL = defineMessages<Torrent['state']>({
+  downloading: { id: 'Downloading', defaultMessage: 'Downloading' },
+  seeding: { id: 'Seeding', defaultMessage: 'Seeding' },
+  paused: { id: 'Paused', defaultMessage: 'Paused' },
+  queued: { id: 'Queued', defaultMessage: 'Queued' },
+  done: { id: 'Done', defaultMessage: 'Done' },
+  error: { id: 'Error', defaultMessage: 'Error' },
+  missing: { id: 'Files missing', defaultMessage: 'Files missing' },
+  retrying: { id: 'Retrying', defaultMessage: 'Retrying' },
+  checking: { id: 'Checking', defaultMessage: 'Checking' },
+  starting: { id: 'Starting', defaultMessage: 'Starting' },
+})
 
 export const speed = (bps: number): string => getHumanReadableSpeed(bps, true)
 
@@ -37,8 +40,8 @@ export const relativeDay = (ms: number | undefined, now = Date.now()): string =>
   if (days < 1) return writeDuration({ hours: Math.max(1, Math.round(days * 24)) })
   if (days < 7) return writeDuration({ days: Math.round(days) })
   const d = new Date(ms)
-  return d.toLocaleDateString(
-    undefined,
+  return intl.formatDate(
+    d,
     d.getFullYear() === new Date(now).getFullYear()
       ? { month: 'short', day: 'numeric' }
       : { year: '2-digit', month: 'short', day: 'numeric' },
@@ -57,13 +60,17 @@ export const retryLine = (t: Torrent, retry: NonNullable<Torrent['retry']>): str
    * who went looking in the console and correctly found nothing.
    */
   const stalled = retry.reason === 'stalled'
-    ? (t.peers > 0 ? 'Peers stopped sending data' : 'Not connected to any peers')
-    : 'Stopped unexpectedly'
+    ? (t.peers > 0
+      ? intl.formatMessage({ id: 'Peers stopped sending data', defaultMessage: 'Peers stopped sending data' })
+      : intl.formatMessage({ id: 'Not connected to any peers', defaultMessage: 'Not connected to any peers' }))
+    : intl.formatMessage({ id: 'Stopped unexpectedly', defaultMessage: 'Stopped unexpectedly' })
   const reason = retry.message ?? stalled
   const wait = retry.retryInSeconds <= 0
-    ? 'retrying now'
-    : retry.retryInSeconds < 60
-      ? `retrying in ${writeDuration({ seconds: retry.retryInSeconds })}`
-      : `retrying in ${writeDuration({ minutes: Math.ceil(retry.retryInSeconds / 60) })}`
+    ? intl.formatMessage({ id: 'retrying now', defaultMessage: 'retrying now' })
+    : intl.formatMessage({ id: 'retrying in {time}', defaultMessage: 'retrying in {time}' }, {
+      time: retry.retryInSeconds < 60
+        ? writeDuration({ seconds: retry.retryInSeconds })
+        : writeDuration({ minutes: Math.ceil(retry.retryInSeconds / 60) }),
+    })
   return `${reason} · ${wait}`
 }

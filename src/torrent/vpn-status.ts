@@ -1,5 +1,7 @@
 import type { Reachability } from './client'
 
+import { intl } from '../i18n'
+
 /**
  * Whether peer traffic is going through FKN's WebVPN, as one answer three surfaces can share.
  *
@@ -48,7 +50,9 @@ export const vpnStatus = (reachable: Reachability | null): VpnStatus | null => {
 
   return {
     state,
-    label: on ? 'On' : healing ? 'Reconnecting' : 'Off',
-    detail: on || healing ? null : 'No peers can connect. Try reloading the page.',
+    label: on ? intl.formatMessage({ id: 'On', defaultMessage: 'On' })
+      : healing ? intl.formatMessage({ id: 'Reconnecting', defaultMessage: 'Reconnecting' })
+      : intl.formatMessage({ id: 'Off', defaultMessage: 'Off' }),
+    detail: on || healing ? null : intl.formatMessage({ id: 'No peers can connect. Try reloading the page.', defaultMessage: 'No peers can connect. Try reloading the page.' }),
   }
 }

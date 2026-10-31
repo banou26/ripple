@@ -3,6 +3,7 @@
 // each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin is refused.
 import type { AddressInfo } from 'node:net'
 import type { Page } from '@playwright/test'
+import type { Plugin } from 'vite-plus'
 
 import { expect, test } from '@playwright/test'
 import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
@@ -18,7 +19,21 @@ const TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json',
 }
 const LIST_FILTER_KEY = 'ripple:list-filter'
+const LIST_VIEW_KEY = 'ripple:list-view'
 const FOLDER = 'A folder with quite a long name'
+const ACCOUNT = { name: 'A person', premium: false }
+
+// the account tag and its menu read one hook, so a stand-in for it draws them with nobody signed in
+const signedIn = (): Plugin => ({
+  name: 'spec-signed-in',
+  enforce: 'pre',
+  load: id => id === join(ROOT, 'src', 'torrent', 'use-account.ts')
+    ? `export const useAccount = () => {
+        const info = JSON.parse(localStorage.getItem('spec:account'))
+        return { info, ready: !!info, logout: async () => {} }
+      }`
+    : undefined,
+})
 
 let dir: string
 let server: Server
@@ -32,7 +47,7 @@ test.beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     build: { outDir: dir, emptyOutDir: true },
-    plugins: [offerEveryLanguage()],
+    plugins: [offerEveryLanguage(), signedIn()],
   })
   copyFileSync(join(ROOT, 'src', 'index.html'), join(dir, 'index.html'))
   server = createServer((request, response) => {
@@ -50,7 +65,8 @@ test.afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true })
 })
 
-// stands in for the engine's worker, and for a folder picker a headless browser has none of
+// stands in for the engine's worker, for a folder picker a headless browser has none of, and for the browser's answers
+// about storage, which a test sets through `answer`
 const standIns = (folder: string) => {
   const heard = new Set<EventListener>()
   Object.defineProperty(window, 'Worker', {
@@ -66,13 +82,49 @@ const standIns = (folder: string) => {
     engine: (data: unknown) => { for (const listener of heard) listener(new MessageEvent('message', { data })) },
     showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true }),
   })
+  const answers = () => JSON.parse(localStorage.getItem('spec:storage') ?? '{}') as { low?: boolean, persisted?: boolean, denied?: boolean }
+  const { storage, permissions } = navigator
+  const native = {
+    estimate: storage.estimate.bind(storage),
+    persisted: storage.persisted.bind(storage),
+    persist: storage.persist.bind(storage),
+    query: permissions.query.bind(permissions),
+  }
+  storage.estimate = () => answers().low ? Promise.resolve({ usage: 1_000_000_000, quota: 1_900_000_000 }) : native.estimate()
+  storage.persisted = () => answers().persisted ? Promise.resolve(true) : native.persisted()
+  storage.persist = () => answers().low ? Promise.resolve(false) : native.persist()
+  permissions.query = descriptor => answers().denied ? Promise.resolve({ state: 'denied' } as PermissionStatus) : native.query(descriptor)
 }
 
-test.beforeEach(async ({ page }) => {
+// a service worker that takes an update and never finishes, so `Updating Ripple` stays up to be read
+const updateStandIn = () => {
+  const heard = new Set<EventListener>()
+  const registration = { waiting: null as object | null, addEventListener () {}, update: async () => {} }
+  Object.defineProperty(navigator, 'serviceWorker', {
+    value: {
+      controller: {},
+      ready: Promise.resolve(registration),
+      getRegistration: async () => registration,
+      register: async () => registration,
+      addEventListener: (type: string, listener: EventListener) => { if (type === 'controllerchange') heard.add(listener) },
+      removeEventListener: (_: string, listener: EventListener) => { heard.delete(listener) },
+    },
+  })
+  Object.assign(window, {
+    updateTaken: () => {
+      registration.waiting = { postMessage () {} }
+      for (const listener of heard) listener(new Event('controllerchange'))
+    },
+  })
+}
+
+const prepare = async (page: Page) => {
   await page.route(url => !url.href.startsWith(origin), route => route.abort())
   await page.addInitScript(standIns, FOLDER)
-  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
-})
+  await page.addInitScript(() => { if (!localStorage.getItem('spec:first-visit')) localStorage.setItem('ripple:demo-seeded', '1') })
+}
+
+test.beforeEach(({ page }) => prepare(page))
 
 const magnetOf = (hash: string, name: string) => `magnet:?xt=urn:btih:${hash.repeat(40)}&dn=${name}`
 const NAMELESS = `magnet:?xt=urn:btih:${'6'.repeat(40)}`
@@ -124,7 +176,7 @@ const LIST = [
 
 const PORT = { port: 41337, listenFailed: [], listeners: [], portOpen: true, inbound: 3 }
 const READOUTS = [
-  { reachable: PORT, inboundNow: { total: 1, byTransport: { utp: 1 } } },
+  { reachable: { ...PORT, listeners: [{ up: true }] }, inboundNow: { total: 1, byTransport: { utp: 1 } } },
   { reachable: PORT, inboundNow: { total: 3, byTransport: { utp: 2, tcp: 1 } } },
   { reachable: { ...PORT, inbound: 0 }, inboundNow: { total: 0, byTransport: {} } },
   { reachable: { ...PORT, portOpen: false }, inboundNow: { total: 0, byTransport: {} } },
@@ -147,14 +199,11 @@ const library = async (page: Page, list: object[], torrents: object[], extra: ob
   await drawn(page)
 }
 
-// words of parts wrapped elsewhere that read as this page's: the list toolbar, the footer's storage control
-const NOT_THIS_PAGE = '.list-toolbar, footer .controls > :nth-child(3)'
-
 /** The page's text and the words its controls carry for a screen reader, a tooltip or an empty field. */
-const wordsOf = (page: Page) => page.evaluate(skipped => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].filter(element => !element.closest(skipped)).flatMap(element => [
+const wordsOf = (page: Page) => page.evaluate(() => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
   [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim(),
   ...['aria-label', 'placeholder', 'data-tooltip-content'].map(name => element.getAttribute(name) ?? ''),
-]).filter(Boolean), NOT_THIS_PAGE)
+]).filter(Boolean))
 
 /** What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, a footer label broken. */
 const cutOff = (page: Page) => page.evaluate(() => {
@@ -166,7 +215,8 @@ const cutOff = (page: Page) => page.evaluate(() => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
-        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' ? [`clipped: ${named(element)}`]
+        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language
+        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !element.matches('.torrent-table .title') ? [`clipped: ${named(element)}`]
         : element.matches('input:placeholder-shown') && getComputedStyle(element).textOverflow !== 'ellipsis' ? ['a placeholder with no room is cut mid letter']
         : element.matches('footer .folder > span') && box.height > 2 * parseFloat(getComputedStyle(element).fontSize) ? [`a footer label broken in two: ${named(element)}`]
         : []
@@ -174,8 +224,8 @@ const cutOff = (page: Page) => page.evaluate(() => {
   ]
 })
 
-/** Draws every surface of the page at `width`, and returns all they showed and all that had no room. */
-const everySurface = async (page: Page, width: number) => {
+/** A walk's record: `read` adds what a surface shows, what has no room there, and its screenshot. */
+const walk = (page: Page, width: number) => {
   const words: string[] = []
   const cut: string[] = []
   const read = async (surface: string) => {
@@ -184,6 +234,22 @@ const everySurface = async (page: Page, width: number) => {
     cut.push(...(await cutOff(page)).map(line => `${surface}: ${line}`))
     await page.screenshot({ path: test.info().outputPath(`${width}-${surface}.png`) })
   }
+  return { words, cut, read }
+}
+
+const opening = (page: Page, language: string) =>
+  page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
+
+/** Fails on anything with no room, and on a word `language` left in English. */
+const expectAllTranslated = async (page: Page, language: string, { words, cut }: { words: string[], cut: string[] }) => {
+  await expect(page.locator('html')).toHaveAttribute('lang', language)
+  expect(cut).toEqual([])
+  expect(englishIn([...new Set(words)], english(), language === PSEUDO ? undefined : catalogues()[language])).toEqual([])
+}
+
+/** Draws every surface of the page at `width`, and returns all they showed and all that had no room. */
+const everySurface = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
   const reopen = async (filter: string) => {
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, filter])
     await page.goto(origin)
@@ -269,6 +335,65 @@ const everySurface = async (page: Page, width: number) => {
   await library(page, LIST.slice(0, 2), TORRENTS.slice(0, 2))
   await expect(page.locator('.empty')).toBeVisible()
   await read('no temporary downloads')
+
+  await page.evaluate(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
+  await reopen('all')
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.torrent-table')).toBeVisible()
+  await read('table')
+  await page.evaluate(key => localStorage.removeItem(key), LIST_VIEW_KEY)
+  return { words, cut }
+}
+
+const answer = (page: Page, answers: object) => page.evaluate(value => localStorage.setItem('spec:storage', value), JSON.stringify(answers))
+
+/** Draws what asks a storage, an account or a first visit of the browser, at `width`. */
+const smallParts = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
+  const open = async () => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+  }
+  await page.setViewportSize({ width, height: 1500 })
+  await page.goto(origin)
+
+  await answer(page, { low: true })
+  await open()
+  const room = page.locator('.storage-warning:not(.offline)')
+  await expect(room).toBeVisible()
+  await read('room')
+  await room.getByRole('button').first().click()
+  await expect(room.getByRole('button')).toHaveCount(1)
+  await read('room, the ask refused')
+  const autoSave = page.locator('footer .folder').last().getByRole('button')
+  await autoSave.first().click()
+  await expect(room.getByRole('button')).toContainText(FOLDER)
+  await read('room, a folder chosen')
+  await room.getByRole('button').click()
+  await expect(room.getByRole('button')).toHaveCount(0)
+  await read('room, finished downloads moving out')
+
+  await answer(page, { persisted: true })
+  await open()
+  await read('persistent')
+  await answer(page, { denied: true })
+  await open()
+  await read('blocked')
+  await answer(page, {})
+
+  await page.evaluate(value => localStorage.setItem('spec:account', value), JSON.stringify(ACCOUNT))
+  await open()
+  await read('account')
+  await page.locator('.account-tag').click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  await read('account menu')
+  await page.evaluate(() => localStorage.removeItem('spec:account'))
+
+  await page.evaluate(() => { localStorage.setItem('spec:first-visit', '1'); localStorage.removeItem('ripple:demo-seeded') })
+  await page.goto(origin)
+  await library(page, [], [])
+  await expect(page.locator('.sample')).toBeVisible({ timeout: 15_000 })
+  await read('sample')
   return { words, cut }
 }
 
@@ -276,17 +401,52 @@ test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
       test.setTimeout(240_000)
-      await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
-      const code = english()
-      const translated = language === PSEUDO ? undefined : catalogues()[language]
+      await opening(page, language)
       for (const width of [1280, 390]) {
-        const { words, cut } = await everySurface(page, width)
-        await expect(page.locator('html')).toHaveAttribute('lang', language)
-        expect(cut, `${width} px`).toEqual([])
-        expect(words.length, `${width} px: the control, the page's words were read`).toBeGreaterThan(150)
-        expect(englishIn([...new Set(words)], code, translated), `${width} px`).toEqual([])
+        const seen = await everySurface(page, width)
+        expect(seen.words.length, `${width} px: the control, the page's words were read`).toBeGreaterThan(150)
+        await expectAllTranslated(page, language, seen)
       }
     })
+
+    for (const width of [1280, 390]) {
+      test(`${language} at ${width} px: the storage notice, the account and the sample fit, in the language`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await opening(page, language)
+        await expectAllTranslated(page, language, await smallParts(page, width))
+      })
+
+      test(`${language} at ${width} px: a tab another took over, and an update on its way, fit, in the language`, async ({ page }) => {
+        const { words, cut, read } = walk(page, width)
+        await opening(page, language)
+        await page.setViewportSize({ width, height: 844 })
+        await page.addInitScript(updateStandIn)
+        await page.goto(origin)
+        await page.locator('footer').waitFor()
+        await page.evaluate(() => (window as unknown as { updateTaken: () => void }).updateTaken())
+        await expect(page.locator('body > [role=status]')).toBeVisible()
+        await read('updating')
+        await expectAllTranslated(page, language, { words, cut })
+
+        // with no Web Locks only one tab runs, the first
+        const noLocks = () => { delete (Navigator.prototype as unknown as { locks?: LockManager }).locks }
+        const context = page.context()
+        const pages = [await context.newPage(), await context.newPage()]
+        for (const tab of pages) {
+          await prepare(tab)
+          await opening(tab, language)
+          await tab.setViewportSize({ width, height: 844 })
+          await tab.addInitScript(noLocks)
+        }
+        await pages[0]!.goto(origin)
+        await pages[0]!.locator('footer').waitFor()
+        await pages[1]!.goto(origin)
+        await expect(pages[1]!.getByRole('button')).toHaveCount(1)
+        const taken = walk(pages[1]!, width)
+        await taken.read('another tab')
+        await expectAllTranslated(pages[1]!, language, taken)
+      })
+    }
   }
 
   test('de: each count takes its own form, and a value lands where the language puts it', async ({ page }) => {
@@ -335,7 +495,7 @@ test.describe('on a phone', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
-    await expect(page.locator('.torrent').first()).toBeVisible()
+    await expect(page.locator('.torrent, .torrent-table').first()).toBeVisible()
   }
 
   for (const language of ['en', 'ru', 'fr']) {
@@ -343,6 +503,21 @@ test.describe('on a phone', () => {
       await opened(page, language)
       const room = await page.locator('main').evaluate(list => list.clientHeight)
       expect(room).toBeGreaterThanOrEqual(await page.locator('.torrent').first().evaluate(row => row.getBoundingClientRect().height))
+    })
+  }
+
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: the table shows its columns inside the window, and a name to read`, async ({ page }) => {
+      await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
+      await opened(page, language)
+      await expect(page.locator('.torrent-table')).toBeVisible()
+      const { table, window, name } = await page.evaluate(() => ({
+        table: document.querySelector('.torrent-table')!.getBoundingClientRect().width,
+        window: document.documentElement.clientWidth,
+        name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
+      }))
+      expect(table).toBeLessThanOrEqual(window)
+      expect(name).toBeGreaterThanOrEqual(90)
     })
   }
 
@@ -358,5 +533,11 @@ test('the control: in English the same reading finds the page\'s own words', asy
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
-  expect(englishIn([...new Set(words)], english()).length).toBeGreaterThan(60)
+  expect(englishIn([...new Set(words)], english()).length).toBeGreaterThan(100)
+})
+
+test('the control: in English the small parts\' own words are read too', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { words } = await smallParts(page, 1280)
+  for (const text of ['Running out of room', 'Persistent', 'Blocked', 'Manage account', 'Add Sintel']) expect(words).toContain(text)
 })

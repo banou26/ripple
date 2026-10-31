@@ -1,5 +1,7 @@
 import type { SaveLocation } from './library'
 
+import { intl } from '../i18n'
+
 /**
  * What a person can actually DO about a full origin, and the words for it.
  *
@@ -85,14 +87,13 @@ export const storageRelief = (
 export const reliefOffer = (relief: StorageRelief): { detail: string | null, action: string | null } => {
   switch (relief.kind) {
     case 'none':
-      return { detail: 'Removing a torrent frees its files.', action: null }
-    case 'choose':
-      return { detail: null, action: 'Choose a folder and move finished downloads there' }
-    case 'move':
-      return { detail: null, action: `Move finished downloads to ${relief.folderName}` }
-    case 'allow':
-      return { detail: null, action: `Allow ${relief.folderName}` }
     case 'settled':
-      return { detail: 'Removing a torrent frees its files.', action: null }
+      return { detail: intl.formatMessage({ id: 'Removing a torrent frees its files.', defaultMessage: 'Removing a torrent frees its files.' }), action: null }
+    case 'choose':
+      return { detail: null, action: intl.formatMessage({ id: 'Choose a folder and move finished downloads there', defaultMessage: 'Choose a folder and move finished downloads there' }) }
+    case 'move':
+      return { detail: null, action: intl.formatMessage({ id: 'Move finished downloads to {folder}', defaultMessage: 'Move finished downloads to {folder}' }, { folder: relief.folderName }) }
+    case 'allow':
+      return { detail: null, action: intl.formatMessage({ id: 'Allow {folder}', defaultMessage: 'Allow {folder}' }, { folder: relief.folderName }) }
   }
 }

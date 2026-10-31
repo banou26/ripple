@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import de from '../../src/locales/de.json'
 import { reliefOffer, storageRelief } from '../../src/torrent/storage-relief'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * What the "Running out of room" warning offers, which is the whole point of the warning.
@@ -78,6 +80,20 @@ describe('what to offer when the origin is filling up', () => {
       const { action } = reliefOffer(s)
       expect(action === null, `${s.kind} button`).toBe(s.kind === 'none' || s.kind === 'settled')
       expect(action ?? '').not.toMatch(/more (storage|space|room)|increase|raise/i)
+    }
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(showEnglish)
+
+  it('words each offer, the folder\'s name where the language puts it', async () => {
+    await showIn('de', de)
+    expect(reliefOffer({ kind: 'choose' }).action).toBe('Ordner wählen und fertige Downloads dorthin verschieben')
+    expect(reliefOffer({ kind: 'move', folderName: 'Filme' }).action).toBe('Fertige Downloads nach Filme verschieben')
+    expect(reliefOffer({ kind: 'allow', folderName: 'Filme' }).action).toBe('Filme erlauben')
+    for (const relief of [{ kind: 'none' }, { kind: 'settled', folderName: 'Filme' }] as const) {
+      expect(reliefOffer(relief).detail).toBe('Wenn du einen Torrent entfernst, wird der Platz seiner Dateien frei.')
     }
   })
 })

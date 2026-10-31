@@ -2,10 +2,13 @@ import type { PersistState } from '../../src/torrent/storage-permission'
 import type { StorageRelief } from '../../src/torrent/storage-relief'
 import type { StorageUsage } from '../../src/torrent/use-storage-usage'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { StorageWarning } from '../../src/components/storage-warning'
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The notice a person actually reads when their downloads stop.
@@ -47,13 +50,13 @@ const mount = (
   onAskPersist = () => {},
 ) =>
   render(
-    <StorageWarning
+    <IntlRoot><StorageWarning
       storage={usage({ persisted: persist.persisted })}
       relief={relief}
       onAct={onAct}
       persist={persist}
       onAskPersist={onAskPersist}
-    />,
+    /></IntlRoot>,
   )
 
 const button = (c: HTMLElement) => c.querySelector('button')
@@ -61,6 +64,8 @@ const button = (c: HTMLElement) => c.querySelector('button')
 const labels = (c: HTMLElement) => [...c.querySelectorAll('button')].map((b) => b.textContent)
 
 describe('the running-out-of-room notice', () => {
+  afterEach(showEnglish)
+
   it('always reports the figures, whatever it can offer', async () => {
     const { container } = await mount({ kind: 'none' })
     expect(container.textContent).toContain('1.78 GB')
@@ -94,6 +99,13 @@ describe('the running-out-of-room notice', () => {
   it('shows no button where there is nothing to press', async () => {
     expect(button((await mount({ kind: 'settled', folderName: 'd' })).container)).toBeNull()
     expect(button((await mount({ kind: 'none' })).container)).toBeNull()
+  })
+
+  it('reads in the language of the page, its figures written there too', async () => {
+    await showIn('de', de)
+    const { container } = await mount({ kind: 'none' })
+    expect(container.querySelector('strong')?.textContent).toBe('Der Platz wird knapp')
+    expect(container.querySelector('strong + span')?.textContent).toMatch(/^1,78\sGB von 2,15\sGB belegt$/u)
   })
 
   it('keeps the old advice on a browser that cannot grant a folder', async () => {

@@ -1677,7 +1677,7 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
             <div className="meta"><span>{intl.formatMessage({ id: 'Connecting', defaultMessage: 'Connecting' })}</span></div>
           </div>
           <div className="side">
-            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+            <span className={`badge ${t.state}`}>{intl.formatMessage(STATE_LABEL[t.state])}</span>
           </div>
         </div>
       </div>
@@ -1716,7 +1716,7 @@ const MissingRow = ({
                   type="button" className="temp"
                   onClick={() => onOptions(t, null)}
                   aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
-                  {...hint(TEMPORARY_GONE_HINT)}
+                  {...hint(intl.formatMessage(TEMPORARY_GONE_HINT))}
                 >
                   <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
@@ -1732,7 +1732,7 @@ const MissingRow = ({
             </div>
           </div>
           <div className="side">
-            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+            <span className={`badge ${t.state}`}>{intl.formatMessage(STATE_LABEL[t.state])}</span>
             {/* Two, matching the live rows: fetch it, or open the menu. Removing a library entry is
                 in the menu with everything else destructive.
                 ONE EXCEPTION, and it is not cosmetic. A created source has no swarm behind it, and
@@ -1854,7 +1854,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                   type="button" className="temp"
                   onClick={() => onOptions(t, null)}
                   aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
-                  {...hint(TEMPORARY_HINT)}
+                  {...hint(intl.formatMessage(TEMPORARY_HINT))}
                 >
                   <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
@@ -1900,7 +1900,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
               rather than as something to click */}
           {rates && <RowGraph down={rates.down} up={rates.up}/>}
           <div className="side">
-            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+            <span className={`badge ${t.state}`}>{intl.formatMessage(STATE_LABEL[t.state])}</span>
             <span className="pct">{writePercent(t.progress, t.progress < 1 ? 1 : 0)}</span>
             {/**
               * Four controls, and every one of them is something people reach for constantly.

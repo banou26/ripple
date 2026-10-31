@@ -2,6 +2,7 @@ import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-vie
 
 import { css } from '@emotion/react'
 import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
+import { useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL } from '../torrent/list-view'
 import { hint } from './hint'
@@ -134,27 +135,28 @@ export type ListToolbarProps = {
 
 export const ListToolbar = (
   { filter, onFilter, sortKey, sortDir, onSort, view, onView, temporaryCount }: ListToolbarProps,
-) => (
-  <div css={style} className="list-toolbar">
+) => {
+  const intl = useIntl()
+  return <div css={style} className="list-toolbar">
     {/*
       * Hidden entirely when nothing is temporary, which is the state most people are in for good.
       * An option that cannot change an outcome is not shown, and a filter offering to hide a
       * category with nothing in it teaches the wrong thing about what the app is doing.
       */}
     {temporaryCount > 0 && (
-      <div className="seg" role="group" aria-label="Show">
+      <div className="seg" role="group" aria-label={intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}>
         <button
           type="button" data-on={filter === 'all' || undefined} aria-pressed={filter === 'all'}
           onClick={() => onFilter('all')}
-        >All</button>
+        >{intl.formatMessage({ id: 'All', defaultMessage: 'All' })}</button>
         <button
           type="button" data-on={filter === 'library' || undefined} aria-pressed={filter === 'library'}
           onClick={() => onFilter('library')}
-        >Kept</button>
+        >{intl.formatMessage({ id: 'Kept', defaultMessage: 'Kept' })}</button>
         <button
           type="button" data-on={filter === 'temporary' || undefined} aria-pressed={filter === 'temporary'}
           onClick={() => onFilter('temporary')}
-        >Temporary <span className="count">{temporaryCount}</span></button>
+        >{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })} <span className="count">{temporaryCount}</span></button>
       </div>
     )}
 
@@ -164,9 +166,9 @@ export const ListToolbar = (
       * handling, type-ahead and a touch picker that none of this code has to own.
       */}
     <label className="sort">
-      Sort
+      {intl.formatMessage({ id: 'Sort', defaultMessage: 'Sort' })}
       <select
-        aria-label="Sort by"
+        aria-label={intl.formatMessage({ id: 'Sort by', defaultMessage: 'Sort by' })}
         value={sortKey}
         onChange={(e) => {
           const key = e.target.value as SortKey
@@ -176,29 +178,33 @@ export const ListToolbar = (
         }}
       >
         {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-          <option key={k} value={k}>{SORT_LABEL[k]}</option>
+          <option key={k} value={k}>{intl.formatMessage(SORT_LABEL[k])}</option>
         ))}
       </select>
     </label>
 
     <button
       type="button" className="dir"
-      aria-label={sortDir === 'asc' ? 'Sorted ascending, click for descending' : 'Sorted descending, click for ascending'}
-      {...hint(sortDir === 'asc' ? 'Smallest first' : 'Largest first')}
+      aria-label={sortDir === 'asc'
+        ? intl.formatMessage({ id: 'Sorted ascending, click for descending', defaultMessage: 'Sorted ascending, click for descending' })
+        : intl.formatMessage({ id: 'Sorted descending, click for ascending', defaultMessage: 'Sorted descending, click for ascending' })}
+      {...hint(sortDir === 'asc'
+        ? intl.formatMessage({ id: 'Smallest first', defaultMessage: 'Smallest first' })
+        : intl.formatMessage({ id: 'Largest first', defaultMessage: 'Largest first' }))}
       onClick={() => onSort(sortKey, sortDir === 'asc' ? 'desc' : 'asc')}
     >
       {sortDir === 'asc' ? <ArrowUp/> : <ArrowDown/>}
     </button>
 
-    <div className="seg views" role="group" aria-label="View">
+    <div className="seg views" role="group" aria-label={intl.formatMessage({ id: 'View', defaultMessage: 'View' })}>
       <button
         type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
         onClick={() => onView('cards')}
-      ><LayoutGrid/>Cards</button>
+      ><LayoutGrid/>{intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })}</button>
       <button
         type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
         onClick={() => onView('table')}
-      ><ListIcon/>Table</button>
+      ><ListIcon/>{intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })}</button>
     </div>
   </div>
-)
+}

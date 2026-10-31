@@ -1,5 +1,7 @@
 import type { Torrent } from './types'
 
+import { defineMessage, defineMessages } from 'react-intl'
+
 /**
  * How the library list is filtered, sorted and arranged, as arithmetic with no React in it.
  *
@@ -19,10 +21,10 @@ import type { Torrent } from './types'
  * on disk, so "cache" does not separate anything. "Temporary" names the consequence, which is the
  * part that costs them something.
  */
-export const TEMPORARY_HINT = 'May be deleted to free space. Open options to keep it.'
+export const TEMPORARY_HINT = defineMessage({ id: 'May be deleted to free space. Open options to keep it.', defaultMessage: 'May be deleted to free space. Open options to keep it.' })
 
 /** The same fact once the bytes are already gone. */
-export const TEMPORARY_GONE_HINT = 'Deleted to free space.'
+export const TEMPORARY_GONE_HINT = defineMessage({ id: 'Deleted to free space.', defaultMessage: 'Deleted to free space.' })
 
 // -------------------------------------------------------------------------------------- the filter
 
@@ -49,16 +51,16 @@ export const visibleTorrents = (all: readonly Torrent[], filter: ListFilter): To
 export type SortKey = 'added' | 'name' | 'size' | 'progress' | 'down' | 'up' | 'peers' | 'eta'
 export type SortDir = 'asc' | 'desc'
 
-export const SORT_LABEL: Record<SortKey, string> = {
-  added: 'Date added',
-  name: 'Name',
-  size: 'Size',
-  progress: 'Progress',
-  down: 'Download speed',
-  up: 'Upload speed',
-  peers: 'Peers',
-  eta: 'Time left',
-}
+export const SORT_LABEL = defineMessages<SortKey>({
+  added: { id: 'Date added', defaultMessage: 'Date added' },
+  name: { id: 'Name', defaultMessage: 'Name' },
+  size: { id: 'Size', defaultMessage: 'Size' },
+  progress: { id: 'Progress', defaultMessage: 'Progress' },
+  down: { id: 'Download speed', defaultMessage: 'Download speed' },
+  up: { id: 'Upload speed', defaultMessage: 'Upload speed' },
+  peers: { id: 'Peers', defaultMessage: 'Peers' },
+  eta: { id: 'Time left', defaultMessage: 'Time left' },
+})
 
 /**
  * The direction each key gets when it is first chosen, which is the one that answers the question

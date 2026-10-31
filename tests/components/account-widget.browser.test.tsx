@@ -32,6 +32,9 @@ vi.mock('../../src/torrent/use-account', () => ({ useAccount: () => account }))
 vi.mock('@fkn/lib/react', () => ({ ConnectButton: () => <div data-testid="connect"/> }))
 
 const { AccountWidget, LOGOUT_TIMEOUT } = await import('../../src/components/account-widget')
+const { IntlRoot } = await import('../../src/i18n')
+const { default: de } = await import('../../src/locales/de.json')
+const { showEnglish, showIn } = await import('../i18n/show-in')
 
 const signedIn = (over: Partial<{ name: string, premium: boolean }> = {}) =>
   ({ name: 'banou', premium: false, ...over }) as unknown as AccountInfo
@@ -50,9 +53,9 @@ const onToast = vi.fn()
  * between the two, so the fixture reproduces it.
  */
 const mount = () => render(
-  <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', boxSizing: 'border-box', paddingRight: 24 }}>
+  <IntlRoot><div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', boxSizing: 'border-box', paddingRight: 24 }}>
     <AccountWidget onToast={onToast}/>
-  </div>,
+  </div></IntlRoot>,
 )
 
 const trigger = () => document.querySelector('[aria-haspopup="menu"]') as HTMLButtonElement
@@ -288,9 +291,9 @@ describe('disconnecting', () => {
     account.info = null
     // the widget re-renders from the hook, which the mock drives off the next render
     screen.rerender(
-      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+      <IntlRoot><div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
         <AccountWidget onToast={onToast}/>
-      </div>,
+      </div></IntlRoot>,
     )
     await expect.poll(menu).toBeNull()
     expect(onToast).not.toHaveBeenCalled()
@@ -337,9 +340,9 @@ describe('disconnecting', () => {
     await vi.advanceTimersByTimeAsync(LOGOUT_TIMEOUT * 2)
     account.info = null
     screen.rerender(
-      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', boxSizing: 'border-box', paddingRight: 24 }}>
+      <IntlRoot><div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', boxSizing: 'border-box', paddingRight: 24 }}>
         <AccountWidget onToast={onToast}/>
-      </div>,
+      </div></IntlRoot>,
     )
     await expect.poll(connect).not.toBeNull()
     expect(onToast).not.toHaveBeenCalled()
@@ -373,5 +376,40 @@ describe('the menu keyboard, on rows that are not all buttons', () => {
     await expect.poll(active).toBe('Disconnect')
     await userEvent.keyboard(' ')
     await expect.poll(() => account.logout.mock.calls.length).toBe(1)
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(showEnglish)
+
+  it('words the tag and the menu', async () => {
+    await showIn('de', de)
+    await mounted()
+    expect(trigger().getAttribute('aria-label')).toBe('FKN-Konto: banou, Kostenlos')
+    expect(trigger().querySelector('.tier')?.textContent).toBe('Kostenlos')
+    await openMenu()
+    expect(menu()?.getAttribute('aria-label')).toBe('Konto: banou')
+    expect(items().map(labelOf)).toEqual(['Konto verwalten', 'Trennen'])
+  })
+
+  it('words an account with no name', async () => {
+    await showIn('de', de)
+    account.info = signedIn({ name: '', premium: true })
+    await mounted()
+    expect(trigger().getAttribute('aria-label')).toBe('FKN-Konto: Konto, Premium')
+  })
+
+  it('says it is disconnecting, then that it has', async () => {
+    await showIn('de', de)
+    let settle = () => {}
+    account.logout = vi.fn(() => new Promise<void>((resolve) => { settle = resolve }))
+    await mounted()
+    await openMenu()
+    await userEvent.click(byLabel('Trennen'))
+    await expect.poll(() => labelOf(items()[1])).toBe('Wird getrennt...')
+    account.info = null
+    settle()
+    await expect.poll(connect).not.toBeNull()
+    expect(onToast).toHaveBeenCalledWith('Getrennt')
   })
 })

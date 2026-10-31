@@ -1,13 +1,16 @@
+import type { MessageDescriptor } from 'react-intl'
+
 import type { Torrent } from '../torrent/types'
 import type { SortDir, SortKey } from '../torrent/list-view'
 
 import { css } from '@emotion/react'
 import { Clock } from 'lucide-react'
+import { defineMessage, useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
 import { badgeRules } from './badge-style'
 import { STATE_LABEL, relativeDay, speed } from './torrent-format'
-import { getHumanReadableByteString } from '../utils/bytes'
+import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
 import {
   BORDER, CONTROL_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
@@ -141,26 +144,30 @@ const style = css`
   @media (max-width: 940px) { .c-up { display: none; } }
   @media (max-width: 820px) { .c-peers { display: none; } }
   @media (max-width: 700px) { .c-size { display: none; } }
+  @media (max-width: 560px) { .c-down, .bar { display: none; } }
 `
 
 type Column = {
   key: SortKey | null
-  label: string
+  label: MessageDescriptor
   /** The class that lets a media query drop this column, absent for the two that never go. */
   cls?: string
   num?: boolean
 }
 
 const COLUMNS: Column[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'size', label: 'Size', cls: 'c-size', num: true },
-  { key: 'progress', label: 'Progress', cls: 'c-progress' },
-  { key: null, label: 'State', cls: 'c-status' },
-  { key: 'down', label: 'Down', cls: 'c-down', num: true },
-  { key: 'up', label: 'Up', cls: 'c-up', num: true },
-  { key: 'peers', label: 'Peers', cls: 'c-peers', num: true },
-  { key: 'added', label: 'Added', cls: 'c-added', num: true },
+  { key: 'name', label: SORT_LABEL.name },
+  { key: 'size', label: SORT_LABEL.size, cls: 'c-size', num: true },
+  { key: 'progress', label: SORT_LABEL.progress, cls: 'c-progress' },
+  { key: null, label: defineMessage({ id: 'State', defaultMessage: 'State' }), cls: 'c-status' },
+  { key: 'down', label: defineMessage({ id: 'Down', defaultMessage: 'Down' }), cls: 'c-down', num: true },
+  { key: 'up', label: defineMessage({ id: 'Up', defaultMessage: 'Up' }), cls: 'c-up', num: true },
+  { key: 'peers', label: SORT_LABEL.peers, cls: 'c-peers', num: true },
+  { key: 'added', label: defineMessage({ id: 'Added', defaultMessage: 'Added' }), cls: 'c-added', num: true },
 ]
+
+const ARROW = { asc: '↑', desc: '↓' }
+const UNKNOWN = '-'
 
 export type TorrentTableProps = {
   torrents: readonly Torrent[]
@@ -174,33 +181,36 @@ export type TorrentTableProps = {
 
 export const TorrentTable = (
   { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions }: TorrentTableProps,
-) => (
-  <table css={style} className="torrent-table">
+) => {
+  const intl = useIntl()
+  return <table css={style} className="torrent-table">
     <thead>
       <tr>
         {COLUMNS.map((c) => {
-          const sorted = c.key !== null && c.key === sortKey
+          const { key } = c
+          const sorted = key !== null && key === sortKey
+          const label = intl.formatMessage(c.label)
           return (
             <th
-              key={c.label}
+              key={c.label.id}
               scope="col"
               className={[c.cls, c.num ? 'num' : ''].filter(Boolean).join(' ')}
               // only a sortable column claims a sort state; "no sort applied" is the honest answer
               // for one that cannot be sorted at all, and `none` would claim it could be
-              aria-sort={c.key === null ? undefined : sorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+              aria-sort={key === null ? undefined : sorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
             >
-              {c.key === null
-                ? <button type="button" disabled style={{ cursor: 'default' }}>{c.label}</button>
+              {key === null
+                ? <button type="button" disabled style={{ cursor: 'default' }}>{label}</button>
                 : (
                   <button
                     type="button"
                     // clicking the column already sorted flips it, a different column starts at the
                     // direction that answers the question it was clicked to ask
-                    onClick={() => onSort(c.key!, sorted ? (sortDir === 'asc' ? 'desc' : 'asc') : NATURAL_DIR[c.key!])}
-                    {...hint(`Sort by ${SORT_LABEL[c.key]}`)}
+                    onClick={() => onSort(key, sorted ? (sortDir === 'asc' ? 'desc' : 'asc') : NATURAL_DIR[key])}
+                    {...hint(intl.formatMessage({ id: 'Sort by {label}', defaultMessage: 'Sort by {label}' }, { label: intl.formatMessage(SORT_LABEL[key]) }))}
                   >
-                    {c.label}
-                    {sorted && <span className="arrow" aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    {label}
+                    {sorted && <span className="arrow" aria-hidden="true">{ARROW[sortDir]}</span>}
                   </button>
                 )}
             </th>
@@ -225,8 +235,8 @@ export const TorrentTable = (
                 */}
               {t.ephemeral === true && (
                 <span
-                  className="temp" role="img" aria-label="Temporary download"
-                  {...hint(t.state === 'missing' ? TEMPORARY_GONE_HINT : TEMPORARY_HINT)}
+                  className="temp" role="img" aria-label={intl.formatMessage({ id: 'Temporary download', defaultMessage: 'Temporary download' })}
+                  {...hint(intl.formatMessage(t.state === 'missing' ? TEMPORARY_GONE_HINT : TEMPORARY_HINT))}
                 >
                   <Clock size={13} aria-hidden="true"/>
                 </span>
@@ -234,22 +244,22 @@ export const TorrentTable = (
               <span className="title">{t.name}</span>
             </div>
           </td>
-          <td className="c-size num">{t.size > 0 ? getHumanReadableByteString(t.size) : '-'}</td>
+          <td className="c-size num">{t.size > 0 ? getHumanReadableByteString(t.size) : UNKNOWN}</td>
           <td className="c-progress">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div className="bar"><div className="fill" style={{ width: `${Math.round(t.progress * 100)}%` }}/></div>
-              <span className="pct">{Math.round(t.progress * 100)}%</span>
+              <span className="pct">{writePercent(t.progress)}</span>
             </div>
           </td>
           <td className="c-status">
-            <span className={'badge ' + t.state}>{STATE_LABEL[t.state]}</span>
+            <span className={'badge ' + t.state}>{intl.formatMessage(STATE_LABEL[t.state])}</span>
           </td>
-          <td className="c-down num">{t.down > 0 ? speed(t.down) : '-'}</td>
-          <td className="c-up num">{t.up > 0 ? speed(t.up) : '-'}</td>
-          <td className="c-peers num">{t.state === 'missing' ? '-' : t.peers}</td>
+          <td className="c-down num">{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
+          <td className="c-up num">{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
+          <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
           <td className="c-added num">{relativeDay(t.addedAt)}</td>
         </tr>
       ))}
     </tbody>
   </table>
-)
+}

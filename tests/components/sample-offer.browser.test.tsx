@@ -1,7 +1,16 @@
-import { render } from 'vitest-browser-react'
-import { expect, test, vi } from 'vitest'
+import type { ReactNode } from 'react'
+
+import { render as mount } from 'vitest-browser-react'
+import { afterEach, expect, test, vi } from 'vitest'
 
 import { SampleOffer } from '../../src/components/sample-offer'
+import { IntlRoot } from '../../src/i18n'
+import fr from '../../src/locales/fr.json'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+const render = (ui: ReactNode) => mount(<IntlRoot>{ui}</IntlRoot>)
+
+afterEach(showEnglish)
 
 const buttons = (c: HTMLElement) => [...c.querySelectorAll('button')]
 const named = (c: HTMLElement, name: string) => buttons(c).find((b) => b.textContent === name)!
@@ -24,6 +33,13 @@ test('Add Sintel answers yes and No thanks answers no', async () => {
   const second = await render(<SampleOffer onAnswer={no}/>)
   named(second.container, 'No thanks').click()
   expect(no).toHaveBeenCalledWith(false)
+})
+
+test('reads in the language of the page, the film\'s size written there too', async () => {
+  await showIn('fr', fr)
+  const { container } = await render(<SampleOffer onAnswer={() => {}}/>)
+  expect(container.querySelector('strong')?.textContent).toMatch(/^Essayez Ripple avec Sintel, un film libre et gratuit \(129\sMo\)$/u)
+  expect(buttons(container).map((b) => b.textContent)).toEqual(['Ajouter Sintel', 'Non merci'])
 })
 
 test('answers once however fast it is pressed', async () => {

@@ -124,10 +124,11 @@ const MAGNET = 'bWFnbmV0Oj94dD11cm46YnRpaDphYmMmZG49UGFjay5OYW1l'
 
 const mount = async (search = '') => {
   const { default: Embed } = await import('../../src/router/embed')
+  const { IntlRoot } = await import('../../src/i18n')
   return render(
-    <MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
+    <IntlRoot><MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
       <Embed mode="download" />
-    </MemoryRouter>,
+    </MemoryRouter></IntlRoot>,
     sized(),
   )
 }
@@ -135,10 +136,11 @@ const mount = async (search = '') => {
 /** The player, for the one test that checks this page is NOT what /watch renders. */
 const mountPlayer = async (search = '') => {
   const { default: Embed } = await import('../../src/router/embed')
+  const { IntlRoot } = await import('../../src/i18n')
   return render(
-    <MemoryRouter initialEntries={[`/watch?magnet=${MAGNET}${search}`]}>
+    <IntlRoot><MemoryRouter initialEntries={[`/watch?magnet=${MAGNET}${search}`]}>
       <Embed />
-    </MemoryRouter>,
+    </MemoryRouter></IntlRoot>,
     sized(),
   )
 }

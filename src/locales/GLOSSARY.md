@@ -8,8 +8,11 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 ## Every language
 
 - **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, and the protocol names DHT, PeX, LSD and uTP.
-- **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The one exception is `ko`
-  Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words.
+- **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The exceptions are `ko`
+  Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words; and two words stub means of a
+  watch list. Paused takes qBittorrent's word where stub's reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`,
+  `zh-Hans` `已暂停`, `zh-Hant` `已暫停`, `pl` `Wstrzymano`, `ko` `일시 중지됨`), and Progress where stub's reads as how
+  much was watched (`it` `Avanzamento`, `ja` `進捗`, `ko` `진행률`, `zh-Hans` `进度`, `zh-Hant` `進度`).
 - **No em or en dash** (U+2014, U+2013), even where the language's typography uses one: restructure, or use a comma,
   a colon, a plain hyphen or the language's own range mark (`～` in Japanese, `~` in Korean, `至` in Chinese).
 - **French and Italian** write the typographic apostrophe `’`. French puts a no-break space (U+00A0) before `?` and `:`.
@@ -18,7 +21,8 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   `{count}个文件`). Korean and Turkish add no particle or suffix that changes with the name: `{name}에서`,
   `{name} adlı torrent`.
 - **Short labels.** The footer's controls (Speed, On add, Storage, Auto-save) share one row and the list's column
-  headers share the table's width, so each is a word or two where the language allows.
+  headers share the table's width, so each is a word or two where the language allows. Down and Up are the transfer's
+  two directions below.
 - **Plurals** carry every form the language needs (the check names a missing one): Russian and Polish
   `one, few, many, other`; Japanese, Korean and Chinese `other` alone. A count is written as the English writes it:
   `{count}` as given, never `#` or `{count, number}`, which group it (`1.100 Dateien`); the check names either form

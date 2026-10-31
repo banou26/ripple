@@ -2,6 +2,8 @@ import type { PersistState } from '../torrent/storage-permission'
 import type { StorageRelief } from '../torrent/storage-relief'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 
+import { useIntl } from 'react-intl'
+
 import { reliefOffer } from '../torrent/storage-relief'
 import { getHumanReadableByteString } from '../utils/bytes'
 
@@ -38,12 +40,13 @@ export const StorageWarning = ({ storage, relief, onAct, persist, onAskPersist }
   /** Asks the browser for persistent storage. Runs on a press, never on a render. */
   onAskPersist: () => void
 }) => {
+  const intl = useIntl()
   const offer = reliefOffer(relief)
   return (
     <div className="storage-warning surface" role="status">
-      <strong>Running out of room</strong>
+      <strong>{intl.formatMessage({ id: 'Running out of room', defaultMessage: 'Running out of room' })}</strong>
       <span>
-        {getHumanReadableByteString(storage.usedBytes, true)} of {getHumanReadableByteString(storage.limitBytes, true)} used
+        {intl.formatMessage({ id: '{used} of {limit} used', defaultMessage: '{used} of {limit} used' }, { used: getHumanReadableByteString(storage.usedBytes, true), limit: getHumanReadableByteString(storage.limitBytes, true) })}
       </span>
       {/* First, because it is the only route that can raise the limit. It renders nothing where there
           is nothing to ask for. */}

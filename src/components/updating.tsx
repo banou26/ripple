@@ -1,5 +1,6 @@
 import { css } from '@emotion/react'
 import { createPortal } from 'react-dom'
+import { useIntl } from 'react-intl'
 
 import { PAGE_BG, TEXT } from '../theme'
 import { MODAL_Z_INDEX } from './modal'
@@ -18,6 +19,9 @@ const style = css`
 `
 
 /** The whole page while Ripple reloads onto a new build. On body, so it also covers an open modal. */
-const Updating = () => createPortal(<div css={style} role="status">Updating Ripple</div>, document.body)
+const Updating = () => {
+  const intl = useIntl()
+  return createPortal(<div css={style} role="status">{intl.formatMessage({ id: 'Updating Ripple', defaultMessage: 'Updating Ripple' })}</div>, document.body)
+}
 
 export default Updating
