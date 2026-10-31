@@ -4,6 +4,7 @@ import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { intl } from '../i18n'
 import { getTorrentClient } from './client'
 import { DEMO_MAGNET, DEMO_SAVE_PATH, DEMO_SEEDED_KEY } from './constants'
 import { NO_INBOUND } from './inbound'
@@ -56,7 +57,7 @@ const fmtEta = (status: TorrentSnapshot['status']): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
   if (remain <= 0) return '-'
-  if (status.downloadRate <= 0) return 'queued'
+  if (status.downloadRate <= 0) return intl.formatMessage({ id: 'queued', defaultMessage: 'queued' })
   const s = Math.round(remain / status.downloadRate)
   if (s < 60) return writeDuration({ seconds: s })
   if (s < 3600) return writeDuration({ minutes: Math.floor(s / 60), seconds: s % 60 })
@@ -111,7 +112,7 @@ export const isActive = (state: TorrentState): boolean =>
 
 export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
   const st = s.status
-  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? 'Fetching metadata…'
+  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? intl.formatMessage({ id: 'Fetching metadata…', defaultMessage: 'Fetching metadata…' })
   const progress = st?.progress ?? 0
   return {
     id: String(s.handle),

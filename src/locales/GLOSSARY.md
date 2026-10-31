@@ -8,6 +8,8 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 ## Every language
 
 - **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, and the protocol names DHT, PeX, LSD and uTP.
+- **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The one exception is `ko`
+  Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words.
 - **No em or en dash** (U+2014, U+2013), even where the language's typography uses one: restructure, or use a comma,
   a colon, a plain hyphen or the language's own range mark (`～` in Japanese, `~` in Korean, `至` in Chinese).
 - **French and Italian** write the typographic apostrophe `’`. French puts a no-break space (U+00A0) before `?` and `:`.
