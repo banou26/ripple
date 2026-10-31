@@ -10,7 +10,7 @@
 // files hold, by file and line.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +36,19 @@ export const extract = root => JSON.parse(execFileSync(join(BIN, 'formatjs'), [
   'extract', 'src/**/*.{ts,tsx}', '--ignore', '**/*.d.ts',
   '--id-interpolation-pattern', '[content]', '--format', 'simple', '--throws',
 ], { cwd: root, encoding: 'utf8' }))
+
+// each literal defaultMessage in src that `english` lacks: `formatjs extract` reads a descriptor only inside
+// formatMessage or defineMessage, so one in a plain table stays in English in every language and `--fix` drops its
+// translations
+const unread = (root, english) => {
+  const spaced = text => text.replace(/\s+/g, ' ')
+  const read = new Set(Object.values(english).map(spaced))
+  return globSync('src/**/*.{ts,tsx}', { cwd: root }).flatMap(file =>
+    [...readFileSync(join(root, file), 'utf8').matchAll(/\bdefaultMessage: (['"])((?:\\.|(?!\1).)*)\1/g)]
+      .map(([, , text]) => spaced(text.replace(/\\(.)/g, '$1')))
+      .filter(text => !read.has(text))
+      .map(text => ({ file, message: `${shown(text)} is outside formatMessage and defineMessage, where formatjs extract cannot read it` })))
+}
 
 // `formatjs verify` of `languages`' catalogues against `english`, one problem holding its report when it fails
 const verify = (root, english, languages, flags) => languages.length === 0 ? [] : inTemporary(directory => {
@@ -184,6 +197,7 @@ export const check = root => {
   const { offered, catalogues, unwrapped } = readTree(root)
   const english = extract(root)
   const problems = Object.entries(english).flatMap(([id, text]) => messageProblems('src', id, text, 'en'))
+  problems.push(...unread(root, english))
   for (const language of offered) {
     if (language !== 'en' && !catalogues[language]) problems.push({ file: catalogueFile(language), message: `${language} is offered and has no catalogue` })
   }
