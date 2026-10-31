@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { ListToolbar } from '../../src/components/list-toolbar'
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The controls over what the library shows.
@@ -22,7 +25,7 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
     temporaryCount: 2,
     ...over,
   }
-  return { props, screen: render(<ListToolbar {...props}/>) }
+  return { props, screen: render(<IntlRoot><ListToolbar {...props}/></IntlRoot>) }
 }
 
 const pressed = (c: HTMLElement, name: string) =>
@@ -88,5 +91,32 @@ describe('the list toolbar', () => {
   it('names the direction control for a screen reader, since it is only an arrow', async () => {
     const { screen } = mount({ sortDir: 'asc' })
     expect((await screen).container.querySelector('.dir')?.getAttribute('aria-label')).toMatch(/ascending/)
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(showEnglish)
+
+    it('words every control and every sort key', async () => {
+      await showIn('de', de)
+      const { screen } = mount({ sortDir: 'asc', temporaryCount: 3 })
+      const c = (await screen).container
+      expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Alle', 'Behalten', 'Temporär 3', '', 'Karten', 'Tabelle'])
+      expect([...c.querySelectorAll('[role=group]')].map((g) => g.getAttribute('aria-label'))).toEqual(['Anzeigen', 'Ansicht'])
+      expect(c.querySelector('label.sort')?.firstChild?.textContent).toBe('Sortieren')
+      expect(c.querySelector('select')?.getAttribute('aria-label')).toBe('Sortieren nach')
+      expect([...c.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+        'Hinzugefügt am', 'Name', 'Größe', 'Fortschritt', 'Download-Geschwindigkeit', 'Upload-Geschwindigkeit', 'Peers', 'Restzeit',
+      ])
+      expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Aufsteigend sortiert, klicken für absteigend')
+      expect(c.querySelector('.dir')?.getAttribute('data-tooltip-content')).toBe('Kleinste zuerst')
+    })
+
+    it('words the other direction', async () => {
+      await showIn('de', de)
+      const { screen } = mount({ sortDir: 'desc' })
+      const c = (await screen).container
+      expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Absteigend sortiert, klicken für aufsteigend')
+      expect(c.querySelector('.dir')?.getAttribute('data-tooltip-content')).toBe('Größte zuerst')
+    })
   })
 })

@@ -1,6 +1,7 @@
 import type { PersistState } from '../torrent/storage-permission'
 
 import { useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import { persistControl } from '../torrent/storage-permission'
 
@@ -32,6 +33,7 @@ export const PersistControl = ({ persist, onAsk }: {
   /** Makes the ask. Never rejects: `usePersistentStorage().request` catches everything itself. */
   onAsk: () => void
 }) => {
+  const intl = useIntl()
   const asked = useRef(false)
   const [pressed, setPressed] = useState(false)
   const control = persistControl(persist)
@@ -45,7 +47,7 @@ export const PersistControl = ({ persist, onAsk }: {
 
   return (
     <div className="folder">
-      <span>Storage</span>
+      <span>{intl.formatMessage({ id: 'Storage', defaultMessage: 'Storage' })}</span>
       <button
         type="button"
         className={control.on ? 'on' : undefined}

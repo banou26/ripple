@@ -367,7 +367,8 @@ describe('another tab taking the update', () => {
     const sw = fakeContainer()
     sw.install()
     const { default: Mount } = await import('../../src/components/mount')
-    const screen = await render(<Mount/>)
+    const { IntlRoot } = await import('../../src/i18n')
+    const screen = await render(<IntlRoot><Mount/></IntlRoot>)
     await expect.poll(() => screen.container.textContent).toContain('a route')
 
     sw.controllerChange(sw.worker())

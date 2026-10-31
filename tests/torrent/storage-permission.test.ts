@@ -1,8 +1,10 @@
 import type { PersistState } from '../../src/torrent/storage-permission'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import de from '../../src/locales/de.json'
 import { persistControl, persistOffer } from '../../src/torrent/storage-permission'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * Whether to offer the persistent-storage ask, and what it is allowed to say.
@@ -109,5 +111,18 @@ describe('the persistent-storage control in the footer', () => {
   it('tells the two dead ends apart by label, since the kind cannot', () => {
     expect(persistControl(state({ persisted: true })).label).toBe('Persistent')
     expect(persistControl(state({ permission: 'denied' })).label).toBe('Blocked')
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(showEnglish)
+
+  it('words the ask and each answer the footer reports', async () => {
+    await showIn('de', de)
+    expect(persistOffer(state()).action).toBe('Mehr Platz anfragen')
+    expect(persistControl(state()).label).toBe('Mehr Platz anfragen')
+    expect(persistControl(state({ persisted: true })).label).toBe('Dauerhaft')
+    expect(persistControl(state({ permission: 'denied' }))).toMatchObject({ label: 'Blockiert', hint: 'In den Browsereinstellungen deaktiviert' })
+    expect(persistControl(state({ attempted: true, granted: false })).label).toBe('Nicht gewährt')
   })
 })

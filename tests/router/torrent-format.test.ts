@@ -3,7 +3,9 @@ import type { Torrent } from '../../src/torrent/types'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { startLanguage } from '../../src/i18n'
+import de from '../../src/locales/de.json'
 import { relativeDay, retryLine, speed } from '../../src/router/torrent-format'
+import { showIn } from '../i18n/show-in'
 
 /**
  * The strings a row says about itself.
@@ -74,6 +76,21 @@ describe('in the language of the page', () => {
     expect(relativeDay(now - 3 * 3_600_000, now)).toBe('3h')
     expect(relativeDay(now - 3 * 86_400_000, now)).toBe('3j')
     expect(retryLine(t(), retry({ retryInSeconds: 90 }))).toContain('retrying in 2min')
+  })
+
+  // the browser's own language used to write it, so an English page read `16 sept.` in a French browser and the reverse
+  it('writes a date past a week as the language writes it', async () => {
+    await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
+    const now = Date.UTC(2026, 9, 26, 12)
+    expect(relativeDay(now - 40 * 86_400_000, now)).toBe('16 sept.')
+    expect(relativeDay(Date.UTC(2025, 8, 16, 12), now)).toBe('16 sept. 25')
+  })
+
+  it('words a retrying row, the wait after its reason', async () => {
+    await showIn('de', de)
+    expect(retryLine(t({ peers: 3 }), retry({ reason: 'stalled', retryInSeconds: 90 }))).toBe('Peers senden keine Daten mehr · neuer Versuch: noch 2 Min.')
+    expect(retryLine(t({ peers: 0 }), retry({ reason: 'stalled', retryInSeconds: 0 }))).toBe('Mit keinem Peer verbunden · neuer Versuch läuft')
+    expect(retryLine(t(), retry({ retryInSeconds: 30 }))).toBe('Unerwartet angehalten · neuer Versuch: noch 30 Sek.')
   })
 
   it('writes a row\'s speed with the language\'s own per second', async () => {

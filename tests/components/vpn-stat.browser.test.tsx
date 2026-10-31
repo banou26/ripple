@@ -1,7 +1,11 @@
 import type { Reachability } from '../../src/torrent/client'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
+
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The WebVPN readout.
@@ -33,7 +37,7 @@ const reach = (over: Partial<Reachability> = {}): Reachability => ({
 
 const mount = async (reachable: Reachability | null) => {
   const { VpnStat } = await import('../../src/components/vpn-stat')
-  return render(<VpnStat reachable={reachable}/>)
+  return render(<IntlRoot><VpnStat reachable={reachable}/></IntlRoot>)
 }
 
 const strong = (c: HTMLElement) => c.querySelector('strong')
@@ -114,5 +118,20 @@ describe('the VPN stat', () => {
     const off = await mount(reach({ port: null, listeners: [] }))
     const colour = (c: HTMLElement) => getComputedStyle(strong(c)!).color
     expect(colour(on.container)).not.toBe(colour(off.container))
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(showEnglish)
+
+    it('words each state, and what to do about Off', async () => {
+      await showIn('de', de)
+      const on = await mount(reach())
+      expect(strong(on.container)?.textContent).toBe('An')
+      const off = await mount(reach({ port: null, listeners: [] }))
+      expect(strong(off.container)?.textContent).toBe('Aus')
+      expect(off.container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toBe('Keine Peers können sich verbinden. Lade die Seite neu.')
+      const healing = await mount(reach({ port: null, listeners: [{ transport: 'tcp', port: null, up: false, healing: true, attempts: 1 }] }))
+      expect(strong(healing.container)?.textContent).toBe('Verbindet neu')
+    })
   })
 })

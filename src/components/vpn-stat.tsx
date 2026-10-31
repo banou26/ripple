@@ -1,4 +1,5 @@
 import { css } from '@emotion/react'
+import { useIntl } from 'react-intl'
 
 import type { Reachability } from '../torrent/client'
 import { vpnStatus } from '../torrent/vpn-status'
@@ -54,6 +55,7 @@ const style = css`
 
 /** Exported for its own test, like every other stat: a stat that throws takes the whole route with it. */
 export const VpnStat = ({ reachable }: { reachable: Reachability | null }) => {
+  const intl = useIntl()
   const status = vpnStatus(reachable)
   // nothing known yet is not the same as off, and claiming off would invent a fault out of a gap
   if (!status) return null
@@ -61,7 +63,7 @@ export const VpnStat = ({ reachable }: { reachable: Reachability | null }) => {
 
   return (
     <div css={style} className={'stat vpn' + (on ? '' : ' error')} {...hint(status.detail)}>
-      <label>VPN</label>
+      <label>{intl.formatMessage({ id: 'VPN', defaultMessage: 'VPN' })}</label>
       <div className="value">
         <strong className={on ? 'ok' : undefined}>{status.label}</strong>
       </div>

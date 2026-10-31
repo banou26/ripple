@@ -1,9 +1,14 @@
 import type { PersistState } from '../../src/torrent/storage-permission'
 
 import { render } from 'vitest-browser-react'
-import { expect, test, vi } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 
 import { PersistControl } from '../../src/components/persist-control'
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+afterEach(showEnglish)
 
 /**
  * The footer control, which unlike `PersistOffer` must render in EVERY state: a control that hides
@@ -16,7 +21,7 @@ const state = (over: Partial<PersistState> = {}): PersistState =>
 const button = (c: HTMLElement) => c.querySelector('button')!
 
 const mount = (persist: PersistState, onAsk = () => {}) =>
-  render(<PersistControl persist={persist} onAsk={onAsk}/>)
+  render(<IntlRoot><PersistControl persist={persist} onAsk={onAsk}/></IntlRoot>)
 
 test('offers the ask where a prompt can still be raised', async () => {
   const { container } = await mount(state())
@@ -47,6 +52,13 @@ test('an ask the browser refused by itself reports it and cannot be pressed', as
 
 // an engine that cannot be asked answers 'prompt' through @banou/ponyfill, never 'denied', so the
 // control stays live: silence is not a refusal
+test('names itself and its state in the language of the page', async () => {
+  await showIn('de', de)
+  const { container } = await mount(state())
+  expect(container.querySelector('span')?.textContent).toBe('Speicher')
+  expect(button(container).textContent).toBe('Mehr Platz anfragen')
+})
+
 test('an engine that will not answer the permission query still gets the button', async () => {
   const { container } = await mount(state({ permission: 'prompt' }))
   expect(button(container).disabled).toBe(false)

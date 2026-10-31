@@ -1,9 +1,12 @@
 import type { Torrent } from '../../src/torrent/types'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
 import { TorrentTable } from '../../src/router/torrent-table'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The dense view of the library.
@@ -44,7 +47,7 @@ const mount = (over: Partial<Parameters<typeof TorrentTable>[0]> = {}) => {
     onOptions: vi.fn(),
     ...over,
   }
-  return { props, screen: render(<TorrentTable {...props}/>) }
+  return { props, screen: render(<IntlRoot><TorrentTable {...props}/></IntlRoot>) }
 }
 
 describe('the torrent table', () => {
@@ -136,5 +139,31 @@ describe('the torrent table', () => {
   it('renders a row per torrent and nothing extra', async () => {
     const { screen } = mount({ torrents: [t(), t(), t()] })
     expect((await screen).container.querySelectorAll('tbody tr')).toHaveLength(3)
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(showEnglish)
+
+    it('words every column, its sort and its row', async () => {
+      await showIn('de', de)
+      const { screen } = mount({ sortKey: 'size', sortDir: 'asc', torrents: [t({ ephemeral: true, state: 'seeding' })] })
+      const c = (await screen).container
+      expect([...c.querySelectorAll('thead th button')].map((b) => b.textContent)).toEqual([
+        'Name', 'Größe↑', 'Fortschritt', 'Zustand', 'Download', 'Upload', 'Peers', 'Hinzugefügt',
+      ])
+      expect(c.querySelector('thead .c-size button')?.getAttribute('data-tooltip-content')).toBe('Sortieren nach: Größe')
+      expect(c.querySelector('.badge')?.textContent).toBe('Seeden')
+      expect(c.querySelector('.pct')?.textContent).toMatch(/^50\s%$/u)
+      expect(c.querySelector('.temp')?.getAttribute('aria-label')).toBe('Temporärer Download')
+      expect(c.querySelector('.temp')?.getAttribute('data-tooltip-content')).toBe('Kann gelöscht werden, um Platz freizugeben. Öffne die Optionen, um ihn zu behalten.')
+    })
+
+    it('says a temporary download is gone once it is', async () => {
+      await showIn('de', de)
+      const { screen } = mount({ torrents: [t({ ephemeral: true, state: 'missing' })] })
+      const c = (await screen).container
+      expect(c.querySelector('.temp')?.getAttribute('data-tooltip-content')).toBe('Gelöscht, um Platz freizugeben.')
+      expect(c.querySelector('.badge')?.textContent).toBe('Dateien fehlen')
+    })
   })
 })

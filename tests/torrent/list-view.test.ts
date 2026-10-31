@@ -253,13 +253,13 @@ describe('the stored preferences', () => {
 
 describe('the copy', () => {
   it('never says ephemeral, cache or evict where a person can read it', () => {
-    for (const text of [TEMPORARY_HINT, ...Object.values(SORT_LABEL)]) {
-      expect(text, text).not.toMatch(/ephemeral|cache|evict|reclaim/i)
+    for (const { defaultMessage } of [TEMPORARY_HINT, ...Object.values(SORT_LABEL)]) {
+      expect(defaultMessage).not.toMatch(/ephemeral|cache|evict|reclaim/i)
     }
   })
 
   it('says what a temporary download is and what to do about it', () => {
-    expect(TEMPORARY_HINT).toMatch(/delete/)
-    expect(TEMPORARY_HINT).toMatch(/keep it/)
+    expect(TEMPORARY_HINT.defaultMessage).toMatch(/delete/)
+    expect(TEMPORARY_HINT.defaultMessage).toMatch(/keep it/)
   })
 })

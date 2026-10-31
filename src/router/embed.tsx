@@ -4,6 +4,7 @@ import type { EmbedMode } from './file-selection'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
+import { useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
@@ -369,6 +370,7 @@ const playerStyle = css`
 const WINDOW_NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
 
 const Player = ({ linked }: { linked: LinkLanguages }) => {
+  const intl = useIntl()
   const [searchParams] = useSearchParams()
   const { fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
   /**
@@ -519,7 +521,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * playhead, both play. Read through the same `snapshotState` and `STATE_LABEL` the library rows
    * use, so a player and a row never disagree about a word.
    */
-  const stateLabel = snapshot ? STATE_LABEL[snapshotState(snapshot)] : null
+  const stateLabel = snapshot ? intl.formatMessage(STATE_LABEL[snapshotState(snapshot)]) : null
 
   /*
    * The two ways out of an embedded player, and the reason they exist.

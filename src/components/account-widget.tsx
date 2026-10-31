@@ -2,6 +2,7 @@ import { css } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, ExternalLink, LogOut } from 'lucide-react'
+import { useIntl } from 'react-intl'
 import { ConnectButton } from '@fkn/lib/react'
 
 import { MenuSurface } from './menu'
@@ -162,6 +163,7 @@ const rowStyle = css`
 `
 
 export const AccountWidget = ({ onToast }: { onToast: (message: string) => void }) => {
+  const intl = useIntl()
   const { info, ready, logout } = useAccount()
   const trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -197,9 +199,9 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
     setBusy(false)
     if (disconnectingSince.current && Date.now() - disconnectingSince.current <= LOGOUT_TIMEOUT) {
       disconnectingSince.current = 0
-      onToast('Disconnected')
+      onToast(intl.formatMessage({ id: 'Disconnected', defaultMessage: 'Disconnected' }))
     }
-  }, [info, onToast])
+  }, [info, onToast, intl])
 
   const onDisconnect = async () => {
     disconnectingSince.current = Date.now()
@@ -218,8 +220,8 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
   if (!ready) return null
   if (!info) return <ConnectButton style={{ flex: 'none', width: 140, height: 38 }}/>
 
-  const name = info.name || 'Account'
-  const tier = info.premium ? 'Premium' : 'Free'
+  const name = info.name || intl.formatMessage({ id: 'Account', defaultMessage: 'Account' })
+  const tier = info.premium ? intl.formatMessage({ id: 'Premium', defaultMessage: 'Premium' }) : intl.formatMessage({ id: 'Free', defaultMessage: 'Free' })
 
   return (
     <>
@@ -232,7 +234,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
         aria-expanded={open}
         // the tier is in here as well as on screen: an aria-label REPLACES the content, so leaving
         // it out would hide one of the two things this tag exists to say
-        aria-label={`FKN account: ${name}, ${tier}`}
+        aria-label={intl.formatMessage({ id: 'FKN account: {name}, {tier}', defaultMessage: 'FKN account: {name}, {tier}' }, { name, tier })}
         onClick={() => setOpen((was) => !was)}
       >
         <span className="who">
@@ -249,7 +251,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
           the menu then resolves against the header's box with nothing in the arithmetic to notice.
           Out here no ancestor can do that to it. Same reason and same answer as modal.tsx. */}
       {open && createPortal(
-        <MenuSurface placement={{ kind: 'under', of: trigger }} label={`Account: ${name}`} onClose={close}>
+        <MenuSurface placement={{ kind: 'under', of: trigger }} label={intl.formatMessage({ id: 'Account: {name}', defaultMessage: 'Account: {name}' }, { name })} onClose={close}>
           {/* an anchor, not a button calling window.open: it keeps middle-click, ctrl-click, open
               in new tab, and the status bar preview of where it actually goes */}
           <a
@@ -262,7 +264,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
             onClick={close}
           >
             <ExternalLink aria-hidden="true"/>
-            <span className="text">Manage account</span>
+            <span className="text">{intl.formatMessage({ id: 'Manage account', defaultMessage: 'Manage account' })}</span>
           </a>
           {/* "Disconnect" rather than "Log out", which is what it does: this clears the connect
               token for THIS site, and the fkn.app session and every other connected site survive
@@ -276,7 +278,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
             onClick={() => { void onDisconnect() }}
           >
             <LogOut aria-hidden="true"/>
-            <span className="text">{busy ? 'Disconnecting...' : 'Disconnect'}</span>
+            <span className="text">{busy ? intl.formatMessage({ id: 'Disconnecting...', defaultMessage: 'Disconnecting...' }) : intl.formatMessage({ id: 'Disconnect', defaultMessage: 'Disconnect' })}</span>
           </button>
         </MenuSurface>,
         document.body,

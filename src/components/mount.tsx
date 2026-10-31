@@ -1,5 +1,6 @@
 import { css } from '@emotion/react'
 import { useEffect } from 'react'
+import { useIntl } from 'react-intl'
 
 import Router from '../router'
 import { destroyTorrentClient } from '../torrent/client'
@@ -23,6 +24,7 @@ const style = css`
 
 // Without Web Locks only one tab may run: a libtorrent session holds an exclusive OPFS lock on every file it writes, and only terminating the worker releases them
 const SingleTabMount = () => {
+  const intl = useIntl()
   const { claim, activate } = useActiveWindow({})
 
   useEffect(() => { if (claim === 'inactive') destroyTorrentClient() }, [claim])
@@ -32,9 +34,9 @@ const SingleTabMount = () => {
   if (claim === 'inactive') {
     return (
       <div css={style}>
-        <div>Ripple is open in another tab.</div>
+        <div>{intl.formatMessage({ id: 'Ripple is open in another tab.', defaultMessage: 'Ripple is open in another tab.' })}</div>
         <div>
-          <button onClick={activate}>Use it here instead</button>
+          <button onClick={activate}>{intl.formatMessage({ id: 'Use it here instead', defaultMessage: 'Use it here instead' })}</button>
         </div>
       </div>
     )

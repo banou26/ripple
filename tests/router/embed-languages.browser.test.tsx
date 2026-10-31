@@ -46,7 +46,8 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
 const mount = async (search = '') => {
   seen.length = 0
   const { default: Embed } = await import('../../src/router/embed')
-  return render(<MemoryRouter initialEntries={[`/watch?magnet=bWFnbmV0Og==${search}`]}><Embed /></MemoryRouter>)
+  const { IntlRoot } = await import('../../src/i18n')
+  return render(<IntlRoot><MemoryRouter initialEntries={[`/watch?magnet=bWFnbmV0Og==${search}`]}><Embed /></MemoryRouter></IntlRoot>)
 }
 const latest = () => seen[seen.length - 1]!
 
