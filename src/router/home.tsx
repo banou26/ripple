@@ -1510,6 +1510,12 @@ export const style = css`
       flex-basis: 100%;
     }
 
+    /* the panels around it can take a whole phone, so the list keeps room for a row and the page scrolls; with the
+       details open it gives way, or they would open below the fold */
+    main:not(:has(+ section)) {
+      min-height: 24rem;
+    }
+
     .stats {
       flex-direction: column;
       gap: 12px;

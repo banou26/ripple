@@ -326,6 +326,31 @@ test.describe('the Inbound tooltip joins its two sentences as the language does'
   }
 })
 
+test.describe('on a phone', () => {
+  const opened = async (page: Page, language: string) => {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('.torrent').first()).toBeVisible()
+  }
+
+  for (const language of ['en', 'ru', 'fr']) {
+    test(`${language}: the list keeps room for a whole row`, async ({ page }) => {
+      await opened(page, language)
+      const room = await page.locator('main').evaluate(list => list.clientHeight)
+      expect(room).toBeGreaterThanOrEqual(await page.locator('.torrent').first().evaluate(row => row.getBoundingClientRect().height))
+    })
+  }
+
+  test('a row\'s details still open on the screen', async ({ page }) => {
+    await opened(page, 'en')
+    await page.locator('.torrent').first().click()
+    const details = await page.locator('main + section').boundingBox()
+    expect(details!.y).toBeLessThan(844)
+  })
+})
+
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)
