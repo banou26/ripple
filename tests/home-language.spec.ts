@@ -300,6 +300,8 @@ test.describe('in a language ripple does not offer yet', () => {
     await expect(page.locator('.storage-warning.offline')).toHaveText('Ein Download hatte ein Problem, neuer Versuch läuft')
     await expect(downloading.getByRole('button', { name: 'Some.Release.Name.S01.1080p pausieren' })).toBeVisible()
     await expect(seeding.locator('.pct')).toHaveText(/^100\s%$/u)
+    await expect(page.locator('.powered button')).toHaveAttribute('aria-label', 'Bereitgestellt von FKN')
+    await expect(page.locator('.powered [popover] a')).toHaveText('So funktioniert es')
     const stalled = page.locator('.torrent', { hasText: 'Stalled' })
     await expect(stalled.locator('.meta > span').last()).toHaveText('eingereiht')
     await expect(page.locator('.torrent', { hasText: 'Metadaten werden geladen…' })).toBeVisible()

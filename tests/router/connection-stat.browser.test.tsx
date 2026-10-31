@@ -143,8 +143,7 @@ describe('the inbound stat', () => {
     it('still says in the tooltip that the port itself has worked', async () => {
       const screen = await mount(current({ inbound: 91 }), live({}))
       const title = screen.container.querySelector('.stat')?.getAttribute('data-tooltip-content') ?? ''
-      expect(title).toMatch(/Nobody connected in on port 41337/)
-      expect(title).toMatch(/91 accepted this session/)
+      expect(title).toBe('Nobody connected in on port 41337. 91 accepted this session.')
     })
 
     it('claims no accepted connections when nothing has reached it', async () => {
