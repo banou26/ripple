@@ -7,7 +7,7 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 
 ## Every language
 
-- **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, and the protocol names DHT, PeX, LSD and uTP.
+- **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, VPN, and the protocol names DHT, PeX, LSD and uTP.
 - **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The exceptions are `ko`
   Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words; and two words stub means of a
   watch list. Paused takes qBittorrent's word where stub's reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`,
