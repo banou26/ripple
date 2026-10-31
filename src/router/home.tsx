@@ -1555,6 +1555,10 @@ export const style = css`
       justify-content: flex-start;
     }
 
+    .sample .actions {
+      flex: 1;
+    }
+
     .torrent .poster, .sample .poster {
       width: 96px;
       min-height: 64px;
