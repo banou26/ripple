@@ -57,6 +57,10 @@ Where this differs from qBittorrent:
 
 In Chinese `种子` and `種子` are a seed and never a torrent, which stays `torrent` as qBittorrent writes it.
 
+A transfer's two directions, on a stat or a limit, are qBittorrent's too: `es-419` Bajada, Subida; `pt-BR`, `de` and `it`
+Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `ja` ダウンロード, アップロード; `ko` 다운로드, 업로드;
+`zh-Hans` 下载, 上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie.
+
 ## Ripple's own words
 
 The library is the list of torrents ripple keeps. A share link opens one torrent on somebody else's device. A temporary

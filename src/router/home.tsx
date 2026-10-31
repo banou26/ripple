@@ -3,12 +3,13 @@ import type { Torrent } from '../torrent/types'
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { defineMessages, useIntl } from 'react-intl'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
-import type { SyncReason, SyncState } from '../torrent/use-cloud-backup'
+import type { SyncState } from '../torrent/use-cloud-backup'
 
 import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Folder, Link2, Pause, Play, Plus, Upload, X } from 'lucide-react'
 
@@ -50,7 +51,7 @@ import {
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
-import { getHumanReadableByteString, getRoundedSpeed } from '../utils/bytes'
+import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
@@ -89,6 +90,10 @@ import { saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
 import { useShareableMagnet } from '../torrent/use-shareable-magnet'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
+// a brand and a build, the same in every language
+const WORDMARK = 'Ripple'
+const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
+
 const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
 /**
@@ -110,62 +115,70 @@ const droppable = (data: DataTransfer | null): boolean => {
 
 
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
+  const intl = useIntl()
+  const label = <label>{intl.formatMessage({ id: 'FKN quota', defaultMessage: 'FKN quota' })}</label>
   if (quota.premium) {
     return (
       <div className="stat quota">
-        <label>FKN quota</label>
-        <strong className="ok">Premium</strong>
+        {label}
+        <strong className="ok">{intl.formatMessage({ id: 'Premium', defaultMessage: 'Premium' })}</strong>
       </div>
     )
   }
   if (quota.throttled) {
     return (
       <div className="stat quota throttled">
-        <label>FKN quota</label>
-        <strong>Throttled · {getRoundedSpeed(quota.bytesPerSecond)}</strong>
-        <a href="https://fkn.app/account" target="_blank" rel="noreferrer">Get full speed</a>
+        {label}
+        <strong>{intl.formatMessage({ id: 'Throttled · {speed}', defaultMessage: 'Throttled · {speed}' }, { speed: getRoundedSpeed(quota.bytesPerSecond) })}</strong>
+        <a href="https://fkn.app/account" target="_blank" rel="noreferrer">{intl.formatMessage({ id: 'Get full speed', defaultMessage: 'Get full speed' })}</a>
       </div>
     )
   }
   return (
     <div className="stat quota">
-      <label>FKN quota</label>
-      <strong>{getHumanReadableByteString(quota.remainingBytes, true)} left</strong>
+      {label}
+      <strong>{intl.formatMessage({ id: '{size} left', defaultMessage: '{size} left' }, { size: getHumanReadableByteString(quota.remainingBytes, true) })}</strong>
     </div>
   )
 }
 
-const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) => (
-  <div className={'stat storage' + (low ? ' low' : '')}>
-    <label>Storage</label>
-    <strong>
-      {getHumanReadableByteString(storage.usedBytes, true)} / {getHumanReadableByteString(storage.limitBytes, true)}
-    </strong>
-  </div>
-)
-
-const SYNC_DETAIL: Record<SyncReason, string> = {
-  'signed-out': 'Connect an account to sync your library.',
-  'no-storage-grant': 'Storage did not answer. Retrying.',
-  'broker-timeout': 'FKN did not respond. Retrying.',
-  'account-unknown': 'Waiting for your account.',
-  locked: 'Your storage is locked. Unlock it to sync.',
-  'read-failed': 'Could not read your saved library. Retrying.',
-  'read-timeout': 'FKN did not respond. Retrying.',
-  'switch-unverified': 'Waiting for this account\'s library.',
-  'write-failed': 'Could not save your library. Retrying on the next change.',
+const StorageStat = ({ storage, low }: { storage: StorageUsage, low: boolean }) => {
+  const intl = useIntl()
+  return (
+    <div className={'stat storage' + (low ? ' low' : '')}>
+      <label>{intl.formatMessage({ id: 'Storage', defaultMessage: 'Storage' })}</label>
+      <strong>
+        {intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(storage.usedBytes, true), total: getHumanReadableByteString(storage.limitBytes, true) })}
+      </strong>
+    </div>
+  )
 }
 
+const SYNC_DETAIL = defineMessages({
+  'signed-out': { id: 'Connect an account to sync your library.', defaultMessage: 'Connect an account to sync your library.' },
+  'no-storage-grant': { id: 'Storage did not answer. Retrying.', defaultMessage: 'Storage did not answer. Retrying.' },
+  'broker-timeout': { id: 'FKN did not respond. Retrying.', defaultMessage: 'FKN did not respond. Retrying.' },
+  'account-unknown': { id: 'Waiting for your account.', defaultMessage: 'Waiting for your account.' },
+  locked: { id: 'Your storage is locked. Unlock it to sync.', defaultMessage: 'Your storage is locked. Unlock it to sync.' },
+  'read-failed': { id: 'Could not read your saved library. Retrying.', defaultMessage: 'Could not read your saved library. Retrying.' },
+  'read-timeout': { id: 'FKN did not respond. Retrying.', defaultMessage: 'FKN did not respond. Retrying.' },
+  'switch-unverified': { id: 'Waiting for this account\'s library.', defaultMessage: 'Waiting for this account\'s library.' },
+  'write-failed': { id: 'Could not save your library. Retrying on the next change.', defaultMessage: 'Could not save your library. Retrying on the next change.' },
+})
+
 const SyncStat = ({ state }: { state: SyncState }) => {
+  const intl = useIntl()
   const { status, reason } = state
   // A signed-out user is not having a problem, so nothing is shown. Every other state is, including
   // the ones that used to be silent: a library that is quietly not being backed up looks exactly
   // like one that is, which is the worst way for this to fail.
   if (status === 'off') return null
-  const label = status === 'syncing' ? 'Syncing…' : status === 'error' ? 'Sync failed' : 'Synced'
+  const label = status === 'syncing' ? intl.formatMessage({ id: 'Syncing…', defaultMessage: 'Syncing…' })
+    : status === 'error' ? intl.formatMessage({ id: 'Sync failed', defaultMessage: 'Sync failed' })
+    : intl.formatMessage({ id: 'Synced', defaultMessage: 'Synced' })
   return (
-    <div className={'stat sync' + (status === 'error' ? ' error' : '')} {...hint(reason ? SYNC_DETAIL[reason] : undefined)}>
-      <label>Library</label>
+    <div className={'stat sync' + (status === 'error' ? ' error' : '')} {...hint(reason ? intl.formatMessage(SYNC_DETAIL[reason]) : undefined)}>
+      <label>{intl.formatMessage({ id: 'Library', defaultMessage: 'Library' })}</label>
       <strong className={status === 'synced' ? 'ok' : undefined}>{label}</strong>
     </div>
   )
@@ -185,6 +198,7 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
   /** Peers dialled in RIGHT NOW. Defaults to none so an older engine renders the port and no count. */
   inboundNow?: InboundNow
 }) => {
+  const intl = useIntl()
   if (!reachable) return null
   const { port, inbound, listenFailed } = reachable
   /**
@@ -229,10 +243,10 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
    * connection came here to see.
    */
   const label =
-    failed ? 'Failed'
-    : !port ? 'Unreachable'
-    : healing ? `:${port} · reconnecting`
-    : !portOpen ? `:${port} · closed`
+    failed ? intl.formatMessage({ id: 'Failed', defaultMessage: 'Failed' })
+    : !port ? intl.formatMessage({ id: 'Unreachable', defaultMessage: 'Unreachable' })
+    : healing ? intl.formatMessage({ id: ':{port} · reconnecting', defaultMessage: ':{port} · reconnecting' }, { port })
+    : !portOpen ? intl.formatMessage({ id: ':{port} · closed', defaultMessage: ':{port} · closed' }, { port })
     : !detail ? `:${port}`
     : `:${port} · ${detail}`
   /*
@@ -240,18 +254,18 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
    * is not the same as "nothing has ever reached this port", and only the second is a reason to go
    * looking at a router.
    */
-  const total = inbound > 0 ? ` ${inbound} accepted this session.` : ''
+  const total = inbound > 0 ? ` ${intl.formatMessage({ id: '{count} accepted this session.', defaultMessage: '{count} accepted this session.' }, { count: inbound })}` : ''
   const title =
     failed ? listenFailed.join('\n')
-    : healing ? 'Connection dropped. Reconnecting.'
-    : port && !portOpen ? `Port ${port} is closed. Reload to get a new one.`
+    : healing ? intl.formatMessage({ id: 'Connection dropped. Reconnecting.', defaultMessage: 'Connection dropped. Reconnecting.' })
+    : port && !portOpen ? intl.formatMessage({ id: 'Port {port} is closed. Reload to get a new one.', defaultMessage: 'Port {port} is closed. Reload to get a new one.' }, { port })
     : !port ? undefined
     : inboundNow.total > 0
-      ? `${inboundNow.total} ${inboundNow.total === 1 ? 'peer' : 'peers'} connected in on port ${port}: ${detail}.${total}`
-      : `Nobody connected in on port ${port}.${total}`
+      ? `${intl.formatMessage({ id: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}', defaultMessage: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}' }, { count: inboundNow.total, port, detail })}${total}`
+      : `${intl.formatMessage({ id: 'Nobody connected in on port {port}.', defaultMessage: 'Nobody connected in on port {port}.' }, { port })}${total}`
   return (
     <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
-      <label>Inbound</label>
+      <label>{intl.formatMessage({ id: 'Inbound', defaultMessage: 'Inbound' })}</label>
       {/* the port stays visible once peers arrive: it is what a user checks against a router or a
           firewall, and hiding it exactly when the feature starts working is the wrong trade */}
       <strong className={inbound > 0 && portOpen ? 'ok' : undefined}>{label}</strong>
@@ -415,6 +429,7 @@ export const style = css`
         color: ${TEXT};
         font-family: inherit;
         font-size: 0.9rem;
+        text-overflow: ellipsis;
 
         &::placeholder { color: ${TEXT_MUTED}; }
       }
@@ -589,7 +604,7 @@ export const style = css`
     border-radius: 8px;
 
     .readouts {
-      flex: none;
+      min-width: 0;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
@@ -1421,6 +1436,7 @@ export const style = css`
     .folder {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 7px;
 
       button {
@@ -1642,104 +1658,113 @@ const Poster = ({ url }: { url: string | null }) =>
  * it is coming back", which is the honest answer for the second the relay takes to grant a port, and
  * it is replaced by the real row the moment the engine reports.
  */
-const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => (
-  <div className="torrent surface starting">
-    <Poster url={poster}/>
-    <div className="content">
-      <div className="main">
-        <div className="body">
-          <div className="title"><strong>{t.name}</strong></div>
-          <div className="meta"><span>Connecting</span></div>
-        </div>
-        <div className="side">
-          <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
+  const intl = useIntl()
+  return (
+    <div className="torrent surface starting">
+      <Poster url={poster}/>
+      <div className="content">
+        <div className="main">
+          <div className="body">
+            <div className="title"><strong>{t.name}</strong></div>
+            <div className="meta"><span>{intl.formatMessage({ id: 'Connecting', defaultMessage: 'Connecting' })}</span></div>
+          </div>
+          <div className="side">
+            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-)
+  )
+}
 
 const MissingRow = ({
   t, poster, onStart, onOptions, selected, onSelect,
-}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect'> & { poster: string | null }) => (
-  <div
-    className={'torrent surface missing' + (selected ? ' selected' : '')}
-    aria-current={selected || undefined}
-    onClick={(e) => {
-      if ((e.target as HTMLElement).closest('button, a')) return
-      onSelect(t)
-    }}
-    onContextMenu={(e) => {
-      if (e.shiftKey || e.ctrlKey) return
-      e.preventDefault()
-      // no onSelect: see the live row's handler for why the right button leaves the dock alone
-      onOptions(t, { x: e.clientX, y: e.clientY })
-    }}
-  >
-    {/* the files are gone from this device but the picture was cached here, so it still shows */}
-    <Poster url={poster}/>
-    <div className="content">
-      <div className="main">
-        <div className="body">
-          <div className="title"><strong>{t.name}</strong></div>
-          <div className="meta">
-            {t.ephemeral === true && (
-              <button
-                type="button" className="temp"
-                onClick={() => onOptions(t, null)}
-                aria-label={'Temporary download: options for ' + t.name}
-                {...hint(TEMPORARY_GONE_HINT)}
-              >
-                <Clock aria-hidden="true"/>Temporary
-              </button>
-            )}
-            {/* A created source is the one ghost whose files were never in a swarm: this device was
-                the only seed, so there is nobody to fetch them from and the line has to say what
-                actually happened instead of offering a download that cannot work. */}
-            <span>
-              {t.saveTo === 'source' ? 'Source files unavailable. Create it again from the same files.' : 'Not on this device'}
-            </span>
+}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect'> & { poster: string | null }) => {
+  const intl = useIntl()
+  return (
+    <div
+      className={'torrent surface missing' + (selected ? ' selected' : '')}
+      aria-current={selected || undefined}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, a')) return
+        onSelect(t)
+      }}
+      onContextMenu={(e) => {
+        if (e.shiftKey || e.ctrlKey) return
+        e.preventDefault()
+        // no onSelect: see the live row's handler for why the right button leaves the dock alone
+        onOptions(t, { x: e.clientX, y: e.clientY })
+      }}
+    >
+      {/* the files are gone from this device but the picture was cached here, so it still shows */}
+      <Poster url={poster}/>
+      <div className="content">
+        <div className="main">
+          <div className="body">
+            <div className="title"><strong>{t.name}</strong></div>
+            <div className="meta">
+              {t.ephemeral === true && (
+                <button
+                  type="button" className="temp"
+                  onClick={() => onOptions(t, null)}
+                  aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
+                  {...hint(TEMPORARY_GONE_HINT)}
+                >
+                  <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
+                </button>
+              )}
+              {/* A created source is the one ghost whose files were never in a swarm: this device was
+                  the only seed, so there is nobody to fetch them from and the line has to say what
+                  actually happened instead of offering a download that cannot work. */}
+              <span>
+                {t.saveTo === 'source'
+                  ? intl.formatMessage({ id: 'Source files unavailable. Create it again from the same files.', defaultMessage: 'Source files unavailable. Create it again from the same files.' })
+                  : intl.formatMessage({ id: 'Not on this device', defaultMessage: 'Not on this device' })}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="side">
-          <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
-          {/* Two, matching the live rows: fetch it, or open the menu. Removing a library entry is
-              in the menu with everything else destructive.
-              ONE EXCEPTION, and it is not cosmetic. A created source has no swarm behind it, and
-              `start` on one adds the torrent at its `/source/<hash>` path with no handles
-              registered, which throws inside the storage on the first read: a fatal disk error, a
-              red retrying row backing off to five minutes, and an entry written back to
-              `started: true`, which hides it from this list again with its Remove option gone. So
-              the row offers the menu alone, where Remove is. */}
-          <div className="actions">
-            {t.saveTo !== 'source' && (
+          <div className="side">
+            <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
+            {/* Two, matching the live rows: fetch it, or open the menu. Removing a library entry is
+                in the menu with everything else destructive.
+                ONE EXCEPTION, and it is not cosmetic. A created source has no swarm behind it, and
+                `start` on one adds the torrent at its `/source/<hash>` path with no handles
+                registered, which throws inside the storage on the first read: a fatal disk error, a
+                red retrying row backing off to five minutes, and an entry written back to
+                `started: true`, which hides it from this list again with its Remove option gone. So
+                the row offers the menu alone, where Remove is. */}
+            <div className="actions">
+              {t.saveTo !== 'source' && (
+                <button
+                  className="primary"
+                  onClick={() => onStart(t)}
+                  {...hint(intl.formatMessage({ id: 'Download to this device', defaultMessage: 'Download to this device' }))}
+                  aria-label={intl.formatMessage({ id: 'Download {name}', defaultMessage: 'Download {name}' }, { name: t.name })}
+                >
+                  <Download size={16} aria-hidden="true"/>
+                </button>
+              )}
               <button
-                className="primary"
-                onClick={() => onStart(t)}
-                {...hint('Download to this device')}
-                aria-label={`Download ${t.name}`}
+                className="more"
+                aria-haspopup="dialog"
+                aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
+                {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
+                onClick={() => onOptions(t, null)}
               >
-                <Download size={16} aria-hidden="true"/>
+                <Ellipsis size={16} aria-hidden="true"/>
               </button>
-            )}
-            <button
-              className="more"
-              aria-haspopup="dialog"
-              aria-label={`Options for ${t.name}`}
-              {...hint('Options')}
-              onClick={() => onOptions(t, null)}
-            >
-              <Ellipsis size={16} aria-hidden="true"/>
-            </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-)
+  )
+}
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
 export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, savedToUserStorage, rates }: RowProps) => {
+  const intl = useIntl()
   /**
    * Before the missing branch, not after it.
    *
@@ -1821,35 +1846,37 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                 <button
                   type="button" className="temp"
                   onClick={() => onOptions(t, null)}
-                  aria-label={'Temporary download: options for ' + t.name}
+                  aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
                   {...hint(TEMPORARY_HINT)}
                 >
-                  <Clock aria-hidden="true"/>Temporary
+                  <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
               )}
-              <span className="pair">{getHumanReadableByteString(t.downloaded, true)} / {getHumanReadableByteString(t.size, true)}</span>
-              <span className="rate">↓ {speed(t.down)}</span>
-              <span className="rate">↑ {speed(t.up)}</span>
-              <span className="peers">{t.peers} peers</span>
-              {t.state === 'downloading' && t.eta !== '-' && <span>{t.eta} left</span>}
+              <span className="pair">
+                {intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(t.downloaded, true), total: getHumanReadableByteString(t.size, true) })}
+              </span>
+              <span className="rate">{intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(t.down) })}</span>
+              <span className="rate">{intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(t.up) })}</span>
+              <span className="peers">{intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: t.peers })}</span>
+              {t.state === 'downloading' && t.eta !== '-' && <span>{intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
                   and a row carrying both reads as two competing answers to "how long". */}
               {(t.state === 'seeding' || t.state === 'done') && (t.stats?.seedingSeconds ?? 0) > 0 && (
                 <span className="seeded">
-                  seeded for {formatDuration(t.stats!.seedingSeconds)}
+                  {intl.formatMessage({ id: 'seeded for {duration}', defaultMessage: 'seeded for {duration}' }, { duration: formatDuration(t.stats?.seedingSeconds ?? 0) })}
                 </span>
               )}
               {/* Only when this torrent has been given one of its own. The session ceiling lives in
                   the footer and would be the same on every row, which is noise rather than news. */}
               {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (
                 <span className="limit">
-                  ↓ max {formatLimit(t.downloadLimit)}
+                  {intl.formatMessage({ id: '↓ max {limit}', defaultMessage: '↓ max {limit}' }, { limit: formatLimit(t.downloadLimit) })}
                 </span>
               )}
               {isLimit(t.uploadLimit) && t.uploadLimit > 0 && (
                 <span className="limit">
-                  ↑ max {formatLimit(t.uploadLimit)}
+                  {intl.formatMessage({ id: '↑ max {limit}', defaultMessage: '↑ max {limit}' }, { limit: formatLimit(t.uploadLimit) })}
                 </span>
               )}
               {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
@@ -1867,7 +1894,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
           {rates && <RowGraph down={rates.down} up={rates.up}/>}
           <div className="side">
             <span className={`badge ${t.state}`}>{STATE_LABEL[t.state]}</span>
-            <span className="pct">{(t.progress * 100).toFixed(t.progress < 1 ? 1 : 0)}%</span>
+            <span className="pct">{writePercent(t.progress, t.progress < 1 ? 1 : 0)}</span>
             {/**
               * Four controls, and every one of them is something people reach for constantly.
               *
@@ -1883,7 +1910,11 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
               */}
             <div className="actions">
               {href && (
-                <Link className="primary" to={href} {...hint('Watch')} aria-label={`Watch ${t.name}`}>
+                <Link
+                  className="primary" to={href}
+                  {...hint(intl.formatMessage({ id: 'Watch', defaultMessage: 'Watch' }))}
+                  aria-label={intl.formatMessage({ id: 'Watch {name}', defaultMessage: 'Watch {name}' }, { name: t.name })}
+                >
                   <CirclePlay size={16} aria-hidden="true"/>
                 </Link>
               )}
@@ -1894,19 +1925,23 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                 <button
                   onClick={() => multi ? onSaveZip(t) : onSave(t, mainIndex)}
                   disabled={mainSaving != null}
-                  {...hint(multi ? 'Save as a zip' : 'Save to disk')}
-                  aria-label={multi ? `Save ${t.name} as a zip` : `Save ${t.name} to disk`}
+                  {...hint(multi ? intl.formatMessage({ id: 'Save as a zip', defaultMessage: 'Save as a zip' }) : intl.formatMessage({ id: 'Save to disk', defaultMessage: 'Save to disk' }))}
+                  aria-label={multi
+                    ? intl.formatMessage({ id: 'Save {name} as a zip', defaultMessage: 'Save {name} as a zip' }, { name: t.name })
+                    : intl.formatMessage({ id: 'Save {name} to disk', defaultMessage: 'Save {name} to disk' }, { name: t.name })}
                 >
                   {mainSaving != null
-                    ? <span className="saving">{Math.round(mainSaving * 100)}%</span>
+                    ? <span className="saving">{writePercent(mainSaving)}</span>
                     : <Download size={16} aria-hidden="true"/>}
                 </button>
               )}
               {t.state !== 'checking' && (
                 <button
                   onClick={() => onToggle(t)}
-                  {...hint(running ? 'Pause' : t.state === 'retrying' ? 'Try again now' : 'Resume')}
-                  aria-label={`${running ? 'Pause' : 'Resume'} ${t.name}`}
+                  {...hint(running ? intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' }) : t.state === 'retrying' ? intl.formatMessage({ id: 'Try again now', defaultMessage: 'Try again now' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }))}
+                  aria-label={running
+                    ? intl.formatMessage({ id: 'Pause {name}', defaultMessage: 'Pause {name}' }, { name: t.name })
+                    : intl.formatMessage({ id: 'Resume {name}', defaultMessage: 'Resume {name}' }, { name: t.name })}
                 >
                   {running ? <Pause size={16} aria-hidden="true"/> : <Play size={16} aria-hidden="true"/>}
                 </button>
@@ -1914,8 +1949,8 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
               <button
                 className="more"
                 aria-haspopup="dialog"
-                aria-label={`Options for ${t.name}`}
-                {...hint('Options')}
+                aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
+                {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
                 onClick={() => onOptions(t, null)}
               >
                 <Ellipsis size={16} aria-hidden="true"/>
@@ -1930,6 +1965,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
 }
 
 const Home = () => {
+  const intl = useIntl()
   const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -2011,11 +2047,11 @@ const Home = () => {
   const [showSetup] = useState(() => !isAppInstalled())
   const onSetupHandlers = useCallback(async () => {
     const outcome = await setupHandlers()
-    if (outcome === 'installed') showToast('Ripple installed')
-    else if (outcome === 'magnet-registered') showToast('Confirm the prompt to route magnet links to Ripple.')
-    else if (outcome === 'already-installed') showToast('Ripple is already installed')
-    else showToast('Use your browser menu to install Ripple as an app.')
-  }, [showToast])
+    if (outcome === 'installed') showToast(intl.formatMessage({ id: 'Ripple installed', defaultMessage: 'Ripple installed' }))
+    else if (outcome === 'magnet-registered') showToast(intl.formatMessage({ id: 'Confirm the prompt to route magnet links to Ripple.', defaultMessage: 'Confirm the prompt to route magnet links to Ripple.' }))
+    else if (outcome === 'already-installed') showToast(intl.formatMessage({ id: 'Ripple is already installed', defaultMessage: 'Ripple is already installed' }))
+    else showToast(intl.formatMessage({ id: 'Use your browser menu to install Ripple as an app.', defaultMessage: 'Use your browser menu to install Ripple as an app.' }))
+  }, [showToast, intl])
 
   /** Whether an add the person made themselves stops to ask. Off by default: it is friction. */
   const [addDialog, setAddDialog] = useState(() => dialogEnabled((k) => localStorage.getItem(k)))
@@ -2032,11 +2068,11 @@ const Home = () => {
     const request = describeAddRequest({ magnet })
     if (!request.ok) { showToast(request.problem); return }
     const existing = torrentsRef.current.find((t) => t.infoHash === request.infoHash && !t.ephemeral && t.state !== 'missing')
-    if (existing) { showToast('Already in your list'); return }
+    if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return }
     client.addMagnet(request.magnet, { ephemeral: true })
     setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
     setChoices(null)
-  }, [client, showToast])
+  }, [client, showToast, intl])
 
   const commitMagnet = useCallback((raw: string): boolean => {
     const text = raw.trim()
@@ -2044,14 +2080,14 @@ const Home = () => {
     const ih = magnetInfoHash(text)
     // Re-adding would join the swarm and start downloading; a synced "Files missing" torrent must only start from its explicit Download button
     if (ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)) {
-      showToast('Already in your list')
+      showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
       return true
     }
     if (addDialog) { beginAdd(text, false); return true }
     addMagnet(text)
-    showToast('Magnet added')
+    showToast(intl.formatMessage({ id: 'Magnet added', defaultMessage: 'Magnet added' }))
     return true
-  }, [addMagnet, showToast, addDialog, beginAdd])
+  }, [addMagnet, showToast, addDialog, beginAdd, intl])
 
   const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
     const all = [...files]
@@ -2059,14 +2095,18 @@ const Home = () => {
     // Something was handed over and none of it was usable, which used to end in silence. A drop that
     // reports nothing is indistinguishable from one the page never received.
     if (!torrents.length) {
-      if (all.length) showToast(all.length === 1 ? 'That is not a .torrent file' : 'No .torrent file in what you dropped')
+      if (all.length) {
+        showToast(all.length === 1
+          ? intl.formatMessage({ id: 'That is not a .torrent file', defaultMessage: 'That is not a .torrent file' })
+          : intl.formatMessage({ id: 'No .torrent file in what you dropped', defaultMessage: 'No .torrent file in what you dropped' }))
+      }
       return
     }
     for (const file of torrents) {
       addTorrentFile(new Uint8Array(await file.arrayBuffer()))
-      showToast(`${file.name} added`)
+      showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: file.name }))
     }
-  }, [addTorrentFile, showToast])
+  }, [addTorrentFile, showToast, intl])
 
   /**
    * The share dialog's two inputs. Neither adds anything to the library.
@@ -2085,13 +2125,13 @@ const Home = () => {
 
   const shareFiles = useCallback((files: Iterable<File>) => {
     const torrent = [...files].find((file) => /\.torrent$/i.test(file.name))
-    if (!torrent) { showToast('That is not a .torrent file'); return }
+    if (!torrent) { showToast(intl.formatMessage({ id: 'That is not a .torrent file', defaultMessage: 'That is not a .torrent file' })); return }
     void (async () => {
       const subject = await readTorrentFile(new Uint8Array(await torrent.arrayBuffer()))
-      if (!subject) { showToast('That .torrent could not be read'); return }
+      if (!subject) { showToast(intl.formatMessage({ id: 'That .torrent could not be read', defaultMessage: 'That .torrent could not be read' })); return }
       setShareSubject(subject)
     })()
-  }, [showToast])
+  }, [showToast, intl])
 
   /**
    * The one place a drop is turned into an action, shared by the window and by the magnet field.
@@ -2115,11 +2155,11 @@ const Home = () => {
     const text = data?.getData('text') ?? ''
     if (!text.trim()) return
     if (forShareDialog) {
-      if (!shareMagnet(text)) showToast('Not a magnet link')
+      if (!shareMagnet(text)) showToast(intl.formatMessage({ id: 'Not a magnet link', defaultMessage: 'Not a magnet link' }))
       return
     }
-    if (!commitMagnet(text)) showToast('Not a magnet link')
-  }, [addTorrentFiles, commitMagnet, embedOpen, shareSubject, shareFiles, shareMagnet, showToast])
+    if (!commitMagnet(text)) showToast(intl.formatMessage({ id: 'Not a magnet link', defaultMessage: 'Not a magnet link' }))
+  }, [addTorrentFiles, commitMagnet, embedOpen, shareSubject, shareFiles, shareMagnet, showToast, intl])
 
   const openEmbed = useCallback((subject: ShareSubject | null) => {
     setShareSubject(subject)
@@ -2256,9 +2296,9 @@ const Home = () => {
     if (!missing) {
       const onDisk = getHumanReadableByteString(t.downloaded ?? 0, true)
       const ok = await confirm({
-        title: `Remove ${t.name}?`,
-        body: `This deletes the ${onDisk} already downloaded.`,
-        confirmLabel: 'Remove and delete',
+        title: intl.formatMessage({ id: 'Remove {name}?', defaultMessage: 'Remove {name}?' }, { name: t.name }),
+        body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size: onDisk }),
+        confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
         tone: 'danger',
         rememberKey: 'ripple:confirm-remove',
       })
@@ -2273,7 +2313,7 @@ const Home = () => {
 
   const onRecheck = (t: Torrent) => {
     recheck(Number(t.id))
-    showToast(`Checking ${t.name}`)
+    showToast(intl.formatMessage({ id: 'Checking {name}', defaultMessage: 'Checking {name}' }, { name: t.name }))
   }
 
   /**
@@ -2286,9 +2326,9 @@ const Home = () => {
   const onRemoveKeepingFiles = async (t: Torrent) => {
     if (t.state !== 'missing') {
       const ok = await confirm({
-        title: `Remove ${t.name} from the library?`,
-        body: 'The downloaded files stay, but its progress is forgotten.',
-        confirmLabel: 'Remove',
+        title: intl.formatMessage({ id: 'Remove {name} from the library?', defaultMessage: 'Remove {name} from the library?' }, { name: t.name }),
+        body: intl.formatMessage({ id: 'The downloaded files stay, but its progress is forgotten.', defaultMessage: 'The downloaded files stay, but its progress is forgotten.' }),
+        confirmLabel: intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' }),
       })
       if (!ok) return
     }
@@ -2339,14 +2379,14 @@ const Home = () => {
     reannounce: () => {
       client.reannounce(Number(t.id))
       // the only one of these with no visible consequence anywhere, so it says so itself
-      showToast(`Reannouncing ${t.name}`)
+      showToast(intl.formatMessage({ id: 'Reannouncing {name}', defaultMessage: 'Reannouncing {name}' }, { name: t.name }))
     },
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
     copyMagnet: () => {
       if (!magnet) return
       navigator.clipboard.writeText(magnet)
-        .then(() => showToast(`Copied ${t.name}'s magnet`))
-        .catch(() => showToast('Could not copy the magnet'))
+        .then(() => showToast(intl.formatMessage({ id: 'Copied {name}\'s magnet', defaultMessage: 'Copied {name}\'s magnet' }, { name: t.name })))
+        .catch(() => showToast(intl.formatMessage({ id: 'Could not copy the magnet', defaultMessage: 'Could not copy the magnet' })))
     },
     saveTorrentFile: () => {
       if (!t.magnet || !t.infoHash) return
@@ -2357,9 +2397,9 @@ const Home = () => {
        */
       void saveTorrentFile({ infoHash: t.infoHash, magnet: t.magnet, name: t.name, flush: () => client.flushResume() })
         .then((result) => showToast(
-          result === 'saved' ? `Saved ${t.name}.torrent`
-            : result === 'no-metadata' ? `${t.name} has no metadata yet`
-              : `The .torrent for ${t.name} could not be built`,
+          result === 'saved' ? intl.formatMessage({ id: 'Saved {name}.torrent', defaultMessage: 'Saved {name}.torrent' }, { name: t.name })
+            : result === 'no-metadata' ? intl.formatMessage({ id: '{name} has no metadata yet', defaultMessage: '{name} has no metadata yet' }, { name: t.name })
+              : intl.formatMessage({ id: 'The .torrent for {name} could not be built', defaultMessage: 'The .torrent for {name} could not be built' }, { name: t.name }),
         ))
     },
     recheck: () => onRecheck(t),
@@ -2405,7 +2445,7 @@ const Home = () => {
     const key = savingKey(t.id, fileIndex)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentFileToDisk(client, Number(t.id), fileIndex, file.name, file.size, (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch((error) => { if (!isSaveCancelled(error)) showToast(`Saving ${file.name} failed`) })
+      .catch((error) => { if (!isSaveCancelled(error)) showToast(intl.formatMessage({ id: 'Saving {name} failed', defaultMessage: 'Saving {name} failed' }, { name: file.name })) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
@@ -2414,7 +2454,7 @@ const Home = () => {
     const key = savingKey(t.id, -1)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files ?? [], (f) => setSaving((s) => ({ ...s, [key]: f })))
-      .catch((error) => { if (!isSaveCancelled(error)) showToast(`Saving ${t.name} failed`) })
+      .catch((error) => { if (!isSaveCancelled(error)) showToast(intl.formatMessage({ id: 'Saving {name} failed', defaultMessage: 'Saving {name} failed' }, { name: t.name })) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }
 
@@ -2569,41 +2609,36 @@ const Home = () => {
     if (!kept) {
       const ownsDirectory = ownsItsDirectory(t.stats?.savePath, t.infoHash)
       const ok = await confirm({
-        title: `Let Ripple delete ${t.name}?`,
+        title: intl.formatMessage({ id: 'Let Ripple delete {name}?', defaultMessage: 'Let Ripple delete {name}?' }, { name: t.name }),
         body: ownsDirectory
-          ? 'Ripple may delete its files when storage runs low.'
-          : 'It leaves your library, but its files stay until you remove it.',
-        confirmLabel: 'Let Ripple delete it',
+          ? intl.formatMessage({ id: 'Ripple may delete its files when storage runs low.', defaultMessage: 'Ripple may delete its files when storage runs low.' })
+          : intl.formatMessage({ id: 'It leaves your library, but its files stay until you remove it.', defaultMessage: 'It leaves your library, but its files stay until you remove it.' }),
+        confirmLabel: intl.formatMessage({ id: 'Let Ripple delete it', defaultMessage: 'Let Ripple delete it' }),
       })
       if (!ok) return
     }
     client.setTemporary(t.infoHash, !kept)
-    showToast(kept ? `${t.name} is yours to keep` : `${t.name} can be deleted to free space`)
+    showToast(kept
+      ? intl.formatMessage({ id: '{name} is yours to keep', defaultMessage: '{name} is yours to keep' }, { name: t.name })
+      : intl.formatMessage({ id: '{name} can be deleted to free space', defaultMessage: '{name} can be deleted to free space' }, { name: t.name }))
   }
 
   /** In-flight moves, so the effect below and a click cannot start the same one twice. */
   const movingRef = useRef(new Set<string>())
-  const [, setMoving] = useState<Record<string, string>>({})
 
   const runMove = async (t: Torrent, to: SaveLocation) => {
     if (!folder || !permitted || movingRef.current.has(t.id)) return
     movingRef.current.add(t.id)
-    setMoving((m) => ({ ...m, [t.id]: `Moving ${t.name}` }))
     try {
-      await moveTorrentFiles({
-        client,
-        torrent: t,
-        folder,
-        to,
-        onProgress: ({ file, files }) => setMoving((m) => ({ ...m, [t.id]: `Moving ${t.name}, file ${file + 1} of ${files}` })),
-      })
-      showToast(to === 'folder' ? `${t.name} moved to ${folder.name}` : `${t.name} moved into browser storage`)
+      await moveTorrentFiles({ client, torrent: t, folder, to })
+      showToast(to === 'folder'
+        ? intl.formatMessage({ id: '{name} moved to {folder}', defaultMessage: '{name} moved to {folder}' }, { name: t.name, folder: folder.name })
+        : intl.formatMessage({ id: '{name} moved into browser storage', defaultMessage: '{name} moved into browser storage' }, { name: t.name }))
     } catch {
       // nothing was deleted: the copy runs first and the engine is only told once it lands
-      showToast(`Moving ${t.name} failed`)
+      showToast(intl.formatMessage({ id: 'Moving {name} failed', defaultMessage: 'Moving {name} failed' }, { name: t.name }))
     } finally {
       movingRef.current.delete(t.id)
-      setMoving((m) => { const { [t.id]: _, ...rest } = m; return rest })
     }
   }
 
@@ -2683,16 +2718,16 @@ const Home = () => {
           // `written` is false for a copy that was already there, which is still "it is in the
           // folder" and still the thing the removal options need to know
           setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
-          if (written) showToast(`${t.name} saved to ${folder.name}`)
+          if (written) showToast(intl.formatMessage({ id: '{name} saved to {folder}', defaultMessage: '{name} saved to {folder}' }, { name: t.name, folder: folder.name }))
         })
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
           syncAtRef.current.set(t.id, Date.now() + SYNC_RETRY)
-          showToast(`Saving ${t.name} to ${folder.name} failed, retrying`)
+          showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
         })
         .finally(() => syncingRef.current.delete(t.id))
     }
-  }, [torrents, folder, permitted, client, showToast])
+  }, [torrents, folder, permitted, client, showToast, intl])
 
   /**
    * What the option list needs to know about this torrent's surroundings.
@@ -2754,9 +2789,11 @@ const Home = () => {
     if (choices.topOfQueue) client.moveInQueue(handle, 'top')
     // held since the file list arrived, so starting is an explicit step rather than the absence of one
     if (choices.start) resume(handle)
-    showToast(choices.start ? `${pendingAdd.name} added` : `${pendingAdd.name} added, paused`)
+    showToast(choices.start
+      ? intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: pendingAdd.name })
+      : intl.formatMessage({ id: '{name} added, paused', defaultMessage: '{name} added, paused' }, { name: pendingAdd.name }))
     closeAdd()
-  }, [pendingAdd, choices, pendingTorrent, pendingFiles.length, addMagnet, client, resume, showToast, closeAdd])
+  }, [pendingAdd, choices, pendingTorrent, pendingFiles.length, addMagnet, client, resume, showToast, closeAdd, intl])
 
   /**
    * A torrent handed over by another site, through `/add`.
@@ -2915,7 +2952,7 @@ const Home = () => {
         <ContextMenu
           groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet), optionContext(menuTorrent))}
           at={menu.at}
-          label={`Options for ${menuTorrent.name}`}
+          label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: menuTorrent.name })}
           onClose={() => setMenu(null)}
         />
       )}
@@ -2926,19 +2963,19 @@ const Home = () => {
           onClose={() => setOptionsId(null)}
         />
       )}
-      <div className="drop"><span>Drop a .torrent or a magnet link to add it</span></div>
+      <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
       <header>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
-          <Link className="wordmark" to="/">Ripple</Link>
+          <Link className="wordmark" to="/">{WORDMARK}</Link>
           <PoweredByFkn className="powered"/>
         </span>
         <form
           onSubmit={(e) => {
             e.preventDefault()
             if (commitMagnet(input)) setInput('')
-            else if (input.trim()) showToast('Not a magnet link')
+            else if (input.trim()) showToast(intl.formatMessage({ id: 'Not a magnet link', defaultMessage: 'Not a magnet link' }))
           }}
         >
           {/**
@@ -2967,8 +3004,8 @@ const Home = () => {
               ref={fieldRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Add a magnet link, or drop a .torrent"
-              aria-label="Magnet link"
+              placeholder={intl.formatMessage({ id: 'Add a magnet link, or drop a .torrent', defaultMessage: 'Add a magnet link, or drop a .torrent' })}
+              aria-label={intl.formatMessage({ id: 'Magnet link', defaultMessage: 'Magnet link' })}
               spellCheck={false}
               disabled={storageUnavailable}
             />
@@ -2978,8 +3015,8 @@ const Home = () => {
               <button
                 className="icon"
                 type="button"
-                {...hint('Clear')}
-                aria-label="Clear"
+                {...hint(intl.formatMessage({ id: 'Clear', defaultMessage: 'Clear' }))}
+                aria-label={intl.formatMessage({ id: 'Clear', defaultMessage: 'Clear' })}
                 onClick={() => { setInput(''); fieldRef.current?.focus() }}
               >
                 <X/>
@@ -2998,8 +3035,8 @@ const Home = () => {
               */}
             <label
               className="icon file-button"
-              {...hint('Open a .torrent file')}
-              aria-label="Open a .torrent file"
+              {...hint(intl.formatMessage({ id: 'Open a .torrent file', defaultMessage: 'Open a .torrent file' }))}
+              aria-label={intl.formatMessage({ id: 'Open a .torrent file', defaultMessage: 'Open a .torrent file' })}
               aria-disabled={storageUnavailable || undefined}
             >
               <FilePlus/>
@@ -3021,8 +3058,8 @@ const Home = () => {
             <button
               className="icon go"
               type="submit"
-              {...hint('Add this magnet link')}
-              aria-label="Add"
+              {...hint(intl.formatMessage({ id: 'Add this magnet link', defaultMessage: 'Add this magnet link' }))}
+              aria-label={intl.formatMessage({ id: 'Add', defaultMessage: 'Add' })}
               disabled={storageUnavailable || !input.trim()}
             >
               <Plus/>
@@ -3048,7 +3085,7 @@ const Home = () => {
           onClick={() => (embedOpen ? closeEmbed() : openEmbed(null))}
         >
           <Link2/>
-          Share a torrent
+          {intl.formatMessage({ id: 'Share a torrent', defaultMessage: 'Share a torrent' })}
         </button>
         {create.supported && (
           <button
@@ -3058,12 +3095,12 @@ const Home = () => {
             onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
           >
             <Upload/>
-            Create a torrent
+            {intl.formatMessage({ id: 'Create a torrent', defaultMessage: 'Create a torrent' })}
           </button>
         )}
         {showSetup && (
           <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
-            Open torrents with Ripple
+            {intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })}
           </button>
         )}
         <AccountWidget onToast={showToast}/>
@@ -3093,9 +3130,7 @@ const Home = () => {
       {waitingSources.length > 0 && (
         <div className="storage-warning surface" role="status">
           <strong>
-            {waitingSources.length === 1
-              ? 'A torrent you created needs access to its files again'
-              : `${waitingSources.length} torrents you created need access to their files again`}
+            {intl.formatMessage({ id: '{count, plural, one {A torrent you created needs access to its files again} other {{count} torrents you created need access to their files again}}', defaultMessage: '{count, plural, one {A torrent you created needs access to its files again} other {{count} torrents you created need access to their files again}}' }, { count: waitingSources.length })}
           </strong>
           <div className="actions">
             {/* One button per source, and one press each. `requestPermission` consumes the transient
@@ -3107,12 +3142,12 @@ const Home = () => {
                 type="button"
                 onClick={() => {
                   void allowSource(entry.infoHash).then((ok) => {
-                    if (ok) showToast(`Sharing ${entry.name ?? name} again`)
-                    else showToast(`Ripple still cannot read ${name}`)
+                    if (ok) showToast(intl.formatMessage({ id: 'Sharing {name} again', defaultMessage: 'Sharing {name} again' }, { name: entry.name ?? name }))
+                    else showToast(intl.formatMessage({ id: 'Ripple still cannot read {name}', defaultMessage: 'Ripple still cannot read {name}' }, { name }))
                   })
                 }}
               >
-                Allow {name}
+                {intl.formatMessage({ id: 'Allow {name}', defaultMessage: 'Allow {name}' }, { name })}
               </button>
             ))}
           </div>
@@ -3121,27 +3156,27 @@ const Home = () => {
 
       {storageUnavailable && (
         <div className="storage-warning surface" role="alert">
-          <strong>Ripple can't run in this window</strong>
-          <span>Open Ripple in a normal window, with site storage allowed.</span>
+          <strong>{intl.formatMessage({ id: 'Ripple can\'t run in this window', defaultMessage: 'Ripple can\'t run in this window' })}</strong>
+          <span>{intl.formatMessage({ id: 'Open Ripple in a normal window, with site storage allowed.', defaultMessage: 'Open Ripple in a normal window, with site storage allowed.' })}</span>
         </div>
       )}
 
       {workerError && (
         <div className="storage-warning surface" role="alert">
-          <strong>The download engine stopped</strong>
-          <button onClick={() => window.location.reload()}>Reload</button>
+          <strong>{intl.formatMessage({ id: 'The download engine stopped', defaultMessage: 'The download engine stopped' })}</strong>
+          <button onClick={() => window.location.reload()}>{intl.formatMessage({ id: 'Reload', defaultMessage: 'Reload' })}</button>
         </div>
       )}
 
       {offline && !storageUnavailable && !workerError && (
         <div className="storage-warning surface offline" role="status">
-          <strong>You're offline</strong>
+          <strong>{intl.formatMessage({ id: 'You\'re offline', defaultMessage: 'You\'re offline' })}</strong>
         </div>
       )}
 
       {!offline && retrying > 0 && !workerError && (
         <div className="storage-warning surface offline" role="status">
-          <strong>{retrying === 1 ? 'A download hit a problem, retrying' : `${retrying} downloads hit a problem, retrying`}</strong>
+          <strong>{intl.formatMessage({ id: '{count, plural, one {A download hit a problem, retrying} other {{count} downloads hit a problem, retrying}}', defaultMessage: '{count, plural, one {A download hit a problem, retrying} other {{count} downloads hit a problem, retrying}}' }, { count: retrying })}</strong>
         </div>
       )}
 
@@ -3159,11 +3194,11 @@ const Home = () => {
         <section className="stats surface">
           <div className="readouts">
             <div className="stat big rate">
-              <label>Download</label>
+              <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
               <strong>{speed(totalDown)}</strong>
             </div>
             <div className="stat rate">
-              <label>Upload</label>
+              <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
               <strong>{speed(totalUp)}</strong>
             </div>
             {/* Which direction this is has to be said. `history` samples download alone, so a
@@ -3171,12 +3206,12 @@ const Home = () => {
                 ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
                 forty peers. */}
             <div className="stat rate">
-              <label>Peak down</label>
+              <label>{intl.formatMessage({ id: 'Peak down', defaultMessage: 'Peak down' })}</label>
               <strong>{speed(peak)}</strong>
             </div>
             <div className="stat">
-              <label>Active</label>
-              <strong>{active} / {torrents.length}</strong>
+              <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
+              <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
             </div>
             <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
@@ -3203,10 +3238,10 @@ const Home = () => {
         {torrents.length === 0
           ? (
             <div className="empty">
-              <h1>Download. Stream.<br/><em>In your browser.</em></h1>
+              <h1>{intl.formatMessage({ id: 'Download. Stream.', defaultMessage: 'Download. Stream.' })}<br/><em>{intl.formatMessage({ id: 'In your browser.', defaultMessage: 'In your browser.' })}</em></h1>
               <div className="hints">
-                <span>Paste a magnet link above</span>
-                <span>Or drop a magnet or a .torrent anywhere</span>
+                <span>{intl.formatMessage({ id: 'Paste a magnet link above', defaultMessage: 'Paste a magnet link above' })}</span>
+                <span>{intl.formatMessage({ id: 'Or drop a magnet or a .torrent anywhere', defaultMessage: 'Or drop a magnet or a .torrent anywhere' })}</span>
               </div>
             </div>
           )
@@ -3221,11 +3256,11 @@ const Home = () => {
                */
               <div className="empty">
                 {listFilter === 'temporary'
-                  ? 'No temporary downloads.'
-                  : 'Nothing matches this filter.'}
+                  ? intl.formatMessage({ id: 'No temporary downloads.', defaultMessage: 'No temporary downloads.' })
+                  : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
                   <button type="button" className="link" onClick={() => chooseFilter('all')}>
-                    Show everything
+                    {intl.formatMessage({ id: 'Show everything', defaultMessage: 'Show everything' })}
                   </button>
                 </div>
               </div>
@@ -3269,9 +3304,10 @@ const Home = () => {
             same way back, and two Show buttons is one too many */}
         {hiddenByFilter > 0 && visibleRows.length > 0 && (
           <div className="hidden-note" role="status">
-            {hiddenByFilter} temporary {hiddenByFilter === 1 ? 'download' : 'downloads'} hidden
-            {hiddenBytes > 0 && ` · ${getHumanReadableByteString(hiddenBytes, true)}`}
-            <button type="button" className="link" onClick={() => chooseFilter('all')}>Show</button>
+            {hiddenBytes > 0
+              ? intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}', defaultMessage: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}' }, { count: hiddenByFilter, size: getHumanReadableByteString(hiddenBytes, true) })
+              : intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}', defaultMessage: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}' }, { count: hiddenByFilter })}
+            <button type="button" className="link" onClick={() => chooseFilter('all')}>{intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}</button>
           </div>
         )}
       </main>
@@ -3315,10 +3351,10 @@ const Home = () => {
       {rateEdit && (rateEdit.scope === 'session' || rateEditTorrent) && (
         <RateLimitDialog
           title={rateEdit.direction === 'down'
-            ? (rateEdit.scope === 'session' ? 'Total download rate limit' : 'Download rate limit')
-            : (rateEdit.scope === 'session' ? 'Total upload rate limit' : 'Upload rate limit')}
+            ? (rateEdit.scope === 'session' ? intl.formatMessage({ id: 'Total download rate limit', defaultMessage: 'Total download rate limit' }) : intl.formatMessage({ id: 'Download rate limit', defaultMessage: 'Download rate limit' }))
+            : (rateEdit.scope === 'session' ? intl.formatMessage({ id: 'Total upload rate limit', defaultMessage: 'Total upload rate limit' }) : intl.formatMessage({ id: 'Upload rate limit', defaultMessage: 'Upload rate limit' }))}
           subject={rateEdit.scope === 'session'
-            ? 'All torrents'
+            ? intl.formatMessage({ id: 'All torrents', defaultMessage: 'All torrents' })
             : rateEditTorrent?.name}
           value={rateEdit.scope === 'session'
             ? (rateEdit.direction === 'down' ? sessionLimits.down : sessionLimits.up)
@@ -3337,43 +3373,45 @@ const Home = () => {
       )}
 
       <footer>
-        <a href="https://fkn.app" target="_blank" rel="noreferrer">Powered by FKN</a>
-        <Link to="/legal">Legal</Link>
-        <Link to="/privacy">Privacy</Link>
+        <a href="https://fkn.app" target="_blank" rel="noreferrer">{intl.formatMessage({ id: 'Powered by FKN', defaultMessage: 'Powered by FKN' })}</a>
+        <Link to="/legal">{intl.formatMessage({ id: 'Legal', defaultMessage: 'Legal' })}</Link>
+        <Link to="/privacy">{intl.formatMessage({ id: 'Privacy', defaultMessage: 'Privacy' })}</Link>
         <a
           className="build"
           href={`https://github.com/banou26/ripple/commit/${__COMMIT_HASH__}`}
           target="_blank"
           rel="noreferrer"
-          {...hint(`commit ${__COMMIT_HASH__}`)}
+          {...hint(intl.formatMessage({ id: 'commit {hash}', defaultMessage: 'commit {hash}' }, { hash: __COMMIT_HASH__ }))}
         >
-          v{__APP_VERSION__} · {__COMMIT_HASH__.slice(0, 7)}
+          {BUILD}
         </a>
         <div className="controls">
           {/* qBittorrent keeps the global limits in its status bar, reachable in one click from
               wherever you are, rather than buried in a preferences tree. Same here. */}
           <div className="folder">
-            <span>Speed</span>
+            <span>{intl.formatMessage({ id: 'Speed', defaultMessage: 'Speed' })}</span>
             <button
               className={sessionLimits.down > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
             >
-              {formatLimit(sessionLimits.down)} down
+              {intl.formatMessage({ id: '{limit} down', defaultMessage: '{limit} down' }, { limit: formatLimit(sessionLimits.down) })}
             </button>
             <button
               className={sessionLimits.up > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
             >
-              {formatLimit(sessionLimits.up)} up
+              {intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: formatLimit(sessionLimits.up) })}
             </button>
           </div>
           <div className="folder">
-            <span>On add</span>
+            <span>{intl.formatMessage({ id: 'On add', defaultMessage: 'On add' })}</span>
             <button
               className={addDialog ? 'on' : undefined}
               onClick={() => chooseAddDialog(!addDialog)}
             >
-              {addDialog ? 'Ask what to download' : 'Start straight away'}
+              {addDialog
+                ? intl.formatMessage({ id: 'Ask what to download', defaultMessage: 'Ask what to download' })
+                : intl.formatMessage({ id: 'Start straight away', defaultMessage: 'Start straight away' })}
             </button>
           </div>
           {/* Beside the other footer controls on purpose: this is the one place somebody can raise the
@@ -3382,23 +3420,25 @@ const Home = () => {
           <PersistControl persist={persistence} onAsk={() => void persistence.request()}/>
           {folderSupported && (
             <div className="folder">
-              <span>Auto-save</span>
+              <span>{intl.formatMessage({ id: 'Auto-save', defaultMessage: 'Auto-save' })}</span>
               {!folder
-                ? <button onClick={pickFolder}>Choose folder</button>
+                ? <button onClick={pickFolder}>{intl.formatMessage({ id: 'Choose folder', defaultMessage: 'Choose folder' })}</button>
                 : permitted
                   ? (
                     <>
                       <button className="on" onClick={pickFolder}>{folder.name}</button>
-                      <button onClick={clearFolder}>Stop</button>
+                      <button onClick={clearFolder}>{intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' })}</button>
                     </>
                   )
-                  : <button className="on" onClick={allowFolder}>Allow {folder.name}</button>}
+                  : <button className="on" onClick={allowFolder}>{intl.formatMessage({ id: 'Allow {name}', defaultMessage: 'Allow {name}' }, { name: folder.name })}</button>}
               {folder && permitted && (
                 <button
                   className={defaultLocation === 'folder' ? 'on' : undefined}
                   onClick={() => chooseDefaultLocation(defaultLocation === 'folder' ? 'browser' : 'folder')}
                 >
-                  {defaultLocation === 'folder' ? `Files go to ${folder.name}` : 'Files stay in the browser'}
+                  {defaultLocation === 'folder'
+                    ? intl.formatMessage({ id: 'Files go to {name}', defaultMessage: 'Files go to {name}' }, { name: folder.name })
+                    : intl.formatMessage({ id: 'Files stay in the browser', defaultMessage: 'Files stay in the browser' })}
                 </button>
               )}
             </div>
