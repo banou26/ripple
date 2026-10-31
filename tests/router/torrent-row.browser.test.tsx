@@ -5,6 +5,8 @@ import { render } from 'vitest-browser-react'
 import { page } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
+import { IntlRoot } from '../../src/i18n'
+
 /**
  * The shape of a library row, measured rather than described.
  *
@@ -90,9 +92,9 @@ const inPage = async (t: Torrent, extra: Partial<Torrent> = {}) => {
   const { TorrentRow, style } = await import('../../src/router/home')
   const props = handlers()
   const screen = await render(
-    <MemoryRouter>
+    <IntlRoot><MemoryRouter>
       <div css={style}><main><TorrentRow t={{ ...t, ...extra }} {...props} /></main></div>
-    </MemoryRouter>,
+    </MemoryRouter></IntlRoot>,
     sized(),
   )
   return { screen, props }
@@ -281,7 +283,7 @@ describe('a library row', () => {
     const { TorrentRow, style } = await import('../../src/router/home')
     const props = handlers()
     const row = (t: Torrent) => (
-      <MemoryRouter><div css={style}><main><TorrentRow t={t} {...props} /></main></div></MemoryRouter>
+      <IntlRoot><MemoryRouter><div css={style}><main><TorrentRow t={t} {...props} /></main></div></MemoryRouter></IntlRoot>
     )
     const screen = await render(row(torrent()), sized())
 
@@ -299,9 +301,9 @@ describe('a library row', () => {
     thumbnail.current = null
     const { TorrentRow, style } = await import('../../src/router/home')
     const screen = await render(
-      <MemoryRouter>
+      <IntlRoot><MemoryRouter>
         <div css={style}><main><TorrentRow t={torrent({ state: 'missing', saveTo: 'source' })} {...handlers()} /></main></div>
-      </MemoryRouter>,
+      </MemoryRouter></IntlRoot>,
       sized(),
     )
     await expect.element(screen.getByText('Source files unavailable. Create it again from the same files.')).toBeInTheDocument()
@@ -335,9 +337,9 @@ describe('a library row', () => {
       const { TorrentRow, style } = await import('../../src/router/home')
       const props = handlers()
       const screen = await render(
-        <MemoryRouter>
+        <IntlRoot><MemoryRouter>
           <div css={style}><main><TorrentRow t={t} {...props} selected/></main></div>
-        </MemoryRouter>,
+        </MemoryRouter></IntlRoot>,
         sized(),
       )
       const card = screen.container.querySelector('.torrent') as HTMLElement
@@ -372,9 +374,9 @@ describe('a library row', () => {
       const { TorrentRow, style } = await import('../../src/router/home')
       const props = handlers()
       const screen = await render(
-        <MemoryRouter>
+        <IntlRoot><MemoryRouter>
           <div css={style}><main><TorrentRow t={torrent()} {...props} selected/></main></div>
-        </MemoryRouter>,
+        </MemoryRouter></IntlRoot>,
         sized(),
       )
       const card = screen.container.querySelector('.torrent')!
@@ -444,9 +446,9 @@ describe('a library row', () => {
       const t = torrent({ progress: 1, state: 'seeding' })
       const { TorrentRow, style } = await import('../../src/router/home')
       const screen = await render(
-        <MemoryRouter>
+        <IntlRoot><MemoryRouter>
           <div css={style}><main><TorrentRow t={t} {...handlers()} savedToUserStorage/></main></div>
-        </MemoryRouter>,
+        </MemoryRouter></IntlRoot>,
         sized(),
       )
       const labels = [...screen.container.querySelectorAll('.actions a, .actions button')]

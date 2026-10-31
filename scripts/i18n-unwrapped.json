@@ -1,7 +1,4 @@
 {
-  "a-home": [
-    "src/router/home.tsx"
-  ],
   "b-list": [
     "src/components/account-widget.tsx",
     "src/components/list-toolbar.tsx",

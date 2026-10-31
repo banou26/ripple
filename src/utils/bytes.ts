@@ -45,6 +45,10 @@ export const writeSpeed = (count: number, unit: 'kilobyte' | 'megabyte' | 'gigab
     maximumFractionDigits: 1,
   }).format(count)
 
+/** A share of 1 as a percentage in the page's language: `12.3%`, `12,3 %`, `%12,3`. `digits` is exact, so `50.0%` keeps its zero. */
+export const writePercent = (share: number, digits = 0) =>
+  new Intl.NumberFormat(unitLocale(), { style: 'percent', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(share)
+
 /** A speed in whole units: `12 MB/s`, and `512 KB/s` with the capital ripple's English writes in this one place. */
 export const getRoundedSpeed = (bytesPerSecond: number) => {
   const mbs = bytesPerSecond / 1_000_000

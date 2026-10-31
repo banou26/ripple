@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { startLanguage } from '../../src/i18n'
-import { getHumanReadableByteString, getHumanReadableSpeed, getRoundedSpeed } from '../../src/utils/bytes'
+import { getHumanReadableByteString, getHumanReadableSpeed, getRoundedSpeed, writePercent } from '../../src/utils/bytes'
 
 // a language shown, with no text of its own: units follow the language, not its catalogue
 const show = (language: string, languages = [language]) =>
@@ -138,5 +138,24 @@ describe('in the language of the page', () => {
   it('a language whose catalogue fails to load stays with English units, as its text does', async () => {
     await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': () => Promise.reject(new Error('offline')) } })
     expect(getHumanReadableByteString(1_500_000_000)).toBe('1.5 GB')
+  })
+})
+
+describe('a percentage', () => {
+  afterEach(() => show('en', ['en-US']))
+
+  it('writes English as a row always has, its digits exact', () => {
+    expect(writePercent(0.5, 1)).toBe('50.0%')
+    expect(writePercent(0.1234, 1)).toBe('12.3%')
+    expect(writePercent(1)).toBe('100%')
+  })
+
+  it('follows the page\'s language, the sign where that language puts it', async () => {
+    await show('fr')
+    expect(plain(writePercent(0.5, 1))).toBe('50,0 %')
+    await show('de')
+    expect(plain(writePercent(1))).toBe('100 %')
+    await show('tr')
+    expect(writePercent(0.5, 1)).toBe('%50,0')
   })
 })

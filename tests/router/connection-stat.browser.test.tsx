@@ -4,6 +4,8 @@ import type { Reachability } from '../../src/torrent/client'
 import { describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
 
+import { IntlRoot } from '../../src/i18n'
+
 /**
  * The inbound stat, and specifically its tolerance of an engine older than itself.
  *
@@ -45,7 +47,7 @@ const current = (over: Partial<Reachability> = {}): Reachability => ({
  */
 const mount = async (reachable: Reachability | null, inboundNow?: InboundNow) => {
   const { ConnectionStat } = await import('../../src/router/home')
-  return render(<ConnectionStat reachable={reachable} inboundNow={inboundNow}/>)
+  return render(<IntlRoot><ConnectionStat reachable={reachable} inboundNow={inboundNow}/></IntlRoot>)
 }
 
 const live = (byTransport: Record<string, number>): InboundNow => ({
