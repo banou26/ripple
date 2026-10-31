@@ -1013,7 +1013,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             Ripple
           </Link>
           {/* a page framing this one shows its own */}
-          {!framed && <PoweredByFkn className="powered"/>}
+          {!framed && <PoweredByFkn className="powered" href="https://docs.fkn.dev/user/"/>}
         </span>
         <VpnStat reachable={reachable}/>
       </header>
