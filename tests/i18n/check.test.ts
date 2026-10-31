@@ -182,6 +182,14 @@ describe('no em or en dash', () => {
   })
 })
 
+test('a descriptor outside formatMessage and defineMessage fails, since extract cannot read it', () => {
+  const table = (label: string) => `import { defineMessage } from 'react-intl'\nexport const COLUMNS = [{ label: ${label} }]\n`
+  expect(said({ code: { 'src/table.ts': table("{ id: 'Down', defaultMessage: 'Down' }") } }))
+    .toEqual(['src/table.ts "Down" is outside formatMessage and defineMessage, where formatjs extract cannot read it'])
+  expect(said({ code: { 'src/table.ts': table("defineMessage({ id: 'Down', defaultMessage: 'Down' })") } })).toEqual([])
+  expect(said({ code: { 'src/table.ts': table("defineMessage({ id: 'It\\'s down', defaultMessage: 'It\\'s down' })") } })).toEqual([])
+}, 60_000)
+
 test('a catalogue not sorted by id fails', () => {
   expect(said({ catalogues: { fr: { [EPISODES]: FRENCH[EPISODES], Play: 'Lecture' } } })).toEqual(['src/locales/fr.json is not sorted by id'])
 })
