@@ -248,7 +248,8 @@ export const TorrentTable = (
           <td className="c-progress">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div className="bar"><div className="fill" style={{ width: `${Math.round(t.progress * 100)}%` }}/></div>
-              <span className="pct">{writePercent(t.progress)}</span>
+              {/* rounded as the bar is: Intl reads 0.285 as written and shows 29%, where the bar's 28.499... is 28% */}
+              <span className="pct">{writePercent(Math.round(t.progress * 100) / 100)}</span>
             </div>
           </td>
           <td className="c-status">
