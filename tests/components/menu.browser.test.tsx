@@ -2,11 +2,14 @@ import type { OptionGroup } from '../../src/torrent/torrent-options'
 
 import { useEffect, useState } from 'react'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
 import { ContextMenu } from '../../src/components/menu'
+import { IntlRoot } from '../../src/i18n'
+import ja from '../../src/locales/ja.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The right-click menu.
@@ -56,6 +59,7 @@ const mount = async (opts: { at?: { x: number, y: number }, onClose?: () => void
       label="Options for Big Buck Bunny"
       onClose={onClose}
     />,
+    { wrapper: IntlRoot },
   )
   await expect.poll(() => document.activeElement?.closest('[role="menu"]')).not.toBeNull()
   return { screen, onClose }
@@ -85,6 +89,17 @@ describe('the torrent context menu', () => {
     expect(byLabel('Rarest first').getAttribute('role')).toBe('menuitemradio')
     expect(byLabel('Use the DHT').getAttribute('role')).toBe('menuitemcheckbox')
     expect(byLabel('Remove').getAttribute('role')).toBe('menuitem')
+  })
+
+  describe('in the language of the page', () => {
+    afterEach(showEnglish)
+
+    it('joins an item that cannot be used to the reason, as the language joins two sentences', async () => {
+      await mount()
+      expect(byLabel('Unavailable').title).toBe('Unavailable. Not here')
+      await showIn('ja', ja)
+      await expect.poll(() => byLabel('Unavailable').title).toBe('Unavailable。Not here')
+    })
   })
 
   /** A tick drawn in a span is invisible to a screen reader; aria-checked is the actual state. */
@@ -183,7 +198,7 @@ describe('the torrent context menu', () => {
 
     const mountTicking = async () => {
       closed = 0
-      render(<Ticking/>)
+      render(<Ticking/>, { wrapper: IntlRoot })
       await expect.poll(() => document.querySelector('[role="menu"]')).not.toBeNull()
     }
 
@@ -339,7 +354,7 @@ describe('the torrent context menu', () => {
         move = setAt
         return <ContextMenu groups={groups()} at={at} label="Options for Big Buck Bunny" onClose={() => {}}/>
       }
-      render(<Movable/>)
+      render(<Movable/>, { wrapper: IntlRoot })
       await expect.poll(() => document.querySelector('[role="menu"]')).not.toBeNull()
       await expect.poll(() => menu().getBoundingClientRect().left).toBeCloseTo(40, 0)
 

@@ -1,8 +1,10 @@
 import type { OptionGroup, OptionItem } from '../torrent/torrent-options'
 import type { ReactNode, RefObject } from 'react'
+import type { IntlShape } from 'react-intl'
 
 import { css } from '@emotion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import {
   BORDER, BORDER_STRONG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, FOCUS_RING, TEXT, TEXT_MUTED,
@@ -176,13 +178,17 @@ export const menuStyle = css`
   }
 `
 
+const TICK = { radio: '●', check: '✓' }
+
 const Tick = ({ on, radio }: { on: boolean, radio?: boolean }) => (
   // decorative: aria-checked on the button is what a screen reader reads, and a second
   // announcement of the same fact is worse than none
-  <span className="tick" aria-hidden="true">{on ? (radio ? '●' : '✓') : ''}</span>
+  <span className="tick" aria-hidden="true">{on ? TICK[radio ? 'radio' : 'check'] : ''}</span>
 )
 
-const itemLabel = (item: OptionItem) => (item.disabled ? `${item.label}. ${item.disabled}` : item.hint)
+const itemLabel = (item: OptionItem, intl: IntlShape) => (item.disabled
+  ? intl.formatMessage({ id: '{label}. {reason}', defaultMessage: '{label}. {reason}' }, { label: item.label, reason: item.disabled })
+  : item.hint)
 
 export const MenuItems = ({
   groups, onChose,
@@ -190,6 +196,7 @@ export const MenuItems = ({
   groups: OptionGroup[]
   onChose: () => void
 }) => {
+  const intl = useIntl()
   return (
     <>
       {groups.map((group) => (
@@ -202,7 +209,7 @@ export const MenuItems = ({
             const common = {
               type: 'button' as const,
               disabled: !!item.disabled,
-              title: itemLabel(item),
+              title: itemLabel(item, intl),
               // a menu manages focus itself, so only the active item is in the tab order
               tabIndex: -1,
             }

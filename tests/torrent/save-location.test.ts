@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { currentLocation, intendedLocation, isOwnContent, isSaveLocation, locationLabel, moveReadiness, pendingLabel, readGlobalDefault, savePathIn, SAVE_LOCATION_KEY } from '../../src/torrent/save-location'
+import { intl, startLanguage } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { currentLocation, intendedLocation, isOwnContent, isSaveLocation, moveReadiness, pendingLabel, readGlobalDefault, savePathIn, SAVE_LOCATION_KEY } from '../../src/torrent/save-location'
 import { isNativeSavePath } from '../../src/torrent/hybrid-storage'
 
 /**
@@ -126,23 +128,30 @@ describe('deciding whether files should move', () => {
 
 describe('what the user is told', () => {
   it('explains a wait rather than leaving it silent', () => {
-    expect(pendingLabel({ move: false, reason: 'incomplete' }, 'Downloads')).toBe('Moves to Downloads when it finishes')
-    expect(pendingLabel({ move: false, reason: 'no-folder' }, 'Downloads')).toBe('Waiting for access to Downloads')
+    expect(pendingLabel({ move: false, reason: 'incomplete' }, 'Downloads', intl)).toBe('Moves to Downloads when it finishes')
+    expect(pendingLabel({ move: false, reason: 'no-folder' }, 'Downloads', intl)).toBe('Waiting for access to Downloads')
   })
 
   it('says nothing when there is nothing to wait for', () => {
-    expect(pendingLabel({ move: false, reason: 'settled' }, 'Downloads')).toBe(null)
-    expect(pendingLabel({ move: true, to: 'folder' }, 'Downloads')).toBe(null)
+    expect(pendingLabel({ move: false, reason: 'settled' }, 'Downloads', intl)).toBe(null)
+    expect(pendingLabel({ move: true, to: 'folder' }, 'Downloads', intl)).toBe(null)
   })
 
   it('copes with a folder whose name is not known yet', () => {
-    expect(pendingLabel({ move: false, reason: 'incomplete' }, undefined)).toBe('Moves to your folder when it finishes')
-    expect(locationLabel('folder', undefined)).toBe('your folder')
+    expect(pendingLabel({ move: false, reason: 'incomplete' }, undefined, intl)).toBe('Moves to your folder when it finishes')
+    expect(pendingLabel({ move: false, reason: 'no-folder' }, undefined, intl)).toBe('Waiting for access to your folder')
   })
 
-  it('names the folder rather than saying folder', () => {
-    expect(locationLabel('folder', 'Downloads')).toBe('Downloads')
-    expect(locationLabel('browser', 'Downloads')).toBe('Browser storage')
+  describe('in the language of the page', () => {
+    afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+    it('explains the wait in German, with the folder named or not', async () => {
+      await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })
+      expect(pendingLabel({ move: false, reason: 'incomplete' }, 'Downloads', intl)).toBe('Wird nach dem Abschluss nach Downloads verschoben')
+      expect(pendingLabel({ move: false, reason: 'incomplete' }, undefined, intl)).toBe('Wird nach dem Abschluss in deinen Ordner verschoben')
+      expect(pendingLabel({ move: false, reason: 'no-folder' }, 'Downloads', intl)).toBe('Warte auf Zugriff auf Downloads')
+      expect(pendingLabel({ move: false, reason: 'no-folder' }, undefined, intl)).toBe('Warte auf Zugriff auf deinen Ordner')
+    })
   })
 })
 
@@ -185,7 +194,7 @@ describe('a torrent backed by the user\'s own files', () => {
   })
 
   it('says nothing is pending, since there is nothing to wait for', () => {
-    expect(pendingLabel(moveReadiness({ current: 'source', intended: 'browser', complete: true, folderReady: false }), 'Downloads')).toBeNull()
+    expect(pendingLabel(moveReadiness({ current: 'source', intended: 'browser', complete: true, folderReady: false }), 'Downloads', intl)).toBeNull()
   })
 
   it('cannot be the global default, however the setting got written', () => {
@@ -196,11 +205,6 @@ describe('a torrent backed by the user\'s own files', () => {
   it('names its save path from its infohash, and refuses to guess one', () => {
     expect(savePathIn('source', 'abc')).toBe('/source/abc')
     expect(() => savePathIn('source', null)).toThrow(/needs its infohash/)
-  })
-
-  it('says whose files they are, rather than naming a place', () => {
-    expect(locationLabel('source', 'Downloads')).toBe('Your own files')
-    expect(locationLabel('folder', 'Downloads')).toBe('Downloads')
   })
 })
 

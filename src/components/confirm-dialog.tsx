@@ -15,6 +15,7 @@
 
 import { css } from '@emotion/react'
 import { useCallback, useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import { Modal } from './modal'
 import {
@@ -171,6 +172,7 @@ const remember = (key?: string) => {
  * to listeners bound on window.
  */
 export const useConfirm = () => {
+  const intl = useIntl()
   const [request, setRequest] = useState<ConfirmRequest | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -213,14 +215,14 @@ export const useConfirm = () => {
           {!!request.rememberKey && (
             <label>
               <input type="checkbox" checked={dontAsk} onChange={(e) => setDontAsk(e.target.checked)} />
-              Don't ask again
+              {intl.formatMessage({ id: 'Don\'t ask again', defaultMessage: 'Don\'t ask again' })}
             </label>
           )}
           <div className="actions">
             {/* Focus lands here, never on the destructive button, so a stray Enter cannot become the
                 very mis-click this exists to prevent. Driven by the ref in the effect above. */}
             <button type="button" ref={cancelRef} onClick={() => close(false)}>
-              {request.cancelLabel ?? 'Cancel'}
+              {request.cancelLabel ?? intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}
             </button>
             <button
               type="button"

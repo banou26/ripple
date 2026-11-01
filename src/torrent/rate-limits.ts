@@ -21,6 +21,8 @@
  * `worker.ts` carries them out.
  */
 
+import type { IntlShape } from 'react-intl'
+
 import { writeSpeed } from '../utils/bytes'
 
 /** What a caller stores and what the engine is handed. Bytes per second, 0 meaning unlimited. */
@@ -112,9 +114,12 @@ export const parseLimit = (text: string): number | null => {
 export const limitInputValue = (limit: number | undefined): string =>
   isLimit(limit) && limit > UNLIMITED ? String(limit / BYTES_PER_KB) : ''
 
+// the text below takes the page's intl rather than importing it, since the engine worker imports this file and must not
+// load react-intl
+
 /** How a ceiling reads in a menu or a row. */
-export const formatLimit = (limit: number | undefined): string => {
-  if (!isLimit(limit) || limit === UNLIMITED) return 'Unlimited'
+export const formatLimit = (limit: number | undefined, intl: IntlShape): string => {
+  if (!isLimit(limit) || limit === UNLIMITED) return intl.formatMessage({ id: 'Unlimited', defaultMessage: 'Unlimited' })
   if (limit >= 1_000_000) {
     const mb = limit / 1_000_000
     return writeSpeed(mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10, 'megabyte')
@@ -128,12 +133,21 @@ export const formatLimit = (limit: number | undefined): string => {
  * Naming the session limit here is the whole point. A per-torrent number above the global one is
  * accepted by libtorrent and then ignored, so without this the control reads as broken.
  */
-export const limitLabel = (own: number | undefined, global: number): string => {
+export const limitLabel = (own: number | undefined, global: number, intl: IntlShape): string => {
   const mine = isLimit(own) ? own : undefined
-  if (mine === undefined) return global === UNLIMITED ? 'Unlimited' : `Unlimited, ${formatLimit(global)} in total`
+  if (mine === undefined) {
+    return global === UNLIMITED
+      ? formatLimit(UNLIMITED, intl)
+      : intl.formatMessage({ id: 'Unlimited, {total} in total', defaultMessage: 'Unlimited, {total} in total' }, { total: formatLimit(global, intl) })
+  }
   const effective = effectiveLimit(global, mine)
-  if (effective !== mine) return `${formatLimit(mine)}, held to ${formatLimit(effective)} in total`
-  return formatLimit(mine)
+  if (effective !== mine) {
+    return intl.formatMessage({ id: '{limit}, held to {total} in total', defaultMessage: '{limit}, held to {total} in total' }, {
+      limit: formatLimit(mine, intl),
+      total: formatLimit(effective, intl),
+    })
+  }
+  return formatLimit(mine, intl)
 }
 
 /**
@@ -141,8 +155,8 @@ export const limitLabel = (own: number | undefined, global: number): string => {
  *
  * Null when there is nothing surprising to report, so a caller can render it or not.
  */
-export const limitNote = (own: number | undefined, global: number): string | null => {
+export const limitNote = (own: number | undefined, global: number, intl: IntlShape): string | null => {
   if (!isLimit(own) || own === UNLIMITED) return null
   if (global === UNLIMITED || own <= global) return null
-  return `Capped at ${formatLimit(global)} by the total limit.`
+  return intl.formatMessage({ id: 'Capped at {total} by the total limit.', defaultMessage: 'Capped at {total} by the total limit.' }, { total: formatLimit(global, intl) })
 }

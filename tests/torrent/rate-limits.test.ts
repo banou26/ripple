@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { startLanguage } from '../../src/i18n'
+import { intl, startLanguage } from '../../src/i18n'
+import de from '../../src/locales/de.json'
 import {
   BYTES_PER_KB,
   NO_LIMITS,
@@ -131,27 +132,36 @@ describe('reading the kB/s field', () => {
 
 describe('how a limit reads', () => {
   it('says unlimited rather than 0 B/s', () => {
-    expect(formatLimit(0)).toBe('Unlimited')
-    expect(formatLimit(undefined)).toBe('Unlimited')
+    expect(formatLimit(0, intl)).toBe('Unlimited')
+    expect(formatLimit(undefined, intl)).toBe('Unlimited')
   })
 
   it('scales to MB/s once there is enough of it', () => {
-    expect(formatLimit(500_000)).toBe('500 kB/s')
-    expect(formatLimit(1_500_000)).toBe('1.5 MB/s')
-    expect(formatLimit(12_000_000)).toBe('12 MB/s')
+    expect(formatLimit(500_000, intl)).toBe('500 kB/s')
+    expect(formatLimit(1_500_000, intl)).toBe('1.5 MB/s')
+    expect(formatLimit(12_000_000, intl)).toBe('12 MB/s')
   })
 
   it('never groups a number', () => {
-    expect(formatLimit(999_999)).toBe('1000 kB/s')
-    expect(formatLimit(1_234_000_000)).toBe('1234 MB/s')
+    expect(formatLimit(999_999, intl)).toBe('1000 kB/s')
+    expect(formatLimit(1_234_000_000, intl)).toBe('1234 MB/s')
   })
 
   describe('in the language of the page', () => {
     afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
 
+    it('German words unlimited, the total and the cap around its numbers', async () => {
+      await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })
+      const spaced = (text: string | null) => text?.replace(/\s/gu, ' ')
+      expect(formatLimit(UNLIMITED, intl)).toBe('Unbegrenzt')
+      expect(spaced(limitLabel(undefined, 2_000_000, intl))).toBe('Unbegrenzt, 2 MB/s insgesamt')
+      expect(spaced(limitLabel(5_000_000, 1_000_000, intl))).toBe('5 MB/s, insgesamt auf 1 MB/s begrenzt')
+      expect(spaced(limitNote(5_000_000, 1_000_000, intl))).toBe('Durch das Gesamtlimit auf 1 MB/s begrenzt.')
+    })
+
     it('French writes its own units and its own decimal comma', async () => {
       await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
-      expect([formatLimit(500_000), formatLimit(1_500_000)].map(limit => limit.replace(/\s/gu, ' '))).toEqual(['500 ko/s', '1,5 Mo/s'])
+      expect([formatLimit(500_000, intl), formatLimit(1_500_000, intl)].map(limit => limit.replace(/\s/gu, ' '))).toEqual(['500 ko/s', '1,5 Mo/s'])
     })
   })
 })
@@ -164,25 +174,25 @@ describe('how a limit reads', () => {
  */
 describe('saying so when the session limit is what really binds', () => {
   it('names the session limit in the label when it overrides the torrent\'s own', () => {
-    expect(limitLabel(5_000_000, 1_000_000)).toBe('5 MB/s, held to 1 MB/s in total')
+    expect(limitLabel(5_000_000, 1_000_000, intl)).toBe('5 MB/s, held to 1 MB/s in total')
   })
 
   it('says nothing extra when the torrent\'s own limit is the one in force', () => {
-    expect(limitLabel(1_000_000, 5_000_000)).toBe('1 MB/s')
-    expect(limitLabel(1_000_000, UNLIMITED)).toBe('1 MB/s')
+    expect(limitLabel(1_000_000, 5_000_000, intl)).toBe('1 MB/s')
+    expect(limitLabel(1_000_000, UNLIMITED, intl)).toBe('1 MB/s')
   })
 
   it('still mentions the session limit for a torrent with none of its own', () => {
-    expect(limitLabel(undefined, 2_000_000)).toBe('Unlimited, 2 MB/s in total')
-    expect(limitLabel(undefined, UNLIMITED)).toBe('Unlimited')
+    expect(limitLabel(undefined, 2_000_000, intl)).toBe('Unlimited, 2 MB/s in total')
+    expect(limitLabel(undefined, UNLIMITED, intl)).toBe('Unlimited')
   })
 
   it('warns only when there is something surprising to warn about', () => {
-    expect(limitNote(5_000_000, 1_000_000)).toMatch(/1 MB\/s/)
-    expect(limitNote(1_000_000, 5_000_000)).toBe(null)
-    expect(limitNote(1_000_000, UNLIMITED)).toBe(null)
-    expect(limitNote(undefined, 1_000_000)).toBe(null)
+    expect(limitNote(5_000_000, 1_000_000, intl)).toMatch(/1 MB\/s/)
+    expect(limitNote(1_000_000, 5_000_000, intl)).toBe(null)
+    expect(limitNote(1_000_000, UNLIMITED, intl)).toBe(null)
+    expect(limitNote(undefined, 1_000_000, intl)).toBe(null)
     // equal is not exceeded, so there is nothing to explain
-    expect(limitNote(1_000_000, 1_000_000)).toBe(null)
+    expect(limitNote(1_000_000, 1_000_000, intl)).toBe(null)
   })
 })

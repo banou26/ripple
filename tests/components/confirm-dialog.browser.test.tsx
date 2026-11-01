@@ -4,6 +4,9 @@ import { userEvent } from '@vitest/browser/context'
 import { useState } from 'react'
 
 import { useConfirm } from '../../src/components/confirm-dialog'
+import { IntlRoot } from '../../src/i18n'
+import de from '../../src/locales/de.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The guard in front of an irreversible action, so its failure modes are the interesting part.
@@ -45,7 +48,7 @@ describe('the confirmation in front of a destructive action', () => {
   afterEach(() => { localStorage.removeItem(REMEMBER_KEY) })
 
   it('states the consequence, not just the question', async () => {
-    const screen = await render(<Harness />)
+    const screen = await render(<Harness />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await expect.element(screen.getByText('Remove Some.Release?')).toBeInTheDocument()
     // the size at risk is the whole point of the line
@@ -53,14 +56,14 @@ describe('the confirmation in front of a destructive action', () => {
   })
 
   it('resolves true only when the destructive button is pressed', async () => {
-    const screen = await render(<Harness />)
+    const screen = await render(<Harness />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await screen.getByRole('button', { name: 'Remove and delete' }).click()
     await expect.element(screen.getByTestId('result')).toHaveTextContent('confirmed')
   })
 
   it('resolves false on Cancel', async () => {
-    const screen = await render(<Harness />)
+    const screen = await render(<Harness />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await screen.getByRole('button', { name: 'Cancel' }).click()
     await expect.element(screen.getByTestId('result')).toHaveTextContent('cancelled')
@@ -72,7 +75,7 @@ describe('the confirmation in front of a destructive action', () => {
    * a Remove that silently does nothing ever again.
    */
   it('settles when dismissed with Escape rather than hanging the caller', async () => {
-    const screen = await render(<Harness />)
+    const screen = await render(<Harness />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     // a portal to the body, and no longer a <dialog>, so it is found by role in the document rather
     // than by tag inside the render container
@@ -98,13 +101,13 @@ describe('the confirmation in front of a destructive action', () => {
     ['without a remember key', undefined],
     ['with a remember key, the shipping shape', REMEMBER_KEY],
   ])('puts focus on Cancel %s', async (_label, key) => {
-    const screen = await render(<Harness rememberKey={key} />)
+    const screen = await render(<Harness rememberKey={key} />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await expect.poll(() => document.activeElement?.textContent).toBe('Cancel')
   })
 
   it('does not offer to be silenced unless a remember key is given', async () => {
-    const screen = await render(<Harness />)
+    const screen = await render(<Harness />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     expect(screen.container.querySelector('input[type=checkbox]')).toBeNull()
   })
@@ -114,7 +117,7 @@ describe('the confirmation in front of a destructive action', () => {
    * on cancel would silence the dialog while the user was declining the action.
    */
   it('remembers a ticked confirmation and skips the next one', async () => {
-    const screen = await render(<Harness rememberKey={REMEMBER_KEY} />)
+    const screen = await render(<Harness rememberKey={REMEMBER_KEY} />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await screen.getByRole('checkbox').click()
     await screen.getByRole('button', { name: 'Remove and delete' }).click()
@@ -128,11 +131,26 @@ describe('the confirmation in front of a destructive action', () => {
   })
 
   it('does not remember a ticked box when the user cancels', async () => {
-    const screen = await render(<Harness rememberKey={REMEMBER_KEY} />)
+    const screen = await render(<Harness rememberKey={REMEMBER_KEY} />, { wrapper: IntlRoot })
     await screen.getByRole('button', { name: 'Ask' }).click()
     await screen.getByRole('checkbox').click()
     await screen.getByRole('button', { name: 'Cancel' }).click()
     await expect.element(screen.getByTestId('result')).toHaveTextContent('cancelled')
     expect(localStorage.getItem(REMEMBER_KEY)).toBeNull()
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(async () => {
+    localStorage.removeItem(REMEMBER_KEY)
+    await showEnglish()
+  })
+
+  it('words its own box and its Cancel', async () => {
+    await showIn('de', de)
+    const screen = await render(<Harness rememberKey={REMEMBER_KEY} />, { wrapper: IntlRoot })
+    await screen.getByRole('button', { name: 'Ask' }).click()
+    await expect.element(screen.getByRole('checkbox', { name: 'Nicht erneut nachfragen' })).toBeInTheDocument()
+    await expect.poll(() => document.activeElement?.textContent).toBe('Abbrechen')
   })
 })

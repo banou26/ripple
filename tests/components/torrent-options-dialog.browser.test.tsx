@@ -1,10 +1,13 @@
 import type { OptionGroup } from '../../src/torrent/torrent-options'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
 import { TorrentOptionsDialog } from '../../src/components/torrent-options-dialog'
+import { IntlRoot } from '../../src/i18n'
+import es from '../../src/locales/es-419.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The options dialog, which is the same option list as the context menu with room to explain it.
@@ -41,7 +44,7 @@ const groups = (): OptionGroup[] => [
 
 const mount = async (g: OptionGroup[] = groups()) => {
   const onClose = vi.fn()
-  render(<TorrentOptionsDialog title="Big Buck Bunny" groups={g} onClose={onClose}/>)
+  render(<TorrentOptionsDialog title="Big Buck Bunny" groups={g} onClose={onClose}/>, { wrapper: IntlRoot })
   // the portal and the focus move both live in an effect, so nothing here is true on the first turn
   await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull()
   return { onClose, g }
@@ -133,5 +136,16 @@ describe('the torrent options dialog', () => {
       .find((b) => b.textContent === 'Done')!
       .click()
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(showEnglish)
+
+  // Spanish words a finished torrent `Completado` and a button that closes a dialog `Listo`, where English says Done
+  it('says Done as a button does', async () => {
+    await showIn('es-419', es)
+    await mount()
+    await expect.poll(() => document.activeElement?.textContent).toBe('Listo')
   })
 })
