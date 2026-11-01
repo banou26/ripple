@@ -145,6 +145,8 @@ const style = css`
   @media (max-width: 820px) { .c-peers { display: none; } }
   @media (max-width: 700px) { .c-size { display: none; } }
   @media (max-width: 560px) { .c-down, .bar { display: none; } }
+  /* with Progress, French left a name 47 px at 360 px and ran past a 320 px window */
+  @media (max-width: 400px) { .c-progress { display: none; } }
 `
 
 type Column = {
