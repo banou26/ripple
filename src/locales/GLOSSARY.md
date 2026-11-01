@@ -29,7 +29,9 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   where the English lacks it.
 - **A value Intl writes** (a size `1,5 Go`, a speed `512 ko/s`, a duration, a date) comes with its unit and in the
   nominative, so the words around it add no unit and ask no case of it: German `noch {eta}` where `in` would want a
-  dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date.
+  dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date. A unit written as
+  text, the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`), so it reads
+  as the speeds beside it.
 
 ## Register and torrent terms
 
@@ -60,6 +62,10 @@ Where this differs from qBittorrent:
 - `zh-Hans` seeder and leecher: qBittorrent's `做种` and `下载` are column titles, and `下载` alone reads as a download.
 - `zh-Hant` peer: qBittorrent's `下載者` is its word for a leecher too, and ripple shows both, so it takes the word
   `zh-Hans` uses. Never `節點` or `节点`, which is a DHT node.
+- The options menu's names: `Download first and last pieces first` takes this table's piece where qBittorrent's
+  differs (`es-419` `piezas`, `it` `parte`, `zh-Hans` `区块`, `zh-Hant` `分塊`), and `pt-BR` writes `para` for its `pra`.
+  Unlimited is a box's label and a value both, so `pl` writes `Bez limitu` for `Nieograniczone` and `zh-Hans` `无限制`
+  for `无限制的`.
 
 In Chinese `种子` and `種子` are a seed and never a torrent, which stays `torrent` as qBittorrent writes it.
 
