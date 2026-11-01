@@ -156,7 +156,7 @@ export const ListToolbar = (
         <button
           type="button" data-on={filter === 'temporary' || undefined} aria-pressed={filter === 'temporary'}
           onClick={() => onFilter('temporary')}
-        >{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })} <span className="count">{temporaryCount}</span></button>
+        >{intl.formatMessage({ id: 'Temporary#filter', defaultMessage: 'Temporary', description: 'filter' })} <span className="count">{temporaryCount}</span></button>
       </div>
     )}
 

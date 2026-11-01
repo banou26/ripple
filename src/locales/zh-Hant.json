@@ -162,6 +162,7 @@
   "Temporary": "暫時",
   "Temporary download": "暫時下載",
   "Temporary download: options for {name}": "暫時下載：{name} 的選項",
+  "Temporary#filter": "暫時",
   "That .torrent could not be read": "無法讀取該 .torrent",
   "That is not a .torrent file": "這不是 .torrent 檔案",
   "The .torrent for {name} could not be built": "無法產生 {name} 的 .torrent",

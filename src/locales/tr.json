@@ -162,6 +162,7 @@
   "Temporary": "Geçici",
   "Temporary download": "Geçici indirme",
   "Temporary download: options for {name}": "Geçici indirme: {name} seçenekleri",
+  "Temporary#filter": "Geçici",
   "That .torrent could not be read": "Bu .torrent okunamadı",
   "That is not a .torrent file": "Bu bir .torrent dosyası değil",
   "The .torrent for {name} could not be built": "{name} için .torrent oluşturulamadı",

@@ -162,6 +162,7 @@
   "Temporary": "임시",
   "Temporary download": "임시 다운로드",
   "Temporary download: options for {name}": "임시 다운로드: {name} 옵션",
+  "Temporary#filter": "임시",
   "That .torrent could not be read": "이 .torrent를 읽을 수 없어요",
   "That is not a .torrent file": ".torrent 파일이 아니에요",
   "The .torrent for {name} could not be built": "{name} .torrent를 만들 수 없어요",

@@ -162,6 +162,7 @@
   "Temporary": "临时",
   "Temporary download": "临时下载",
   "Temporary download: options for {name}": "临时下载：{name} 的选项",
+  "Temporary#filter": "临时",
   "That .torrent could not be read": "无法读取该 .torrent",
   "That is not a .torrent file": "这不是 .torrent 文件",
   "The .torrent for {name} could not be built": "无法生成 {name} 的 .torrent",

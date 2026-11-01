@@ -162,6 +162,7 @@
   "Temporary": "一時的",
   "Temporary download": "一時的なダウンロード",
   "Temporary download: options for {name}": "一時的なダウンロード：{name} のオプション",
+  "Temporary#filter": "一時的",
   "That .torrent could not be read": "この .torrent を読み取れませんでした",
   "That is not a .torrent file": ".torrent ファイルではありません",
   "The .torrent for {name} could not be built": "{name} の .torrent を作成できませんでした",
