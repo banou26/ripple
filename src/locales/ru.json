@@ -162,6 +162,7 @@
   "Temporary": "Временная",
   "Temporary download": "Временная загрузка",
   "Temporary download: options for {name}": "Временная загрузка, параметры: {name}",
+  "Temporary#filter": "Временные",
   "That .torrent could not be read": "Не удалось прочитать этот .torrent",
   "That is not a .torrent file": "Это не файл .torrent",
   "The .torrent for {name} could not be built": "Не удалось создать .torrent для {name}",

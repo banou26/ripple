@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-react'
 import { ListToolbar } from '../../src/components/list-toolbar'
 import { IntlRoot } from '../../src/i18n'
 import de from '../../src/locales/de.json'
+import fr from '../../src/locales/fr.json'
 import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
@@ -109,6 +110,14 @@ describe('the list toolbar', () => {
       ])
       expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Aufsteigend sortiert, klicken für absteigend')
       expect(c.querySelector('.dir')?.getAttribute('data-tooltip-content')).toBe('Kleinste zuerst')
+    })
+
+    // a row's chip is one temporary download, the filter is all of them
+    it('names the filters in the plural, as a group', async () => {
+      await showIn('fr', fr)
+      const { screen } = mount({ temporaryCount: 2 })
+      const filters = [...(await screen).container.querySelector('.seg')!.querySelectorAll('button')].map((b) => b.textContent)
+      expect(filters).toEqual(['Tous', 'Conservés', 'Temporaires 2'])
     })
 
     it('words the other direction', async () => {

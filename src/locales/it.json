@@ -162,6 +162,7 @@
   "Temporary": "Temporaneo",
   "Temporary download": "Download temporaneo",
   "Temporary download: options for {name}": "Download temporaneo: opzioni di {name}",
+  "Temporary#filter": "Temporanei",
   "That .torrent could not be read": "Impossibile leggere questo .torrent",
   "That is not a .torrent file": "Questo non è un file .torrent",
   "The .torrent for {name} could not be built": "Impossibile creare il .torrent di {name}",
