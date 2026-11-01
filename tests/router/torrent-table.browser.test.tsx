@@ -136,6 +136,12 @@ describe('the torrent table', () => {
     expect(selected).toHaveLength(1)
   })
 
+  // 0.285 is 28.499... as a double, so the bar fills 28% and the figure beside it says the same
+  it('rounds the percent as the bar does', async () => {
+    const { screen } = mount({ torrents: [t({ progress: 0.285 })] })
+    expect((await screen).container.querySelector('.pct')?.textContent).toBe('28%')
+  })
+
   it('renders a row per torrent and nothing extra', async () => {
     const { screen } = mount({ torrents: [t(), t(), t()] })
     expect((await screen).container.querySelectorAll('tbody tr')).toHaveLength(3)
