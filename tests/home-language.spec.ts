@@ -512,18 +512,22 @@ test.describe('on a phone', () => {
   }
 
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: the table shows its columns inside the window, and a name to read`, async ({ page }) => {
+    test(`${language}: the table stays inside the window from 320 to 412 px, with a name to read`, async ({ page }) => {
       await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
       await opened(page, language)
       await expect(page.locator('.torrent-table')).toBeVisible()
-      const { table, window, name } = await page.evaluate(() => ({
-        table: document.querySelector('.torrent-table')!.getBoundingClientRect().width,
-        window: document.documentElement.clientWidth,
-        name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
-      }))
-      expect(table).toBeLessThanOrEqual(window)
-      // French's tightest row leaves 93 px in Noto Sans and 70 in DejaVu Sans, which is what GitHub's runner draws
-      expect(name).toBeGreaterThanOrEqual(64)
+      for (const width of [320, 360, 390, 412]) {
+        await page.setViewportSize({ width, height: 844 })
+        await drawn(page)
+        const { right, window, name } = await page.evaluate(() => ({
+          right: document.querySelector('.torrent-table')!.getBoundingClientRect().right,
+          window: document.documentElement.clientWidth,
+          name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
+        }))
+        expect(right, `${width} px`).toBeLessThanOrEqual(window)
+        // about eight letters; in DejaVu Sans, which GitHub's runner draws, Brazilian Portuguese at 320 px leaves 83
+        expect(name, `${width} px`).toBeGreaterThanOrEqual(80)
+      }
     })
   }
 
