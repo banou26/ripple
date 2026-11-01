@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
 import { RateLimitDialog } from '../../src/components/rate-limit-dialog'
+import { IntlRoot } from '../../src/i18n'
+import fr from '../../src/locales/fr.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
  * The one place a speed ceiling is typed, for both the session-wide pair and a single torrent.
@@ -24,6 +27,7 @@ const apply = (props: Partial<Parameters<typeof RateLimitDialog>[0]> = {}) => {
       onCancel={onCancel}
       {...props}
     />,
+    { wrapper: IntlRoot },
   )
   return { onApply, onCancel }
 }
@@ -131,5 +135,23 @@ describe('saying when the session limit is what really binds', () => {
     await expect.poll(() => document.body.textContent).toContain('Capped at')
     await userEvent.click(unlimitedBox())
     await expect.poll(() => document.body.textContent).not.toContain('Capped at')
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(showEnglish)
+
+  it('words its field, its box, its buttons and its refusal, with the speed in the page\'s units', async () => {
+    await showIn('fr', fr, 'fr-FR')
+    apply({ title: 'Limite de réception', value: 2_000_000 })
+    await expect.poll(() => submit()?.textContent?.replace(/\s/gu, ' ')).toBe('Limiter à 2 Mo/s')
+    expect(field().getAttribute('aria-label')).toBe('Limite de réception, en kilooctets par seconde')
+    expect(document.querySelector('.unit')?.textContent).toBe('ko/s')
+    expect(document.querySelector('label.check')?.textContent).toBe('Illimité')
+    expect(document.querySelector('.actions button')?.textContent).toBe('Annuler')
+    await userEvent.fill(field(), '')
+    await expect.poll(() => document.querySelector('.problem')?.textContent).toBe('Saisissez une vitesse en ko/s ou cochez Illimité.')
+    await userEvent.click(unlimitedBox())
+    await expect.poll(() => submit()?.textContent).toBe('Retirer la limite')
   })
 })

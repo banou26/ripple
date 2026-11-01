@@ -1,10 +1,12 @@
 import type { Torrent } from '../../src/torrent/types'
 import type { TorrentOptionContext } from '../../src/torrent/torrent-options'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
+import { startLanguage } from '../../src/i18n'
+import de from '../../src/locales/de.json'
 import { buildTorrentOptions } from '../../src/torrent/torrent-options'
 
 /**
@@ -634,5 +636,36 @@ describe('taking the torrent itself away', () => {
 
     const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] }), 'save-torrent-file')
     expect(ready?.disabled, 'this is the case the whole feature is for').toBeUndefined()
+  })
+})
+
+describe('in the language of the page', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+  // between them these show every word the list has: each group, item, hint and reason
+  const SHAPES: [Partial<Torrent>, TorrentOptionContext][] = [
+    [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
+    [{ state: 'paused' }, { savedToUserStorage: false, folderReady: true, intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
+    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, progress: 1, index: 0 }, { name: 'b.mkv', size: 1e9, progress: 1, index: 1 }] }, { savedToUserStorage: false }],
+    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, progress: 1, index: 0 }] }, { savedToUserStorage: false }],
+    [{ state: 'missing', files: [] }, { savedToUserStorage: false }],
+    [{ state: 'starting', files: undefined }, { savedToUserStorage: false }],
+    [{ state: 'retrying' }, { savedToUserStorage: false }],
+    [{ state: 'checking', infoHash: undefined }, { savedToUserStorage: false }],
+  ]
+  const words = () => SHAPES.flatMap(([over, context]) => buildTorrentOptions(torrent(over), actions(), context)
+    .flatMap(group => [group.label, ...group.items.flatMap(item => [item.label, item.hint, item.disabled])]))
+    .filter(text => text !== undefined)
+
+  it('writes every one of its words in German', async () => {
+    const english = words()
+    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash']) {
+      expect(english).toContain(text)
+    }
+    await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })
+    const german = words()
+    expect(german).toHaveLength(english.length)
+    expect(english.filter((text, i) => german[i] === text)).toEqual([])
+    expect(german).toContain('Position 3 in der Warteschlange')
   })
 })

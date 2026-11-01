@@ -1,10 +1,4 @@
 {
-  "c-options": [
-    "src/components/confirm-dialog.tsx",
-    "src/components/menu.tsx",
-    "src/components/rate-limit-dialog.tsx",
-    "src/components/torrent-options-dialog.tsx"
-  ],
   "d-details": [
     "src/router/torrent-detail.tsx"
   ],

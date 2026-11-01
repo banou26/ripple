@@ -1882,12 +1882,12 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                   the footer and would be the same on every row, which is noise rather than news. */}
               {isLimit(t.downloadLimit) && t.downloadLimit > 0 && (
                 <span className="limit">
-                  {intl.formatMessage({ id: '↓ max {limit}', defaultMessage: '↓ max {limit}' }, { limit: formatLimit(t.downloadLimit) })}
+                  {intl.formatMessage({ id: '↓ max {limit}', defaultMessage: '↓ max {limit}' }, { limit: formatLimit(t.downloadLimit, intl) })}
                 </span>
               )}
               {isLimit(t.uploadLimit) && t.uploadLimit > 0 && (
                 <span className="limit">
-                  {intl.formatMessage({ id: '↑ max {limit}', defaultMessage: '↑ max {limit}' }, { limit: formatLimit(t.uploadLimit) })}
+                  {intl.formatMessage({ id: '↑ max {limit}', defaultMessage: '↑ max {limit}' }, { limit: formatLimit(t.uploadLimit, intl) })}
                 </span>
               )}
               {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
@@ -2597,7 +2597,7 @@ const Home = () => {
       folderReady: !!folder && permitted,
     })
     if (!readiness.move) {
-      const waiting = pendingLabel(readiness, folder?.name)
+      const waiting = pendingLabel(readiness, folder?.name, intl)
       if (waiting) showToast(waiting)
       return
     }
@@ -3382,6 +3382,7 @@ const Home = () => {
             : limitNote(
               rateEdit.direction === 'down' ? rateEditTorrent?.downloadLimit : rateEditTorrent?.uploadLimit,
               rateEdit.direction === 'down' ? sessionLimits.down : sessionLimits.up,
+              intl,
             )}
           onCancel={() => setRateEdit(null)}
           onApply={applyRateEdit}
@@ -3410,13 +3411,13 @@ const Home = () => {
               className={sessionLimits.down > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
             >
-              {intl.formatMessage({ id: '{limit} down', defaultMessage: '{limit} down' }, { limit: formatLimit(sessionLimits.down) })}
+              {intl.formatMessage({ id: '{limit} down', defaultMessage: '{limit} down' }, { limit: formatLimit(sessionLimits.down, intl) })}
             </button>
             <button
               className={sessionLimits.up > 0 ? 'on' : undefined}
               onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
             >
-              {intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: formatLimit(sessionLimits.up) })}
+              {intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: formatLimit(sessionLimits.up, intl) })}
             </button>
           </div>
           <div className="folder">

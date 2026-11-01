@@ -202,7 +202,7 @@ const library = async (page: Page, list: object[], torrents: object[], extra: ob
 /** The page's text and the words its controls carry for a screen reader, a tooltip or an empty field. */
 const wordsOf = (page: Page) => page.evaluate(() => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
   [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim(),
-  ...['aria-label', 'placeholder', 'data-tooltip-content'].map(name => element.getAttribute(name) ?? ''),
+  ...['aria-label', 'placeholder', 'data-tooltip-content', 'title'].map(name => element.getAttribute(name) ?? ''),
 ]).filter(Boolean))
 
 /** What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, a footer label broken. */
@@ -402,6 +402,71 @@ const smallParts = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+// a torrent's own download limit above the session's 5 MB/s, so the session limit is the one that binds
+const HELD = { ...LIST[0]!, downloadLimit: 8_000_000 }
+const QUEUED = snapshot(1, 'a', 'Some.Release.Name.S01.1080p', { queuePosition: 2 })
+
+/** Draws the options menu, the options dialog, both speed limit dialogs and a confirmation, at `width`. */
+const optionSurfaces = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
+  const row = (name: string) => page.locator('.torrent', { hasText: name })
+  const menu = page.getByRole('menu')
+  const dialog = page.getByRole('dialog')
+  await page.setViewportSize({ width, height: 1500 })
+  await page.goto(origin)
+  await library(page, [HELD, ...LIST.slice(1)], [QUEUED, ...TORRENTS.slice(1)])
+  // a folder, so the options offer to move a torrent there
+  const autoSave = page.locator('footer .folder').last().getByRole('button')
+  await autoSave.first().click()
+  await expect(autoSave).toHaveCount(3)
+
+  for (const name of ['Some.Release.Name.S01.1080p', 'Elsewhere']) {
+    await row(name).click({ button: 'right' })
+    await expect(menu).toBeVisible()
+    await read(`menu of ${name}`)
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+  }
+
+  for (const name of ['A.Season.Pack', 'Having.Trouble', 'Elsewhere', 'Some.Release.Name.S01.1080p']) {
+    await row(name).locator('button.more').click()
+    await expect(dialog).toBeVisible()
+    await read(`options of ${name}`)
+    if (name === 'Some.Release.Name.S01.1080p') break
+    await dialog.locator('footer button').click()
+    await expect(dialog).toHaveCount(0)
+  }
+  // the folder for a torrent still downloading, so the move waits and a toast says so
+  await dialog.getByRole('radio').nth(1).click()
+  await expect(page.locator('.toast')).toBeVisible()
+  await read('a move that waits')
+  // the speed group's first item, by the order buildTorrentOptions gives: actions, manage, location, storage, piece order, speed
+  await dialog.getByRole('group').nth(5).getByRole('button').first().click()
+  await expect(dialog.locator('.note')).toBeVisible()
+  await read('limit held by the total')
+  await dialog.locator('input[type=number]').fill('')
+  await expect(dialog.locator('.problem')).toBeVisible()
+  await read('limit with no number')
+  await dialog.getByRole('checkbox').check()
+  await read('limit removed')
+  await dialog.locator('.actions button').first().click()
+  await expect(dialog).toHaveCount(0)
+
+  await page.locator('footer .folder').first().getByRole('button').first().click()
+  await expect(dialog).toBeVisible()
+  await read('total limit')
+  await dialog.locator('.actions button').first().click()
+  await expect(dialog).toHaveCount(0)
+
+  await row('Some.Release.Name.S01.1080p').click({ button: 'right' })
+  await menu.locator('button.danger').last().click()
+  await expect(dialog.getByRole('checkbox')).toBeVisible()
+  await read('removal confirmed first')
+  await dialog.locator('.actions button').first().click()
+  await expect(dialog).toHaveCount(0)
+  return { words, cut }
+}
+
 test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
@@ -419,6 +484,12 @@ test.describe('in a language ripple does not offer yet', () => {
         test.setTimeout(120_000)
         await opening(page, language)
         await expectAllTranslated(page, language, await smallParts(page, width))
+      })
+
+      test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await opening(page, language)
+        await expectAllTranslated(page, language, await optionSurfaces(page, width))
       })
 
       test(`${language} at ${width} px: a tab another took over, and an update on its way, fit, in the language`, async ({ page }) => {
@@ -559,4 +630,14 @@ test('the control: in English the small parts\' own words are read too', async (
   test.setTimeout(120_000)
   const { words } = await smallParts(page, 1280)
   for (const text of ['Running out of room', 'Persistent', 'Blocked', 'Manage account', 'Add Sintel']) expect(words).toContain(text)
+})
+
+test('the control: in English the options menu\'s and its dialogs\' own words are read too', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { words } = await optionSurfaces(page, 1280)
+  for (const text of [
+    'Force recheck', 'Force recheck. Not on this device', 'Queue position 3', 'Try again now', 'Unlimited, 5 MB/s in total',
+    '8 MB/s, held to 5 MB/s in total', `Moves to ${FOLDER} when it finishes`, 'Done', 'Capped at 5 MB/s by the total limit.',
+    'kB/s', 'Enter a speed in kB/s, or tick Unlimited.', 'Remove limit', 'Cancel', 'Don\'t ask again',
+  ]) expect(words).toContain(text)
 })

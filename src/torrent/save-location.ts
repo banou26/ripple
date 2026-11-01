@@ -1,3 +1,4 @@
+import type { IntlShape } from 'react-intl'
 import type { SaveLocation } from './library'
 
 import { SHARED_ROOT, savePathFor } from './library'
@@ -182,16 +183,19 @@ export const moveReadiness = (
   return { move: true, to: intended }
 }
 
-/** What a row or an option list says about a location that has not been reached yet. */
-export const pendingLabel = (readiness: MoveReadiness, folderName: string | undefined): string | null => {
+/**
+ * What a row or an option list says about a location that has not been reached yet. It takes the page's intl rather
+ * than importing it, since the engine worker imports this file and must not load react-intl.
+ */
+export const pendingLabel = (readiness: MoveReadiness, folderName: string | undefined, intl: IntlShape): string | null => {
   if (readiness.move) return null
   if (readiness.reason === 'settled') return null
-  const where = folderName ?? 'your folder'
-  if (readiness.reason === 'incomplete') return `Moves to ${where} when it finishes`
-  return `Waiting for access to ${where}`
+  if (readiness.reason === 'incomplete') {
+    return folderName === undefined
+      ? intl.formatMessage({ id: 'Moves to your folder when it finishes', defaultMessage: 'Moves to your folder when it finishes' })
+      : intl.formatMessage({ id: 'Moves to {folder} when it finishes', defaultMessage: 'Moves to {folder} when it finishes' }, { folder: folderName })
+  }
+  return folderName === undefined
+    ? intl.formatMessage({ id: 'Waiting for access to your folder', defaultMessage: 'Waiting for access to your folder' })
+    : intl.formatMessage({ id: 'Waiting for access to {folder}', defaultMessage: 'Waiting for access to {folder}' }, { folder: folderName })
 }
-
-export const locationLabel = (location: SaveLocation, folderName: string | undefined): string =>
-  location === 'source'
-    ? 'Your own files'
-    : location === 'folder' ? (folderName ?? 'your folder') : 'Browser storage'

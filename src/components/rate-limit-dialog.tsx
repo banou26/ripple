@@ -13,6 +13,7 @@
 
 import { css } from '@emotion/react'
 import { useMemo, useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import { Modal } from './modal'
 import { UNLIMITED, formatLimit, limitInputValue, parseLimit } from '../torrent/rate-limits'
@@ -230,6 +231,7 @@ export const RateLimitDialog = (
     onApply: (bytesPerSecond: number) => void
   },
 ) => {
+  const intl = useIntl()
   const [text, setText] = useState(() => limitInputValue(value))
   // seeded from the value rather than from the text, so a torrent already at unlimited opens with the
   // box ticked instead of with an empty field that looks unfilled
@@ -239,7 +241,9 @@ export const RateLimitDialog = (
   const parsed = useMemo(() => (unlimited ? UNLIMITED : parseLimit(text)), [unlimited, text])
   // null is "not a usable number", which includes an empty field: emptiness must never be read as a
   // decision to remove the limit, since that is what the checkbox is for
-  const problem = parsed === null ? 'Enter a speed in kB/s, or tick Unlimited.' : null
+  const problem = parsed === null
+    ? intl.formatMessage({ id: 'Enter a speed in kB/s, or tick Unlimited.', defaultMessage: 'Enter a speed in kB/s, or tick Unlimited.' })
+    : null
 
   const apply = () => {
     if (parsed === null) return
@@ -265,10 +269,10 @@ export const RateLimitDialog = (
                 inputMode="decimal"
                 value={unlimited ? '' : text}
                 disabled={unlimited}
-                aria-label={`${title}, in kilobytes per second`}
+                aria-label={intl.formatMessage({ id: '{title}, in kilobytes per second', defaultMessage: '{title}, in kilobytes per second' }, { title })}
                 onChange={(event) => setText(event.target.value)}
               />
-              <span className="unit">kB/s</span>
+              <span className="unit">{intl.formatMessage({ id: 'kB/s', defaultMessage: 'kB/s' })}</span>
             </div>
 
             <label className="check">
@@ -282,16 +286,18 @@ export const RateLimitDialog = (
                   if (!event.target.checked && text.trim() === '') setText(limitInputValue(value) || '1000')
                 }}
               />
-              Unlimited
+              {intl.formatMessage({ id: 'Unlimited', defaultMessage: 'Unlimited' })}
             </label>
 
             {!!note && !unlimited && <p className="note">{note}</p>}
             {!!problem && <p className="problem">{problem}</p>}
 
             <div className="actions">
-              <button type="button" onClick={onCancel}>Cancel</button>
+              <button type="button" onClick={onCancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>
               <button type="submit" className="primary" disabled={parsed === null}>
-                {parsed === UNLIMITED ? 'Remove limit' : `Limit to ${formatLimit(parsed ?? undefined)}`}
+                {parsed === UNLIMITED
+                  ? intl.formatMessage({ id: 'Remove limit', defaultMessage: 'Remove limit' })
+                  : intl.formatMessage({ id: 'Limit to {limit}', defaultMessage: 'Limit to {limit}' }, { limit: formatLimit(parsed ?? undefined, intl) })}
               </button>
             </div>
           </form>

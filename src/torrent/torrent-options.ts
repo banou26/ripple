@@ -3,6 +3,7 @@ import type { SaveLocation } from './library'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
+import { intl } from '../i18n'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
 import { limitLabel } from './rate-limits'
@@ -174,7 +175,7 @@ export const buildTorrentOptions = (
   // every control it disables would otherwise send a command naming no torrent
   const ghost = !hasNoHandle(t)
     ? undefined
-    : isGhost(t) ? 'Not on this device' : 'Still starting'
+    : isGhost(t) ? intl.formatMessage({ id: 'Not on this device', defaultMessage: 'Not on this device' }) : intl.formatMessage({ id: 'Still starting', defaultMessage: 'Still starting' })
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
 
@@ -196,7 +197,7 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'watch',
-      label: 'Watch',
+      label: intl.formatMessage({ id: 'Watch', defaultMessage: 'Watch' }),
       run: a.watch,
     })
   }
@@ -216,7 +217,7 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'start',
-      label: 'Download to this device',
+      label: intl.formatMessage({ id: 'Download to this device', defaultMessage: 'Download to this device' }),
       run: a.start,
     })
   }
@@ -224,7 +225,7 @@ export const buildTorrentOptions = (
     actions.push({
       kind: 'action',
       id: 'save',
-      label: multi ? 'Save as a zip' : 'Save to disk',
+      label: multi ? intl.formatMessage({ id: 'Save as a zip', defaultMessage: 'Save as a zip' }) : intl.formatMessage({ id: 'Save to disk', defaultMessage: 'Save to disk' }),
       run: a.save,
     })
   }
@@ -233,20 +234,20 @@ export const buildTorrentOptions = (
       kind: 'action',
       id: 'embed',
       // a magnet is the whole of a share link, so this needs no metadata and no bytes on disk
-      label: 'Get a share link',
+      label: intl.formatMessage({ id: 'Get a share link', defaultMessage: 'Get a share link' }),
       run: a.embed,
     })
     actions.push({
       kind: 'action',
       id: 'copy-magnet',
       // the magnet IS the torrent's name, so this asks nothing of the engine and works on a ghost
-      label: 'Copy magnet',
+      label: intl.formatMessage({ id: 'Copy magnet', defaultMessage: 'Copy magnet' }),
       run: a.copyMagnet,
     })
     actions.push({
       kind: 'action',
       id: 'save-torrent-file',
-      label: 'Save .torrent',
+      label: intl.formatMessage({ id: 'Save .torrent', defaultMessage: 'Save .torrent' }),
       /*
        * Needs the METADATA, which is a different question from having bytes on disk.
        *
@@ -256,7 +257,7 @@ export const buildTorrentOptions = (
        * cannot be asked to write one.
        */
       disabled: !t.files?.length
-        ? (isGhost(t) ? 'Not on this device' : 'Waiting for metadata')
+        ? (isGhost(t) ? intl.formatMessage({ id: 'Not on this device', defaultMessage: 'Not on this device' }) : intl.formatMessage({ id: 'Waiting for metadata', defaultMessage: 'Waiting for metadata' }))
         : undefined,
       run: a.saveTorrentFile,
     })
@@ -266,21 +267,21 @@ export const buildTorrentOptions = (
   // Named apart from the 'manage' group below, which was also "This torrent" and made the menu read
   // as though it repeated itself. This one is what you do WITH the content; that one is what you do
   // TO the torrent.
-  if (actions.length) groups.push({ id: 'actions', label: 'Actions', items: actions })
+  if (actions.length) groups.push({ id: 'actions', label: intl.formatMessage({ id: 'Actions', defaultMessage: 'Actions' }), items: actions })
 
   const maintenance: OptionItem[] = [
     {
       kind: 'action',
       id: 'toggle-run',
-      label: t.state === 'paused' || t.state === 'queued' ? 'Resume' : 'Pause',
+      label: t.state === 'paused' || t.state === 'queued' ? intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' }),
       disabled: ghost,
       run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
     },
     {
       kind: 'action',
       id: 'recheck',
-      label: 'Force recheck',
-      disabled: ghost ?? (t.state === 'checking' ? 'Already checking' : undefined),
+      label: intl.formatMessage({ id: 'Force recheck', defaultMessage: 'Force recheck' }),
+      disabled: ghost ?? (t.state === 'checking' ? intl.formatMessage({ id: 'Already checking', defaultMessage: 'Already checking' }) : undefined),
       run: a.recheck,
     },
   ]
@@ -291,7 +292,7 @@ export const buildTorrentOptions = (
     maintenance.splice(1, 0, {
       kind: 'action',
       id: 'retry-now',
-      label: 'Try again now',
+      label: intl.formatMessage({ id: 'Try again now', defaultMessage: 'Try again now' }),
       run: a.retryNow,
     })
   }
@@ -308,7 +309,7 @@ export const buildTorrentOptions = (
     maintenance.push({
       kind: 'action',
       id: 'remove',
-      label: 'Remove from the library',
+      label: intl.formatMessage({ id: 'Remove from the library', defaultMessage: 'Remove from the library' }),
       danger: true,
       run: a.remove,
     })
@@ -317,7 +318,7 @@ export const buildTorrentOptions = (
       maintenance.push({
         kind: 'action',
         id: 'remove',
-        label: 'Remove from the library',
+        label: intl.formatMessage({ id: 'Remove from the library', defaultMessage: 'Remove from the library' }),
         danger: true,
         run: a.remove,
       })
@@ -325,13 +326,15 @@ export const buildTorrentOptions = (
     maintenance.push({
       kind: 'action',
       id: 'remove-files',
-      label: context.savedToUserStorage ? 'Remove and delete Ripple\'s copy' : 'Remove and delete the files',
+      label: context.savedToUserStorage
+        ? intl.formatMessage({ id: 'Remove and delete Ripple\'s copy', defaultMessage: 'Remove and delete Ripple\'s copy' })
+        : intl.formatMessage({ id: 'Remove and delete the files', defaultMessage: 'Remove and delete the files' }),
       danger: true,
       run: a.removeWithFiles,
     })
   }
 
-  groups.push({ id: 'maintenance', label: 'Manage', items: maintenance })
+  groups.push({ id: 'maintenance', label: intl.formatMessage({ id: 'Manage', defaultMessage: 'Manage' }), items: maintenance })
 
   /**
    * Where this torrent's files belong.
@@ -348,16 +351,16 @@ export const buildTorrentOptions = (
     const intended = context.intended ?? 'browser'
     const current = context.current ?? 'browser'
     const readiness = moveReadiness({ current, intended, complete, folderReady: true })
-    const pending = pendingLabel(readiness, context.folderName)
+    const pending = pendingLabel(readiness, context.folderName, intl)
     groups.push({
       id: 'location',
-      label: 'Set location',
+      label: intl.formatMessage({ id: 'Set location', defaultMessage: 'Set location' }),
       items: [
         {
           kind: 'radio',
           id: 'location-browser',
           group: 'location',
-          label: 'Keep in browser storage',
+          label: intl.formatMessage({ id: 'Keep in browser storage', defaultMessage: 'Keep in browser storage' }),
           selected: intended === 'browser',
           apply: () => a.setLocation('browser'),
         },
@@ -365,7 +368,9 @@ export const buildTorrentOptions = (
           kind: 'radio',
           id: 'location-folder',
           group: 'location',
-          label: `Move to ${context.folderName ?? 'your folder'}`,
+          label: context.folderName === undefined
+            ? intl.formatMessage({ id: 'Move to your folder', defaultMessage: 'Move to your folder' })
+            : intl.formatMessage({ id: 'Move to {folder}', defaultMessage: 'Move to {folder}' }, { folder: context.folderName }),
           hint: intended === 'folder' && pending ? pending : undefined,
           selected: intended === 'folder',
           apply: () => a.setLocation('folder'),
@@ -373,10 +378,10 @@ export const buildTorrentOptions = (
         {
           kind: 'action',
           id: 'pick-folder',
-          label: 'Choose another folder...',
+          label: intl.formatMessage({ id: 'Choose another folder...', defaultMessage: 'Choose another folder...' }),
           // Ripple holds ONE granted directory, so this changes it for everything rather than for
           // this torrent alone, which a per-torrent menu would otherwise imply
-          hint: 'Applies to every torrent',
+          hint: intl.formatMessage({ id: 'Applies to every torrent', defaultMessage: 'Applies to every torrent' }),
           run: a.pickFolder,
         },
       ],
@@ -396,16 +401,16 @@ export const buildTorrentOptions = (
    */
   groups.push({
     id: 'keep',
-    label: 'Storage',
+    label: intl.formatMessage({ id: 'Storage', defaultMessage: 'Storage' }),
     items: [
       {
         kind: 'toggle',
         id: 'keep',
-        label: 'Keep this download',
+        label: intl.formatMessage({ id: 'Keep this download', defaultMessage: 'Keep this download' }),
         checked: t.ephemeral !== true,
         // keyed by infohash rather than handle, like the location controls, so it works on a torrent
         // this device is not running. Without one there is nothing to name in the message.
-        disabled: t.infoHash ? undefined : 'Waiting for the info hash',
+        disabled: t.infoHash ? undefined : intl.formatMessage({ id: 'Waiting for the info hash', defaultMessage: 'Waiting for the info hash' }),
         apply: (on) => a.setKept(on),
       },
     ],
@@ -414,37 +419,37 @@ export const buildTorrentOptions = (
   groups.push(
     {
       id: 'order',
-      label: 'Piece order',
+      label: intl.formatMessage({ id: 'Piece order', defaultMessage: 'Piece order' }),
       items: [
         {
           kind: 'radio',
           id: 'order-rarest',
           group: 'order',
-          label: 'Rarest first',
+          label: intl.formatMessage({ id: 'Rarest first', defaultMessage: 'Rarest first' }),
           selected: !sequential,
           // Rarest first is not a flag of its own: it is libtorrent's default picker, and what
           // `sequential_download` replaces. So choosing it means clearing that flag, and there is
           // no state in which both or neither is true.
-          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
+          disabled: ghost ?? (complete ? intl.formatMessage({ id: 'Already downloaded', defaultMessage: 'Already downloaded' }) : undefined),
           apply: () => a.setFlags(0, TORRENT_FLAG.sequentialDownload),
         },
         {
           kind: 'radio',
           id: 'order-sequential',
           group: 'order',
-          label: 'Download in sequential order',
+          label: intl.formatMessage({ id: 'Download in sequential order', defaultMessage: 'Download in sequential order' }),
           selected: sequential,
-          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
+          disabled: ghost ?? (complete ? intl.formatMessage({ id: 'Already downloaded', defaultMessage: 'Already downloaded' }) : undefined),
           apply: () => a.setFlags(TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload),
         },
         {
           kind: 'toggle',
           id: 'first-last',
-          label: 'Download first and last pieces first',
+          label: intl.formatMessage({ id: 'Download first and last pieces first', defaultMessage: 'Download first and last pieces first' }),
           checked: t.firstLast === true,
           // it composes with the piece order rather than replacing it, exactly as in qBittorrent,
           // which is why it is a checkbox beside the pair rather than a third choice within it
-          disabled: ghost ?? (complete ? 'Already downloaded' : undefined),
+          disabled: ghost ?? (complete ? intl.formatMessage({ id: 'Already downloaded', defaultMessage: 'Already downloaded' }) : undefined),
           apply: (on) => a.setFirstLast(on),
         },
       ],
@@ -467,23 +472,23 @@ export const buildTorrentOptions = (
      */
     {
       id: 'speed',
-      label: 'Speed',
+      label: intl.formatMessage({ id: 'Speed', defaultMessage: 'Speed' }),
       items: ([
-        ['limit-down', 'Limit download rate...', 'down', t.downloadLimit, sessionLimits.down],
-        ['limit-up', 'Limit upload rate...', 'up', t.uploadLimit, sessionLimits.up],
+        ['limit-down', intl.formatMessage({ id: 'Limit download rate...', defaultMessage: 'Limit download rate...' }), 'down', t.downloadLimit, sessionLimits.down],
+        ['limit-up', intl.formatMessage({ id: 'Limit upload rate...', defaultMessage: 'Limit upload rate...' }), 'up', t.uploadLimit, sessionLimits.up],
       ] as const).map(([id, label, direction, own, global]) => ({
         kind: 'action' as const,
         id,
         label,
         // the value lives in the hint rather than the label, so the label stays qBittorrent's
-        hint: limitLabel(own, global),
+        hint: limitLabel(own, global, intl),
         disabled: ghost,
         run: () => a.limitRate(direction),
       })),
     },
     {
       id: 'peers',
-      label: 'Finding peers',
+      label: intl.formatMessage({ id: 'Finding peers', defaultMessage: 'Finding peers' }),
       items: [
         // Phrased in the negative, which is both qBittorrent's wording and libtorrent's own storage.
         // The control used to read "Use the DHT" and invert on the way in and out, which was a
@@ -491,7 +496,7 @@ export const buildTorrentOptions = (
         {
           kind: 'toggle',
           id: 'dht',
-          label: 'Disable DHT for this torrent',
+          label: intl.formatMessage({ id: 'Disable DHT for this torrent', defaultMessage: 'Disable DHT for this torrent' }),
           checked: has(t, TORRENT_FLAG.disableDht),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.disableDht : 0, TORRENT_FLAG.disableDht),
@@ -499,7 +504,7 @@ export const buildTorrentOptions = (
         {
           kind: 'toggle',
           id: 'pex',
-          label: 'Disable PeX for this torrent',
+          label: intl.formatMessage({ id: 'Disable PeX for this torrent', defaultMessage: 'Disable PeX for this torrent' }),
           checked: has(t, TORRENT_FLAG.disablePex),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.disablePex : 0, TORRENT_FLAG.disablePex),
@@ -507,7 +512,7 @@ export const buildTorrentOptions = (
         {
           kind: 'action',
           id: 'reannounce',
-          label: 'Force reannounce',
+          label: intl.formatMessage({ id: 'Force reannounce', defaultMessage: 'Force reannounce' }),
           disabled: ghost,
           run: a.reannounce,
         },
@@ -515,12 +520,12 @@ export const buildTorrentOptions = (
     },
     {
       id: 'sharing',
-      label: 'Sharing',
+      label: intl.formatMessage({ id: 'Sharing', defaultMessage: 'Sharing' }),
       items: [
         {
           kind: 'toggle',
           id: 'upload-only',
-          label: 'Upload mode',
+          label: intl.formatMessage({ id: 'Upload mode', defaultMessage: 'Upload mode' }),
           checked: has(t, TORRENT_FLAG.uploadMode),
           disabled: ghost,
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.uploadMode : 0, TORRENT_FLAG.uploadMode),
@@ -528,11 +533,11 @@ export const buildTorrentOptions = (
         {
           kind: 'toggle',
           id: 'super-seed',
-          label: 'Super seeding mode',
+          label: intl.formatMessage({ id: 'Super seeding mode', defaultMessage: 'Super seeding mode' }),
           checked: has(t, TORRENT_FLAG.superSeeding),
           // libtorrent ignores it while anything is still missing, so offering it then would be a
           // switch that flips back on its own
-          disabled: ghost ?? (complete ? undefined : 'Available once downloaded'),
+          disabled: ghost ?? (complete ? undefined : intl.formatMessage({ id: 'Available once downloaded', defaultMessage: 'Available once downloaded' })),
           apply: (on) => a.setFlags(on ? TORRENT_FLAG.superSeeding : 0, TORRENT_FLAG.superSeeding),
         },
       ],
@@ -544,12 +549,12 @@ export const buildTorrentOptions = (
   if (t.queuePosition >= 0 && !isGhost(t)) {
     groups.push({
       id: 'queue',
-      label: `Queue position ${t.queuePosition + 1}`,
+      label: intl.formatMessage({ id: 'Queue position {position}', defaultMessage: 'Queue position {position}' }, { position: t.queuePosition + 1 }),
       items: ([
-        ['queue-top', 'Move to top', 'top'],
-        ['queue-up', 'Move up', 'up'],
-        ['queue-down', 'Move down', 'down'],
-        ['queue-bottom', 'Move to bottom', 'bottom'],
+        ['queue-top', intl.formatMessage({ id: 'Move to top', defaultMessage: 'Move to top' }), 'top'],
+        ['queue-up', intl.formatMessage({ id: 'Move up', defaultMessage: 'Move up' }), 'up'],
+        ['queue-down', intl.formatMessage({ id: 'Move down', defaultMessage: 'Move down' }), 'down'],
+        ['queue-bottom', intl.formatMessage({ id: 'Move to bottom', defaultMessage: 'Move to bottom' }), 'bottom'],
       ] as const).map(([id, label, where]) => ({
         kind: 'action' as const,
         id,

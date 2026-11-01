@@ -1,6 +1,8 @@
 import type { OptionGroup } from '../torrent/torrent-options'
 
 import { css } from '@emotion/react'
+import { useRef } from 'react'
+import { useIntl } from 'react-intl'
 
 import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
@@ -8,7 +10,6 @@ import {
 } from '../theme'
 
 import { Modal } from './modal'
-import { useRef } from 'react'
 
 /**
  * The same options as the right-click menu, with room to explain them.
@@ -254,8 +255,8 @@ export const TorrentOptionsDialog = ({
   groups: OptionGroup[]
   onClose: () => void
 }) => {
+  const intl = useIntl()
   const closeRef = useRef<HTMLButtonElement>(null)
-
 
   return (
     <Modal labelledBy="torrent-options-title" onClose={onClose} initialFocus={closeRef}>
@@ -337,7 +338,7 @@ export const TorrentOptionsDialog = ({
         <footer>
           {/* Everything here applies as it is chosen, so this says Done rather than OK: there is no
               pending state to accept, and a Cancel would promise an undo that does not exist. */}
-          <button type="button" ref={closeRef} onClick={onClose}>Done</button>
+          <button type="button" ref={closeRef} onClick={onClose}>{intl.formatMessage({ id: 'Done#button', defaultMessage: 'Done', description: 'button' })}</button>
         </footer>
       </div>
       </div>
