@@ -215,8 +215,9 @@ const cutOff = (page: Page) => page.evaluate(() => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
-        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language
-        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !element.matches('.torrent-table .title') ? [`clipped: ${named(element)}`]
+        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
+        // only its arrow hangs past its box, on the side away from where it is placed
+        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !element.matches('.torrent-table .title, .react-tooltip') ? [`clipped: ${named(element)}`]
         : element.matches('input:placeholder-shown') && getComputedStyle(element).textOverflow !== 'ellipsis' ? ['a placeholder with no room is cut mid letter']
         : element.matches('footer .folder > span') && box.height > 2 * parseFloat(getComputedStyle(element).fontSize) ? [`a footer label broken in two: ${named(element)}`]
         : []
@@ -420,9 +421,17 @@ const optionSurfaces = async (page: Page, width: number) => {
   await autoSave.first().click()
   await expect(autoSave).toHaveCount(3)
 
-  for (const name of ['Some.Release.Name.S01.1080p', 'Elsewhere']) {
+  // a menu closes when the list under it scrolls, and a click's own scroll to its row is heard a frame after the menu
+  // opens, so the row is brought into view first
+  const openMenu = async (name: string) => {
+    await row(name).scrollIntoViewIfNeeded()
+    await drawn(page)
     await row(name).click({ button: 'right' })
     await expect(menu).toBeVisible()
+  }
+
+  for (const name of ['Some.Release.Name.S01.1080p', 'Elsewhere']) {
+    await openMenu(name)
     await read(`menu of ${name}`)
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
@@ -458,7 +467,7 @@ const optionSurfaces = async (page: Page, width: number) => {
   await dialog.locator('.actions button').first().click()
   await expect(dialog).toHaveCount(0)
 
-  await row('Some.Release.Name.S01.1080p').click({ button: 'right' })
+  await openMenu('Some.Release.Name.S01.1080p')
   await menu.locator('button.danger').last().click()
   await expect(dialog.getByRole('checkbox')).toBeVisible()
   await read('removal confirmed first')
