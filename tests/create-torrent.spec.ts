@@ -251,6 +251,30 @@ test('a v2 torrent says up front that a folder holding one file will not survive
   expect(pageErrors).toEqual([])
 })
 
+test('a torrent just made is copied from the dialog that made it, with the toast above that dialog', async ({ page, context }) => {
+  test.setTimeout(120_000)
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(install, LONE)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 60_000 })
+
+  await dialog.getByRole('button', { name: 'Copy magnet' }).click()
+  const toast = page.getByRole('status').filter({ hasText: 'Magnet link copied' })
+  await expect(toast).toBeVisible()
+  // hit testing follows the order things are drawn in, once the toast can be hit at all
+  const onTop = await toast.evaluate((element: HTMLElement) => {
+    element.style.pointerEvents = 'auto'
+    const box = element.getBoundingClientRect()
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+  })
+  expect(onTop, 'the toast is drawn under the dialog\'s backdrop').toBe(true)
+})
+
 /*
  * The SAME thing on a browser with no handle pickers, which is Firefox, and the reload that used to
  * end it.

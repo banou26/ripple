@@ -3,6 +3,7 @@ import type { Torrent } from '../torrent/types'
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { defineMessages, useIntl } from 'react-intl'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -55,6 +56,7 @@ import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../ut
 import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
+import { MODAL_Z_INDEX } from '../components/modal'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
@@ -1477,34 +1479,6 @@ export const style = css`
     }
   }
 
-  .toast {
-    position: fixed;
-    bottom: 52px;
-    left: 50%;
-    transform: translateX(-50%);
-    /* Fully opaque, which it was not before. It is fixed over the live torrent list, so at 85% with
-       no blur behind it rows would visibly slide past under its own text; the border is what says it
-       is floating now that the shadow is gone. */
-    background: ${ELEVATED_BG};
-    border: 1px solid ${BORDER_STRONG};
-    border-radius: 8px;
-    padding: 11px 20px;
-    font-size: 0.85rem;
-    z-index: 30;
-    animation: slide-up 200ms ease-out;
-  }
-
-  @keyframes slide-up {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-
   @media (max-width: 700px) {
     header form {
       flex-basis: 100%;
@@ -1562,6 +1536,38 @@ export const style = css`
     .torrent .poster, .sample .poster {
       width: 96px;
       min-height: 64px;
+    }
+  }
+`
+
+/*
+ * On the body at a modal's height, like the Updating screen: raised from a dialog, it is the later child and is drawn
+ * above that dialog's backdrop, outside the page the dialog makes inert. A press goes through it to the dialog's
+ * footer, which it lies over on a phone.
+ */
+const toastStyle = css`
+  position: fixed;
+  pointer-events: none;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* opaque, because rows of the live list would slide past under its text; the border says it floats */
+  background: ${ELEVATED_BG};
+  border: 1px solid ${BORDER_STRONG};
+  border-radius: 8px;
+  padding: 11px 20px;
+  font-size: 0.85rem;
+  z-index: ${MODAL_Z_INDEX};
+  animation: slide-up 200ms ease-out;
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
   }
 `
@@ -3463,7 +3469,7 @@ const Home = () => {
         </div>
       </footer>
 
-      {toast && <div role="status" className="toast">{toast}</div>}
+      {toast && createPortal(<div role="status" className="toast" css={toastStyle}>{toast}</div>, document.body)}
     </div>
   )
 }
