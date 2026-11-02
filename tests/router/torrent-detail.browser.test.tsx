@@ -328,10 +328,11 @@ describe('the docked torrent details', () => {
         `Added on: ${date(addedAt, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 2',
       ])
-      expect(overview(await mount(torrent({ stats: null }), null))).toEqual([
+      // under one percent, two places
+      expect(overview(await mount(torrent({ stats: null, progress: 0.005 }), null))).toEqual([
         'Time active: -', 'Time left: 4m', 'Connections: -', 'Downloaded: 1 GB', 'Uploaded: -', 'Seeds: 12', 'Download speed: 4 MB/s',
         'Upload speed: 250 kB/s', 'Peers: 82', 'Share ratio: -', 'Wasted: -', 'Remaining: 1 GB', 'Seeding for: -', 'Availability: -',
-        'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 50%', 'Added on: -', 'Completed on: -', 'Last seen complete: -',
+        'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 0.50%', 'Added on: -', 'Completed on: -', 'Last seen complete: -',
         'Files: 1', 'Save path: -', 'Info hash: aabbccddeeff00112233445566778899aabbccdd',
       ])
     })
