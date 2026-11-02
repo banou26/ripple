@@ -20,6 +20,8 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { decodeMagnetParam } from '../src/router/magnet-codec'
+
 type Row = { name: string, progress: number, state: number | null, savePath: string | undefined, totalDone: number }
 
 const PACK = [
@@ -251,7 +253,7 @@ test('a v2 torrent says up front that a folder holding one file will not survive
   expect(pageErrors).toEqual([])
 })
 
-test('a torrent just made is copied from the dialog that made it, with the toast above that dialog', async ({ page, context }) => {
+test('a torrent just made is copied and shared from the dialog that made it', async ({ page, context }) => {
   test.setTimeout(120_000)
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.addInitScript(install, LONE)
@@ -262,6 +264,7 @@ test('a torrent just made is copied from the dialog that made it, with the toast
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
   await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 60_000 })
+  const infoHash = await dialog.locator('code').first().textContent()
 
   await dialog.getByRole('button', { name: 'Copy magnet' }).click()
   const toast = page.getByRole('status').filter({ hasText: 'Magnet link copied' })
@@ -273,6 +276,11 @@ test('a torrent just made is copied from the dialog that made it, with the toast
     return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
   })
   expect(onTop, 'the toast is drawn under the dialog\'s backdrop').toBe(true)
+
+  await dialog.getByRole('button', { name: 'Get a share link' }).click()
+  await expect(page.getByRole('heading', { name: 'Share link' })).toBeVisible()
+  const link = await page.getByTestId('embed-url').textContent()
+  expect(decodeMagnetParam(new URL(link ?? '').searchParams), 'the share link is not the torrent just made').toContain(infoHash!)
 })
 
 /*

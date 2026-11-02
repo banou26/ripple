@@ -3144,7 +3144,7 @@ const Home = () => {
         <CreateTorrentDialog
           create={create}
           onClose={closeCreate}
-          onShare={(magnet) => { closeCreate(); shareMagnet(magnet) }}
+          onShare={(magnet) => { closeCreate(); openEmbed(readMagnet(magnet)) }}
           onToast={showToast}
         />
       )}
