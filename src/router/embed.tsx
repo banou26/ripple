@@ -81,9 +81,10 @@ const playerStyle = css`
     display: flex;
     align-items: center;
     /* the one spacing of this row and of the readouts in it, tighter on a phone: with 12px gaps a
-       360px row holding both links and four readouts cut an ordinary "10.4 MB/s" */
+       360px row holding both links and four readouts cut an ordinary "10.4 MB/s", and a 480px one,
+       where the upload speed joins them, cut Turkish's "10,4 MB/sn" in DejaVu Sans (2026-11-03) */
     --ripple-gap: calc(0.8 * var(--mp-unit));
-    @media (min-width: 480px) {
+    @media (min-width: 560px) {
       --ripple-gap: calc(1.2 * var(--mp-unit));
     }
     gap: var(--ripple-gap);
@@ -353,12 +354,21 @@ const playerStyle = css`
      * The torrent state folds with them for the plainer reason that Downloading is the longest word
      * in the row, with Retrying not far behind. The peer count folds its two words and keeps both
      * numbers, which are the readout.
+     *
+     * The VPN's word comes back last, at 960px. Shown from 768px, VPN Reconnecting cut both speeds
+     * there by 13px in English and by 90px in Portuguese and Turkish beside Retrying, in DejaVu Sans
+     * (measured 2026-11-03).
      */
     .item.state span,
-    .item.vpn span,
     .item.count .word {
       display: none;
       @media (min-width: 768px) {
+        display: inline;
+      }
+    }
+    .item.vpn span {
+      display: none;
+      @media (min-width: 960px) {
         display: inline;
       }
     }

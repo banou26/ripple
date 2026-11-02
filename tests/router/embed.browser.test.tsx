@@ -79,16 +79,19 @@ const sized = ({ width, height }: { width: number, height: number }) => {
  * a media query, and a media query reads the viewport, so a narrow box inside a 1280px window renders
  * the desktop layout at a small size: the exact arrangement that hides a phone-only bug.
  */
-const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
-  await page.viewport(size.width, size.height)
+const watching = async (search: string) => {
   const { default: Embed } = await import('../../src/router/embed')
   const { IntlRoot } = await import('../../src/i18n')
-  return render(
+  return (
     <IntlRoot><MemoryRouter initialEntries={[`/watch${search}`]}>
       <Embed />
-    </MemoryRouter></IntlRoot>,
-    sized(size),
+    </MemoryRouter></IntlRoot>
   )
+}
+
+const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
+  await page.viewport(size.width, size.height)
+  return render(await watching(search), sized(size))
 }
 
 /**
@@ -297,29 +300,53 @@ describe('the watch route', () => {
     }
   })
 
-  // the swarm's words show from 768px, and French's and Italian's whole words for a seeder and a leecher cut the
-  // readouts beside them there (measured 2026-11-03, in DejaVu Sans too)
-  it('keeps every readout whole with ordinary figures in every language, once the swarm\'s words show', async () => {
+  /*
+   * The same ordinary figures in every state a player can show, with the VPN in each of its own, at the narrowest width
+   * of each layout the row has: a phone's, then with the upload speed, then with the byte counter, then with the state's
+   * and the swarm's words, then with the VPN's and a larger font. In DejaVu Sans, Turkish's speed was cut at 480px, and
+   * VPN Reconnecting beside Retrying cut both speeds at 768px in English, Portuguese and Turkish (measured 2026-11-03).
+   */
+  it('keeps every readout whole with ordinary figures in every language, state and width', async () => {
     const { showEnglish, showIn } = await import('../i18n/show-in')
-    const catalogues = import.meta.glob('../../src/locales/*.json', { import: 'default', eager: true }) as Record<string, Record<string, string>>
+    const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+    const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
+    const { snapshot } = withSwarm(ORDINARY, 8054, 10_400_000)
+    const states: Record<string, PlayerTorrent['snapshot']> = {
+      downloading: snapshot!,
+      seeding: { ...snapshot!, status: { ...snapshot!.status!, state: 5 } },
+      done: { ...snapshot!, status: { ...snapshot!.status!, state: 4 } },
+      checking: { ...snapshot!, status: { ...snapshot!.status!, state: 1 } },
+      queued: { ...snapshot!, status: { ...snapshot!.status!, paused: true } },
+      paused: { ...snapshot!, status: { ...snapshot!.status!, paused: true }, userPaused: true },
+      retrying: { ...snapshot!, recovery: { reason: 'stalled', attempt: 1, retryAt: 0 } },
+    }
+    const vpns = { on: VPN_ON, reconnecting: { port: null, listeners: [{ up: false, healing: true }] }, off: { port: null, listeners: [] } }
     const cut: string[] = []
+    const seen = new Set<string>()
     try {
-      for (const [path, catalogue] of Object.entries(catalogues)) {
-        const language = path.match(/([^/]+)\.json$/)![1]!
-        await showIn(language, catalogue)
-        for (const width of [768, 880, 960, 1280]) {
-          state.reachable = VPN_ON
-          state.current = withSwarm(ORDINARY, 8054, 10_400_000)
+      for (const [language, catalogue] of languages) {
+        await (catalogue ? showIn(language, catalogue) : showEnglish())
+        for (const width of [360, 480, 560, 768, 960]) {
           const screen = await mount({ width, height: 720 }, WITH_LINKS)
-          await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-          cut.push(...[...screen.container.querySelectorAll('.media-information .item > span')]
-            .filter((span) => span.getClientRects().length && span.scrollWidth > span.clientWidth)
-            .map((span) => `${language} at ${width}px: ${span.textContent}`))
+          for (const [name, played] of Object.entries(states)) {
+            for (const [vpn, reachable] of Object.entries(vpns)) {
+              state.current = torrent({ snapshot: played })
+              state.reachable = reachable
+              await screen.rerender(await watching(WITH_LINKS))
+              await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+              cut.push(...[...screen.container.querySelectorAll('.media-information .item > span')]
+                .filter((span) => span.getClientRects().length && span.scrollWidth > span.clientWidth)
+                .map((span) => `${language} at ${width}px, ${name} with the VPN ${vpn}: ${span.textContent}`))
+              if (language === 'en' && width === 960) seen.add(screen.getByTestId('media-information').element().textContent)
+            }
+          }
           await screen.unmount()
         }
       }
     } finally { await showEnglish() }
-    expect(Object.keys(catalogues)).toHaveLength(12)
+    expect(languages).toHaveLength(13)
+    // each state drawn as its own, so none of them was measured as another
+    expect(seen.size).toBe(21)
     expect(cut).toEqual([])
   })
 
