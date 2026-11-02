@@ -47,6 +47,29 @@ describe('a refusal from the save picker is not a cancel', () => {
   })
 })
 
+// the reason the download page writes after "The download stopped:", the engine's own words already the page's
+describe('a chunk the engine could not hand over', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    return showEnglish()
+  })
+
+  const failed = async (reason: string) => {
+    vi.useFakeTimers()
+    const client = { read: () => Promise.reject(new Error(reason)) } as unknown as TorrentClient
+    const save = saveTorrentFileToDisk(client, 1, 2, 'Pack/Small.mkv', 16).catch((error: Error) => error.message)
+    // the retries' pauses
+    await vi.runAllTimersAsync()
+    return save
+  }
+
+  it('says which, and why, in the page\'s language', async () => {
+    expect(await failed('torrent paused')).toBe('could not read 16 bytes at 0 of file 2: torrent paused')
+    await showIn('de', de, 'de-DE')
+    expect(await failed('Torrent pausiert')).toBe('16 Bytes an Position 0 von Datei 2 konnten nicht gelesen werden: Torrent pausiert')
+  })
+})
+
 describe('a file too big to hold in memory, with no picker to stream it to', () => {
   afterEach(showEnglish)
 

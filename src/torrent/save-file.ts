@@ -219,7 +219,10 @@ const readChunk = async (
     }
   }
   throw last instanceof Error
-    ? new Error(`could not read ${len} bytes at ${offset} of file ${fileIndex}: ${last.message}`)
+    ? new Error(intl.formatMessage({
+      id: 'could not read {len} bytes at {offset} of file {fileIndex}: {reason}',
+      defaultMessage: 'could not read {len} bytes at {offset} of file {fileIndex}: {reason}',
+    }, { len, offset, fileIndex, reason: last.message }))
     : last
 }
 

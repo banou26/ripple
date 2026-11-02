@@ -4,7 +4,7 @@ import type { EmbedMode } from './file-selection'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
-import { useIntl } from 'react-intl'
+import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
@@ -367,7 +367,10 @@ const playerStyle = css`
 
 // the owner's wording, 2026-10-19, and the one notice that says how something works: only a file playing
 // through a window in a frame shows it, since at the top level the page is already Ripple's
-const WINDOW_NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
+const WINDOW_NOTE = defineMessage({
+  id: 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
+  defaultMessage: 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
+})
 
 const Player = ({ linked }: { linked: LinkLanguages }) => {
   const intl = useIntl()
@@ -494,11 +497,16 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // nothing else, that the file is too big for it.
   const status = engineError
     ?? (storageFull && isFramed()
-      ? <>Too big for this browser's storage here. <a href={watchHref} target="_blank" rel="noopener noreferrer">Open it in Ripple</a> to play it.</>
+      ? intl.formatMessage({
+        id: 'Too big for this browser\'s storage here. <link>Open it in Ripple</link> to play it.',
+        defaultMessage: 'Too big for this browser\'s storage here. <link>Open it in Ripple</link> to play it.',
+      }, { link: (text) => <a href={watchHref} target="_blank" rel="noopener noreferrer">{text}</a> })
       : null)
-    ?? (storageFull ? 'Out of storage space. Remove a download in Ripple to free room.' : null)
-    ?? (hasMetadata ? null : 'Loading metadata…')
-    ?? (snapshot?.windowed && isFramed() ? WINDOW_NOTE : null)
+    ?? (storageFull
+      ? intl.formatMessage({ id: 'Out of storage space. Remove a download in Ripple to free room.', defaultMessage: 'Out of storage space. Remove a download in Ripple to free room.' })
+      : null)
+    ?? (hasMetadata ? null : intl.formatMessage({ id: 'Loading metadata…', defaultMessage: 'Loading metadata…' }))
+    ?? (snapshot?.windowed && isFramed() ? intl.formatMessage(WINDOW_NOTE) : null)
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
   // because a file's download percentage is not its playback percentage.
   const downloadedRanges = useMemo(
@@ -565,6 +573,11 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${query.toString()}`, origin).toString()
   }, [magnet, searchParams, origin, selectedFile, fileIndex])
 
+  const openInRipple = intl.formatMessage({ id: 'Open this torrent in Ripple', defaultMessage: 'Open this torrent in Ripple' })
+  const downloadLabel = fileName
+    ? intl.formatMessage({ id: 'Download {name}#a file', defaultMessage: 'Download {name}', description: 'a file' }, { name: fileName })
+    : intl.formatMessage({ id: 'Download this torrent', defaultMessage: 'Download this torrent' })
+
   const overlay = (
     <div className="ripple-overlay-content">
       {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
@@ -587,12 +600,12 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                 data-testid="open-in-ripple"
                 /* The glyph carries no text, and react-tooltip never wires aria-describedby, so the
                    tooltip is invisible to a screen reader. The name has to be stated. */
-                aria-label="Open this torrent in Ripple"
+                aria-label={openInRipple}
               >
                 <ExternalLink />
               </a>
             }
-            toolTipText={<span>Open this torrent in Ripple</span>}
+            toolTipText={<span>{openInRipple}</span>}
           />
         )}
         {downloadHref && (
@@ -606,12 +619,12 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="open-download-page"
-                aria-label={`Download ${fileName ?? 'this torrent'}`}
+                aria-label={downloadLabel}
               >
                 <Download />
               </a>
             }
-            toolTipText={<span>Download {fileName ?? 'this torrent'}</span>}
+            toolTipText={<span>{downloadLabel}</span>}
           />
         )}
       </div>
@@ -619,14 +632,18 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         {/* once the engine errors nothing will ever arrive, so say that instead of spinning forever */}
         {status
           ? <div className="loading-information">{status}</div>
-          : <div className="downloaded">Downloaded {getHumanReadableByteString(downloaded)}</div>}
+          : (
+            <div className="downloaded">
+              {intl.formatMessage({ id: 'Downloaded {size}', defaultMessage: 'Downloaded {size}' }, { size: getHumanReadableByteString(downloaded) })}
+            </div>
+          )}
         <div className="media-information" data-testid="media-information">
           {stateLabel && (
             <TooltipDisplay
               id="torrent-state"
               tooltipPlace="bottom-end"
               text={<div className="item state" data-testid="torrent-state"><Activity /><span>{stateLabel}</span></div>}
-              toolTipText={<span>Torrent: {stateLabel}</span>}
+              toolTipText={<span>{intl.formatMessage({ id: 'Torrent: {state}', defaultMessage: 'Torrent: {state}' }, { state: stateLabel })}</span>}
             />
           )}
           {vpn && (
@@ -637,8 +654,13 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                  150 to 220px away from the item they belong to. Naming the placement it would flip to
                  anyway keeps every chip under its own item. */
               tooltipPlace="bottom-end"
-              text={<div className="item vpn" data-state={vpn.state}><Shield /><span>VPN {vpn.label}</span></div>}
-              toolTipText={<span>VPN: {vpn.label}</span>}
+              text={(
+                <div className="item vpn" data-state={vpn.state}>
+                  <Shield />
+                  <span>{intl.formatMessage({ id: 'VPN {state}', defaultMessage: 'VPN {state}' }, { state: vpn.label })}</span>
+                </div>
+              )}
+              toolTipText={<span>{intl.formatMessage({ id: 'VPN: {state}', defaultMessage: 'VPN: {state}' }, { state: vpn.label })}</span>}
             />
           )}
           <TooltipDisplay
@@ -648,32 +670,45 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
               ? (
                 <div className="item count" data-testid="peers">
                   <Users />
-                  <span>{swarm.seeders}<span className="word"> seeder{swarm.seeders === 1 ? '' : 's'}</span> · {swarm.leechers}<span className="word"> leecher{swarm.leechers === 1 ? '' : 's'}</span></span>
+                  <span>
+                    {intl.formatMessage({
+                      id: '{seeders, plural, one {{seeders}<word> seeder</word>} other {{seeders}<word> seeders</word>}} · {leechers, plural, one {{leechers}<word> leecher</word>} other {{leechers}<word> leechers</word>}}',
+                      defaultMessage: '{seeders, plural, one {{seeders}<word> seeder</word>} other {{seeders}<word> seeders</word>}} · {leechers, plural, one {{leechers}<word> leecher</word>} other {{leechers}<word> leechers</word>}}',
+                    }, { seeders: swarm.seeders, leechers: swarm.leechers, word: (text) => <span className="word">{text}</span> })}
+                  </span>
                 </div>
               )
               : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}
             toolTipText={swarm
               ? (
                 <span>
-                  Seeders: {swarm.seeders}<br />
-                  Leechers: {swarm.leechers}<br />
-                  {downloads >= 0 && <>Downloads: {downloads}<br /></>}
-                  Connected peers: {info.peers}
+                  {intl.formatMessage({ id: 'Seeders: {count}', defaultMessage: 'Seeders: {count}' }, { count: swarm.seeders })}<br />
+                  {intl.formatMessage({ id: 'Leechers: {count}', defaultMessage: 'Leechers: {count}' }, { count: swarm.leechers })}<br />
+                  {downloads >= 0 && <>{intl.formatMessage({ id: 'Downloads: {count}', defaultMessage: 'Downloads: {count}' }, { count: downloads })}<br /></>}
+                  {intl.formatMessage({ id: 'Connected peers: {count}', defaultMessage: 'Connected peers: {count}' }, { count: info.peers })}
                 </span>
               )
-              : <span>Peers: {info.peers}</span>}
+              : <span>{intl.formatMessage({ id: 'Peers: {count}', defaultMessage: 'Peers: {count}' }, { count: info.peers })}</span>}
           />
           <TooltipDisplay
             id="download-speed"
             tooltipPlace="bottom-end"
             text={<div className="item"><ArrowDown /><span>{getHumanReadableSpeed(info.downloadSpeed, true)}</span></div>}
-            toolTipText={<span>Download speed: {getHumanReadableSpeed(info.downloadSpeed)}</span>}
+            toolTipText={(
+              <span>
+                {intl.formatMessage({ id: 'Download speed: {speed}', defaultMessage: 'Download speed: {speed}' }, { speed: getHumanReadableSpeed(info.downloadSpeed) })}
+              </span>
+            )}
           />
           <TooltipDisplay
             id="upload-speed"
             tooltipPlace="bottom-end"
             text={<div className="item"><ArrowUp /><span>{getHumanReadableSpeed(info.uploadSpeed, true)}</span></div>}
-            toolTipText={<span>Upload speed: {getHumanReadableSpeed(info.uploadSpeed)}</span>}
+            toolTipText={(
+              <span>
+                {intl.formatMessage({ id: 'Upload speed: {speed}', defaultMessage: 'Upload speed: {speed}' }, { speed: getHumanReadableSpeed(info.uploadSpeed) })}
+              </span>
+            )}
           />
           {/* audio and subtitle pickers live in the player's own settings menu now */}
         </div>

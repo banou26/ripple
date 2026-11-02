@@ -13,6 +13,8 @@ import type { SourceRef } from './walk-source'
 
 import { relayWorker } from '@fkn/lib'
 
+import { intl, wordsOf } from '../i18n'
+
 import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
@@ -487,7 +489,12 @@ export const createTorrentClient = (): EngineClient => {
         // A read is the one command somebody is awaiting, so dropping it in silence parks that caller
         // for the whole 120s timeout. Every caller already retries a failed read; none survives a
         // promise that never settles.
-        if (msg?.type === 'read') settleRead(msg.id)?.reject(new Error('the engine was replaced while this read was waiting'))
+        if (msg?.type === 'read') {
+          settleRead(msg.id)?.reject(new Error(intl.formatMessage({
+            id: 'the engine was replaced while this read was waiting',
+            defaultMessage: 'the engine was replaced while this read was waiting',
+          })))
+        }
         return
       }
       transport?.post(msg, transfer ?? [])
@@ -566,12 +573,12 @@ export const createTorrentClient = (): EngineClient => {
         stateCbs.forEach((cb) => cb(torrents))
       } else if (m.type === 'list') { listed = true; lastList = m.list; listCbs.forEach((cb) => cb(m.list)) }
       else if (m.type === 'read-result') settleRead(m.id)?.resolve(m.data)
-      else if (m.type === 'read-error') settleRead(m.id)?.reject(new Error(m.error))
+      else if (m.type === 'read-error') settleRead(m.id)?.reject(new Error(wordsOf(m.error)))
       else if (m.type === 'answer') {
         const pending = settleRead(m.id)
         if (typeof m.error === 'string') pending?.reject(new Error(m.error)); else pending?.resolve(m.value)
       }
-      else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(m.message))
+      else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(wordsOf(m.message)))
       else if (m.type === 'fatal') {
         die(new Error(m.message))
         reportWorkerError(m.message, true)
@@ -650,7 +657,7 @@ export const createTorrentClient = (): EngineClient => {
       return new Promise<Uint8Array>((resolve, reject) => {
         const id = ++readId
         const timer = window.setTimeout(
-          () => settleRead(id)?.reject(new Error(`read timed out after ${READ_TIMEOUT}ms`)),
+          () => settleRead(id)?.reject(new Error(intl.formatMessage({ id: 'read timed out after {ms}ms', defaultMessage: 'read timed out after {ms}ms' }, { ms: READ_TIMEOUT }))),
           READ_TIMEOUT,
         )
         const off = signal ? new AbortController() : undefined

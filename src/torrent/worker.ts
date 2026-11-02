@@ -36,6 +36,9 @@ import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
 import type { SourceRef } from './walk-source'
+import type { Said } from '../i18n/said'
+
+import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
 const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import'])
@@ -533,9 +536,13 @@ const READ_ATTEMPTS = 18
 // piece case rather than a policy; anything past it is left alone and named in the stall message.
 const CANCEL_PER_STALL = 16
 
+// why a read failed, which the download page shows the viewer after "The download stopped:"
+const TORRENT_REMOVED = forPage.formatMessage({ id: 'torrent removed', defaultMessage: 'torrent removed' })
+const TORRENT_PAUSED = forPage.formatMessage({ id: 'torrent paused', defaultMessage: 'torrent paused' })
+
 // the reads waiting on each torrent, by id, with the bytes each one asked for
 const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number }>>()
-const failReads = (h: number, error: string) => {
+const failReads = (h: number, error: Said) => {
   const ids = readsByHandle.get(h)
   if (!ids?.size) return
   for (const id of ids.keys()) post({ type: 'read-error', id, error })
@@ -1208,7 +1215,7 @@ const settleAfterDelete = async (before: number): Promise<Space | null> => {
  * loud: `check()` answers no_error when no file holds bytes, which means "trust what you have" and
  * NOT "verify", so a surviving have-set is believed rather than caught.
  */
-const releaseStorage = async (live: Session, h: number, ih: string, reason: string, patch: Partial<Persisted> = {}) => {
+const releaseStorage = async (live: Session, h: number, ih: string, reason: Said, patch: Partial<Persisted> = {}) => {
   failReads(h, reason)
   live.removeTorrent(h, true)
   untrack(h)
@@ -1218,7 +1225,7 @@ const releaseStorage = async (live: Session, h: number, ih: string, reason: stri
 }
 
 const evict = (live: Session, h: number, ih: string) =>
-  releaseStorage(live, h, ih, 'torrent removed to make room')
+  releaseStorage(live, h, ih, forPage.formatMessage({ id: 'torrent removed to make room', defaultMessage: 'torrent removed to make room' }))
 
 /**
  * Point a torrent at the other storage, with its files already there.
@@ -1248,14 +1255,14 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // eviction candidate, which is a torrent that looks kept and is deleted anyway.
   const wasEphemeral = ephemeralHandles.has(h)
 
-  failReads(h, 'files moved')
+  failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
   untrack(h)
   await del(resumeKey(ih)).catch(() => {})
 
   const next = live.addMagnet(magnet, savePath)
   if (addFailed(next)) {
-    post({ type: 'add-failed', message: 'Moving the files left the torrent unaddable' })
+    post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Moving the files left the torrent unaddable', defaultMessage: 'Moving the files left the torrent unaddable' }) })
     await patchList(ih, { savePath, saveTo: to, started: false })
     return
   }
@@ -1983,7 +1990,7 @@ const handleMessage = async (session: Session, m: any) => {
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
         const savePath = m.savePath || known?.savePath || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
         const h = session.addMagnet(m.magnet, savePath)
-        if (addFailed(h)) { post({ type: 'add-failed', message: 'That is not a valid magnet link' }); return }
+        if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
         track(h, m.magnet, ih, savePath, ephemeral)
         // before needsPriorityReset, so the pass that clears the window has the plan to write back.
         // A re-add used to lose the file selection this device already had: the restore path reads
@@ -2034,13 +2041,13 @@ const handleMessage = async (session: Session, m: any) => {
       const fileHandles = (m.handles ?? []) as (SourceRef | null)[]
       const bytes = m.bytes as Uint8Array
       if (typeof ih !== 'string' || !ih || !fileHandles.length || !bytes?.byteLength) {
-        post({ type: 'add-failed', message: 'That torrent could not be created' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be created', defaultMessage: 'That torrent could not be created' }) })
         return
       }
       // a `null` here is a PAD FILE and is expected; the page throws before sending if a real file
       // is missing, so what this guards against is a message with nothing usable in it at all
       if (!fileHandles.some((handle) => handle)) {
-        post({ type: 'add-failed', message: 'Some of those files could not be opened' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Some of those files could not be opened', defaultMessage: 'Some of those files could not be opened' }) })
         return
       }
       // The handle count is NOT compared against `m.files` here: that list is capped when it is
@@ -2050,7 +2057,7 @@ const handleMessage = async (session: Session, m: any) => {
       const h = addSource(session, { infoHash: ih, magnet: m.magnet, bytes, handles: fileHandles, paused: false })
       if (h === null) {
         await del(torrentKey(ih)).catch(() => {})
-        post({ type: 'add-failed', message: 'The engine refused the torrent that was just built' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused the torrent that was just built', defaultMessage: 'The engine refused the torrent that was just built' }) })
         return
       }
       const at = Date.now()
@@ -2096,7 +2103,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (typeof ih !== 'string' || !ih || !fileHandles.length) return
       // as in create-source above, a `null` is a pad file rather than a file that failed to open
       if (!fileHandles.some((handle) => handle)) {
-        post({ type: 'add-failed', message: 'Some of those files could not be opened' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Some of those files could not be opened', defaultMessage: 'Some of those files could not be opened' }) })
         return
       }
       // Already running is not an error. Every tab holding the stored handle regains the grant on
@@ -2106,7 +2113,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (running) { post({ type: 'added', handle: running[0], magnet: magnetByHandle.get(running[0]) ?? '' }); return }
       const bytes = (await get(torrentKey(ih)))
       if (!bytes?.byteLength) {
-        post({ type: 'add-failed', message: 'The torrent this was built from is no longer stored' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The torrent this was built from is no longer stored', defaultMessage: 'The torrent this was built from is no longer stored' }) })
         return
       }
       const entry = (await loadList()).find((e) => e.infoHash === ih)
@@ -2117,7 +2124,7 @@ const handleMessage = async (session: Session, m: any) => {
         handles: fileHandles,
         paused: entry?.paused === true,
       })
-      if (h === null) { post({ type: 'add-failed', message: 'The engine refused that torrent' }); return }
+      if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
       uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
       totalsStored.set(h, storedTotals(entry))
       await patchList(ih, { started: true, lastUsedAt: Date.now() })
@@ -2129,7 +2136,7 @@ const handleMessage = async (session: Session, m: any) => {
       const savePath = m.savePath || SHARED_ROOT
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
-      if (addFailed(h)) { post({ type: 'add-failed', message: 'That file is not a valid .torrent' }); return }
+      if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may
       // reclaim rather than in the library for good
       track(h, '', null, savePath, m.ephemeral === true)
@@ -2142,7 +2149,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (!ih) {
         session.removeTorrent(h, true)
         untrack(h)
-        post({ type: 'add-failed', message: 'Could not read that torrent' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Could not read that torrent', defaultMessage: 'Could not read that torrent' }) })
         return
       }
       /*
@@ -2187,14 +2194,14 @@ const handleMessage = async (session: Session, m: any) => {
       // The engine reuses a handle number for the same infohash, so a read that arrives after the
       // budget pass evicted its torrent would otherwise attach to whatever is added under it next.
       if (!handles.includes(m.handle)) {
-        post({ type: 'read-error', id: m.id, error: 'torrent removed' })
+        post({ type: 'read-error', id: m.id, error: TORRENT_REMOVED })
         return
       }
       // wanting bytes is what puts a torrent back to work, whether or not the reader is a player
       wake(m.handle)
       lastReadAt.set(m.handle, Date.now())
       if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
-        post({ type: 'read-error', id: m.id, error: 'torrent paused' })
+        post({ type: 'read-error', id: m.id, error: TORRENT_PAUSED })
         return
       }
       if (m.prioritize !== false) anchorSequential(m.viewer, m.handle, m.fileIndex, m.offset, m.len)
@@ -2286,7 +2293,7 @@ const handleMessage = async (session: Session, m: any) => {
       readsByHandle.get(m.handle)?.delete(m.id)
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
-      failReads(m.handle, 'torrent removed')
+      failReads(m.handle, TORRENT_REMOVED)
       session.removeTorrent(m.handle, !!m.deleteFiles)
       untrack(m.handle)
       if (ih) await removeFromList(ih)
@@ -2377,7 +2384,7 @@ const handleMessage = async (session: Session, m: any) => {
       const savePath = cacheSavePathFor(ih)
       await set(resumeKey(ih), m.resume)
       const h = session.addTorrentWithResume(m.resume, savePath)
-      if (addFailed(h)) { post({ type: 'add-failed', message: 'That torrent could not be read' }); return }
+      if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
       track(h, m.magnet, ih, savePath)
       needsPriorityReset.add(h)
       // the blob carries the player's own limit, a window's trickle included
@@ -2487,7 +2494,7 @@ const handleMessage = async (session: Session, m: any) => {
        * door: the message can also arrive from a stale tab or a keyboard shortcut.
        */
       if (e?.saveTo === 'source') {
-        post({ type: 'add-failed', message: 'Nothing to download this from. Create it again from the same files.' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Nothing to download this from. Create it again from the same files.', defaultMessage: 'Nothing to download this from. Create it again from the same files.' }) })
         return
       }
       if (e) {
@@ -2496,7 +2503,7 @@ const handleMessage = async (session: Session, m: any) => {
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : session.addMagnet(e.magnet, savePath)
-        if (addFailed(h)) { post({ type: 'add-failed', message: 'That torrent could not be read' }); return }
+        if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
         // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
         // promotion an evicted item re-downloads straight back into the front of the eviction queue
         // and the button spends the user's metered quota in a loop.
@@ -2512,7 +2519,7 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
-        if (h !== undefined) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
+        if (h !== undefined) { failReads(h, TORRENT_REMOVED); session.removeTorrent(h, true); untrack(h) }
         await removeFromList(m.infoHash)
       }
     } else if (m.type === 'clear-list') {
@@ -2522,7 +2529,7 @@ const handleMessage = async (session: Session, m: any) => {
       // that data, restart it, export it or reclaim it, and it counts against the origin's budget
       // for good. The orphan sweep would take it minutes later regardless, so it goes here, at the
       // moment and for the reason a person could understand.
-      for (const h of [...handles]) { failReads(h, 'torrent removed'); session.removeTorrent(h, true); untrack(h) }
+      for (const h of [...handles]) { failReads(h, TORRENT_REMOVED); session.removeTorrent(h, true); untrack(h) }
       let dropped: Persisted[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => { dropped = prev ?? []; return [] })
       // the previous account's removals, which would otherwise hide the next account's torrents
@@ -2555,7 +2562,7 @@ const handleMessage = async (session: Session, m: any) => {
       wantPause(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
-      failReads(m.handle, 'torrent paused')
+      failReads(m.handle, TORRENT_PAUSED)
       void persistResume(m.handle)
       const ih = infoHashByHandle.get(m.handle)
       if (ih) await patchList(ih, { paused: true })
@@ -2574,7 +2581,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih) await del(resumeKey(ih)).catch(() => {})
       // lets the finished torrent snapshot itself again after the check, rather than leaving the resume key deleted for good
       resumeSaved.delete(m.handle)
-      failReads(m.handle, 'torrent rechecking')
+      failReads(m.handle, forPage.formatMessage({ id: 'torrent rechecking', defaultMessage: 'torrent rechecking' }))
       // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go
       // too. Neither want is recorded in its place: forceRecheck clears the pause itself, and a
       // check reports itself paused while it runs, so wantStarted would fight it for its whole run.

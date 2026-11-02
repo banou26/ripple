@@ -297,6 +297,32 @@ describe('the watch route', () => {
     }
   })
 
+  // the swarm's words show from 768px, and French's and Italian's whole words for a seeder and a leecher cut the
+  // readouts beside them there (measured 2026-11-03, in DejaVu Sans too)
+  it('keeps every readout whole with ordinary figures in every language, once the swarm\'s words show', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const catalogues = import.meta.glob('../../src/locales/*.json', { import: 'default', eager: true }) as Record<string, Record<string, string>>
+    const cut: string[] = []
+    try {
+      for (const [path, catalogue] of Object.entries(catalogues)) {
+        const language = path.match(/([^/]+)\.json$/)![1]!
+        await showIn(language, catalogue)
+        for (const width of [768, 880, 960, 1280]) {
+          state.reachable = VPN_ON
+          state.current = withSwarm(ORDINARY, 8054, 10_400_000)
+          const screen = await mount({ width, height: 720 }, WITH_LINKS)
+          await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+          cut.push(...[...screen.container.querySelectorAll('.media-information .item > span')]
+            .filter((span) => span.getClientRects().length && span.scrollWidth > span.clientWidth)
+            .map((span) => `${language} at ${width}px: ${span.textContent}`))
+          await screen.unmount()
+        }
+      }
+    } finally { await showEnglish() }
+    expect(Object.keys(catalogues)).toHaveLength(12)
+    expect(cut).toEqual([])
+  })
+
   // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
   it('opens Ripple with this player as its opener, naming the torrent and carrying its magnet', async () => {
     const hash = '0123456789abcdef0123456789abcdef01234567'
@@ -504,5 +530,104 @@ describe('the volume on /watch', () => {
       .toBe('true')
     const again = second.container.querySelector('video')!
     expect([again.volume, again.muted]).toEqual([0.3, true])
+  })
+})
+
+/** The top row's words in each state, by name: what it shows and names, then each readout's chip, hovered, by its id. */
+const everyState = async () => {
+  const { wordsIn } = await import('../i18n/words-in')
+  const shown: Record<string, string[]> = {}
+  const read = async (name: string, over: Partial<PlayerTorrent>, { hover = false, framed = true } = {}) => {
+    state.current = torrent(over)
+    state.framed = framed
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    const row = () => screen.container.querySelector('.ripple-overlay-content')!
+    await expect.poll(() => row().querySelector('.file-name, .loading-information')).not.toBeNull()
+    shown[name] = wordsIn(row())
+    if (hover) {
+      const video = screen.container.querySelector('video')!
+      for (const anchor of [...row().querySelectorAll<HTMLElement>('[data-tooltip-id]')]) {
+        const id = anchor.dataset.tooltipId!
+        await userEvent.hover(anchor)
+        await expect.poll(() => document.getElementById(id)?.getAttribute('role')).toBe('tooltip')
+        shown[name].push(`${id}: ${document.getElementById(id)!.innerText}`)
+        await userEvent.hover(video)
+        await expect.poll(() => document.getElementById(id)).toBeNull()
+      }
+    }
+    await screen.unmount()
+  }
+  state.reachable = VPN_ON
+  const { snapshot } = withSwarm(ORDINARY, 8054)
+  await read('playing', withSwarm(ORDINARY, 8054), { hover: true })
+  await read('before a tracker answers', withSwarm({ ...ORDINARY, swarmSeeds: -1, swarmPeers: -1 }), { hover: true })
+  await read('before its metadata', { snapshot: { ...snapshot!, files: null } })
+  await read('out of room in a frame', { storageFull: true })
+  await read('out of room', { storageFull: true }, { framed: false })
+  await read('streaming in a frame', { snapshot: { ...snapshot!, windowed: true } })
+  state.framed = true
+  return shown
+}
+
+const FILE_NAME = 'Some.Release.Name.S01E04.1080p.mkv'
+const LINKS = ['Open this torrent in Ripple', `Download ${FILE_NAME}`]
+const READOUTS = ['Downloading', 'VPN On']
+const SWARM = ['216 seeders · 3 leechers', 'seeders', 'leechers', '8.7 MB/s', '312 kB/s']
+// the connected peers and the speeds of a torrent no tracker has counted
+const PEERS = ['82', '8.7 MB/s', '0 B/s']
+const CHIPS = [
+  'open-in-ripple: Open this torrent in Ripple', `open-download-page: Download ${FILE_NAME}`, 'torrent-state: Torrent: Downloading',
+  'vpn: VPN: On',
+]
+const SPEEDS = ['download-speed: Download speed: 8.7 MB/s', 'upload-speed: Upload speed: 312 kB/s']
+const ENGLISH = {
+  playing: [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, ...SWARM, ...CHIPS, 'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28', ...SPEEDS],
+  'before a tracker answers': [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, '28', '8.7 MB/s', '312 kB/s', ...CHIPS, 'peers: Peers: 28', ...SPEEDS],
+  'before its metadata': ['Open this torrent in Ripple', 'Download this torrent', 'Loading metadata…', ...READOUTS, ...SWARM],
+  'out of room in a frame': [FILE_NAME, ...LINKS, 'Too big for this browser\'s storage here. Open it in Ripple to play it.', 'Open it in Ripple', ...READOUTS, ...PEERS],
+  'out of room': [FILE_NAME, ...LINKS, 'Out of storage space. Remove a download in Ripple to free room.', ...READOUTS, ...PEERS],
+  'streaming in a frame': [
+    FILE_NAME, ...LINKS,
+    'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
+    ...READOUTS, ...SWARM,
+  ],
+}
+
+/** Each English text of the walk above in German, but for the names, which stay as they are. */
+const GERMAN: Record<string, string> = {
+  'Open this torrent in Ripple': 'Diesen Torrent in Ripple öffnen', [`Download ${FILE_NAME}`]: `${FILE_NAME} herunterladen`,
+  'Downloaded 0 bytes': 'Heruntergeladen: 0 Byte', Downloading: 'Lädt herunter', 'VPN On': 'VPN An',
+  '216 seeders · 3 leechers': '216 Seeder · 3 Leecher', seeders: 'Seeder', leechers: 'Leecher', '8.7 MB/s': '8,7 MB/s', '312 kB/s': '312 kB/s', '0 B/s': '0 Byte/s',
+  'open-in-ripple: Open this torrent in Ripple': 'open-in-ripple: Diesen Torrent in Ripple öffnen',
+  [`open-download-page: Download ${FILE_NAME}`]: `open-download-page: ${FILE_NAME} herunterladen`,
+  'torrent-state: Torrent: Downloading': 'torrent-state: Torrent: Lädt herunter', 'vpn: VPN: On': 'vpn: VPN: An',
+  'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28': 'peers: Seeder: 216\nLeecher: 3\nDownloads: 8054\nVerbundene Peers: 28',
+  'peers: Peers: 28': 'peers: Peers: 28',
+  'download-speed: Download speed: 8.7 MB/s': 'download-speed: Download-Geschwindigkeit: 8,7 MB/s', 'upload-speed: Upload speed: 312 kB/s': 'upload-speed: Upload-Geschwindigkeit: 312 kB/s',
+  'Download this torrent': 'Diesen Torrent herunterladen', 'Loading metadata…': 'Metadaten werden geladen…',
+  'Too big for this browser\'s storage here. Open it in Ripple to play it.': 'Zu groß für den Speicher dieses Browsers hier. Öffne es in Ripple, um es abzuspielen.',
+  'Open it in Ripple': 'Öffne es in Ripple',
+  'Out of storage space. Remove a download in Ripple to free room.': 'Kein Speicherplatz mehr. Entferne einen Download in Ripple, um Platz zu schaffen.',
+  'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.':
+    'Zu groß, um es hier im Voraus herunterzuladen, daher wird es beim Ansehen gestreamt. In Ripple (Link oben) kann es mit mehr erlaubtem Platz vollständig heruntergeladen werden, ohne nächste Folge, Tracking und gemeinsames Ansehen.',
+}
+
+describe('the top row\'s words', () => {
+  afterEach(async () => {
+    state.reachable = null
+    const { showEnglish } = await import('../i18n/show-in')
+    await showEnglish()
+  })
+
+  it('in English, as they read before the row was translated', async () => {
+    expect(await everyState()).toEqual(ENGLISH)
+  })
+
+  it('in German, each value where German puts it', async () => {
+    const { showIn } = await import('../i18n/show-in')
+    const { default: de } = await import('../../src/locales/de.json')
+    await showIn('de', de, 'de-DE')
+    const german = Object.fromEntries(Object.entries(ENGLISH).map(([name, words]) => [name, words.map(word => GERMAN[word] ?? word)]))
+    expect(await everyState()).toEqual(german)
   })
 })
