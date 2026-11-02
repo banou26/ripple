@@ -71,10 +71,15 @@ test.afterAll(async () => {
 const standIns = (folder: string) => {
   const heard = new Set<EventListener>()
   const engine = (data: unknown) => { for (const listener of heard) listener(new MessageEvent('message', { data })) }
-  // the reads a save asks for, each answered with zeroes once the test calls answerReads
+  // the reads a save asks for, each answered with zeroes once the test calls answerReads, or failed with the words
+  // it hands refuseReads
   const reads: { id: number, len: number }[] = []
   let answering = false
-  const answerAll = () => { if (answering) for (const { id, len } of reads.splice(0)) engine({ type: 'read-result', id, data: new Uint8Array(len) }) }
+  let refusal: unknown
+  const answerAll = () => {
+    if (refusal) for (const { id } of reads.splice(0)) engine({ type: 'read-error', id, error: refusal })
+    else if (answering) for (const { id, len } of reads.splice(0)) engine({ type: 'read-result', id, data: new Uint8Array(len) })
+  }
   Object.defineProperty(window, 'Worker', {
     value: class {
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
@@ -91,6 +96,7 @@ const standIns = (folder: string) => {
     engineListens: () => heard.size > 0,
     engine,
     answerReads: () => { answering = true; answerAll() },
+    refuseReads: (error: unknown) => { refusal = error; answerAll() },
     // refused as a framed page's is, by the test's setting
     showSaveFilePicker: async () => {
       if (localStorage.getItem('spec:picker') === 'refused') throw new DOMException('refused', 'NotAllowedError')
@@ -220,22 +226,22 @@ const library = async (page: Shown, list: object[], torrents: object[], extra: o
   await drawn(page)
 }
 
-/** The page's text and the words its controls carry for a screen reader, a tooltip or an empty field. */
-const wordsOf = (page: Shown) => page.evaluate(() => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
+/** The text in `root` and the words its controls carry for a screen reader, a tooltip or an empty field. */
+const wordsOf = (page: Shown, root = 'body') => page.evaluate(root => [...document.querySelector(root)!.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
   [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim(),
   ...['aria-label', 'placeholder', 'data-tooltip-content', 'title'].map(name => element.getAttribute(name) ?? ''),
-]).filter(Boolean))
+]).filter(Boolean), root)
 
 /**
  * What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, an icon squeezed narrower
  * than it is tall by a label that wraps beside it, a footer label broken.
  */
-const cutOff = (page: Shown) => page.evaluate(() => {
+const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
   return [
     ...document.documentElement.scrollWidth > width ? [`the page scrolls sideways by ${document.documentElement.scrollWidth - width} px`] : [],
-    ...[...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap((element) => {
+    ...[...document.querySelector(root)!.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap((element) => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
@@ -243,7 +249,7 @@ const cutOff = (page: Shown) => page.evaluate(() => {
         // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
         // link's, cuts nothing off
         : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
-          && !element.matches('.torrent-table .title, .react-tooltip') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
+          && !element.matches('.torrent-table .title, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
         : element instanceof SVGSVGElement && box.height > 0 && box.width < box.height - 0.5
           ? [`an icon squeezed to ${Math.round(box.width)} of ${Math.round(box.height)} px: ${named(element.parentElement!)}`]
@@ -252,16 +258,19 @@ const cutOff = (page: Shown) => page.evaluate(() => {
         : []
     }),
   ]
-})
+}, root)
 
-/** A walk's record: `read` adds what a surface shows, in `page` or a frame of it, what has no room there, and its screenshot. */
-const walk = (page: Page, width: number) => {
+/**
+ * A walk's record: `read` adds what a surface shows in `root`, in `page` or a frame of it, what has no room there, and
+ * its screenshot.
+ */
+const walk = (page: Page, width: number, root = 'body') => {
   const words: string[] = []
   const cut: string[] = []
   const read = async (surface: string, shown: Shown = page) => {
     await drawn(shown)
-    words.push(...await wordsOf(shown))
-    cut.push(...(await cutOff(shown)).map(line => `${surface}: ${line}`))
+    words.push(...await wordsOf(shown, root))
+    cut.push(...(await cutOff(shown, root)).map(line => `${surface}: ${line}`))
     await page.screenshot({ path: test.info().outputPath(`${width}-${surface}.png`) })
   }
   return { words, cut, read }
@@ -831,6 +840,90 @@ const downloadSurfaces = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+/** The player's link for `magnet`, as an embedder writes it. */
+const watchPage = (magnet: string) => `${origin}/watch?magnet=${encodeURIComponent(Buffer.from(magnet).toString('base64'))}`
+
+// the swarm as the trackers counted it, as an ordinary player's top row shows it
+const PLAYING = snapshot(9, '7', 'Fresh.Pack', { numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3, uploadRate: 312_000 }, { files: PACK_FILES, swarmDownloads: 8054 })
+const RECONNECTING = { reachable: { ...PORT, listeners: [{ healing: true }] } }
+
+/**
+ * Draws the player's top row in each state, with each readout's chip, at the top level and framed by another site; then
+ * a refusal the engine sends the library, and a read the engine fails on the download page, at `width`.
+ */
+const engineSurfaces = async (page: Page, width: number) => {
+  const row = walk(page, width, '.ripple-overlay-content')
+  const whole = walk(page, width)
+  const chips = async (surface: string, shown: Shown = page) => {
+    // a phone shows no upload speed, so it has no chip to open
+    const shownIds = await shown.locator('.ripple-overlay-content [data-tooltip-id]').evaluateAll(anchors => anchors
+      .filter(anchor => anchor.getClientRects().length).map(anchor => anchor.getAttribute('data-tooltip-id')!))
+    for (const id of shownIds) {
+      await shown.locator(`[data-tooltip-id="${id}"]`).first().hover()
+      await expect(shown.locator(`[role=tooltip][id="${id}"]`)).toBeVisible()
+      await row.read(`${surface}, ${id}`, shown)
+      // onto the picture, away from the row
+      await page.mouse.move(width / 2, 600)
+      await expect(shown.locator(`[role=tooltip][id="${id}"]`)).toBeHidden()
+    }
+  }
+  await page.setViewportSize({ width, height: 844 })
+
+  await page.goto(watchPage(PACK))
+  await library(page, PACK_LIST, [{ ...PLAYING, files: null }], RECONNECTING)
+  await expect(page.locator('.loading-information')).toBeVisible()
+  await row.read('before its metadata')
+  await post(page, { type: 'state', torrents: [PLAYING], ...READOUTS[0] })
+  await expect(page.getByTestId('peers')).toContainText('216')
+  await row.read('playing')
+  // the counts and their words are one message, read whole
+  row.words.push(...await page.getByTestId('peers').allTextContents())
+  await chips('playing')
+  await post(page, { type: 'state', torrents: [{ ...PLAYING, status: { ...PLAYING.status, swarmSeeds: -1, swarmPeers: -1 } }], ...READOUTS[3] })
+  await expect(page.getByTestId('peers')).toHaveText('28')
+  await row.read('before a tracker answers')
+  await chips('before a tracker answers')
+  await post(page, { type: 'storage-full', full: true })
+  await expect(page.locator('.loading-information')).toBeVisible()
+  await row.read('out of room')
+  await post(page, { type: 'storage-full', full: false }, { type: 'fatal', message: 'gone' })
+  await row.read('engine stopped')
+  await page.goto(watchPage(PACK))
+  await library(page, [], [])
+  await post(page, { type: 'storage-unavailable' })
+  await expect(page.locator('.loading-information')).toBeVisible()
+  await row.read('no storage')
+
+  writeFileSync(join(dir, 'embedder.html'), `<body style="margin:0"><iframe src="${watchPage(PACK)}" style="border:0;width:100vw;height:100vh"></iframe>`)
+  const embedder = new URL('/embedder.html', origin.replace('127.0.0.1', 'localhost')).href
+  await page.route(embedder, route => route.continue())
+  await page.goto(embedder)
+  const frame = page.frames().find(each => each.url().startsWith(origin))!
+  await library(frame, PACK_LIST, [{ ...PLAYING, windowed: true }])
+  await expect(frame.locator('.loading-information')).toBeVisible()
+  await row.read('streaming in a frame', frame)
+  await post(frame, { type: 'storage-full', full: true })
+  await expect(frame.locator('.loading-information a')).toBeVisible()
+  await row.read('out of room in a frame', frame)
+  // the link is a part of its sentence, read whole
+  row.words.push(...await frame.locator('.loading-information').allTextContents())
+
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await post(page, { type: 'add-failed', message: { message: 'That is not a valid magnet link' } })
+  await expect(page.locator('.toast')).toBeVisible()
+  await whole.read('a refused add')
+
+  await page.goto(downloadPage(PACK))
+  await library(page, PACK_LIST, PACK_TORRENTS)
+  await page.locator('.card .file', { hasText: 'Commentary' }).getByRole('button').click()
+  await page.evaluate(() => (window as unknown as { refuseReads: (error: object) => void }).refuseReads({ message: 'torrent paused' }))
+  // after its retries
+  await expect(page.locator('.card .failure')).toBeVisible({ timeout: 15_000 })
+  await whole.read('a read the engine failed')
+  return { words: [...row.words, ...whole.words], cut: [...row.cut, ...whole.cut] }
+}
+
 test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
@@ -865,6 +958,12 @@ test.describe('in a language ripple does not offer yet', () => {
         test.setTimeout(120_000)
         await opening(page, language)
         await expectAllTranslated(page, language, await downloadSurfaces(page, width))
+      })
+
+      test(`${language} at ${width} px: the player's top row and the engine's words fit, in the language`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await opening(page, language)
+        await expectAllTranslated(page, language, await engineSurfaces(page, width))
       })
 
       test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
@@ -1038,6 +1137,24 @@ test('the control: in English the download page\'s own words are read too, and f
     'The download engine stopped. Reload the page to try again.', 'Ripple needs a normal (non-private) window to download this',
     'None of the requested files are in this torrent', 'No matching files', 'Download not starting? Open this page in Ripple.',
   ]) expect(words).toContain(text)
+})
+
+test('the control: in English the player\'s top row and the engine\'s words are read too, and fit', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { words, cut } = await engineSurfaces(page, 1280)
+  expect(cut).toEqual([])
+  // a chip's lines are one element's text, read together
+  const read = words.join('\n')
+  for (const text of [
+    'Loading metadata…', 'Open this torrent in Ripple', 'Download this torrent', 'Downloaded 2', 'VPN Reconnecting', 'VPN On',
+    '216 seeders · 3 leechers', 'Download Fresh.Pack.S01E01.1080p.mkv', 'Torrent: Downloading', 'VPN: On', 'Seeders: 216',
+    'Leechers: 3', 'Downloads: 8054', 'Connected peers: 28', 'Download speed: 8.7 MB/s', 'Upload speed: 312 kB/s', 'Peers: 28',
+    'Out of storage space. Remove a download in Ripple to free room.', 'The download engine stopped. Reload the page to try again.',
+    'Ripple needs a normal (non-private) window to play this',
+    'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
+    'Too big for this browser\'s storage here. Open it in Ripple to play it.', 'That is not a valid magnet link',
+    'The download stopped: could not read 40000 bytes at 0 of file 1: torrent paused',
+  ]) expect(read).toContain(text)
 })
 
 test('the control: in English the options menu\'s and its dialogs\' own words are read too', async ({ page }) => {
