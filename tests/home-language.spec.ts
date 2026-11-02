@@ -217,11 +217,11 @@ const cutOff = (page: Page) => page.evaluate(() => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
-        // a torrent's name is as long as it is, so the table's and the share dialog's end in an ellipsis in any language;
-        // a hint wraps, and only its arrow hangs past its box, on the side away from where it is placed; a box that
-        // scrolls, the share link's, cuts nothing off
+        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
+        // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
+        // link's, cuts nothing off
         : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
-          && !element.matches('.torrent-table .title, .subject strong, .react-tooltip') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
+          && !element.matches('.torrent-table .title, .react-tooltip') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
         : element.matches('input:placeholder-shown') && getComputedStyle(element).textOverflow !== 'ellipsis' ? ['a placeholder with no room is cut mid letter']
         : element.matches('footer .folder > span') && box.height > 2 * parseFloat(getComputedStyle(element).fontSize) ? [`a footer label broken in two: ${named(element)}`]
