@@ -1,15 +1,20 @@
 import type { TorrentSnapshot } from '../../src/torrent/client'
 
-import { expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { usePlayerTorrent } from '../../src/torrent/use-player-torrent'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 
 const listeners = vi.hoisted(() => ({
   state: (_: TorrentSnapshot[]) => {},
   reset: () => {},
   watch: vi.fn(),
   unwatch: vi.fn(),
+  unavailable: null as null | (() => void),
+  failed: null as null | ((error: { message: string, fatal: boolean }) => void),
 }))
 vi.mock('../../src/torrent/client', () => ({
   getTorrentClient: () => client,
@@ -17,8 +22,8 @@ vi.mock('../../src/torrent/client', () => ({
 const client = {
   newViewerId: () => 'player',
   addMagnet: () => {},
-  onStorageUnavailable: () => () => {},
-  onWorkerError: () => () => {},
+  onStorageUnavailable: (cb: () => void) => { listeners.unavailable = cb; return () => {} },
+  onWorkerError: (cb: NonNullable<typeof listeners.failed>) => { listeners.failed = cb; return () => {} },
   onStorageFull: () => () => {},
   onState: (cb: typeof listeners.state) => { listeners.state = cb; return () => {} },
   onEngineReset: (cb: typeof listeners.reset) => { listeners.reset = cb; return () => {} },
@@ -94,4 +99,35 @@ it('plays the file a link names, even when another one is bigger', async () => {
   expect(listeners.watch).toHaveBeenCalledExactlyOnceWith('player', 7, 0)
   await expect.element(screen.getByTestId('played')).toHaveTextContent('0')
   await screen.unmount()
+})
+
+describe('the player hook\'s words', () => {
+  afterEach(showEnglish)
+
+  const Shown = () => <p>{usePlayerTorrent(MAGNET, 0).engineError}</p>
+
+  /** What the hook says when the engine has no storage, then when it stops for good. */
+  const said = async () => {
+    const words: string[] = []
+    for (const fail of [() => listeners.unavailable!(), () => listeners.failed!({ message: 'gone', fatal: true })]) {
+      listeners.unavailable = null
+      listeners.failed = null
+      const screen = await render(<Shown/>)
+      await expect.poll(() => listeners.unavailable && listeners.failed).toBeTruthy()
+      fail()
+      await expect.poll(() => screen.container.textContent).toBeTruthy()
+      words.push(screen.container.textContent)
+      await screen.unmount()
+    }
+    return words
+  }
+
+  it('says what stopped the engine in the page\'s language', async () => {
+    expect(await said()).toEqual(['Ripple needs a normal (non-private) window to play this', 'The download engine stopped. Reload the page to try again.'])
+    await showIn('de', de, 'de-DE')
+    expect(await said()).toEqual([
+      'Ripple braucht ein normales (nicht privates) Fenster, um das abzuspielen',
+      'Die Download-Engine wurde beendet. Lade die Seite neu, um es erneut zu versuchen.',
+    ])
+  })
 })

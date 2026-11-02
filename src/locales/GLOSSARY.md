@@ -23,7 +23,9 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   `{name} adlı torrent`, and for a file's name `{name} dosyası` (`Watch {name}#a file`).
 - **Short labels.** The footer's controls (Speed, On add, Storage, Auto-save) share one row and the list's column
   headers share the table's width, so each is a word or two where the language allows. Down and Up are the transfer's
-  two directions below.
+  two directions below. In the player's swarm readout (`216 seeders · 3 leechers`) a phone hides what `<word>` holds,
+  so the words go inside it and each count outside. French and Italian keep only the adjective there (`216 complètes ·
+  3 partielles`), since their whole words cut the readouts beside them; the chip under it names them whole.
 - **Plurals** carry every form the language needs (the check names a missing one): Russian and Polish
   `one, few, many, other`; Japanese, Korean and Chinese `other` alone. A count is written as the English writes it:
   `{count}` as given, never `#` or `{count, number}`, which group it (`1.100 Dateien`); the check names either form

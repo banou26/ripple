@@ -1,7 +1,4 @@
 {
-  "g-player": [
-    "src/router/embed.tsx"
-  ],
   "kept-in-english": [
     "src/components/legal-doc.tsx",
     "src/router/legal.tsx",

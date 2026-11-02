@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
+import { intl } from '../i18n'
 import { magnetInfoHash } from './magnet'
 import { makeReadWindowStore } from './read-window-store'
 import { pickVideoFile } from './watch'
@@ -38,11 +39,17 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     if (!magnet) return
     // held windows belong to one file of one torrent; nothing about them survives a change of either
     readWindows.current.clear()
-    const offUnavailable = client.onStorageUnavailable(
-      () => setEngineError('Ripple needs a normal (non-private) window to play this'),
-    )
+    const offUnavailable = client.onStorageUnavailable(() => setEngineError(intl.formatMessage({
+      id: 'Ripple needs a normal (non-private) window to play this',
+      defaultMessage: 'Ripple needs a normal (non-private) window to play this',
+    })))
     const offWorkerError = client.onWorkerError(({ fatal }) => {
-      if (fatal) setEngineError('The download engine stopped. Reload the page to try again.')
+      if (fatal) {
+        setEngineError(intl.formatMessage({
+          id: 'The download engine stopped. Reload the page to try again.',
+          defaultMessage: 'The download engine stopped. Reload the page to try again.',
+        }))
+      }
     })
     const offFull = client.onStorageFull(setStorageFull)
     // Ephemeral: the page asked for this, not the person using it. That makes its bytes a cache the
