@@ -458,4 +458,42 @@ describe('what a pick is refused for, in the page\'s language', () => {
       'a.mkv und 2 weitere Dateien wurden beim Lesen geändert. Versuche es erneut.',
     ])
   })
+
+  /** A file saved again mid-pass: its read fails in the browser's own English, or comes back short. */
+  const savedWhileRead = async () => {
+    const api = await mount(fakeClient().client)
+    const handle = await (await navigator.storage.getDirectory()).getFileHandle('saved-while-read.mkv', { create: true })
+    const write = async (size: number) => {
+      const writable = await handle.createWritable()
+      await writable.write(new Uint8Array(size).fill(0x55))
+      await writable.close()
+    }
+    await write(20_001)
+    const snapshot = await handle.getFile()
+    let reads = 0
+    const said: (string | null)[] = []
+    for (const getFile of [
+      // a snapshot the browser refuses to read once the file under it is written again
+      async () => snapshot,
+      async () => new File([new Uint8Array(reads++ ? 10 : 20_001)], 'a.mkv', { lastModified: 1 }),
+    ]) {
+      const edited = new EditedDirectory('Saved', [Object.assign(new EditedFile('a.mkv'), { getFile })])
+      ;(window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = async () => edited
+      await api().pickFolder()
+      await expect.poll(() => api().state.stage).toBe('ready')
+      await write(30_002)
+      await api().publish(options('Saved'))
+      await expect.poll(() => api().state.stage).toBe('error')
+      said.push(api().state.error)
+      api().reset()
+      await expect.poll(() => api().state.stage).toBe('idle')
+    }
+    return said
+  }
+
+  it('says a file saved again while it is read changed, in the page\'s words rather than the browser\'s', async () => {
+    expect(await savedWhileRead()).toEqual(Array(2).fill('a.mkv changed while it was being read. Try again.'))
+    await showIn('de', de)
+    expect(await savedWhileRead()).toEqual(Array(2).fill('a.mkv wurde beim Lesen geändert. Versuche es erneut.'))
+  })
 })
