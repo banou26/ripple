@@ -226,7 +226,10 @@ const wordsOf = (page: Shown) => page.evaluate(() => [...document.body.querySele
   ...['aria-label', 'placeholder', 'data-tooltip-content', 'title'].map(name => element.getAttribute(name) ?? ''),
 ]).filter(Boolean))
 
-/** What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, a footer label broken. */
+/**
+ * What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, an icon squeezed narrower
+ * than it is tall by a label that wraps beside it, a footer label broken.
+ */
 const cutOff = (page: Shown) => page.evaluate(() => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
@@ -242,6 +245,8 @@ const cutOff = (page: Shown) => page.evaluate(() => {
         : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
           && !element.matches('.torrent-table .title, .react-tooltip') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
+        : element instanceof SVGSVGElement && box.height > 0 && box.width < box.height - 0.5
+          ? [`an icon squeezed to ${Math.round(box.width)} of ${Math.round(box.height)} px: ${named(element.parentElement!)}`]
         : element.matches('input:placeholder-shown') && getComputedStyle(element).textOverflow !== 'ellipsis' ? ['a placeholder with no room is cut mid letter']
         : element.matches('footer .folder > span') && box.height > 2 * parseFloat(getComputedStyle(element).fontSize) ? [`a footer label broken in two: ${named(element)}`]
         : []
@@ -697,6 +702,16 @@ const PACK_FILES = {
 }
 const PACK_LIST = [entry('7', 'Fresh.Pack', { ephemeral: true })]
 const PACK_TORRENTS = [snapshot(9, '7', 'Fresh.Pack', { progress: 0, totalDone: 0 }, { files: PACK_FILES })]
+// a release's name is one word with no spaces, and the Watch link and the busy button both carry it
+const LONG_NAME = '[Group]_A_Really_Long_Episode_Name_Without_Spaces_Whatsoever_S01E01_1080p_HEVC_10bit.mkv'
+const LONG = magnetOf('8', 'Long.Pack')
+const LONG_FILES = {
+  files: [{ path: `Long.Pack/${LONG_NAME}`, size: 1.2 * GB }, { path: 'Long.Pack/Extras.srt', size: 40_000 }],
+  contentSize: 1.2 * GB + 40_000,
+  pieceLength: 16_384,
+}
+const LONG_LIST = [entry('8', 'Long.Pack', { ephemeral: true })]
+const LONG_TORRENTS = [snapshot(10, '8', 'Long.Pack', { progress: 0, totalDone: 0 }, { files: LONG_FILES })]
 
 /** The download page's link for `magnet`, as a share link writes it. */
 const downloadPage = (magnet?: string, search = '') =>
@@ -789,6 +804,14 @@ const downloadSurfaces = async (page: Page, width: number) => {
   await ready()
   await expect(card.locator('.cta')).toBeDisabled()
   await read('no matching files')
+
+  await page.goto(downloadPage(LONG))
+  await ready(LONG_LIST, LONG_TORRENTS)
+  await expect(card.locator('.watch')).toBeVisible()
+  await read('a long name')
+  await row(LONG_NAME).getByRole('button').click()
+  await expect(card.locator('.progress')).toBeVisible()
+  await read('downloading a long name')
 
   // another site, at another name for this server: a frame on a loopback address from a public site is refused
   writeFileSync(join(dir, 'embedder.html'), `<body style="margin:0"><iframe src="${downloadPage(PACK)}" style="border:0;width:100vw;height:100vh"></iframe>`)
@@ -1000,9 +1023,10 @@ test('the control: in English the details panel\'s own words are read too', asyn
   ]) expect(words).toContain(text)
 })
 
-test('the control: in English the download page\'s own words are read too', async ({ page }) => {
+test('the control: in English the download page\'s own words are read too, and fit', async ({ page }) => {
   test.setTimeout(120_000)
-  const { words } = await downloadSurfaces(page, 1280)
+  const { words, cut } = await downloadSurfaces(page, 1280)
+  expect(cut).toEqual([])
   for (const text of [
     'Nothing to download', 'this torrent', 'Reading the torrent from the network', 'Loading torrent…', 'Copy magnet', 'Building…',
     'Save .torrent', 'Copy this torrent\'s magnet link', 'Save the .torrent file for this torrent', 'The metadata has not arrived yet',

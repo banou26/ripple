@@ -210,8 +210,10 @@ const style = css`
     color: ${TEXT_ON_LIGHT};
     font-size: 1rem;
     font-weight: 800;
+    /* the busy label names a file, and a release's name is one word with no spaces */
+    overflow-wrap: anywhere;
 
-    svg { width: 18px; height: 18px; }
+    svg { width: 18px; height: 18px; flex: none; }
 
     /* Down, not up: EMPHASIS is already the brightest fill the palette has, so the hover steps to
        EMPHASIS_HOVER, the one value the palette picks for this. The label is restated so the light
@@ -251,8 +253,10 @@ const style = css`
     font-size: 0.9rem;
     font-weight: 700;
     text-decoration: none;
+    text-align: center;
+    overflow-wrap: anywhere;
 
-    svg { width: 17px; height: 17px; }
+    svg { width: 17px; height: 17px; flex: none; }
 
     &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_INTERACTIVE}; }
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
