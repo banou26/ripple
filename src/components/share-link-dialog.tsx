@@ -105,6 +105,7 @@ const style = css`
       color: ${TEXT};
       font-family: inherit;
       font-size: 0.85rem;
+      text-overflow: ellipsis;
       outline: none;
       transition: border-color 120ms ease, box-shadow 120ms ease;
 
