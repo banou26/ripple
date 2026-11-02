@@ -37,7 +37,6 @@ export type ConfirmRequest = {
   body: string
   /** Label for the destructive action. Name the verb, never "OK". */
   confirmLabel: string
-  cancelLabel?: string
   /** When set, offers "Don't ask again" and remembers the answer under this localStorage key. */
   rememberKey?: string
   tone?: 'danger' | 'normal'
@@ -222,7 +221,7 @@ export const useConfirm = () => {
             {/* Focus lands here, never on the destructive button, so a stray Enter cannot become the
                 very mis-click this exists to prevent. Driven by the ref in the effect above. */}
             <button type="button" ref={cancelRef} onClick={() => close(false)}>
-              {request.cancelLabel ?? intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}
+              {intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}
             </button>
             <button
               type="button"
