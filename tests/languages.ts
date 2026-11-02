@@ -73,11 +73,14 @@ const patternOf = (elements: MessageFormatElement[]): string => elements.map(ele
  * english()'s, `translated` the language's catalogue (the pseudo-language's differs everywhere).
  */
 export const englishIn = (shown: readonly string[], english: Record<string, string>, translated?: Record<string, string>) => {
+  // a text the language's own catalogue writes is the language's, though an English message reads alike: German's
+  // Download, a speed, beside the English Download a link is made for
+  const own = new Set(Object.values(translated ?? {}))
   const patterns = Object.entries(english)
     .filter(([id, text]) => !translated || translated[id] !== text)
     .map(([id, text]) => [id, patternOf(parse(text))] as const)
     // a value reads as `.+`, so a letter in the pattern is one of the message's own
     .filter(([, pattern]) => /\p{L}/u.test(pattern))
     .map(([id, pattern]) => [id, new RegExp(`^${pattern}$`)] as const)
-  return shown.flatMap(text => patterns.filter(([, pattern]) => pattern.test(text)).map(([id]) => `${JSON.stringify(text)} (${id})`))
+  return shown.filter(text => !own.has(text)).flatMap(text => patterns.filter(([, pattern]) => pattern.test(text)).map(([id]) => `${JSON.stringify(text)} (${id})`))
 }
