@@ -12,7 +12,6 @@ import { Modal } from './modal'
 import { PersistOffer } from './persist-offer'
 
 import type { AddChoices } from '../torrent/add-options'
-import type { SaveLocation } from '../torrent/library'
 import type { PersistState } from '../torrent/storage-permission'
 import type { TorrentFile } from '../torrent/types'
 import type { StorageUsage } from '../torrent/use-storage-usage'
