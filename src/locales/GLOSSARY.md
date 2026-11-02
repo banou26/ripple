@@ -20,7 +20,7 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 - **Japanese and Chinese** put a space between their own text and a Latin name (`{name} を一時停止しました`,
   `已暂停 {name}`), none beside full-width punctuation and none beside a number (`{count}個のファイル`,
   `{count}个文件`). Korean and Turkish add no particle or suffix that changes with the name: `{name}에서`,
-  `{name} adlı torrent`.
+  `{name} adlı torrent`, and for a file's name `{name} dosyası` (`Watch {name}#a file`).
 - **Short labels.** The footer's controls (Speed, On add, Storage, Auto-save) share one row and the list's column
   headers share the table's width, so each is a word or two where the language allows. Down and Up are the transfer's
   two directions below.

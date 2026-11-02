@@ -1,7 +1,4 @@
 {
-  "f-download": [
-    "src/router/download.tsx"
-  ],
   "g-player": [
     "src/router/embed.tsx"
   ],

@@ -6,6 +6,7 @@ import { showSaveFilePicker } from '@banou/ponyfill'
 import type { TorrentClient } from './client'
 import type { TorrentFile } from './types'
 
+import { intl } from '../i18n'
 import { contentFiles } from './types'
 import type { Sink } from './stream-download'
 import { openStreamSink } from './stream-download'
@@ -129,7 +130,7 @@ const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }:
 
   if (totalBytes > MAX_BUFFERED_BYTES) {
     throw new DownloadUnavailableError(
-      'This file is too large to save here.',
+      intl.formatMessage({ id: 'This file is too large to save here.', defaultMessage: 'This file is too large to save here.' }),
     )
   }
 

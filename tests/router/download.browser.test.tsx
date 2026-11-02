@@ -1,9 +1,15 @@
 import type { DownloadTorrent } from '../../src/torrent/use-download-torrent'
 import type { SaveEntry } from '../../src/torrent/save-file'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
+
+import { showEnglish, showIn } from '../i18n/show-in'
+import { wordsIn } from '../i18n/words-in'
+
+import de from '../../src/locales/de.json'
 
 /**
  * What the download page puts on screen, and what it asks the save path for.
@@ -41,6 +47,9 @@ const listed = {
   current: [{ infoHash: 'abc', magnet: 'magnet:?xt=urn:btih:abc', ephemeral: true, firstLast: false }],
 }
 
+/** The page's handler for an engine reset, which the walk below calls as the engine would. */
+const reset = { current: null as null | (() => void) }
+
 const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
   /*
    * The page subscribes to engine resets, to stop an export holding a handle the reset invalidated,
@@ -51,7 +60,7 @@ const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
    * so these tests see the glyph, which is what they were written against.
    */
   client: {
-    onEngineReset: () => () => {},
+    onEngineReset: (cb: () => void) => { reset.current = cb; return () => {} },
     onState: () => () => {},
     // latched in the real client, so a page that subscribes late is still answered
     onList: (cb: (list: unknown[]) => void) => { cb(listed.current); return () => {} },
@@ -107,6 +116,13 @@ vi.mock('../../src/torrent/save-file', async (importOriginal) => ({
   ) => { saved.file.push({ index, path, size, viewer: options?.viewer }); return held() },
 }))
 
+/** Each `.torrent` the page asks for waits here until the test answers it with `result`. */
+const exported = { result: 'saved' as 'saved' | 'no-metadata' | 'failed', settle: null as null | (() => void) }
+vi.mock('../../src/torrent/torrent-export', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/torrent-export')>()),
+  saveTorrentFile: () => new Promise((resolve) => { exported.settle = () => resolve(exported.result) }),
+}))
+
 const sized = () => {
   const container = document.createElement('div')
   container.style.cssText = 'width: 900px; height: 700px;'
@@ -122,11 +138,11 @@ const sized = () => {
  */
 const MAGNET = 'bWFnbmV0Oj94dD11cm46YnRpaDphYmMmZG49UGFjay5OYW1l'
 
-const mount = async (search = '') => {
+const mount = async (search = '', magnet = MAGNET) => {
   const { default: Embed } = await import('../../src/router/embed')
   const { IntlRoot } = await import('../../src/i18n')
   return render(
-    <IntlRoot><MemoryRouter initialEntries={[`/download?magnet=${MAGNET}${search}`]}>
+    <IntlRoot><MemoryRouter initialEntries={[`/download?magnet=${magnet}${search}`]}>
       <Embed mode="download" />
     </MemoryRouter></IntlRoot>,
     sized(),
@@ -647,3 +663,184 @@ describe('offering to watch instead', () => {
   })
 })
 
+
+/** What the card shows in each state of the page, by name: its words, then the hints its buttons carry. */
+const everyState = async () => {
+  state.current = torrent()
+  saved.holds = true
+  const shown: Record<string, string[]> = {}
+  let screen = await mount()
+  const card = () => screen.container.querySelector('.card')!
+  const read = (name: string) => {
+    shown[name] = [...wordsIn(card()), ...[...card().querySelectorAll('[data-tooltip-content]')].map(hinted => hinted.getAttribute('data-tooltip-content')!)]
+  }
+  const press = async (selector: string, index = 0) => userEvent.click([...card().querySelectorAll(selector)][index] as HTMLElement)
+  const job = async (selector: string, index: number, name: string) => {
+    await press(selector, index)
+    await expect.poll(() => saved.settle).not.toBeNull()
+    read(name)
+  }
+  const settled = async (settle: (job: NonNullable<typeof saved.settle>) => void) => {
+    settle(saved.settle!)
+    saved.settle = null
+    await expect.poll(() => card().querySelector('.progress')).toBeNull()
+  }
+
+  await expect.poll(() => card().querySelectorAll('.file').length).toBe(4)
+  read('file list')
+  await press('.file input', 1)
+  read('three ticked')
+  await press('.bulk button', 1)
+  read('none ticked')
+  await press('.file input', 2)
+  read('one ticked')
+  await job('.cta', 0, 'downloading')
+  await settled(({ resolve }) => resolve())
+  read('one saved')
+  await press('.bulk button', 0)
+  await job('.cta', 0, 'downloading all')
+  await settled(({ resolve }) => resolve())
+  read('all saved')
+  await job('.file button', 0, 'downloading a row')
+  await settled(({ reject }) => reject(new Error('gone')))
+  read('stopped')
+  await job('.file button', 0, 'downloading a row again')
+  await settled(({ reject }) => reject('gone'))
+  read('stopped for no reason')
+  await press('.file button', 0)
+  await expect.poll(() => saved.settle).not.toBeNull()
+  reset.current!()
+  await expect.poll(() => card().querySelector('.failure')?.textContent).toBeTruthy()
+  read('engine replaced')
+  await settled(({ reject }) => reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })))
+
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+  const note = () => card().querySelector('[data-testid="share-note"]')?.textContent
+  for (const [name, answer] of [['magnet copied', 'resolve'], ['magnet refused', 'reject']] as const) {
+    if (answer === 'reject') copy.mockRejectedValue(new Error('refused'))
+    const before = note()
+    await press('.share button', 0)
+    await expect.poll(note).not.toBe(before)
+    read(name)
+  }
+  copy.mockRestore()
+  for (const result of ['saved', 'no-metadata', 'failed'] as const) {
+    exported.result = result
+    const before = note()
+    await press('.share button', 1)
+    await expect.poll(() => exported.settle).not.toBeNull()
+    if (result === 'saved') read('the .torrent building')
+    exported.settle!()
+    exported.settle = null
+    await expect.poll(note).not.toBe(before)
+    read(`the .torrent ${result}`)
+  }
+  await screen.unmount()
+
+  for (const [name, over, search, magnet] of [
+    ['out of room', { storageFull: true }, '', MAGNET],
+    ['before its file list', { snapshot: { ...torrent().snapshot!, files: null } }, '', MAGNET],
+    ['no matching files', {}, '&files=9', MAGNET],
+    ['no magnet', { snapshot: null, handle: null }, '', ''],
+  ] as const) {
+    state.current = torrent(over)
+    screen = await mount(search, magnet)
+    read(name)
+    await screen.unmount()
+  }
+  return shown
+}
+
+const SHARE = ['Copy magnet', 'Save .torrent']
+const BULK = ['Select all', 'Select none']
+const HINTS = ['Copy this torrent\'s magnet link', 'Save the .torrent file for this torrent']
+const SWARM = ['Cancel', '82 peers', '8.7 MB/s']
+/** The four rows, each with its name, its size, the mark `marks` gives it, its button and the name the button announces. */
+const rows = (...marks: (string | undefined)[]) => [['E01.mkv', '1.4 GB'], ['E02.mkv', '1.5 GB'], ['E03.mkv', '1.6 GB'], ['notes.txt', '2 kB']]
+  .flatMap(([name, size], i) => [name!, size!, ...marks[i] ? [marks[i]] : [], 'Download', `Download ${name}`])
+const ALL_SAVED = rows('Saved', 'Saved', 'Saved', 'Saved')
+const READY = ['Pack.Name', '4.5 GB · 4 files', 'Download 4 files as .zip', 'Watch E03.mkv', ...SHARE]
+const after = (...notes: string[]) => [...READY, ...notes, '4 files', ...BULK, ...ALL_SAVED, ...HINTS]
+const ENGLISH = {
+  'file list': [...READY, '4 files', ...BULK, ...rows(), ...HINTS],
+  'three ticked': ['Pack.Name', '3 GB · 3 files', 'Download 3 files as .zip', 'Watch E03.mkv', ...SHARE, '3 of 4 files', ...BULK, ...rows(), ...HINTS],
+  'none ticked': ['Pack.Name', 'Nothing selected', 'Select at least one file', 'Watch E03.mkv', ...SHARE, '0 of 4 files', ...BULK, ...rows(), ...HINTS],
+  'one ticked': ['Pack.Name', '1.6 GB', 'Download', 'Watch E03.mkv', ...SHARE, '1 of 4 files', ...BULK, ...rows(), ...HINTS],
+  downloading: [
+    'Pack.Name', '1.6 GB', 'Downloading', ...SHARE, '0%', '0 bytes of 1.6 GB', ...SWARM, '1 of 4 files', ...BULK,
+    ...rows(undefined, undefined, 'Downloading'), ...HINTS,
+  ],
+  'one saved': ['Pack.Name', '1.6 GB', 'Download', 'Watch E03.mkv', ...SHARE, 'Saved E03.mkv', '1 of 4 files', ...BULK, ...rows(undefined, undefined, 'Saved'), ...HINTS],
+  'downloading all': [
+    'Pack.Name', '4.5 GB · 4 files', 'Downloading', ...SHARE, '0%', '0 bytes of 4.5 GB', ...SWARM, '4 files', ...BULK,
+    ...rows('Downloading', 'Downloading', 'Downloading', 'Downloading'), ...HINTS,
+  ],
+  'all saved': after('Saved 4 files'),
+  'downloading a row': [
+    'Pack.Name', '4.5 GB · 4 files', 'Downloading E01.mkv', ...SHARE, '0%', '0 bytes of 1.4 GB', ...SWARM, '4 files', ...BULK,
+    ...rows('Downloading', 'Saved', 'Saved', 'Saved'), ...HINTS,
+  ],
+  stopped: after('The download stopped: gone'),
+  'downloading a row again': [
+    'Pack.Name', '4.5 GB · 4 files', 'Downloading E01.mkv', ...SHARE, '0%', '0 bytes of 1.4 GB', ...SWARM, '4 files', ...BULK,
+    ...rows('Downloading', 'Saved', 'Saved', 'Saved'), ...HINTS,
+  ],
+  'stopped for no reason': after('The download stopped: unknown error'),
+  'engine replaced': [
+    'Pack.Name', '4.5 GB · 4 files', 'Downloading E01.mkv', ...SHARE, '0%', '0 bytes of 1.4 GB', 'Cancel',
+    'The download stopped. Start it again.', '82 peers', '8.7 MB/s', '4 files', ...BULK, ...rows('Downloading', 'Saved', 'Saved', 'Saved'), ...HINTS,
+  ],
+  'magnet copied': after('Magnet copied', 'The download stopped. Start it again.'),
+  'magnet refused': after('Could not copy the magnet', 'The download stopped. Start it again.'),
+  'the .torrent building': [
+    ...READY.slice(0, -1), 'Building…', 'Could not copy the magnet', 'The download stopped. Start it again.', '4 files', ...BULK, ...ALL_SAVED, ...HINTS,
+  ],
+  'the .torrent saved': after('Saved the .torrent', 'The download stopped. Start it again.'),
+  'the .torrent no-metadata': after('The metadata has not arrived yet', 'The download stopped. Start it again.'),
+  'the .torrent failed': after('The .torrent could not be built', 'The download stopped. Start it again.'),
+  'out of room': [...READY, 'Out of storage space. Remove a download in Ripple to free room.', '4 files', ...BULK, ...rows(), ...HINTS],
+  'before its file list': ['Pack.Name', 'Reading the torrent from the network', 'Loading torrent…', ...SHARE, ...HINTS],
+  'no matching files': ['Pack.Name', 'None of the requested files are in this torrent', 'No matching files', ...SHARE, ...HINTS],
+  'no magnet': ['this torrent', 'Reading the torrent from the network', 'Nothing to download'],
+}
+
+/** Each English text of the walk above in German, but for the names, which stay as they are. A space read is any space. */
+const GERMAN: Record<string, string> = {
+  'Copy magnet': 'Magnet-Link kopieren', 'Save .torrent': '.torrent speichern', 'Select all': 'Alle wählen', 'Select none': 'Keine wählen',
+  'Copy this torrent\'s magnet link': 'Magnet-Link dieses Torrents kopieren', 'Save the .torrent file for this torrent': '.torrent-Datei für diesen Torrent speichern',
+  Cancel: 'Abbrechen', '82 peers': '82 Peers', '8.7 MB/s': '8,7 MB/s', '1.4 GB': '1,4 GB', '1.5 GB': '1,5 GB', '1.6 GB': '1,6 GB',
+  Download: 'Herunterladen', 'Download E01.mkv': 'E01.mkv herunterladen', 'Download E02.mkv': 'E02.mkv herunterladen',
+  'Download E03.mkv': 'E03.mkv herunterladen', 'Download notes.txt': 'notes.txt herunterladen', Saved: 'Gespeichert', Downloading: 'Lädt herunter',
+  '4.5 GB · 4 files': '4,5 GB · 4 Dateien', 'Download 4 files as .zip': '4 Dateien als .zip herunterladen', 'Watch E03.mkv': 'E03.mkv ansehen',
+  '4 files': '4 Dateien', '3 GB · 3 files': '3 GB · 3 Dateien', 'Download 3 files as .zip': '3 Dateien als .zip herunterladen',
+  '3 of 4 files': '3 von 4 Dateien', 'Nothing selected': 'Nichts ausgewählt', 'Select at least one file': 'Wähle mindestens eine Datei',
+  '0 of 4 files': '0 von 4 Dateien', '1 of 4 files': '1 von 4 Dateien', '0%': '0 %', '0 bytes of 1.6 GB': '0 Byte von 1,6 GB',
+  '0 bytes of 4.5 GB': '0 Byte von 4,5 GB', '0 bytes of 1.4 GB': '0 Byte von 1,4 GB', 'Saved E03.mkv': 'E03.mkv gespeichert',
+  'Saved 4 files': '4 Dateien gespeichert', 'Downloading E01.mkv': 'E01.mkv wird heruntergeladen',
+  'The download stopped: gone': 'Der Download wurde gestoppt: gone', 'The download stopped: unknown error': 'Der Download wurde gestoppt: unbekannter Fehler',
+  'The download stopped. Start it again.': 'Der Download wurde gestoppt. Starte ihn erneut.', 'Magnet copied': 'Magnet-Link kopiert',
+  'Could not copy the magnet': 'Magnet-Link konnte nicht kopiert werden', 'Building…': 'Wird erstellt…', 'Saved the .torrent': '.torrent-Datei gespeichert',
+  'The metadata has not arrived yet': 'Die Metadaten sind noch nicht da', 'The .torrent could not be built': 'Die .torrent-Datei konnte nicht erstellt werden',
+  'Out of storage space. Remove a download in Ripple to free room.': 'Kein Speicherplatz mehr. Entferne einen Download in Ripple, um Platz zu schaffen.',
+  'Reading the torrent from the network': 'Torrent wird aus dem Netzwerk gelesen', 'Loading torrent…': 'Torrent wird geladen…',
+  'None of the requested files are in this torrent': 'Keine der angeforderten Dateien ist in diesem Torrent', 'No matching files': 'Keine passenden Dateien',
+  'this torrent': 'dieser Torrent', 'Nothing to download': 'Nichts zum Herunterladen',
+}
+
+describe('the download page\'s words', () => {
+  afterEach(() => {
+    saved.holds = false
+    saved.settle = null
+    return showEnglish()
+  })
+
+  it('in English, as they read before the page was translated', async () => {
+    expect(await everyState()).toEqual(ENGLISH)
+  })
+
+  it('in German, each value where German puts it', async () => {
+    await showIn('de', de, 'de-DE')
+    const german = Object.fromEntries(Object.entries(ENGLISH).map(([state, words]) => [state, words.map(word => GERMAN[word] ?? word)]))
+    expect(await everyState()).toEqual(german)
+  })
+})

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
+import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
 
 import {
@@ -35,7 +36,7 @@ import {
 } from '../torrent/save-file'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useReachability } from '../torrent/use-reachability'
-import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
+import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { magnetInfoHash, magnetParam } from '../torrent/magnet'
@@ -44,6 +45,9 @@ import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
+
+// a brand, the same in every language
+const WORDMARK = 'Ripple'
 
 const style = css`
   height: 100%;
@@ -541,6 +545,7 @@ type Props = {
 }
 
 const DownloadPage = ({ magnet, selection, linked }: Props) => {
+  const intl = useIntl()
   const { client, snapshot, handle, viewer, claim, release, engineError, storageFull } = useDownloadTorrent(magnet)
   /**
    * Whether anything is carrying peer traffic, which is the one explanation this page never had.
@@ -553,7 +558,8 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
 
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [finished, setFinished] = useState<string | null>(null)
+  /** What the last job saved: a file's name, or how many files went into the zip. */
+  const [finished, setFinished] = useState<string | number | null>(null)
   /** Engine indices this page has already written to disk, so the list can say so. */
   const [saved, setSaved] = useState<ReadonlySet<number>>(() => new Set())
   const abortRef = useRef<AbortController | null>(null)
@@ -661,8 +667,8 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   const torrentName = useMemo(() => {
     const fromMagnet = magnet ? magnetParam(magnet, 'dn') : undefined
     const fromFiles = files?.[0]?.path.split('/')[0]
-    return fromMagnet || fromFiles || 'this torrent'
-  }, [magnet, files])
+    return fromMagnet || fromFiles || intl.formatMessage({ id: 'this torrent', defaultMessage: 'this torrent' })
+  }, [magnet, files, intl])
 
   /** What is about to be taken, when that is one file: a file download rather than a zip of one. */
   const single = entries.length === 1 ? entries[0]! : null
@@ -805,9 +811,9 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
     // A cross-origin frame can be refused the clipboard outright, and the refusal is the whole
     // outcome from where the person is sitting, so it is said rather than swallowed.
     navigator.clipboard.writeText(magnet)
-      .then(() => say('Magnet copied'))
-      .catch(() => say('Could not copy the magnet'))
-  }, [magnet, say])
+      .then(() => say(intl.formatMessage({ id: 'Magnet copied', defaultMessage: 'Magnet copied' })))
+      .catch(() => say(intl.formatMessage({ id: 'Could not copy the magnet', defaultMessage: 'Could not copy the magnet' })))
+  }, [magnet, say, intl])
 
   /*
    * The .torrent is REBUILT rather than fetched, because there is nothing to fetch.
@@ -822,12 +828,12 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
     setSavingTorrent(true)
     void saveTorrentFile({ infoHash, magnet, name: torrentName, flush: () => client.flushResume() })
       .then((result) => say(
-        result === 'saved' ? 'Saved the .torrent'
-          : result === 'no-metadata' ? 'The metadata has not arrived yet'
-            : 'The .torrent could not be built',
+        result === 'saved' ? intl.formatMessage({ id: 'Saved the .torrent', defaultMessage: 'Saved the .torrent' })
+          : result === 'no-metadata' ? intl.formatMessage({ id: 'The metadata has not arrived yet', defaultMessage: 'The metadata has not arrived yet' })
+            : intl.formatMessage({ id: 'The .torrent could not be built', defaultMessage: 'The .torrent could not be built' }),
       ))
       .finally(() => setSavingTorrent(false))
-  }, [magnet, infoHash, savingTorrent, client, torrentName, say])
+  }, [magnet, infoHash, savingTorrent, client, torrentName, say, intl])
 
   /*
    * Whether this torrent has anything to watch, asked of the files the LINK named rather than of the
@@ -867,7 +873,9 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    * Counted over the OFFER for the same reason the link itself is: unticking every box is a
    * statement about what to download, and it used to quietly rename this button to "Watch".
    */
-  const watchLabel = watchable && offered.length > 1 ? `Watch ${leaf(watchable.path)}` : 'Watch'
+  const watchLabel = watchable && offered.length > 1
+    ? intl.formatMessage({ id: 'Watch {name}#a file', defaultMessage: 'Watch {name}', description: 'a file' }, { name: leaf(watchable.path) })
+    : intl.formatMessage({ id: 'Watch', defaultMessage: 'Watch' })
 
   const subjectName = subject ? leaf(subject.path) : torrentName
   const framed = useMemo(framedByAnotherOrigin, [])
@@ -910,17 +918,20 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
 
     run
       .then(() => {
-        setFinished(only ? leaf(only.path) : `${chosen.length} files`)
+        setFinished(only ? leaf(only.path) : chosen.length)
         // so the list can say which files are already on the device, which is the whole of what
         // somebody coming back for the rest of a pack needs to know
         setSaved((was) => new Set([...was, ...chosen.map((file) => file.index)]))
       })
       .catch((error: unknown) => {
         if (isSaveCancelled(error)) return
+        const reason = (error as Error)?.message
         setFailure(
           error instanceof DownloadUnavailableError
             ? error.message
-            : `The download stopped: ${(error as Error)?.message ?? 'unknown error'}`,
+            : reason == null
+              ? intl.formatMessage({ id: 'The download stopped: unknown error', defaultMessage: 'The download stopped: unknown error' })
+              : intl.formatMessage({ id: 'The download stopped: {reason}', defaultMessage: 'The download stopped: {reason}' }, { reason }),
         )
       })
       .finally(() => {
@@ -941,7 +952,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
         plan()
         release()
       })
-  }, [client, handle, viewer, claim, release, plan, torrentName])
+  }, [client, handle, viewer, claim, release, plan, torrentName, intl])
 
   const cancel = () => abortRef.current?.abort(Object.assign(new Error('cancelled'), { name: 'AbortError' }))
 
@@ -965,11 +976,13 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   useEffect(() => client.onEngineReset(() => {
     if (!abortRef.current) return
     cancel()
-    setFailure('The download stopped. Start it again.')
-  }), [client])
+    setFailure(intl.formatMessage({ id: 'The download stopped. Start it again.', defaultMessage: 'The download stopped. Start it again.' }))
+  }), [client, intl])
 
   const status = engineError
-    ?? (storageFull ? 'Out of storage space. Remove a download in Ripple to free room.' : null)
+    ?? (storageFull
+      ? intl.formatMessage({ id: 'Out of storage space. Remove a download in Ripple to free room.', defaultMessage: 'Out of storage space. Remove a download in Ripple to free room.' })
+      : null)
 
   const peers = snapshot?.status?.numPeers ?? 0
   const rate = snapshot?.displayDownloadRate ?? 0
@@ -986,18 +999,21 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    */
   const listReady = Boolean(files) && handle != null
   const label = !magnet
-    ? 'Nothing to download'
+    ? intl.formatMessage({ id: 'Nothing to download', defaultMessage: 'Nothing to download' })
     : !files
-      ? 'Loading torrent…'
+      ? intl.formatMessage({ id: 'Loading torrent…', defaultMessage: 'Loading torrent…' })
       : busy
         ? job.label
         : offered.length === 0
-          ? 'No matching files'
+          ? intl.formatMessage({ id: 'No matching files', defaultMessage: 'No matching files' })
           : entries.length === 0
-            ? 'Select at least one file'
+            ? intl.formatMessage({ id: 'Select at least one file', defaultMessage: 'Select at least one file' })
             : single
-              ? 'Download'
-              : `Download ${entries.length} files as .zip`
+              ? intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })
+              : intl.formatMessage({
+                id: '{count, plural, one {Download {count} file as .zip} other {Download {count} files as .zip}}',
+                defaultMessage: '{count, plural, one {Download {count} file as .zip} other {Download {count} files as .zip}}',
+              }, { count: entries.length })
 
   return (
     <div css={style}>
@@ -1010,10 +1026,17 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
           */}
         <span className="brand">
           <Link className="wordmark" to="/" target={framed ? '_blank' : undefined} rel={framed ? 'noreferrer' : undefined}>
-            Ripple
+            {WORDMARK}
           </Link>
           {/* a page framing this one shows its own */}
-          {!framed && <PoweredByFkn className="powered" href="https://docs.fkn.dev/user/"/>}
+          {!framed && (
+            <PoweredByFkn
+              className="powered"
+              label={intl.formatMessage({ id: 'Powered by FKN', defaultMessage: 'Powered by FKN' })}
+              linkLabel={intl.formatMessage({ id: 'How it works', defaultMessage: 'How it works' })}
+              href="https://docs.fkn.dev/user/"
+            />
+          )}
         </span>
         <VpnStat reachable={reachable}/>
       </header>
@@ -1035,16 +1058,21 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
               <div className="meta">
                 {offered.length === 0
                   ? files
-                    ? 'None of the requested files are in this torrent'
-                    : 'Reading the torrent from the network'
+                    ? intl.formatMessage({ id: 'None of the requested files are in this torrent', defaultMessage: 'None of the requested files are in this torrent' })
+                    : intl.formatMessage({ id: 'Reading the torrent from the network', defaultMessage: 'Reading the torrent from the network' })
                   : entries.length === 0
-                    ? 'Nothing selected'
-                    : `${getHumanReadableByteString(totalBytes)}${single ? '' : ` · ${entries.length} files`}`}
+                    ? intl.formatMessage({ id: 'Nothing selected', defaultMessage: 'Nothing selected' })
+                    : single
+                      ? getHumanReadableByteString(totalBytes)
+                      : intl.formatMessage({
+                        id: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+                        defaultMessage: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+                      }, { size: getHumanReadableByteString(totalBytes), count: entries.length })}
               </div>
             </div>
           </div>
 
-          <button className="cta" onClick={() => start(entries, 'Downloading')} disabled={!ready || busy}>
+          <button className="cta" onClick={() => start(entries, intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' }))} disabled={!ready || busy}>
             {!busy && <Download />}
             {label}
           </button>
@@ -1069,13 +1097,22 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
               never needed the swarm, and Save says for itself when the metadata has not landed. */}
           {magnet && (
             <div className="share">
-              <button type="button" onClick={copyMagnet} {...hint('Copy this torrent\'s magnet link')}>
+              <button type="button" onClick={copyMagnet} {...hint(intl.formatMessage({ id: 'Copy this torrent\'s magnet link', defaultMessage: 'Copy this torrent\'s magnet link' }))}>
                 <Link2 />
-                <span>Copy magnet</span>
+                <span>{intl.formatMessage({ id: 'Copy magnet', defaultMessage: 'Copy magnet' })}</span>
               </button>
-              <button type="button" onClick={onSaveTorrentFile} disabled={savingTorrent || !infoHash} {...hint('Save the .torrent file for this torrent')}>
+              <button
+                type="button"
+                onClick={onSaveTorrentFile}
+                disabled={savingTorrent || !infoHash}
+                {...hint(intl.formatMessage({ id: 'Save the .torrent file for this torrent', defaultMessage: 'Save the .torrent file for this torrent' }))}
+              >
                 <FileIcon />
-                <span>{savingTorrent ? 'Building…' : 'Save .torrent'}</span>
+                <span>
+                  {savingTorrent
+                    ? intl.formatMessage({ id: 'Building…', defaultMessage: 'Building…' })
+                    : intl.formatMessage({ id: 'Save .torrent', defaultMessage: 'Save .torrent' })}
+                </span>
               </button>
             </div>
           )}
@@ -1085,17 +1122,31 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             <div className="progress">
               <div className="bar"><div className="fill" style={{ width: `${Math.round(job.fraction * 100)}%` }} /></div>
               <div className="line">
-                <span>{Math.round(job.fraction * 100)}%</span>
-                <span>{getHumanReadableByteString(job.fraction * job.total)} of {getHumanReadableByteString(job.total)}</span>
+                <span>{writePercent(Math.round(job.fraction * 100) / 100)}</span>
+                <span>
+                  {intl.formatMessage({ id: '{done} of {total}', defaultMessage: '{done} of {total}' }, {
+                    done: getHumanReadableByteString(job.fraction * job.total),
+                    total: getHumanReadableByteString(job.total),
+                  })}
+                </span>
               </div>
             </div>
           )}
 
-          {busy && <button className="cancel" onClick={cancel}>Cancel</button>}
+          {busy && <button className="cancel" onClick={cancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>}
 
           {status && <div className="failure">{status}</div>}
           {failure && <div className="failure">{failure}</div>}
-          {finished && <div className="done">Saved {finished}</div>}
+          {finished !== null && (
+            <div className="done">
+              {typeof finished === 'string'
+                ? intl.formatMessage({ id: 'Saved {name}', defaultMessage: 'Saved {name}' }, { name: finished })
+                : intl.formatMessage({
+                  id: '{count, plural, one {Saved {count} file} other {Saved {count} files}}',
+                  defaultMessage: '{count, plural, one {Saved {count} file} other {Saved {count} files}}',
+                }, { count: finished })}
+            </div>
+          )}
 
           {/**
             * What the swarm is doing, which is the only explanation of a download that is not moving.
@@ -1106,7 +1157,10 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             */}
           {busy && !status && (
             <div className="swarm" data-testid="swarm">
-              <span className="item"><User />{peers} peers</span>
+              <span className="item">
+                <User />
+                {intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: peers })}
+              </span>
               <span className="item"><ArrowDown />{getHumanReadableSpeed(rate, true)}</span>
             </div>
           )}
@@ -1124,15 +1178,18 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             <details className="files" open>
               <summary>
                 {entries.length === offered.length
-                  ? `${offered.length} files`
-                  : `${entries.length} of ${offered.length} files`}
+                  ? intl.formatMessage({ id: '{count, plural, one {{count} file} other {{count} files}}', defaultMessage: '{count, plural, one {{count} file} other {{count} files}}' }, { count: offered.length })
+                  : intl.formatMessage({
+                    id: '{count, plural, one {{picked} of {count} files} other {{picked} of {count} files}}',
+                    defaultMessage: '{count, plural, one {{picked} of {count} files} other {{picked} of {count} files}}',
+                  }, { picked: entries.length, count: offered.length })}
               </summary>
               <div className="bulk">
                 <button type="button" onClick={pickAll} disabled={entries.length === offered.length}>
-                  Select all
+                  {intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })}
                 </button>
                 <button type="button" onClick={pickNone} disabled={entries.length === 0}>
-                  Select none
+                  {intl.formatMessage({ id: 'Select none', defaultMessage: 'Select none' })}
                 </button>
               </div>
               <div className="list">
@@ -1150,14 +1207,14 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
                       </label>
                       <span className="size">{getHumanReadableByteString(file.size)}</span>
                       {running
-                        ? <span className="mark">Downloading</span>
-                        : saved.has(file.index) && <span className="mark saved"><Check/>Saved</span>}
+                        ? <span className="mark">{intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' })}</span>
+                        : saved.has(file.index) && <span className="mark saved"><Check/>{intl.formatMessage({ id: 'Saved', defaultMessage: 'Saved' })}</span>}
                       {/**
                         * Shows "Download" and ANNOUNCES the file, because the visible label is only
                         * unambiguous next to the name in the same row. Read on its own, as a screen
                         * reader's element list does, a season pack is otherwise 24 buttons that all say
-                        * the same word. The visible text stays a prefix of the accessible name, so
-                        * "click Download" still addresses this button by voice.
+                        * the same word. The visible word stays in the accessible name, in every
+                        * language, so "click Download" still addresses this button by voice.
                         *
                         * Disabled only while a download is RUNNING, and enabled again the moment it
                         * ends, which is the whole of "take one file now and come back for the rest".
@@ -1165,11 +1222,11 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
                         * torrent and would re-anchor it away from each other on every chunk.
                         */}
                       <button
-                        aria-label={`Download ${leaf(file.path)}`}
-                        onClick={() => start([file], `Downloading ${leaf(file.path)}`)}
+                        aria-label={intl.formatMessage({ id: 'Download {name}#a file', defaultMessage: 'Download {name}', description: 'a file' }, { name: leaf(file.path) })}
+                        onClick={() => start([file], intl.formatMessage({ id: 'Downloading {name}', defaultMessage: 'Downloading {name}' }, { name: leaf(file.path) }))}
                         disabled={!listReady || busy}
                       >
-                        Download
+                        {intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })}
                       </button>
                     </div>
                   )
@@ -1185,7 +1242,9 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             */}
           {framed && openHere && (
             <div className="note">
-              Download not starting? <a href={openHere} target="_blank" rel="noreferrer">Open this page in Ripple</a>.
+              {intl.formatMessage({ id: 'Download not starting? <link>Open this page in Ripple</link>.', defaultMessage: 'Download not starting? <link>Open this page in Ripple</link>.' }, {
+                link: (text) => <a href={openHere} target="_blank" rel="noreferrer">{text}</a>,
+              })}
             </div>
           )}
         </div>
