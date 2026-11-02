@@ -19,15 +19,20 @@ import { render } from 'vitest-browser-react'
 const inspected: (number | null)[] = []
 let detailCb: ((detail: any) => void) | null = null
 
-vi.mock('../../src/torrent/client', () => ({
-  getTorrentClient: () => ({
+// one client, as the page has: a new one per render would subscribe again on every render, and empty the panel each time
+vi.mock('../../src/torrent/client', () => {
+  const client = {
     inspect: (handle: number | null) => { inspected.push(handle) },
     onDetail: (cb: (d: any) => void) => { detailCb = cb; return () => { detailCb = null } },
-  }),
-}))
+  }
+  return { getTorrentClient: () => client }
+})
 
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')
-const { startLanguage } = await import('../../src/i18n')
+const { IntlRoot, startLanguage } = await import('../../src/i18n')
+const { showEnglish, showIn } = await import('../i18n/show-in')
+const { default: de } = await import('../../src/locales/de.json')
+const { default: fr } = await import('../../src/locales/fr.json')
 // the dock carries its own css template, so unlike the old per-row panel it needs no page around it
 
 const torrent = (over: Partial<Torrent> = {}): Torrent => ({
@@ -135,7 +140,7 @@ const mount = async (
       onSave={extra.onSave ?? (() => {})}
       onClose={onClose}
     />,
-    sized(),
+    { ...sized(), wrapper: IntlRoot },
   )
 }
 
@@ -144,6 +149,89 @@ const tabButton = (screen: Awaited<ReturnType<typeof mount>>, name: string) =>
     .find((b) => b.textContent?.startsWith(name))!
 
 const send = (over: any = {}) => detailCb?.({ handle: 7, peers: [], trackers: [], ...over })
+
+const spaced = (text: string) => text.replace(/\s/gu, ' ')
+
+/** Each piece of text under `element`, in order, joined by ` | `. */
+const textsOf = (element: Element) => {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+  const texts: string[] = []
+  while (walker.nextNode()) if (walker.currentNode.textContent!.trim()) texts.push(spaced(walker.currentNode.textContent!.trim()))
+  return texts.join(' | ')
+}
+
+type Screen = Awaited<ReturnType<typeof mount>>
+
+/** The overview as `label: value` lines, in its order. */
+const overview = (screen: Screen) => [...screen.container.querySelectorAll('.fact')]
+  .map((f) => `${f.querySelector('label')?.textContent}: ${spaced(f.querySelector('span')?.textContent ?? '')}`)
+
+/** The panel's labels a screen reader is given, then its buttons' text. */
+const named = (screen: Screen) => [
+  ...[...screen.container.querySelectorAll('[aria-label]')].map((element) => element.getAttribute('aria-label')),
+  ...[...screen.container.querySelectorAll('button')].map(textsOf),
+]
+
+const rowsOf = (screen: Screen) => [...screen.container.querySelectorAll('.rows .row')].map(textsOf)
+
+// every branch of the overview the default torrent does not take
+const quiet = () => torrent({
+  downloaded: 2_000_000_000,
+  progress: 0.285,
+  seeds: 1,
+  peers: 1,
+  retry: { reason: 'stopped', attempt: 2, retryInSeconds: 5 },
+  stats: {
+    ...torrent().stats!,
+    allTimeDownload: 0,
+    swarmSeeds: -1,
+    swarmPeers: -1,
+    connectionsLimit: 0,
+    completedAt: 0,
+    hadIncoming: false,
+    numPieces: 0,
+    availability: 0.285,
+  },
+})
+
+const { PEER_FLAG, PEER_SOURCE } = await import('libtorrent-wasm')
+// every tag: the first an incoming encrypted seed over uTP from a tracker, with no client name; the second dialled over TCP
+const PEERS = [
+  peer({ flags: PEER_FLAG.utpSocket | PEER_FLAG.rc4Encrypted | PEER_FLAG.seed, source: PEER_SOURCE.tracker, client: '' }),
+  peer({ endpoint: '198.51.100.1:6881', downloadRate: 0, totalDownload: 0, flags: PEER_FLAG.localConnection, source: PEER_SOURCE.dht }),
+]
+// every state, in tier order
+const TRACKERS = [
+  tracker(),
+  tracker({ url: 'udp://b.invalid:80/announce', fails: 3, tier: 1 }),
+  tracker({ url: 'udp://c.invalid:80/announce', fails: -1, seeders: -1, leechers: -1, nextAnnounceIn: -1, tier: 2 }),
+  tracker({ url: 'udp://d.invalid:80/announce', updating: true, tier: 3 }),
+]
+
+/** The rows of the Content, Peers and Trackers tabs, after what each says before the engine answers. */
+const otherTabs = async (screen: Screen) => {
+  const open = (i: number) => screen.container.querySelectorAll<HTMLElement>('.tabs button')[i]!.click()
+  open(1)
+  await expect.poll(() => screen.container.querySelector('.row.file')).toBeTruthy()
+  const files = rowsOf(screen)
+  open(2)
+  await expect.poll(() => screen.container.querySelector('.none')).toBeTruthy()
+  const asking = screen.container.querySelector('.none')!.textContent
+  send({ peers: [], trackers: [] })
+  await expect.poll(() => screen.container.querySelector('.none')?.textContent).not.toBe(asking)
+  const nobody = screen.container.querySelector('.none')!.textContent
+  open(3)
+  await expect.poll(() => screen.container.querySelector('.none')?.textContent).not.toBe(nobody)
+  const noTrackers = screen.container.querySelector('.none')!.textContent
+  send({ peers: PEERS, trackers: TRACKERS })
+  await expect.poll(() => rowsOf(screen).length).toBe(5)
+  const trackers = rowsOf(screen)
+  open(2)
+  await expect.poll(() => rowsOf(screen).length).toBe(3)
+  return { files, asking, nobody, noTrackers, peers: rowsOf(screen), trackers }
+}
+
+const date = (unixSeconds: number, locale: string) => spaced(new Date(unixSeconds * 1000).toLocaleString(locale))
 
 describe('the docked torrent details', () => {
   it('names the torrent it is showing, since it sits away from the row', async () => {
@@ -219,13 +307,131 @@ describe('the docked torrent details', () => {
     await expect.element(screen.getByText('2m (1m this session)')).toBeInTheDocument()
   })
 
+  // English as the panel wrote it before its text was translated, every branch of it
+  describe('in English', () => {
+    it('writes each fact of the overview, its dates as toLocaleString() and its numbers as toFixed() do', async () => {
+      const { addedAt, completedAt } = torrent().stats!
+      expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
+        'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6 of 200', 'Downloaded: 1 GB (500 MB this session)',
+        'Uploaded: 250 MB (100 MB this session)', 'Seeds: 12 connected of 40 known', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
+        'Peers: 82 connected of 12 known', 'Share ratio: 0.25', 'Wasted: 4.1 kB', 'Remaining: 1 GB', 'Seeding for: 2m (1m this session)',
+        'Availability: 2.40', 'Inbound peers: Yes', 'Total size: 2 GB', 'Pieces: 7630 x 262.1 kB (have 3815)', 'Progress: 50%',
+        `Added on: ${date(addedAt, 'en-US')}`, `Completed on: ${date(completedAt, 'en-US')}`, `Last seen complete: ${date(completedAt, 'en-US')}`,
+        'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 3, file too short',
+      ])
+      // 0.285 is 0.28499... as a double, which toFixed() rounds down and Intl, reading it as written, up
+      expect(overview(await mount(quiet()))).toEqual([
+        'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6', 'Downloaded: 0 B (500 MB this session)',
+        'Uploaded: 250 MB (100 MB this session)', 'Seeds: 1 connected', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
+        'Peers: 1 connected', 'Share ratio: ∞', 'Wasted: 4.1 kB', 'Remaining: Nothing', 'Seeding for: 2m (1m this session)',
+        'Availability: 0.28', 'Inbound peers: None yet', 'Total size: 2 GB', 'Pieces: -', 'Progress: 28%',
+        `Added on: ${date(addedAt, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
+        'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 2',
+      ])
+      expect(overview(await mount(torrent({ stats: null }), null))).toEqual([
+        'Time active: -', 'Time left: 4m', 'Connections: -', 'Downloaded: 1 GB', 'Uploaded: -', 'Seeds: 12', 'Download speed: 4 MB/s',
+        'Upload speed: 250 kB/s', 'Peers: 82', 'Share ratio: -', 'Wasted: -', 'Remaining: 1 GB', 'Seeding for: -', 'Availability: -',
+        'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 50%', 'Added on: -', 'Completed on: -', 'Last seen complete: -',
+        'Files: 1', 'Save path: -', 'Info hash: aabbccddeeff00112233445566778899aabbccdd',
+      ])
+    })
+
+    it('names its parts, and words its other tabs, their columns, tags and states', async () => {
+      const screen = await mount()
+      expect(named(screen)).toEqual(['Details for Big Buck Bunny', 'Resize the details panel', 'Torrent details', 'Close', 'General', 'Content | 1', 'Peers', 'Trackers'])
+      expect(await otherTabs(screen)).toEqual({
+        files: ['Pack/ | E01.mkv | 1 GB | Save'],
+        asking: 'Asking the engine…',
+        nobody: 'Nobody is connected right now.',
+        noTrackers: 'No trackers.',
+        peers: [
+          'Address | Client | Has | Down | Up | Got | Sent',
+          '203.0.113.7:51413 | uTP | incoming | encrypted | seed | tracker | unknown | 42% | 120 kB/s | - | 5 MB | -',
+          '198.51.100.1:6881 | TCP | DHT | qBittorrent 4.6.5 | 42% | - | - | - | -',
+        ],
+        trackers: [
+          'Tracker | Status | Tier | Seeds | Peers | Next',
+          'udp://tracker.opentrackr.org:1337/announce | Working | 0 | 40 | 9 | 28m',
+          'udp://b.invalid:80/announce | Failed 3× | 1 | 40 | 9 | 28m',
+          'udp://c.invalid:80/announce | Not contacted | 2 | - | - | -',
+          'udp://d.invalid:80/announce | Announcing… | 3 | 40 | 9 | 28m',
+        ],
+      })
+    })
+  })
+
   describe('in the language of the page', () => {
-    afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+    afterEach(showEnglish)
 
     it('writes its durations in it', async () => {
       await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
       const screen = await mount()
       await expect.element(screen.getByText('1h 0min (15min this session)')).toBeInTheDocument()
+    })
+
+    // the browser's own language used to write them, so a French page in an English browser read 8/12/2025, 12:00:00 PM
+    it('writes its dates as the page\'s language does, not as the browser\'s does', async () => {
+      await showIn('fr', fr, 'fr-FR')
+      const { addedAt } = torrent().stats!
+      const added = overview(await mount()).find((fact) => fact.startsWith('Ajouté le: '))
+      expect(date(addedAt, 'fr-FR')).not.toBe(date(addedAt, navigator.language))
+      expect(added).toBe(`Ajouté le: ${date(addedAt, 'fr-FR')}`)
+    })
+
+    it('words each fact of the overview in German, with German numbers', async () => {
+      await showIn('de', de, 'de-DE')
+      const { addedAt, completedAt } = torrent().stats!
+      expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
+        'Aktive Zeit: 1h 0 Min. (15 Min. in dieser Sitzung)', 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
+        'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 12 verbunden von 40 bekannten', 'Download-Geschwindigkeit: 4 MB/s',
+        'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 1 GB',
+        'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB',
+        'Teile: 7630 × 262,1 kB (vorhanden: 3815)', 'Fortschritt: 50 %', `Hinzugefügt am: ${date(addedAt, 'de-DE')}`,
+        `Abgeschlossen am: ${date(completedAt, 'de-DE')}`, `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`, 'Dateien: 1',
+        'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 3, file too short',
+      ])
+      expect(overview(await mount(quiet()))).toEqual([
+        'Aktive Zeit: 1h 0 Min. (15 Min. in dieser Sitzung)', 'Restzeit: 4m', 'Verbindungen: 6', 'Heruntergeladen: 0 Byte (500 MB in dieser Sitzung)',
+        'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 1 verbunden', 'Download-Geschwindigkeit: 4 MB/s', 'Upload-Geschwindigkeit: 250 kB/s',
+        'Peers: 1 verbunden', 'Verhältnis: ∞', 'Verworfen: 4,1 kB', 'Verbleibend: Nichts', 'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)',
+        'Verfügbarkeit: 0,28', 'Eingehende Peers: Noch keine', 'Gesamtgröße: 2 GB', 'Teile: -', 'Fortschritt: 28 %',
+        `Hinzugefügt am: ${date(addedAt, 'de-DE')}`, 'Abgeschlossen am: Noch nicht', `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`,
+        'Dateien: 1', 'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 2',
+      ])
+    })
+
+    it('names its parts, and words its other tabs, their columns, tags and states, in German', async () => {
+      await showIn('de', de, 'de-DE')
+      const screen = await mount()
+      expect(named(screen)).toEqual(['Details zu Big Buck Bunny', 'Größe des Detailbereichs ändern', 'Torrent-Details', 'Schließen', 'Allgemein', 'Inhalt | 1', 'Peers', 'Tracker'])
+      expect(await otherTabs(screen)).toEqual({
+        files: ['Pack/ | E01.mkv | 1 GB | Speichern'],
+        asking: 'Engine wird abgefragt…',
+        nobody: 'Gerade ist niemand verbunden.',
+        noTrackers: 'Keine Tracker.',
+        peers: [
+          'Adresse | Client | Hat | Download | Upload | Erhalten | Gesendet',
+          '203.0.113.7:51413 | uTP | eingehend | verschlüsselt | Seeder | Tracker | unbekannt | 42 % | 120 kB/s | - | 5 MB | -',
+          '198.51.100.1:6881 | TCP | DHT | qBittorrent 4.6.5 | 42 % | - | - | - | -',
+        ],
+        trackers: [
+          'Tracker | Status | Ebene | Seeder | Peers | Nächste',
+          'udp://tracker.opentrackr.org:1337/announce | Funktioniert | 0 | 40 | 9 | 28 Min.',
+          'udp://b.invalid:80/announce | 3× fehlgeschlagen | 1 | 40 | 9 | 28 Min.',
+          'udp://c.invalid:80/announce | Nicht kontaktiert | 2 | - | - | -',
+          'udp://d.invalid:80/announce | Wird angekündigt… | 3 | 40 | 9 | 28 Min.',
+        ],
+      })
+    })
+
+    it('agrees connected with a seed or a peer, and with how many', async () => {
+      await showIn('fr', fr, 'fr-FR')
+      expect(overview(await mount()).filter((fact) => /^(Sources complètes|Pairs):/u.test(fact))).toEqual([
+        'Sources complètes: 12 connectées sur 40 au total', 'Pairs: 82 connectés sur 12 au total',
+      ])
+      expect(overview(await mount(quiet())).filter((fact) => /^(Sources complètes|Pairs):/u.test(fact))).toEqual([
+        'Sources complètes: 1 connectée', 'Pairs: 1 connecté',
+      ])
     })
   })
 

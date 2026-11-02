@@ -1,7 +1,4 @@
 {
-  "d-details": [
-    "src/router/torrent-detail.tsx"
-  ],
   "e-add-share-create": [
     "src/components/add-torrent-dialog.tsx",
     "src/components/create-torrent-dialog.tsx",
