@@ -5,6 +5,7 @@ import { userEvent } from '@vitest/browser/context'
 import { RateLimitDialog } from '../../src/components/rate-limit-dialog'
 import { IntlRoot } from '../../src/i18n'
 import fr from '../../src/locales/fr.json'
+import ko from '../../src/locales/ko.json'
 import { showEnglish, showIn } from '../i18n/show-in'
 
 /**
@@ -108,6 +109,7 @@ describe('refusing what it cannot read', () => {
     await expect.poll(() => field()?.value).toBe('2000')
     await userEvent.fill(field(), '')
     await expect.poll(() => submit()?.disabled).toBe(true)
+    expect(submit().textContent).toBe('Limit to Unlimited')
     expect(document.body.textContent).toContain('or tick Unlimited')
   })
 
@@ -153,5 +155,14 @@ describe('in the language of the page', () => {
     await expect.poll(() => document.querySelector('.problem')?.textContent).toBe('Saisissez une vitesse en ko/s ou cochez Illimité.')
     await userEvent.click(unlimitedBox())
     await expect.poll(() => submit()?.textContent).toBe('Retirer la limite')
+  })
+
+  /** Korean joins Unlimited with 으로 where a speed takes 로, so Unlimited put in place of a speed reads wrong. */
+  it('words the empty field\'s button as a whole, not as a speed', async () => {
+    await showIn('ko', ko, 'ko-KR')
+    apply({ title: '다운로드 속도 제한', value: 2_000_000 })
+    await expect.poll(() => submit()?.textContent).toMatch(/^2\s?MB\/s로 제한$/u)
+    await userEvent.fill(field(), '')
+    await expect.poll(() => submit()?.textContent).toBe('무제한으로 제한')
   })
 })

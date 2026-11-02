@@ -92,6 +92,7 @@
   "Let Ripple delete {name}?": "Ripple {name} adlı torrenti silsin mi?",
   "Library": "Kütüphane",
   "Limit download rate...": "İndirme hızını sınırla...",
+  "Limit to Unlimited": "Sınırsız ile sınırla",
   "Limit to {limit}": "{limit} ile sınırla",
   "Limit upload rate...": "Gönderme hızını sınırla...",
   "Magnet added": "Magnet bağlantısı eklendi",

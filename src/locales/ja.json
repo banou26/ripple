@@ -92,6 +92,7 @@
   "Let Ripple delete {name}?": "Ripple に {name} の削除を許可しますか？",
   "Library": "ライブラリ",
   "Limit download rate...": "ダウンロード速度を制限...",
+  "Limit to Unlimited": "無制限に制限",
   "Limit to {limit}": "{limit}に制限",
   "Limit upload rate...": "アップロード速度を制限...",
   "Magnet added": "マグネットリンクを追加しました",
