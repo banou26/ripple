@@ -253,7 +253,7 @@ const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
   // busiest first, because that is the one a person is looking for
   const sorted = [...peers].sort((a, b) => (b.downloadRate + b.uploadRate) - (a.downloadRate + a.uploadRate))
   return (
-    <div className="rows">
+    <div className="rows peers">
       <div className="row head">
         <span className="name">{intl.formatMessage({ id: 'Address', defaultMessage: 'Address' })}</span>
         <span className="client">{intl.formatMessage({ id: 'Client', defaultMessage: 'Client' })}</span>
@@ -301,7 +301,7 @@ const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boole
   if (!trackers.length) return <p className="none">{intl.formatMessage({ id: 'No trackers.', defaultMessage: 'No trackers.' })}</p>
   const sorted = [...trackers].sort((a, b) => a.tier - b.tier)
   return (
-    <div className="rows">
+    <div className="rows trackers">
       <div className="row head">
         <span className="name">{intl.formatMessage({ id: 'Tracker', defaultMessage: 'Tracker' })}</span>
         <span className="client">{intl.formatMessage({ id: 'Status', defaultMessage: 'Status' })}</span>
@@ -537,6 +537,29 @@ export const dockStyle = css`
     flex-direction: column;
   }
 
+  /* each column as wide as its widest cell, its name included, so a long name widens its column rather than running
+     past it: Turkish's GÖNDERENLER is 91 px in Noto Sans, German's DOWNLOAD 74 px in DejaVu Sans, which GitHub's runner
+     draws */
+  .peers,
+  .trackers {
+    display: grid;
+    column-gap: 12px;
+
+    .row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: subgrid;
+    }
+  }
+
+  .peers {
+    grid-template-columns: minmax(0, 1fr) repeat(6, min-content);
+  }
+
+  .trackers {
+    grid-template-columns: minmax(0, 1fr) repeat(5, min-content);
+  }
+
   .row {
     display: flex;
     align-items: center;
@@ -618,7 +641,7 @@ export const dockStyle = css`
 
     .num {
       flex: none;
-      width: 72px;
+      min-width: 72px;
       text-align: right;
       color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
@@ -674,6 +697,11 @@ export const dockStyle = css`
     .row .client,
     .row .wide {
       display: none;
+    }
+
+    .peers,
+    .trackers {
+      grid-template-columns: minmax(0, 1fr) repeat(3, min-content);
     }
   }
 `

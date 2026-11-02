@@ -1,7 +1,8 @@
 import type { Torrent } from '../../src/torrent/types'
 import type { PeerInfo, TrackerInfo } from '../../src/torrent/worker'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { page } from '@vitest/browser/context'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 /**
@@ -33,6 +34,7 @@ const { IntlRoot, startLanguage } = await import('../../src/i18n')
 const { showEnglish, showIn } = await import('../i18n/show-in')
 const { default: de } = await import('../../src/locales/de.json')
 const { default: fr } = await import('../../src/locales/fr.json')
+const CATALOGUES = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
 // the dock carries its own css template, so unlike the old per-row panel it needs no page around it
 
 const torrent = (over: Partial<Torrent> = {}): Torrent => ({
@@ -434,6 +436,43 @@ describe('the docked torrent details', () => {
         'Sources complètes: 1 connectée', 'Pairs: 1 connecté',
       ])
     })
+
+    /** What has no room in the trackers' and the peers' tables: a column's name past it or out of line, a name under 80 px. */
+    const noRoom = async (screen: Screen) => {
+      const problems: string[] = []
+      const shown = (row: Element) => [...row.children].filter((cell) => cell.getBoundingClientRect().width > 0)
+      for (const [tab, table, rows] of [[3, 'trackers', TRACKERS.length + 1], [2, 'peers', PEERS.length + 1]] as const) {
+        screen.container.querySelectorAll<HTMLElement>('.tabs button')[tab]!.click()
+        await expect.poll(() => rowsOf(screen).length).toBe(rows)
+        const [head, first] = screen.container.querySelectorAll('.rows .row')
+        const [labels, cells] = [shown(head!), shown(first!)]
+        for (const [i, label] of labels.entries()) {
+          const [box, under, before] = [label, cells[i]!, labels[i - 1]].map((cell) => cell?.getBoundingClientRect())
+          if (label.scrollWidth > label.clientWidth + 1) problems.push(`${table}: ${label.textContent} runs past its column`)
+          else if (Math.abs(box!.left - under!.left) > 0.5 || Math.abs(box!.right - under!.right) > 0.5 || box!.left < (before?.right ?? 0)) {
+            problems.push(`${table}: ${label.textContent} is out of line`)
+          }
+        }
+        const room = cells[0]!.getBoundingClientRect().width
+        if (room < 80) problems.push(`${table}: ${room} px for a name`)
+      }
+      return problems
+    }
+
+    for (const [path, catalogue] of Object.entries(CATALOGUES)) {
+      const language = path.slice(path.lastIndexOf('/') + 1, -'.json'.length)
+      it(`gives each column room for its name, and a phone room for an address, in ${language}`, async () => {
+        onTestFinished(() => page.viewport(1280, 720))
+        await showIn(language, catalogue)
+        const screen = await mount()
+        screen.container.querySelectorAll<HTMLElement>('.tabs button')[3]!.click()
+        send({ peers: PEERS, trackers: TRACKERS })
+        expect(await noRoom(screen)).toEqual([])
+        await page.viewport(390, 844)
+        screen.container.style.width = '390px'
+        expect(await noRoom(screen)).toEqual([])
+      })
+    }
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {
