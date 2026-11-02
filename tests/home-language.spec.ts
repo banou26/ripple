@@ -476,6 +476,65 @@ const optionSurfaces = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+// what the overview reads off a status beside what a row reads, and the engine's answer about one torrent's swarm
+const DETAIL_STATUS = {
+  allTimeDownload: 2.25 * GB, allTimeUpload: 0.4 * GB, sessionDownload: GB, sessionUpload: 0.1 * GB, wasted: 4096, swarmSeeds: 40,
+  swarmPeers: 120, numConnections: 64, connectionsLimit: 200, availability: 2.4, addedAt: 1_755_000_000, completedAt: 0,
+  lastSeenComplete: 1_755_003_600, hadIncoming: true, savePath: '/downloads', numPiecesTotal: 274_658, numPiecesHave: 137_329,
+}
+const SWARM_PEER = { client: 'qBittorrent 4.6.5', flags: 0, source: 0, downloadRate: 120_000, uploadRate: 40_000, totalDownload: 5_000_000, totalUpload: 900_000, progress: 0.42 }
+// libtorrent-wasm's PEER_FLAG and PEER_SOURCE: an incoming encrypted seed over uTP from a tracker, with no client name, and
+// one dialled over TCP found on the DHT
+const SWARM_PEERS = [
+  { ...SWARM_PEER, endpoint: '203.0.113.7:51413', client: '', flags: (1 << 17) | (1 << 19) | 1024, source: 1 },
+  { ...SWARM_PEER, endpoint: '198.51.100.1:6881', flags: 32, source: 2, downloadRate: 0 },
+]
+const SWARM_TRACKER = { message: '', verified: true, nextAnnounceIn: 1_700, seeders: 40, leechers: 9, downloaded: 500, fails: 0, updating: false }
+const SWARM_TRACKERS = [
+  { ...SWARM_TRACKER, url: 'udp://tracker.opentrackr.org:1337/announce', tier: 0 },
+  { ...SWARM_TRACKER, url: 'udp://open.demonii.com:1337/announce', tier: 1, fails: 3 },
+  { ...SWARM_TRACKER, url: 'udp://tracker.torrent.eu.org:451/announce', tier: 2, fails: -1, seeders: -1, leechers: -1, nextAnnounceIn: -1 },
+  { ...SWARM_TRACKER, url: 'https://tracker.example.org/announce', tier: 3, updating: true },
+]
+
+/** Draws each tab of the details panel, before and after the engine answers about the swarm, at `width`. */
+const detailSurfaces = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
+  const selected = TORRENTS[3]!
+  const torrents = TORRENTS.map(t => t === selected ? { ...t, status: { ...t.status, ...DETAIL_STATUS } } : t)
+  await page.setViewportSize({ width, height: 1500 })
+  // as tall as it goes, so a screenshot shows the whole overview
+  await page.addInitScript(() => localStorage.setItem('ripple:dock-height', '720'))
+  await page.goto(origin)
+  await library(page, LIST, torrents)
+  const dock = page.locator('main + section')
+  const tab = (i: number) => dock.locator('.tabs button').nth(i)
+  await page.locator('.torrent', { hasText: 'Having.Trouble' }).click()
+  await expect(dock.locator('.fact').first()).toBeVisible()
+  await read('details overview')
+  await tab(1).click()
+  await expect(dock.locator('.row.file')).toHaveCount(1)
+  await read('details content')
+  await tab(2).click()
+  await expect(dock.locator('.none')).toBeVisible()
+  await read('details asking')
+  await post(page, { type: 'state', torrents, detail: { handle: selected.handle, peers: [], trackers: [] } })
+  await read('details nobody')
+  await tab(3).click()
+  await read('details no trackers')
+  await post(page, { type: 'state', torrents, detail: { handle: selected.handle, peers: SWARM_PEERS, trackers: SWARM_TRACKERS } })
+  // about eight letters of a tracker's URL or a peer's address on a line, as the library's table keeps for a name
+  const room = () => dock.locator('.rows .row:not(.head) .name').first().evaluate(cell => cell.getBoundingClientRect().width)
+  await expect(dock.locator('.rows .row')).toHaveCount(SWARM_TRACKERS.length + 1)
+  await read('details trackers')
+  expect(await room(), 'a tracker\'s URL has room').toBeGreaterThanOrEqual(80)
+  await tab(2).click()
+  await expect(dock.locator('.rows .row')).toHaveCount(SWARM_PEERS.length + 1)
+  await read('details peers')
+  expect(await room(), 'a peer\'s address has room').toBeGreaterThanOrEqual(80)
+  return { words, cut }
+}
+
 test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
@@ -493,6 +552,11 @@ test.describe('in a language ripple does not offer yet', () => {
         test.setTimeout(120_000)
         await opening(page, language)
         await expectAllTranslated(page, language, await smallParts(page, width))
+      })
+
+      test(`${language} at ${width} px: the details panel fits, in the language`, async ({ page }) => {
+        await opening(page, language)
+        await expectAllTranslated(page, language, await detailSurfaces(page, width))
       })
 
       test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
@@ -639,6 +703,16 @@ test('the control: in English the small parts\' own words are read too', async (
   test.setTimeout(120_000)
   const { words } = await smallParts(page, 1280)
   for (const text of ['Running out of room', 'Persistent', 'Blocked', 'Manage account', 'Add Sintel']) expect(words).toContain(text)
+})
+
+test('the control: in English the details panel\'s own words are read too', async ({ page }) => {
+  const { words } = await detailSurfaces(page, 1280)
+  for (const text of [
+    'Details for Having.Trouble', 'Resize the details panel', 'Torrent details', 'General', 'Transfer', 'Time active', 'Seeds',
+    '12 connected of 40 known', 'Inbound peers', 'Yes', 'Completed on', 'Not yet', 'Retrying', 'Content', 'Save', 'Asking the engine…',
+    'Nobody is connected right now.', 'No trackers.', 'Working', 'Failed 3×', 'Not contacted', 'Announcing…', 'Tier', 'Next',
+    'Address', 'Has', 'Got', 'Sent', 'incoming', 'encrypted', 'seed', 'tracker', 'unknown',
+  ]) expect(words).toContain(text)
 })
 
 test('the control: in English the options menu\'s and its dialogs\' own words are read too', async ({ page }) => {

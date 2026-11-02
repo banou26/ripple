@@ -8,13 +8,15 @@ import {
   EMPHASIS, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
 
 import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
-import { getHumanReadableByteString } from '../utils/bytes'
+import { unitLocale } from '../i18n/languages'
+import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { writeDuration } from '../torrent/uptime'
 import { speed } from './torrent-format'
 import { contentFiles } from '../torrent/types'
@@ -36,20 +38,28 @@ import { hint } from '../components/hint'
 const TABS = ['general', 'files', 'peers', 'trackers'] as const
 type Tab = (typeof TABS)[number]
 
-const TAB_LABEL: Record<Tab, string> = {
-  general: 'General',
-  files: 'Content',
-  peers: 'Peers',
-  trackers: 'Trackers',
-}
+const TAB_LABEL = defineMessages<Tab>({
+  general: { id: 'General', defaultMessage: 'General' },
+  files: { id: 'Content', defaultMessage: 'Content' },
+  peers: { id: 'Peers', defaultMessage: 'Peers' },
+  trackers: { id: 'Trackers', defaultMessage: 'Trackers' },
+})
 
 const HEIGHT_KEY = 'ripple:dock-height'
 const MIN_HEIGHT = 140
 const MAX_HEIGHT = 720
 const DEFAULT_HEIGHT = 300
 
+const UNKNOWN = '-'
+
 const bytes = (n: number) => getHumanReadableByteString(n, true)
-const pct = (fraction: number) => `${(fraction * 100).toFixed(fraction > 0 && fraction < 0.01 ? 2 : 0)}%`
+// both round by toFixed first, as the English always has: Intl reads 0.285 as written and rounds it up, toFixed down
+const pct = (fraction: number) => {
+  const digits = fraction > 0 && fraction < 0.01 ? 2 : 0
+  return writePercent(Number((fraction * 100).toFixed(digits)) / 100, digits)
+}
+const twoPlaces = (n: number) => new Intl.NumberFormat(unitLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
+  .format(Number(n.toFixed(2)))
 
 /** `Pack/Season 1/E01.mkv` reads as `E01.mkv` with the rest kept, quieter, in front of it. */
 const splitPath = (path: string): [string, string] => {
@@ -58,16 +68,17 @@ const splitPath = (path: string): [string, string] => {
 }
 
 const seconds = (s: number): string => {
-  if (s < 0) return '-'
+  if (s < 0) return UNKNOWN
   if (s < 60) return writeDuration({ seconds: s })
   if (s < 3600) return writeDuration({ minutes: Math.round(s / 60) })
   if (s < 86_400) return writeDuration({ hours: Math.floor(s / 3600), minutes: Math.round((s % 3600) / 60) })
   return writeDuration({ days: Math.floor(s / 86_400), hours: Math.round((s % 86_400) / 3600) })
 }
 
-/** Unix SECONDS, which is what libtorrent deals in; 0 means it has not happened. */
-const when = (unixSeconds: number): string =>
-  unixSeconds > 0 ? new Date(unixSeconds * 1000).toLocaleString() : 'Not yet'
+/** Unix SECONDS, which is what libtorrent deals in; 0 means it has not happened. Written as toLocaleString() writes it. */
+const when = (unixSeconds: number, intl: IntlShape): string => unixSeconds > 0
+  ? intl.formatDate(unixSeconds * 1000, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+  : intl.formatMessage({ id: 'Not yet', defaultMessage: 'Not yet' })
 
 /**
  * Uploaded over downloaded, across every session.
@@ -77,8 +88,8 @@ const when = (unixSeconds: number): string =>
  * either way. Dividing without the guard prints NaN on a brand new torrent.
  */
 const ratio = (s: TorrentStats): string => {
-  if (s.allTimeDownload === 0) return s.allTimeUpload > 0 ? '∞' : '0.00'
-  return (s.allTimeUpload / s.allTimeDownload).toFixed(2)
+  if (s.allTimeDownload === 0) return s.allTimeUpload > 0 ? '∞' : twoPlaces(0)
+  return twoPlaces(s.allTimeUpload / s.allTimeDownload)
 }
 
 const Fact = ({ label, value, mono }: { label: string, value: React.ReactNode, mono?: boolean }) => (
@@ -89,56 +100,76 @@ const Fact = ({ label, value, mono }: { label: string, value: React.ReactNode, m
 )
 
 const General = ({ t }: { t: Torrent }) => {
+  const intl = useIntl()
   const s = t.stats
   const remaining = Math.max(0, t.size - t.downloaded)
+  const withSession = (total: string, session: string) =>
+    intl.formatMessage({ id: '{total} ({session} this session)', defaultMessage: '{total} ({session} this session)' }, { total, session })
+  // a seed and a peer are each their own message, as a word for connected agrees with either in some languages
+  const seeds = s && (s.swarmSeeds >= 0
+    ? intl.formatMessage({ id: '{count, plural, one {{count} connected of {known} known} other {{count} connected of {known} known}}#seeds', defaultMessage: '{count, plural, one {{count} connected of {known} known} other {{count} connected of {known} known}}', description: 'seeds' }, { count: t.seeds, known: s.swarmSeeds })
+    : intl.formatMessage({ id: '{count, plural, one {{count} connected} other {{count} connected}}#seeds', defaultMessage: '{count, plural, one {{count} connected} other {{count} connected}}', description: 'seeds' }, { count: t.seeds }))
+  const peers = s && (s.swarmPeers >= 0
+    ? intl.formatMessage({ id: '{count, plural, one {{count} connected of {known} known} other {{count} connected of {known} known}}#peers', defaultMessage: '{count, plural, one {{count} connected of {known} known} other {{count} connected of {known} known}}', description: 'peers' }, { count: t.peers, known: s.swarmPeers })
+    : intl.formatMessage({ id: '{count, plural, one {{count} connected} other {{count} connected}}#peers', defaultMessage: '{count, plural, one {{count} connected} other {{count} connected}}', description: 'peers' }, { count: t.peers }))
   return (
     <div className="general">
       <section>
-        <h3>Transfer</h3>
+        <h3>{intl.formatMessage({ id: 'Transfer', defaultMessage: 'Transfer' })}</h3>
         <div className="facts">
           {/* the same shape as Downloaded and Uploaded below: the all-time figure, then what this
               session put into it. A total on its own cannot say whether anything is happening now. */}
-          <Fact label="Time active" value={s ? `${seconds(s.activeSeconds)} (${seconds(s.sessionActiveSeconds)} this session)` : '-'}/>
-          <Fact label="Time left" value={t.state === 'downloading' && t.eta !== '-' ? t.eta : '-'}/>
-          <Fact label="Connections" value={s ? `${s.numConnections}${s.connectionsLimit > 0 ? ` of ${s.connectionsLimit}` : ''}` : '-'}/>
+          <Fact label={intl.formatMessage({ id: 'Time active', defaultMessage: 'Time active' })} value={s ? withSession(seconds(s.activeSeconds), seconds(s.sessionActiveSeconds)) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Time left', defaultMessage: 'Time left' })} value={t.state === 'downloading' && t.eta !== '-' ? t.eta : UNKNOWN}/>
+          <Fact
+            label={intl.formatMessage({ id: 'Connections', defaultMessage: 'Connections' })}
+            value={s ? (s.connectionsLimit > 0 ? intl.formatMessage({ id: '{count} of {limit}', defaultMessage: '{count} of {limit}' }, { count: s.numConnections, limit: s.connectionsLimit }) : String(s.numConnections)) : UNKNOWN}
+          />
           {/* all-time, not this session: a ratio from session figures is wrong for anything ever restarted */}
-          <Fact label="Downloaded" value={s ? `${bytes(s.allTimeDownload)} (${bytes(s.sessionDownload)} this session)` : bytes(t.downloaded)}/>
-          <Fact label="Uploaded" value={s ? `${bytes(s.allTimeUpload)} (${bytes(s.sessionUpload)} this session)` : '-'}/>
-          <Fact label="Seeds" value={s ? `${t.seeds} connected${s.swarmSeeds >= 0 ? ` of ${s.swarmSeeds} known` : ''}` : String(t.seeds)}/>
-          <Fact label="Download speed" value={speed(t.down)}/>
-          <Fact label="Upload speed" value={speed(t.up)}/>
-          <Fact label="Peers" value={s ? `${t.peers} connected${s.swarmPeers >= 0 ? ` of ${s.swarmPeers} known` : ''}` : String(t.peers)}/>
-          <Fact label="Share ratio" value={s ? ratio(s) : '-'}/>
+          <Fact label={intl.formatMessage({ id: 'Downloaded', defaultMessage: 'Downloaded' })} value={s ? withSession(bytes(s.allTimeDownload), bytes(s.sessionDownload)) : bytes(t.downloaded)}/>
+          <Fact label={intl.formatMessage({ id: 'Uploaded', defaultMessage: 'Uploaded' })} value={s ? withSession(bytes(s.allTimeUpload), bytes(s.sessionUpload)) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Seeds', defaultMessage: 'Seeds' })} value={seeds || String(t.seeds)}/>
+          <Fact label={intl.formatMessage({ id: 'Download speed', defaultMessage: 'Download speed' })} value={speed(t.down)}/>
+          <Fact label={intl.formatMessage({ id: 'Upload speed', defaultMessage: 'Upload speed' })} value={speed(t.up)}/>
+          <Fact label={intl.formatMessage({ id: 'Peers', defaultMessage: 'Peers' })} value={peers || String(t.peers)}/>
+          <Fact label={intl.formatMessage({ id: 'Share ratio', defaultMessage: 'Share ratio' })} value={s ? ratio(s) : UNKNOWN}/>
           {/* hash failures plus bytes that arrived after we already had them */}
-          <Fact label="Wasted" value={s ? bytes(s.wasted) : '-'}/>
-          <Fact label="Remaining" value={remaining === 0 ? 'Nothing' : bytes(remaining)}/>
-          <Fact label="Seeding for" value={s ? `${seconds(s.seedingSeconds)} (${seconds(s.sessionSeedingSeconds)} this session)` : '-'}/>
+          <Fact label={intl.formatMessage({ id: 'Wasted', defaultMessage: 'Wasted' })} value={s ? bytes(s.wasted) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Remaining', defaultMessage: 'Remaining' })} value={remaining === 0 ? intl.formatMessage({ id: 'Nothing', defaultMessage: 'Nothing' }) : bytes(remaining)}/>
+          <Fact label={intl.formatMessage({ id: 'Seeding for', defaultMessage: 'Seeding for' })} value={s ? withSession(seconds(s.seedingSeconds), seconds(s.sessionSeedingSeconds)) : UNKNOWN}/>
           {/* Below 1 means no combination of the peers we can see holds a whole copy. Negative is
               libtorrent's "not known yet", which happens before metadata or before any peer has
               sent a bitfield, and printing it as -1.00 reads as a real measurement of nothing. */}
-          <Fact label="Availability" value={s && s.availability >= 0 ? s.availability.toFixed(2) : '-'}/>
-          <Fact label="Inbound peers" value={s ? (s.hadIncoming ? 'Yes' : 'None yet') : '-'}/>
+          <Fact label={intl.formatMessage({ id: 'Availability', defaultMessage: 'Availability' })} value={s && s.availability >= 0 ? twoPlaces(s.availability) : UNKNOWN}/>
+          <Fact
+            label={intl.formatMessage({ id: 'Inbound peers', defaultMessage: 'Inbound peers' })}
+            value={s ? (s.hadIncoming ? intl.formatMessage({ id: 'Yes', defaultMessage: 'Yes' }) : intl.formatMessage({ id: 'None yet', defaultMessage: 'None yet' })) : UNKNOWN}
+          />
         </div>
       </section>
       <section>
-        <h3>Information</h3>
+        <h3>{intl.formatMessage({ id: 'Information', defaultMessage: 'Information' })}</h3>
         <div className="facts">
-          <Fact label="Total size" value={bytes(t.size)}/>
+          <Fact label={intl.formatMessage({ id: 'Total size', defaultMessage: 'Total size' })} value={bytes(t.size)}/>
           <Fact
-            label="Pieces"
-            value={s && s.numPieces ? `${s.numPieces} x ${bytes(s.pieceLength)} (have ${s.numPiecesHave})` : '-'}
+            label={intl.formatMessage({ id: 'Pieces', defaultMessage: 'Pieces' })}
+            value={s && s.numPieces
+              ? intl.formatMessage({ id: '{count} x {size} (have {have})', defaultMessage: '{count} x {size} (have {have})' }, { count: s.numPieces, size: bytes(s.pieceLength), have: s.numPiecesHave })
+              : UNKNOWN}
           />
-          <Fact label="Progress" value={pct(t.progress)}/>
-          <Fact label="Added on" value={s ? when(s.addedAt) : '-'}/>
-          <Fact label="Completed on" value={s ? when(s.completedAt) : '-'}/>
-          <Fact label="Last seen complete" value={s ? when(s.lastSeenComplete) : '-'}/>
-          <Fact label="Files" value={String(contentFiles(t.files).length)}/>
-          <Fact label="Save path" value={s?.savePath || '-'} mono/>
-          {t.infoHash && <Fact label="Info hash" value={t.infoHash} mono/>}
+          <Fact label={intl.formatMessage({ id: 'Progress', defaultMessage: 'Progress' })} value={pct(t.progress)}/>
+          <Fact label={intl.formatMessage({ id: 'Added on', defaultMessage: 'Added on' })} value={s ? when(s.addedAt, intl) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Completed on', defaultMessage: 'Completed on' })} value={s ? when(s.completedAt, intl) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Last seen complete', defaultMessage: 'Last seen complete' })} value={s ? when(s.lastSeenComplete, intl) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Files', defaultMessage: 'Files' })} value={String(contentFiles(t.files).length)}/>
+          <Fact label={intl.formatMessage({ id: 'Save path', defaultMessage: 'Save path' })} value={s?.savePath || UNKNOWN} mono/>
+          {t.infoHash && <Fact label={intl.formatMessage({ id: 'Info hash', defaultMessage: 'Info hash' })} value={t.infoHash} mono/>}
           {t.retry && (
             <Fact
-              label="Retrying"
-              value={`attempt ${t.retry.attempt}${t.retry.message ? `, ${t.retry.message}` : ''}`}
+              label={intl.formatMessage({ id: 'Retrying', defaultMessage: 'Retrying' })}
+              value={t.retry.message
+                ? intl.formatMessage({ id: 'attempt {count}, {reason}', defaultMessage: 'attempt {count}, {reason}' }, { count: t.retry.attempt, reason: t.retry.message })
+                : intl.formatMessage({ id: 'attempt {count}', defaultMessage: 'attempt {count}' }, { count: t.retry.attempt })}
             />
           )}
         </div>
@@ -165,7 +196,8 @@ const Files = ({
   /** Null for a torrent that is not in the session: the list is synced, the bytes are not here. */
   onSave: ((index: number) => void) | null
 }) => {
-  if (!files.length) return <p className="none">No file list yet.</p>
+  const intl = useIntl()
+  if (!files.length) return <p className="none">{intl.formatMessage({ id: 'No file list yet.', defaultMessage: 'No file list yet.' })}</p>
   return (
     <div className="rows">
       {/* No per-file progress bar on purpose: TorrentFile.progress is the torrent's overall
@@ -181,7 +213,7 @@ const Files = ({
             <span className="num">{bytes(f.size)}</span>
             {onSave && (
               <button type="button" onClick={() => onSave(f.index)} disabled={s != null}>
-                {s != null ? `${Math.round(s * 100)}%` : 'Save'}
+                {s != null ? writePercent(Math.round(s * 100) / 100) : intl.formatMessage({ id: 'Save', defaultMessage: 'Save' })}
               </button>
             )}
           </div>
@@ -198,51 +230,52 @@ const Files = ({
  * about twenty flags and most of them describe choking state machinery. Transport and direction are
  * the two that explain the numbers next to them.
  */
-const peerTags = (p: PeerInfo): string[] => {
+const peerTags = (p: PeerInfo, intl: IntlShape): string[] => {
   const tags: string[] = []
   // Both of these go through `inbound.ts`, which the strip's live inbound count also uses. Two copies
   // of this rule would put two numbers about one thing on screen, disagreeing, with nothing to say
   // which was right: the strip counting `localConnection` alone and this tagging the pair would
   // differ for every peer we dialled after it first reached us.
   tags.push(peerTransport(p) === 'utp' ? 'uTP' : 'TCP')
-  if (isInbound(p)) tags.push('incoming')
-  if (p.flags & (PEER_FLAG.rc4Encrypted | PEER_FLAG.plaintextEncrypted)) tags.push('encrypted')
-  if (p.flags & PEER_FLAG.seed) tags.push('seed')
+  if (isInbound(p)) tags.push(intl.formatMessage({ id: 'incoming', defaultMessage: 'incoming' }))
+  if (p.flags & (PEER_FLAG.rc4Encrypted | PEER_FLAG.plaintextEncrypted)) tags.push(intl.formatMessage({ id: 'encrypted', defaultMessage: 'encrypted' }))
+  if (p.flags & PEER_FLAG.seed) tags.push(intl.formatMessage({ id: 'seed', defaultMessage: 'seed' }))
   if (p.source & PEER_SOURCE.dht) tags.push('DHT')
   else if (p.source & PEER_SOURCE.pex) tags.push('PEX')
-  else if (p.source & PEER_SOURCE.tracker) tags.push('tracker')
+  else if (p.source & PEER_SOURCE.tracker) tags.push(intl.formatMessage({ id: 'tracker', defaultMessage: 'tracker' }))
   return tags
 }
 
 const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
-  if (!loaded) return <p className="none">Asking the engine…</p>
-  if (!peers.length) return <p className="none">Nobody is connected right now.</p>
+  const intl = useIntl()
+  if (!loaded) return <p className="none">{intl.formatMessage({ id: 'Asking the engine…', defaultMessage: 'Asking the engine…' })}</p>
+  if (!peers.length) return <p className="none">{intl.formatMessage({ id: 'Nobody is connected right now.', defaultMessage: 'Nobody is connected right now.' })}</p>
   // busiest first, because that is the one a person is looking for
   const sorted = [...peers].sort((a, b) => (b.downloadRate + b.uploadRate) - (a.downloadRate + a.uploadRate))
   return (
     <div className="rows">
       <div className="row head">
-        <span className="name">Address</span>
-        <span className="client">Client</span>
-        <span className="num">Has</span>
-        <span className="num">Down</span>
-        <span className="num">Up</span>
-        <span className="num">Got</span>
-        <span className="num">Sent</span>
+        <span className="name">{intl.formatMessage({ id: 'Address', defaultMessage: 'Address' })}</span>
+        <span className="client">{intl.formatMessage({ id: 'Client', defaultMessage: 'Client' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Has', defaultMessage: 'Has' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Down', defaultMessage: 'Down' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Up', defaultMessage: 'Up' })}</span>
+        <span className="num wide">{intl.formatMessage({ id: 'Got', defaultMessage: 'Got' })}</span>
+        <span className="num wide">{intl.formatMessage({ id: 'Sent', defaultMessage: 'Sent' })}</span>
       </div>
       {sorted.map((p) => (
         <div className="row" key={p.endpoint}>
           <span className="name">
             <span className="mono">{p.endpoint}</span>
-            <span className="tags">{peerTags(p).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</span>
+            <span className="tags">{peerTags(p, intl).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</span>
           </span>
           {/* arbitrary text a stranger chose, so it is rendered as text and never as markup */}
-          <span className="client" {...hint(p.client)}>{p.client || 'unknown'}</span>
+          <span className="client" {...hint(p.client)}>{p.client || intl.formatMessage({ id: 'unknown', defaultMessage: 'unknown' })}</span>
           <span className="num">{pct(p.progress)}</span>
-          <span className="num">{p.downloadRate ? speed(p.downloadRate) : '-'}</span>
-          <span className="num">{p.uploadRate ? speed(p.uploadRate) : '-'}</span>
-          <span className="num">{p.totalDownload ? bytes(p.totalDownload) : '-'}</span>
-          <span className="num">{p.totalUpload ? bytes(p.totalUpload) : '-'}</span>
+          <span className="num">{p.downloadRate ? speed(p.downloadRate) : UNKNOWN}</span>
+          <span className="num">{p.uploadRate ? speed(p.uploadRate) : UNKNOWN}</span>
+          <span className="num wide">{p.totalDownload ? bytes(p.totalDownload) : UNKNOWN}</span>
+          <span className="num wide">{p.totalUpload ? bytes(p.totalUpload) : UNKNOWN}</span>
         </div>
       ))}
     </div>
@@ -255,37 +288,38 @@ const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
  * `fails` is -1 when the tracker has never been contacted, which is a genuinely different thing
  * from zero failures and would read as "Working" if the two were collapsed.
  */
-const trackerState = (tr: TrackerInfo): { label: string, tone: 'ok' | 'warn' | 'idle' } => {
-  if (tr.updating) return { label: 'Announcing…', tone: 'idle' }
-  if (tr.fails < 0) return { label: 'Not contacted', tone: 'idle' }
-  if (tr.fails === 0) return { label: 'Working', tone: 'ok' }
-  return { label: `Failed ${tr.fails}×`, tone: 'warn' }
+const trackerState = (tr: TrackerInfo, intl: IntlShape): { label: string, tone: 'ok' | 'warn' | 'idle' } => {
+  if (tr.updating) return { label: intl.formatMessage({ id: 'Announcing…', defaultMessage: 'Announcing…' }), tone: 'idle' }
+  if (tr.fails < 0) return { label: intl.formatMessage({ id: 'Not contacted', defaultMessage: 'Not contacted' }), tone: 'idle' }
+  if (tr.fails === 0) return { label: intl.formatMessage({ id: 'Working', defaultMessage: 'Working' }), tone: 'ok' }
+  return { label: intl.formatMessage({ id: 'Failed {count}×', defaultMessage: 'Failed {count}×' }, { count: tr.fails }), tone: 'warn' }
 }
 
 const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boolean }) => {
-  if (!loaded) return <p className="none">Asking the engine…</p>
-  if (!trackers.length) return <p className="none">No trackers.</p>
+  const intl = useIntl()
+  if (!loaded) return <p className="none">{intl.formatMessage({ id: 'Asking the engine…', defaultMessage: 'Asking the engine…' })}</p>
+  if (!trackers.length) return <p className="none">{intl.formatMessage({ id: 'No trackers.', defaultMessage: 'No trackers.' })}</p>
   const sorted = [...trackers].sort((a, b) => a.tier - b.tier)
   return (
     <div className="rows">
       <div className="row head">
-        <span className="name">Tracker</span>
-        <span className="client">Status</span>
-        <span className="num">Tier</span>
-        <span className="num">Seeds</span>
-        <span className="num">Peers</span>
-        <span className="num">Next</span>
+        <span className="name">{intl.formatMessage({ id: 'Tracker', defaultMessage: 'Tracker' })}</span>
+        <span className="client">{intl.formatMessage({ id: 'Status', defaultMessage: 'Status' })}</span>
+        <span className="num wide">{intl.formatMessage({ id: 'Tier', defaultMessage: 'Tier' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Seeds', defaultMessage: 'Seeds' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Peers', defaultMessage: 'Peers' })}</span>
+        <span className="num">{intl.formatMessage({ id: 'Next', defaultMessage: 'Next' })}</span>
       </div>
       {sorted.map((tr) => {
-        const state = trackerState(tr)
+        const state = trackerState(tr, intl)
         return (
           <div className="row" key={tr.url}>
             <span className="name mono" {...hint(tr.url)}>{tr.url}</span>
             <span className={`client ${state.tone}`} {...hint(tr.message || undefined)}>{state.label}</span>
-            <span className="num">{tr.tier}</span>
+            <span className="num wide">{tr.tier}</span>
             {/* -1 means never scraped: a 0 there would read as a tracker that answered and knows of nobody */}
-            <span className="num">{tr.seeders < 0 ? '-' : tr.seeders}</span>
-            <span className="num">{tr.leechers < 0 ? '-' : tr.leechers}</span>
+            <span className="num">{tr.seeders < 0 ? UNKNOWN : tr.seeders}</span>
+            <span className="num">{tr.leechers < 0 ? UNKNOWN : tr.leechers}</span>
             <span className="num">{seconds(tr.nextAnnounceIn)}</span>
           </div>
         )
@@ -635,7 +669,10 @@ export const dockStyle = css`
       grid-template-columns: 1fr;
     }
 
-    .row .client {
+    /* a peer's totals and a tracker's tier too, or a phone has no room for an address or a URL: a peer's five numbers
+       take 420 px of a 358 px pane */
+    .row .client,
+    .row .wide {
       display: none;
     }
   }
@@ -651,6 +688,7 @@ export const TorrentDetailDock = ({
   onSave: (index: number) => void
   onClose: () => void
 }) => {
+  const intl = useIntl()
   const [tab, setTab] = useState<Tab>('general')
   const [height, setHeight] = useState(readHeight)
   const dragging = useRef(false)
@@ -702,20 +740,20 @@ export const TorrentDetailDock = ({
   }, [onClose])
 
   return (
-    <section css={dockStyle} style={{ height }} aria-label={`Details for ${t.name}`}>
+    <section css={dockStyle} style={{ height }} aria-label={intl.formatMessage({ id: 'Details for {name}', defaultMessage: 'Details for {name}' }, { name: t.name })}>
       <div
         className="grip"
         data-dragging={dragging.current || undefined}
         onPointerDown={startResize}
         role="separator"
         aria-orientation="horizontal"
-        aria-label="Resize the details panel"
+        aria-label={intl.formatMessage({ id: 'Resize the details panel', defaultMessage: 'Resize the details panel' })}
       />
       <header>
         <span className="title" {...hint(t.name)}>{t.name}</span>
-        <button type="button" className="close" onClick={onClose}>Close</button>
+        <button type="button" className="close" onClick={onClose}>{intl.formatMessage({ id: 'Close', defaultMessage: 'Close' })}</button>
       </header>
-      <div className="tabs" role="group" aria-label="Torrent details">
+      <div className="tabs" role="group" aria-label={intl.formatMessage({ id: 'Torrent details', defaultMessage: 'Torrent details' })}>
         {TABS.map((name) => (
           <button
             type="button"
@@ -724,7 +762,7 @@ export const TorrentDetailDock = ({
             aria-pressed={tab === name}
             onClick={() => setTab(name)}
           >
-            {TAB_LABEL[name]}
+            {intl.formatMessage(TAB_LABEL[name])}
             {name === 'peers' && detail.peers.length > 0 && <span className="count">{detail.peers.length}</span>}
             {name === 'files' && !!contentFiles(t.files).length && <span className="count">{contentFiles(t.files).length}</span>}
           </button>
