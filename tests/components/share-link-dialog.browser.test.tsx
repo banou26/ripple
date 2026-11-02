@@ -1,12 +1,17 @@
 import type { ShareSubject } from '../../src/torrent/torrent-file'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
 import { SYNCED_FILE_CAP } from '../../src/torrent/library'
 import { decodeMagnetParam } from '../../src/router/magnet-codec'
 import { ShareLinkDialog } from '../../src/components/share-link-dialog'
+import { IntlRoot } from '../../src/i18n'
+import { showEnglish, showIn } from '../i18n/show-in'
+import { wordsIn } from '../i18n/words-in'
+
+import de from '../../src/locales/de.json'
 
 /**
  * What the dialog puts in the link, which is the only thing about it that can be silently wrong.
@@ -57,7 +62,7 @@ const mount = async (torrent: ShareSubject | null, dragging = false) => {
   const onClear = vi.fn()
   const onClose = vi.fn()
   const onToast = vi.fn()
-  render(
+  const screen = await render(
     <ShareLinkDialog
       torrent={torrent}
       dragging={dragging}
@@ -67,13 +72,14 @@ const mount = async (torrent: ShareSubject | null, dragging = false) => {
       onClose={onClose}
       onToast={onToast}
     />,
+    { wrapper: IntlRoot },
   )
   await expect.poll(dialog).not.toBeNull()
   const url = () => dialog().querySelector('[data-testid="embed-url"]')?.textContent ?? ''
   const query = () => new URLSearchParams(url().slice(url().indexOf('?')))
   // the PATH is what says which page the link opens; `mode` was that until it moved into the URL
   const path = () => url().slice(url().indexOf('/', url().indexOf('//') + 2), url().indexOf('?'))
-  return { onMagnet, onFiles, onClear, onClose, onToast, url, query, path }
+  return { onMagnet, onFiles, onClear, onClose, onToast, url, query, path, unmount: () => screen.unmount() }
 }
 
 describe('the share link dialog, before it has a torrent', () => {
@@ -330,3 +336,106 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 })
 
+
+afterEach(showEnglish)
+
+const press = (selector: string, index = 0) => userEvent.click([...dialog().querySelectorAll(selector)][index] as HTMLElement)
+
+/** What the dialog shows in each of its states, by name, and the toasts its copy buttons raise. */
+const everyState = async () => {
+  const shown: Record<string, string[]> = {}
+  const read = (name: string) => { shown[name] = wordsIn(dialog()) }
+
+  const empty = await mount(null)
+  read('empty')
+  await userEvent.fill(dialog().querySelector('form input') as HTMLElement, SINTEL.magnet)
+  await press('form button')
+  await expect.poll(() => dialog().querySelector('.waiting')).not.toBeNull()
+  read('handed over')
+  await empty.unmount()
+
+  const sintel = await mount(SINTEL)
+  read('download')
+  await press('details.snippet summary')
+  await press('details.files summary')
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+  await press('.out button')
+  await press('.snippet .out button')
+  copy.mockRejectedValue(new Error('refused'))
+  await press('.out button')
+  await press('.snippet .out button')
+  await expect.poll(() => sintel.onToast.mock.calls.length).toBe(4)
+  copy.mockRestore()
+  await press('.file input')
+  read('some files')
+  await press('.bulk button', 1)
+  await expect.poll(() => dialog().querySelector('.warn')).not.toBeNull()
+  read('no file')
+  await press('.seg button')
+  await expect.poll(() => dialog().querySelector('#share-file')).not.toBeNull()
+  read('watch')
+  await sintel.unmount()
+
+  for (const [name, subject] of [['no magnet', { ...SINTEL, magnet: '' }], ['no file list', withFiles(null, 0)]] as const) {
+    const screen = await mount(subject)
+    read(name)
+    await screen.unmount()
+  }
+  return { shown, toasts: sintel.onToast.mock.calls.map(([text]) => text) }
+}
+
+describe('the share link dialog in English, as it read before its text was translated', () => {
+  it('words every state, and each toast, as it did', async () => {
+    const asking = ['Share link', 'Paste a magnet link', 'Magnet link', 'Make link', 'or', 'Drop a .torrent file', 'Choose a file']
+    const mode = ['The link', 'Watch', 'Download']
+    const files = ['All', 'None', 'Sintel.de.srt', '1.7 kB', 'Sintel.en.srt', '1.5 kB', 'Sintel.es.srt', '1.6 kB', 'Sintel.mp4', '129.2 MB']
+    const link = ['Copy', 'Open', 'Embed on a web page', 'Copy']
+    const footer = ['Use a different torrent', 'Close']
+    expect(await everyState()).toEqual({
+      shown: {
+        empty: [...asking, 'Close'],
+        'handed over': [...asking, 'Reading the torrent...', 'Close'],
+        download: ['Share link', 'Sintel', '129.3 MB · 4 files', ...mode, 'All 4 files', ...files, ...link, ...footer],
+        'some files': ['Share link', 'Sintel', '129.3 MB · 4 files', ...mode, '3 of 4 files', ...files, ...link, ...footer],
+        'no file': ['Share link', 'Sintel', '129.3 MB · 4 files', ...mode, '0 of 4 files', ...files, 'Pick at least one file.', ...footer],
+        watch: [
+          'Share link', 'Sintel', '129.3 MB · 4 files', ...mode, 'File', 'Sintel.de.srt · 1.7 kB', 'Sintel.en.srt · 1.5 kB', 'Sintel.es.srt · 1.6 kB',
+          'Sintel.mp4 · 129.2 MB', ...link, ...footer,
+        ],
+        'no magnet': ['Share link', 'Sintel', '129.3 MB · 4 files', ...mode, 'All 4 files', ...files, 'No magnet link yet.', ...footer],
+        'no file list': ['Share link', 'Sintel', '129.3 MB', ...mode, 'Loading the file list...', ...link, ...footer],
+      },
+      toasts: ['Link copied', 'Frame copied', 'Could not copy the link. Select it and copy by hand.', 'Could not copy the frame. Select it and copy by hand.'],
+    })
+  })
+})
+
+describe('the share link dialog in German', () => {
+  it('words every state, and each toast, in German', async () => {
+    await showIn('de', de, 'de-DE')
+    const asking = ['Freigabelink', 'Magnet-Link einfügen', 'Magnet-Link', 'Link erstellen', 'oder', 'Lege eine .torrent-Datei ab', 'Datei wählen']
+    const mode = ['Der Link', 'Ansehen', 'Herunterladen']
+    const files = ['Alle', 'Keine', 'Sintel.de.srt', '1,7 kB', 'Sintel.en.srt', '1,5 kB', 'Sintel.es.srt', '1,6 kB', 'Sintel.mp4', '129,2 MB']
+    const link = ['Kopieren', 'Öffnen', 'Auf einer Webseite einbetten', 'Kopieren']
+    const footer = ['Anderen Torrent verwenden', 'Schließen']
+    expect(await everyState()).toEqual({
+      shown: {
+        empty: [...asking, 'Schließen'],
+        'handed over': [...asking, 'Torrent wird gelesen...', 'Schließen'],
+        download: ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, 'Alle 4 Dateien', ...files, ...link, ...footer],
+        'some files': ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, '3 von 4 Dateien', ...files, ...link, ...footer],
+        'no file': ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, '0 von 4 Dateien', ...files, 'Wähle mindestens eine Datei.', ...footer],
+        watch: [
+          'Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, 'Datei', 'Sintel.de.srt · 1,7 kB', 'Sintel.en.srt · 1,5 kB',
+          'Sintel.es.srt · 1,6 kB', 'Sintel.mp4 · 129,2 MB', ...link, ...footer,
+        ],
+        'no magnet': ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, 'Alle 4 Dateien', ...files, 'Noch kein Magnet-Link.', ...footer],
+        'no file list': ['Freigabelink', 'Sintel', '129,3 MB', ...mode, 'Dateiliste wird geladen...', ...link, ...footer],
+      },
+      toasts: [
+        'Link kopiert', 'Einbettungscode kopiert', 'Der Link konnte nicht kopiert werden. Markiere ihn und kopiere ihn von Hand.',
+        'Der Einbettungscode konnte nicht kopiert werden. Markiere ihn und kopiere ihn von Hand.',
+      ],
+    })
+  })
+})

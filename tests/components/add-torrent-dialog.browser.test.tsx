@@ -1,12 +1,17 @@
 import type { PersistState } from '../../src/torrent/storage-permission'
 import type { TorrentFile } from '../../src/torrent/types'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
-import { defaultChoices } from '../../src/torrent/add-options'
+import { defaultChoices, selectNone } from '../../src/torrent/add-options'
 
 import { AddTorrentDialog } from '../../src/components/add-torrent-dialog'
+import { IntlRoot } from '../../src/i18n'
+import { showEnglish, showIn } from '../i18n/show-in'
+import { wordsIn } from '../i18n/words-in'
+
+import de from '../../src/locales/de.json'
 
 /**
  * "This will not fit", said where the decision is made.
@@ -56,6 +61,7 @@ const mount = (over: Partial<Props> = {}) => {
       onAskPersist={onAskPersist}
       {...over}
     />,
+    { wrapper: IntlRoot },
   )
   return { onConfirm, onAskPersist }
 }
@@ -112,5 +118,87 @@ describe('the add dialog when the selection is bigger than the room left', () =>
     mount({ storage: null })
     await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull()
     expect(notice()).toBeNull()
+  })
+})
+
+afterEach(showEnglish)
+
+const TWO = [{ name: 'Big.Buck.Bunny.mkv', size: 4.5 * GB, progress: 0, index: 0 }, { name: 'Extras/Commentary.srt', size: 1_000, progress: 0, index: 1 }]
+
+// every branch of the dialog's text across three shapes
+const SHAPES: Record<string, Partial<Props>> = {
+  // from another site, nothing picked, a folder to choose and no storage reading
+  'sent by a site': {
+    external: true, from: 'https://example.org', files: TWO, choices: selectNone(defaultChoices({ fileCount: 2, location: 'browser' })),
+    folderReady: true, storage: null,
+  },
+  'opened from a link': { external: true, files: [], folderReady: true, folderName: 'Downloads', storage: null },
+  // their own add, bigger than the room left, with the step on offer to switch off
+  'their own': { files: TWO, choices: defaultChoices({ fileCount: 2, location: 'browser' }), onNeverAsk: () => {} },
+}
+
+/** What the dialog shows in each shape, by name. */
+const everyShape = async () => {
+  const shown: Record<string, string[]> = {}
+  for (const [name, over] of Object.entries(SHAPES)) {
+    const screen = await render(
+      <AddTorrentDialog
+        name="Big Buck Bunny"
+        files={[]}
+        choices={defaultChoices({ fileCount: 0, location: 'browser' })}
+        onChoices={() => {}}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        storage={{ usedBytes: 8_800_000_000, limitBytes: 10_000_000_000, persisted: false }}
+        persist={asking()}
+        onAskPersist={() => {}}
+        {...over}
+      />,
+      { wrapper: IntlRoot },
+    )
+    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull()
+    shown[name] = wordsIn(document.querySelector('[role="dialog"]')!)
+    await screen.unmount()
+  }
+  return shown
+}
+
+const OPTIONS = ['How it starts', 'Start downloading', 'Download in sequential order', 'Download first and last pieces first', 'Put it first']
+
+describe('the add dialog in English, as it read before its text was translated', () => {
+  it('words every shape as it did', async () => {
+    expect(await everyShape()).toEqual({
+      'sent by a site': [
+        'Big Buck Bunny', 'Sent here by https://example.org', 'https://example.org', 'Files', 'Select all', 'Select none',
+        '0 B of 4.5 GB, 0 of 2 files', 'Big.Buck.Bunny.mkv', '4.5 GB', 'Extras/Commentary.srt', 'Extras/', '1 kB', 'Choose at least one file.',
+        'Where the files go', 'Browser storage', 'Your folder', ...OPTIONS, 'Cancel', 'Add torrent',
+      ],
+      'opened from a link': ['Big Buck Bunny', 'Opened from a link', 'Files', 'Loading the file list...', 'Where the files go', 'Browser storage', 'Downloads', ...OPTIONS, 'Cancel', 'Add torrent'],
+      'their own': [
+        'Big Buck Bunny', 'Files', 'Select all', 'Select none', '4.5 GB of 4.5 GB, 2 of 2 files', 'Big.Buck.Bunny.mkv', '4.5 GB',
+        'Extras/Commentary.srt', 'Extras/', '1 kB', ...OPTIONS, 'Bigger than the room left', '4.5 GB selected, 1.2 GB free', 'Ask for more room',
+        'Do not ask again', 'Cancel', 'Add torrent',
+      ],
+    })
+  })
+})
+
+describe('the add dialog in German', () => {
+  it('words every shape in German, each count in its form', async () => {
+    await showIn('de', de, 'de-DE')
+    const options = ['Start', 'Download starten', 'Der Reihe nach downloaden', 'Erste und letzte Teile zuerst laden', 'An den Anfang der Warteschlange stellen']
+    expect(await everyShape()).toEqual({
+      'sent by a site': [
+        'Big Buck Bunny', 'Gesendet von https://example.org', 'https://example.org', 'Dateien', 'Alle wählen', 'Keine wählen',
+        '0 Byte von 4,5 GB, 0 von 2 Dateien', 'Big.Buck.Bunny.mkv', '4,5 GB', 'Extras/Commentary.srt', 'Extras/', '1 kB', 'Wähle mindestens eine Datei.',
+        'Speicherort', 'Browserspeicher', 'Dein Ordner', ...options, 'Abbrechen', 'Torrent hinzufügen',
+      ],
+      'opened from a link': ['Big Buck Bunny', 'Über einen Link geöffnet', 'Dateien', 'Dateiliste wird geladen...', 'Speicherort', 'Browserspeicher', 'Downloads', ...options, 'Abbrechen', 'Torrent hinzufügen'],
+      'their own': [
+        'Big Buck Bunny', 'Dateien', 'Alle wählen', 'Keine wählen', '4,5 GB von 4,5 GB, 2 von 2 Dateien', 'Big.Buck.Bunny.mkv', '4,5 GB',
+        'Extras/Commentary.srt', 'Extras/', '1 kB', ...options, 'Größer als der freie Platz', '4,5 GB ausgewählt, 1,2 GB frei', 'Mehr Platz anfragen',
+        'Nicht mehr fragen', 'Abbrechen', 'Torrent hinzufügen',
+      ],
+    })
   })
 })

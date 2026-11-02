@@ -12,7 +12,8 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words; and two words stub means of a
   watch list. Paused takes qBittorrent's word where stub's reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`,
   `zh-Hans` `已暂停`, `zh-Hant` `已暫停`, `pl` `Wstrzymano`, `ko` `일시 중지됨`), and Progress where stub's reads as how
-  much was watched (`it` `Avanzamento`, `ja` `進捗`, `ko` `진행률`, `zh-Hans` `进度`, `zh-Hant` `進度`).
+  much was watched (`it` `Avanzamento`, `ja` `進捗`, `ko` `진행률`, `zh-Hans` `进度`, `zh-Hant` `進度`). A torrent's Format
+  is `格式` in Chinese, where stub's `形式` is a show's.
 - **No em or en dash** (U+2014, U+2013), even where the language's typography uses one: restructure, or use a comma,
   a colon, a plain hyphen or the language's own range mark (`～` in Japanese, `~` in Korean, `至` in Chinese).
 - **French and Italian** write the typographic apostrophe `’`. French puts a no-break space (U+00A0) before `?` and `:`.
@@ -31,7 +32,8 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   nominative, so the words around it add no unit and ask no case of it: German `noch {eta}` where `in` would want a
   dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date. A unit written as
   text, the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`), so it reads
-  as the speeds beside it.
+  as the speeds beside it. A piece size is binary, as qBittorrent writes it: `Kio` and `Mio` in French, `КБ` and `МБ` in
+  Russian, `KiB` and `MiB` elsewhere.
 
 ## Register and torrent terms
 

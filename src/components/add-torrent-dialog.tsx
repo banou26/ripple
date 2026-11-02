@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 import { css } from '@emotion/react'
 
 import {
@@ -296,9 +297,9 @@ export const AddTorrentDialog = ({
   /** Asks the browser for persistent storage. Runs on a press, never on a render. */
   onAskPersist?: () => void
 }) => {
+  const intl = useIntl()
   const cancelRef = useRef<HTMLButtonElement>(null)
   const [neverAsk, setNeverAsk] = useState(false)
-
 
   const ready = files.length > 0
   const problem = ready ? choicesProblem(choices) : null
@@ -334,21 +335,34 @@ export const AddTorrentDialog = ({
       <div className="card">
         <header>
           <h2 id="add-torrent-title">{name}</h2>
-          {external && <p className="from">{from ? <>Sent here by <b>{from}</b></> : 'Opened from a link'}</p>}
+          {external && (
+            <p className="from">
+              {from
+                ? intl.formatMessage({ id: 'Sent here by {from}', defaultMessage: 'Sent here by {from}' }, { from: <b>{from}</b> })
+                : intl.formatMessage({ id: 'Opened from a link', defaultMessage: 'Opened from a link' })}
+            </p>
+          )}
         </header>
 
         <div className="body">
           <div className="group">
-            <label>Files</label>
+            <label>{intl.formatMessage({ id: 'Files', defaultMessage: 'Files' })}</label>
             {ready
               ? (
                 <>
                   <div className="bulk">
-                    <button className="small" onClick={() => onChoices(selectAll(choices, files.length))}>Select all</button>
-                    <button className="small" onClick={() => onChoices(selectNone(choices))}>Select none</button>
+                    <button className="small" onClick={() => onChoices(selectAll(choices, files.length))}>{intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })}</button>
+                    <button className="small" onClick={() => onChoices(selectNone(choices))}>{intl.formatMessage({ id: 'Select none', defaultMessage: 'Select none' })}</button>
                     <span className="count">
-                      {getHumanReadableByteString(selected, true)} of {getHumanReadableByteString(total, true)}
-                      {', '}{choices.files.length} of {files.length} files
+                      {intl.formatMessage({
+                        id: '{count, plural, one {{selected} of {total}, {picked} of {count} files} other {{selected} of {total}, {picked} of {count} files}}',
+                        defaultMessage: '{count, plural, one {{selected} of {total}, {picked} of {count} files} other {{selected} of {total}, {picked} of {count} files}}',
+                      }, {
+                        selected: getHumanReadableByteString(selected, true),
+                        total: getHumanReadableByteString(total, true),
+                        picked: choices.files.length,
+                        count: files.length,
+                      })}
                     </span>
                   </div>
                   <div className="files">
@@ -365,13 +379,13 @@ export const AddTorrentDialog = ({
                   </div>
                 </>
               )
-              : <p className="waiting">Loading the file list...</p>}
+              : <p className="waiting">{intl.formatMessage({ id: 'Loading the file list...', defaultMessage: 'Loading the file list...' })}</p>}
             {problem && <p className="problem">{problem}</p>}
           </div>
 
           {folderReady && (
             <div className="group">
-              <label>Where the files go</label>
+              <label>{intl.formatMessage({ id: 'Where the files go', defaultMessage: 'Where the files go' })}</label>
               <div className="toggles">
                 <label className="check">
                   <input
@@ -380,7 +394,7 @@ export const AddTorrentDialog = ({
                     checked={choices.location === 'browser'}
                     onChange={() => set({ location: 'browser' })}
                   />
-                  <span>Browser storage</span>
+                  <span>{intl.formatMessage({ id: 'Browser storage', defaultMessage: 'Browser storage' })}</span>
                 </label>
                 <label className="check">
                   <input
@@ -389,30 +403,30 @@ export const AddTorrentDialog = ({
                     checked={choices.location === 'folder'}
                     onChange={() => set({ location: 'folder' })}
                   />
-                  <span>{folderName ?? 'Your folder'}</span>
+                  <span>{folderName ?? intl.formatMessage({ id: 'Your folder', defaultMessage: 'Your folder' })}</span>
                 </label>
               </div>
             </div>
           )}
 
           <div className="group">
-            <label>How it starts</label>
+            <label>{intl.formatMessage({ id: 'How it starts', defaultMessage: 'How it starts' })}</label>
             <div className="toggles">
               <label className="check">
                 <input type="checkbox" checked={choices.start} onChange={(e) => set({ start: e.currentTarget.checked })}/>
-                <span>Start downloading</span>
+                <span>{intl.formatMessage({ id: 'Start downloading', defaultMessage: 'Start downloading' })}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.sequential} onChange={(e) => set({ sequential: e.currentTarget.checked })}/>
-                <span>Download in sequential order</span>
+                <span>{intl.formatMessage({ id: 'Download in sequential order', defaultMessage: 'Download in sequential order' })}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.firstLast} onChange={(e) => set({ firstLast: e.currentTarget.checked })}/>
-                <span>Download first and last pieces first</span>
+                <span>{intl.formatMessage({ id: 'Download first and last pieces first', defaultMessage: 'Download first and last pieces first' })}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={choices.topOfQueue} onChange={(e) => set({ topOfQueue: e.currentTarget.checked })}/>
-                <span>Put it first</span>
+                <span>{intl.formatMessage({ id: 'Put it first', defaultMessage: 'Put it first' })}</span>
               </label>
             </div>
           </div>
@@ -423,9 +437,12 @@ export const AddTorrentDialog = ({
             acting on it. */}
         {shortfall && (
           <div className="fit" role="status">
-            <strong>Bigger than the room left</strong>
+            <strong>{intl.formatMessage({ id: 'Bigger than the room left', defaultMessage: 'Bigger than the room left' })}</strong>
             <span>
-              {getHumanReadableByteString(selected, true)} selected, {getHumanReadableByteString(shortfall.room, true)} free
+              {intl.formatMessage({ id: '{selected} selected, {free} free', defaultMessage: '{selected} selected, {free} free' }, {
+                selected: getHumanReadableByteString(selected, true),
+                free: getHumanReadableByteString(shortfall.room, true),
+              })}
             </span>
             {persist && onAskPersist && <PersistOffer persist={persist} onAsk={onAskPersist}/>}
           </div>
@@ -435,12 +452,12 @@ export const AddTorrentDialog = ({
           {onNeverAsk && (
             <label className="check">
               <input type="checkbox" checked={neverAsk} onChange={(e) => setNeverAsk(e.currentTarget.checked)}/>
-              <span>Do not ask again</span>
+              <span>{intl.formatMessage({ id: 'Do not ask again', defaultMessage: 'Do not ask again' })}</span>
             </label>
           )}
           <span className="spacer"/>
-          <button ref={cancelRef} onClick={onCancel}>Cancel</button>
-          <button className="primary" onClick={confirm} disabled={!ready || !!problem}>Add torrent</button>
+          <button ref={cancelRef} onClick={onCancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>
+          <button className="primary" onClick={confirm} disabled={!ready || !!problem}>{intl.formatMessage({ id: 'Add torrent', defaultMessage: 'Add torrent' })}</button>
         </footer>
       </div>
       </div>

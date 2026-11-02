@@ -2,6 +2,7 @@ import type { ShareSubject } from '../torrent/torrent-file'
 
 import { css } from '@emotion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import type { EmbedMode } from '../router/file-selection'
 
@@ -494,6 +495,7 @@ type Props = {
 }
 
 export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear, onClose, onToast }: Props) => {
+  const intl = useIntl()
   /**
    * Download by default.
    *
@@ -581,11 +583,11 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
   const path = (link && !empty ? embedPath(link) : '') ?? ''
   const snippet = (link && !empty ? embedIframe(link) : '') ?? ''
 
-  const copy = (text: string, what: string) => {
+  // a refused clipboard is not a broken link, so the toast says which it was
+  const copy = (text: string, copied: string, refused: string) => {
     navigator.clipboard.writeText(text)
-      .then(() => onToast(`${what} copied`))
-      // a refused clipboard is not a broken link, so say which it was
-      .catch(() => onToast(`Could not copy the ${what.toLowerCase()}. Select it and copy by hand.`))
+      .then(() => onToast(copied))
+      .catch(() => onToast(refused))
   }
 
   const toggle = (index: number) =>
@@ -617,7 +619,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
       <div css={style}>
         <div className="card">
           <header>
-            <h2 id="share-link-title">Share link</h2>
+            <h2 id="share-link-title">{intl.formatMessage({ id: 'Share link', defaultMessage: 'Share link' })}</h2>
           </header>
 
           <div className="body">
@@ -630,22 +632,22 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                       type="text"
                       value={input}
                       onChange={(e) => setInput(e.currentTarget.value)}
-                      placeholder="Paste a magnet link"
-                      aria-label="Magnet link"
+                      placeholder={intl.formatMessage({ id: 'Paste a magnet link', defaultMessage: 'Paste a magnet link' })}
+                      aria-label={intl.formatMessage({ id: 'Magnet link', defaultMessage: 'Magnet link' })}
                       spellCheck={false}
                     />
-                    <button type="submit" className="primary" disabled={!input.trim()}>Make link</button>
+                    <button type="submit" className="primary" disabled={!input.trim()}>{intl.formatMessage({ id: 'Make link', defaultMessage: 'Make link' })}</button>
                   </form>
 
-                  <div className="or">or</div>
+                  <div className="or">{intl.formatMessage({ id: 'or', defaultMessage: 'or' })}</div>
 
                   {/* No drop handler of its own: the window listener already turns a drop anywhere
                       into an add, and a second handler here would add the same file twice. This
                       shows WHERE it lands and offers the picker for people who would rather click. */}
                   <div className="drop" data-drop={dragging || undefined}>
-                    <span>Drop a .torrent file</span>
+                    <span>{intl.formatMessage({ id: 'Drop a .torrent file', defaultMessage: 'Drop a .torrent file' })}</span>
                     <label className="file-button">
-                      Choose a file
+                      {intl.formatMessage({ id: 'Choose a file', defaultMessage: 'Choose a file' })}
                       <input
                         type="file"
                         accept=".torrent,application/x-bittorrent"
@@ -655,7 +657,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     </label>
                   </div>
 
-                  {handedOver && <p className="waiting">Reading the torrent...</p>}
+                  {handedOver && <p className="waiting">{intl.formatMessage({ id: 'Reading the torrent...', defaultMessage: 'Reading the torrent...' })}</p>}
                 </>
               )
               : (
@@ -663,18 +665,22 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                   <div className="subject">
                     <strong>{torrent.name}</strong>
                     <span className="size">
-                      {getHumanReadableByteString(torrent.size)}
-                      {fileCount > 0 && ` · ${fileCount} file${fileCount === 1 ? '' : 's'}`}
+                      {fileCount > 0
+                        ? intl.formatMessage({
+                          id: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+                          defaultMessage: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+                        }, { size: getHumanReadableByteString(torrent.size), count: fileCount })
+                        : getHumanReadableByteString(torrent.size)}
                     </span>
                   </div>
 
                   {/* one option is not a choice, so nothing to press is offered when Watch is out */}
                   {watchable && (
                     <div className="opt">
-                      <label id="share-mode">The link</label>
+                      <label id="share-mode">{intl.formatMessage({ id: 'The link', defaultMessage: 'The link' })}</label>
                       <div className="seg" role="group" aria-labelledby="share-mode">
-                        <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>Watch</button>
-                        <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>Download</button>
+                        <button type="button" data-on={mode === 'watch' || undefined} aria-pressed={mode === 'watch'} onClick={() => setMode('watch')}>{intl.formatMessage({ id: 'Watch', defaultMessage: 'Watch' })}</button>
+                        <button type="button" data-on={mode === 'download' || undefined} aria-pressed={mode === 'download'} onClick={() => setMode('download')}>{intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })}</button>
                       </div>
                     </div>
                   )}
@@ -690,13 +696,13 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     * says the name and "1 file".
                     */}
                   {fileCount === 0
-                    ? <span className="note">Loading the file list...</span>
+                    ? <span className="note">{intl.formatMessage({ id: 'Loading the file list...', defaultMessage: 'Loading the file list...' })}</span>
                     : fileCount === 1
                     ? null
                     : mode === 'watch'
                       ? (
                         <div className="opt">
-                          <label htmlFor="share-file">File</label>
+                          <label htmlFor="share-file">{intl.formatMessage({ id: 'File', defaultMessage: 'File' })}</label>
                           {/* one file, because the player reads fileIndex and ignores a set entirely */}
                           <select
                             id="share-file"
@@ -704,7 +710,9 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                             onChange={(e) => setWatchIndex(Number(e.currentTarget.value))}
                           >
                             {files!.map((f) => (
-                              <option key={f.index} value={f.index}>{leaf(f.name)} · {getHumanReadableByteString(f.size)}</option>
+                              <option key={f.index} value={f.index}>
+                                {intl.formatMessage({ id: '{name} · {size}', defaultMessage: '{name} · {size}' }, { name: leaf(f.name), size: getHumanReadableByteString(f.size) })}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -713,12 +721,12 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                         <details className="files">
                           <summary>
                             {indices.length === fileCount
-                              ? `All ${fileCount} files`
-                              : `${indices.length} of ${fileCount} files`}
+                              ? intl.formatMessage({ id: '{count, plural, one {All {count} files} other {All {count} files}}', defaultMessage: '{count, plural, one {All {count} files} other {All {count} files}}' }, { count: fileCount })
+                              : intl.formatMessage({ id: '{count, plural, one {{picked} of {count} files} other {{picked} of {count} files}}', defaultMessage: '{count, plural, one {{picked} of {count} files} other {{picked} of {count} files}}' }, { picked: indices.length, count: fileCount })}
                           </summary>
                           <div className="bulk">
-                            <button type="button" className="small" onClick={() => setPicked(null)}>All</button>
-                            <button type="button" className="small" onClick={() => setPicked([])}>None</button>
+                            <button type="button" className="small" onClick={() => setPicked(null)}>{intl.formatMessage({ id: 'All', defaultMessage: 'All' })}</button>
+                            <button type="button" className="small" onClick={() => setPicked([])}>{intl.formatMessage({ id: 'None', defaultMessage: 'None' })}</button>
                           </div>
                           <div className="list">
                             {files!.map((f) => (
@@ -733,23 +741,42 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                       )}
 
                   {!link
-                    ? <span className="warn">No magnet link yet.</span>
+                    ? <span className="warn">{intl.formatMessage({ id: 'No magnet link yet.', defaultMessage: 'No magnet link yet.' })}</span>
                     : empty
                     /* an absent files= means ALL, so there is no link that means "none of them" */
-                    ? <span className="warn">Pick at least one file.</span>
+                    ? <span className="warn">{intl.formatMessage({ id: 'Pick at least one file.', defaultMessage: 'Pick at least one file.' })}</span>
                     : (
                       <>
                         <div className="out">
                           <code data-testid="embed-url">{url}</code>
-                          <button type="button" className="primary" onClick={() => copy(url, 'Link')}>Copy</button>
-                          <a href={path} target="_blank" rel="noreferrer">Open</a>
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() => copy(
+                              url,
+                              intl.formatMessage({ id: 'Link copied', defaultMessage: 'Link copied' }),
+                              intl.formatMessage({ id: 'Could not copy the link. Select it and copy by hand.', defaultMessage: 'Could not copy the link. Select it and copy by hand.' }),
+                            )}
+                          >
+                            {intl.formatMessage({ id: 'Copy', defaultMessage: 'Copy' })}
+                          </button>
+                          <a href={path} target="_blank" rel="noreferrer">{intl.formatMessage({ id: 'Open', defaultMessage: 'Open' })}</a>
                         </div>
 
                         <details className="snippet">
-                          <summary>Embed on a web page</summary>
+                          <summary>{intl.formatMessage({ id: 'Embed on a web page', defaultMessage: 'Embed on a web page' })}</summary>
                           <div className="out">
                             <pre data-testid="embed-iframe">{snippet}</pre>
-                            <button type="button" onClick={() => copy(snippet, 'Frame')}>Copy</button>
+                            <button
+                              type="button"
+                              onClick={() => copy(
+                                snippet,
+                                intl.formatMessage({ id: 'Frame copied', defaultMessage: 'Frame copied' }),
+                                intl.formatMessage({ id: 'Could not copy the frame. Select it and copy by hand.', defaultMessage: 'Could not copy the frame. Select it and copy by hand.' }),
+                              )}
+                            >
+                              {intl.formatMessage({ id: 'Copy', defaultMessage: 'Copy' })}
+                            </button>
                           </div>
                         </details>
                       </>
@@ -759,9 +786,9 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
           </div>
 
           <footer>
-            {torrent && <button type="button" onClick={back}>Use a different torrent</button>}
+            {torrent && <button type="button" onClick={back}>{intl.formatMessage({ id: 'Use a different torrent', defaultMessage: 'Use a different torrent' })}</button>}
             <span className="spacer"/>
-            <button type="button" onClick={onClose}>Close</button>
+            <button type="button" onClick={onClose}>{intl.formatMessage({ id: 'Close', defaultMessage: 'Close' })}</button>
           </footer>
         </div>
       </div>

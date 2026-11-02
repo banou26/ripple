@@ -1,3 +1,4 @@
+import { intl } from '../i18n'
 import { magnetInfoHash, magnetParam } from '../torrent/magnet'
 
 /**
@@ -62,16 +63,16 @@ const cleanName = (raw: string | undefined | null): string | undefined => {
 export const describeAddRequest = (
   { magnet, name }: { magnet: string | null | undefined, name?: string | null },
 ): AddRequest => {
-  if (!magnet) return { ok: false, problem: 'This link has no torrent in it.' }
+  if (!magnet) return { ok: false, problem: intl.formatMessage({ id: 'This link has no torrent in it.', defaultMessage: 'This link has no torrent in it.' }) }
   if (!magnet.startsWith('magnet:')) {
-    return { ok: false, problem: 'This is not a magnet link.' }
+    return { ok: false, problem: intl.formatMessage({ id: 'This is not a magnet link.', defaultMessage: 'This is not a magnet link.' }) }
   }
   const infoHash = magnetInfoHash(magnet)
   if (!infoHash) {
-    return { ok: false, problem: 'This magnet link has no info hash.' }
+    return { ok: false, problem: intl.formatMessage({ id: 'This magnet link has no info hash.', defaultMessage: 'This magnet link has no info hash.' }) }
   }
   if (!V1.test(infoHash) && !V2.test(infoHash)) {
-    return { ok: false, problem: 'This magnet link\'s info hash is malformed.' }
+    return { ok: false, problem: intl.formatMessage({ id: 'This magnet link\'s info hash is malformed.', defaultMessage: 'This magnet link\'s info hash is malformed.' }) }
   }
   return {
     ok: true,

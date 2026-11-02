@@ -1,5 +1,6 @@
 import { css } from '@emotion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIntl, type IntlShape } from 'react-intl'
 
 import type { CreateOptions } from '../torrent/create-source'
 import type { UseCreateTorrent } from '../torrent/use-create-torrent'
@@ -21,6 +22,7 @@ import {
   TEXT_ON_LIGHT,
   WARN,
 } from '../theme'
+import { wordsOf } from '../i18n'
 import { DEFAULT_TRACKERS } from '../torrent/create-source'
 import type { TorrentFormat } from '../torrent/make-torrent'
 
@@ -215,8 +217,10 @@ const PIECE_CHOICES = (() => {
   return out
 })()
 
-const binaryBytes = (bytes: number): string =>
-  bytes >= 1024 * 1024 ? `${bytes / (1024 * 1024)} MiB` : `${bytes / 1024} KiB`
+const binaryBytes = (bytes: number, intl: IntlShape): string =>
+  bytes >= 1024 * 1024
+    ? intl.formatMessage({ id: '{size} MiB', defaultMessage: '{size} MiB' }, { size: bytes / (1024 * 1024) })
+    : intl.formatMessage({ id: '{size} KiB', defaultMessage: '{size} KiB' }, { size: bytes / 1024 })
 
 type Props = {
   create: UseCreateTorrent
@@ -227,6 +231,7 @@ type Props = {
 }
 
 export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props) => {
+  const intl = useIntl()
   const { state, suggestedName } = create
   const [name, setName] = useState('')
   const [trackerText, setTrackerText] = useState(DEFAULT_TRACKERS.join('\n'))
@@ -291,37 +296,45 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
   const eta = state.progress && startedAt ? hashEta(state.progress, Date.now() - startedAt) : undefined
   const done = state.progress ? state.progress.hashedBytes / Math.max(1, state.progress.totalBytes) : 0
   const copied = state.copy ? state.copy.copiedBytes / Math.max(1, state.copy.totalBytes) : 0
+  const starting = intl.formatMessage({ id: 'starting…', defaultMessage: 'starting…' })
 
   return (
     <Modal labelledBy="create-torrent-title" onClose={working ? create.cancel : onClose} initialFocus={first}>
       <div css={style}>
       <div className="card">
         <header>
-          <h2 id="create-torrent-title">Create a torrent</h2>
+          <h2 id="create-torrent-title">{intl.formatMessage({ id: 'Create a torrent', defaultMessage: 'Create a torrent' })}</h2>
         </header>
 
         <div className="body">
-          {state.stage === 'idle' && <p>Pick a file or a folder to share.</p>}
+          {state.stage === 'idle' && <p>{intl.formatMessage({ id: 'Pick a file or a folder to share.', defaultMessage: 'Pick a file or a folder to share.' })}</p>}
 
           {state.stage === 'reading' && (
-            <p>Reading the folder{state.filesFound ? `, ${state.filesFound} files so far` : ''}…</p>
+            <p>
+              {state.filesFound
+                ? intl.formatMessage({
+                  id: '{count, plural, one {Reading the folder, {count} files so far…} other {Reading the folder, {count} files so far…}}',
+                  defaultMessage: '{count, plural, one {Reading the folder, {count} files so far…} other {Reading the folder, {count} files so far…}}',
+                }, { count: state.filesFound })
+                : intl.formatMessage({ id: 'Reading the folder…', defaultMessage: 'Reading the folder…' })}
+            </p>
           )}
 
           {(state.stage === 'ready' || state.stage === 'error') && state.plan && (
             <>
               <div className="facts">
                 <div className="fact">
-                  <span className="label">Files</span>
+                  <span className="label">{intl.formatMessage({ id: 'Files', defaultMessage: 'Files' })}</span>
                   {/* the person's own files. A hybrid torrent's plan also holds the pad files, which
                       are zeroes Ripple inserted and nobody picked. */}
                   <span className="value">{contentFiles(state.plan).length}</span>
                 </div>
                 <div className="fact">
-                  <span className="label">Total size</span>
+                  <span className="label">{intl.formatMessage({ id: 'Total size', defaultMessage: 'Total size' })}</span>
                   <span className="value">{getHumanReadableByteString(state.plan.totalBytes)}</span>
                 </div>
                 <div className="fact">
-                  <span className="label">Pieces</span>
+                  <span className="label">{intl.formatMessage({ id: 'Pieces', defaultMessage: 'Pieces' })}</span>
                   {/* The count comes from the same `plan()` the encoder uses, re-run on every
                       change, rather than from a second `ceil(size / length)` here. Two copies of
                       that look impossible to get wrong until one is fed the size before
@@ -330,7 +343,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 </div>
                 {state.plan.paddedBytes > state.plan.totalBytes && (
                   <div className="fact">
-                    <span className="label">Padding</span>
+                    <span className="label">{intl.formatMessage({ id: 'Padding', defaultMessage: 'Padding' })}</span>
                     {/* Named rather than folded into the total, because it is bytes the swarm carries
                         that nobody asked for. One piece per file at worst, so a pick of many small
                         files can pay a real fraction and this is where somebody would notice. */}
@@ -342,7 +355,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               </div>
 
               <label className="field">
-                <span>Format</span>
+                <span>{intl.formatMessage({ id: 'Format', defaultMessage: 'Format' })}</span>
                 <select
                   value={format}
                   onChange={(event) => {
@@ -351,9 +364,9 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                     replanWith({ format: chosen })
                   }}
                 >
-                  <option value="v1">v1</option>
-                  <option value="hybrid">Hybrid, v1 and v2</option>
-                  <option value="v2">v2 only</option>
+                  <option value="v1">{intl.formatMessage({ id: 'v1', defaultMessage: 'v1' })}</option>
+                  <option value="hybrid">{intl.formatMessage({ id: 'Hybrid, v1 and v2', defaultMessage: 'Hybrid, v1 and v2' })}</option>
+                  <option value="v2">{intl.formatMessage({ id: 'v2 only', defaultMessage: 'v2 only' })}</option>
                 </select>
               </label>
 
@@ -365,12 +378,14 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 */}
               {dropsFolderName(state.plan) && (
                 <p className="warn">
-                  v2 loses the folder name <strong>{state.plan.name}</strong>. Hybrid keeps it.
+                  {intl.formatMessage({ id: 'v2 loses the folder name {name}. Hybrid keeps it.', defaultMessage: 'v2 loses the folder name {name}. Hybrid keeps it.' }, {
+                    name: <strong>{state.plan.name}</strong>,
+                  })}
                 </p>
               )}
 
               <label className="field">
-                <span>Piece size</span>
+                <span>{intl.formatMessage({ id: 'Piece size', defaultMessage: 'Piece size' })}</span>
                 <select
                   value={pieceChoice}
                   onChange={(event) => {
@@ -378,46 +393,48 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                     replanWith({ pieceLength: event.target.value ? Number(event.target.value) : undefined })
                   }}
                 >
-                  <option value="">Auto ({binaryBytes(state.plan.pieceLength)})</option>
+                  <option value="">{intl.formatMessage({ id: 'Auto ({size})', defaultMessage: 'Auto ({size})' }, { size: binaryBytes(state.plan.pieceLength, intl) })}</option>
                   {PIECE_CHOICES.map((size) => (
-                    <option key={size} value={size}>{binaryBytes(size)}</option>
+                    <option key={size} value={size}>{binaryBytes(size, intl)}</option>
                   ))}
                 </select>
               </label>
 
               {state.truncated && (
-                <p className="warn">Too many files for one torrent. Pick a smaller folder.</p>
+                <p className="warn">{intl.formatMessage({ id: 'Too many files for one torrent. Pick a smaller folder.', defaultMessage: 'Too many files for one torrent. Pick a smaller folder.' })}</p>
               )}
               {state.skipped.length > 0 && (
                 <details>
-                  <summary className="faint">{state.skipped.length} left out</summary>
-                  <div className="skipped">{state.skipped.map((path) => <div key={path}>{path}</div>)}</div>
+                  <summary className="faint">
+                    {intl.formatMessage({ id: '{count, plural, one {{count} left out} other {{count} left out}}', defaultMessage: '{count, plural, one {{count} left out} other {{count} left out}}' }, { count: state.skipped.length })}
+                  </summary>
+                  <div className="skipped">{state.skipped.map(wordsOf).map((path) => <div key={path}>{path}</div>)}</div>
                 </details>
               )}
 
               <label className="field">
-                <span>Name</span>
+                <span>{intl.formatMessage({ id: 'Name', defaultMessage: 'Name' })}</span>
                 <input type="text" value={name} onChange={(event) => setName(event.target.value)}/>
               </label>
 
               <label className="field">
-                <span>Trackers, one per line</span>
+                <span>{intl.formatMessage({ id: 'Trackers, one per line', defaultMessage: 'Trackers, one per line' })}</span>
                 <textarea value={trackerText} onChange={(event) => setTrackerText(event.target.value)}/>
               </label>
 
               <details>
-                <summary className="faint">Web seeds, comment, source</summary>
+                <summary className="faint">{intl.formatMessage({ id: 'Web seeds, comment, source', defaultMessage: 'Web seeds, comment, source' })}</summary>
                 <div className="more">
                   <label className="field">
-                    <span>Web seed URLs, one per line</span>
+                    <span>{intl.formatMessage({ id: 'Web seed URLs, one per line', defaultMessage: 'Web seed URLs, one per line' })}</span>
                     <textarea value={webSeedText} onChange={(event) => setWebSeedText(event.target.value)}/>
                   </label>
                   <label className="field">
-                    <span>Comment</span>
+                    <span>{intl.formatMessage({ id: 'Comment', defaultMessage: 'Comment' })}</span>
                     <input type="text" value={comment} onChange={(event) => setComment(event.target.value)}/>
                   </label>
                   <label className="field">
-                    <span>Source</span>
+                    <span>{intl.formatMessage({ id: 'Source', defaultMessage: 'Source' })}</span>
                     <input type="text" value={sourceTag} onChange={(event) => setSourceTag(event.target.value)}/>
                   </label>
                 </div>
@@ -425,7 +442,7 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
 
               <label className="check">
                 <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)}/>
-                <span>Private</span>
+                <span>{intl.formatMessage({ id: 'Private', defaultMessage: 'Private' })}</span>
               </label>
 
               {state.error && <p className="warn">{state.error}</p>}
@@ -436,20 +453,22 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   measurement not being back yet, and says nothing rather than guessing. */}
               {state.room?.kind === 'fits' && state.plan && (
                 <p className="faint">
-                  Keeps a {getHumanReadableByteString(state.plan.totalBytes)} copy in browser storage.
+                  {intl.formatMessage({ id: 'Keeps a {size} copy in browser storage.', defaultMessage: 'Keeps a {size} copy in browser storage.' }, { size: getHumanReadableByteString(state.plan.totalBytes) })}
                 </p>
               )}
               {state.room?.kind === 'short' && state.plan && (
                 <p className="warn">
-                  {getHumanReadableByteString(state.room.shortBy)} short of room for a copy. Sharing stops
-                  when this tab closes.
+                  {intl.formatMessage({
+                    id: '{size} short of room for a copy. Sharing stops when this tab closes.',
+                    defaultMessage: '{size} short of room for a copy. Sharing stops when this tab closes.',
+                  }, { size: getHumanReadableByteString(state.room.shortBy) })}
                 </p>
               )}
               {state.room?.kind === 'unsafe' && (
-                <p className="warn">A file name is too long to copy. Sharing stops when this tab closes.</p>
+                <p className="warn">{intl.formatMessage({ id: 'A file name is too long to copy. Sharing stops when this tab closes.', defaultMessage: 'A file name is too long to copy. Sharing stops when this tab closes.' })}</p>
               )}
               {state.room?.kind === 'unknown' && (
-                <p className="faint">Sharing stops when this tab closes.</p>
+                <p className="faint">{intl.formatMessage({ id: 'Sharing stops when this tab closes.', defaultMessage: 'Sharing stops when this tab closes.' })}</p>
               )}
             </>
           )}
@@ -457,51 +476,74 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
           {(state.stage === 'hashing' || state.stage === 'checking') && (
             <>
               <p>
-                {state.stage === 'checking' ? 'Checking the files…' : 'Hashing the files…'}
+                {state.stage === 'checking'
+                  ? intl.formatMessage({ id: 'Checking the files…', defaultMessage: 'Checking the files…' })
+                  : intl.formatMessage({ id: 'Hashing the files…', defaultMessage: 'Hashing the files…' })}
               </p>
               <div className="bar"><div style={{ width: `${Math.round(done * 100)}%` }}/></div>
               <p className="faint">
-                {state.progress
-                  ? `${getHumanReadableByteString(state.progress.hashedBytes)} of ${getHumanReadableByteString(state.progress.totalBytes)}`
-                    + (eta === undefined ? '' : ` · about ${writeDuration({ seconds: eta })} left`)
-                    + ` · ${state.progress.path}`
-                  : 'starting…'}
+                {!state.progress
+                  ? starting
+                  : eta === undefined
+                    ? intl.formatMessage({ id: '{done} of {total} · {name}', defaultMessage: '{done} of {total} · {name}' }, {
+                      done: getHumanReadableByteString(state.progress.hashedBytes),
+                      total: getHumanReadableByteString(state.progress.totalBytes),
+                      name: state.progress.path,
+                    })
+                    : intl.formatMessage({ id: '{done} of {total} · about {eta} left · {name}', defaultMessage: '{done} of {total} · about {eta} left · {name}' }, {
+                      done: getHumanReadableByteString(state.progress.hashedBytes),
+                      total: getHumanReadableByteString(state.progress.totalBytes),
+                      eta: writeDuration({ seconds: eta }),
+                      name: state.progress.path,
+                    })}
               </p>
             </>
           )}
 
           {state.stage === 'copying' && (
             <>
-              <p>Copying to browser storage…</p>
+              <p>{intl.formatMessage({ id: 'Copying to browser storage…', defaultMessage: 'Copying to browser storage…' })}</p>
               <div className="bar">
                 <div style={{ width: `${Math.round(copied * 100)}%` }}/>
               </div>
               <p className="faint">
-                {state.copy
-                  ? `${getHumanReadableByteString(state.copy.copiedBytes)} of ${getHumanReadableByteString(state.copy.totalBytes)}`
-                    + (state.copy.name ? ` · ${state.copy.name}` : '')
-                  : 'starting…'}
+                {!state.copy
+                  ? starting
+                  : state.copy.name
+                    ? intl.formatMessage({ id: '{done} of {total} · {name}', defaultMessage: '{done} of {total} · {name}' }, {
+                      done: getHumanReadableByteString(state.copy.copiedBytes),
+                      total: getHumanReadableByteString(state.copy.totalBytes),
+                      name: state.copy.name,
+                    })
+                    : intl.formatMessage({ id: '{done} of {total}', defaultMessage: '{done} of {total}' }, {
+                      done: getHumanReadableByteString(state.copy.copiedBytes),
+                      total: getHumanReadableByteString(state.copy.totalBytes),
+                    })}
               </p>
             </>
           )}
 
-          {state.stage === 'adding' && <p>Adding…</p>}
+          {state.stage === 'adding' && <p>{intl.formatMessage({ id: 'Adding…', defaultMessage: 'Adding…' })}</p>}
 
           {state.stage === 'done' && state.built && (
             <>
               {/* `data-outcome` names which kind of sharing this turned out to be: one re-opens its
                   files after a reload, one survives on Ripple's own copy, one lasts as long as the tab */}
               <p data-outcome={state.reopenable ? 'reopenable' : state.room?.kind === 'fits' ? 'copied' : 'tab'}>
-                <strong>{state.built.plan.name}</strong> is being shared.
+                {intl.formatMessage({ id: '{name} is being shared.', defaultMessage: '{name} is being shared.' }, { name: <strong>{state.built.plan.name}</strong> })}
               </p>
-              <p className="faint">Info hash <code>{state.built.infoHash}</code></p>
+              <p className="faint">
+                {intl.formatMessage({ id: 'Info hash {hash}', defaultMessage: 'Info hash {hash}' }, { hash: <code>{state.built.infoHash}</code> })}
+              </p>
               {/* only when it is a SECOND name for the same torrent. A v2-only torrent's identity IS
                   its v2 hash, so a second line would print the same string twice. */}
               {state.built.infoHashV2 && state.built.infoHashV2 !== state.built.infoHash && (
-                <p className="faint">v2 info hash <code>{state.built.infoHashV2}</code></p>
+                <p className="faint">
+                  {intl.formatMessage({ id: 'v2 info hash {hash}', defaultMessage: 'v2 info hash {hash}' }, { hash: <code>{state.built.infoHashV2}</code> })}
+                </p>
               )}
               {!state.reopenable && state.room?.kind !== 'fits' && (
-                <p className="faint">Sharing stops when this tab closes or reloads.</p>
+                <p className="faint">{intl.formatMessage({ id: 'Sharing stops when this tab closes or reloads.', defaultMessage: 'Sharing stops when this tab closes or reloads.' })}</p>
               )}
             </>
           )}
@@ -514,26 +556,26 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
         <footer>
           {state.stage === 'idle' && (
             <>
-              <button type="button" onClick={onClose}>Cancel</button>
+              <button type="button" onClick={onClose}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>
               {/* ONE PAIR OF BUTTONS, on every engine. This used to fork: the handle pickers where
                   the window carried them, and a pair of labels wrapping `<input type="file">` where
                   it did not, which is two routes to maintain and two sets of copy to keep true.
                   `@banou/ponyfill` opens the input itself where an engine has no picker, so there is
                   one call, one return type, and nothing here that names a browser. */}
-              <button type="button" onClick={() => void create.pickFile()}>Choose a file</button>
+              <button type="button" onClick={() => void create.pickFile()}>{intl.formatMessage({ id: 'Choose a file', defaultMessage: 'Choose a file' })}</button>
               <button ref={first} className="go" type="button" onClick={() => void create.pickFolder()}>
-                Choose a folder
+                {intl.formatMessage({ id: 'Choose a folder', defaultMessage: 'Choose a folder' })}
               </button>
             </>
           )}
 
-          {state.stage === 'reading' && <button ref={first} type="button" onClick={create.cancel}>Cancel</button>}
+          {state.stage === 'reading' && <button ref={first} type="button" onClick={create.cancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>}
 
           {(state.stage === 'ready' || state.stage === 'error') && state.plan && (
             <>
-              <button type="button" onClick={create.reset}>Pick something else</button>
+              <button type="button" onClick={create.reset}>{intl.formatMessage({ id: 'Pick something else', defaultMessage: 'Pick something else' })}</button>
               <button ref={first} className="go" type="button" onClick={() => void create.publish(options)}>
-                Create and start sharing
+                {intl.formatMessage({ id: 'Create and start sharing', defaultMessage: 'Create and start sharing' })}
               </button>
             </>
           )}
@@ -543,22 +585,22 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
               at this point, so cancelling costs only the bytes written, which the orphan sweep takes
               back on its own. */}
           {(state.stage === 'hashing' || state.stage === 'checking' || state.stage === 'copying') && (
-            <button ref={first} type="button" onClick={create.cancel}>Cancel</button>
+            <button ref={first} type="button" onClick={create.cancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>
           )}
 
           {state.stage === 'done' && state.built && (
             <>
-              <button type="button" onClick={onClose}>Close</button>
-              <button type="button" onClick={create.reset}>Create another</button>
+              <button type="button" onClick={onClose}>{intl.formatMessage({ id: 'Close', defaultMessage: 'Close' })}</button>
+              <button type="button" onClick={create.reset}>{intl.formatMessage({ id: 'Create another', defaultMessage: 'Create another' })}</button>
               <button
                 type="button"
                 onClick={() => {
                   void navigator.clipboard.writeText(state.built!.magnet)
-                    .then(() => onToast('Magnet link copied'))
-                    .catch(() => onToast('Could not copy the link'))
+                    .then(() => onToast(intl.formatMessage({ id: 'Magnet link copied', defaultMessage: 'Magnet link copied' })))
+                    .catch(() => onToast(intl.formatMessage({ id: 'Could not copy the link', defaultMessage: 'Could not copy the link' })))
                 }}
               >
-                Copy magnet
+                {intl.formatMessage({ id: 'Copy magnet', defaultMessage: 'Copy magnet' })}
               </button>
               <button
                 ref={first}
@@ -566,13 +608,13 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 type="button"
                 onClick={() => { onShare(state.built!.magnet); onClose() }}
               >
-                Get a share link
+                {intl.formatMessage({ id: 'Get a share link', defaultMessage: 'Get a share link' })}
               </button>
             </>
           )}
 
           {state.stage === 'error' && !state.plan && (
-            <button ref={first} type="button" onClick={create.reset}>Try again</button>
+            <button ref={first} type="button" onClick={create.reset}>{intl.formatMessage({ id: 'Try again', defaultMessage: 'Try again' })}</button>
           )}
         </footer>
       </div>

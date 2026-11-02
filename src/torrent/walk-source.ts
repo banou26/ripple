@@ -1,4 +1,7 @@
+import type { Said } from '../i18n/said'
 import type { SourceFile } from './make-torrent'
+
+import { forPage } from '../i18n/said'
 
 /**
  * Walking a picked directory into the file list a torrent is built from.
@@ -81,8 +84,8 @@ export type PickedFile = SourceFile & {
 
 export type WalkResult = {
   files: PickedFile[]
-  /** What was left out, so the dialog can say so rather than quietly shrinking the torrent. */
-  skipped: string[]
+  /** What was left out, so the dialog can say so rather than quietly shrinking the torrent: a path, or a path and why. */
+  skipped: Said[]
   /** True when MAX_FILES stopped the walk, so `files` is not the whole of what was picked. */
   truncated: boolean
 }
@@ -121,14 +124,14 @@ export const walkDirectory = async (
   { signal, onFound }: WalkOptions = {},
 ): Promise<WalkResult> => {
   const files: PickedFile[] = []
-  const skipped: string[] = []
+  const skipped: Said[] = []
   let truncated = false
 
   const visit = async (dir: FileSystemDirectoryHandle, prefix: string[]): Promise<void> => {
     if (signal?.aborted) throw new WalkCancelled()
     if (truncated) return
     if (prefix.length >= MAX_DEPTH) {
-      skipped.push(`${prefix.join('/')} (nested too deep)`)
+      skipped.push(forPage.formatMessage({ id: '{path} (nested too deep)', defaultMessage: '{path} (nested too deep)' }, { path: prefix.join('/') }))
       return
     }
     const entries = (dir as DirectoryEntries).entries
@@ -149,7 +152,7 @@ export const walkDirectory = async (
       // cloud placeholder or a file the grant does not really cover. Skipping with a reason beats
       // failing the whole walk over one unreadable entry.
       const file = await fileHandle.getFile().catch(() => null)
-      if (!file) { skipped.push(`${path.join('/')} (could not be read)`); continue }
+      if (!file) { skipped.push(forPage.formatMessage({ id: '{path} (could not be read)', defaultMessage: '{path} (could not be read)' }, { path: path.join('/') })); continue }
       files.push({ path, size: file.size, lastModified: file.lastModified, handle: fileHandle })
       onFound?.(files.length)
     }

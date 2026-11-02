@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
@@ -14,6 +14,9 @@ import {
   selectedBytes,
   toggleFile,
 } from '../../src/torrent/add-options'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 
 /**
  * The decisions the add dialog offers, with no dialog in sight.
@@ -128,5 +131,19 @@ describe('the size actually being downloaded', () => {
 
   it('ignores an index with no file behind it', () => {
     expect(selectedBytes({ ...base, files: [0, 42] }, files)).toBe(100)
+  })
+})
+
+describe('the refusal of an empty selection, in the page\'s language', () => {
+  afterEach(showEnglish)
+  const none = selectNone(defaultChoices({ fileCount: 2, location: 'browser' }))
+
+  it('reads in English as it did before it was translated', () => {
+    expect(choicesProblem(none)).toBe('Choose at least one file.')
+  })
+
+  it('reads in German once the page is', async () => {
+    await showIn('de', de)
+    expect(choicesProblem(none)).toBe('Wähle mindestens eine Datei.')
   })
 })

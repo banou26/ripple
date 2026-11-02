@@ -1,10 +1,13 @@
 import type { PickedFile } from '../../src/torrent/walk-source'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { DEFAULT_TRACKERS, buildTorrent, normalizeWebSeeds, optionsError } from '../../src/torrent/create-source'
 import { PIECE_HASH_BYTES, plan } from '../../src/torrent/make-torrent'
 import { readTorrentFile } from '../../src/torrent/torrent-file'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 
 const handle = (name: string) => ({ kind: 'file', name } as unknown as FileSystemFileHandle)
 
@@ -208,5 +211,31 @@ describe('web seed urls', () => {
 
   it('drops blank lines', () => {
     expect(normalizeWebSeeds(['', '  ', 'https://e.test/a'], true)).toEqual(['https://e.test/a'])
+  })
+})
+
+describe('each refusal, in the page\'s language', () => {
+  afterEach(showEnglish)
+
+  const refusals = () => [
+    options({ format: 'v3' as 'v1' }), options({ name: ' ' }), options({ name: 'a/b' }), options({ private: true, trackers: [] }),
+    options({ trackers: ['tracker.example:1337'] }), options({ webSeeds: ['udp://example.test'] }), options({ pieceLength: 1_500_000 }),
+  ].map(optionsError)
+
+  it('reads in English as it did before it was translated', () => {
+    expect(refusals()).toEqual([
+      'v3 is not a torrent format', 'Give the torrent a name', 'A torrent name cannot contain a slash', 'A private torrent needs at least one tracker',
+      'tracker.example:1337 is not a tracker address', 'udp://example.test is not a web seed address: it has to be http or https',
+      'That piece size is not one a torrent can use',
+    ])
+  })
+
+  it('reads in German once the page is', async () => {
+    await showIn('de', de)
+    expect(refusals()).toEqual([
+      'v3 ist kein Torrent-Format', 'Gib dem Torrent einen Namen', 'Ein Torrent-Name darf keinen Schrägstrich enthalten',
+      'Ein privater Torrent braucht mindestens einen Tracker', 'tracker.example:1337 ist keine Tracker-Adresse',
+      'udp://example.test ist keine Webseed-Adresse: Sie muss http oder https verwenden', 'Diese Teilgröße kann ein Torrent nicht verwenden',
+    ])
   })
 })
