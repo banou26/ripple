@@ -1,12 +1,13 @@
-// The library page on built bytes, in languages ripple does not offer yet: every catalogue and the pseudo-language are
-// offered (tests/languages.ts), so a test picks one by its setting. The engine is a stand-in this file writes to, so
-// each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin is refused.
+// The library and download pages on built bytes, in languages ripple does not offer yet: every catalogue and the
+// pseudo-language are offered (tests/languages.ts), so a test picks one by its setting. The engine is a stand-in this
+// file writes to, so each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin
+// is refused.
 import type { AddressInfo } from 'node:net'
-import type { Page } from '@playwright/test'
+import type { Frame, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
 import { expect, test } from '@playwright/test'
-import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { extname, join, relative } from 'node:path'
@@ -65,21 +66,36 @@ test.afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true })
 })
 
-// stands in for the engine's worker, for a folder picker a headless browser has none of, and for the browser's answers
-// about storage, which a test sets through `answer`
+// stands in for the engine's worker, for a folder picker and a save picker a headless browser has none of, and for the
+// browser's answers about storage, which a test sets through `answer`
 const standIns = (folder: string) => {
   const heard = new Set<EventListener>()
+  const engine = (data: unknown) => { for (const listener of heard) listener(new MessageEvent('message', { data })) }
+  // the reads a save asks for, each answered with zeroes once the test calls answerReads
+  const reads: { id: number, len: number }[] = []
+  let answering = false
+  const answerAll = () => { if (answering) for (const { id, len } of reads.splice(0)) engine({ type: 'read-result', id, data: new Uint8Array(len) }) }
   Object.defineProperty(window, 'Worker', {
     value: class {
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
       removeEventListener (_: string, listener: EventListener) { heard.delete(listener) }
-      postMessage () {}
+      postMessage (message: { type?: string, id: number, len: number }) {
+        if (message?.type !== 'read') return
+        reads.push(message)
+        setTimeout(answerAll)
+      }
       terminate () {}
     },
   })
   Object.assign(window, {
     engineListens: () => heard.size > 0,
-    engine: (data: unknown) => { for (const listener of heard) listener(new MessageEvent('message', { data })) },
+    engine,
+    answerReads: () => { answering = true; answerAll() },
+    // refused as a framed page's is, by the test's setting
+    showSaveFilePicker: async () => {
+      if (localStorage.getItem('spec:picker') === 'refused') throw new DOMException('refused', 'NotAllowedError')
+      return { createWritable: async () => ({ write: async () => {}, close: async () => {}, abort: async () => {} }) }
+    },
     // the create dialog's pick, by its id, is a folder of its own, which the spec writes (folderToShare)
     showDirectoryPicker: async ({ id }: { id?: string } = {}) =>
       (await navigator.storage.getDirectory()).getDirectoryHandle(id === 'ripple-source' ? 'Holiday' : folder, { create: true }),
@@ -187,28 +203,31 @@ const READOUTS = [
   { reachable: { ...PORT, listenFailed: ['tcp 0.0.0.0'] }, inboundNow: { total: 0, byTransport: {} } },
 ]
 
-const post = (page: Page, ...messages: object[]) => page.evaluate((all) => {
+/** A page, or the frame another site shows ripple in. */
+type Shown = Page | Frame
+
+const post = (page: Shown, ...messages: object[]) => page.evaluate((all) => {
   const { engine } = window as unknown as { engine: (data: object) => void }
   for (const message of all) engine(message)
 }, messages)
 
-const drawn = (page: Page) => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+const drawn = (page: Shown) => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 
 /** Opens the page, the engine ready and answering with `list` and `torrents`. */
-const library = async (page: Page, list: object[], torrents: object[], extra: object = READOUTS[0]!) => {
+const library = async (page: Shown, list: object[], torrents: object[], extra: object = READOUTS[0]!) => {
   await page.waitForFunction(() => (window as unknown as { engineListens: () => boolean }).engineListens())
   await post(page, { type: 'ready' }, { type: 'list', list }, { type: 'state', torrents, rateLimits: { down: 5_000_000, up: 0 }, ...extra })
   await drawn(page)
 }
 
 /** The page's text and the words its controls carry for a screen reader, a tooltip or an empty field. */
-const wordsOf = (page: Page) => page.evaluate(() => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
+const wordsOf = (page: Shown) => page.evaluate(() => [...document.body.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap(element => [
   [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim(),
   ...['aria-label', 'placeholder', 'data-tooltip-content', 'title'].map(name => element.getAttribute(name) ?? ''),
 ]).filter(Boolean))
 
 /** What has no room: a sideways scroll, a box past the window's edge, a line of text clipped, a footer label broken. */
-const cutOff = (page: Page) => page.evaluate(() => {
+const cutOff = (page: Shown) => page.evaluate(() => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
   return [
@@ -230,14 +249,14 @@ const cutOff = (page: Page) => page.evaluate(() => {
   ]
 })
 
-/** A walk's record: `read` adds what a surface shows, what has no room there, and its screenshot. */
+/** A walk's record: `read` adds what a surface shows, in `page` or a frame of it, what has no room there, and its screenshot. */
 const walk = (page: Page, width: number) => {
   const words: string[] = []
   const cut: string[] = []
-  const read = async (surface: string) => {
-    await drawn(page)
-    words.push(...await wordsOf(page))
-    cut.push(...(await cutOff(page)).map(line => `${surface}: ${line}`))
+  const read = async (surface: string, shown: Shown = page) => {
+    await drawn(shown)
+    words.push(...await wordsOf(shown))
+    cut.push(...(await cutOff(shown)).map(line => `${surface}: ${line}`))
     await page.screenshot({ path: test.info().outputPath(`${width}-${surface}.png`) })
   }
   return { words, cut, read }
@@ -666,6 +685,129 @@ const dialogSurfaces = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+const PACK = magnetOf('7', 'Fresh.Pack')
+const PACK_FILES = {
+  files: [
+    { path: 'Fresh.Pack/Fresh.Pack.S01E01.1080p.mkv', size: 4.5 * GB },
+    { path: 'Fresh.Pack/Extras/Commentary.srt', size: 40_000 },
+    { path: 'Fresh.Pack/Extras/Notes.txt', size: 2_000 },
+  ],
+  contentSize: 4.5 * GB + 42_000,
+  pieceLength: 16_384,
+}
+const PACK_LIST = [entry('7', 'Fresh.Pack', { ephemeral: true })]
+const PACK_TORRENTS = [snapshot(9, '7', 'Fresh.Pack', { progress: 0, totalDone: 0 }, { files: PACK_FILES })]
+
+/** The download page's link for `magnet`, as a share link writes it. */
+const downloadPage = (magnet?: string, search = '') =>
+  `${origin}/download${magnet ? `?magnet=${encodeURIComponent(Buffer.from(magnet).toString('base64'))}${search}` : ''}`
+
+/** Draws the download page in each of its states, and framed by another site, at `width`. */
+const downloadSurfaces = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
+  const card = page.locator('.card')
+  const row = (name: string) => card.locator('.file', { hasText: name })
+  const shareNote = page.getByTestId('share-note')
+  const ready = (list = PACK_LIST, torrents = PACK_TORRENTS) => library(page, list, torrents)
+  await page.setViewportSize({ width, height: 1500 })
+
+  await page.goto(downloadPage(PACK))
+  await library(page, [], [])
+  await read('before its file list')
+  await card.locator('.share button').nth(1).click()
+  await expect(card.locator('.share button').nth(1)).toBeDisabled()
+  await read('the .torrent building')
+  await expect(shareNote).toBeVisible({ timeout: 15_000 })
+  await read('the .torrent with no metadata')
+  // each note replaces the one before it
+  const copy = async (answer: 'refused' | 'copied') => {
+    const before = await shareNote.textContent()
+    await page.evaluate(refused => { navigator.clipboard.writeText = () => refused ? Promise.reject(new Error('refused')) : Promise.resolve() }, answer === 'refused')
+    await card.locator('.share button').first().click()
+    await expect(shareNote).not.toHaveText(before!)
+    await read(`magnet ${answer}`)
+  }
+  await copy('refused')
+  await copy('copied')
+
+  await ready()
+  await expect(card.locator('.file')).toHaveCount(3)
+  await read('file list')
+  await page.locator('.powered button').click()
+  await expect(page.locator('.powered [popover]')).toBeVisible()
+  await read('FKN mark')
+  await page.locator('.powered button').click()
+  await row('Fresh.Pack.S01E01').locator('input').uncheck()
+  await read('two ticked')
+  await row('Commentary').locator('input').uncheck()
+  await read('one ticked')
+  await card.locator('.bulk button').nth(1).click()
+  await read('none ticked')
+  await card.locator('.bulk button').first().click()
+
+  await card.locator('.cta').click()
+  await expect(card.locator('.progress')).toBeVisible()
+  await read('downloading')
+  // about eight letters of a file's name on a line, beside its mark and its button, as the details panel keeps
+  const room = await card.locator('.file .name').evaluateAll(names => Math.min(...names.map(name => name.getBoundingClientRect().width)))
+  if (room < 80) cut.push(`downloading: a file's name has ${Math.round(room)} px`)
+  await post(page, { type: 'engine-reset' })
+  await expect(card.locator('.failure')).toBeVisible()
+  await read('engine replaced')
+  // the job it stopped ends once its save gives up waiting for the service worker
+  await expect(card.locator('.progress')).toBeHidden({ timeout: 15_000 })
+  await ready()
+
+  await row('Commentary').getByRole('button').click()
+  await expect(card.locator('.progress')).toBeVisible()
+  await read('downloading one')
+  await page.evaluate(() => (window as unknown as { answerReads: () => void }).answerReads())
+  await expect(card.locator('.done')).toBeVisible({ timeout: 15_000 })
+  await read('one saved')
+  await row('Fresh.Pack.S01E01').locator('input').uncheck()
+  await card.locator('.cta').click()
+  await expect(card.locator('.mark.saved')).toHaveCount(2, { timeout: 15_000 })
+  await read('two saved')
+
+  await page.evaluate(() => localStorage.setItem('spec:picker', 'refused'))
+  await row('Fresh.Pack.S01E01').getByRole('button').click()
+  await expect(card.locator('.failure')).toBeVisible({ timeout: 15_000 })
+  await read('too large to save')
+  await page.evaluate(() => localStorage.removeItem('spec:picker'))
+
+  await post(page, { type: 'storage-full', full: true })
+  await read('out of room')
+  await post(page, { type: 'storage-full', full: false }, { type: 'fatal', message: 'gone' })
+  await read('engine stopped')
+
+  await page.goto(downloadPage(PACK))
+  await library(page, [], [])
+  await post(page, { type: 'storage-unavailable' })
+  await read('no storage')
+
+  await page.goto(downloadPage(PACK, '&fileIndex=9'))
+  await ready()
+  await expect(card.locator('.cta')).toBeDisabled()
+  await read('no matching files')
+
+  // another site, at another name for this server: a frame on a loopback address from a public site is refused
+  writeFileSync(join(dir, 'embedder.html'), `<body style="margin:0"><iframe src="${downloadPage(PACK)}" style="border:0;width:100vw;height:100vh"></iframe>`)
+  const embedder = new URL('/embedder.html', origin.replace('127.0.0.1', 'localhost')).href
+  await page.route(embedder, route => route.continue())
+  await page.goto(embedder)
+  const frame = page.frames().find(each => each.url().startsWith(origin))!
+  await library(frame, PACK_LIST, PACK_TORRENTS)
+  await expect(frame.locator('.note')).toBeVisible()
+  await read('framed by another site', frame)
+  // the note's link is a part of its sentence, read whole
+  words.push(...await frame.locator('.note').allTextContents())
+
+  await page.goto(downloadPage())
+  await expect(card.locator('.cta')).toBeDisabled()
+  await read('no magnet')
+  return { words, cut }
+}
+
 test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
@@ -694,6 +836,12 @@ test.describe('in a language ripple does not offer yet', () => {
         test.setTimeout(120_000)
         await opening(page, language)
         await expectAllTranslated(page, language, await dialogSurfaces(page, width))
+      })
+
+      test(`${language} at ${width} px: the download page fits, in the language`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await opening(page, language)
+        await expectAllTranslated(page, language, await downloadSurfaces(page, width))
       })
 
       test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
@@ -849,6 +997,22 @@ test('the control: in English the details panel\'s own words are read too', asyn
     '12 connected of 40 known', 'Inbound peers', 'Yes', 'Completed on', 'Not yet', 'Retrying', 'Content', 'Save', 'Asking the engine…',
     'Nobody is connected right now.', 'No trackers.', 'Working', 'Failed 3×', 'Not contacted', 'Announcing…', 'Tier', 'Next',
     'Address', 'Has', 'Got', 'Sent', 'incoming', 'encrypted', 'seed', 'tracker', 'unknown',
+  ]) expect(words).toContain(text)
+})
+
+test('the control: in English the download page\'s own words are read too', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { words } = await downloadSurfaces(page, 1280)
+  for (const text of [
+    'Nothing to download', 'this torrent', 'Reading the torrent from the network', 'Loading torrent…', 'Copy magnet', 'Building…',
+    'Save .torrent', 'Copy this torrent\'s magnet link', 'Save the .torrent file for this torrent', 'The metadata has not arrived yet',
+    'Could not copy the magnet', 'Magnet copied', '4.5 GB · 3 files', 'Download 3 files as .zip', 'Watch Fresh.Pack.S01E01.1080p.mkv',
+    '3 files', 'Select all', 'Select none', 'Download Commentary.srt', 'Download', 'Powered by FKN', 'How it works', '2 of 3 files',
+    'Download 2 files as .zip', '1 of 3 files', 'Nothing selected', 'Select at least one file', 'Downloading', '0%', '0 bytes of 4.5 GB',
+    'Cancel', '82 peers', 'The download stopped. Start it again.', 'Downloading Commentary.srt', 'Saved Commentary.srt', 'Saved',
+    'Saved 2 files', 'This file is too large to save here.', 'Out of storage space. Remove a download in Ripple to free room.',
+    'The download engine stopped. Reload the page to try again.', 'Ripple needs a normal (non-private) window to download this',
+    'None of the requested files are in this torrent', 'No matching files', 'Download not starting? Open this page in Ripple.',
   ]) expect(words).toContain(text)
 })
 
