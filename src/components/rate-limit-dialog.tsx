@@ -297,7 +297,11 @@ export const RateLimitDialog = (
               <button type="submit" className="primary" disabled={parsed === null}>
                 {parsed === UNLIMITED
                   ? intl.formatMessage({ id: 'Remove limit', defaultMessage: 'Remove limit' })
-                  : intl.formatMessage({ id: 'Limit to {limit}', defaultMessage: 'Limit to {limit}' }, { limit: formatLimit(parsed ?? undefined, intl) })}
+                  // its own message, though the English reads the same, since a language can join Unlimited
+                  // and a speed differently (Korean 무제한으로 but 1.5MB/s로)
+                  : parsed === null
+                    ? intl.formatMessage({ id: 'Limit to Unlimited', defaultMessage: 'Limit to Unlimited' })
+                    : intl.formatMessage({ id: 'Limit to {limit}', defaultMessage: 'Limit to {limit}' }, { limit: formatLimit(parsed, intl) })}
               </button>
             </div>
           </form>

@@ -92,6 +92,7 @@
   "Let Ripple delete {name}?": "Ripple이 {name} 삭제하도록 허용할까요?",
   "Library": "라이브러리",
   "Limit download rate...": "다운로드 속도 제한...",
+  "Limit to Unlimited": "무제한으로 제한",
   "Limit to {limit}": "{limit}로 제한",
   "Limit upload rate...": "업로드 속도 제한...",
   "Magnet added": "마그넷 링크를 추가했어요",
