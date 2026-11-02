@@ -153,6 +153,9 @@ const canBeReopened = (root: FileSystemDirectoryHandle | FileSystemFileHandle): 
   }
 }
 
+const changedWhileRead = (path: string) =>
+  intl.formatMessage({ id: '{path} changed while it was being read. Try again.', defaultMessage: '{path} changed while it was being read. Try again.' }, { path })
+
 /** Reads a pick into the list of files a torrent would be built from. */
 const readPick = async (
   root: FileSystemDirectoryHandle | FileSystemFileHandle,
@@ -341,10 +344,17 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
         pieceLength: options.pieceLength,
         format: options.format,
       })
-      const hashed = await hashPieces(built, (file, offset, length) => {
-        const match = pick.files.find((candidate) => candidate.path.join('/') === file.path.join('/'))
-        if (!match) throw new Error(`no handle for ${file.path.join('/')}`)
-        return readPicked(match, offset, length)
+      const hashed = await hashPieces(built, async (file, offset, length) => {
+        const path = file.path.join('/')
+        const match = pick.files.find((candidate) => candidate.path.join('/') === path)
+        if (!match) throw new Error(`no handle for ${path}`)
+        // a file saved again mid-pass fails its read, in the browser's own English, or reads short
+        const bytes = await readPicked(match, offset, length).catch((error: unknown) => {
+          if (error instanceof DOMException) return null
+          throw error
+        })
+        if (bytes?.length !== length) throw new Error(changedWhileRead(path))
+        return bytes
       }, {
         signal: controller.signal,
         onProgress: (progress) => setState((prev) => ({ ...prev, progress })),
@@ -366,7 +376,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
             id: '{count, plural, one {{path} changed while it was being read, along with {count} more. Try again.} other {{path} changed while it was being read, along with {count} more. Try again.}}',
             defaultMessage: '{count, plural, one {{path} changed while it was being read, along with {count} more. Try again.} other {{path} changed while it was being read, along with {count} more. Try again.}}',
           }, { path, count: changed.length - 1 })
-          : intl.formatMessage({ id: '{path} changed while it was being read. Try again.', defaultMessage: '{path} changed while it was being read. Try again.' }, { path }))
+          : changedWhileRead(path))
       }
 
       const out = await buildTorrent({ picked: pick.files, hashed, options, single: pick.single })
