@@ -80,7 +80,9 @@ const standIns = (folder: string) => {
   Object.assign(window, {
     engineListens: () => heard.size > 0,
     engine: (data: unknown) => { for (const listener of heard) listener(new MessageEvent('message', { data })) },
-    showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true }),
+    // the create dialog's pick, by its id, is a folder of its own, which the spec writes (folderToShare)
+    showDirectoryPicker: async ({ id }: { id?: string } = {}) =>
+      (await navigator.storage.getDirectory()).getDirectoryHandle(id === 'ripple-source' ? 'Holiday' : folder, { create: true }),
   })
   const answers = () => JSON.parse(localStorage.getItem('spec:storage') ?? '{}') as { low?: boolean, persisted?: boolean, denied?: boolean }
   const { storage, permissions } = navigator
@@ -215,9 +217,12 @@ const cutOff = (page: Page) => page.evaluate(() => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
-        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
-        // only its arrow hangs past its box, on the side away from where it is placed
-        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !element.matches('.torrent-table .title, .react-tooltip') ? [`clipped: ${named(element)}`]
+        // a torrent's name is as long as it is, so the table's and the share dialog's end in an ellipsis in any language;
+        // a hint wraps, and only its arrow hangs past its box, on the side away from where it is placed; a box that
+        // scrolls, the share link's, cuts nothing off
+        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
+          && !element.matches('.torrent-table .title, .subject strong, .react-tooltip') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
+          ? [`clipped: ${named(element)}`]
         : element.matches('input:placeholder-shown') && getComputedStyle(element).textOverflow !== 'ellipsis' ? ['a placeholder with no room is cut mid letter']
         : element.matches('footer .folder > span') && box.height > 2 * parseFloat(getComputedStyle(element).fontSize) ? [`a footer label broken in two: ${named(element)}`]
         : []
@@ -535,6 +540,132 @@ const detailSurfaces = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+const FRESH = magnetOf('7', 'Fresh.Pack')
+const FRESH_FILES = {
+  files: [{ path: 'Fresh.Pack/Fresh.Pack.S01E01.1080p.mkv', size: 4.5 * GB }, { path: 'Fresh.Pack/Extras/Commentary.srt', size: 40_000 }],
+  contentSize: 4.5 * GB + 40_000,
+  pieceLength: 16_384,
+}
+const FRESH_LIST = [...LIST, entry('7', 'Fresh.Pack', { ephemeral: true })]
+const FRESH_TORRENTS = [...TORRENTS, snapshot(9, '7', 'Fresh.Pack', { progress: 0, totalDone: 0 }, { files: FRESH_FILES })]
+
+/** Writes the folder the create dialog is handed: a file, one in a subfolder and one the system wrote, or the first alone. */
+const folderToShare = (page: Page, whole: boolean) => page.evaluate(async (whole) => {
+  const root = await navigator.storage.getDirectory()
+  await root.removeEntry('Holiday', { recursive: true }).catch(() => {})
+  const dir = await root.getDirectoryHandle('Holiday', { create: true })
+  const write = async (at: FileSystemDirectoryHandle, name: string, size: number) => {
+    const writable = await (await at.getFileHandle(name, { create: true })).createWritable()
+    await writable.write(new Uint8Array(size).fill(7))
+    await writable.close()
+  }
+  await write(dir, 'Episode 1.mkv', 300_000)
+  if (!whole) return
+  await write(await dir.getDirectoryHandle('Subtitles', { create: true }), 'Episode 1.srt', 2_000)
+  await write(dir, '.DS_Store', 10)
+}, whole)
+
+/** Draws the add, share and create dialogs in each of their states, at `width`. */
+const dialogSurfaces = async (page: Page, width: number) => {
+  const { words, cut, read } = walk(page, width)
+  const dialog = page.getByRole('dialog')
+  const header = page.locator('header')
+  const field = header.locator('form input:not([type=file])')
+  await page.setViewportSize({ width, height: 1500 })
+  // an add the person makes asks first, and the browser has little room left, so the add says it will not fit
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await answer(page, { low: true })
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const autoSave = page.locator('footer .folder').last().getByRole('button')
+  await autoSave.first().click()
+  await expect(autoSave).toHaveCount(3)
+
+  await field.fill(FRESH)
+  await field.press('Enter')
+  await expect(dialog).toBeVisible()
+  await read('add, before its file list')
+  await post(page, { type: 'list', list: FRESH_LIST }, { type: 'state', torrents: FRESH_TORRENTS })
+  await expect(dialog.locator('.file')).toHaveCount(2)
+  await expect(dialog.locator('.fit')).toBeVisible()
+  await read('add')
+  await dialog.locator('.bulk button').nth(1).click()
+  await expect(dialog.locator('.problem')).toBeVisible()
+  await read('add, nothing chosen')
+  await dialog.locator('footer button:not(.primary)').click()
+  await expect(dialog).toHaveCount(0)
+
+  // a link from another site, which says who sent it
+  await page.goto(`${origin}/?add=${encodeURIComponent(FRESH)}`, { referer: 'https://example.org/list' })
+  await library(page, FRESH_LIST, FRESH_TORRENTS)
+  await expect(dialog.locator('.file')).toHaveCount(2)
+  await read('add, sent by a site')
+  await page.goto(`${origin}/?add=not-a-magnet`)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.toast')).toBeVisible()
+  await read('add, refused')
+
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await header.locator('button.share').first().click()
+  await expect(dialog).toBeVisible()
+  await read('share, asking')
+  await dialog.locator('form input').fill(magnetOf('8', 'Pasted'))
+  await dialog.locator('form button').click()
+  await expect(dialog.locator('.subject')).toBeVisible()
+  await read('share, before its file list')
+  await dialog.locator('footer button').first().click()
+  await dialog.locator('input[type=file]').setInputFiles(join(ROOT, 'src', 'assets', 'sintel.torrent'))
+  await expect(dialog.locator('details.files')).toBeVisible()
+  await dialog.locator('details.files summary').click()
+  await dialog.locator('details.snippet summary').click()
+  await read('share')
+  await dialog.locator('.file input').first().uncheck()
+  await read('share, some files')
+  await dialog.locator('.bulk button').nth(1).click()
+  await expect(dialog.locator('.warn')).toBeVisible()
+  await read('share, no file')
+  await dialog.locator('.seg button').first().click()
+  await expect(dialog.locator('#share-file')).toBeVisible()
+  await read('share, a watch link')
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await dialog.locator('.out button').first().click()
+  await expect(page.locator('.toast')).toBeVisible()
+  await read('share, copied')
+  await dialog.locator('footer button').last().click()
+  await expect(dialog).toHaveCount(0)
+
+  await folderToShare(page, true)
+  await header.locator('button.share').nth(1).click()
+  await expect(dialog).toBeVisible()
+  await read('create')
+  await dialog.locator('button.go').click()
+  await expect(dialog.locator('.facts')).toBeVisible()
+  for (const summary of await dialog.locator('details summary').all()) await summary.click()
+  await read('create, a folder read')
+  await dialog.locator('select').first().selectOption('hybrid')
+  await expect(dialog.locator('.fact')).toHaveCount(4)
+  await read('create, hybrid')
+  await dialog.locator('label.field input').first().fill('')
+  await dialog.locator('button.go').click()
+  await expect(dialog.locator('.warn')).toBeVisible()
+  await read('create, refused')
+  await dialog.locator('label.field input').first().fill('Holiday')
+  await dialog.locator('button.go').click()
+  await expect(dialog.locator('[data-outcome]')).toBeVisible()
+  await read('create, sharing')
+
+  // another, from a folder holding one file at its root
+  await folderToShare(page, false)
+  await dialog.locator('footer button').nth(1).click()
+  await dialog.locator('button.go').click()
+  await dialog.locator('select').first().selectOption('v2')
+  await expect(dialog.locator('p.warn')).toBeVisible()
+  await read('create, v2 and one file')
+  return { words, cut }
+}
+
 test.describe('in a language ripple does not offer yet', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
@@ -557,6 +688,12 @@ test.describe('in a language ripple does not offer yet', () => {
       test(`${language} at ${width} px: the details panel fits, in the language`, async ({ page }) => {
         await opening(page, language)
         await expectAllTranslated(page, language, await detailSurfaces(page, width))
+      })
+
+      test(`${language} at ${width} px: the add, share and create dialogs fit, in the language`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await opening(page, language)
+        await expectAllTranslated(page, language, await dialogSurfaces(page, width))
       })
 
       test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
