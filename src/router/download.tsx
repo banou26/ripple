@@ -285,7 +285,8 @@ const style = css`
       font-weight: 700;
 
       svg { width: 15px; height: 15px; flex: none; }
-      span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* wraps rather than ending in an ellipsis, which cut most languages short on a phone */
+      span { text-align: center; }
 
       &:hover:not(:disabled) { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
       &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 2px; }
@@ -427,8 +428,9 @@ const style = css`
 
     .file {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 12px;
+      gap: 4px 12px;
       padding: 7px 0;
       border-top: 1px solid ${BORDER};
       font-size: 0.8rem;
@@ -438,7 +440,6 @@ const style = css`
          which is the kind of thing that only shows up as a wrong file in somebody's archive. */
       .pick {
         flex: 1;
-        min-width: 0;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -454,9 +455,10 @@ const style = css`
         margin: 0;
       }
 
+      /* about eight letters, below which the size, the mark and the button move under the name */
       .name {
         flex: 1;
-        min-width: 0;
+        min-width: 80px;
         overflow-wrap: anywhere;
         color: ${TEXT_MUTED};
       }
@@ -464,6 +466,15 @@ const style = css`
       /* The strike is what carries the meaning, so the colour only steps down rather than fading
          out: this row is the point of the list, it says what you are NOT taking. */
       &.off .name { color: ${TEXT_FAINT}; text-decoration: line-through; }
+
+      .tail {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 4px 12px;
+        margin-left: auto;
+      }
 
       .size {
         flex: none;
@@ -1205,29 +1216,31 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
                         <input type="checkbox" checked={on} onChange={() => toggle(file.index)}/>
                         <span className="name">{leaf(file.path)}</span>
                       </label>
-                      <span className="size">{getHumanReadableByteString(file.size)}</span>
-                      {running
-                        ? <span className="mark">{intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' })}</span>
-                        : saved.has(file.index) && <span className="mark saved"><Check/>{intl.formatMessage({ id: 'Saved', defaultMessage: 'Saved' })}</span>}
-                      {/**
-                        * Shows "Download" and ANNOUNCES the file, because the visible label is only
-                        * unambiguous next to the name in the same row. Read on its own, as a screen
-                        * reader's element list does, a season pack is otherwise 24 buttons that all say
-                        * the same word. The visible word stays in the accessible name, in every
-                        * language, so "click Download" still addresses this button by voice.
-                        *
-                        * Disabled only while a download is RUNNING, and enabled again the moment it
-                        * ends, which is the whole of "take one file now and come back for the rest".
-                        * One at a time because two exports share this page's single claim on the
-                        * torrent and would re-anchor it away from each other on every chunk.
-                        */}
-                      <button
-                        aria-label={intl.formatMessage({ id: 'Download {name}#a file', defaultMessage: 'Download {name}', description: 'a file' }, { name: leaf(file.path) })}
-                        onClick={() => start([file], intl.formatMessage({ id: 'Downloading {name}', defaultMessage: 'Downloading {name}' }, { name: leaf(file.path) }))}
-                        disabled={!listReady || busy}
-                      >
-                        {intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })}
-                      </button>
+                      <span className="tail">
+                        <span className="size">{getHumanReadableByteString(file.size)}</span>
+                        {running
+                          ? <span className="mark">{intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' })}</span>
+                          : saved.has(file.index) && <span className="mark saved"><Check/>{intl.formatMessage({ id: 'Saved', defaultMessage: 'Saved' })}</span>}
+                        {/**
+                          * Shows "Download" and ANNOUNCES the file, because the visible label is only
+                          * unambiguous next to the name in the same row. Read on its own, as a screen
+                          * reader's element list does, a season pack is otherwise 24 buttons that all say
+                          * the same word. The visible word stays in the accessible name, in every
+                          * language, so "click Download" still addresses this button by voice.
+                          *
+                          * Disabled only while a download is RUNNING, and enabled again the moment it
+                          * ends, which is the whole of "take one file now and come back for the rest".
+                          * One at a time because two exports share this page's single claim on the
+                          * torrent and would re-anchor it away from each other on every chunk.
+                          */}
+                        <button
+                          aria-label={intl.formatMessage({ id: 'Download {name}#a file', defaultMessage: 'Download {name}', description: 'a file' }, { name: leaf(file.path) })}
+                          onClick={() => start([file], intl.formatMessage({ id: 'Downloading {name}', defaultMessage: 'Downloading {name}' }, { name: leaf(file.path) }))}
+                          disabled={!listReady || busy}
+                        >
+                          {intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })}
+                        </button>
+                      </span>
                     </div>
                   )
                 })}
