@@ -236,9 +236,10 @@ const style = css`
     flex-wrap: wrap;
     gap: 8px 12px;
 
+    /* at least, so a longer word widens its row: Turkish's BAĞLANTI is 64 px in DejaVu Sans, which GitHub's runner draws */
     > label {
       flex: none;
-      width: 62px;
+      min-width: 62px;
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
@@ -473,7 +474,7 @@ const style = css`
   }
 
   @media (max-width: 700px) {
-    .opt > label { width: auto; }
+    .opt > label { min-width: 0; }
   }
 `
 
