@@ -13,6 +13,8 @@ import { wordsIn } from '../i18n/words-in'
 
 import de from '../../src/locales/de.json'
 
+const CATALOGUES = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+
 /**
  * What the dialog puts in the link, which is the only thing about it that can be silently wrong.
  *
@@ -438,4 +440,22 @@ describe('the share link dialog in German', () => {
       ],
     })
   })
+})
+
+// the two labels share one column from 700 px up, as wide as the shorter English: Turkish's BAĞLANTI is 64 px in DejaVu
+// Sans, which GitHub's runner draws
+describe('the share link dialog\'s labels, in each language', () => {
+  for (const [path, catalogue] of Object.entries(CATALOGUES)) {
+    const language = path.slice(path.lastIndexOf('/') + 1, -'.json'.length)
+    it(`keep their words inside their column in ${language}`, async () => {
+      await showIn(language, catalogue)
+      await mount(SINTEL)
+      await press('.seg button')
+      await expect.poll(() => dialog().querySelector('#share-file')).not.toBeNull()
+      const past = [...dialog().querySelectorAll<HTMLElement>('.opt > label')]
+        .filter((label) => label.scrollWidth > label.clientWidth + 1)
+        .map((label) => `${label.textContent}: ${label.scrollWidth} px in ${label.clientWidth}`)
+      expect(past).toEqual([])
+    })
+  }
 })
