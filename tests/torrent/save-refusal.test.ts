@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import type { TorrentClient } from '../../src/torrent/client'
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { showSaveFilePicker } from '@banou/ponyfill'
 
-import { isSaveCancelled } from '../../src/torrent/save-file'
+import { isSaveCancelled, saveTorrentFileToDisk } from '../../src/torrent/save-file'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 
 /**
  * The one thing `save-file.ts` needs from `@banou/ponyfill`, asserted across the boundary.
@@ -39,5 +44,16 @@ describe('a refusal from the save picker is not a cancel', () => {
   /** and the control: a real cancel still has to read as one, or every dismissal becomes an error */
   it('still recognises the platform cancel it was written for', () => {
     expect(isSaveCancelled(new DOMException('The user aborted a request.', 'AbortError'))).toBe(true)
+  })
+})
+
+describe('a file too big to hold in memory, with no picker to stream it to', () => {
+  afterEach(showEnglish)
+
+  it('is refused in the page\'s language', async () => {
+    const refusal = () => saveTorrentFileToDisk({} as TorrentClient, 1, 0, 'Pack/Big.mkv', 2 * 1024 ** 3)
+    await expect(refusal()).rejects.toThrow('This file is too large to save here.')
+    await showIn('de', de, 'de-DE')
+    await expect(refusal()).rejects.toThrow('Diese Datei ist zu groß, um sie hier zu speichern.')
   })
 })

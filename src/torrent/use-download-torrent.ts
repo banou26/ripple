@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TorrentClient, TorrentSnapshot } from './client'
+import { intl } from '../i18n'
 import { getTorrentClient } from './client'
 import { magnetInfoHash } from './magnet'
 
@@ -63,11 +64,17 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
 
   useEffect(() => {
     if (!magnet) return
-    const offUnavailable = client.onStorageUnavailable(
-      () => setEngineError('Ripple needs a normal (non-private) window to download this'),
-    )
+    const offUnavailable = client.onStorageUnavailable(() => setEngineError(intl.formatMessage({
+      id: 'Ripple needs a normal (non-private) window to download this',
+      defaultMessage: 'Ripple needs a normal (non-private) window to download this',
+    })))
     const offWorkerError = client.onWorkerError(({ fatal }) => {
-      if (fatal) setEngineError('The download engine stopped. Reload the page to try again.')
+      if (fatal) {
+        setEngineError(intl.formatMessage({
+          id: 'The download engine stopped. Reload the page to try again.',
+          defaultMessage: 'The download engine stopped. Reload the page to try again.',
+        }))
+      }
     })
     const offFull = client.onStorageFull(setStorageFull)
     // Ephemeral for the same reason the player uses it: the page asked for this, not the person, so
