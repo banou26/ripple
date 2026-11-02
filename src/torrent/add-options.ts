@@ -2,6 +2,8 @@ import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import type { SaveLocation } from './library'
 
+import { intl } from '../i18n'
+
 /**
  * What someone can decide about a torrent before it starts, and what those decisions turn into.
  *
@@ -76,7 +78,7 @@ export const flagsFor = (choices: AddChoices): [flags: number, mask: number] => 
  * than like a thing nobody asked for.
  */
 export const choicesProblem = (choices: AddChoices): string | null =>
-  choices.files.length === 0 ? 'Choose at least one file.' : null
+  choices.files.length === 0 ? intl.formatMessage({ id: 'Choose at least one file.', defaultMessage: 'Choose at least one file.' }) : null
 
 /** Bytes that will actually be downloaded, which is what the dialog shows against the total. */
 export const selectedBytes = (choices: AddChoices, files: { size: number }[]): number =>

@@ -3,6 +3,7 @@ import { del, get, set } from 'idb-keyval'
 
 import { showDirectoryPicker, showOpenFilePicker } from '@banou/ponyfill'
 
+import type { Said } from '../i18n'
 import type { Built, CreateOptions } from './create-source'
 import type { HashProgress } from './hash-pieces'
 import type { Persisted } from './library'
@@ -14,6 +15,7 @@ import type { TorrentFormat, TorrentPlan } from './make-torrent'
 
 import type { CopyProgress, CopyRoom } from './copy-source'
 
+import { intl } from '../i18n'
 import { DEFAULT_TRACKERS, buildTorrent, optionsError } from './create-source'
 import { HashCancelled, hashPieces } from './hash-pieces'
 import { copyPickIntoBrowserStorage, measureRoomForCopy } from './copy-source'
@@ -46,7 +48,7 @@ export type CreateState = {
   /** What the pick turned out to be, known before any hashing so it can be confirmed first. */
   plan: TorrentPlan | null
   /** Files left out of the pick, so the dialog can say so rather than quietly shrinking the torrent. */
-  skipped: string[]
+  skipped: Said[]
   truncated: boolean
   progress: HashProgress | null
   error: string | null
@@ -217,11 +219,11 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
    * because it is the one place that decides whether this one can re-open itself.
    */
   const accept = useCallback((
-    read: { files: PickedFile[], skipped: string[], truncated: boolean, single: boolean },
+    read: { files: PickedFile[], skipped: Said[], truncated: boolean, single: boolean },
     name: string,
     root: FileSystemDirectoryHandle | FileSystemFileHandle,
   ) => {
-      if (!read.files.length) throw new Error('There are no files in there to put in a torrent')
+      if (!read.files.length) throw new Error(intl.formatMessage({ id: 'There are no files in there to put in a torrent', defaultMessage: 'There are no files in there to put in a torrent' }))
       /*
        * A torrent of nothing is refused by libtorrent, in every format, so it is refused HERE.
        *
@@ -231,7 +233,7 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        * folder has been walked and hashed, saying nothing about the actual reason.
        */
       if (!read.files.reduce((sum, file) => sum + file.size, 0)) {
-        throw new Error('Every file in there is empty')
+        throw new Error(intl.formatMessage({ id: 'Every file in there is empty', defaultMessage: 'Every file in there is empty' }))
       }
       const reopenable = canBeReopened(root)
       source.current = { root, name, files: read.files, single: read.single, reopenable }
@@ -358,11 +360,13 @@ export const useCreateTorrent = (client: TorrentClient): UseCreateTorrent => {
        */
       const changed = await changedSince(pick.files)
       if (changed.length) {
-        throw new Error(
-          `${changed[0]!.path} changed while it was being read`
-          + (changed.length > 1 ? `, along with ${changed.length - 1} more` : '')
-          + '. Try again.',
-        )
+        const { path } = changed[0]!
+        throw new Error(changed.length > 1
+          ? intl.formatMessage({
+            id: '{count, plural, one {{path} changed while it was being read, along with {count} more. Try again.} other {{path} changed while it was being read, along with {count} more. Try again.}}',
+            defaultMessage: '{count, plural, one {{path} changed while it was being read, along with {count} more. Try again.} other {{path} changed while it was being read, along with {count} more. Try again.}}',
+          }, { path, count: changed.length - 1 })
+          : intl.formatMessage({ id: '{path} changed while it was being read. Try again.', defaultMessage: '{path} changed while it was being read. Try again.' }, { path }))
       }
 
       const out = await buildTorrent({ picked: pick.files, hashed, options, single: pick.single })

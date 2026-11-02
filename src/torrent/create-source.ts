@@ -14,6 +14,7 @@ import {
   magnetFor,
   plan,
 } from './make-torrent'
+import { intl } from '../i18n'
 import { readTorrentFile } from './torrent-file'
 
 /**
@@ -92,22 +93,31 @@ export type CreateOptions = {
 export const optionsError = (
   { name, trackers, webSeeds = [], private: isPrivate, pieceLength, format = 'v1' }: CreateOptions,
 ): string | null => {
-  if (format !== 'v1' && format !== 'hybrid' && format !== 'v2') return `${String(format)} is not a torrent format`
+  if (format !== 'v1' && format !== 'hybrid' && format !== 'v2') {
+    return intl.formatMessage({ id: '{format} is not a torrent format', defaultMessage: '{format} is not a torrent format' }, { format: String(format) })
+  }
   const clean = trackers.map((url) => url.trim()).filter(Boolean)
-  if (!name.trim()) return 'Give the torrent a name'
-  if (name.includes('/')) return 'A torrent name cannot contain a slash'
-  if (isPrivate && !clean.length) return 'A private torrent needs at least one tracker'
+  if (!name.trim()) return intl.formatMessage({ id: 'Give the torrent a name', defaultMessage: 'Give the torrent a name' })
+  if (name.includes('/')) return intl.formatMessage({ id: 'A torrent name cannot contain a slash', defaultMessage: 'A torrent name cannot contain a slash' })
+  if (isPrivate && !clean.length) return intl.formatMessage({ id: 'A private torrent needs at least one tracker', defaultMessage: 'A private torrent needs at least one tracker' })
   for (const url of clean) {
     // A bare hostname is the mistake people make here, and libtorrent drops such a tracker without
     // saying so, which reads as a tracker that never answers.
-    if (!/^(https?|udp|ws|wss):\/\/[^\s/]+/.test(url)) return `${url} is not a tracker address`
+    if (!/^(https?|udp|ws|wss):\/\/[^\s/]+/.test(url)) {
+      return intl.formatMessage({ id: '{url} is not a tracker address', defaultMessage: '{url} is not a tracker address' }, { url })
+    }
   }
   // A web seed is fetched over http by a client, so unlike a tracker it is those two schemes only
   for (const url of webSeeds.map((u) => u.trim()).filter(Boolean)) {
-    if (!/^https?:\/\/[^\s/]+/.test(url)) return `${url} is not a web seed address: it has to be http or https`
+    if (!/^https?:\/\/[^\s/]+/.test(url)) {
+      return intl.formatMessage({
+        id: '{url} is not a web seed address: it has to be http or https',
+        defaultMessage: '{url} is not a web seed address: it has to be http or https',
+      }, { url })
+    }
   }
   if (pieceLength !== undefined && !isValidPieceLength(pieceLength)) {
-    return 'That piece size is not one a torrent can use'
+    return intl.formatMessage({ id: 'That piece size is not one a torrent can use', defaultMessage: 'That piece size is not one a torrent can use' })
   }
   return null
 }

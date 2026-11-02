@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { wordsOf } from '../../src/i18n'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 import { MAX_DEPTH, MAX_FILES, WalkCancelled, changedSince, isJunk, readPicked, walkDirectory } from '../../src/torrent/walk-source'
 
 /**
@@ -94,7 +98,7 @@ describe('walking a picked folder', () => {
     })
     const { files, skipped } = await walkDirectory(root)
     expect(files.map((f) => f.path.join('/')).sort()).toEqual(['E01.mkv', 'Subs/E01.ass'])
-    expect(skipped.sort()).toEqual(['.DS_Store', 'Subs/Thumbs.db'])
+    expect(skipped.map(wordsOf).sort()).toEqual(['.DS_Store', 'Subs/Thumbs.db'])
   })
 
   it('skips one unreadable file with a reason rather than failing the whole walk', async () => {
@@ -104,7 +108,7 @@ describe('walking a picked folder', () => {
     })
     const { files, skipped } = await walkDirectory(root)
     expect(files.map((f) => f.path.join('/'))).toEqual(['ok.mkv'])
-    expect(skipped).toEqual(['cloud.mkv (could not be read)'])
+    expect(skipped.map(wordsOf)).toEqual(['cloud.mkv (could not be read)'])
   })
 
   it('records a zero-byte file rather than dropping it', async () => {
@@ -122,7 +126,7 @@ describe('walking a picked folder', () => {
     const root = dirHandle('Pack', nest(MAX_DEPTH + 4))
     const { files, skipped } = await walkDirectory(root)
     expect(files).toHaveLength(0)
-    expect(skipped.some((s) => s.includes('nested too deep'))).toBe(true)
+    expect(skipped.map(wordsOf).some((s) => s.endsWith(' (nested too deep)'))).toBe(true)
   })
 
   it('reaches a file that sits just inside the depth cap', async () => {
@@ -186,5 +190,21 @@ describe('noticing the source changed', () => {
     const { files } = await walkDirectory(dirHandle('Pack', { 'a': { bytes: bytes(4) } }))
     const gone = [{ ...files[0]!, handle: fileHandle('a', { bytes: bytes(4), unreadable: true }) }]
     expect(await changedSince(gone)).toEqual([{ path: 'a', was: 4, now: -1 }])
+  })
+})
+
+describe('why a file was left out, in the page\'s language', () => {
+  afterEach(showEnglish)
+
+  it('is worded where the dialog shows it, so it reads in German once the page is', async () => {
+    const { skipped } = await walkDirectory(dirHandle('Pack', {
+      'cloud.mkv': { bytes: bytes(3), unreadable: true },
+      ...nest(MAX_DEPTH),
+    }))
+    await showIn('de', de)
+    expect(skipped.map(wordsOf)).toEqual([
+      'cloud.mkv (konnte nicht gelesen werden)',
+      `${Array.from({ length: MAX_DEPTH }, (_, i) => `d${MAX_DEPTH - 1 - i}`).join('/')} (zu tief verschachtelt)`,
+    ])
   })
 })

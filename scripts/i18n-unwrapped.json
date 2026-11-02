@@ -1,9 +1,4 @@
 {
-  "e-add-share-create": [
-    "src/components/add-torrent-dialog.tsx",
-    "src/components/create-torrent-dialog.tsx",
-    "src/components/share-link-dialog.tsx"
-  ],
   "f-download": [
     "src/router/download.tsx"
   ],

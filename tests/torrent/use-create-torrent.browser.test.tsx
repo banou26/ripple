@@ -2,11 +2,14 @@ import type { CreateOptions } from '../../src/torrent/create-source'
 import type { TorrentClient } from '../../src/torrent/client'
 import type { UseCreateTorrent } from '../../src/torrent/use-create-torrent'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { DEFAULT_TRACKERS, useCreateTorrent } from '../../src/torrent/use-create-torrent'
 import { readTorrentFile } from '../../src/torrent/torrent-file'
+import { showEnglish, showIn } from '../i18n/show-in'
+
+import de from '../../src/locales/de.json'
 
 type Add = { options: unknown, lengthAtCall: number }
 
@@ -394,5 +397,65 @@ describe('a create holds updates', () => {
     await settle(api)
     expect(work.calls.length - from, 'the pick, the publish and the hold after it').toBe(3)
     expect(running(from)).toBe(1)
+  })
+})
+
+/** A file somebody keeps saving: every read finds it modified since the last. */
+class EditedFile {
+  kind = 'file' as const
+  private reads = 0
+  constructor (public name: string) {}
+  async getFile () { return new File([new Uint8Array(20_001).fill(0x44)], this.name, { lastModified: ++this.reads }) }
+  async isSameEntry () { return false }
+}
+
+class EditedDirectory {
+  kind = 'directory' as const
+  constructor (public name: string, private files: EditedFile[]) {}
+  async * entries () { for (const file of this.files) yield [file.name, file] }
+  async * values () { for (const file of this.files) yield file }
+  async isSameEntry () { return false }
+}
+
+describe('what a pick is refused for, in the page\'s language', () => {
+  afterEach(showEnglish)
+
+  const refusals = async () => {
+    const api = await mount(fakeClient().client)
+    const said: (string | null)[] = []
+    const refused = async () => {
+      await expect.poll(() => api().state.stage).toBe('error')
+      said.push(api().state.error)
+      api().reset()
+      await expect.poll(() => api().state.stage).toBe('idle')
+    }
+    await pickNative(api, 'Nothing', [])
+    await refused()
+    await pickNative(api, 'Zeroes', [new File([], 'a.mkv')])
+    await refused()
+    for (const names of [['a.mkv'], ['a.mkv', 'b.mkv', 'c.mkv']]) {
+      const edited = new EditedDirectory('Edited', names.map((name) => new EditedFile(name)))
+      ;(window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = async () => edited
+      await api().pickFolder()
+      await expect.poll(() => api().state.stage).toBe('ready')
+      await api().publish(options('Edited'))
+      await refused()
+    }
+    return said
+  }
+
+  it('says why in English, as it did before it was translated', async () => {
+    expect(await refusals()).toEqual([
+      'There are no files in there to put in a torrent', 'Every file in there is empty', 'a.mkv changed while it was being read. Try again.',
+      'a.mkv changed while it was being read, along with 2 more. Try again.',
+    ])
+  })
+
+  it('says why in German once the page is', async () => {
+    await showIn('de', de)
+    expect(await refusals()).toEqual([
+      'Darin sind keine Dateien für einen Torrent', 'Alle Dateien darin sind leer', 'a.mkv wurde beim Lesen geändert. Versuche es erneut.',
+      'a.mkv und 2 weitere Dateien wurden beim Lesen geändert. Versuche es erneut.',
+    ])
   })
 })
