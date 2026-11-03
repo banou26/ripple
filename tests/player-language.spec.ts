@@ -71,7 +71,7 @@ test.describe('in a French browser', () => {
     expect(fetched.sort()).toEqual(['fr'])
   })
 
-  for (const tag of ['fr_FR', 'xx', 'sv']) {
+  for (const tag of ['fr_FR', 'xx', 'fi']) {
     test(`a link with language=${tag}, which the player cannot use, shows it in the browser's`, async ({ page }) => {
       await page.goto(watch(`&language=${tag}`))
       await expectLabels(page, FRENCH)
@@ -92,21 +92,21 @@ test.describe('in a browser with no text in its first language', () => {
     page.addInitScript((list) => Object.defineProperty(navigator, 'languages', { get: () => list }), languages)
 
   test('a link with no language shows the next language it lists', async ({ page }) => {
-    await listing(page, 'uk', 'ru')
+    await listing(page, 'fi', 'ru')
     await page.goto(watch())
     await expectLabels(page, RUSSIAN)
   })
 
   // stub writes the browser's first language on its link whatever it is
   test('a link naming that language shows the next one too', async ({ page }) => {
-    await listing(page, 'sv', 'fr')
-    await page.goto(watch('&language=sv'))
+    await listing(page, 'fi', 'fr')
+    await page.goto(watch('&language=fi'))
     await expectLabels(page, FRENCH)
   })
 })
 
-test.describe('in an Arabic browser', () => {
-  test.use({ locale: 'ar-EG' })
+test.describe('in a Persian browser', () => {
+  test.use({ locale: 'fa-IR' })
 
   // English labels are shown here, so the numbers in them are written as English writes them
   test('the speed menu keeps the digits of its labels', async ({ page }) => {

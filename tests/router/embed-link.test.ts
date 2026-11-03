@@ -326,7 +326,7 @@ describe('the language on a link', () => {
     expect(read(tag)).toEqual({})
   })
 
-  it.each(['xx', 'tlh', 'sv', 'und', 'und-FR'])('leaves out %s, which the player has no text in', (tag) => {
+  it.each(['xx', 'tlh', 'fi', 'und', 'und-FR'])('leaves out %s, which the player has no text in', (tag) => {
     expect(read(tag)).toEqual({})
   })
 

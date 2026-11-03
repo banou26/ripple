@@ -49,7 +49,10 @@ export type LinkLanguages = { language?: string }
  * `@banou/media-player`'s languages as it matches them, by language alone (`es-MX` finds `es-419`). It exports none,
  * so tests/router/embed-link.test.ts holds this to the installed player.
  */
-const PLAYER_LANGUAGES = new Set(['de', 'en', 'es', 'fr', 'it', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'zh'])
+const PLAYER_LANGUAGES = new Set([
+  'ar', 'cs', 'de', 'el', 'en', 'es', 'fr', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'ms', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv',
+  'th', 'tr', 'uk', 'vi', 'zh',
+])
 
 /** `tag` canonical and without extensions, or undefined for one Intl cannot read or a language the player has no text in. */
 const playerLanguage = (tag: string) => {
