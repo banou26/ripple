@@ -1,5 +1,6 @@
 import type { MediaPlayerLocalOptions } from '@banou/media-player'
 import type { EmbedderAsk } from '../../src/router/embedder'
+import type { TrackLanguages } from '../../src/router/track-languages'
 import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 
 import { AUDIO_LANGUAGE_KEY, SUBTITLE_LANGUAGE_KEY } from '../../src/router/track-languages'
@@ -17,9 +18,12 @@ vi.mock('@banou/media-player', () => ({
   MediaPlayer: (props: Partial<MediaPlayerLocalOptions>) => { seen.push(props); return null },
 }))
 
-// the framing window is the only one heard, and a test has none: this is its hand
-const embedder = vi.hoisted(() => ({ ask: (_: EmbedderAsk) => {} }))
-vi.mock('../../src/router/embedder', () => ({ useEmbedder: (on: (ask: EmbedderAsk) => void) => { embedder.ask = on } }))
+// the framing window is the only one heard or told, and a test has none: this is its hand and its ear
+const embedder = vi.hoisted(() => ({ ask: (_: EmbedderAsk) => {}, told: [] as TrackLanguages[] }))
+vi.mock('../../src/router/embedder', () => ({
+  useEmbedder: (on: (ask: EmbedderAsk) => void) => { embedder.ask = on },
+  tellPicked: (picked: TrackLanguages) => { embedder.told.push(picked) },
+}))
 
 const FILE = { path: 'Show.S01E04.mkv', size: 1_400_000_000, offset: 0 }
 const playing: (number | undefined)[] = []
@@ -62,6 +66,7 @@ describe('the languages on /watch', () => {
     await expect.poll(() => seen.length).toBeGreaterThan(0)
     expect(latest().preferredAudioLanguage).toBeUndefined()
     expect(latest().preferredSubtitleLanguage).toBeUndefined()
+    expect(latest().alwaysShowSubtitles).toBeUndefined()
 
     latest().onPreferredAudioLanguageChange!('jpn')
     latest().onPreferredSubtitleLanguageChange!(null)
@@ -76,6 +81,32 @@ describe('the languages on /watch', () => {
     latest().onPreferredSubtitleLanguageChange!('eng')
     await expect.poll(() => latest().preferredSubtitleLanguage).toBe('eng')
     expect(localStorage.getItem(SUBTITLE_LANGUAGE_KEY)).toBe('eng')
+  })
+
+  it('starts the player in the languages the link names, over the ones last picked', async () => {
+    localStorage.setItem(AUDIO_LANGUAGE_KEY, 'eng')
+    localStorage.setItem(SUBTITLE_LANGUAGE_KEY, 'eng')
+    const first = await mount('&audio=ja&subtitles=off&alwaysSubtitles=0')
+    await expect.poll(() => seen.length).toBeGreaterThan(0)
+    expect([latest().preferredAudioLanguage, latest().preferredSubtitleLanguage, latest().alwaysShowSubtitles]).toEqual(['ja', null, false])
+    await first.unmount()
+
+    await mount('&audio=original&subtitles=fr&alwaysSubtitles=1')
+    await expect.poll(() => seen.length).toBeGreaterThan(0)
+    expect([latest().preferredAudioLanguage, latest().preferredSubtitleLanguage, latest().alwaysShowSubtitles]).toEqual([undefined, 'fr', true])
+  })
+
+  it('tells the page framing it each pick, and starts the next file in place in it', async () => {
+    embedder.told.length = 0
+    await mount('&audio=ja&subtitles=fr&alwaysSubtitles=0')
+    await expect.poll(() => seen.length).toBeGreaterThan(0)
+    latest().onPreferredAudioLanguageChange!('eng')
+    latest().onPreferredSubtitleLanguageChange!(null)
+    latest().onAlwaysShowSubtitlesChange!(true)
+    expect(embedder.told).toEqual([{ audio: 'eng' }, { subtitles: null }, { alwaysSubtitles: true }])
+    embedder.ask({ ripple: 'open', magnet: 'magnet:?xt=urn:btih:def', fileIndex: 2 })
+    await expect.poll(() => playing[playing.length - 1]).toBe(2)
+    expect([latest().preferredAudioLanguage, latest().preferredSubtitleLanguage, latest().alwaysShowSubtitles]).toEqual(['eng', null, true])
   })
 })
 

@@ -1,3 +1,5 @@
+import type { TrackLanguages } from './track-languages'
+
 import { useEffect, useRef } from 'react'
 
 /**
@@ -17,6 +19,15 @@ export const embedderAsk = (data: unknown): EmbedderAsk | undefined => {
   if ((ripple !== 'open' && ripple !== 'prepare') || typeof magnet !== 'string' || !magnet.startsWith('magnet:')) return undefined
   if (fileIndex !== undefined && !(typeof fileIndex === 'number' && Number.isInteger(fileIndex) && fileIndex >= 0)) return undefined
   return { ripple, magnet, ...fileIndex === undefined ? {} : { fileIndex } }
+}
+
+/**
+ * Tells the page framing /watch what the viewer picked in the player, as `{ ripple: 'picked', ...picked }`: an audio or
+ * a subtitle language as the player reported it (subtitles off: null), or `alwaysSubtitles: true`, for the page to
+ * start its next media in it. To any origin, since the player is served to whoever frames this page too.
+ */
+export const tellPicked = (picked: TrackLanguages) => {
+  if (window.parent !== window) window.parent.postMessage({ ripple: 'picked', ...picked }, '*')
 }
 
 export const useEmbedder = (on: (ask: EmbedderAsk) => void) => {

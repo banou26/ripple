@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { AUDIO_LANGUAGE_KEY, SUBTITLE_LANGUAGE_KEY, saveLanguages, savedLanguages } from '../../src/router/track-languages'
+import { AUDIO_LANGUAGE_KEY, SUBTITLE_LANGUAGE_KEY, saveLanguages, savedLanguages, startLanguages } from '../../src/router/track-languages'
 
 const storage = (entries: Record<string, string> = {}) => {
   const values = new Map(Object.entries(entries))
@@ -32,5 +32,19 @@ describe('the saved track languages', () => {
     const blocked = () => { throw new DOMException('blocked', 'SecurityError') }
     expect(savedLanguages(blocked)).toEqual({})
     expect(() => saveLanguages(blocked, { audio: 'jpn' })).not.toThrow()
+  })
+})
+
+describe('the languages the player starts in', () => {
+  const saved = { audio: 'eng', subtitles: 'eng' }
+
+  it('are the link\'s over the ones last picked, original as no audio language and off as null', () => {
+    expect(startLanguages({ audio: 'ja', subtitles: 'fr', alwaysSubtitles: '0' }, saved)).toEqual({ audio: 'ja', subtitles: 'fr', alwaysSubtitles: false })
+    expect(startLanguages({ audio: 'original', subtitles: 'off', alwaysSubtitles: '1' }, saved)).toEqual({ audio: undefined, subtitles: null, alwaysSubtitles: true })
+  })
+
+  it('are the ones last picked where the link names none', () => {
+    expect(startLanguages({}, saved)).toEqual(saved)
+    expect(startLanguages({ language: 'fr' }, { subtitles: null })).toEqual({ subtitles: null })
   })
 })

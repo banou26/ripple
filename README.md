@@ -88,6 +88,13 @@ same query; the path chooses which one renders. `/watch` plays a file, `/downloa
 | `fileIndex` | a file index | the file `/watch` plays (the largest video if absent); the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
 | `language` | a BCP 47 tag, such as `fr` or `es-MX` | the language of the player's controls (if absent, unreadable, or one the player has no text in: the first of the browser's languages it has text in) |
+| `audio` | a BCP 47 tag, or `original` | the audio language `/watch` starts in, ahead of the one last picked in it (`original`: the file's own) |
+| `subtitles` | a BCP 47 tag, or `off` | the subtitle language it starts in, the same way |
+| `alwaysSubtitles` | `1` or `0` | `0` starts subtitles off when the audio plays in their language |
+
+Each audio or subtitle language picked in the player is posted to the framing window as
+`{ ripple: 'picked', audio }`, `{ ripple: 'picked', subtitles }` (null for off) or
+`{ ripple: 'picked', alwaysSubtitles: true }`, for the page to start its next media in it.
 
 One of `magnet` or `m` is required, and `m` is read first when both are present. `magnet=` is the
 original form and every link written with it keeps working. `m=` is the same torrent packed into a
