@@ -353,3 +353,23 @@ describe('the language on a link', () => {
     expect(linkLanguages(queryOf(embedPath({ magnet: MAGNET, mode: 'watch', ...written })!))).toEqual(written)
   })
 })
+
+describe('the languages a link starts the player in', () => {
+  const read = (query: Record<string, string>) => linkLanguages(new URLSearchParams(query))
+
+  it('reads a tag or original, a tag or off, and 1 or 0, the tags as Intl writes them', () => {
+    expect(read({ audio: 'JA', subtitles: 'pt-br', alwaysSubtitles: '1' })).toEqual({ audio: 'ja', subtitles: 'pt-BR', alwaysSubtitles: '1' })
+    expect(read({ audio: 'original', subtitles: 'off', alwaysSubtitles: '0' })).toEqual({ audio: 'original', subtitles: 'off', alwaysSubtitles: '0' })
+  })
+
+  it('leaves out what Intl cannot read, and an Always show subtitles other than 1 or 0', () => {
+    expect(read({ audio: 'fr_FR', subtitles: '<script>', alwaysSubtitles: 'yes' })).toEqual({})
+    expect(read({ audio: '', subtitles: '', alwaysSubtitles: '' })).toEqual({})
+  })
+
+  it('is carried on by every link the page writes from its own', () => {
+    const written = { language: 'fr', audio: 'ja', subtitles: 'off', alwaysSubtitles: '0' } as const
+    const path = embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 2, ...written })!
+    expect(linkLanguages(new URLSearchParams(path.slice(path.indexOf('?'))))).toEqual(written)
+  })
+})

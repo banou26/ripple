@@ -24,12 +24,12 @@ import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
 import DownloadPage from './download'
 import { browserLanguage, embedPath, linkLanguages } from './embed-link'
-import { useEmbedder } from './embedder'
+import { tellPicked, useEmbedder } from './embedder'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
-import { saveLanguages, savedLanguages, type TrackLanguages } from './track-languages'
+import { saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
 import { STATE_LABEL } from './torrent-format'
 
@@ -417,10 +417,11 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     setNormalizeVolume(on)
     try { localStorage.setItem(NORMALIZE_VOLUME_KEY, on ? '1' : '0') } catch {}
   }
-  const [languages, setLanguages] = useState(() => savedLanguages((k) => localStorage.getItem(k)))
+  const [languages, setLanguages] = useState(() => startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
   const chooseLanguage = (picked: TrackLanguages) => {
     setLanguages((current) => ({ ...current, ...picked }))
     saveLanguages((k, v) => localStorage.setItem(k, v), picked)
+    tellPicked(picked)
   }
   // The player keeps no volume of its own: it writes it onto its <video> and reads it back from there, and in
   // local mode that element is rendered on the first commit, so it is already here.
@@ -751,8 +752,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         onNormalizeVolumeChange={chooseNormalizeVolume}
         preferredAudioLanguage={languages.audio}
         preferredSubtitleLanguage={languages.subtitles}
+        alwaysShowSubtitles={languages.alwaysSubtitles}
         onPreferredAudioLanguageChange={(audio) => chooseLanguage({ audio })}
         onPreferredSubtitleLanguageChange={(subtitles) => chooseLanguage({ subtitles })}
+        onAlwaysShowSubtitlesChange={(alwaysSubtitles) => chooseLanguage({ alwaysSubtitles })}
         language={linked.language ?? browserLanguage()}
         autoplay={true}
         overlay={overlay}

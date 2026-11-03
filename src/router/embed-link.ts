@@ -8,6 +8,7 @@ import type { EmbedMode } from './file-selection'
 
 import { encodeMagnetParam } from './magnet-codec'
 import { getRoutePath, Route } from './path'
+import { OFF, ORIGINAL } from './track-languages'
 
 export { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 
@@ -41,9 +42,11 @@ export const compileFileSelection = (indices: number[], fileCount: number): stri
 /**
  * The languages a link names, which every link a page writes from its own carries on: a parameter of this kind is
  * read in `linkLanguages` and nowhere else, and `embedPath` writes every key it is given, so a parameter the link does
- * not name is left out, never undefined. `language` is the embedder's page's, a BCP 47 tag.
+ * not name is left out, never undefined. `language` is the embedder's page's, a BCP 47 tag. `audio`, `subtitles` and
+ * `alwaysSubtitles` are what the player starts in, ahead of the languages last picked in it (./track-languages.ts): a
+ * tag or `original`, a tag or `off`, and `1` or `0`.
  */
-export type LinkLanguages = { language?: string }
+export type LinkLanguages = { language?: string, audio?: string, subtitles?: string, alwaysSubtitles?: '0' | '1' }
 
 /**
  * `@banou/media-player`'s languages as it matches them, by language alone (`es-MX` finds `es-419`). It exports none,
@@ -64,10 +67,28 @@ const playerLanguage = (tag: string) => {
   }
 }
 
+/** `value` when it is `word`, else its tag canonical and without extensions, or undefined for one Intl cannot read. */
+const trackLanguage = (value: string | null, word: string) => {
+  if (value === word) return word
+  try {
+    return value ? new Intl.Locale(value).baseName : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Embedder-written text, so nothing of it is handed on as written. */
 export const linkLanguages = (params: URLSearchParams): LinkLanguages => {
   const language = playerLanguage(params.get('language') ?? '')
-  return language ? { language } : {}
+  const audio = trackLanguage(params.get('audio'), ORIGINAL)
+  const subtitles = trackLanguage(params.get('subtitles'), OFF)
+  const alwaysSubtitles = params.get('alwaysSubtitles')
+  return {
+    ...language ? { language } : {},
+    ...audio ? { audio } : {},
+    ...subtitles ? { subtitles } : {},
+    ...alwaysSubtitles === '0' || alwaysSubtitles === '1' ? { alwaysSubtitles } : {},
+  }
 }
 
 /**
