@@ -3,7 +3,7 @@ import LegalDoc from '../components/legal-doc'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 17 October 2026</div>
+    <div className="updated">Last updated 6 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
