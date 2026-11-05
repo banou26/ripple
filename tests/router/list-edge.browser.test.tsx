@@ -89,8 +89,14 @@ const hits = (main: HTMLElement, top: number, bottom: number) => {
   return found
 }
 
+/**
+ * Where the drawn controls end. The select-all box counts, not its label: the label is a 40px hit area
+ * that draws nothing and hangs (40 - row) / 2 below the row, 3.5px with Noto Sans and 5px with DejaVu
+ * Sans (GitHub's system-ui), which made the gap read 9px on CI where 14px shows.
+ */
 const controlsBottom = (c: HTMLElement) =>
-  Math.max(...[...c.querySelectorAll('.list-toolbar > *')].map((el) => el.getBoundingClientRect().bottom))
+  Math.max(...[...c.querySelectorAll('.list-toolbar > :not(.pick-all), .list-toolbar .pick-all input')]
+    .map((el) => el.getBoundingClientRect().bottom))
 
 const WIDTHS = [[1440, 900], [390, 844]] as const
 
