@@ -20,6 +20,7 @@ const unlinks: string[] = []
 const listings: string[] = []
 let readFails: (path: string) => boolean = () => false
 let writeFails = false
+let listFails: (dir: string) => boolean = () => false
 /** Bytes another device's key write lands with, after this device's own. */
 let theirKey: Uint8Array | null = null
 
@@ -54,6 +55,7 @@ vi.mock('@fkn/lib', () => ({
         },
         readdir: async (dir: string) => {
           listings.push(String(dir))
+          if (listFails(String(dir))) throw new Error('broker said no')
           const prefix = String(dir) + '/'
           return [...cloudFiles.keys()].filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length))
         },
@@ -92,7 +94,7 @@ const HASH = 'a'.repeat(40)
 beforeEach(() => {
   store.clear(); cloudFiles.clear(); local.clear()
   reads.length = 0; writes.length = 0; unlinks.length = 0; listings.length = 0; loaded.length = 0
-  readFails = () => false; writeFails = false; theirKey = null
+  readFails = () => false; writeFails = false; listFails = () => false; theirKey = null
   cloudFiles.set(NAME_KEY_PATH, KEY)
   resetThumbnailSync()
 })
@@ -188,6 +190,18 @@ describe('carrying thumbnails between devices', () => {
     writeFails = false
     await syncThumbnails(['aa'])
     expect(cloudFiles.has(await pathOf('aa'))).toBe(true)
+  })
+
+  it('still uploads when the account will not list its pictures, and pulls next pass', async () => {
+    listFails = (dir) => dir !== LEGACY_DIR
+    local.add('aa')
+    store.set('ripple:thumb:aa', blob())
+    cloudFiles.set(await pathOf('bb'), new Uint8Array([1]))
+    await expect(syncThumbnails(['aa', 'bb'])).resolves.toBeUndefined()
+    expect(cloudFiles.has(await pathOf('aa'))).toBe(true)
+    listFails = () => false
+    await syncThumbnails(['aa', 'bb'])
+    expect(store.get('ripple:thumb:bb')).toBeInstanceOf(Blob)
   })
 
   /**
