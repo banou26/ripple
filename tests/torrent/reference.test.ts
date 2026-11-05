@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { TorrentFormat } from '../../src/torrent/make-torrent'
 
@@ -7,6 +7,9 @@ import { contentFiles, encodeTorrent, plan } from '../../src/torrent/make-torren
 import { hashPieces } from '../../src/torrent/hash-pieces'
 import { readTorrentFile } from '../../src/torrent/torrent-file'
 import { referenceBytes } from '../../src/torrent/reference-content'
+
+// each case parses or hashes a lot: up to 11 s on this machine at load 40 (2026-11-06), past the default 5 s
+vi.setConfig({ testTimeout: 30_000 })
 
 /**
  * BYTE FOR BYTE against torrents native libtorrent 2.0.13 built from the same files.

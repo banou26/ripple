@@ -3,10 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { afterAll, describe, expect, test } from 'vitest'
+import { afterAll, describe, expect, test, vi } from 'vitest'
 
 // a plain .mjs beside the other build scripts, so its exports arrive untyped
 import { check, extract, fix } from '../../scripts/i18n-check.mjs'
+
+// each case parses or hashes a lot: up to 11 s on this machine at load 40 (2026-11-06), past the default 5 s
+vi.setConfig({ testTimeout: 30_000 })
 
 type Problem = { file: string, line?: number, message: string }
 
