@@ -11,6 +11,7 @@ import { getTorrentClient } from './client'
 import { DEMO_MAGNET, DEMO_SAVE_PATH, DEMO_SEEDED_KEY } from './constants'
 import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
+import { CHECKING_STATES, pauseLanded } from './recovery'
 import { cloudRestoreSettled } from './use-cloud-backup'
 import { holdWhileStored } from '../utils/page-work'
 import { writeDuration } from './uptime'
@@ -24,9 +25,6 @@ const STATE: Record<number, TorrentState> = {
   5: 'seeding',
   7: 'checking',
 }
-
-// libtorrent holds a checking torrent paused, so this MUST be read before `paused`
-const CHECKING = new Set([1, 7])
 
 /**
  * Every byte the torrent wanted is on disk: libtorrent's `finished` and `seeding`.
@@ -49,14 +47,14 @@ const COMPLETE = new Set([4, 5])
  * to put those last rather than treat them as arriving instantly or never.
  */
 const etaSecondsOf = (status: TorrentSnapshot['status']): number | undefined => {
-  if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return undefined
+  if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return undefined
   const remain = status.totalWanted - status.totalDone
   if (remain <= 0 || status.downloadRate <= 0) return undefined
   return Math.round(remain / status.downloadRate)
 }
 
 const fmtEta = (status: TorrentSnapshot['status'], words: IntlShape): string => {
-  if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
+  if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
   if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return words.formatMessage({ id: 'queued', defaultMessage: 'queued' })
@@ -91,8 +89,13 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
    */
   const complete = !!st && COMPLETE.has(st.state)
   const stopped: TorrentState = s.userPaused ? 'paused' : complete ? 'done' : 'queued'
+  /*
+   * A check waiting its turn (libtorrent runs one at a time) reports itself paused with auto-management
+   * still set, and is still a check. A pause that landed clears auto-management, and libtorrent then
+   * leaves the check where it is until a resume, so that one reads as stopped, which offers the Resume.
+   */
   const base: TorrentState = st
-    ? (CHECKING.has(st.state) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
+    ? (CHECKING_STATES.has(st.state) && !pauseLanded(st) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
     : (s.files ? 'queued' : 'downloading')
   return retrying ? 'retrying' : base
 }

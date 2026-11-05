@@ -68,6 +68,7 @@ const make = async (page: Page, files: readonly string[]) => {
 }
 
 const tickOf = (page: Page) => (name: string) => page.getByRole('checkbox', { name: `Select ${name}` })
+const badgeOf = (page: Page) => (name: string) => page.locator('.torrent', { hasText: name }).locator('.badge')
 
 test('two of three torrents removed in one action stay removed after a reload, and the third stays', async ({ page }) => {
   test.setTimeout(300_000)
@@ -79,7 +80,9 @@ test('two of three torrents removed in one action stay removed after a reload, a
   const hashes = await make(page, await filesFor(NAMES))
 
   const tick = tickOf(page)
-  for (const name of NAMES) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
+  const badge = badgeOf(page)
+  // checked and sharing, so the bar is what the steps below test and not a check still waiting its turn
+  for (const name of NAMES) await expect(badge(name)).toHaveText('Seeding', { timeout: 120_000 })
   const [one, two, three] = NAMES as [string, string, string]
 
   // the detail panel shows the third, and ticking the other two leaves it on the third
@@ -96,7 +99,6 @@ test('two of three torrents removed in one action stay removed after a reload, a
   expect(held!.y).toBeGreaterThanOrEqual(rows!.y + rows!.height)
 
   // Pause and Resume reach the ticked rows and no other, and Pause is offered only while it would change one
-  const badge = (name: string) => page.locator('.torrent', { hasText: name }).locator('.badge')
   await bar.getByRole('button', { name: 'Pause' }).click()
   await expect(badge(one)).toHaveText('Paused', { timeout: 30_000 })
   await expect(badge(two)).toHaveText('Paused', { timeout: 30_000 })
@@ -152,6 +154,38 @@ test('two of three torrents removed in one action stay removed after a reload, a
   const list = await page.evaluate(stored, 'ripple:torrents') as { infoHash: string }[]
   expect(list.map((e) => e.infoHash)).toEqual([hashes[2]])
   expect(pageErrors).toEqual([])
+})
+
+/*
+ * libtorrent checks one torrent at a time and starts the next at most once a second, so the last of four made back to
+ * back reads Checking for a few seconds before its check begins. A pause landing then stops the check where it is, and
+ * that torrent has to read Paused, with a Resume on its row and in the bar, or nothing can ever start it again.
+ */
+test('a torrent paused from the bar while it waits for its check reads Paused, and resumes from its row', async ({ page }) => {
+  test.setTimeout(300_000)
+  const names = ['Waiting.One.bin', 'Waiting.Two.bin', 'Waiting.Three.bin', 'Waiting.Four.bin'] as const
+  const name = names[3]
+  await prepare(page)
+  await page.goto('/')
+  await make(page, await filesFor(names))
+
+  await tickOf(page)(name).check({ timeout: 120_000 })
+  // pressed in the first frame the row reads Checking
+  await page.waitForFunction((name) => {
+    const row = [...document.querySelectorAll('.torrent')].find((r) => r.textContent?.includes(name))
+    const pause = document.querySelector<HTMLButtonElement>('.bulk-bar button[aria-label="Pause"]')
+    if (row?.querySelector('.badge')?.textContent !== 'Checking' || !pause || pause.disabled) return false
+    pause.click()
+    return true
+  }, name, { timeout: 60_000, polling: 'raf' })
+
+  const row = page.locator('.torrent', { hasText: name })
+  await expect(badgeOf(page)(name)).toHaveText('Paused', { timeout: 30_000 })
+  // the control: nothing of it checked yet, so the pause did land before the check ran
+  await expect(row).toContainText('0 B /')
+  await expect(page.locator('.bulk-bar').getByRole('button', { name: 'Resume' })).toBeEnabled()
+  await row.getByRole('button', { name: `Resume ${name}` }).click()
+  await expect(badgeOf(page)(name)).toHaveText('Seeding', { timeout: 60_000 })
 })
 
 /*

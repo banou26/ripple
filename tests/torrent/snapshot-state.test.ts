@@ -3,6 +3,7 @@ import type { TorrentSnapshot } from '../../src/torrent/client'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { startLanguage } from '../../src/i18n'
+import { toResume } from '../../src/router/bulk-selection'
 import { isActive, snapshotState, snapshotToTorrent } from '../../src/torrent/use-torrents'
 
 /**
@@ -60,9 +61,25 @@ describe('the state a torrent row shows', () => {
     expect(snapshotState(snap({ state: 5, paused: true }, { userPaused: true }))).toBe('paused')
   })
 
-  it('reads checking before pause, since libtorrent holds a checking torrent paused', () => {
-    expect(snapshotState(snap({ state: 7, paused: true }))).toBe('checking')
-    expect(snapshotState(snap({ state: 1, paused: true }))).toBe('checking')
+  it('says Checking for a check that runs, and for one libtorrent holds paused while it waits its turn', () => {
+    expect(snapshotState(snap({ state: 1 }))).toBe('checking')
+    expect(snapshotState(snap({ state: 7, paused: true, autoManaged: true }))).toBe('checking')
+    expect(snapshotState(snap({ state: 1, paused: true, autoManaged: true }))).toBe('checking')
+  })
+
+  /**
+   * Measured live on 2026-11-06: a torrent paused from the bulk bar while it was still checking kept
+   * reading Checking, and libtorrent does not check a paused torrent, so it stayed that way with no Resume
+   * anywhere. Ripple's pause clears auto-management, which is what tells it apart from the wait above.
+   */
+  it('says Paused, not Checking, once a pause lands on a check, so the torrent can be resumed', () => {
+    for (const state of [1, 7]) {
+      const paused = snap({ state, paused: true, autoManaged: false }, { userPaused: true })
+      expect(snapshotState(paused)).toBe('paused')
+      expect(toResume([snapshotToTorrent(paused)])).toHaveLength(1)
+      // stopped by something other than the person, it reads Queued, as any other stopped torrent
+      expect(snapshotState(snap({ state, paused: true, autoManaged: false }))).toBe('queued')
+    }
   })
 
   it('leaves a running torrent alone', () => {
