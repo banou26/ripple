@@ -1021,9 +1021,14 @@ const bandsCharge = (size: number, pieceLength: number, chunkBytes?: number) => 
  * always a watched one: a download page holds the first file of a pack and writes the rest.
  *
  * A file only prepared owes what its two bands are charged ({@link bandsCharge}), not its size.
+ *
+ * The room counts the cold cache the pass may give up, not only what is free: with it left out, a
+ * cache holding the room leaves less than a window needs, the film then owes its whole size, which
+ * giving up the cache cannot cover, so the cache is kept and the film never starts. A
+ * refusal is the window's too when the window comes once the cache still in its grace has gone.
  */
 type Owed = { pendingBytes: number, refusedBytes: number, rooms: Map<number, number> }
-const owedByViewers = async (space: Space): Promise<Owed> => {
+const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[], graced: EvictionCandidate[] } = { evictable: [], graced: [] }): Promise<Owed> => {
   const owes = (f: { size: number, held: number }) => Math.max(0, f.size - f.held)
   const watched: { h: number, size: number, held: number, cache: boolean, chunkBytes: number }[] = []
   const refused: { h: number, size: number, held: number }[] = []
@@ -1052,20 +1057,22 @@ const owedByViewers = async (space: Space): Promise<Owed> => {
     if (refusal !== undefined) refused.push(await measure(refusal))
   }
   const othersOwe = watched.filter((f) => !f.cache).reduce((sum, f) => sum + owes(f), 0)
-  // what the watched cache files share: what is free and what they hold, less what the rest owes
+  // what the watched cache files share: what is free, what they hold and the cache that may go, less what the rest owes
   const mine = watched.filter((f) => f.cache)
-  const pool = space.limitBytes - space.usedBytes + mine.reduce((sum, f) => sum + f.held, 0) - othersOwe - MARGIN_BYTES
+  const bytes = (list: EvictionCandidate[]) => list.reduce((sum, c) => sum + c.bytesOnDisk, 0)
+  const pool = space.limitBytes - space.usedBytes + mine.reduce((sum, f) => sum + f.held, 0) + bytes(cold.evictable) - othersOwe - MARGIN_BYTES
+  const windowedIn = (shares: number[]) => new Set(mine.filter((f, i) => isWindowed(f.size, shares[i] ?? 0, f.chunkBytes)).map((f) => f.h))
   const shares = shareRoom(mine.map((f) => f.size), pool)
+  const windowed = windowedIn(shares)
   const rooms = new Map<number, number>()
-  const windowed = new Set<number>()
   let pendingBytes = othersOwe
   mine.forEach((f, i) => {
     const room = shares[i] ?? 0
     rooms.set(f.h, room)
-    if (isWindowed(f.size, room, f.chunkBytes)) windowed.add(f.h)
     pendingBytes += windowed.has(f.h) ? Math.max(0, room - f.held) : owes(f)
   })
-  const refusedBytes = refused.filter((f) => !windowed.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
+  const later = windowedIn(shareRoom(mine.map((f) => f.size), pool + bytes(cold.graced)))
+  const refusedBytes = refused.filter((f) => !later.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
   return { pendingBytes, refusedBytes, rooms }
 }
 
@@ -1471,10 +1478,13 @@ const runStorageBudget = async () => {
       }
     }
     await seen(space)
+    // before the list is read, so a pass that read fails still holds what the watched files owe
     owed = await owedByViewers(space)
     const collected = await collectCandidates(await loadList(), Date.now())
     candidates = collected.evictable
     graced = collected.graced
+    owed = await owedByViewers(space, collected)
+    let gaveUp = false
     // One at a time, re-measured in between. The plan's sizes decide the ORDER and whether to start
     // at all; the browser's own accounting decides when there is enough room. A size that is wrong
     // then costs one extra pass rather than the whole cache.
@@ -1502,6 +1512,7 @@ const runStorageBudget = async () => {
        */
       measured = null
       await evict(live, h, next)
+      gaveUp = true
       const after = await settleAfterDelete(before)
       // the delete landed and its effect cannot be read back, so there is still nothing honest to say
       if (!after) return
@@ -1509,8 +1520,12 @@ const runStorageBudget = async () => {
       measured = after
       await seen(after)
       // the tail may have landed while the delete settled, and then the film owes nothing more
-      owed = await owedByViewers(space)
+      owed = await owedByViewers(space, { evictable: candidates, graced })
     }
+    // A watched torrent stopped on a refused write restarts into the room now, not at its backoff's
+    // next try: that can be minutes away, past the 108 s a player's first read waits before the
+    // player gives up for good.
+    if (gaveUp) for (const h of viewers.keys()) recovery.retry(h, Date.now())
     roomByHandle.clear()
     for (const [h, room] of owed.rooms) roomByHandle.set(h, room)
     for (const h of new Set([...roomByHandle.keys(), ...windows.keys()])) replan(h)

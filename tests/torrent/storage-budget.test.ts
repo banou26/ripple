@@ -259,6 +259,13 @@ describe('isOriginFull', () => {
     expect(isOriginFull(verdict({ usedBytes: 99.5 * GB, pendingBytes: 0.2 * GB }))).toBe(false)
   })
 
+  it('is not full from the numbers while cold cache can still give the room back', () => {
+    // measured in Firefox with a 2 GiB room: the film watched before holds all but 64 MiB, still in its grace
+    const room = { usedBytes: 2_084_145_586, limitBytes: 2 * GiB, pendingBytes: 240_648_192 }
+    expect(isOriginFull(verdict({ ...room, candidates: [candidate('film', 1, 31 * 64 * MiB)] }))).toBe(false)
+    expect(isOriginFull(verdict(room))).toBe(true)
+  })
+
   it('is false for a quota the browser will not report, which is not a full origin', () => {
     expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: 0, pendingBytes: 1 * GB }))).toBe(false)
     expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: Number.NaN, pendingBytes: 1 * GB }))).toBe(false)
