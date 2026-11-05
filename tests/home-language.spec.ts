@@ -1199,6 +1199,43 @@ test.describe('on a phone', () => {
     })
   }
 
+  /** The list runs on below the window here and the page scrolls, so the bar holds to the window and not to the list. */
+  for (const view of ['cards', 'table']) {
+    test(`en: a tick in the ${view} shows the bulk bar inside the window`, async ({ page }) => {
+      await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, view])
+      await opened(page, 'en')
+      await page.getByRole('checkbox', { name: 'Select A.Season.Pack' }).check()
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await drawn(page)
+      const { list, bar, height } = await page.evaluate(() => ({
+        list: document.querySelector('main')!.getBoundingClientRect().bottom,
+        bar: document.querySelector('.bulk-bar')!.getBoundingClientRect().toJSON() as DOMRect,
+        height: innerHeight,
+      }))
+      expect(list, 'the list ends inside the window, so this proves nothing').toBeGreaterThan(height)
+      expect(bar.top).toBeGreaterThanOrEqual(0)
+      expect(bar.bottom).toBeLessThanOrEqual(height)
+    })
+  }
+
+  /** A state takes a second line only when one would leave the name too little, so pausing a row keeps its height. */
+  test('fr: a state keeps to one line wherever the name has room beside it', async ({ page }) => {
+    await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
+    await opened(page, 'fr')
+    await expect(page.locator('.torrent-table .badge.paused')).toHaveText('En pause')
+    const heights = () => page.locator('.torrent-table tbody .badge').evaluateAll(badges =>
+      badges.map(badge => [badge.classList[1], Math.round(badge.getBoundingClientRect().height)] as const))
+    await page.setViewportSize({ width: 390, height: 844 })
+    await drawn(page)
+    const at390 = await heights()
+    expect(new Set(at390.map(([, height]) => height)).size, `390 px: ${at390.join(' ')}`).toBe(1)
+    // with Progress showing FICHIERS MANQUANTS takes two lines, and EN PAUSE still has room for one
+    await page.setViewportSize({ width: 412, height: 844 })
+    await drawn(page)
+    const at412 = new Map(await heights())
+    expect(at412.get('paused'), `412 px: ${[...at412].join(' ')}`).toBe(at412.get('seeding'))
+  })
+
   for (const language of ['en', ...Object.keys(catalogues())]) {
     test(`${language}: the table stays inside the window from 320 to 412 px, with a name to read`, async ({ page }) => {
       await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
@@ -1213,7 +1250,7 @@ test.describe('on a phone', () => {
           name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
         }))
         expect(right, `${width} px`).toBeLessThanOrEqual(window)
-        // about eight letters; in DejaVu Sans, which GitHub's runner draws, French at 320 px leaves 84 beside the boxes
+        // about eight letters, which a state too long to sit beside it on one line wraps to leave
         expect(name, `${width} px`).toBeGreaterThanOrEqual(80)
       }
     })

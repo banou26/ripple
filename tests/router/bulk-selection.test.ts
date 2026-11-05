@@ -1,8 +1,8 @@
-import type { Torrent } from '../../src/torrent/types'
+import type { Torrent, TorrentState } from '../../src/torrent/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { keepShown, pickAll, pickable, pickedRows, togglePick } from '../../src/router/bulk-selection'
+import { keepShown, pickAll, pickable, pickedRows, toPause, toResume, togglePick } from '../../src/router/bulk-selection'
 import { visibleTorrents } from '../../src/torrent/list-view'
 
 /**
@@ -87,5 +87,15 @@ describe('the bulk selection', () => {
     expect(pickedRows([reconnecting], picked)).toEqual([])
     const back = { ...a, id: '42' }
     expect(pickedRows([back], picked)).toEqual([back])
+  })
+
+  /** The options menu's rule, row by row. */
+  it('pauses every row not stopped, resumes the paused and the queued, and leaves a ghost to neither', () => {
+    const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'done', 'error', 'missing', 'retrying', 'checking']
+    const rows = STATES.map((state) => t({ state }))
+    expect(toPause(rows).map((x) => x.state)).toEqual(['downloading', 'seeding', 'done', 'error', 'retrying', 'checking'])
+    expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued'])
+    expect(toPause([t({ state: 'paused' }), t({ state: 'missing' })])).toEqual([])
+    expect(toResume([t({ state: 'seeding' }), t({ state: 'missing' })])).toEqual([])
   })
 })
