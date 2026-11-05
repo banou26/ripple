@@ -82,7 +82,7 @@ import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck } from '../components/bulk-actions'
-import { pickable, useBulkSelection } from './bulk-selection'
+import { pickable, toPause, toResume, useBulkSelection } from './bulk-selection'
 import {
   LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
   isTemporary, readFilter, readSort, readView, writeSort,
@@ -1314,12 +1314,13 @@ export const style = css`
     cursor: pointer;
   }
 
-  /* at the end of the list, so appearing moves no row, and held to the bottom while the list scrolls */
+  /* Under the list rather than in it, so appearing moves no row and covers none. Sticky for a phone, where the list
+     runs below the window and the page scrolls: the bar is held to the window's bottom, not to the list's. */
   .bulk-bar {
     position: sticky;
-    bottom: 0;
+    bottom: 8px;
     z-index: 2;
-    margin-top: auto;
+    margin: 0 16px 8px;
   }
 
   .hidden-note {
@@ -1522,8 +1523,8 @@ export const style = css`
     }
 
     /* the panels around it can take a whole phone, so the list keeps room for a row and the page scrolls; with the
-       details open it gives way, or they would open below the fold */
-    main:not(:has(+ section)) {
+       details open it gives way, or they would open below the fold (the bulk bar can stand between the two) */
+    main:not(:has(~ section)) {
       min-height: 24rem;
     }
 
@@ -2935,17 +2936,14 @@ const Home = () => {
   const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
 
   const bulk = useBulkSelection(visibleRows)
-  const isStopped = (t: Torrent) => t.state === 'paused' || t.state === 'queued'
-  const canPause = (t: Torrent) => t.state !== 'missing' && !isStopped(t)
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
    */
-  const pickedNow = (picked = bulk.picked) => torrentsRef.current.filter((t) => pickable(t) && picked.has(t.infoHash))
-  const pausePicked = () => { for (const t of pickedNow()) if (canPause(t)) pause(Number(t.id)) }
-  const resumePicked = () => { for (const t of pickedNow()) if (isStopped(t)) resume(Number(t.id)) }
+  const pickedNow = () => torrentsRef.current.filter((t) => pickable(t) && bulk.picked.has(t.infoHash))
+  const pausePicked = () => { for (const t of toPause(pickedNow())) pause(Number(t.id)) }
+  const resumePicked = () => { for (const t of toResume(pickedNow())) resume(Number(t.id)) }
   const removePicked = async () => {
-    const picked = bulk.picked
     const live = bulk.rows.filter((t) => t.state !== 'missing')
     if (live.length) {
       const onDisk = getHumanReadableByteString(live.reduce((n, t) => n + (t.downloaded ?? 0), 0), true)
@@ -2958,8 +2956,9 @@ const Home = () => {
       })
       if (!ok) return
     }
-    pickedNow(picked).forEach(removeWithFiles)
-    bulk.clear()
+    // Unticks each one sent. A row still reconnecting after a handover is sent nothing and stays ticked, so the bar
+    // comes back with it rather than the removal looking done.
+    for (const t of pickedNow()) { removeWithFiles(t); bulk.toggle(t) }
   }
 
   const anyPicked = bulk.rows.length > 0
@@ -3432,18 +3431,19 @@ const Home = () => {
             <button type="button" className="link" onClick={() => chooseFilter('all')}>{intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}</button>
           </div>
         )}
-        {anyPicked && (
-          <BulkBar
-            count={bulk.rows.length}
-            canPause={bulk.rows.some(canPause)}
-            canResume={bulk.rows.some(isStopped)}
-            onPause={pausePicked}
-            onResume={resumePicked}
-            onRemove={() => { void removePicked() }}
-            onClear={bulk.clear}
-          />
-        )}
       </main>
+
+      {anyPicked && (
+        <BulkBar
+          count={bulk.rows.length}
+          canPause={toPause(bulk.rows).length > 0}
+          canResume={toResume(bulk.rows).length > 0}
+          onPause={pausePicked}
+          onResume={resumePicked}
+          onRemove={() => { void removePicked() }}
+          onClear={bulk.clear}
+        />
+      )}
 
       {/* Docked below the list rather than inside a row: one place, one subject, and the engine
           computes peers and trackers only while something is selected. A torrent that vanishes
