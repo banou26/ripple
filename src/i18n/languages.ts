@@ -46,11 +46,25 @@ export const bestLanguage = (wanted: readonly string[], offered: readonly string
   return undefined
 }
 
-/** The language picked, or undefined for Automatic, a language not offered, or no storage. */
+// a pick this browser's storage refused, kept for this tab instead: null for Automatic
+let unkept: string | null | undefined
+
+/** The language picked, or undefined for Automatic or a language not offered. */
 export const readPickedLanguage = (): string | undefined => {
-  let kept: string | null | undefined
-  try { kept = globalThis.localStorage?.getItem(LANGUAGE_KEY) } catch { return undefined }
+  let kept = unkept
+  if (kept === undefined) try { kept = globalThis.localStorage?.getItem(LANGUAGE_KEY) } catch {}
   return kept && OFFERED.includes(kept) ? kept : undefined
+}
+
+/** Keeps `language` picked on this device, or Automatic with undefined, and in this tab alone when storage refuses it. */
+export const keepPickedLanguage = (language: string | undefined) => {
+  try {
+    if (language) localStorage.setItem(LANGUAGE_KEY, language)
+    else localStorage.removeItem(LANGUAGE_KEY)
+    unkept = undefined
+  } catch {
+    unkept = language ?? null
+  }
 }
 
 let unitTag = 'en-US'

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { intl, LANGUAGE_KEY, pickLanguage, shownLanguage, startLanguage, type Catalogue } from '../../src/i18n'
+import { intl, LANGUAGE_KEY, pickLanguage, readPickedLanguage, shownLanguage, startLanguage, type Catalogue } from '../../src/i18n'
 
 // plain descriptors, which the linter does not read: each message as ripple writes it, its English its id
 const message = (english: string, description?: string) =>
@@ -195,13 +195,14 @@ describe('starting a language', () => {
 
 describe('a pick', () => {
   const stored = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => { stored.set(key, value) },
+    removeItem: (key: string) => { stored.delete(key) },
+  }
   beforeEach(() => {
     stored.clear()
-    vi.stubGlobal('localStorage', {
-      getItem: (key: string) => stored.get(key) ?? null,
-      setItem: (key: string, value: string) => { stored.set(key, value) },
-      removeItem: (key: string) => { stored.delete(key) },
-    })
+    vi.stubGlobal('localStorage', storage)
   })
   afterEach(() => { vi.unstubAllGlobals() })
 
@@ -218,9 +219,23 @@ describe('a pick', () => {
     expect(shownLanguage()).toBe('en')
   })
 
-  test('storage that refuses keeps nothing and shows Automatic, without throwing', async () => {
-    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new DOMException('full', 'QuotaExceededError') }, removeItem: () => {} })
+  test('storage that refuses keeps it for this tab and shows it, without throwing, as does Automatic', async () => {
+    const refuse = () => { throw new DOMException('blocked', 'SecurityError') }
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse })
     await pickLanguage('fr')
-    expect(shownLanguage()).toBe('en')
+    expect([shownLanguage(), readPickedLanguage()]).toEqual(['fr', 'fr'])
+    await pickLanguage(undefined)
+    expect([shownLanguage(), readPickedLanguage()]).toEqual(['en', undefined])
+  })
+
+  test('full storage keeps it for this tab over the pick stored before, until storage takes one again', async () => {
+    stored.set(LANGUAGE_KEY, 'de')
+    vi.stubGlobal('localStorage', { ...storage, setItem: () => { throw new DOMException('full', 'QuotaExceededError') } })
+    await pickLanguage('fr')
+    expect([shownLanguage(), readPickedLanguage(), stored.get(LANGUAGE_KEY)]).toEqual(['fr', 'fr', 'de'])
+    await pickLanguage(undefined)
+    expect([shownLanguage(), readPickedLanguage(), stored.has(LANGUAGE_KEY)]).toEqual(['en', undefined, false])
+    stored.set(LANGUAGE_KEY, 'ja')
+    expect(readPickedLanguage()).toBe('ja')
   })
 })

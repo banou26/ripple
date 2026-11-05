@@ -25,13 +25,14 @@ const Footer = () => {
 
 // browser test files share one origin's storage and run side by side, so this file keeps its own
 const stored = new Map<string, string>()
+const storage = {
+  getItem: (key: string) => stored.get(key) ?? null,
+  setItem: (key: string, value: string) => { stored.set(key, value) },
+  removeItem: (key: string) => { stored.delete(key) },
+}
 beforeEach(() => {
   stored.clear()
-  vi.stubGlobal('localStorage', {
-    getItem: (key: string) => stored.get(key) ?? null,
-    setItem: (key: string, value: string) => { stored.set(key, value) },
-    removeItem: (key: string) => { stored.delete(key) },
-  })
+  vi.stubGlobal('localStorage', storage)
 })
 
 const mount = async () => {
@@ -92,6 +93,20 @@ describe('the Language select', () => {
     expect(stored.has(LANGUAGE_KEY)).toBe(false)
     expect(document.documentElement.lang).toBe('en')
     await expect.element(counter).toHaveTextContent('Saved 1 file')
+  })
+
+  it('shows a pick the browser\'s storage refuses, in the select and the page alike', async () => {
+    const refuse = () => { throw new DOMException('blocked', 'SecurityError') }
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse })
+    const { screen, select, options } = await mount()
+    await userEvent.selectOptions(select, 'fr')
+    await expect.element(screen.getByText('Langue')).toBeInTheDocument()
+    expect([select.value, document.documentElement.lang, options()[0]!.text]).toEqual(['fr', 'fr', 'Automatique (English)'])
+
+    vi.stubGlobal('localStorage', storage)
+    await userEvent.selectOptions(select, '')
+    await expect.element(screen.getByText('Language')).toBeInTheDocument()
+    expect([select.value, document.documentElement.lang]).toEqual(['', 'en'])
   })
 
   it('reads the pick kept on this device, and an unknown one as Automatic', async () => {
