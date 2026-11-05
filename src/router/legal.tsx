@@ -38,7 +38,7 @@ const Legal = () => (
       content and does not keep logs that could link a transfer to a user afterwards (see
       the <Link to={getRoutePath(Route.PRIVACY)}>Privacy page</Link>). If you have a
       concern about abuse of the relay itself, contact{' '}
-      <a href="mailto:contact@fkn.app">contact@fkn.app</a>.
+      <a href="mailto:admin@fkn.app">admin@fkn.app</a>.
     </p>
 
     <h2>Liability</h2>

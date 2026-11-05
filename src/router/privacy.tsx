@@ -67,7 +67,7 @@ const Privacy = () => (
     <h2>Contact</h2>
     <p>
       Questions about privacy? Reach us at{' '}
-      <a href="mailto:privacy@fkn.app">privacy@fkn.app</a>.
+      <a href="mailto:admin@fkn.app">admin@fkn.app</a>.
     </p>
   </LegalDoc>
 )
