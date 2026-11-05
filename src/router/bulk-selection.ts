@@ -21,6 +21,14 @@ export const pickable = (t: Torrent): t is Torrent & { infoHash: string } =>
 export const pickedRows = (rows: readonly Torrent[], picked: Picked) =>
   rows.filter((t): t is Torrent & { infoHash: string } => pickable(t) && picked.has(t.infoHash))
 
+const stopped = (t: Torrent) => t.state === 'paused' || t.state === 'queued'
+
+/** The rows Pause changes: every one not stopped already, as the options menu has it. A ghost has no engine to pause. */
+export const toPause = (rows: readonly Torrent[]) => rows.filter((t) => t.state !== 'missing' && !stopped(t))
+
+/** The rows Resume changes: the paused and the queued. */
+export const toResume = (rows: readonly Torrent[]) => rows.filter(stopped)
+
 export const togglePick = (picked: Picked, infoHash: string): Picked => {
   const next = new Set(picked)
   if (!next.delete(infoHash)) next.add(infoHash)
