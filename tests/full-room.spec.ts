@@ -13,7 +13,7 @@ import { expect, test } from '@playwright/test'
 const MiB = 1024 * 1024
 const GiB = 1024 * MiB
 const CHUNK = 64 * MiB
-// a fifth of 10 GiB, in KiB as the pref takes it
+// the global temporary limit in KiB, as the pref takes it; a frame's room is a fifth of it
 const TEMPORARY_LIMIT_KB = 10 * 1024 * 1024
 const STORAGE_LINE = /Too big for this browser|Out of storage space/
 const WINDOW_NOTE = 'Too big to download ahead here'
@@ -46,7 +46,7 @@ const torrent = (name: string, sizes: number[], pieceLength: number) => {
     ? { name, length: sizes[0]!, 'piece length': pieceLength, pieces }
     : { name, 'piece length': pieceLength, pieces, files: sizes.map((length, i) => ({ length, path: [`${name} - ${String(i + 1).padStart(2, '0')}.mkv`] })) }
   const infoHash = createHash('sha1').update(bencode(info)).digest('hex')
-  return { infoHash, bytes: [...bencode({ info })], magnet: `magnet:?xt=urn:btih:${infoHash}&dn=${name}` }
+  return { infoHash, name, size: total, bytes: [...bencode({ info })], magnet: `magnet:?xt=urn:btih:${infoHash}&dn=${name}` }
 }
 type Fixture = ReturnType<typeof torrent>
 
@@ -54,21 +54,24 @@ type Fixture = ReturnType<typeof torrent>
 const BATCH = torrent('Batch', [272.3, 245.8, 251.6, 229.5, 231.1, 285.6, 260.5, 258.0, 267.5, 250.3, 268.2, 282.8, 333.9].map((m) => Math.round(m * MiB)), 2 * MiB)
 const BIG = torrent('Big', [3 * GiB], 16 * MiB)
 // all but 64 MiB of the room
-const FILM_CHUNKS = 31
-const FILM = torrent('Film', [FILM_CHUNKS * CHUNK], 16 * MiB)
+const FILM = torrent('Film', [31 * CHUNK], 16 * MiB)
+// the person's own download and a film cached after it, together all but 64 MiB of the room, too little for a window
+const OWN = torrent('Own', [10 * CHUNK], 16 * MiB)
+const CACHED = torrent('Cached', [21 * CHUNK], 16 * MiB)
 
-type Seed = { earlier: 'cache' | 'library', opened: Fixture, fixed: boolean }
+type Earlier = { t: Fixture, kind: 'cache' | 'library' }
+type Seed = { earlier: Earlier[], opened: Fixture, fixed: boolean }
 
 /**
- * The library as the session before left it: the film watched seconds ago and the release opened before, with their
- * metadata, and the film's bytes on disk. A cache film is in chunk files of its own; a library one is one plain file.
+ * The library as the session before left it: the films watched seconds ago and the release opened before, with their
+ * metadata, and the films' bytes on disk. A cache film is in chunk files of its own; a library one is one plain file.
  */
-const seed = (page: Page, { earlier, opened, fixed }: Seed) => page.evaluate(async ({ film, opened, earlier, fixed, chunks, CHUNK }) => {
+const seed = (page: Page, { earlier, opened, fixed }: Seed) => page.evaluate(async ({ earlier, opened, fixed, CHUNK }) => {
   const now = Date.now()
-  const cachePath = (hash: string) => '/cache/' + hash
+  const pathOf = ({ t, kind }: typeof earlier[number]) => (kind === 'cache' ? '/cache/' : '/dl/') + t.infoHash
   const list = [
-    { infoHash: film.infoHash, magnet: film.magnet, savePath: earlier === 'cache' ? cachePath(film.infoHash) : '/dl/' + film.infoHash, addedAt: now, lastUsedAt: now, started: true, ephemeral: earlier === 'cache' },
-    { infoHash: opened.infoHash, magnet: opened.magnet, savePath: cachePath(opened.infoHash), addedAt: now - 86_400_000, lastUsedAt: now - 86_400_000, started: true, ephemeral: true },
+    ...earlier.map((e) => ({ infoHash: e.t.infoHash, magnet: e.t.magnet, savePath: pathOf(e), addedAt: now, lastUsedAt: now, started: true, ephemeral: e.kind === 'cache' })),
+    { infoHash: opened.infoHash, magnet: opened.magnet, savePath: '/cache/' + opened.infoHash, addedAt: now - 86_400_000, lastUsedAt: now - 86_400_000, started: true, ephemeral: true },
   ]
   await new Promise<void>((resolve, reject) => {
     const open = indexedDB.open('keyval-store', 1)
@@ -79,7 +82,7 @@ const seed = (page: Page, { earlier, opened, fixed }: Seed) => page.evaluate(asy
       const store = tx.objectStore('keyval')
       store.put(list, 'ripple:torrents')
       if (fixed) store.put(true, 'ripple:ceiling-fixed')
-      for (const t of [film, opened]) store.put(new Uint8Array(t.bytes), 'ripple:torrent:' + t.infoHash)
+      for (const t of [...earlier.map((e) => e.t), opened]) store.put(new Uint8Array(t.bytes), 'ripple:torrent:' + t.infoHash)
       tx.oncomplete = () => { open.result.close(); resolve() }
       tx.onerror = () => reject(tx.error)
     }
@@ -98,13 +101,13 @@ const seed = (page: Page, { earlier, opened, fixed }: Seed) => page.evaluate(asy
     }
     postMessage('planted')
   }`
-  const files = earlier === 'cache'
-    ? Array.from({ length: chunks }, (_, k) => ({ path: `${cachePath(film.infoHash)}/${CHUNK}/0-${k}`, size: CHUNK }))
-    : [{ path: `/dl/${film.infoHash}/Film`, size: chunks * CHUNK }]
+  const files = earlier.flatMap((e) => e.kind === 'cache'
+    ? Array.from({ length: e.t.size / CHUNK }, (_, k) => ({ path: `${pathOf(e)}/${CHUNK}/0-${k}`, size: CHUNK }))
+    : [{ path: `${pathOf(e)}/${e.t.name}`, size: e.t.size }])
   const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })))
   await new Promise((resolve) => { worker.onmessage = resolve; worker.postMessage({ files }) })
   worker.terminate()
-}, { film: FILM, opened, earlier, fixed, chunks: FILM_CHUNKS, CHUNK })
+}, { earlier, opened, fixed, CHUNK })
 
 // in the player's frame only: what the engine says about the room and the torrents, as it says it
 const spy = () => {
@@ -144,7 +147,7 @@ const open = async (page: Page, seeded: Seed) => {
   }, src)
   const lines: string[] = []
   const look = async () => {
-    const seen = await page.evaluate(async ({ film, opened }) => {
+    const seen = await page.evaluate(async ({ earlier, opened }) => {
       const frame = (document.getElementById('ripple') as HTMLIFrameElement | null)?.contentWindow as any
       const root = await navigator.storage.getDirectory()
       const has = async (path: string) => {
@@ -152,16 +155,21 @@ const open = async (page: Page, seeded: Seed) => {
         for (const part of path.split('/').filter(Boolean)) dir = dir ? await dir.getDirectoryHandle(part).catch(() => null) : null
         return !!dir
       }
+      const kept: Record<string, boolean> = {}
+      for (const hash of earlier) kept[hash] = await has('/cache/' + hash) || await has('/dl/' + hash)
       const { usage = 0, quota = 0 } = await navigator.storage.estimate()
+      const elements: Element[] = [...frame?.document?.querySelectorAll('*') ?? []]
       return {
         line: frame?.document?.querySelector('.loading-information')?.textContent ?? null,
-        film: await has('/cache/' + film) || await has('/dl/' + film),
+        kept,
         free: quota - usage,
         full: [...frame?.__room?.full ?? []] as boolean[],
         windowed: frame?.__room?.windowed?.[opened] as boolean | undefined,
         running: frame?.__room?.running?.[opened] as boolean | undefined,
+        // the player's spinner is the only thing there that turns for good
+        spinning: elements.some((el) => frame.getComputedStyle(el, '::after').animationIterationCount === 'infinite'),
       }
-    }, { film: FILM.infoHash, opened: seeded.opened.infoHash })
+    }, { earlier: seeded.earlier.map((e) => e.t.infoHash), opened: seeded.opened.infoHash })
     if (seen.line) lines.push(seen.line)
     return seen
   }
@@ -175,37 +183,46 @@ test.describe('a room Firefox holds fixed', () => {
 
   test('gives the film watched before up for the episode opened after it, and never calls the episode too big', async ({ page }) => {
     test.setTimeout(120_000)
-    const { look, lines } = await open(page, { earlier: 'cache', opened: BATCH, fixed: true })
+    const { look, lines } = await open(page, { earlier: [{ t: FILM, kind: 'cache' }], opened: BATCH, fixed: true })
     // the film's grace is 15 s from when it was last used
-    await expect.poll(async () => { const seen = await look(); return !seen.film && seen.running && seen.free > 229.5 * MiB }, { timeout: 75_000, intervals: [1_000] }).toBe(true)
+    await expect.poll(async () => { const seen = await look(); return !seen.kept[FILM.infoHash] && seen.running && seen.free > 229.5 * MiB }, { timeout: 75_000, intervals: [1_000] }).toBe(true)
     await page.waitForTimeout(2_000)
     const last = await look()
     await shot(page, 'episode')
     expect(lines.filter((line) => STORAGE_LINE.test(line)), 'the episode was called too big').toEqual([])
     expect(last.full.filter(Boolean)).toEqual([])
     expect(last.windowed).toBe(false)
+    // no byte ever arrives, so the player is still loading: what makes the spinner check below able to fail
+    expect(last.spinning, 'the spinner check cannot see a spinner').toBe(true)
   })
 
   test('plays a release bigger than the room through a window, once the film before it is given up', async ({ page }) => {
     test.setTimeout(120_000)
-    const { look, lines } = await open(page, { earlier: 'cache', opened: BIG, fixed: true })
-    await expect.poll(async () => { const seen = await look(); return !seen.film && seen.windowed && seen.running }, { timeout: 75_000, intervals: [1_000] }).toBe(true)
+    const { look, lines } = await open(page, { earlier: [{ t: FILM, kind: 'cache' }], opened: BIG, fixed: true })
+    await expect.poll(async () => { const seen = await look(); return !seen.kept[FILM.infoHash] && seen.windowed && seen.running }, { timeout: 75_000, intervals: [1_000] }).toBe(true)
     await expect.poll(async () => (await look()).line ?? '', { timeout: 10_000 }).toContain(WINDOW_NOTE)
     await shot(page, 'window')
     expect(lines.filter((line) => STORAGE_LINE.test(line)), 'the release was called too big').toEqual([])
     expect((await look()).full.filter(Boolean)).toEqual([])
   })
 
-  // the control: a room held by the person's own download leaves nothing to give up, so the line has to show
+  // A room held by the person's own download, with too little cache beside it for a window, so giving the cache up
+  // cannot make the release play: the line shows from the numbers, before any write is refused, with no spinner.
   test('says in one line what to do when nothing can make room', async ({ page }) => {
     test.setTimeout(120_000)
-    const { look } = await open(page, { earlier: 'library', opened: BIG, fixed: true })
-    await expect.poll(async () => (await look()).line ?? '', { timeout: 60_000 }).toMatch(/^Too big for this browser's storage here\. Open it in Ripple to play it\.$/)
+    const { look } = await open(page, { earlier: [{ t: OWN, kind: 'library' }, { t: CACHED, kind: 'cache' }], opened: BIG, fixed: true })
+    await expect.poll(async () => (await look()).line ?? '', { timeout: 30_000 }).toMatch(/^Too big for this browser's storage here\. Open it in Ripple to play it\.$/)
     await expect(page.frameLocator('#ripple').getByRole('link', { name: 'Open it in Ripple' })).toHaveAttribute('href', /\/watch\?/)
+    await expect.poll(async () => (await look()).spinning, { timeout: 5_000 }).toBe(false)
+    // past the cached film's grace, when it would have gone if giving it up could help
+    await page.waitForTimeout(20_000)
     await shot(page, 'nothing-to-give')
     const seen = await look()
-    expect(seen.film, 'the person\'s own download was given up').toBe(true)
+    expect(seen.kept[OWN.infoHash], 'the person\'s own download was given up').toBe(true)
+    expect(seen.kept[CACHED.infoHash], 'the cache was given up for nothing').toBe(true)
     expect(seen.windowed).toBe(false)
+    expect(seen.line).toMatch(/^Too big for this browser's storage here\./)
+    expect(seen.spinning).toBe(false)
   })
 })
 
@@ -214,7 +231,7 @@ test.describe('a room Chromium floats', () => {
 
   test('plays the release whole, never windowed and never too big', async ({ page }) => {
     test.setTimeout(90_000)
-    const { look, lines } = await open(page, { earlier: 'cache', opened: BIG, fixed: false })
+    const { look, lines } = await open(page, { earlier: [{ t: FILM, kind: 'cache' }], opened: BIG, fixed: false })
     await expect.poll(async () => (await look()).running, { timeout: 30_000 }).toBe(true)
     // past the film's grace, when a fixed room would have planned a window
     await page.waitForTimeout(20_000)
