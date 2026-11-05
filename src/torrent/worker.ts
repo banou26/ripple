@@ -874,8 +874,7 @@ const applyViewing = (h: number) => {
     // exists does not, and that is the one that would have hung the page it was protecting.
     //
     // Never the sample either, though it is temporary: the person pressed Add for all of it, so it
-    // downloads like their own. Parked on a restore, it stops inside its check, where the row
-    // offers neither Pause nor Resume.
+    // downloads like their own.
     if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPause(h)
@@ -1786,13 +1785,9 @@ const init = async () => {
     for (const h of wantPaused) {
       const st = session.status(h)
       /*
-       * A CHECK reports itself paused, and that is not the pause being asked for here.
-       *
-       * Without this guard the want is satisfied by the check and dropped, so nothing pauses the
-       * torrent when the check finishes and it starts up: somebody's stopped torrent quietly begins
-       * uploading again. Every restored torrent that has no resume blob checks, so this is not an
-       * exotic path. Same reading of the same flag as `CHECKING_STATES` in recovery.ts, which is
-       * where the constant lives.
+       * The pump leaves a check to finish before it pauses the torrent. A pause stops a check where
+       * it is, and a torrent restored with no resume blob knows what it holds only once checked.
+       * Every such restore checks, so this is not an exotic path.
        */
       if (!st || CHECKING_STATES.has(st.state)) continue
       /*
@@ -1801,12 +1796,10 @@ const init = async () => {
        * libtorrent's own queue parks whatever sits past its active limits, and a parked torrent
        * reports `paused` with `autoManaged` still set. Ripple's pause clears auto-management, so
        * `paused && !autoManaged` is the shape being asked for while `paused && autoManaged` is the
-       * queue, which libtorrent unparks again a tick later. `snapshotState` draws that exact line to
-       * render the Queued badge.
+       * queue, which libtorrent unparks again a tick later.
        *
        * Treating a queue park as satisfying the want drops it, and then nothing pauses the torrent
-       * when the queue starts it again: the row goes back to Downloading on its own. Same shape as
-       * the check above, where a torrent reporting itself paused mid-hash is not the pause either.
+       * when the queue starts it again: the row goes back to Downloading on its own.
        */
       if (pauseLanded(st)) wantPaused.delete(h)
       else session.pauseTorrent(h)
@@ -1817,9 +1810,8 @@ const init = async () => {
       // is given below and cannot drift from them.
       if (userPaused.has(h) || cacheIdle.has(h)) { wantStarted.delete(h); continue }
       const st = session.status(h)
-      // nothing can be told to a handle the engine has not registered yet, and a check reports
-      // itself paused without that being something to correct: wait it out rather than resuming
-      // twice a second for as long as the hashing takes
+      // nothing can be told to a handle the engine has not registered yet, and a check waiting its
+      // turn reports itself paused until libtorrent's queue starts it
       if (!st || CHECKING_STATES.has(st.state)) continue
       if (!st.paused) { wantStarted.delete(h); continue }
       /*
@@ -2605,8 +2597,8 @@ const handleMessage = async (session: Session, m: any) => {
       resumeSaved.delete(m.handle)
       failReads(m.handle, forPage.formatMessage({ id: 'torrent rechecking', defaultMessage: 'torrent rechecking' }))
       // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go
-      // too. Neither want is recorded in its place: forceRecheck clears the pause itself, and a
-      // check reports itself paused while it runs, so wantStarted would fight it for its whole run.
+      // too. Neither want is recorded in its place: forceRecheck clears the pause itself, and the
+      // check is libtorrent's queue to start.
       userPaused.delete(m.handle)
       wantPaused.delete(m.handle)
       wantStarted.delete(m.handle)
