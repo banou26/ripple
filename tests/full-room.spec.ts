@@ -16,7 +16,7 @@ const CHUNK = 64 * MiB
 // the global temporary limit in KiB, as the pref takes it; a frame's room is a fifth of it
 const TEMPORARY_LIMIT_KB = 10 * 1024 * 1024
 const STORAGE_LINE = /Too big for this browser|Out of storage space/
-const WINDOW_NOTE = 'Too big to download ahead here'
+const WINDOW_NOTE = 'Streams as you watch'
 
 test.use({
   launchOptions: [async ({ browserName }, use) => {

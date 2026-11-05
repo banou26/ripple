@@ -909,6 +909,7 @@ const engineSurfaces = async (page: Page, width: number) => {
   await library(frame, PACK_LIST, [{ ...PLAYING, windowed: true }])
   await expect(frame.locator('.loading-information')).toBeVisible()
   await row.read('streaming in a frame', frame)
+  await chips('streaming in a frame', frame)
   await post(frame, { type: 'storage-full', full: true })
   await expect(frame.locator('.loading-information a')).toBeVisible()
   await row.read('out of room in a frame', frame)
@@ -1324,7 +1325,7 @@ test('the control: in English the player\'s top row and the engine\'s words are 
     '216 seeders · 3 leechers', 'Download Fresh.Pack.S01E01.1080p.mkv', 'Torrent: Downloading', 'VPN: On', 'Seeders: 216',
     'Leechers: 3', 'Downloads: 8054', 'Connected peers: 28', 'Download speed: 8.7 MB/s', 'Upload speed: 312 kB/s', 'Peers: 28',
     'Out of storage space. Remove a download in Ripple to free room.', 'The download engine stopped. Reload the page to try again.',
-    'Ripple needs a normal (non-private) window to play this',
+    'Ripple needs a normal (non-private) window to play this', 'Streams as you watch',
     'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
     'Too big for this browser\'s storage here. Open it in Ripple to play it.', 'That is not a valid magnet link',
     'The download stopped: could not read 40000 bytes at 0 of file 1: torrent paused',
