@@ -54,16 +54,16 @@ const mount = async (view: 'cards' | 'table', { above = 0, dock = 0 } = {}) => {
         {above > 0 && <div style={{ flex: 'none', height: above }}/>}
         <ListToolbar
           filter="all" onFilter={noop} sortKey="added" sortDir="desc" onSort={noop}
-          view={view} onView={noop} temporaryCount={0}
+          view={view} onView={noop} temporaryCount={0} picked="none" canPick onPickAll={noop}
         />
         <main>
           {view === 'table'
-            ? <TorrentTable torrents={torrents} sortKey="added" sortDir="desc" onSort={noop} selectedId={null} onSelect={noop} onOptions={noop}/>
+            ? <TorrentTable torrents={torrents} sortKey="added" sortDir="desc" onSort={noop} selectedId={null} onSelect={noop} onOptions={noop} picked={new Set()} onPick={noop}/>
             : torrents.map((t) => (
               <TorrentRow
                 key={t.id} t={t} saving={{}} onToggle={noop} onSave={noop} onSaveZip={noop} onRecheck={noop}
                 onRemove={noop} onStart={noop} onPause={noop} onEmbed={noop} onOptions={noop}
-                selected={false} onSelect={noop} savedToUserStorage={false}
+                selected={false} onSelect={noop} savedToUserStorage={false} checked={false} onPick={noop}
               />
             ))}
         </main>
