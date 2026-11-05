@@ -1201,11 +1201,13 @@ const platformHeadroom = async (): Promise<number | null> => {
   } catch { return null }
 }
 
-const settleAfterDelete = async (before: number): Promise<Space | null> => {
+// Settled once half of `freed` is back, not at any drop: Firefox reported 1 MiB less while it had yet to count a
+// 1.6 GiB delete (2026-11-06). Half, because what a storage counts and what the browser charges can differ.
+const settleAfterDelete = async (before: number, freed = 0): Promise<Space | null> => {
   for (let waited = 0; waited < RECLAIM_WAIT_MS; waited += RECLAIM_POLL_MS) {
     await new Promise((resolve) => setTimeout(resolve, RECLAIM_POLL_MS))
     const now = await measureSpace()
-    if (!now || now.usedBytes < before) return now
+    if (!now || before - now.usedBytes > freed / 2) return now
   }
   return measureSpace()
 }
@@ -1500,6 +1502,7 @@ const runStorageBudget = async () => {
     while (candidates.length) {
       const [next] = planEviction({ ...space, pendingBytes: owed.pendingBytes, candidates })
       if (!next) break
+      const freed = candidates.find((c) => c.infoHash === next)?.bytesOnDisk ?? 0
       candidates = candidates.filter((c) => c.infoHash !== next)
       const h = handles.find((x) => infoHashByHandle.get(x) === next)
       if (h === undefined) continue
@@ -1522,7 +1525,7 @@ const runStorageBudget = async () => {
       measured = null
       await evict(live, h, next)
       gaveUp = true
-      const after = await settleAfterDelete(before)
+      const after = await settleAfterDelete(before, freed)
       // the delete landed and its effect cannot be read back, so there is still nothing honest to say
       if (!after) return
       space = after
