@@ -6,7 +6,7 @@ import { decodeMagnetParam } from '../../src/router/magnet-codec'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page, userEvent } from '@vitest/browser/context'
+import { cdp, page, userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
@@ -107,6 +107,35 @@ const hoverText = async (screen: Awaited<ReturnType<typeof mount>>, testId: stri
   const text = (screen.container.querySelector('[role="tooltip"]') as HTMLElement).innerText
   await userEvent.hover(video)
   return text
+}
+
+/**
+ * Runs `inside` with Chrome's touch emulation on, as a phone, handing it a finger's tap at an element's centre. A mouse
+ * click would hover the element first, and so open a chip whether or not a tap does. The test runs in a frame, so a
+ * point in it is moved and scaled by the frame's rect.
+ */
+const asPhone = async (inside: (tap: (element: Element) => Promise<void>) => Promise<void>) => {
+  const session = cdp()
+  const tap = async (element: Element) => {
+    const frame = window.frameElement!.getBoundingClientRect()
+    const scale = frame.width / window.innerWidth
+    const { left, top, width, height } = element.getBoundingClientRect()
+    const point = { x: frame.left + (left + width / 2) * scale, y: frame.top + (top + height / 2) * scale }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+  try { await inside(tap) } finally { await session.send('Emulation.setTouchEmulationEnabled', { enabled: false }) }
+}
+
+/** The description Chrome gives a screen reader for the element at `selector`, read from its own accessibility tree. */
+const describedAs = async (selector: string) => {
+  const session = cdp()
+  const { result } = await session.send('Runtime.evaluate', {
+    expression: `[...document.querySelectorAll('iframe')].map(frame => frame.contentDocument?.querySelector(${JSON.stringify(selector)})).find(Boolean)`,
+  })
+  const { nodes } = await session.send('Accessibility.getPartialAXTree', { objectId: result.objectId, fetchRelatives: false })
+  return nodes[0]?.description?.value
 }
 
 describe('the watch route', () => {
@@ -457,20 +486,27 @@ describe('the watch route', () => {
 
           const anchor = screen.container.querySelector<HTMLElement>('[data-tooltip-id="window-note"]')!
           const video = screen.container.querySelector('video')!
+          // a screen reader has the sentence while the chip is closed, when it is not in the document
+          expect(chip(), at).toBeUndefined()
+          expect(await describedAs('[data-tooltip-id="window-note"]'), `${at}: described`).toBe(sentence)
           await userEvent.hover(anchor)
           await expect.poll(chip, { message: `${at}: hovered` }).toBe(sentence)
           await userEvent.hover(video)
           await expect.poll(chip).toBeUndefined()
-          // Tab from the link before it
+          // Tab from the link before it, and Escape puts the chip away with the note still focused
           screen.getByTestId('open-download-page').element().focus()
           await userEvent.tab()
           expect(document.activeElement, at).toBe(anchor)
           await expect.poll(chip, { message: `${at}: focused` }).toBe(sentence)
+          await userEvent.keyboard('{Escape}')
+          await expect.poll(chip, { message: `${at}: Escape` }).toBeUndefined()
+          expect(document.activeElement, at).toBe(anchor)
           anchor.blur()
-          await expect.poll(chip).toBeUndefined()
           if (size === PHONE) {
-            await userEvent.click(anchor)
-            await expect.poll(chip, { message: `${at}: pressed` }).toBe(sentence)
+            await asPhone(async (tap) => {
+              await tap(anchor)
+              await expect.poll(chip, { message: `${at}: tapped` }).toBe(sentence)
+            })
             anchor.blur()
             await userEvent.hover(video)
           }

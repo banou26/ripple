@@ -542,7 +542,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         <TooltipDisplay
           id="window-note"
           tooltipPlace="bottom-end"
-          focusable
+          description={intl.formatMessage(WINDOW_NOTE)}
           text={<><Info /><span>{intl.formatMessage({ id: 'Streams as you watch', defaultMessage: 'Streams as you watch' })}</span></>}
           toolTipText={<span>{intl.formatMessage(WINDOW_NOTE)}</span>}
         />
