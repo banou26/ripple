@@ -27,7 +27,7 @@ const style = css`
   align-items: center;
   flex-wrap: wrap;
   gap: 10px 14px;
-  margin: 14px 16px;
+  margin: 14px 16px 0;
 
   /* the box's 40 px hit area pulled into the margin, so the row keeps its height */
   .pick-all {

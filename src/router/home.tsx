@@ -741,14 +741,10 @@ export const style = css`
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 16px;
-  }
-
-  /* A scroller's padding scrolls away with its content, so under the toolbar the gap is the
-     toolbar's margin instead: a scrolled card then slides out of view 14px below the controls
-     rather than flush against them. */
-  .list-toolbar + main {
-    padding-top: 0;
+    /* the top room is a margin because a scroller's padding scrolls away with its content: a
+       scrolled card then leaves view 14px below whatever sits above, not flush against it */
+    margin-top: 14px;
+    padding: 0 16px 14px;
   }
 
   .torrent, .sample {
