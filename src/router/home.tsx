@@ -81,6 +81,8 @@ import { STATE_LABEL, retryLine, speed } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
+import { BulkBar, RowCheck } from '../components/bulk-actions'
+import { pickable, useBulkSelection } from './bulk-selection'
 import {
   LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
   isTemporary, readFilter, readSort, readView, writeSort,
@@ -753,6 +755,7 @@ export const style = css`
     cursor: default;
 
     flex: none;
+    position: relative;
     border-radius: 8px;
     padding: 10px 12px;
     /* a ROW at the top level, so the picture is a column of its own spanning the whole card rather
@@ -811,6 +814,14 @@ export const style = css`
       object-fit: cover;
       background: ${SUNKEN_BG};
       border: 1px solid ${BORDER};
+    }
+
+    /* the bulk selection's box, over the picture's corner, so it takes no width from the name */
+    > .row-check {
+      position: absolute;
+      top: 4px;
+      left: 6px;
+      z-index: 1;
     }
 
     /* Held even when there is no picture, so every row's text starts at the same place. An absent
@@ -1303,6 +1314,14 @@ export const style = css`
     cursor: pointer;
   }
 
+  /* at the end of the list, so appearing moves no row, and held to the bottom while the list scrolls */
+  .bulk-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-top: auto;
+  }
+
   .hidden-note {
     flex: none;
     margin-top: 4px;
@@ -1670,6 +1689,9 @@ type RowProps = {
   selected: boolean
   /** Selects, and only selects. Deselecting is the dock's own gesture, not a second click here. */
   onSelect: (t: Torrent) => void
+  /** Ticked for a bulk action, which is not the selection above. */
+  checked: boolean
+  onPick: (t: Torrent) => void
   /** Whether this torrent's files are already in the folder the user chose. Hides the save button. */
   savedToUserStorage: boolean
   /** This row's recent transfer, newest last. Absent until the second state tick has been seen. */
@@ -1714,8 +1736,8 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
 }
 
 const MissingRow = ({
-  t, poster, onStart, onOptions, selected, onSelect,
-}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect'> & { poster: string | null }) => {
+  t, poster, onStart, onOptions, selected, onSelect, checked, onPick,
+}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick'> & { poster: string | null }) => {
   const intl = useIntl()
   return (
     <div
@@ -1732,6 +1754,7 @@ const MissingRow = ({
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
       {/* the files are gone from this device but the picture was cached here, so it still shows */}
       <Poster url={poster}/>
       <div className="content">
@@ -1798,7 +1821,7 @@ const MissingRow = ({
 }
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, savedToUserStorage, rates }: RowProps) => {
+export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates }: RowProps) => {
   const intl = useIntl()
   /**
    * Before the missing branch, not after it.
@@ -1814,6 +1837,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
       <MissingRow
         t={t} poster={poster} onStart={onStart}
         onOptions={onOptions} selected={selected} onSelect={onSelect}
+        checked={checked} onPick={onPick}
       />
     )
   }
@@ -1866,6 +1890,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
       <Poster url={poster}/>
       <div className="content">
         <div className="main">
@@ -2339,10 +2364,14 @@ const Home = () => {
       })
       if (!ok) return
     }
+    removeWithFiles(t)
+  }
+
+  const removeWithFiles = (t: Torrent) => {
     // Nothing else would ever collect it: the worker deletes its own three key shapes on removal and
     // never clears the store, so a picture left behind here outlives the torrent it belongs to.
     if (t.infoHash) void forgetThumbnail(t.infoHash)
-    if (missing) { if (t.infoHash) removeMissing(t.infoHash) }
+    if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
   }
 
@@ -2904,6 +2933,52 @@ const Home = () => {
    */
   const temporaryCount = torrents.filter(isTemporary).length
   const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
+
+  const bulk = useBulkSelection(visibleRows)
+  const isStopped = (t: Torrent) => t.state === 'paused' || t.state === 'queued'
+  const canPause = (t: Torrent) => t.state !== 'missing' && !isStopped(t)
+  /**
+   * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
+   * while it was open gives every row a new handle, and the ones picked are found by info hash.
+   */
+  const pickedNow = (picked = bulk.picked) => torrentsRef.current.filter((t) => pickable(t) && picked.has(t.infoHash))
+  const pausePicked = () => { for (const t of pickedNow()) if (canPause(t)) pause(Number(t.id)) }
+  const resumePicked = () => { for (const t of pickedNow()) if (isStopped(t)) resume(Number(t.id)) }
+  const removePicked = async () => {
+    const picked = bulk.picked
+    const live = bulk.rows.filter((t) => t.state !== 'missing')
+    if (live.length) {
+      const onDisk = getHumanReadableByteString(live.reduce((n, t) => n + (t.downloaded ?? 0), 0), true)
+      const ok = await confirm({
+        title: intl.formatMessage({ id: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}', defaultMessage: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}' }, { count: bulk.rows.length }),
+        body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size: onDisk }),
+        confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
+        tone: 'danger',
+        rememberKey: 'ripple:confirm-remove',
+      })
+      if (!ok) return
+    }
+    pickedNow(picked).forEach(removeWithFiles)
+    bulk.clear()
+  }
+
+  const anyPicked = bulk.rows.length > 0
+  const clearPicked = bulk.clear
+  useEffect(() => {
+    if (!anyPicked) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const target = e.target
+      // a field, a dialog and a menu each use Escape for themselves; a box in the list does not
+      if (target instanceof Element && target.closest('textarea, input:not([type="checkbox"]), [role="dialog"], [role="menu"]')) return
+      // claimed, so the detail panel's own Escape leaves it open: one press does one thing
+      e.preventDefault()
+      clearPicked()
+    }
+    // capture, so this runs before the detail panel's listener on the same window
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [anyPicked, clearPicked])
   const hiddenByFilter = torrents.length - visibleRows.length
   const hiddenBytes = listFilter === 'library'
     ? torrents.filter(isTemporary).reduce((n, t) => n + t.size, 0)
@@ -3270,6 +3345,9 @@ const Home = () => {
           sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
           view={listView} onView={chooseView}
           temporaryCount={temporaryCount}
+          picked={bulk.all ? 'all' : anyPicked ? 'some' : 'none'}
+          canPick={bulk.canPick}
+          onPickAll={bulk.toggleAll}
         />
       )}
 
@@ -3313,6 +3391,8 @@ const Home = () => {
                 selectedId={selectedId}
                 onSelect={onSelect}
                 onOptions={onOptions}
+                picked={bulk.picked}
+                onPick={bulk.toggle}
               />
             )
             : visibleRows.map((t) => (
@@ -3331,6 +3411,8 @@ const Home = () => {
               onOptions={onOptions}
               selected={t.id === selectedId}
               onSelect={onSelect}
+              checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
+              onPick={bulk.toggle}
               savedToUserStorage={!!folder && permitted && savedToFolder.has(t.id)}
               rates={rowRates[t.id]}
             />
@@ -3349,6 +3431,17 @@ const Home = () => {
               : intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}', defaultMessage: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}' }, { count: hiddenByFilter })}
             <button type="button" className="link" onClick={() => chooseFilter('all')}>{intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}</button>
           </div>
+        )}
+        {anyPicked && (
+          <BulkBar
+            count={bulk.rows.length}
+            canPause={bulk.rows.some(canPause)}
+            canResume={bulk.rows.some(isStopped)}
+            onPause={pausePicked}
+            onResume={resumePicked}
+            onRemove={() => { void removePicked() }}
+            onClear={bulk.clear}
+          />
         )}
       </main>
 

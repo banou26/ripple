@@ -2,6 +2,7 @@ import type { Torrent } from '../../src/torrent/types'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { page } from '@vitest/browser/context'
 
 import { IntlRoot } from '../../src/i18n'
 import de from '../../src/locales/de.json'
@@ -45,6 +46,8 @@ const mount = (over: Partial<Parameters<typeof TorrentTable>[0]> = {}) => {
     selectedId: null,
     onSelect: vi.fn(),
     onOptions: vi.fn(),
+    picked: new Set<string>() as ReadonlySet<string>,
+    onPick: vi.fn(),
     ...over,
   }
   return { props, screen: render(<IntlRoot><TorrentTable {...props}/></IntlRoot>) }
@@ -140,6 +143,42 @@ describe('the torrent table', () => {
   it('rounds the percent as the bar does', async () => {
     const { screen } = mount({ torrents: [t({ progress: 0.285 })] })
     expect((await screen).container.querySelector('.pct')?.textContent).toBe('28%')
+  })
+
+  /** The box ticks a row for a bulk action and leaves the dock's row as it was. */
+  it('ticks a row from its box without selecting it for the dock', async () => {
+    const rows = [t({ infoHash: 'a'.repeat(40), name: 'pick me' })]
+    const { props, screen } = mount({ torrents: rows })
+    await (await screen).getByRole('checkbox', { name: 'Select pick me' }).click()
+    expect(props.onPick).toHaveBeenCalledWith(rows[0])
+    expect(props.onSelect).not.toHaveBeenCalled()
+  })
+
+  it('keeps the ticked rows and the dock\'s row apart', async () => {
+    const rows = [t({ infoHash: 'b'.repeat(40) }), t({ infoHash: 'c'.repeat(40) })]
+    const { screen } = mount({ torrents: rows, picked: new Set([rows[0]!.infoHash!]), selectedId: rows[1]!.id })
+    const [first, second] = [...(await screen).container.querySelectorAll('tbody tr')]
+    expect(first!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true)
+    expect(first!.hasAttribute('data-selected')).toBe(false)
+    expect(second!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false)
+    expect(second!.hasAttribute('data-selected')).toBe(true)
+  })
+
+  it('offers no box on a row the engine has not reported yet', async () => {
+    const { screen } = mount({ torrents: [t({ infoHash: 'd'.repeat(40), state: 'starting' })] })
+    expect((await screen).container.querySelector('input[type="checkbox"]')).toBeNull()
+  })
+
+  it('gives the box a finger-sized area on a phone', async () => {
+    await page.viewport(390, 844)
+    try {
+      const { screen } = mount({ torrents: [t({ infoHash: 'e'.repeat(40) })] })
+      const hit = (await screen).container.querySelector('.row-check')!.getBoundingClientRect()
+      expect(hit.width).toBeGreaterThanOrEqual(32)
+      expect(hit.height).toBeGreaterThanOrEqual(40)
+    } finally {
+      await page.viewport(1280, 720)
+    }
   })
 
   it('renders a row per torrent and nothing extra', async () => {

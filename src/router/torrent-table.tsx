@@ -2,6 +2,7 @@ import type { MessageDescriptor } from 'react-intl'
 
 import type { Torrent } from '../torrent/types'
 import type { SortDir, SortKey } from '../torrent/list-view'
+import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
 import { Clock } from 'lucide-react'
@@ -9,9 +10,11 @@ import { defineMessage, useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
 import { badgeRules } from './badge-style'
+import { pickable } from './bulk-selection'
 import { STATE_LABEL, relativeDay, speed } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
+import { RowCheck } from '../components/bulk-actions'
 import {
   BORDER, CONTROL_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
@@ -41,7 +44,8 @@ const style = css`
     white-space: nowrap;
   }
 
-  thead th {
+  /* the box column's header is a td, having no name, and sticks with the rest */
+  thead th, thead td {
     position: sticky;
     top: 0;
     z-index: 1;
@@ -87,6 +91,14 @@ const style = css`
     &:hover { background: ${HOVER_WASH}; }
 
     &[data-selected] { background: ${CONTROL_BG}; }
+  }
+
+  /* the box's own label is its hit area, so the cell adds no padding of its own; a row's height on a
+     wide screen, a finger's on a phone */
+  td.check {
+    padding: 0;
+
+    .row-check { width: 32px; height: 32px; }
   }
 
   td.name {
@@ -144,7 +156,14 @@ const style = css`
   @media (max-width: 940px) { .c-up { display: none; } }
   @media (max-width: 820px) { .c-peers { display: none; } }
   @media (max-width: 700px) { .c-size { display: none; } }
-  @media (max-width: 560px) { .c-down, .bar { display: none; } }
+  /* With the box column, Brazilian Portuguese's TENTANDO NOVAMENTE left a name 63 px at 320 px and French
+     81 px at 412 px, so on a phone a state wider than 7.5em takes two lines; keep-all, or Japanese broke
+     after every character. */
+  @media (max-width: 560px) {
+    .c-down, .bar { display: none; }
+    td.check .row-check { height: 40px; }
+    td.c-status { width: 7.5em; white-space: normal; word-break: keep-all; }
+  }
   /* with Progress, French left a name 47 px at 360 px and ran past a 320 px window */
   @media (max-width: 400px) { .c-progress { display: none; } }
 `
@@ -179,15 +198,19 @@ export type TorrentTableProps = {
   selectedId: string | null
   onSelect: (t: Torrent) => void
   onOptions: (t: Torrent, at: { x: number, y: number } | null) => void
+  /** The ticked rows, by info hash, which are not the one row the dock shows. */
+  picked: Picked
+  onPick: (t: Torrent) => void
 }
 
 export const TorrentTable = (
-  { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions }: TorrentTableProps,
+  { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions, picked, onPick }: TorrentTableProps,
 ) => {
   const intl = useIntl()
   return <table css={style} className="torrent-table">
     <thead>
       <tr>
+        <td className="check"/>
         {COLUMNS.map((c) => {
           const { key } = c
           const sorted = key !== null && key === sortKey
@@ -228,6 +251,9 @@ export const TorrentTable = (
           onClick={() => onSelect(t)}
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >
+          <td className="check">
+            {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={() => onPick(t)}/>}
+          </td>
           <td className="name" {...hint(t.name)}>
             <div className="cell-name">
               {/*

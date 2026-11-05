@@ -755,7 +755,8 @@ export const TorrentDetailDock = ({
   // Escape closes it, which is the shortcut anyone tries first on a panel like this
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      // claimed already by the list's bulk selection, which an Escape clears first
+      if (e.key !== 'Escape' || e.defaultPrevented) return
       // `target` is the window itself for a window-dispatched event, and Window has no closest(),
       // so this has to be checked for an Element rather than cast to one
       const target = e.target

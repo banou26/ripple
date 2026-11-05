@@ -24,6 +24,9 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
     view: 'cards' as const,
     onView: vi.fn(),
     temporaryCount: 2,
+    picked: 'none' as 'none' | 'some' | 'all',
+    canPick: true,
+    onPickAll: vi.fn(),
     ...over,
   }
   return { props, screen: render(<IntlRoot><ListToolbar {...props}/></IntlRoot>) }
@@ -33,6 +36,24 @@ const pressed = (c: HTMLElement, name: string) =>
   [...c.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(name))?.getAttribute('aria-pressed')
 
 describe('the list toolbar', () => {
+  /** One box for every row shown, ticked when all are, mixed when some are. */
+  it('ticks every row shown from one box, and says when only some are', async () => {
+    const box = async (over: Parameters<typeof mount>[0]) => {
+      const { props, screen } = mount(over)
+      // by the container: four renders share the page, and a role query reads the whole of it
+      return { props, input: (await screen).container.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label="Select all"]')! }
+    }
+    const none = await box({ picked: 'none' })
+    expect([none.input.checked, none.input.indeterminate]).toEqual([false, false])
+    const some = await box({ picked: 'some' })
+    expect([some.input.checked, some.input.indeterminate]).toEqual([false, true])
+    const all = await box({ picked: 'all' })
+    expect([all.input.checked, all.input.indeterminate]).toEqual([true, false])
+    all.input.click()
+    expect(all.props.onPickAll).toHaveBeenCalledTimes(1)
+    expect((await box({ canPick: false })).input.disabled).toBe(true)
+  })
+
   it('says which filter, sort direction and view are live', async () => {
     const { screen } = mount({ filter: 'library', view: 'table' })
     const c = (await screen).container
