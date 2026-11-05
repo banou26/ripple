@@ -744,6 +744,13 @@ export const style = css`
     padding: 14px 16px;
   }
 
+  /* A scroller's padding scrolls away with its content, so under the toolbar the gap is the
+     toolbar's margin instead: a scrolled card then slides out of view 14px below the controls
+     rather than flush against them. */
+  .list-toolbar + main {
+    padding-top: 0;
+  }
+
   .torrent, .sample {
     /* the row whose details are in the dock, marked clearly enough to find at a glance in a long
        library without shouting over the rest of it */
