@@ -23,7 +23,7 @@ import {
   TEXT_MUTED,
   TEXT_ON_LIGHT,
 } from '../theme'
-import { ArrowDown, Check, Download, File as FileIcon, Folder, Link2, Play, User } from 'lucide-react'
+import { ArrowDown, Check, Download, File as FileIcon, Link2, Play, User } from 'lucide-react'
 
 import type { SaveEntry } from '../torrent/save-file'
 import type { LinkLanguages } from './embed-link'
@@ -45,6 +45,7 @@ import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
+import { FileGlyph } from './file-glyph'
 
 // a brand, the same in every language
 const WORDMARK = 'Ripple'
@@ -155,8 +156,11 @@ const style = css`
       border: 1px solid ${BORDER};
       background: ${CONTROL_BG};
       color: ${TEXT};
+      align-content: center;
+      gap: 2px;
 
       svg { width: 22px; height: 22px; }
+      .ext { font-size: 10px; font-weight: 600; line-height: 1; }
     }
 
     /* A frame of the release fills the tile it replaces, cropped rather than letterboxed: the tile is
@@ -1062,7 +1066,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             <div className={'glyph' + (poster ? ' poster' : '')}>
               {poster
                 ? <img src={poster} alt="" />
-                : subject ? <FileIcon /> : <Folder />}
+                : <FileGlyph name={torrentName} files={files && offered.map((entry) => ({ name: entry.path }))}/>}
             </div>
             <div className="about">
               <div className="name">{subjectName}</div>

@@ -118,6 +118,51 @@ describe('a library row', () => {
     expect(placeholder, 'the box is kept and filled with an icon').not.toBeNull()
     expect(screen.container.querySelector('img.poster')).toBeNull()
     expect(box(placeholder)!.width).toBeGreaterThan(80)
+    // a pack of three is the one case that keeps the folder
+    expect(placeholder!.querySelector('.lucide-folder')).not.toBeNull()
+    expect(placeholder!.querySelector('.ext')).toBeNull()
+  })
+
+  /**
+   * As it was on screen: a row synced from another device, holding one .mkv and with no picture
+   * yet, drew the folder every placeholder drew.
+   */
+  describe('with no picture, says what the torrent is', () => {
+    const RELEASE = 'Rick.and.Morty.S09E09.1080p.WEB.h264-EDITH[EZTVx.to].mkv'
+    const ghost = (over: Partial<Torrent> = {}) => torrent({
+      state: 'missing', name: RELEASE, progress: 0, downloaded: 0,
+      files: [{ name: RELEASE, size: 1_000_000_000, progress: 0, index: 0 }], ...over,
+    })
+
+    it('a single .mkv is a video file with MKV under its icon', async () => {
+      thumbnail.current = null
+      const screen = await mount(ghost())
+      const placeholder = screen.container.querySelector('.poster.placeholder')!
+      expect(placeholder.querySelector('.lucide-folder')).toBeNull()
+      const icon = placeholder.querySelector('.lucide-file-play')
+      const ext = placeholder.querySelector('.ext')
+      expect(icon).not.toBeNull()
+      expect(ext?.textContent).toBe('MKV')
+      // under the icon, and inside the box
+      expect(box(ext)!.top).toBeGreaterThanOrEqual(box(icon)!.bottom)
+      expect(box(ext)!.bottom).toBeLessThanOrEqual(box(placeholder)!.bottom)
+      expect(box(ext)!.left).toBeGreaterThanOrEqual(box(placeholder)!.left)
+      expect(box(ext)!.right).toBeLessThanOrEqual(box(placeholder)!.right)
+    })
+
+    it('reads the name when the entry carries no file list', async () => {
+      thumbnail.current = null
+      const screen = await mount(ghost({ files: undefined }))
+      expect(screen.container.querySelector('.poster.placeholder .lucide-file-play')).not.toBeNull()
+      expect(screen.container.querySelector('.poster.placeholder .ext')?.textContent).toBe('MKV')
+    })
+
+    it('a single file of another kind is a file with its extension', async () => {
+      thumbnail.current = null
+      const screen = await mount(ghost({ name: 'ubuntu.iso', files: [{ name: 'ubuntu.iso', size: 6_000_000_000, progress: 0, index: 0 }] }))
+      expect(screen.container.querySelector('.poster.placeholder .lucide-file')).not.toBeNull()
+      expect(screen.container.querySelector('.poster.placeholder .ext')?.textContent).toBe('ISO')
+    })
   })
 
   /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { downloadedFraction, pickThumbnailSource, rangeIsDownloaded, readableKeyframes } from '../../src/torrent/thumbnail'
+import { downloadedFraction, glyphFor, pickThumbnailSource, rangeIsDownloaded, readableKeyframes } from '../../src/torrent/thumbnail'
 
 let nextIndex = 0
 const file = (name: string, size: number) => ({ name, size, progress: 0, index: nextIndex++ })
@@ -221,5 +221,42 @@ describe('readableKeyframes', () => {
     const long = Array.from({ length: 200 }, (_, i) => ({ timestamp: i * 30, pos: i * 1_000_000 }))
     const [best] = readableKeyframes(long, [[0, SIZE]], SIZE)
     expect(best).toBe(300)
+  })
+})
+
+/*
+ * What stands in for the picture until there is one. A row synced from another device, holding one
+ * .mkv, drew a folder, because the placeholder was a folder for every torrent.
+ */
+describe('glyphFor', () => {
+  const RELEASE = 'Rick.and.Morty.S09E09.1080p.WEB.h264-EDITH[EZTVx.to].mkv'
+
+  it('draws one video file as a video, with its extension', () => {
+    expect(glyphFor(RELEASE, [{ name: RELEASE }])).toEqual({ kind: 'video', ext: 'MKV' })
+  })
+
+  it('draws one other file as a file, with its extension', () => {
+    expect(glyphFor('ubuntu.iso', [{ name: 'ubuntu.iso' }])).toEqual({ kind: 'file', ext: 'ISO' })
+  })
+
+  it('keeps the folder for several files', () => {
+    expect(glyphFor('Pack', [{ name: 'Pack/E01.mkv' }, { name: 'Pack/E02.mkv' }])).toEqual({ kind: 'folder', ext: null })
+  })
+
+  it('counts a file inside a folder, and skips pads, as the one file it is', () => {
+    expect(glyphFor('Pack', [{ name: 'Pack/only.mkv' }, { name: '.pad/65536', pad: true }])).toEqual({ kind: 'video', ext: 'MKV' })
+  })
+
+  it('reads the name before metadata, trusting only a video extension on it', () => {
+    expect(glyphFor(RELEASE)).toEqual({ kind: 'video', ext: 'MKV' })
+    expect(glyphFor('Show.S01.1080p.WEB')).toEqual({ kind: 'folder', ext: null })
+  })
+
+  it('reads the file list over the name once there is one', () => {
+    expect(glyphFor(RELEASE, [{ name: 'a.mkv' }, { name: 'b.mkv' }])).toEqual({ kind: 'folder', ext: null })
+  })
+
+  it('leaves out a label that is not an extension', () => {
+    expect(glyphFor('README', [{ name: 'README' }])).toEqual({ kind: 'file', ext: null })
   })
 })
