@@ -507,8 +507,9 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // explanation anywhere. Ripple reclaims what it can on its own first, so seeing this at all means
   // the space is held by torrents the user added themselves, or, in a frame, whose storage holds
   // nothing else, that the file is too big for it.
+  const tooBig = storageFull && isFramed()
   const status = engineError
-    ?? (storageFull && isFramed()
+    ?? (tooBig
       ? intl.formatMessage({
         id: 'Too big for this browser\'s storage here. <link>Open it in Ripple</link> to play it.',
         defaultMessage: 'Too big for this browser\'s storage here. <link>Open it in Ripple</link> to play it.',
@@ -529,7 +530,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
 
   // Typed as the union rather than spread inline: a conditional spread widens to "maybe read, maybe
   // size", which is neither arm, and both halves have to travel together.
-  const source: MediaPlayerSource = fileSize ? { read, size: fileSize } : {}
+  // none while it is too big for this frame, so the player does not spin under the line, and starts over once there is room
+  const source: MediaPlayerSource = fileSize && !tooBig ? { read, size: fileSize } : {}
 
   /*
    * What the engine is doing with the torrent, which is not the same question as what the player is
