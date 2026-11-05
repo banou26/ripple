@@ -271,9 +271,10 @@ const ephemeralHandles = new Set<number>()
 // Stopped because nobody is watching, which is NOT the user's pause: it stays out of `userPaused`
 // and out of the persisted `paused` flag, so it never looks like a decision the user made.
 const cacheIdle = new Set<number>()
-// When a torrent last served a read. Save-to-disk, the zip export and the auto-save folder mirror
-// all read without registering a viewer, so a viewer check alone would call them idle and delete
-// the file out from under them mid-copy.
+// When a torrent last served a read made without a viewer. The library's save to disk and zip and
+// the auto-save folder mirror read that way, so a viewer check alone would call them idle and delete
+// the file out from under them mid-copy. A read under a viewer is held by that viewer's claim, and a
+// player that has let its film go must not keep it from the release opened next.
 const lastReadAt = new Map<number, number>()
 // Waiting to have their one top-level name written into the list, which needs the file layout.
 const needsRootEntry = new Set<number>()
@@ -1156,9 +1157,8 @@ const observed = (st: TorrentStatus): ObservedStatus => ({
 // How often the origin's storage budget is checked. The engine runs in exactly one tab, so this
 // runs once per browser however many tabs are open.
 const EVICT_INTERVAL_MS = 10_000
-// How long after its last read a torrent still counts as in use. Save-to-disk, the zip export and
-// the auto-save folder mirror all read without registering a viewer, and a copy that pauses between
-// chunks must not be deleted out from under itself.
+// How long after its last read without a viewer (`lastReadAt`) a torrent still counts as in use: a
+// copy that pauses between chunks must not be deleted out from under itself.
 const READ_GRACE_MS = 60_000
 // A torrent used this recently is in use, whoever is holding it. /watch re-opening one it played
 // before touches it and only then attaches a viewer, once the layout arrives, and a pass landing
@@ -1478,7 +1478,7 @@ const runStorageBudget = async () => {
       }
     }
     await seen(space)
-    // before the list is read, so a pass that read fails still holds what the watched files owe
+    // before the list is read, so a pass whose list read fails still reports what the watched files owe
     owed = await owedByViewers(space)
     const collected = await collectCandidates(await loadList(), Date.now())
     candidates = collected.evictable
@@ -2214,7 +2214,7 @@ const handleMessage = async (session: Session, m: any) => {
       }
       // wanting bytes is what puts a torrent back to work, whether or not the reader is a player
       wake(m.handle)
-      lastReadAt.set(m.handle, Date.now())
+      if (!m.viewer) lastReadAt.set(m.handle, Date.now())
       if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: TORRENT_PAUSED })
         return
@@ -2292,7 +2292,7 @@ const handleMessage = async (session: Session, m: any) => {
           }
         }
       // the handle check keeps a torrent that was given up mid-read from leaving an entry behind
-      } finally { inFlight.delete(m.id); if (handles.includes(m.handle)) lastReadAt.set(m.handle, Date.now()) }
+      } finally { inFlight.delete(m.id); if (!m.viewer && handles.includes(m.handle)) lastReadAt.set(m.handle, Date.now()) }
     } else if (m.type === 'cancel-read') {
       /**
        * The reader has gone away, so the read stops rather than going on planning the swarm.
