@@ -565,6 +565,14 @@ const persistResume = async (h: number): Promise<boolean> => {
    * consulted in the one case it must not be: after the source moved.
    */
   if (isSourceSavePath(savePathByHandle.get(h))) return false
+  /*
+   * Nor a torrent mid-check. libtorrent then writes only the pieces it has checked so far, none at all
+   * before the check starts or while it checks resume data, and the restore trusts the blob without
+   * hashing (`no_verify_files`): a torrent paused before its check came back owning nothing, and its
+   * Resume downloaded from zero. The blob from before the check stays, and with none the next load checks.
+   */
+  const st = session.status(h)
+  if (st && CHECKING_STATES.has(st.state)) return false
   resumeInFlight.add(h)
   try {
     const blob = await session.saveResumeData(h)
