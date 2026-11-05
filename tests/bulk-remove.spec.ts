@@ -3,12 +3,15 @@
  * confirmation, and after a reload the two are still gone and the third is still there.
  *
  * Ticking a row is not the selection that fills the detail panel, so the panel stays on the torrent it showed, and an
- * Escape clears the ticks before it would close the panel. Select all takes the rows the filter shows, and no other. The removals are written where the cloud backup reads
- * them (`ripple:removed`), as a single row's Remove writes its own.
+ * Escape clears the ticks before it would close the panel. The bar's Pause and Resume reach the ticked rows alone. Select
+ * all takes the rows the filter shows, and no other. The removals are written where the cloud backup reads them
+ * (`ripple:removed`), as a single row's Remove writes its own.
  *
  * The pickers are deleted, so each pick goes through the ponyfill's file input and is copied into browser storage,
  * as in long-name-copy.spec.ts. No network and no transfer, so this is headless.
  */
+import type { Page } from '@playwright/test'
+
 import { expect, test } from '@playwright/test'
 
 const NAMES = ['Bulk.One.bin', 'Bulk.Two.bin', 'Bulk.Three.bin']
@@ -24,30 +27,29 @@ const stored = (key: string) => new Promise<unknown>((resolve) => {
   }
 })
 
-test('two of three torrents removed in one action stay removed after a reload, and the third stays', async ({ page }) => {
-  test.setTimeout(300_000)
-  const pageErrors: string[] = []
-  page.on('pageerror', (error) => pageErrors.push(String(error)))
-
+/** One file per name in this test's output folder, each with different bytes, so each makes its own info hash. */
+const filesFor = async (names: readonly string[]) => {
   const fs = await import('node:fs')
   const nodePath = await import('node:path')
   const dir = test.info().outputPath()
   fs.mkdirSync(dir, { recursive: true })
-  // different bytes, so three different info hashes
-  const files = NAMES.map((name, i) => {
+  return names.map((name, i) => {
     const file = nodePath.join(dir, name)
     fs.writeFileSync(file, Buffer.alloc(150_000 + i * 1_000, i + 1))
     return file
   })
+}
 
-  await page.addInitScript(() => {
-    // the demo torrent would add itself eight seconds in
-    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
-    delete (window as any).showDirectoryPicker
-    delete (window as any).showOpenFilePicker
-  })
-  await page.goto('/')
+/** Every page of `page`'s context opens with no demo torrent and no system pickers. */
+const prepare = (page: Page) => page.context().addInitScript(() => {
+  // the demo torrent would add itself eight seconds in
+  try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+  delete (window as any).showDirectoryPicker
+  delete (window as any).showOpenFilePicker
+})
 
+/** Makes a torrent of each file on this device, and returns their info hashes. */
+const make = async (page: Page, files: readonly string[]) => {
   const hashes: string[] = []
   await page.getByRole('button', { name: 'Create a torrent' }).click()
   const dialog = page.getByRole('dialog')
@@ -61,21 +63,49 @@ test('two of three torrents removed in one action stay removed after a reload, a
     if (i < files.length - 1) await dialog.getByRole('button', { name: 'Create another' }).click()
   }
   await dialog.getByRole('button', { name: 'Close' }).click()
-  expect(new Set(hashes).size).toBe(3)
+  expect(new Set(hashes).size).toBe(files.length)
+  return hashes
+}
 
-  const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}` })
+const tickOf = (page: Page) => (name: string) => page.getByRole('checkbox', { name: `Select ${name}` })
+
+test('two of three torrents removed in one action stay removed after a reload, and the third stays', async ({ page }) => {
+  test.setTimeout(300_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+
+  await prepare(page)
+  await page.goto('/')
+  const hashes = await make(page, await filesFor(NAMES))
+
+  const tick = tickOf(page)
   for (const name of NAMES) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
   const [one, two, three] = NAMES as [string, string, string]
 
   // the detail panel shows the third, and ticking the other two leaves it on the third
   await page.locator('.torrent', { hasText: three }).locator('.title').click()
-  const details = page.locator('main + section')
+  const details = page.locator('main ~ section')
   await expect(details).toHaveAttribute('aria-label', `Details for ${three}`)
   await tick(one).check()
   await tick(two).check()
   const bar = page.locator('.bulk-bar')
   await expect(bar).toContainText('2 selected')
   await expect(details).toHaveAttribute('aria-label', `Details for ${three}`)
+  // under the list, so no row and no focused control is ever behind it
+  const [rows, held] = await Promise.all([page.locator('main').boundingBox(), bar.boundingBox()])
+  expect(held!.y).toBeGreaterThanOrEqual(rows!.y + rows!.height)
+
+  // Pause and Resume reach the ticked rows and no other, and Pause is offered only while it would change one
+  const badge = (name: string) => page.locator('.torrent', { hasText: name }).locator('.badge')
+  await bar.getByRole('button', { name: 'Pause' }).click()
+  await expect(badge(one)).toHaveText('Paused', { timeout: 30_000 })
+  await expect(badge(two)).toHaveText('Paused', { timeout: 30_000 })
+  await expect(bar.getByRole('button', { name: 'Pause' })).toBeDisabled()
+  await expect(badge(three)).not.toHaveText('Paused')
+  await bar.getByRole('button', { name: 'Resume' }).click()
+  await expect(badge(one)).not.toHaveText('Paused', { timeout: 30_000 })
+  await expect(badge(two)).not.toHaveText('Paused', { timeout: 30_000 })
+  await expect(bar.getByRole('button', { name: 'Pause' })).toBeEnabled()
 
   // Escape clears the ticks first, and the panel, which closes on an Escape of its own, stays open
   await bar.getByRole('button', { name: 'Remove' }).press('Escape')
@@ -122,4 +152,46 @@ test('two of three torrents removed in one action stay removed after a reload, a
   const list = await page.evaluate(stored, 'ripple:torrents') as { infoHash: string }[]
   expect(list.map((e) => e.infoHash)).toEqual([hashes[2]])
   expect(pageErrors).toEqual([])
+})
+
+/*
+ * A handover gives every row a new engine, and for a moment none: the rows are back to "Connecting" and no command can
+ * reach them. A removal confirmed in that moment is sent nowhere, so its torrents stay ticked and the bar comes back
+ * with them, rather than the ticks going as though the removal were done.
+ */
+test('a removal confirmed while the engine moves to another tab leaves its torrents ticked, and works after', async ({ page }) => {
+  test.setTimeout(300_000)
+  const names = ['Handover.One.bin', 'Handover.Two.bin'] as const
+  await prepare(page)
+  await page.goto('/')
+  await make(page, await filesFor(names))
+
+  const other = await page.context().newPage()
+  await other.goto('/')
+  const tick = tickOf(other)
+  for (const name of names) await tick(name).check({ timeout: 120_000 })
+  const bar = other.locator('.bulk-bar')
+  await expect(bar).toContainText('2 selected')
+  await bar.getByRole('button', { name: 'Remove' }).click()
+  await expect(other.getByRole('dialog').getByRole('heading')).toHaveText('Remove 2 torrents?')
+
+  // the tab running the engine goes; the press lands in the same frame that finds both rows reconnecting
+  await page.close()
+  await other.waitForFunction(() => {
+    if (document.querySelectorAll('.torrent.starting').length < 2) return false
+    const yes = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Remove and delete')
+    yes?.click()
+    return !!yes
+  }, undefined, { timeout: 60_000 })
+
+  // back under this tab's engine, nothing removed and both still ticked
+  await expect(tick(names[0])).toBeChecked({ timeout: 120_000 })
+  await expect(tick(names[1])).toBeChecked()
+  await expect(bar).toContainText('2 selected')
+  expect(await other.evaluate(stored, 'ripple:removed') ?? []).toEqual([])
+
+  // and the same bar removes them now, through this engine's handles
+  await bar.getByRole('button', { name: 'Remove' }).click()
+  await other.getByRole('dialog').getByRole('button', { name: 'Remove and delete' }).click()
+  await expect(other.locator('.torrent')).toHaveCount(0, { timeout: 30_000 })
 })

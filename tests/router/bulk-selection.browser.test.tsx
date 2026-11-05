@@ -51,6 +51,17 @@ describe('useBulkSelection', () => {
     expect(result.current.rows).toEqual([])
   })
 
+  /** The toolbar shows this as its mixed state, so one click there ticks the rest rather than clearing the one. */
+  it('is not all while some of what is shown is unticked, and Select all then ticks the rest', async () => {
+    const [a, b] = [t(), t()]
+    const { result, act } = await mount([a, b])
+    await act(() => result.current.toggle(a))
+    expect(result.current.all).toBe(false)
+    await act(() => result.current.toggleAll())
+    expect(names(result.current.rows)).toEqual(names([a, b]))
+    expect(result.current.all).toBe(true)
+  })
+
   it('lets go of a torrent removed elsewhere, and does not pick it again when it comes back', async () => {
     const [a, b, c] = [t(), t(), t()]
     const { result, rerender, act } = await mount([a, b, c])
