@@ -158,19 +158,17 @@ test('two of three torrents removed in one action stay removed after a reload, a
 
 /*
  * libtorrent checks one torrent at a time and starts the next at most once a second, so the last of four made back to
- * back reads Checking for a few seconds before its check begins. A pause landing then stops the check where it is, and
- * that torrent has to read Paused, with a Resume on its row and in the bar, or nothing can ever start it again.
+ * back reads Checking for a few seconds before its check begins. Its Pause, pressed from the bar in the first frame it
+ * reads Checking, lands then and stops the check where it is, and that torrent has to read Paused, with a Resume on its
+ * row and in the bar, or nothing can ever start it again.
  */
-test('a torrent paused from the bar while it waits for its check reads Paused, and resumes from its row', async ({ page }) => {
-  test.setTimeout(300_000)
-  const names = ['Waiting.One.bin', 'Waiting.Two.bin', 'Waiting.Three.bin', 'Waiting.Four.bin'] as const
-  const name = names[3]
+const pauseBeforeCheck = async (page: Page, names: readonly string[]) => {
+  const name = names.at(-1)!
   await prepare(page)
   await page.goto('/')
   await make(page, await filesFor(names))
 
   await tickOf(page)(name).check({ timeout: 120_000 })
-  // pressed in the first frame the row reads Checking
   await page.waitForFunction((name) => {
     const row = [...document.querySelectorAll('.torrent')].find((r) => r.textContent?.includes(name))
     const pause = document.querySelector<HTMLButtonElement>('.bulk-bar button[aria-label="Pause"]')
@@ -183,7 +181,24 @@ test('a torrent paused from the bar while it waits for its check reads Paused, a
   await expect(badgeOf(page)(name)).toHaveText('Paused', { timeout: 30_000 })
   // the control: nothing of it checked yet, so the pause did land before the check ran
   await expect(row).toContainText('0 B /')
+  return { name, row }
+}
+
+test('a torrent paused from the bar while it waits for its check reads Paused, and resumes from its row', async ({ page }) => {
+  test.setTimeout(300_000)
+  const { name, row } = await pauseBeforeCheck(page, ['Waiting.One.bin', 'Waiting.Two.bin', 'Waiting.Three.bin', 'Waiting.Four.bin'])
   await expect(page.locator('.bulk-bar').getByRole('button', { name: 'Resume' })).toBeEnabled()
+  await row.getByRole('button', { name: `Resume ${name}` }).click()
+  await expect(badgeOf(page)(name)).toHaveText('Seeding', { timeout: 60_000 })
+})
+
+// A save of the engine's state while the check had not run held no piece, and a reload trusted it, so Resume then
+// downloaded the whole torrent again from a swarm that does not exist.
+test('a torrent paused before its check still holds its files after a reload, and resumes to Seeding', async ({ page }) => {
+  test.setTimeout(300_000)
+  const { name, row } = await pauseBeforeCheck(page, ['Reload.One.bin', 'Reload.Two.bin', 'Reload.Three.bin', 'Reload.Four.bin'])
+  await page.reload()
+  await expect(badgeOf(page)(name)).toHaveText('Paused', { timeout: 120_000 })
   await row.getByRole('button', { name: `Resume ${name}` }).click()
   await expect(badgeOf(page)(name)).toHaveText('Seeding', { timeout: 60_000 })
 })
