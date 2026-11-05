@@ -1213,7 +1213,7 @@ test.describe('on a phone', () => {
           name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
         }))
         expect(right, `${width} px`).toBeLessThanOrEqual(window)
-        // about eight letters; in DejaVu Sans, which GitHub's runner draws, Brazilian Portuguese at 320 px leaves 83
+        // about eight letters; in DejaVu Sans, which GitHub's runner draws, French at 320 px leaves 84 beside the boxes
         expect(name, `${width} px`).toBeGreaterThanOrEqual(80)
       }
     })
