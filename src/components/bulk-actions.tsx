@@ -8,7 +8,8 @@ import {
   FOCUS_RING, SURFACE_BG, TEXT,
 } from '../theme'
 
-const checkStyle = css`
+/** A checkbox in a 40 px label, the label being its hit area: each row's box and Select all. */
+export const checkStyle = css`
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -22,12 +23,16 @@ const checkStyle = css`
     height: 18px;
     margin: 0;
     cursor: pointer;
-    /* the near-white the confirmation's checkbox takes, and a ring of the surface so it reads over a poster */
+    /* the near-white the confirmation's checkbox takes */
     accent-color: ${EMPHASIS};
-    box-shadow: 0 0 0 3px ${SURFACE_BG};
 
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 3px; }
   }
+`
+
+/* a ring of the surface, so a row's box reads over a poster */
+const ringStyle = css`
+  input { box-shadow: 0 0 0 3px ${SURFACE_BG}; }
 `
 
 /**
@@ -39,7 +44,7 @@ const checkStyle = css`
 export const RowCheck = ({ name, checked, onChange }: { name: string, checked: boolean, onChange: () => void }) => {
   const intl = useIntl()
   return (
-    <label css={checkStyle} className="row-check" onClick={(e) => e.stopPropagation()}>
+    <label css={[checkStyle, ringStyle]} className="row-check" onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         checked={checked}

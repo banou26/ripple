@@ -6,10 +6,11 @@ import { useEffect, useRef } from 'react'
 import { useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL } from '../torrent/list-view'
+import { checkStyle } from './bulk-actions'
 import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
-  EMPHASIS, FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
+  FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 
 /**
@@ -28,27 +29,11 @@ const style = css`
   gap: 10px 14px;
   margin: 14px 16px 0;
 
-  /* a 40 px hit area around the box, pulled into the margin so the row keeps its height */
+  /* the box's 40 px hit area pulled into the margin, so the row keeps its height */
   .pick-all {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
     margin: -5px -10px -5px -8px;
-    cursor: pointer;
 
-    input {
-      width: 18px;
-      height: 18px;
-      margin: 0;
-      cursor: pointer;
-      accent-color: ${EMPHASIS};
-
-      &:disabled { cursor: default; }
-
-      &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 3px; }
-    }
+    input:disabled { cursor: default; }
   }
 
   .seg {
@@ -171,7 +156,7 @@ export const ListToolbar = (
   useEffect(() => { if (pickAll.current) pickAll.current.indeterminate = picked === 'some' }, [picked])
   const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
   return <div css={style} className="list-toolbar">
-    <label className="pick-all" {...hint(selectAll)}>
+    <label css={checkStyle} className="pick-all" {...hint(selectAll)}>
       <input
         ref={pickAll}
         type="checkbox"
