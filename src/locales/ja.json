@@ -338,6 +338,7 @@
   "Stopped unexpectedly": "予期せず停止しました",
   "Storage": "ストレージ",
   "Storage did not answer. Retrying.": "ストレージから応答がありません。再試行しています。",
+  "Streams as you watch": "視聴しながらストリーミング",
   "Super seeding mode": "スーパーシードモード",
   "Sync failed": "同期に失敗",
   "Synced": "同期済み",

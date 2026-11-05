@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Shield, User, Users } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
@@ -155,6 +155,23 @@ const playerStyle = css`
   .loading-information {
     min-width: 0;
     white-space: normal;
+  }
+
+  /* the anchor is the Tab stop, as it holds no control, and a tap opens its chip on a phone */
+  [data-tooltip-id='window-note'] {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    &:focus-visible {
+      outline: 2px solid ${TEXT};
+      outline-offset: 2px;
+    }
+
+    svg {
+      flex-shrink: 0;
+    }
   }
 
   /*
@@ -377,7 +394,8 @@ const playerStyle = css`
 `
 
 // the owner's wording, 2026-10-19, and the one notice that says how something works: only a file playing
-// through a window in a frame shows it, since at the top level the page is already Ripple's
+// through a window in a frame shows it, since at the top level the page is already Ripple's. It is the chip
+// of a few words on the row, as the sentence itself took the whole row.
 const WINDOW_NOTE = defineMessage({
   id: 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
   defaultMessage: 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
@@ -519,7 +537,17 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
       ? intl.formatMessage({ id: 'Out of storage space. Remove a download in Ripple to free room.', defaultMessage: 'Out of storage space. Remove a download in Ripple to free room.' })
       : null)
     ?? (hasMetadata ? null : intl.formatMessage({ id: 'Loading metadata…', defaultMessage: 'Loading metadata…' }))
-    ?? (snapshot?.windowed && isFramed() ? intl.formatMessage(WINDOW_NOTE) : null)
+    ?? (snapshot?.windowed && isFramed()
+      ? (
+        <TooltipDisplay
+          id="window-note"
+          tooltipPlace="bottom-end"
+          focusable
+          text={<><Info /><span>{intl.formatMessage({ id: 'Streams as you watch', defaultMessage: 'Streams as you watch' })}</span></>}
+          toolTipText={<span>{intl.formatMessage(WINDOW_NOTE)}</span>}
+        />
+      )
+      : null)
   // Byte spans, not fractions: the player maps them onto the timeline through the keyframe index,
   // because a file's download percentage is not its playback percentage.
   const downloadedRanges = useMemo(

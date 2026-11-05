@@ -398,8 +398,7 @@ describe('the watch route', () => {
     } finally { state.framed = true }
   })
 
-  it('says a file bigger than the room streams as it plays, on the phone too, and says nothing for one that fits', async () => {
-    const NOTE = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
+  it('says a file bigger than the room streams as it plays, and says nothing for one that fits', async () => {
     // THE CONTROL: a file that fits counts its bytes and carries no note
     const fits = await mount()
     await expect.element(fits.getByText('82')).toBeInTheDocument()
@@ -408,15 +407,77 @@ describe('the watch route', () => {
 
     state.current = torrent({ snapshot: { ...torrent().snapshot!, windowed: true } })
     const screen = await mount(PHONE)
-    await expect.element(screen.getByText(NOTE)).toBeInTheDocument()
-    const note = screen.container.querySelector('.loading-information')!
-    expect(note.querySelector('a, button')).toBeNull()
-    // it wraps under the readouts rather than pushing them off the picture
-    const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
-    const player = screen.container.firstElementChild!.getBoundingClientRect()
-    expect(readout.right).toBeLessThanOrEqual(player.right)
-    expect(note.getBoundingClientRect().top).toBeGreaterThanOrEqual(readout.bottom - 1)
-    expect(note.getBoundingClientRect().right).toBeLessThanOrEqual(player.right)
+    await expect.element(screen.getByText('Streams as you watch', { exact: true })).toBeInTheDocument()
+    expect(screen.container.querySelector('.loading-information a, .loading-information button')).toBeNull()
+  })
+
+  /*
+   * The sentence itself took the whole row: it wrapped at 1280px inside stub's frame, and in a 1992px one it left the
+   * filename no room at all. So the row says a few words, on one line beside the readouts where they fit and under them
+   * on a phone, and their chip says the rest on a hover, a tap or Tab.
+   */
+  it('says a file streams through a window in a few words on one line, with the whole sentence in their chip', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const { default: de } = await import('../../src/locales/de.json')
+    const languages = [['en', 'Streams as you watch', STREAMS], ['de', 'Wird beim Ansehen gestreamt', STREAMS_DE]] as const
+    const chip = () => document.getElementById('window-note')?.innerText
+    try {
+      for (const [language, words, sentence] of languages) {
+        await (language === 'de' ? showIn('de', de) : showEnglish())
+        for (const size of [DESKTOP, PHONE]) {
+          const at = `${language} at ${size.width}px`
+          state.reachable = VPN_ON
+          const { snapshot } = withSwarm(ORDINARY, 8054, 10_400_000)
+          state.current = torrent({ snapshot: { ...snapshot!, windowed: true } })
+          const screen = await mount(size, WITH_LINKS)
+          await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+          const note = screen.container.querySelector<HTMLElement>('.loading-information')!
+          expect(note.innerText, at).toBe(words)
+          const text = document.createRange()
+          const lines = new Set([...note.querySelectorAll('*'), note].flatMap(element => [...element.childNodes])
+            .filter(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())
+            .flatMap(node => { text.selectNodeContents(node); return [...text.getClientRects()].map(line => Math.round(line.bottom)) }))
+          expect(lines.size, `${at}: lines of the note`).toBe(1)
+
+          const box = (selector: string) => screen.container.querySelector(selector)!.getBoundingClientRect()
+          const player = screen.container.firstElementChild!.getBoundingClientRect()
+          const readouts = box('[data-testid="media-information"]')
+          expect(note.getBoundingClientRect().right, at).toBeLessThanOrEqual(player.right)
+          expect(readouts.right, at).toBeLessThanOrEqual(player.right)
+          const cut = [...screen.container.querySelectorAll('.media-information .item > span')]
+            .filter((span) => span.getClientRects().length && span.scrollWidth > span.clientWidth)
+            .map((span) => span.textContent)
+          expect(cut, at).toEqual([])
+          if (size === DESKTOP) {
+            // on the row's one line, beside the readouts, and the filename keeps its room
+            expect(note.getBoundingClientRect().top, at).toBeLessThan(readouts.bottom)
+            expect(note.getBoundingClientRect().bottom, at).toBeGreaterThan(readouts.top)
+            expect(box('.file-name').width, at).toBeGreaterThan(100)
+          }
+
+          const anchor = screen.container.querySelector<HTMLElement>('[data-tooltip-id="window-note"]')!
+          const video = screen.container.querySelector('video')!
+          await userEvent.hover(anchor)
+          await expect.poll(chip, { message: `${at}: hovered` }).toBe(sentence)
+          await userEvent.hover(video)
+          await expect.poll(chip).toBeUndefined()
+          // Tab from the link before it
+          screen.getByTestId('open-download-page').element().focus()
+          await userEvent.tab()
+          expect(document.activeElement, at).toBe(anchor)
+          await expect.poll(chip, { message: `${at}: focused` }).toBe(sentence)
+          anchor.blur()
+          await expect.poll(chip).toBeUndefined()
+          if (size === PHONE) {
+            await userEvent.click(anchor)
+            await expect.poll(chip, { message: `${at}: pressed` }).toBe(sentence)
+            anchor.blur()
+            await userEvent.hover(video)
+          }
+          await screen.unmount()
+        }
+      }
+    } finally { await showEnglish() }
   })
 
   it('leaves the note out of Ripple at the top level, the page it points to', async () => {
@@ -592,12 +653,15 @@ const everyState = async () => {
   await read('before its metadata', { snapshot: { ...snapshot!, files: null } })
   await read('out of room in a frame', { storageFull: true })
   await read('out of room', { storageFull: true }, { framed: false })
-  await read('streaming in a frame', { snapshot: { ...snapshot!, windowed: true } })
+  await read('streaming in a frame', { snapshot: { ...snapshot!, windowed: true } }, { hover: true })
   state.framed = true
   return shown
 }
 
 const FILE_NAME = 'Some.Release.Name.S01E04.1080p.mkv'
+// the owner's sentence, in the chip of the few words a file streaming through a window shows
+const STREAMS = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
+const STREAMS_DE = 'Zu groß, um es hier im Voraus herunterzuladen, daher wird es beim Ansehen gestreamt. In Ripple (Link oben) kann es mit mehr erlaubtem Platz vollständig heruntergeladen werden, ohne nächste Folge, Tracking und gemeinsames Ansehen.'
 const LINKS = ['Open this torrent in Ripple', `Download ${FILE_NAME}`]
 const READOUTS = ['Downloading', 'VPN On']
 const SWARM = ['216 seeders · 3 leechers', 'seeders', 'leechers', '8.7 MB/s', '312 kB/s']
@@ -615,9 +679,8 @@ const ENGLISH = {
   'out of room in a frame': [FILE_NAME, ...LINKS, 'Too big for this browser\'s storage here. Open it in Ripple to play it.', 'Open it in Ripple', ...READOUTS, ...PEERS],
   'out of room': [FILE_NAME, ...LINKS, 'Out of storage space. Remove a download in Ripple to free room.', ...READOUTS, ...PEERS],
   'streaming in a frame': [
-    FILE_NAME, ...LINKS,
-    'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
-    ...READOUTS, ...SWARM,
+    FILE_NAME, ...LINKS, 'Streams as you watch', ...READOUTS, ...SWARM,
+    ...CHIPS.slice(0, 2), `window-note: ${STREAMS}`, ...CHIPS.slice(2), 'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28', ...SPEEDS,
   ],
 }
 
@@ -636,8 +699,8 @@ const GERMAN: Record<string, string> = {
   'Too big for this browser\'s storage here. Open it in Ripple to play it.': 'Zu groß für den Speicher dieses Browsers hier. Öffne es in Ripple, um es abzuspielen.',
   'Open it in Ripple': 'Öffne es in Ripple',
   'Out of storage space. Remove a download in Ripple to free room.': 'Kein Speicherplatz mehr. Entferne einen Download in Ripple, um Platz zu schaffen.',
-  'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.':
-    'Zu groß, um es hier im Voraus herunterzuladen, daher wird es beim Ansehen gestreamt. In Ripple (Link oben) kann es mit mehr erlaubtem Platz vollständig heruntergeladen werden, ohne nächste Folge, Tracking und gemeinsames Ansehen.',
+  'Streams as you watch': 'Wird beim Ansehen gestreamt',
+  [`window-note: ${STREAMS}`]: `window-note: ${STREAMS_DE}`,
 }
 
 describe('the top row\'s words', () => {
