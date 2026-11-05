@@ -235,6 +235,10 @@ const otherTabs = async (screen: Screen) => {
 
 const date = (unixSeconds: number, locale: string) => spaced(new Date(unixSeconds * 1000).toLocaleString(locale))
 
+// as the browser's CLDR writes it: German's narrow hour is `1h` in CLDR 48 (Chrome 156) and `1 Std.` in CLDR 47 (Chrome
+// 145, Playwright 1.58's own, which GitHub's runner installs)
+const hours = (count: number, locale: string) => new Intl.NumberFormat(locale, { style: 'unit', unit: 'hour', unitDisplay: 'narrow' }).format(count)
+
 describe('the docked torrent details', () => {
   it('names the torrent it is showing, since it sits away from the row', async () => {
     const screen = await mount()
@@ -385,7 +389,7 @@ describe('the docked torrent details', () => {
       await showIn('de', de, 'de-DE')
       const { addedAt, completedAt } = torrent().stats!
       expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
-        'Aktive Zeit: 1h 0 Min. (15 Min. in dieser Sitzung)', 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
+        `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 12 verbunden von 40 bekannten', 'Download-Geschwindigkeit: 4 MB/s',
         'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 1 GB',
         'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB',
@@ -394,7 +398,7 @@ describe('the docked torrent details', () => {
         'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 3, file too short',
       ])
       expect(overview(await mount(quiet()))).toEqual([
-        'Aktive Zeit: 1h 0 Min. (15 Min. in dieser Sitzung)', 'Restzeit: 4m', 'Verbindungen: 6', 'Heruntergeladen: 0 Byte (500 MB in dieser Sitzung)',
+        `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6', 'Heruntergeladen: 0 Byte (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 1 verbunden', 'Download-Geschwindigkeit: 4 MB/s', 'Upload-Geschwindigkeit: 250 kB/s',
         'Peers: 1 verbunden', 'Verhältnis: ∞', 'Verworfen: 4,1 kB', 'Verbleibend: Nichts', 'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)',
         'Verfügbarkeit: 0,28', 'Eingehende Peers: Noch keine', 'Gesamtgröße: 2 GB', 'Teile: -', 'Fortschritt: 28 %',
