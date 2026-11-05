@@ -231,7 +231,14 @@ test.describe('a room Chromium floats', () => {
 
   test('plays the release whole, never windowed and never too big', async ({ page }) => {
     test.setTimeout(90_000)
-    const { look, lines } = await open(page, { earlier: [{ t: FILM, kind: 'cache' }], opened: BIG, fixed: false })
+    // a test browser's room depends on the machine: 10 GiB on a desktop, while on GitHub's runner the 3 GiB release came
+    // out too big, which is right for a smaller room; so the control plays a release a quarter of the room it reports
+    await page.goto('/legal')
+    const { usage = 0, quota = 0 } = await page.evaluate(() => navigator.storage.estimate())
+    const fits = Math.min(BIG.size, Math.floor((quota - usage) / 4 / (16 * MiB)) * 16 * MiB)
+    test.skip(fits < 256 * MiB, `Chromium's room here is ${Math.round(quota / MiB)} MiB, too small for the control`)
+    const release = fits === BIG.size ? BIG : torrent('Floating', [fits], 16 * MiB)
+    const { look, lines } = await open(page, { earlier: [{ t: FILM, kind: 'cache' }], opened: release, fixed: false })
     await expect.poll(async () => (await look()).running, { timeout: 30_000 }).toBe(true)
     // past the film's grace, when a fixed room would have planned a window
     await page.waitForTimeout(20_000)
