@@ -1230,6 +1230,9 @@ const settleAfterDelete = async (before: number): Promise<Space | null> => {
  */
 const releaseStorage = async (live: Session, h: number, ih: string, reason: Said, patch: Partial<Persisted> = {}) => {
   failReads(h, reason)
+  // The engine drops a command for a handle its alert pump has not registered yet, and the restore's first pass can
+  // come before the first pump. A torrent with storage here already has its add alert queued, so this registers it.
+  live.popAlerts()
   live.removeTorrent(h, true)
   untrack(h)
   // the saved have-set now describes files that do not exist
