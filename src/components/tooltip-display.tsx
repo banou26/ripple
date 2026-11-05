@@ -109,10 +109,11 @@ interface TooltipDisplayProps {
   size?: buttonSize
   disabled?: boolean
   /**
-   * A Tab stop on the anchor itself, for one holding no control: the chip opens on the anchor's own
-   * focus, which a focused child does not fire.
+   * The chip's words as text, for an anchor holding no control. The anchor becomes a Tab stop, as the
+   * chip opens on the anchor's own focus, which a focused child does not fire, and a screen reader
+   * reads them as its description, as the chip is in the document only while it is open.
    */
-  focusable?: boolean
+  description?: string
 }
 
 export enum buttonSize {
@@ -131,7 +132,7 @@ export const TooltipDisplay = ({
   tooltipPlace = 'top',
   disabled = false,
   size = buttonSize.md,
-  focusable = false
+  description
 }: TooltipDisplayProps) => {
   const anchor = useRef<HTMLDivElement>(null)
   const tooltip = useRef<TooltipRefProps>(null)
@@ -179,7 +180,8 @@ export const TooltipDisplay = ({
         data-tooltip-delay-show={delayShow}
         data-tooltip-delay-hide={closeDelay}
         data-tooltip-place={tooltipPlace}
-        tabIndex={focusable ? 0 : undefined}
+        tabIndex={description === undefined ? undefined : 0}
+        aria-description={description}
       >
         {text}
       </div>
@@ -190,6 +192,8 @@ export const TooltipDisplay = ({
             css={style(size)}
             id={id}
             noArrow={true}
+            // replaces react-tooltip's own set, whose other members are all off for a chip that opens on hover or focus
+            globalCloseEvents={{ escape: true }}
           >
             {toolTipText}
           </Tooltip>
