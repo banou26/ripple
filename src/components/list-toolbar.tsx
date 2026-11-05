@@ -2,13 +2,14 @@ import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-vie
 
 import { css } from '@emotion/react'
 import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL } from '../torrent/list-view'
 import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
-  FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
+  EMPHASIS, FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 
 /**
@@ -26,6 +27,29 @@ const style = css`
   flex-wrap: wrap;
   gap: 10px 14px;
   margin: 14px 16px 0;
+
+  /* a 40 px hit area around the box, pulled into the margin so the row keeps its height */
+  .pick-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin: -5px -10px -5px -8px;
+    cursor: pointer;
+
+    input {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      cursor: pointer;
+      accent-color: ${EMPHASIS};
+
+      &:disabled { cursor: default; }
+
+      &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 3px; }
+    }
+  }
 
   .seg {
     display: flex;
@@ -131,13 +155,33 @@ export type ListToolbarProps = {
   onView: (view: ViewMode) => void
   /** How many temporary downloads exist, which decides whether the filter is worth showing at all. */
   temporaryCount: number
+  /** How many of the rows shown are ticked for a bulk action; the box ticks them all or none. */
+  picked: 'none' | 'some' | 'all'
+  /** False when no row shown can be ticked, which disables the box. */
+  canPick: boolean
+  onPickAll: () => void
 }
 
 export const ListToolbar = (
-  { filter, onFilter, sortKey, sortDir, onSort, view, onView, temporaryCount }: ListToolbarProps,
+  { filter, onFilter, sortKey, sortDir, onSort, view, onView, temporaryCount, picked, canPick, onPickAll }: ListToolbarProps,
 ) => {
   const intl = useIntl()
+  const pickAll = useRef<HTMLInputElement>(null)
+  // a property with no attribute, so React cannot set it
+  useEffect(() => { if (pickAll.current) pickAll.current.indeterminate = picked === 'some' }, [picked])
+  const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
   return <div css={style} className="list-toolbar">
+    <label className="pick-all" {...hint(selectAll)}>
+      <input
+        ref={pickAll}
+        type="checkbox"
+        checked={picked === 'all'}
+        disabled={!canPick}
+        onChange={onPickAll}
+        aria-label={selectAll}
+      />
+    </label>
+
     {/*
       * Hidden entirely when nothing is temporary, which is the state most people are in for good.
       * An option that cannot change an outcome is not shown, and a filter offering to hide a

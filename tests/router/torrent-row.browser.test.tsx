@@ -2,7 +2,7 @@ import type { Torrent } from '../../src/torrent/types'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page } from '@vitest/browser/context'
+import { page, userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 import { IntlRoot } from '../../src/i18n'
@@ -79,7 +79,7 @@ const sized = () => {
 
 const handlers = () => ({
   saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onRecheck: vi.fn(),
-  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(), savedToUserStorage: false,
+  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(), checked: false, onPick: vi.fn(), savedToUserStorage: false,
 })
 
 /**
@@ -89,9 +89,9 @@ const handlers = () => ({
  * it renders correctly and reports every box at the origin with zero size, which makes a geometry
  * assertion pass or fail on nothing at all.
  */
-const inPage = async (t: Torrent, extra: Partial<Torrent> = {}) => {
+const inPage = async (t: Torrent, extra: Partial<Torrent> = {}, over: Partial<ReturnType<typeof handlers>> = {}) => {
   const { TorrentRow, style } = await import('../../src/router/home')
-  const props = handlers()
+  const props = { ...handlers(), ...over }
   const screen = await render(
     <IntlRoot><MemoryRouter>
       <div css={style}><main><TorrentRow t={{ ...t, ...extra }} {...props} /></main></div>
@@ -483,6 +483,74 @@ describe('a library row', () => {
         expect(el.getAttribute('data-tooltip-content')).toBeTruthy()
         expect(el.querySelector('svg, .saving')).not.toBeNull()
       }
+    })
+  })
+
+  /**
+   * The box that ticks a row for a bulk action. It is not the selection above: that one fills the
+   * detail panel, and ticking a row must leave the panel as it was.
+   */
+  describe('the bulk selection box', () => {
+    const label = (screen: { container: HTMLElement }) => screen.container.querySelector<HTMLElement>('.row-check')!
+
+    it('ticks the torrent without selecting it for the detail panel, wherever its hit area is pressed', async () => {
+      thumbnail.current = null
+      const t = torrent()
+      const { screen, props } = await inPage(t)
+      // the label's own click is what a finger beside the box makes
+      label(screen).click()
+      expect(props.onPick).toHaveBeenCalledTimes(1)
+      expect(props.onPick.mock.calls[0]![0].id).toBe(t.id)
+      expect(props.onSelect).not.toHaveBeenCalled()
+      // the control: the same row still selects on an ordinary click
+      ;(screen.container.querySelector('.title') as HTMLElement).click()
+      expect(props.onSelect).toHaveBeenCalledTimes(1)
+    })
+
+    it('ticks a torrent whose files are gone without selecting it either', async () => {
+      thumbnail.current = null
+      const { screen, props } = await inPage(torrent({ state: 'missing' }))
+      await screen.getByRole('checkbox', { name: 'Select Some.Release.Name.S01.1080p' }).click()
+      expect(props.onPick).toHaveBeenCalledTimes(1)
+      expect(props.onSelect).not.toHaveBeenCalled()
+    })
+
+    it('is reached by Tab and ticked by Space', async () => {
+      thumbnail.current = null
+      const { screen, props } = await inPage(torrent())
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      await userEvent.tab()
+      expect(document.activeElement).toBe(screen.container.querySelector('.row-check input'))
+      await userEvent.keyboard(' ')
+      expect(props.onPick).toHaveBeenCalledTimes(1)
+      expect(props.onSelect).not.toHaveBeenCalled()
+    })
+
+    it('shows ticked as ticked', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent(), {}, { checked: true })
+      expect(screen.container.querySelector<HTMLInputElement>('.row-check input')!.checked).toBe(true)
+    })
+
+    it('is not offered on a row the engine has not reported yet, which no command can reach', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent({ state: 'starting', id: 'starting:abc' }))
+      expect(screen.container.querySelector('.row-check')).toBeNull()
+    })
+
+    /** Over the picture's corner rather than beside it, so the name keeps every pixel it had. */
+    it('takes a finger-sized area on a phone and no width from the name', async () => {
+      thumbnail.current = null
+      await page.viewport(390, 780)
+      const { screen } = await inPage(torrent())
+      const hit = box(label(screen))!
+      expect(hit.width).toBeGreaterThanOrEqual(40)
+      expect(hit.height).toBeGreaterThanOrEqual(40)
+      expect(hit.right).toBeLessThanOrEqual(box(screen.container.querySelector('.title strong'))!.left)
+      // the control: the same row with no box, since a torrent with no info hash cannot be ticked
+      const { screen: plain } = await inPage(torrent({ infoHash: undefined }))
+      expect(plain.container.querySelector('.row-check')).toBeNull()
+      expect(box(screen.container.querySelector('.body'))!.width).toBe(box(plain.container.querySelector('.body'))!.width)
     })
   })
 
