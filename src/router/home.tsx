@@ -745,6 +745,9 @@ export const style = css`
        scrolled card then leaves view 14px below whatever sits above, not flush against it */
     margin-top: 14px;
     padding: 0 16px 14px;
+    /* a card's name and numbers, or the column names and two rows, when the details take the rest
+       of a short window; with less the list is a sliver of half drawn column names */
+    min-height: 8rem;
   }
 
   .torrent, .sample {
@@ -1526,7 +1529,8 @@ export const style = css`
     }
 
     /* the panels around it can take a whole phone, so the list keeps room for a row and the page scrolls; with the
-       details open it gives way, or they would open below the fold (the bulk bar can stand between the two) */
+       details open it gives way down to the floor above, or they would open below the fold (the bulk bar can stand
+       between the two) */
     main:not(:has(~ section)) {
       min-height: 24rem;
     }

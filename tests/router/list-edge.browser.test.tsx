@@ -44,12 +44,14 @@ const torrent = (i: number): Torrent => ({
 
 const torrents = Array.from({ length: 30 }, (_, i) => torrent(i))
 
-const mount = async (view: 'cards' | 'table') => {
+/** `above` stands in for the header and the stats, `dock` for the details panel under the list. */
+const mount = async (view: 'cards' | 'table', { above = 0, dock = 0 } = {}) => {
   const { TorrentRow, style } = await import('../../src/router/home')
   const noop = vi.fn()
   return render(
     <IntlRoot><MemoryRouter>
       <div css={style}>
+        {above > 0 && <div style={{ flex: 'none', height: above }}/>}
         <ListToolbar
           filter="all" onFilter={noop} sortKey="added" sortDir="desc" onSort={noop}
           view={view} onView={noop} temporaryCount={0}
@@ -65,6 +67,7 @@ const mount = async (view: 'cards' | 'table') => {
               />
             ))}
         </main>
+        {dock > 0 && <section style={{ flex: 'none', height: dock }}/>}
       </div>
     </MemoryRouter></IntlRoot>,
   )
@@ -132,5 +135,34 @@ describe('the toolbar over a scrolled library', () => {
     expect(hits(main, head.bottom + 4, head.bottom + 5).some((el) => el.closest('tbody'))).toBe(true)
     const above = hits(main, bar + 1, head.top)
     expect(above.filter((el) => el.closest('tbody')).length, 'a row shows between the controls and the column names').toBe(0)
+  })
+
+  /*
+   * The details open under the list at their default 300px, in a window the header and the stats
+   * already mostly fill: the phone, where the stats stack, and a short desktop window. The third
+   * figure is how tall the header and the stats are on the real page at that size.
+   */
+  const SQUEEZED = [[390, 844, 444], [1280, 520, 166]] as const
+
+  it.each(SQUEEZED)('keeps a card\'s name and numbers in view with the details open at %ipx', async (width, height, above) => {
+    await page.viewport(width, height)
+    const screen = await mount('cards', { above, dock: 300 })
+    const main = screen.container.querySelector('main')!.getBoundingClientRect()
+    const name = screen.container.querySelector('.torrent .title')!.getBoundingClientRect()
+    const numbers = screen.container.querySelector('.torrent .meta')!.getBoundingClientRect()
+
+    expect(name.top).toBeGreaterThanOrEqual(main.top)
+    expect(numbers.bottom, 'the first card\'s name and numbers are cut by the details').toBeLessThanOrEqual(main.bottom)
+  })
+
+  it.each(SQUEEZED)('keeps the column names and a row in view with the details open at %ipx', async (width, height, above) => {
+    await page.viewport(width, height)
+    const screen = await mount('table', { above, dock: 300 })
+    const main = screen.container.querySelector('main')!.getBoundingClientRect()
+    const head = screen.container.querySelector('thead th')!.getBoundingClientRect()
+    const row = screen.container.querySelector('tbody tr')!.getBoundingClientRect()
+
+    expect(head.top).toBeGreaterThanOrEqual(main.top)
+    expect(row.bottom, 'the column names and the first row are cut by the details').toBeLessThanOrEqual(main.bottom)
   })
 })
