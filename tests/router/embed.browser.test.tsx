@@ -305,6 +305,7 @@ describe('the watch route', () => {
    * of each layout the row has: a phone's, then with the upload speed, then with the byte counter, then with the state's
    * and the swarm's words, then with the VPN's and a larger font. In DejaVu Sans, Turkish's speed was cut at 480px, and
    * VPN Reconnecting beside Retrying cut both speeds at 768px in English, Portuguese and Turkish (measured 2026-11-03).
+   * It draws 1365 frames, which took 15.8 s on GitHub's runner on 2026-11-05, past the default 15 s.
    */
   it('keeps every readout whole with ordinary figures in every language, state and width', async () => {
     const { showEnglish, showIn } = await import('../i18n/show-in')
@@ -348,7 +349,7 @@ describe('the watch route', () => {
     // each state drawn as its own, so none of them was measured as another
     expect(seen.size).toBe(21)
     expect(cut).toEqual([])
-  })
+  }, 60_000)
 
   // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
   it('opens Ripple with this player as its opener, naming the torrent and carrying its magnet', async () => {
