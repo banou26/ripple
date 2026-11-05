@@ -1,7 +1,7 @@
 import type { Torrent } from '../../src/torrent/types'
 import type { PeerInfo, TrackerInfo } from '../../src/torrent/worker'
 
-import { page } from '@vitest/browser/context'
+import { page, userEvent } from '@vitest/browser/context'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
@@ -30,6 +30,7 @@ vi.mock('../../src/torrent/client', () => {
 })
 
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')
+const { Modal } = await import('../../src/components/modal')
 const { IntlRoot, startLanguage } = await import('../../src/i18n')
 const { showEnglish, showIn } = await import('../i18n/show-in')
 const { default: de } = await import('../../src/locales/de.json')
@@ -271,6 +272,18 @@ describe('the docked torrent details', () => {
     await mount()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  /** One Escape closes one thing: a dialog over the panel takes it, and the panel stays. */
+  it('stays open on the Escape that closes a dialog over it', async () => {
+    await mount()
+    const closeDialog = vi.fn()
+    render(<Modal onClose={closeDialog}><button type="button" data-in-dialog>in the dialog</button></Modal>)
+    await expect.poll(() => document.querySelector<HTMLElement>('[data-in-dialog]')).not.toBeNull()
+    document.querySelector<HTMLElement>('[data-in-dialog]')!.focus()
+    await userEvent.keyboard('{Escape}')
+    expect(closeDialog).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   /**
