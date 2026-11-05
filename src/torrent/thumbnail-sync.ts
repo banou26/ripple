@@ -29,8 +29,9 @@ export const NAME_KEY_PATH = 'ripple/thumbnail-key'
 /** Where pictures were stored under their info hash, before names were opaque. */
 export const LEGACY_DIR = 'ripple/thumbs'
 
+const THUMB_DIR = 'ripple/thumbnails'
 /** Where a picture lives in the account's storage, by its opaque name. */
-export const thumbPath = (name: string) => `ripple/thumbnails/${name}.webp`
+export const thumbPath = (name: string) => `${THUMB_DIR}/${name}.webp`
 
 /** The names of pictures this device has uploaded, so a push is once rather than once per pass. */
 const PUSHED_KEY = 'ripple:thumb-pushed'
@@ -44,14 +45,6 @@ const PUSHED_KEY = 'ripple:thumb-pushed'
 const PER_PASS = 6
 const KEY_BYTES = 32
 
-/**
- * Hashes this device tried to pull and did not get.
- *
- * In memory on purpose. A torrent whose owner device has not uploaded yet should be retried on the
- * next run of the app, and remembering the failure across reloads would turn "not there yet" into
- * "never again".
- */
-const missed = new Set<string>()
 let nameKey: Promise<CryptoKey> | undefined
 let legacyCleared = false
 
@@ -172,22 +165,23 @@ export const syncThumbnails = async (infoHashes: string[]): Promise<void> => {
   if (pushed.size !== stored.size) await savePushed(pushed)
 
   const toPush: [string, string][] = []
-  const toPull: [string, string][] = []
+  const lacking: [string, string][] = []
   for (const [infoHash, name] of names) {
-    if (thumbnailFor(infoHash)) {
-      if (!pushed.has(name)) toPush.push([infoHash, name])
-      continue
-    }
-    if (!missed.has(infoHash)) toPull.push([infoHash, name])
+    if (!thumbnailFor(infoHash)) lacking.push([infoHash, name])
+    else if (!pushed.has(name)) toPush.push([infoHash, name])
   }
+
+  /*
+   * Listed, rather than asked for one by one. Most of a library is torrents nobody has pictured, and
+   * asking for each spent every pass on those, oldest first, so a device that runs two passes per
+   * start never reached the newest entries.
+   */
+  const held = new Set(lacking.length ? await cloud.fs.promises.readdir(THUMB_DIR).catch(() => []) : [])
+  const toPull = lacking.filter(([, name]) => held.has(`${name}.webp`))
 
   const pulled: string[] = []
   for (const [infoHash, name] of toPull.slice(0, PER_PASS)) {
-    // a miss is the ordinary case for a torrent nobody has pictured yet, so it is remembered
-    // rather than reported: this whole path is an improvement, never a requirement
-    const ok = await pull(infoHash, name).catch(() => false)
-    if (ok) pulled.push(infoHash)
-    else missed.add(infoHash)
+    if (await pull(infoHash, name).catch(() => false)) pulled.push(infoHash)
   }
   // one call rather than per hash: it is what turns the stored blobs into the urls rows render
   if (pulled.length) await loadCachedThumbnails(pulled).catch(() => {})
@@ -212,11 +206,9 @@ export const forgetSyncedThumbnails = async (infoHashes: string[]): Promise<void
 
 /**
  * Forgets what this session learned about the account's pictures, after a restore says something
- * changed: misses are asked again, and the key and the old names are read again for the account
- * now signed in.
+ * changed: the key and the old names are read again for the account now signed in.
  */
 export const resetThumbnailSync = () => {
-  missed.clear()
   nameKey = undefined
   legacyCleared = false
 }

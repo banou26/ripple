@@ -135,23 +135,19 @@ describe('carrying thumbnails between devices', () => {
     expect((store.get('ripple:thumb:aa') as Blob).size).toBe(5)
   })
 
-  it('asks once for a picture nobody has uploaded, rather than every pass', async () => {
+  it('never asks for a picture the account does not hold', async () => {
     await syncThumbnails(['cc'])
     await syncThumbnails(['cc'])
     await syncThumbnails(['cc'])
-    expect(pictureReads()).toHaveLength(1)
+    expect(pictureReads()).toEqual([])
   })
 
-  /**
-   * A miss is "not there YET". Remembering it across a restore would turn a torrent whose owner
-   * device simply has not uploaded into one this device never asks about again.
-   */
-  it('asks again after a restore says something changed', async () => {
+  /** Missing is "not there YET": the pass after another device uploads it brings it down. */
+  it('brings a picture down on the next pass once it is uploaded', async () => {
     await syncThumbnails(['cc'])
-    resetThumbnailSync()
     cloudFiles.set(await pathOf('cc'), new Uint8Array([7]))
     await syncThumbnails(['cc'])
-    expect(pictureReads()).toHaveLength(2)
+    expect(pictureReads()).toHaveLength(1)
     expect(store.get('ripple:thumb:cc')).toBeInstanceOf(Blob)
   })
 
@@ -192,6 +188,22 @@ describe('carrying thumbnails between devices', () => {
     writeFails = false
     await syncThumbnails(['aa'])
     expect(cloudFiles.has(await pathOf('aa'))).toBe(true)
+  })
+
+  /**
+   * Pulls go in library order, oldest first, a few per pass, and an idle device runs two
+   * passes per start: the restore and the first write. Asking for each picture let the entries
+   * nobody ever pictured spend every pass, every start, so the newest never got its turn.
+   */
+  it('brings the newest picture down even behind a dozen nobody made', async () => {
+    const never = Array.from({ length: 12 }, (_, i) => 'old' + i)
+    cloudFiles.set(await pathOf('newest'), new Uint8Array([1]))
+    for (let start = 0; start < 2; start++) {
+      resetThumbnailSync()
+      await syncThumbnails([...never, 'newest'])
+      await syncThumbnails([...never, 'newest'])
+    }
+    expect(store.get('ripple:thumb:newest')).toBeInstanceOf(Blob)
   })
 
   it('does nothing at all for an empty library', async () => {
@@ -315,7 +327,7 @@ describe('pictures stored under their info hash', () => {
     await syncThumbnails(many)
     await syncThumbnails(many)
     expect([...cloudFiles.keys()].filter((p) => p.startsWith(LEGACY_DIR + '/'))).toEqual([])
-    expect(listings).toHaveLength(2)
+    expect(listings.filter((dir) => dir === LEGACY_DIR)).toHaveLength(2)
     for (const h of many) expect(cloudFiles.has(await pathOf(h))).toBe(true)
   })
 
