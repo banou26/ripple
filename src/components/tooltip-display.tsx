@@ -108,6 +108,11 @@ interface TooltipDisplayProps {
   tooltipPlace?: PlacesType
   size?: buttonSize
   disabled?: boolean
+  /**
+   * A Tab stop on the anchor itself, for one holding no control: the chip opens on the anchor's own
+   * focus, which a focused child does not fire.
+   */
+  focusable?: boolean
 }
 
 export enum buttonSize {
@@ -125,7 +130,8 @@ export const TooltipDisplay = ({
   offset = 10,
   tooltipPlace = 'top',
   disabled = false,
-  size = buttonSize.md
+  size = buttonSize.md,
+  focusable = false
 }: TooltipDisplayProps) => {
   const anchor = useRef<HTMLDivElement>(null)
   const tooltip = useRef<TooltipRefProps>(null)
@@ -173,6 +179,7 @@ export const TooltipDisplay = ({
         data-tooltip-delay-show={delayShow}
         data-tooltip-delay-hide={closeDelay}
         data-tooltip-place={tooltipPlace}
+        tabIndex={focusable ? 0 : undefined}
       >
         {text}
       </div>
