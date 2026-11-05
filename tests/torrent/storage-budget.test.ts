@@ -266,6 +266,12 @@ describe('isOriginFull', () => {
     expect(isOriginFull(verdict(room))).toBe(true)
   })
 
+  it('is full from the numbers when the cold cache cannot cover what a watched file owes', () => {
+    // a 2 GiB room held by the person's own download and a cached film, and a 3 GiB release too big for a window there
+    const room = { usedBytes: 2 * GiB - 63 * MiB, limitBytes: 2 * GiB, pendingBytes: 3 * GiB }
+    expect(isOriginFull(verdict({ ...room, candidates: [candidate('film', 1, 21 * 64 * MiB)] }))).toBe(true)
+  })
+
   it('is false for a quota the browser will not report, which is not a full origin', () => {
     expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: 0, pendingBytes: 1 * GB }))).toBe(false)
     expect(isOriginFull(verdict({ usedBytes: 5 * GB, limitBytes: Number.NaN, pendingBytes: 1 * GB }))).toBe(false)

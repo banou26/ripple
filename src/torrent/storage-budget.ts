@@ -66,11 +66,11 @@ export const cacheBudget = (limitBytes: number, largestBytes: number): number =>
  * nothing owns before giving up, and whether to raise the "Out of storage space" notice a player
  * shows instead of stalling with nothing on screen.
  *
- * Two ways to know. From the numbers: what is left plus the cold cache is under {@link MARGIN_BYTES}
- * and under what the watched files owe. And from what the browser did: a refused write whose file, with
- * {@link MARGIN_BYTES}, owes more than is left plus the cold cache. That is the must-have
- * {@link planEviction} gives the cache up for, so a file the plan cannot make room for is always one
- * this calls full.
+ * Two ways to know. From the numbers: what is left is under {@link MARGIN_BYTES} and under what the
+ * watched files owe, and they owe more than is left plus the cold cache. And from what the browser
+ * did: a refused write whose file, with {@link MARGIN_BYTES}, owes more than is left plus the cold
+ * cache. That is the must-have {@link planEviction} gives the cache up for, so a file the plan cannot
+ * make room for is always one this calls full.
  *
  * WHY THE NUMBERS ALONE CANNOT SAY IT, measured 2026-09-03 on one machine with 2.7 TiB free, one
  * origin, three 512 MiB sparse writes per engine:
@@ -109,7 +109,7 @@ export const isOriginFull = ({ usedBytes, limitBytes, pendingBytes, refusedBytes
   if (!Number.isFinite(usedBytes) || usedBytes < 0) return false
   const free = limitBytes - usedBytes
   const cache = candidates.reduce((sum, c) => sum + Math.max(0, c.bytesOnDisk), 0)
-  if (free + cache < Math.min(pendingBytes, MARGIN_BYTES)) return true
+  if (free < Math.min(pendingBytes, MARGIN_BYTES) && pendingBytes > free + cache) return true
   return refusedBytes > 0 && refusedBytes + MARGIN_BYTES > free + cache
 }
 

@@ -1025,10 +1025,11 @@ const bandsCharge = (size: number, pieceLength: number, chunkBytes?: number) => 
  *
  * The room counts the cold cache the pass may give up, not only what is free: with it left out, a
  * cache holding the room leaves less than a window needs, the film then owes its whole size, which
- * giving up the cache cannot cover, so the cache is kept and the film never starts. A
- * refusal is the window's too when the window comes once the cache still in its grace has gone.
+ * giving up the cache cannot cover, so the cache is kept and the film never starts. `laterBytes` and
+ * the refusals are judged once the cache still in its grace has gone too, so a film that gets its
+ * window then is not called too big meanwhile.
  */
-type Owed = { pendingBytes: number, refusedBytes: number, rooms: Map<number, number> }
+type Owed = { pendingBytes: number, laterBytes: number, refusedBytes: number, rooms: Map<number, number> }
 const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[], graced: EvictionCandidate[] } = { evictable: [], graced: [] }): Promise<Owed> => {
   const owes = (f: { size: number, held: number }) => Math.max(0, f.size - f.held)
   const watched: { h: number, size: number, held: number, cache: boolean, chunkBytes: number }[] = []
@@ -1062,19 +1063,17 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
   const mine = watched.filter((f) => f.cache)
   const bytes = (list: EvictionCandidate[]) => list.reduce((sum, c) => sum + c.bytesOnDisk, 0)
   const pool = space.limitBytes - space.usedBytes + mine.reduce((sum, f) => sum + f.held, 0) + bytes(cold.evictable) - othersOwe - MARGIN_BYTES
-  const windowedIn = (shares: number[]) => new Set(mine.filter((f, i) => isWindowed(f.size, shares[i] ?? 0, f.chunkBytes)).map((f) => f.h))
-  const shares = shareRoom(mine.map((f) => f.size), pool)
-  const windowed = windowedIn(shares)
-  const rooms = new Map<number, number>()
-  let pendingBytes = othersOwe
-  mine.forEach((f, i) => {
-    const room = shares[i] ?? 0
-    rooms.set(f.h, room)
-    pendingBytes += windowed.has(f.h) ? Math.max(0, room - f.held) : owes(f)
-  })
-  const later = windowedIn(shareRoom(mine.map((f) => f.size), pool + bytes(cold.graced)))
-  const refusedBytes = refused.filter((f) => !later.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
-  return { pendingBytes, refusedBytes, rooms }
+  const owing = (extra: number) => {
+    const shares = shareRoom(mine.map((f) => f.size), pool + extra)
+    const windowed = new Set(mine.filter((f, i) => isWindowed(f.size, shares[i] ?? 0, f.chunkBytes)).map((f) => f.h))
+    const owed = mine.reduce((sum, f, i) => sum + (windowed.has(f.h) ? Math.max(0, (shares[i] ?? 0) - f.held) : owes(f)), othersOwe)
+    return { shares, windowed, owed }
+  }
+  const now = owing(0)
+  const later = owing(bytes(cold.graced))
+  const refusedBytes = refused.filter((f) => !later.windowed.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
+  const rooms = new Map(mine.map((f, i) => [f.h, now.shares[i] ?? 0]))
+  return { pendingBytes: now.owed, laterBytes: later.owed, refusedBytes, rooms }
 }
 
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
@@ -1450,14 +1449,14 @@ const runStorageBudget = async () => {
    * knows an honest figure.
    */
   let measured: Space | null = null
-  let owed: Owed = { pendingBytes: 0, refusedBytes: 0, rooms: new Map() }
+  let owed: Owed = { pendingBytes: 0, laterBytes: 0, refusedBytes: 0, rooms: new Map() }
   let candidates: EvictionCandidate[] = []
   let graced: EvictionCandidate[] = []
   // On a floating ceiling the numbers cannot say it: the ponyfill latches the first quota, so a
   // chunked file that grows past it reads as owing more than is free while every write still lands.
   const verdict = (space: Space): Verdict => ({
     ...space,
-    pendingBytes: ceiling?.fixed === false ? 0 : owed.pendingBytes,
+    pendingBytes: ceiling?.fixed === false ? 0 : owed.laterBytes,
     refusedBytes: owed.refusedBytes,
     candidates: [...candidates, ...graced],
   })
