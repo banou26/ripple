@@ -66,6 +66,7 @@ import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
 import { PersistControl } from '../components/persist-control'
+import { LanguageSelect } from '../components/language-select'
 import { SampleOffer } from '../components/sample-offer'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
@@ -1474,6 +1475,23 @@ export const style = css`
            flips a setting, so it owes the pointer an answer. */
         &.on:hover {
           border-color: ${TEXT};
+        }
+      }
+
+      select {
+        font: inherit;
+        font-size: 0.75rem;
+        padding: 3px 8px;
+        border-radius: 4px;
+        border: 1px solid ${BORDER};
+        background: ${CONTROL_BG};
+        color: ${TEXT_MUTED};
+        cursor: pointer;
+
+        &:hover {
+          background: ${CONTROL_HOVER_BG};
+          color: ${TEXT};
+          border-color: ${BORDER_STRONG};
         }
       }
     }
@@ -3437,6 +3455,10 @@ const Home = () => {
                 : intl.formatMessage({ id: 'Start straight away', defaultMessage: 'Start straight away' })}
             </button>
           </div>
+          <label className="folder">
+            <span>{intl.formatMessage({ id: 'Language', defaultMessage: 'Language' })}</span>
+            <LanguageSelect/>
+          </label>
           {/* Beside the other footer controls on purpose: this is the one place somebody can raise the
               storage prompt deliberately, rather than meeting it when a download is already too big
               to fit. It reports its state even when there is nothing to press. */}

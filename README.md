@@ -87,7 +87,7 @@ same query; the path chooses which one renders. `/watch` plays a file, `/downloa
 | `m` | the packed magnet, base64url | what Ripple's own share links write |
 | `fileIndex` | a file index | the file `/watch` plays (the largest video if absent); the fallback `/download` uses |
 | `files` | `all`, `3`, `0-4`, `0,2,5` | what `/download` delivers |
-| `language` | a BCP 47 tag, such as `fr` or `es-MX` | the language of the player's controls (if absent, unreadable, or one the player has no text in: the first of the browser's languages it has text in) |
+| `language` | a BCP 47 tag, such as `fr` or `es-MX` | the language of the page and of the player's controls, ahead of the one picked in Ripple (if absent, unreadable, or one they have no text in: the one picked, else the first of the browser's languages they have text in) |
 | `audio` | a BCP 47 tag, or `original` | the audio language `/watch` starts in, ahead of the one last picked in it (`original`: the file's own) |
 | `subtitles` | a BCP 47 tag, or `off` | the subtitle language it starts in, the same way |
 | `alwaysSubtitles` | `1` or `0` | `0` starts subtitles off when the audio plays in their language |

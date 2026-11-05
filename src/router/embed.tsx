@@ -13,6 +13,7 @@ import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
+import { readPickedLanguage } from '../i18n'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
@@ -756,7 +757,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         onPreferredAudioLanguageChange={(audio) => chooseLanguage({ audio })}
         onPreferredSubtitleLanguageChange={(subtitles) => chooseLanguage({ subtitles })}
         onAlwaysShowSubtitlesChange={(alwaysSubtitles) => chooseLanguage({ alwaysSubtitles })}
-        language={linked.language ?? browserLanguage()}
+        language={linked.language ?? readPickedLanguage() ?? browserLanguage()}
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}

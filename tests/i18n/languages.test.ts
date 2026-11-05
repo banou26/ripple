@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { bestLanguage, formatLocale, isRightToLeft, LANGUAGE_KEY, OFFERED, readPickedLanguage, uiLanguage } from '../../src/i18n/languages'
+import { automaticLanguage, bestLanguage, formatLocale, isRightToLeft, LANGUAGE_KEY, OFFERED, readPickedLanguage, uiLanguage } from '../../src/i18n/languages'
 
 // the planned list: wave 1, then the right to left pair, and two whose old tags browsers still send
 const PLANNED = ['en', 'es-419', 'pt-BR', 'fr', 'de', 'it', 'ru', 'ja', 'ko', 'zh-Hans', 'zh-Hant', 'tr', 'pl', 'ar', 'he', 'id', 'fil']
@@ -50,24 +50,62 @@ describe('the best match of the browser\'s languages', () => {
 })
 
 describe('the language shown', () => {
-  test('nothing is offered but English yet, so a French browser and a French pick both show English', () => {
-    expect(OFFERED).toEqual(['en'])
-    expect(uiLanguage()).toBe('en')
-    stored.set(LANGUAGE_KEY, 'fr')
-    expect(uiLanguage()).toBe('en')
+  test('English and the 12 of wave 1 are offered, so a French browser shows French and a German pick German', () => {
+    expect([...OFFERED].sort()).toEqual(['de', 'en', 'es-419', 'fr', 'it', 'ja', 'ko', 'pl', 'pt-BR', 'ru', 'tr', 'zh-Hans', 'zh-Hant'])
+    expect(uiLanguage()).toBe('fr')
+    stored.set(LANGUAGE_KEY, 'de')
+    expect(uiLanguage()).toBe('de')
   })
 
   test('the best match among the offered, else English', () => {
     expect(uiLanguage(['fr-CA', 'en'], PLANNED)).toBe('fr')
     expect(uiLanguage(['th'], PLANNED)).toBe('en')
+    expect(automaticLanguage(['th', 'pt-PT'])).toBe('pt-BR')
+    expect(automaticLanguage(['th'])).toBe('en')
   })
 
-  test('a language picked wins once offered, and one not offered is not read', () => {
+  test('a language picked wins, and one not offered is not read', () => {
     stored.set(LANGUAGE_KEY, 'en')
     expect(readPickedLanguage()).toBe('en')
     expect(uiLanguage(['fr-CA'], PLANNED)).toBe('en')
-    stored.set(LANGUAGE_KEY, 'fr')
-    expect(readPickedLanguage()).toBeUndefined()
+    for (const unknown of ['xx', 'ar', 'fr-FR', '']) {
+      stored.set(LANGUAGE_KEY, unknown)
+      expect(readPickedLanguage()).toBeUndefined()
+      expect(uiLanguage(['fr-CA'])).toBe('fr')
+    }
+  })
+
+  describe('a link\'s language', () => {
+    const at = (href: string) => vi.stubGlobal('location', new URL(href, 'https://torrent.fkn.app'))
+
+    test('wins over the pick on /watch and /download, through the offered one serving it', () => {
+      stored.set(LANGUAGE_KEY, 'de')
+      at('/watch?m=x&language=ja')
+      expect(uiLanguage(['fr-CA'])).toBe('ja')
+      at('/download?language=pt-PT&m=x')
+      expect(uiLanguage(['fr-CA'])).toBe('pt-BR')
+      at('/watch/?language=en')
+      expect(uiLanguage(['fr-CA'])).toBe('en')
+    })
+
+    test('is not read on any other page', () => {
+      stored.set(LANGUAGE_KEY, 'de')
+      for (const href of ['/?language=ja', '/add?language=ja', '/legal?language=ja', '/watched?language=ja']) {
+        at(href)
+        expect(uiLanguage(['fr-CA']), href).toBe('de')
+      }
+    })
+
+    test('one no catalogue serves, or none, gives way to the pick, then to Automatic', () => {
+      stored.set(LANGUAGE_KEY, 'de')
+      for (const search of ['?language=sv', '?language=not%20a%20tag', '?language=', '']) {
+        at(`/watch${search}`)
+        expect(uiLanguage(['fr-CA']), search).toBe('de')
+      }
+      stored.clear()
+      at('/watch?language=sv')
+      expect(uiLanguage(['fr-CA'])).toBe('fr')
+    })
   })
 
   test('the pick is kept on this device, under ripple\'s own key', () => {
