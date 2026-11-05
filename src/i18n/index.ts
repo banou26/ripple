@@ -9,9 +9,9 @@ import { createIntl, createIntlCache, RawIntlProvider, type IntlShape } from 're
 
 import type { Said } from './said'
 
-import { formatLocale, isRightToLeft, setUnitLocale, uiLanguage } from './languages'
+import { formatLocale, isRightToLeft, LANGUAGE_KEY, setUnitLocale, uiLanguage } from './languages'
 
-export { LANGUAGE_KEY, OFFERED, bestLanguage, formatLocale, isRightToLeft, readPickedLanguage, uiLanguage } from './languages'
+export { LANGUAGE_KEY, OFFERED, automaticLanguage, bestLanguage, formatLocale, isRightToLeft, readPickedLanguage, uiLanguage } from './languages'
 export type { Said } from './said'
 
 /** A language's text by message id. */
@@ -32,6 +32,12 @@ const intlOf = (language: string, locale: string, messages: Catalogue) =>
  * component. startLanguage() replaces it, so read it where the text is shown, never at module scope.
  */
 export let intl: IntlShape = intlOf('en', 'en', {})
+
+let shown = 'en'
+let starts = 0
+
+/** The language `intl` writes in: English until startLanguage() loads another, or when its catalogue failed to load. */
+export const shownLanguage = () => shown
 
 const listeners = new Set<() => void>()
 const listen = (listener: () => void) => {
@@ -59,8 +65,8 @@ const CATALOGUES = import.meta.glob('../locales/*.json', { import: 'default' }) 
 /**
  * Shows `language` on this page from now on: loads its catalogue, makes `intl` write in it, with dates and numbers in
  * formatLocale(), marks `<html>` with its `lang` and, right to left, its `dir`, and renders IntlRoot's tree again. A
- * catalogue that fails to load, or takes over 3 seconds, leaves the page in English until the next start. Returns the
- * new `intl`.
+ * catalogue that fails to load, or takes over 3 seconds, leaves the page in English until the next start, and a start
+ * a later one overtook changes nothing. Returns the new `intl`.
  */
 export const startLanguage = async ({ language = uiLanguage(), languages, catalogues = CATALOGUES, html = globalThis.document?.documentElement }: {
   language?: string
@@ -70,11 +76,13 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
   catalogues?: Readonly<Record<string, () => Promise<Catalogue>>>
   html?: HTMLElement
 } = {}) => {
+  const start = ++starts
   const catalogue = language === 'en' ? {} : await Promise.race([
     catalogues[`../locales/${language}.json`]?.().catch(() => undefined),
     new Promise<undefined>(resolve => setTimeout(resolve, CATALOGUE_WAIT_MS)),
   ])
-  const shown = catalogue ? language : 'en'
+  if (start !== starts) return intl
+  shown = catalogue ? language : 'en'
   intl = intlOf(shown, formatLocale(shown, languages), catalogue ?? {})
   setUnitLocale(intl.locale)
   if (html) {
@@ -84,4 +92,16 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
   }
   for (const listener of listeners) listener()
   return intl
+}
+
+/**
+ * Keeps `language` picked on this device, or Automatic with undefined, and shows the page in uiLanguage()'s answer at
+ * once, in place: no reload, so the engine and its peers carry on. Other tabs take it on their next load.
+ */
+export const pickLanguage = (language: string | undefined) => {
+  try {
+    if (language) localStorage.setItem(LANGUAGE_KEY, language)
+    else localStorage.removeItem(LANGUAGE_KEY)
+  } catch {}
+  return startLanguage()
 }

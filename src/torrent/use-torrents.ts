@@ -1,8 +1,10 @@
 import type { Torrent, TorrentState } from './types'
 import type { InboundNow } from './inbound'
 import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './client'
+import type { IntlShape } from 'react-intl'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useIntl } from 'react-intl'
 
 import { intl } from '../i18n'
 import { getTorrentClient } from './client'
@@ -53,11 +55,11 @@ const etaSecondsOf = (status: TorrentSnapshot['status']): number | undefined => 
   return Math.round(remain / status.downloadRate)
 }
 
-const fmtEta = (status: TorrentSnapshot['status']): string => {
+const fmtEta = (status: TorrentSnapshot['status'], words: IntlShape): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING.has(status.state)) return '-'
   const remain = status.totalWanted - status.totalDone
   if (remain <= 0) return '-'
-  if (status.downloadRate <= 0) return intl.formatMessage({ id: 'queued', defaultMessage: 'queued' })
+  if (status.downloadRate <= 0) return words.formatMessage({ id: 'queued', defaultMessage: 'queued' })
   const s = Math.round(remain / status.downloadRate)
   if (s < 60) return writeDuration({ seconds: s })
   if (s < 3600) return writeDuration({ minutes: Math.floor(s / 60), seconds: s % 60 })
@@ -110,9 +112,10 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
 export const isActive = (state: TorrentState): boolean =>
   state === 'downloading' || state === 'seeding'
 
-export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent => {
+/** `s` as a row, its words written by `words`. */
+export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = intl): Torrent => {
   const st = s.status
-  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? intl.formatMessage({ id: 'Fetching metadata…', defaultMessage: 'Fetching metadata…' })
+  const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? words.formatMessage({ id: 'Fetching metadata…', defaultMessage: 'Fetching metadata…' })
   const progress = st?.progress ?? 0
   return {
     id: String(s.handle),
@@ -132,7 +135,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now()): Torrent
     up: st?.uploadRate ?? 0,
     peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
-    eta: fmtEta(st),
+    eta: fmtEta(st, words),
     etaSeconds: etaSecondsOf(st),
     // seconds off the engine, milliseconds everywhere a person sees a date; 0 means never happened
     addedAt: st?.addedAt ? st.addedAt * 1000 : undefined,
@@ -341,6 +344,8 @@ const sampleAnswered = () => { try { localStorage.setItem(DEMO_SEEDED_KEY, '1') 
 
 export const useTorrents = (): UseTorrents => {
   const client = getTorrentClient()
+  // a row's text is written as the list is built, so a language picked builds it again
+  const words = useIntl()
   const [snaps, setSnaps] = useState<TorrentSnapshot[]>([])
   const [list, setList] = useState<Persisted[]>([])
   const [storageUnavailable, setStorageUnavailable] = useState(false)
@@ -401,7 +406,7 @@ export const useTorrents = (): UseTorrents => {
     // here rather than in snapshotToTorrent, which only ever sees engine state
     const entryByHash = new Map(list.map((e) => [e.infoHash, e]))
     const live = snaps.map((s) => {
-      const t = snapshotToTorrent(s, now)
+      const t = snapshotToTorrent(s, now, words)
       const entry = t.infoHash ? entryByHash.get(t.infoHash) : undefined
       return entry
         ? {
@@ -422,7 +427,7 @@ export const useTorrents = (): UseTorrents => {
     })
     const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
     return [...live, ...rowsForEntriesNotInTheEngine(list, liveHashes)]
-  }, [snaps, list])
+  }, [snaps, list, words])
 
   const addMagnet = useCallback((magnet: string) => { holdWhileStored(); return client.addMagnet(magnet) }, [client])
   const addTorrentFile = useCallback((bytes: Uint8Array) => { holdWhileStored(); return client.addTorrentFile(bytes) }, [client])

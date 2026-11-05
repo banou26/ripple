@@ -1,7 +1,6 @@
-// The library and download pages on built bytes, in languages ripple does not offer yet: every catalogue and the
-// pseudo-language are offered (tests/languages.ts), so a test picks one by its setting. The engine is a stand-in this
-// file writes to, so each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin
-// is refused.
+// The library and download pages on built bytes, in each of ripple's languages and the pseudo-language, which a spec
+// build offers too (tests/languages.ts), so a test picks one by its setting. The engine is a stand-in this file writes
+// to, so each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin is refused.
 import type { AddressInfo } from 'node:net'
 import type { Frame, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
@@ -76,12 +75,19 @@ const standIns = (folder: string) => {
   const reads: { id: number, len: number }[] = []
   let answering = false
   let refusal: unknown
+  // each worker the page made, by its script: the engine's, and libav's for a thumbnail
+  const workers: { url: string, ended: boolean }[] = []
   const answerAll = () => {
     if (refusal) for (const { id } of reads.splice(0)) engine({ type: 'read-error', id, error: refusal })
     else if (answering) for (const { id, len } of reads.splice(0)) engine({ type: 'read-result', id, data: new Uint8Array(len) })
   }
   Object.defineProperty(window, 'Worker', {
     value: class {
+      made = { url: '', ended: false }
+      constructor (url: string | URL) {
+        this.made.url = String(url)
+        workers.push(this.made)
+      }
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
       removeEventListener (_: string, listener: EventListener) { heard.delete(listener) }
       postMessage (message: { type?: string, id: number, len: number }) {
@@ -89,11 +95,12 @@ const standIns = (folder: string) => {
         reads.push(message)
         setTimeout(answerAll)
       }
-      terminate () {}
+      terminate () { this.made.ended = true }
     },
   })
   Object.assign(window, {
     engineListens: () => heard.size > 0,
+    workers: () => workers.map(made => ({ ...made })),
     engine,
     answerReads: () => { answering = true; answerAll() },
     refuseReads: (error: unknown) => { refusal = error; answerAll() },
@@ -924,7 +931,7 @@ const engineSurfaces = async (page: Page, width: number) => {
   return { words: [...row.words, ...whole.words], cut: [...row.cut, ...whole.cut] }
 }
 
-test.describe('in a language ripple does not offer yet', () => {
+test.describe('in each language', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
       test.setTimeout(240_000)
@@ -1031,6 +1038,136 @@ test.describe('in a language ripple does not offer yet', () => {
     await library(page, LIST, TORRENTS)
     await expect(page.locator('.hidden-note')).toContainText(/^2 temporäre Downloads ausgeblendet · 9\sGB/u)
   })
+})
+
+test.describe('the Language setting', () => {
+  const select = (page: Page) => page.locator('footer select')
+  const labels = async (page: Page) => (await page.locator('footer .folder > span').allTextContents()).slice(0, 3)
+  /** The engine's workers, each with whether it was ended: a thumbnail's libav workers come and go on their own. */
+  const engines = (page: Page) => page.evaluate(() => (window as unknown as { workers: () => { url: string, ended: boolean }[] }).workers()
+    .filter(({ url }) => !url.includes('libav')))
+  /** Each catalogue the page asked for, by its tag. */
+  const fetched = (page: Page) => {
+    const tags: string[] = []
+    page.on('request', (request) => {
+      const tag = /^\/([a-z]{2}(?:-[A-Za-z0-9]+)?)-[\w-]{8}\.js$/.exec(new URL(request.url()).pathname)?.[1]
+      if (tag && tag in catalogues()) tags.push(tag)
+    })
+    return tags
+  }
+
+  test('in an English browser the page stays English, fetches no catalogue, and offers Automatic first', async ({ page }) => {
+    const tags = fetched(page)
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect.poll(() => labels(page)).toEqual(['Speed', 'On add', 'Language'])
+    await expect(select(page)).toHaveValue('')
+    await expect(select(page).locator('option').first()).toHaveText('Automatic (English)')
+    expect(tags).toEqual([])
+  })
+
+  test('picking French shows the page in French at once, with no reload, the engine running on', async ({ page }) => {
+    const tags = fetched(page)
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const engine = await engines(page)
+    expect(engine, 'the control: the stand-in sees the engine made').toEqual([{ url: expect.stringContaining('/assets/'), ended: false }])
+    await page.evaluate(() => { (window as unknown as { same: boolean }).same = true })
+
+    await select(page).selectOption('fr')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+    await expect.poll(() => labels(page)).toEqual(['Vitesse', 'À l’ajout', 'Langue'])
+    expect(await page.evaluate(() => localStorage.getItem('ripple:language'))).toBe('fr')
+    const { words, cut, read } = walk(page, 1280)
+    await read('picked French')
+    expect(englishIn([...new Set(words)], english(), catalogues().fr), 'the header, the list and the footer, all in French').toEqual([])
+    expect(cut).toEqual([])
+
+    expect(await page.evaluate(() => (window as unknown as { same?: boolean }).same), 'the same page, not a reload').toBe(true)
+    expect(await engines(page), 'the same engine, never ended').toEqual(engine)
+    await post(page, { type: 'state', torrents: [{ ...TORRENTS[0]!, status: { ...TORRENTS[0]!.status, numPeers: 41 } }, ...TORRENTS.slice(1)], ...READOUTS[0] })
+    await expect(page.locator('.torrent', { hasText: 'Some.Release.Name.S01.1080p' }).locator('.peers')).toHaveText('41 pairs')
+    expect(tags).toEqual(['fr'])
+  })
+
+  test('a pick is kept over a reload, and Automatic forgets it', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await select(page).selectOption('de')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de')
+    await page.reload()
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de')
+    await expect(select(page)).toHaveValue('de')
+    await select(page).selectOption('')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await page.reload()
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(select(page)).toHaveValue('')
+  })
+
+  test.describe('in a French browser', () => {
+    test.use({ locale: 'fr-FR' })
+
+    test('Automatic shows French, and a kept value ripple does not offer is Automatic', async ({ page }) => {
+      await opening(page, 'xx')
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+      await expect(select(page)).toHaveValue('')
+      await expect(select(page).locator('option').first()).toHaveText('Automatique (Français)')
+    })
+  })
+
+  test('a link\'s language wins over the pick on /download and /watch, and a page reached from one in place shows the pick', async ({ page }) => {
+    await opening(page, 'fr')
+    await page.goto(downloadPage(PACK, '&language=de'))
+    await library(page, PACK_LIST, PACK_TORRENTS)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de')
+    await expect(page.locator('.card .file')).toHaveCount(3)
+    expect(englishIn([...new Set(await wordsOf(page))], english(), catalogues().de)).toEqual([])
+    const engine = await engines(page)
+
+    await page.locator('.wordmark').click()
+    await expect(page).toHaveURL(`${origin}/`)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+    await expect(select(page)).toHaveValue('fr')
+    expect(await engines(page), 'the same engine').toEqual(engine)
+
+    await page.goto(`${watchPage(PACK)}&language=ja`)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ja')
+    await page.goto(`${watchPage(PACK)}&language=sv`)
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+  })
+
+  // a Mexican Spanish browser, so Automatic names the longest language each time
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language} at 390 px: the footer and its select fit, the select's text whole`, async ({ page }) => {
+      await page.addInitScript(() => Object.defineProperty(navigator, 'languages', { get: () => ['es-MX', 'es'] }))
+      await opening(page, language)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      await expect(page.locator('html')).toHaveAttribute('lang', language)
+      await expect(select(page).locator('option').first()).toContainText('Español latinoamericano')
+      expect(await cutOff(page, 'footer')).toEqual([])
+      const fit = await select(page).evaluate((shown: HTMLSelectElement) => {
+        const style = getComputedStyle(shown)
+        const pen = document.createElement('canvas').getContext('2d')!
+        pen.font = style.font
+        const box = shown.getBoundingClientRect()
+        return {
+          inside: box.left >= 0 && box.right <= document.documentElement.clientWidth,
+          room: shown.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          widest: Math.max(...[...shown.options].map(option => pen.measureText(option.text).width)),
+        }
+      })
+      expect(fit.inside).toBe(true)
+      expect(fit.room, 'the widest option has room').toBeGreaterThanOrEqual(fit.widest)
+    })
+  }
 })
 
 test.describe('the Inbound tooltip joins its two sentences as the language does', () => {

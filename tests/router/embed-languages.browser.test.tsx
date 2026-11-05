@@ -3,6 +3,7 @@ import type { EmbedderAsk } from '../../src/router/embedder'
 import type { TrackLanguages } from '../../src/router/track-languages'
 import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 
+import { LANGUAGE_KEY } from '../../src/i18n/languages'
 import { AUDIO_LANGUAGE_KEY, SUBTITLE_LANGUAGE_KEY } from '../../src/router/track-languages'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -161,5 +162,20 @@ describe('the language of the player on /watch', () => {
   it('is what Intl writes, never the link\'s own spelling', async () => {
     browser('de-DE')
     expect(await shown('&language=FR-ca-u-nu-arab')).toBe('fr-CA')
+  })
+
+  it('is the one picked in Ripple over the browser\'s, and the link\'s over the pick', async () => {
+    browser('de-DE', 'en')
+    // browser test files share one origin's storage and run side by side, so this test keeps its own
+    const stored = new Map([[LANGUAGE_KEY, 'ja']])
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: () => {}, removeItem: () => {} })
+    try {
+      expect(await shown()).toBe('ja')
+      expect(await shown('&language=fr')).toBe('fr')
+      stored.set(LANGUAGE_KEY, 'xx')
+      expect(await shown()).toBe('de-DE')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

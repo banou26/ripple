@@ -3,6 +3,7 @@ import type { UseTorrents } from '../../src/torrent/use-torrents'
 import { expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
+import { IntlRoot } from '../../src/i18n'
 import { ENGINE_STORE_MS, pageWorkRunning } from '../../src/utils/page-work'
 
 /** A client that answers every subscription with nothing and every command at once. */
@@ -22,7 +23,7 @@ it.each([
   ['a .torrent', () => hook!.addTorrentFile(new Uint8Array([1]))],
   ['a magnet', () => hook!.addMagnet('magnet:?xt=urn:btih:' + 'a'.repeat(40))],
 ])('holds updates while the engine stores %s it was just handed', async (_, add) => {
-  await render(<Probe/>)
+  await render(<IntlRoot><Probe/></IntlRoot>)
   await expect.poll(async () => (await pageWorkRunning()) || hook !== undefined).toBe(true)
   expect(await pageWorkRunning(), 'the control: nothing held before the add').toBe(false)
   vi.useFakeTimers({ toFake: ['setTimeout'] })

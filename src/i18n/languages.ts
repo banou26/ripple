@@ -1,5 +1,6 @@
-// The viewer's language, the one picked (kept on this device) else the browser's, read two ways: the language ripple's
-// text is shown in, and how dates and numbers are written. Import free but the offered list, so a worker can read it.
+// The viewer's language, the one a link names, else the one picked (kept on this device), else the browser's, read two
+// ways: the language ripple's text is shown in, and how dates and numbers are written. Import free but the offered list,
+// so a worker can read it.
 
 import OFFERED_LANGUAGES from './offered.json'
 
@@ -66,9 +67,21 @@ export const setUnitLocale = (locale: string) => {
   unitTag = localeOf(locale)?.language === 'en' ? 'en-US' : locale
 }
 
-/** The language ripple's text is shown in: the one picked, else the offered one best serving the browser's, else English. */
-export const uiLanguage = (languages = browserLanguages(), offered = OFFERED) =>
-  readPickedLanguage() ?? bestLanguage(languages, offered) ?? 'en'
+/** The language Automatic shows: the offered one best serving the browser's, else English. */
+export const automaticLanguage = (languages = browserLanguages(), offered = OFFERED) => bestLanguage(languages, offered) ?? 'en'
+
+/** The `language=` of a /watch or /download link, the embedder's page's, which no other page reads. */
+const linkedLanguage = () => {
+  const { pathname, search } = globalThis.location ?? { pathname: '', search: '' }
+  return /^\/(?:watch|download)\/?$/.test(pathname) ? new URLSearchParams(search).get('language') : null
+}
+
+/**
+ * The language ripple's text is shown in: the offered one serving the link's, else the one picked, else Automatic's.
+ * So a page framed by stub reads as the stub page around it.
+ */
+export const uiLanguage = (languages = browserLanguages(), offered = OFFERED, linked = linkedLanguage()) =>
+  (linked ? bestLanguage([linked], offered) : undefined) ?? readPickedLanguage() ?? automaticLanguage(languages, offered)
 
 /**
  * The locale dates, numbers and lists are written in: the browser's first language in `shown`'s language and

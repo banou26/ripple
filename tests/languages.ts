@@ -37,7 +37,7 @@ const pseudoCatalogue = () => {
 }
 
 /**
- * A spec build's plugin offering, before ripple does, every catalogue in src/locales and the pseudo-language, so a test
+ * A spec build's plugin offering every catalogue in src/locales, offered or not yet, and the pseudo-language, so a test
  * shows one by writing its tag to the language setting (LANGUAGE_KEY). A browser in English still gets English.
  */
 export const offerEveryLanguage = (): Plugin => {

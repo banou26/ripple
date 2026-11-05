@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { intl, startLanguage, type Catalogue } from '../../src/i18n'
+import { intl, LANGUAGE_KEY, pickLanguage, shownLanguage, startLanguage, type Catalogue } from '../../src/i18n'
 
 // plain descriptors, which the linter does not read: each message as ripple writes it, its English its id
 const message = (english: string, description?: string) =>
@@ -172,5 +172,55 @@ describe('starting a language', () => {
     const shown = element()
     await startLanguage({ language: 'en', languages: ['en-US'], html: html(shown) })
     expect([...shown.attributes]).toEqual([['lang', 'en']])
+  })
+
+  test('the language shown is the one started, and English while a catalogue fails', async () => {
+    await start('fr', {})
+    expect(shownLanguage()).toBe('fr')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': () => Promise.reject(new Error('offline')) } })
+    expect(shownLanguage()).toBe('en')
+    vi.restoreAllMocks()
+  })
+
+  test('a start a later one overtook changes nothing, so two quick picks end on the second', async () => {
+    let answer = (_: Catalogue) => {}
+    const slow = startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': () => new Promise(resolve => { answer = resolve }) } })
+    const de = await start('de', { Pause: 'Pausieren' })
+    answer({ Pause: 'Mettre en pause' })
+    expect(await slow).toBe(de)
+    expect([intl, shownLanguage(), intl.formatMessage(message('Pause'))]).toEqual([de, 'de', 'Pausieren'])
+  })
+})
+
+describe('a pick', () => {
+  const stored = new Map<string, string>()
+  beforeEach(() => {
+    stored.clear()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value) },
+      removeItem: (key: string) => { stored.delete(key) },
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  test('is kept on this device and shown at once, from its own catalogue', async () => {
+    const fr = await pickLanguage('fr')
+    expect(stored.get(LANGUAGE_KEY)).toBe('fr')
+    expect([intl, shownLanguage(), fr.formatMessage(message('Language'))]).toEqual([fr, 'fr', 'Langue'])
+  })
+
+  test('of Automatic keeps nothing, and shows the browser\'s language', async () => {
+    stored.set(LANGUAGE_KEY, 'de')
+    await pickLanguage(undefined)
+    expect(stored.has(LANGUAGE_KEY)).toBe(false)
+    expect(shownLanguage()).toBe('en')
+  })
+
+  test('storage that refuses keeps nothing and shows Automatic, without throwing', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new DOMException('full', 'QuotaExceededError') }, removeItem: () => {} })
+    await pickLanguage('fr')
+    expect(shownLanguage()).toBe('en')
   })
 })

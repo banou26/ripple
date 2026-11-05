@@ -7,6 +7,7 @@ import Home from './home'
 import Legal from './legal'
 import Privacy from './privacy'
 import { Hints } from '../components/hint'
+import { shownLanguage, startLanguage, uiLanguage } from '../i18n'
 import { getRouterRoutePath, Route } from './path'
 
 const router = createBrowserRouter([
@@ -37,6 +38,9 @@ const router = createBrowserRouter([
     element: <Privacy/>
   }
 ])
+
+// a link's language holds on /watch and /download alone, so a page reached from one in place shows the viewer's own
+router.subscribe(() => { if (uiLanguage() !== shownLanguage()) void startLanguage() })
 
 export const RouterMount = () => {
   return (
