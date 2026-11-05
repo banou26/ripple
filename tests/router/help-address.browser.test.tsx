@@ -7,7 +7,6 @@ import { MemoryRouter } from 'react-router-dom'
 import Legal from '../../src/router/legal'
 import Privacy from '../../src/router/privacy'
 
-// RIPPLE-51: the owner settled on one help address, 2026-10-31
 const ADDRESS = 'admin@fkn.app'
 
 it.each([['legal', Legal], ['privacy', Privacy]] as [string, ComponentType][])(`the %s page gives ${ADDRESS} as its only address`, async (_, Page) => {
