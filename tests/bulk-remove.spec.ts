@@ -1,0 +1,125 @@
+/*
+ * Several torrents removed in one action, through the real engine: three made on this device, two ticked, one
+ * confirmation, and after a reload the two are still gone and the third is still there.
+ *
+ * Ticking a row is not the selection that fills the detail panel, so the panel stays on the torrent it showed, and an
+ * Escape clears the ticks before it would close the panel. Select all takes the rows the filter shows, and no other. The removals are written where the cloud backup reads
+ * them (`ripple:removed`), as a single row's Remove writes its own.
+ *
+ * The pickers are deleted, so each pick goes through the ponyfill's file input and is copied into browser storage,
+ * as in long-name-copy.spec.ts. No network and no transfer, so this is headless.
+ */
+import { expect, test } from '@playwright/test'
+
+const NAMES = ['Bulk.One.bin', 'Bulk.Two.bin', 'Bulk.Three.bin']
+
+/** One key of the raw idb-keyval store, which is where the worker keeps the list and the removals. */
+const stored = (key: string) => new Promise<unknown>((resolve) => {
+  const request = indexedDB.open('keyval-store')
+  request.onerror = () => resolve('open failed')
+  request.onsuccess = () => {
+    const read = request.result.transaction('keyval', 'readonly').objectStore('keyval').get(key)
+    read.onsuccess = () => resolve(read.result)
+    read.onerror = () => resolve('read failed')
+  }
+})
+
+test('two of three torrents removed in one action stay removed after a reload, and the third stays', async ({ page }) => {
+  test.setTimeout(300_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+
+  const fs = await import('node:fs')
+  const nodePath = await import('node:path')
+  const dir = test.info().outputPath()
+  fs.mkdirSync(dir, { recursive: true })
+  // different bytes, so three different info hashes
+  const files = NAMES.map((name, i) => {
+    const file = nodePath.join(dir, name)
+    fs.writeFileSync(file, Buffer.alloc(150_000 + i * 1_000, i + 1))
+    return file
+  })
+
+  await page.addInitScript(() => {
+    // the demo torrent would add itself eight seconds in
+    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+    delete (window as any).showDirectoryPicker
+    delete (window as any).showOpenFilePicker
+  })
+  await page.goto('/')
+
+  const hashes: string[] = []
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  const dialog = page.getByRole('dialog')
+  for (const [i, file] of files.entries()) {
+    const chooser = page.waitForEvent('filechooser')
+    await dialog.getByRole('button', { name: 'Choose a file', exact: true }).click()
+    await (await chooser).setFiles(file)
+    await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+    await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
+    hashes.push((await dialog.locator('code').first().textContent())!)
+    if (i < files.length - 1) await dialog.getByRole('button', { name: 'Create another' }).click()
+  }
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  expect(new Set(hashes).size).toBe(3)
+
+  const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}` })
+  for (const name of NAMES) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
+  const [one, two, three] = NAMES as [string, string, string]
+
+  // the detail panel shows the third, and ticking the other two leaves it on the third
+  await page.locator('.torrent', { hasText: three }).locator('.title').click()
+  const details = page.locator('main + section')
+  await expect(details).toHaveAttribute('aria-label', `Details for ${three}`)
+  await tick(one).check()
+  await tick(two).check()
+  const bar = page.locator('.bulk-bar')
+  await expect(bar).toContainText('2 selected')
+  await expect(details).toHaveAttribute('aria-label', `Details for ${three}`)
+
+  // Escape clears the ticks first, and the panel, which closes on an Escape of its own, stays open
+  await bar.getByRole('button', { name: 'Remove' }).press('Escape')
+  await expect(bar).toHaveCount(0)
+  await expect(tick(one)).not.toBeChecked()
+  await expect(details).toHaveAttribute('aria-label', `Details for ${three}`)
+
+  // the third made temporary, so a filter can hide it: Select all then takes only what the filter shows
+  await page.locator('.torrent', { hasText: three }).getByRole('button', { name: `Options for ${three}` }).click()
+  await page.getByRole('switch', { name: 'Keep this download' }).click()
+  await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Kept', exact: true }).click()
+  await expect(page.locator('.torrent', { hasText: three })).toHaveCount(0)
+  await page.getByRole('checkbox', { name: 'Select all' }).check()
+  await expect(bar).toContainText('2 selected')
+  await page.getByRole('button', { name: 'All', exact: true }).click()
+  await expect(tick(three)).not.toBeChecked()
+  await expect(tick(one)).toBeChecked()
+  await expect(tick(two)).toBeChecked()
+  await expect(bar).toContainText('2 selected')
+
+  await bar.getByRole('button', { name: 'Remove' }).click()
+  const confirm = page.getByRole('dialog')
+  await expect(confirm.getByRole('heading')).toHaveText('Remove 2 torrents?')
+  await confirm.getByRole('button', { name: 'Remove and delete' }).click()
+
+  await expect(page.locator('.torrent', { hasText: one })).toHaveCount(0)
+  await expect(page.locator('.torrent', { hasText: two })).toHaveCount(0)
+  await expect(tick(three)).toBeVisible()
+  await expect(bar).toHaveCount(0)
+
+  // written down where the cloud backup reads removals, as a single row's Remove is
+  await expect.poll(async () => {
+    const removed = await page.evaluate(stored, 'ripple:removed') as { infoHash: string }[] | undefined
+    return (removed ?? []).map((r) => r.infoHash).sort((a, b) => a.localeCompare(b))
+  }, { timeout: 30_000 }).toEqual(hashes.slice(0, 2).sort((a, b) => a.localeCompare(b)))
+
+  await page.reload()
+  // the control: the third is back as a live row, so the list and the engine have both answered
+  await expect(tick(three)).toBeVisible({ timeout: 120_000 })
+  await expect(page.locator('.torrent', { hasText: one })).toHaveCount(0)
+  await expect(page.locator('.torrent', { hasText: two })).toHaveCount(0)
+  const list = await page.evaluate(stored, 'ripple:torrents') as { infoHash: string }[]
+  expect(list.map((e) => e.infoHash)).toEqual([hashes[2]])
+  expect(pageErrors).toEqual([])
+})
