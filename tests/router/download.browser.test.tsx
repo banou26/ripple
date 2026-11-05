@@ -224,6 +224,46 @@ describe('the download route', () => {
     ])
   })
 
+  /** The same rule as a library row's placeholder, drawn in the card's tile. */
+  describe('draws what the link is about where its picture would be', () => {
+    const glyph = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector('.subject .glyph')!
+
+    it('one video: a video file with its extension, inside the tile', async () => {
+      const screen = await mount('&files=2')
+      await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
+      const tile = glyph(screen)
+      expect(tile.querySelector('.lucide-file-play')).not.toBeNull()
+      const ext = tile.querySelector('.ext')!
+      expect(ext.textContent).toBe('MKV')
+      const inner = ext.getBoundingClientRect(), outer = tile.getBoundingClientRect()
+      expect(inner.left).toBeGreaterThanOrEqual(outer.left)
+      expect(inner.right).toBeLessThanOrEqual(outer.right)
+      expect(inner.bottom).toBeLessThanOrEqual(outer.bottom)
+    })
+
+    it('one other file: a file with its extension', async () => {
+      const screen = await mount('&files=3')
+      await expect.element(screen.getByText('notes.txt')).toBeInTheDocument()
+      expect(glyph(screen).querySelector('.lucide-file')).not.toBeNull()
+      expect(glyph(screen).querySelector('.ext')?.textContent).toBe('TXT')
+    })
+
+    it('several files: the folder', async () => {
+      const screen = await mount()
+      await expect.element(screen.getByRole('button', { name: /Download 4 files/ })).toBeInTheDocument()
+      expect(glyph(screen).querySelector('.lucide-folder')).not.toBeNull()
+      expect(glyph(screen).querySelector('.ext')).toBeNull()
+    })
+
+    it('before metadata, a video named on the magnet', async () => {
+      state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null }, handle: null })
+      const screen = await mount('', btoa('magnet:?xt=urn:btih:abc&dn=Movie.2026.1080p.mkv'))
+      await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeInTheDocument()
+      expect(glyph(screen).querySelector('.lucide-file-play')).not.toBeNull()
+      expect(glyph(screen).querySelector('.ext')?.textContent).toBe('MKV')
+    })
+  })
+
   /**
    * The regression this file exists for: a range must export the files it names.
    *

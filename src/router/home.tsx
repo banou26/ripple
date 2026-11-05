@@ -12,7 +12,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Folder, Link2, Pause, Play, Plus, Upload, X } from 'lucide-react'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, Pause, Play, Plus, Upload, X } from 'lucide-react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -76,6 +76,7 @@ import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
+import { FileGlyph } from './file-glyph'
 import { badgeRules } from './badge-style'
 import { STATE_LABEL, retryLine, speed } from './torrent-format'
 import { TorrentTable } from './torrent-table'
@@ -835,6 +836,8 @@ export const style = css`
     .poster.placeholder {
       display: grid;
       place-items: center;
+      align-content: center;
+      gap: 4px;
       /* lighter than the plain poster fill, so an empty frame reads as a deliberate placeholder
          rather than as a picture that has not arrived yet */
       border-color: ${BORDER};
@@ -842,6 +845,7 @@ export const style = css`
       color: ${TEXT_MUTED};
 
       svg { width: 20px; height: 20px; }
+      .ext { font-size: 11px; font-weight: 600; line-height: 1; letter-spacing: 0.04em; }
     }
 
     .body {
@@ -1707,12 +1711,12 @@ type RowProps = {
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
-const Poster = ({ url }: { url: string | null }) =>
+const Poster = ({ url, t }: { url: string | null, t: Torrent }) =>
   url
     // decorative: the name is right beside it, so a screen reader announcing this twice is worse
     // than it announcing nothing
     ? <img className="poster" src={url} alt="" />
-    : <div className="poster placeholder"><Folder /></div>
+    : <div className="poster placeholder"><FileGlyph name={t.name} files={t.files}/></div>
 
 /**
  * A library row drawn before its engine handle exists.
@@ -1727,7 +1731,7 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
   const intl = useIntl()
   return (
     <div className="torrent surface starting">
-      <Poster url={poster}/>
+      <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">
           <div className="body">
@@ -1764,7 +1768,7 @@ const MissingRow = ({
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
       {/* the files are gone from this device but the picture was cached here, so it still shows */}
-      <Poster url={poster}/>
+      <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">
           <div className="body">
@@ -1899,7 +1903,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
       }}
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
-      <Poster url={poster}/>
+      <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">
           <div className="body">

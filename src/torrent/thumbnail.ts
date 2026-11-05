@@ -79,6 +79,27 @@ export const pickThumbnailSource = (
   return image ?? video
 }
 
+/** What stands in for a torrent's picture: one video file, one other file, or a folder. */
+export type Glyph = { kind: 'video' | 'file' | 'folder', ext: string | null }
+
+const FOLDER: Glyph = { kind: 'folder', ext: null }
+
+const extensionOf = (name: string) => /\.([a-z0-9]{1,5})$/i.exec(name)?.[1]?.toUpperCase() ?? null
+
+/**
+ * The placeholder's kind and label, from the content files once metadata is known (pads skipped).
+ *
+ * Before metadata only the name is there, and a single file torrent's name is its file's. Only a
+ * video extension is trusted on a name: a folder's name ends in `.WEB` or `.x264` as often as not.
+ */
+export const glyphFor = (name: string, files?: readonly { name: string, pad?: boolean }[]): Glyph => {
+  if (!files) return VIDEO_RE.test(name) ? { kind: 'video', ext: extensionOf(name) } : FOLDER
+  const content = files.filter((file) => !file.pad)
+  const only = content.length === 1 ? content[0]?.name : undefined
+  if (only === undefined) return FOLDER
+  return { kind: VIDEO_RE.test(only) ? 'video' : 'file', ext: extensionOf(only) }
+}
+
 /** Whether every byte of [from, to) is on disk, given the file's downloaded ranges. */
 export const rangeIsDownloaded = (ranges: [number, number][], from: number, to: number): boolean => {
   if (to <= from) return true
