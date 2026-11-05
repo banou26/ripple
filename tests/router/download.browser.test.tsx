@@ -88,6 +88,13 @@ const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
 const state = { current: torrent() }
 vi.mock('../../src/torrent/use-download-torrent', () => ({ useDownloadTorrent: () => state.current }))
 
+/** The picture this device holds for the torrent, or null for none, which is what the page sees by default. */
+const thumb = { current: null as string | null }
+vi.mock('../../src/torrent/use-thumbnails', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/use-thumbnails')>()),
+  useThumbnail: () => thumb.current,
+}))
+
 const saved = {
   zip: [] as { name: string, entries: SaveEntry[], viewer?: string }[],
   file: [] as { index: number, path: string, size: number, viewer?: string }[],
@@ -164,6 +171,7 @@ const mountPlayer = async (search = '') => {
 describe('the download route', () => {
   beforeEach(() => {
     state.current = torrent()
+    thumb.current = null
     saved.zip = []
     saved.file = []
     saved.holds = false
@@ -261,6 +269,19 @@ describe('the download route', () => {
       await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeInTheDocument()
       expect(glyph(screen).querySelector('.lucide-file-play')).not.toBeNull()
       expect(glyph(screen).querySelector('.ext')?.textContent).toBe('MKV')
+    })
+
+    it('a 16:9 picture fills the whole tile, cropped rather than letterboxed', async () => {
+      const frame = document.createElement('canvas')
+      frame.width = 320
+      frame.height = 180
+      thumb.current = frame.toDataURL()
+      const screen = await mount('&files=2')
+      await expect.element(screen.getByText('E03.mkv')).toBeInTheDocument()
+      const img = glyph(screen).querySelector('img')!
+      await expect.poll(() => img.complete && img.naturalWidth).toBe(320)
+      const tile = glyph(screen)
+      expect([img.offsetWidth, img.offsetHeight]).toEqual([tile.clientWidth, tile.clientHeight])
     })
   })
 

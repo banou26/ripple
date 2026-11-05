@@ -169,6 +169,8 @@ const style = css`
     .glyph.poster {
       overflow: hidden;
       padding: 0;
+      /* stretched, or the row shrinks to the picture's own height and 100% below is only that */
+      align-content: normal;
 
       img {
         width: 100%;
