@@ -9,7 +9,7 @@ import { createIntl, createIntlCache, RawIntlProvider, type IntlShape } from 're
 
 import type { Said } from './said'
 
-import { formatLocale, isRightToLeft, LANGUAGE_KEY, setUnitLocale, uiLanguage } from './languages'
+import { formatLocale, isRightToLeft, keepPickedLanguage, setUnitLocale, uiLanguage } from './languages'
 
 export { LANGUAGE_KEY, OFFERED, automaticLanguage, bestLanguage, formatLocale, isRightToLeft, readPickedLanguage, uiLanguage } from './languages'
 export type { Said } from './said'
@@ -99,9 +99,6 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
  * once, in place: no reload, so the engine and its peers carry on. Other tabs take it on their next load.
  */
 export const pickLanguage = (language: string | undefined) => {
-  try {
-    if (language) localStorage.setItem(LANGUAGE_KEY, language)
-    else localStorage.removeItem(LANGUAGE_KEY)
-  } catch {}
+  keepPickedLanguage(language)
   return startLanguage()
 }
