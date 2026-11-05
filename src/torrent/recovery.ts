@@ -26,9 +26,9 @@ const HEALTHY_MS = 60_000
 // Downloading metadata (2) or downloading (3): only these can be stalled.
 const ACTIVE_STATES = new Set([2, 3])
 /**
- * Checking files (1) and checking resume data (7), which libtorrent reports as PAUSED while they
- * run. Exported because anything driving the pause flag has to know that, not just this tracker: a
- * loop that reads `paused` as something to correct would fight a check for its whole run.
+ * Checking files (1) and checking resume data (7). libtorrent hashes only a torrent that is not
+ * paused, one at a time, so a check that runs reads not paused, and one waiting its turn reads paused
+ * with `autoManaged` still set until libtorrent's queue starts it. A pause stops a check where it is.
  */
 export const CHECKING_STATES = new Set([1, 7])
 
@@ -38,7 +38,7 @@ export const CHECKING_STATES = new Set([1, 7])
  *
  * Three different things set that flag and only one of them is a pause:
  *
- *  - a CHECK reports itself paused for as long as the hashing runs, which `CHECKING_STATES` covers;
+ *  - a CHECK waiting its turn reads paused with `autoManaged` still set (`CHECKING_STATES`);
  *  - libtorrent's own QUEUE parks whatever sits past its active limits, and a parked torrent keeps
  *    `autoManaged` set. The queue unparks it again a tick later, entirely on its own;
  *  - Ripple's pause clears auto-management first, so `paused` without `autoManaged` is the only shape
@@ -49,7 +49,8 @@ export const CHECKING_STATES = new Set([1, 7])
  * the want, and then nothing pauses the torrent when the queue starts it again. Measured through a
  * tab handover, where the failure rate went from 1 in 4 to 0 in 6 once this rule was applied.
  *
- * `use-torrents.ts` draws the same line to render the Queued badge, from the other side.
+ * `use-torrents.ts` draws the same line to tell a check waiting its turn, which reads Checking, from
+ * one a pause stopped, which offers Resume.
  */
 export const pauseLanded = (status: { paused: boolean, autoManaged: boolean } | null | undefined): boolean =>
   !!status && status.paused && !status.autoManaged
