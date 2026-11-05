@@ -2,7 +2,7 @@ import type { Torrent } from '../../src/torrent/types'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page } from '@vitest/browser/context'
+import { page, userEvent } from '@vitest/browser/context'
 
 import { IntlRoot } from '../../src/i18n'
 import de from '../../src/locales/de.json'
@@ -169,13 +169,28 @@ describe('the torrent table', () => {
     expect((await screen).container.querySelector('input[type="checkbox"]')).toBeNull()
   })
 
-  it('gives the box a finger-sized area on a phone', async () => {
+  /** A click just above or below the box ticks it; were it to reach the row, it would open the details instead. */
+  it('ticks from anywhere in the box\'s cell, not only on the box', async () => {
+    const rows = [t({ infoHash: 'e'.repeat(40), name: 'near miss' })]
+    const { props, screen } = mount({ torrents: rows })
+    const cell = (await screen).container.querySelector<HTMLElement>('tbody td.check')!
+    const { height } = cell.getBoundingClientRect()
+    await userEvent.click(cell, { position: { x: 1, y: 1 } })
+    await userEvent.click(cell, { position: { x: 1, y: height - 1 } })
+    expect(props.onPick).toHaveBeenCalledTimes(2)
+    expect(props.onSelect).not.toHaveBeenCalled()
+  })
+
+  it('gives the box a finger-sized area on a phone, partly in the name\'s padding', async () => {
     await page.viewport(390, 844)
     try {
-      const { screen } = mount({ torrents: [t({ infoHash: 'e'.repeat(40) })] })
-      const hit = (await screen).container.querySelector('.row-check')!.getBoundingClientRect()
-      expect(hit.width).toBeGreaterThanOrEqual(32)
-      expect(hit.height).toBeGreaterThanOrEqual(40)
+      const { screen } = mount({ torrents: [t({ infoHash: 'f'.repeat(40) })] })
+      const cell = (await screen).container.querySelector('tbody td.check')!.getBoundingClientRect()
+      const ticks = (x: number, y: number) => !!document.elementFromPoint(x, y)?.closest('.row-check')
+      expect(cell.height).toBeGreaterThanOrEqual(40)
+      for (const [x, y] of [[cell.left + 1, cell.top + 1], [cell.left + 39, cell.top + 1], [cell.left + 1, cell.bottom - 1], [cell.left + 39, cell.bottom - 1]] as const) {
+        expect(ticks(x, y), `${x - cell.left}, ${y - cell.top}`).toBe(true)
+      }
     } finally {
       await page.viewport(1280, 720)
     }

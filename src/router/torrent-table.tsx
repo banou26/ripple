@@ -93,13 +93,20 @@ const style = css`
     &[data-selected] { background: ${CONTROL_BG}; }
   }
 
-  /* the box's own label is its hit area, so the cell adds no padding of its own; a row's height on a
-     wide screen, a finger's on a phone */
+  /* The box's label is its hit area, and its ::before spreads that over the whole cell, or a click just above or
+     below the box would open the details instead. Before the box and the box positioned too, so the box paints on
+     top of it; not in the header's cell, which stays sticky. */
   td.check {
     padding: 0;
 
     .row-check { width: 32px; height: 32px; }
+
+    .row-check::before { content: ''; position: absolute; inset: 0; }
+
+    input { position: relative; }
   }
+
+  tbody td.check { position: relative; }
 
   td.name {
     width: 100%;
@@ -156,16 +163,25 @@ const style = css`
   @media (max-width: 940px) { .c-up { display: none; } }
   @media (max-width: 820px) { .c-peers { display: none; } }
   @media (max-width: 700px) { .c-size { display: none; } }
-  /* With the box column, Brazilian Portuguese's TENTANDO NOVAMENTE left a name 63 px at 320 px and French
-     81 px at 412 px, so on a phone a state wider than 7.5em takes two lines; keep-all, or Japanese broke
-     after every character. */
+  /* On a phone a state takes a second line only where one line would leave the name under 84 px: the window less
+     the list's padding (32), the box column (32), that name and the state cell's padding (20), and with Progress
+     showing, its column (100, as wide as Italian's AVANZAMENTO in DejaVu Sans). Without it Brazilian Portuguese's
+     TENTANDO NOVAMENTE left a name 54 px at 320 px, and French 49 px at 401 px; a floor on the column instead
+     wrapped EN PAUSE at 390 px, where nothing has to. One word wider than the room, French TÉLÉCHARGEMENT below
+     420 px in DejaVu Sans, widens its badge rather than spill out of it, and leaves the name 75 px at 401 px. */
   @media (max-width: 560px) {
     .c-down, .bar { display: none; }
-    td.check .row-check { height: 40px; }
-    td.c-status { width: 7.5em; white-space: normal; word-break: keep-all; }
+    /* a finger's height, and the name's padding beside the box, for a finger's width without taking the name's room */
+    tbody td.check { height: 40px; }
+    td.check .row-check::before { right: -8px; }
+    td.c-status .badge { width: max-content; min-width: min-content; max-width: calc(100vw - 268px); white-space: normal; }
+    td.c-status .badge::before { flex: none; }
   }
   /* with Progress, French left a name 47 px at 360 px and ran past a 320 px window */
-  @media (max-width: 400px) { .c-progress { display: none; } }
+  @media (max-width: 400px) {
+    .c-progress { display: none; }
+    td.c-status .badge { max-width: calc(100vw - 168px); }
+  }
 `
 
 type Column = {
