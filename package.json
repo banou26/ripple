@@ -62,7 +62,7 @@
     "@banou/media-player": "^0.10.40",
     "@banou/ponyfill": "^0.0.15",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.9.66",
+    "@fkn/lib": "^0.9.73",
     "ass-compiler": "^0.1.15",
     "fflate": "^0.8.3",
     "idb-keyval": "^6.2.1",
