@@ -1,3 +1,11 @@
+import { defineMessage } from 'react-intl'
+
+/** The second sentence of the warning shown when the VPN is switched off, on a device inListedCountry() answers yes for. */
+export const COUNTRY_LINE = defineMessage({
+  id: 'In your country, sharing copyrighted files this way can lead to a demand for money.',
+  defaultMessage: 'In your country, sharing copyrighted files this way can lead to a demand for money.',
+})
+
 /**
  * The countries where the warning shown when the VPN is switched off adds its second sentence, by ISO 3166 code, each
  * with the ids the tz database's zone.tab gives it (release 2026f): a country's own ids, never the ids of a zone it
