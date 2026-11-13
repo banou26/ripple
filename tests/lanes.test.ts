@@ -176,6 +176,16 @@ describe('the checks CI actually runs', () => {
   })
 })
 
+describe('the README', () => {
+  const readmes = import.meta.glob('../README.md', { query: '?raw', import: 'default', eager: true })
+  const named = [...Object.values(readmes).join('\n').matchAll(/npm run ([\w:-]+)/g)].map((m) => m[1]!)
+
+  it('names only scripts package.json has', () => {
+    expect(named, 'no `npm run` was read from the README, so the check below is vacuous').not.toEqual([])
+    expect(named.filter((name) => !scripts[name]), 'the README tells a reader to run a script that is gone').toEqual([])
+  })
+})
+
 /**
  * A rule from a plugin that is not enabled is ignored IN SILENCE, which is the worst shape a check
  * can have: no "unknown rule", no warning, just a clean run that tested nothing.

@@ -64,7 +64,6 @@ The Playwright suites build first, then drive the built site in Chrome:
 | command | what it covers |
 | --- | --- |
 | `npm run test:e2e:local` | the app, needing nothing but the browser (and ffmpeg) |
-| `npm run test:e2e:machine` | live figures keep their width, which depends on the machine's fonts |
 | `npm run test:e2e:swarm` | the engine against real public swarms |
 | `npm run test:e2e:rig` | the whole chain against a local swarm, see [tests/swarm-rig](./tests/swarm-rig/README.md) |
 
