@@ -70,6 +70,18 @@ The engine's DHT is on, and it announces the infohash through the relay. So the 
 stray peer (1 peer in two of three runs, 0 bytes each time). This is why the seeders' own upload
 count is part of the claim.
 
+## The relay drop
+
+`npm run e2e:rig` then runs [`tests/swarm-rig-relay-drop.spec.ts`](../swarm-rig-relay-drop.spec.ts) in a run of its
+own, since it stops the relay the config started: the seeders capped at 100 kB/s each,
+the relay stopped with SIGTERM once 20% of the fixture is in, and started again 20 s later from the same binary,
+environment and certificate. It asserts that the engine worker never goes 5 s without a state message, that the
+VPN readout goes to Reconnecting and back to On, and that OPFS ends up holding the fixture. It takes about 6
+minutes, most of it libtorrent's own timeouts on the uTP connections the outage left behind. On engine 0.3.21 the
+worker stops posting within 5 s of the drop and the spec fails. `RIPPLE_RIG_OUTAGE_MS`, `RIPPLE_RIG_SEEDER_KBPS`,
+`RIPPLE_RIG_OUTAGE_AT` and `RIPPLE_RIG_RECOVERY_MS` move it, and `RIPPLE_RIG_RESULT` names a file for the
+per-second record.
+
 ## Knobs
 
 `RIPPLE_RIG_SEEDERS` (default 4), `RIPPLE_RIG_BUDGET_MS` (swarm arm, 120000),

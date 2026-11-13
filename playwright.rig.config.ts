@@ -87,7 +87,7 @@ const owned = (command: string, env: Record<string, string> = {}) => ({
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: '**/swarm-rig.spec.ts',
+  testMatch: '**/swarm-rig*.spec.ts',
   workers: 1,
   timeout: 300_000,
   expect: { timeout: 10_000 },
