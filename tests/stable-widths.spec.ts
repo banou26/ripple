@@ -1,68 +1,108 @@
 /*
- * Live figures must not shove the things beside them.
+ * Live figures must not shove the things beside them, in whatever font and language they are drawn.
  *
  * `tabular-nums` was already set in both places and is not the fix: it stops DIGITS jittering and
  * does nothing about a string getting longer, which is what moves a row. 9.9 MB/s to 10.2 MB/s to
  * 999.9 kB/s happens several times a second on anything downloading, and each change drags every
  * readout to its right along with it.
  *
+ * Every case runs in each of FONTS, because a room sized for one font holds in that font only: the
+ * em widths this replaced passed here in Noto Sans while GitHub's runner, which draws system-ui in
+ * DejaVu Sans, failed them every night from 2026-09-03 with the readout beside Download at 221 and
+ * 230 instead of 208. A test drawn in the machine's own font alone cannot see that.
+ *
  * Driven rather than observed: waiting for real values to vary tests whatever the swarm happened to
  * do in the window, where writing the range in tests the rule.
  */
 import { expect, test } from '@playwright/test'
 
+import { LANGUAGE_KEY } from './languages'
 import { addSample } from './sample-offer'
 
-const SPEEDS = ['0 B/s', '9.9 kB/s', '999.9 kB/s', '9.9 MB/s', '99.9 MB/s', '999.9 MB/s', '1.23 GB/s']
+/**
+ * The device's own font, a wide fallback (monospace, wider than a sans face nearly everywhere), and
+ * a reader's own text spacing, which widens any font: no width written in em holds all three.
+ */
+const FONTS: Record<string, string> = {
+  'device font': '',
+  'monospace fallback': 'body * { font-family: monospace !important }',
+  'reader text spacing': 'body * { letter-spacing: 0.12em !important; word-spacing: 0.16em !important }',
+}
 
-test('the global rate readouts hold their width as the number changes', async ({ page }) => {
+/**
+ * Every unit a figure is written in, at its widest and below it, as the page writes them in English
+ * and in Japanese, whose 秒 is a full em where English has an s.
+ */
+const LANGUAGES = {
+  en: {
+    speeds: ['0 B/s', '999.9 B/s', '9.9 kB/s', '999.9 kB/s', '9.9 MB/s', '99.9 MB/s', '999.9 MB/s', '1.23 GB/s', '9.99 GB/s'],
+    sizes: ['0 B', '999 B', '9.9 kB', '999.9 kB', '99.9 MB', '999.9 MB', '1.23 GB', '999.99 GB', '1.5 TB'],
+    peers: ['0 peers', '9 peers', '99 peers', '999 peers'],
+  },
+  ja: {
+    speeds: ['0 B/秒', '999.9 B/秒', '9.9 KB/秒', '999.9 KB/秒', '9.9 MB/秒', '99.9 MB/秒', '999.9 MB/秒', '1.23 GB/秒', '9.99 GB/秒'],
+    sizes: ['0 B', '999 B', '9.9 KB', '999.9 KB', '99.9 MB', '999.9 MB', '1.23 GB', '999.99 GB', '1.5 TB'],
+    peers: ['0ピア', '9ピア', '99ピア', '999ピア'],
+  },
+}
+
+test('live figures keep their room whatever the font and the language', async ({ page }) => {
   test.setTimeout(120_000)
+  // the page needs nothing from outside for this, so nothing leaves the machine
+  await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
   await page.goto('/')
   await addSample(page, { pause: true })
-  await page.locator('.stats .stat.big.rate strong').waitFor({ timeout: 90_000 })
 
-  const lefts = await page.evaluate((speeds) => {
-    const download = document.querySelector('.stats .stat.big.rate strong') as HTMLElement
-    // the readout after it is what gets shoved, so its left edge is the thing under test
-    const after = document.querySelector('.stats .stat.rate:not(.big) strong') as HTMLElement
-    const seen: number[] = []
-    for (const value of speeds) {
-      download.textContent = value
-      seen.push(Math.round(after.getBoundingClientRect().left))
+  for (const [language, figures] of Object.entries(LANGUAGES)) {
+    if (language !== 'en') {
+      await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
+      await page.reload()
     }
-    return seen
-  }, SPEEDS)
+    await expect(page.locator('html'), 'the page is not in the language its figures are written in').toHaveAttribute('lang', language)
+    await page.locator('.torrent .meta .pair').first().waitFor({ timeout: 90_000 })
 
-  expect(new Set(lefts).size, `the readout beside Download moved to ${lefts.join(', ')}`).toBe(1)
-})
+    const seen = await page.evaluate(({ fonts, speeds, sizes, peers: counts }) => {
+      const [download, upload, peak] = document.querySelectorAll<HTMLElement>('.stats .stat.rate strong')
+      const nextStat = (figure: HTMLElement) => figure.parentElement!.nextElementSibling as HTMLElement
+      const meta = document.querySelector('.torrent .meta') as HTMLElement
+      const pair = meta.querySelector('.pair') as HTMLElement
+      const [down, up] = meta.querySelectorAll<HTMLElement>('.rate')
+      const peers = meta.querySelector('.peers') as HTMLElement
+      // a paused row ends at its peer count, so this stands for the time left a download shows there
+      const left = meta.appendChild(document.createElement('span'))
+      left.textContent = '4m left'
+      const total = pair.textContent.split(' / ')[1]!
 
-test('a row holds its layout as its own figures change', async ({ page }) => {
-  test.setTimeout(120_000)
-  await page.goto('/')
-  await addSample(page, { pause: true })
-  await page.locator('.torrent .meta .pair').first().waitFor({ timeout: 90_000 })
+      // each figure, and the box after it, whose left edge is what a figure growing would shove
+      const cases = [
+        { name: 'Download', figure: download!, beside: nextStat(download!), texts: speeds },
+        { name: 'Upload', figure: upload!, beside: nextStat(upload!), texts: speeds },
+        { name: 'Peak down', figure: peak!, beside: nextStat(peak!), texts: speeds },
+        { name: 'size pair', figure: pair, beside: down!, texts: sizes.map((done) => `${done} / ${total}`) },
+        { name: 'download speed', figure: down!, beside: up!, texts: speeds.map((value) => `↓ ${value}`) },
+        { name: 'upload speed', figure: up!, beside: peers, texts: speeds.map((value) => `↑ ${value}`) },
+        { name: 'peer count', figure: peers, beside: left, texts: counts },
+      ]
 
-  const moved = await page.evaluate((speeds) => {
-    const meta = document.querySelector('.torrent .meta') as HTMLElement
-    const pair = meta.querySelector('.pair') as HTMLElement
-    const down = meta.querySelectorAll('.rate')[0] as HTMLElement
-    const peers = meta.querySelector('.peers') as HTMLElement
-    // whatever sits after the peer count is the last thing that can be shoved
-    const last = meta.lastElementChild as HTMLElement
+      const sheet = document.head.appendChild(document.createElement('style'))
+      const out: { font: string, name: string, lefts: number[] }[] = []
+      for (const [font, css] of Object.entries(fonts)) {
+        sheet.textContent = css
+        for (const { name, figure, beside, texts } of cases) {
+          const was = figure.textContent
+          const lefts = texts.map((text) => {
+            figure.textContent = text
+            return Math.round(beside.getBoundingClientRect().left)
+          })
+          figure.textContent = was
+          out.push({ font, name, lefts })
+        }
+      }
+      return out
+    }, { fonts: FONTS, ...figures })
 
-    const pairs = ['0 B / 1.2 GB', '129.2 MB / 1.2 GB', '999.9 MB / 999.9 MB', '1.23 GB / 1.23 GB']
-    const counts = ['0 peers', '9 peers', '999 peers']
-    const out = { afterPair: [] as number[], afterRate: [] as number[], afterPeers: [] as number[] }
-
-    for (const value of pairs) { pair.textContent = value; out.afterPair.push(Math.round(down.getBoundingClientRect().left)) }
-    pair.textContent = pairs[0]!
-    for (const value of speeds) { down.textContent = `↓ ${value}`; out.afterRate.push(Math.round(peers.getBoundingClientRect().left)) }
-    down.textContent = '↓ 0 B/s'
-    for (const value of counts) { peers.textContent = value; out.afterPeers.push(Math.round(last.getBoundingClientRect().left)) }
-    return out
-  }, SPEEDS)
-
-  expect(new Set(moved.afterPair).size, `the speed moved to ${moved.afterPair.join(', ')} as the size pair changed`).toBe(1)
-  expect(new Set(moved.afterRate).size, `the peer count moved to ${moved.afterRate.join(', ')} as the speed changed`).toBe(1)
-  expect(new Set(moved.afterPeers).size, `the line after the peers moved to ${moved.afterPeers.join(', ')}`).toBe(1)
+    for (const { font, name, lefts } of seen) {
+      expect.soft(new Set(lefts).size, `${language}, ${font}: what follows the ${name} moved to ${lefts.join(', ')}`).toBe(1)
+    }
+  }
 })

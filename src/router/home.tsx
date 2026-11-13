@@ -2,9 +2,9 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { defineMessages, useIntl } from 'react-intl'
+import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
@@ -328,6 +328,28 @@ export const style = css`
     text-decoration: none;
   }
 
+  /*
+   * A live figure keeps the room of the widest text it can show, so its changing never shoves what
+   * sits beside it. data-room carries those texts one per line, laid under the figure with no height,
+   * so the box is as wide as the widest of them in whatever font draws the page.
+   *
+   * Measured in the page rather than written as a width, because a width fits one font and one
+   * language: 5.4em held 999.9 MB/s in Noto Sans Bold (5.35em), not in DejaVu Sans Bold (6.23em),
+   * which is system-ui on a Linux machine without Noto, GitHub's runner among them, and not in
+   * Japanese, whose 999.9 MB/秒 is 5.85em in Noto Sans itself.
+   */
+  [data-room] {
+    display: inline-grid;
+
+    &::after {
+      content: attr(data-room);
+      height: 0;
+      overflow: hidden;
+      visibility: hidden;
+      white-space: pre;
+    }
+  }
+
   button {
     font-family: inherit;
     cursor: pointer;
@@ -637,22 +659,6 @@ export const style = css`
         white-space: nowrap;
       }
 
-      /*
-       * A rate holds its width, so the readouts beside it stop being shoved sideways.
-       *
-       * The tabular-nums above already stops digits from jittering, and it is not enough on its own:
-       * what moves the row is the STRING changing length, 9.9 MB/s to 10.2 MB/s to 999.9 kB/s, which
-       * happens several times a second while anything is downloading and drags Peak down, Active and
-       * the connection readout along with it.
-       *
-       * In em units so one rule covers both sizes: the widest value this holds, 999.9 MB/s, measured
-       * 146px at the big 27.2px and 90px at the small 16.8px, which is 5.37em both times. A pixel
-       * pair would have to be re-measured the next time either font size moves.
-       */
-      &.rate strong {
-        min-width: 5.4em;
-      }
-
       /* the number is identical in both states, so without a colour the low state would be the same
          pixels as the healthy one; this is a caution and it keeps the caution hue */
       &.storage.low strong {
@@ -920,23 +926,6 @@ export const style = css`
       color: ${TEXT_MUTED};
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
-
-      /*
-       * The live figures hold their widths, so the rest of the line stops sliding about.
-       *
-       * These four change several times a second on anything downloading, and each one that grows a
-       * character shoves everything after it along: the pair moves the speeds, the speeds move the
-       * peer count, the peer count moves the time left. The tabular figures above keep DIGITS from
-       * jittering and do nothing about the string getting longer, which is the part that moves a row.
-       *
-       * Sized in em from the widest each can actually hold, measured at this font rather than
-       * guessed: 999.9 MB / 999.9 MB is 9.69em, an arrow plus 999.9 MB/s is 6.02em, and 999 peers is
-       * 4.69em. A min-width rather than a width, so a value that somehow exceeds the measurement
-       * still renders in full instead of being clipped.
-       */
-      .pair { min-width: 9.8em; }
-      .rate { min-width: 6.1em; }
-      .peers { min-width: 4.8em; }
 
       /* The temporary marker, in the same box the limit chip uses: both are properties of the
          torrent rather than live numbers, so they read as one kind of thing. No hue, because the
@@ -1832,6 +1821,33 @@ const MissingRow = ({
   )
 }
 
+/** The widest a speed is written in each unit, to the single digit of gigabytes a second no browser transfer passes. */
+const WIDEST_SPEEDS = [999.9, 999.9e3, 999.9e6, 9.99e9]
+
+/** The widest a count of bytes is written in each unit, from bytes to terabytes. */
+const WIDEST_SIZES = [999.9, 999.9e3, 999.9e6, 999.99e9, 999.99e12]
+
+/** What `write` makes of each figure, one per line, which is what data-room takes. */
+const room = (write: (figure: number) => string, figures: number[]) => figures.map(write).join('\n')
+
+/** A row's live figures, written by one function each so that the text and the room it keeps agree. */
+const rowFigures = (intl: IntlShape, size: number) => {
+  const total = getHumanReadableByteString(size, true)
+  const pair = (done: number) => intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(done, true), total })
+  const down = (bps: number) => intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(bps) })
+  const up = (bps: number) => intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(bps) })
+  const peers = (count: number) => intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count })
+  return {
+    pair, down, up, peers,
+    rooms: {
+      pair: room(pair, WIDEST_SIZES),
+      down: room(down, WIDEST_SPEEDS),
+      up: room(up, WIDEST_SPEEDS),
+      peers: peers(999),
+    },
+  }
+}
+
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
 export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates }: RowProps) => {
   const intl = useIntl()
@@ -1843,6 +1859,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
    * same component, which React treats as a corrupted render rather than a state change.
    */
   const poster = useThumbnail(t.infoHash)
+  const figures = useMemo(() => rowFigures(intl, t.size), [intl, t.size])
   if (t.state === 'starting') return <StartingRow t={t} poster={poster}/>
   if (t.state === 'missing') {
     return (
@@ -1924,12 +1941,10 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
                   <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
               )}
-              <span className="pair">
-                {intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(t.downloaded, true), total: getHumanReadableByteString(t.size, true) })}
-              </span>
-              <span className="rate">{intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(t.down) })}</span>
-              <span className="rate">{intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(t.up) })}</span>
-              <span className="peers">{intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: t.peers })}</span>
+              <span className="pair" data-room={figures.rooms.pair}>{figures.pair(t.downloaded)}</span>
+              <span className="rate" data-room={figures.rooms.down}>{figures.down(t.down)}</span>
+              <span className="rate" data-room={figures.rooms.up}>{figures.up(t.up)}</span>
+              <span className="peers" data-room={figures.rooms.peers}>{figures.peers(t.peers)}</span>
               {t.state === 'downloading' && t.eta !== '-' && <span>{t.etaSeconds === undefined ? intl.formatMessage({ id: 'queued left', defaultMessage: 'queued left' }) : intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
@@ -2932,6 +2947,7 @@ const Home = () => {
   const totalDown = torrents.reduce((n, t) => n + t.down, 0)
   const totalUp = torrents.reduce((n, t) => n + t.up, 0)
   const peak = Math.max(...history, 0)
+  const speedRoom = room(speed, WIDEST_SPEEDS)
   const active = torrents.filter((t) => isActive(t.state)).length
 
   /**
@@ -3320,11 +3336,11 @@ const Home = () => {
           <div className="readouts">
             <div className="stat big rate">
               <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
-              <strong>{speed(totalDown)}</strong>
+              <strong data-room={speedRoom}>{speed(totalDown)}</strong>
             </div>
             <div className="stat rate">
               <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
-              <strong>{speed(totalUp)}</strong>
+              <strong data-room={speedRoom}>{speed(totalUp)}</strong>
             </div>
             {/* Which direction this is has to be said. `history` samples download alone, so a
                 library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
@@ -3332,7 +3348,7 @@ const Home = () => {
                 forty peers. */}
             <div className="stat rate">
               <label>{intl.formatMessage({ id: 'Peak down', defaultMessage: 'Peak down' })}</label>
-              <strong>{speed(peak)}</strong>
+              <strong data-room={speedRoom}>{speed(peak)}</strong>
             </div>
             <div className="stat">
               <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
