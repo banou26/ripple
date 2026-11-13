@@ -7,10 +7,11 @@ import { fakeDir, installWorkerGlobals } from '../utils/worker-rig'
 /**
  * A cached film the restore's first budget pass gives up leaves the engine, bytes and all.
  *
- * That pass runs before the worker's first alert pump, and this engine does what libtorrent-wasm 0.3.21 does: a
- * command reaches only a handle the pump has registered, and a remove before it is dropped without a word. The worker
- * had already forgotten the film by then, so nothing removed it again: on Firefox (2026-11-06, about 1 run in 10) its
- * 1.6 GiB stayed in a 2 GiB room and the release opened next was called too big.
+ * That pass runs before the worker's first alert pump, and the worker forgets the film as it gives it up, so the remove
+ * it sends then is the only one. libtorrent-wasm 0.3.22 and older dropped a remove for a handle the pump had not
+ * registered yet: on Firefox (2026-11-06, about 1 run in 10) the film's 1.6 GiB stayed in a 2 GiB room and the release
+ * opened next was called too big. This engine removes any handle it gave out, as the real one does since then
+ * (`worker-early-remove.test.ts`).
  */
 
 const MiB = 1024 * 1024
@@ -19,7 +20,7 @@ const FILM = 1664 * MiB
 const OWN = 320 * MiB
 const FILM_HASH = 'c'.repeat(40)
 
-const engine = vi.hoisted(() => ({ added: [] as number[], registered: new Set<number>(), removed: [] as number[] }))
+const engine = vi.hoisted(() => ({ added: [] as number[], removed: [] as number[] }))
 const gone = () => engine.removed.includes(1)
 
 const film: Persisted = {
@@ -48,8 +49,7 @@ vi.mock('libtorrent-wasm', async () => {
         engine.added.push(h)
         return h
       },
-      popAlerts: () => { for (const h of engine.added) engine.registered.add(h); return [] },
-      removeTorrent: (h: number) => { if (engine.registered.has(h)) engine.removed.push(h) },
+      removeTorrent: (h: number, deleteFiles?: boolean) => { if (engine.added.includes(h) && deleteFiles) engine.removed.push(h) },
       pauseTorrent: () => {},
       resumeTorrent: () => {},
     }),
