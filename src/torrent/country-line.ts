@@ -9,9 +9,9 @@ export const COUNTRY_LINE = defineMessage({
 /**
  * The countries where the warning shown when the VPN is switched off adds its second sentence, by ISO 3166 code, each
  * with the ids the tz database's zone.tab gives it (release 2026f): a country's own ids, never the ids of a zone it
- * shares a clock with, so Europe/Stockholm is Sweden although the tz database links it to Europe/Berlin. Checked
- * 2026-11-14. The evidence for each country, and how the list is kept, are in the knowledge base: banou26/agent,
- * roadmap/decisions/ripple-66/countries.md.
+ * shares a clock with, so Europe/Stockholm is Sweden although the tz database links it to Europe/Berlin. A country
+ * is listed where a home subscriber found by their address in a BitTorrent swarm can today be asked for money, with
+ * evidence dated 2023-11 or later. Checked 2026-11-14.
  */
 export const LISTED_ZONES: Readonly<Record<string, readonly string[]>> = {
   DE: ['Europe/Berlin', 'Europe/Busingen'],
