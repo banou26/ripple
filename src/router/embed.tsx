@@ -488,9 +488,12 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   )
   const jassubWorkerUrl = useMemo(() => new URL('worker.js', jassubBase).toString(), [jassubBase])
   const jassubWasmUrl = useMemo(() => new URL('jassub-worker-modern.wasm', jassubBase).toString(), [jassubBase])
+  const jassubWasmWorkerUrl = useMemo(() => new URL('jassub-worker-modern.js', jassubBase).toString(), [jassubBase])
   // Now worth passing, which it was not before: jassub 2 picks the modern build on RELAXED simd
-  // rather than plain simd, so the fallback covers current browsers and not only ancient ones.
+  // rather than plain simd, and from 2.5.35 only with more than 2 GB of memory, so the fallback
+  // covers current browsers and phones and not only ancient ones.
   const jassubLegacyWasmUrl = useMemo(() => new URL('jassub-worker.wasm', jassubBase).toString(), [jassubBase])
+  const jassubLegacyWasmWorkerUrl = useMemo(() => new URL('jassub-worker.js', jassubBase).toString(), [jassubBase])
   const defaultFontUrl = useMemo(() => new URL('default.woff2', jassubBase).toString(), [jassubBase])
   const cjkFontUrl = useMemo(() => new URL('noto-sans-jp.otf', jassubBase).toString(), [jassubBase])
 
@@ -777,7 +780,9 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         libavWorkerUrl={libavWorkerUrl}
         jassubWorkerUrl={jassubWorkerUrl}
         jassubWasmUrl={jassubWasmUrl}
+        jassubWasmWorkerUrl={jassubWasmWorkerUrl}
         jassubLegacyWasmUrl={jassubLegacyWasmUrl}
+        jassubLegacyWasmWorkerUrl={jassubLegacyWasmWorkerUrl}
         defaultFontUrl={defaultFontUrl}
         cjkFontUrl={cjkFontUrl}
         normalizerWorkletUrl={normalizerWorkletUrl}

@@ -102,7 +102,7 @@
     "eslint-plugin-formatjs": "^8.1.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
-    "jassub": "^2.5.23",
+    "jassub": "^2.5.37",
     "node-stdlib-browser": "^1.2.0",
     "playwright": "^1.58.0",
     "serve": "^14.2.1",

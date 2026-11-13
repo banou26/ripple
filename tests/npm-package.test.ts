@@ -36,7 +36,9 @@ const SITE = [
   'sw.js',
   'jassub/worker.js',
   'jassub/jassub-worker.wasm',
+  'jassub/jassub-worker.js',
   'jassub/jassub-worker-modern.wasm',
+  'jassub/jassub-worker-modern.js',
   'jassub/default.woff2',
   'jassub/noto-sans-jp.otf',
 ]

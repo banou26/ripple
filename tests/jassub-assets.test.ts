@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import CHECK from '../scripts/check-npm-package.mjs?raw'
 import CONFIG from '../vite.jassub.config.ts?raw'
 import EMBED from '../src/router/embed.tsx?raw'
 import ENTRY from '../src/jassub-assets.ts?raw'
@@ -20,7 +21,10 @@ import ENTRY from '../src/jassub-assets.ts?raw'
  */
 
 /** Every name the app builds a url for, and the base it builds them against. */
-const ASSETS = ['worker.js', 'jassub-worker-modern.wasm', 'jassub-worker.wasm', 'default.woff2', 'noto-sans-jp.otf']
+const ASSETS = [
+  'worker.js', 'jassub-worker-modern.wasm', 'jassub-worker-modern.js', 'jassub-worker.wasm', 'jassub-worker.js', 'default.woff2',
+  'noto-sans-jp.otf',
+]
 
 describe('jassub asset names', () => {
   it('are the same in the build pass and in the app', () => {
@@ -38,6 +42,12 @@ describe('jassub asset names', () => {
     }
   })
 
+  // the platform serves a tenant only what the package carries, and the entry builds these urls at runtime, where no
+  // scan of it can see them
+  it('are each required in the published package', () => {
+    for (const name of ASSETS) expect(CHECK, `${name} is not in the package check`).toContain(`'jassub/${name}'`)
+  })
+
   it('are served from the directory the build pass writes to', () => {
     // outDir and the url base have to name the same directory, or every asset 404s together
     expect(CONFIG, 'the build pass no longer writes to build/jassub').toContain("outDir: 'build/jassub'")
@@ -51,9 +61,10 @@ describe('jassub asset names', () => {
       .toMatch(/^export \{ default as \w+ \} from 'jassub\/dist\/worker\/worker\.js\?worker&url'$/m)
   })
 
-  it('reads both files, so the assertions cannot pass by matching nothing', () => {
+  it('reads the files, so the assertions cannot pass by matching nothing', () => {
     expect(CONFIG.length).toBeGreaterThan(500)
     expect(EMBED.length).toBeGreaterThan(500)
+    expect(CHECK).toContain('RESOLVED_AT_RUNTIME')
     expect(CONFIG).toContain('jassub')
     expect(EMBED).toContain('jassubWorkerUrl')
   })

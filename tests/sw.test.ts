@@ -249,7 +249,7 @@ describe('the caching half of the worker', () => {
     // path here used to be `/jassub-worker.js`, which stopped existing when they moved.
     for (const path of [
       '/', '/watch', '/download', '/index.js', '/sw.js', '/assets/logo.png',
-      '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/default.woff2',
+      '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/jassub-worker-modern.js', '/jassub/default.woff2',
       // unhashed: `normalizer-worklet` would pass for a hash under a rule allowing more than eight
       '/volume-normalizer-worklet.js',
     ]) {

@@ -12,8 +12,9 @@ import { defineConfig } from 'vite-plus'
  */
 const EXPECTED: [string, number][] = [
   ['worker.js', 20_000],
-  ['jassub-worker.js', 10_000],
+  ['jassub-worker-modern.js', 50_000],
   ['jassub-worker-modern.wasm', 1_000_000],
+  ['jassub-worker.js', 50_000],
   ['jassub-worker.wasm', 1_000_000],
   ['default.woff2', 50_000],
   ['noto-sans-jp.otf', 2_000_000],
@@ -41,12 +42,6 @@ export default defineConfig({
       }
     },
   }],
-  // Relative, so the worker finds its own siblings wherever this directory is mounted. The default
-  // `/` bakes the deploy root into the emitted references, and the root vite computes here is
-  // `build/jassub` while ripple serves `build`, so the nested pthread worker would be looked for at
-  // `/jassub-worker.js` and 404. Dev makes that worse again by serving the whole thing under
-  // `/build/`. A relative base is right for all three.
-  base: './',
   // The worker gets its own output names too: vite names worker chunks from `worker.rollupOptions`
   // and not from `build.rollupOptions`, so leaving this out emits `assets/worker-<hash>.js` however
   // the main output is configured.

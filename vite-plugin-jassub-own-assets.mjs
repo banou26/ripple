@@ -1,8 +1,8 @@
 /**
- * Keeps jassub's own copies of its worker, wasm and font out of the app bundle.
+ * Keeps jassub's own copies of its worker, wasm builds, their scripts and font out of the app bundle.
  *
  * jassub resolves a default for each of them with `new URL('./...', import.meta.url)`, and a bundler
- * follows those statically whether or not the branch can ever run. Ripple always passes all four urls
+ * follows those statically whether or not the branch can ever run. Ripple always passes all six urls
  * (see `src/router/embed.tsx`), so every one of those defaults is dead code, and following them costs
  * a great deal: ripple builds with `build.lib` set, where vite inlines assets as base64 and ignores
  * `assetsInlineLimit`, so the emitted graph came to a 2,873,243 byte worker chunk and a 2,841,695 byte
@@ -32,6 +32,14 @@ const REPLACEMENTS = [
   [
     "new URL('./wasm/jassub-worker.wasm', import.meta.url).href",
     refuse('fallback wasm'),
+  ],
+  [
+    "new URL('./wasm/jassub-worker-modern.js', import.meta.url).href",
+    refuse('simd wasm script'),
+  ],
+  [
+    "new URL('./wasm/jassub-worker.js', import.meta.url).href",
+    refuse('fallback wasm script'),
   ],
   [
     "new URL('./default.woff2', import.meta.url).href",
