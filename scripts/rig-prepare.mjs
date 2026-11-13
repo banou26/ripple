@@ -47,7 +47,8 @@ const filesMatching = (dir, pattern) => {
   return found
 }
 
-const PRODUCTION_ORIGIN = /(?:https|wss):\/\/(?:[a-z0-9-]+\.)*fkn\.app/
+// www.fkn.app is the site, which the broker only links to (the frame bar's "via"): nothing fetches it
+const PRODUCTION_ORIGIN = /(?:https|wss):\/\/(?!www\.)(?:[a-z0-9-]+\.)*fkn\.app/
 const { broker, relay, closed } = topology
 const relayOrigin = `https://${relay.host}:${relay.webtransport}/`
 const certHashUrl = `http://${relay.host}:${relay.http}/cert-hash`
