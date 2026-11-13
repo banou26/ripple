@@ -595,6 +595,58 @@ describe('the watch route', () => {
   })
 })
 
+describe('the tab\'s title on /watch', () => {
+  const NEXT = { path: 'Release.Folder.Name/Some.Release.Name.S01E05.1080p.mkv', size: 1_300_000_000, offset: FILE.size, pad: false }
+  const episodes = (fileIndex: number) => {
+    const { snapshot } = torrent()
+    return torrent({ fileIndex, snapshot: { ...snapshot!, files: { ...snapshot!.files!, files: [{ ...FILE, pad: false }, NEXT] } } })
+  }
+  const rerender = async (screen: Awaited<ReturnType<typeof mount>>) => screen.rerender(await watching('?magnet=bWFnbmV0Og=='))
+
+  beforeEach(() => {
+    state.current = torrent()
+    state.framed = false
+    document.title = 'Ripple Torrent'
+  })
+  afterEach(() => { state.framed = true })
+
+  it('names the file being played, then the next one, and is the page\'s own again once the player goes', async () => {
+    state.current = episodes(0)
+    const screen = await mount()
+    await expect.poll(() => document.title).toBe('Some.Release.Name.S01E04.1080p.mkv · Ripple Torrent')
+    expect(navigator.mediaSession.metadata?.title).toBe('Some.Release.Name.S01E04.1080p.mkv')
+
+    state.current = episodes(1)
+    await rerender(screen)
+    await expect.poll(() => document.title).toBe('Some.Release.Name.S01E05.1080p.mkv · Ripple Torrent')
+    expect(navigator.mediaSession.metadata?.title).toBe('Some.Release.Name.S01E05.1080p.mkv')
+
+    await screen.unmount()
+    expect(document.title).toBe('Ripple Torrent')
+    expect(navigator.mediaSession.metadata).toBeNull()
+  })
+
+  it('keeps the page\'s own title until the file\'s name is known', async () => {
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null } })
+    const screen = await mount()
+    await expect.element(screen.getByText('Loading metadata…')).toBeInTheDocument()
+    expect(document.title).toBe('Ripple Torrent')
+    expect(navigator.mediaSession.metadata).toBeNull()
+
+    state.current = torrent()
+    await rerender(screen)
+    await expect.poll(() => document.title).toBe('Some.Release.Name.S01E04.1080p.mkv · Ripple Torrent')
+  })
+
+  it('leaves the title and the Media Session to the page framing the player', async () => {
+    state.framed = true
+    const screen = await mount()
+    await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
+    expect(document.title).toBe('Ripple Torrent')
+    expect(navigator.mediaSession.metadata).toBeNull()
+  })
+})
+
 describe('the volume normalizer switch on /watch', () => {
   beforeEach(() => {
     state.current = torrent()

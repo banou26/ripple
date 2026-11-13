@@ -30,6 +30,7 @@ import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
+import { usePlayingTitle } from './playing-title'
 import { saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
 import { Route, getRoutePath, getRouterRoutePath } from './path'
 import { STATE_LABEL } from './torrent-format'
@@ -467,6 +468,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // folder in front of every entry. The player has one line for a filename and the folder repeats
   // the release name that is usually already in the app around it, so only the last segment shows.
   const fileName = selectedFile?.path.split('/').pop() || undefined
+  usePlayingTitle(fileName)
 
   const origin = useMemo(() => new URL(window.location.toString()).origin, [])
   const publicPath = useMemo(() => new URL(import.meta.env.DEV ? '/build/' : '/', origin).toString(), [origin])
