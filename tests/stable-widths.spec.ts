@@ -6,10 +6,10 @@
  * 999.9 kB/s happens several times a second on anything downloading, and each change drags every
  * readout to its right along with it.
  *
- * Every case runs in each of FONTS, because a room sized for one font holds in that font only: the
- * em widths this replaced passed here in Noto Sans while GitHub's runner, which draws system-ui in
- * DejaVu Sans, failed them every night from 2026-09-03 with the readout beside Download at 221 and
- * 230 instead of 208. A test drawn in the machine's own font alone cannot see that.
+ * Every case runs in each of FONTS, because a room sized for one font holds in that font only: an em
+ * width that holds 999.9 MB/s in Noto Sans, system-ui on this machine, leaves the readout beside
+ * Download at 221 and 230 instead of 208 in DejaVu Sans, system-ui on GitHub's runner. A test drawn
+ * in the machine's own font alone cannot see that.
  *
  * Driven rather than observed: waiting for real values to vary tests whatever the swarm happened to
  * do in the window, where writing the range in tests the rule.

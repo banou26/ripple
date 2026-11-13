@@ -26,12 +26,6 @@ const scripts = pkg.scripts as Record<string, string>
  *  - `swarm` watches a torrent actually move bytes, so it needs a headful browser and live seeders.
  *  - `rig` moves bytes too, but from seeders on loopback through a local relay and broker, so it
  *    needs those three checkouts and Xvfb, and no CI runner has them. See playwright.rig.config.ts.
- *
- * There was a fourth, `machine`, for `stable-widths` alone, which the runner's fonts failed while it
- * passed here. The runner was right, the room the readouts kept fitted one font, and the nightly job
- * that lane ran in skipped the swarm specs behind it on all 72 nights from 2026-09-03, the day it was
- * made. The spec now draws in fonts it sets itself, so it belongs in `local`: a spec that depends on
- * the machine is a bug in the spec or in the page, not a lane.
  */
 const LANES = ['e2e:local', 'e2e:swarm', 'e2e:rig']
 
