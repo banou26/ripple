@@ -528,10 +528,13 @@ const applyLimits = (h: number) => {
   if (isLimit(limits.up)) session.setUploadLimit(h, limits.up)
 }
 
-// one attempt is short enough that a plan that starved a read gets rewritten quickly; the product
-// stays under the caller's own 120s ceiling in client.ts
+// one attempt is short enough that a plan that starved a read gets rewritten quickly; the longest
+// read, (18 + 20) attempts, stays under the caller's own 240s ceiling in client.ts
 const READ_ATTEMPT_MS = 6_000
 const READ_ATTEMPTS = 18
+// attempts that end while the engine's sockets are being reopened, not counted in READ_ATTEMPTS
+const READ_RECONNECTING_ATTEMPTS = 20
+const healing = (s: Session) => s.reachable().listeners?.some((l) => l.healing) === true
 // How many of a stalled read's missing pieces get taken back from their peers per attempt. A read
 // covers a handful of pieces at the sizes that occur in the wild, so this is a bound for the small-
 // piece case rather than a policy; anything past it is left alone and named in the stall message.
@@ -2233,6 +2236,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (!inFlight) readsByHandle.set(m.handle, inFlight = new Map())
       inFlight.set(m.id, { fileIndex: m.fileIndex, offset: m.offset, len: m.len })
       try {
+        let reconnecting = 0
         // Bound each attempt so stalled requests can be reassigned while the rest keeps downloading.
         for (let attempt = 0; ; attempt++) {
           try {
@@ -2260,7 +2264,10 @@ const handleMessage = async (session: Session, m: any) => {
             return
           } catch (err) {
             if (!inFlight.has(m.id)) return
-            if (attempt + 1 >= READ_ATTEMPTS || !/did not arrive/.test(String(err))) throw err
+            if (!/did not arrive/.test(String(err))) throw err
+            // a relay outage stops every piece at once, and the readout already says Reconnecting
+            if (healing(session) && reconnecting < READ_RECONNECTING_ATTEMPTS) reconnecting++
+            else if (attempt + 1 - reconnecting >= READ_ATTEMPTS) throw err
             const missing = missingPieces(m.handle, m.fileIndex, m.offset, m.len)
             post({
               type: 'read-stalled',

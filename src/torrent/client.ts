@@ -24,8 +24,9 @@ import { createGate } from './gate'
 export type { Persisted, Reachability, TorrentDetail }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
 
-// a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries
-const READ_TIMEOUT = 120_000
+// a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries.
+// Above the worker's longest read (READ_ATTEMPTS and READ_RECONNECTING_ATTEMPTS in worker.ts).
+const READ_TIMEOUT = 240_000
 // how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
 // does not know, and the player stops sending after as long without an answer
 const IMPORT_START_TIMEOUT = 30_000
