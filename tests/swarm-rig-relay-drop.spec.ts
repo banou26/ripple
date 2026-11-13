@@ -1,7 +1,9 @@
 // The swarm rig's relay taken away mid-download and brought back, as a relay restart does it.
 // The engine worker must keep posting state, the VPN readout must leave On while the relay is gone
-// and come back to it, and the file must finish with the fixture's bytes. Engine 0.3.21 fails it:
-// its worker spins inside one tick from the UDP socket's error on and never posts again.
+// and come back to it, bytes must move again within RESUME_BUDGET_MS of the relay's return on the
+// port the session reserved, the player must carry on, and the file must finish with the fixture's
+// bytes. Engine 0.3.21 fails it: its worker spins inside one tick from the UDP socket's error on and
+// never posts again. Engine 0.3.22 fails it too: its bytes come back about 4 minutes after the relay.
 // Runs only under playwright.rig.config.ts, after the lane's own spec (`npm run e2e:rig`, see tests/swarm-rig/README.md).
 
 import type { Page, Worker } from '@playwright/test'
@@ -26,7 +28,8 @@ const OUTAGE_MS = Number(process.env.RIPPLE_RIG_OUTAGE_MS ?? 20_000)
 // 4 seeders at 100 kB/s move the 30 MB fixture in about 75 s, so the outage lands mid-download
 const SEEDER_KBPS = Number(process.env.RIPPLE_RIG_SEEDER_KBPS ?? 100)
 const OUTAGE_AT = Number(process.env.RIPPLE_RIG_OUTAGE_AT ?? 0.2)
-const RECOVERY_BUDGET_MS = Number(process.env.RIPPLE_RIG_RECOVERY_MS ?? 420_000)
+const RECOVERY_BUDGET_MS = Number(process.env.RIPPLE_RIG_RECOVERY_MS ?? 150_000)
+const RESUME_BUDGET_MS = Number(process.env.RIPPLE_RIG_RESUME_MS ?? 20_000)
 const RESULT_FILE = process.env.RIPPLE_RIG_RESULT
 const { relay } = topology
 
@@ -46,7 +49,11 @@ type Sample = {
   vpn: string | null
   vpnText: string | null
   derived: string | null
+  port: number | null
+  portOpen: boolean | null
   listeners: Listener[] | null
+  /** the player's position in the video, in seconds */
+  playhead: number | null
   peerList: { endpoint: string, utp: boolean, total: number, rate: number, fail: number, rtt: number, req: number }[]
 }
 type Event = { t: number, what: string }
@@ -96,7 +103,7 @@ const instrument = (page: Page, fixture: Fixture) => page.addInitScript(({ key, 
 }, { key: DEMO_SEEDED_KEY, infoHash: fixture.infoHash })
 
 const readSample = (page: Page) => page.evaluate(() => {
-  const r = (window as unknown as { __r67: { states: number, lastStateAt: number, done: number, rate: number, peers: number, reachable: { port: number | null, listeners?: { up: boolean, healing: boolean }[] } | null } }).__r67
+  const r = (window as unknown as { __r67: { states: number, lastStateAt: number, done: number, rate: number, peers: number, reachable: { port: number | null, portOpen?: boolean, listeners?: { up: boolean, healing: boolean }[] } | null } }).__r67
   const item = document.querySelector('.item.vpn')
   const reach = r.reachable
   const listeners = reach?.listeners ?? []
@@ -112,7 +119,10 @@ const readSample = (page: Page) => page.evaluate(() => {
     vpn: item?.getAttribute('data-state') ?? null,
     vpnText: item?.textContent?.trim() ?? null,
     derived,
+    port: reach?.port ?? null,
+    portOpen: reach?.portOpen ?? null,
     listeners: (reach?.listeners as never) ?? null,
+    playhead: document.querySelector('video')?.currentTime ?? null,
     peerList: (r as unknown as { peerList: unknown[] }).peerList,
   }
 })
@@ -211,6 +221,12 @@ export type Verdict = {
   maxGapDuring: number
   readoutLeftOn: boolean
   readoutBackOn: boolean
+  /** from the relay's return to the first sample with more bytes */
+  resumedMs: number | null
+  /** whether the last sample has both sockets on the reserved port */
+  portHeld: boolean
+  /** whether the player's position moved on after the relay came back, with no "playback failed" */
+  playedOn: boolean
   completeMs: number | null
   matched: boolean
 }
@@ -220,6 +236,9 @@ export const assertHeld = (v: Verdict, size: number, opfs: { matchedBytes: numbe
   expect(v.maxGapMs, 'the engine worker went silent').toBeLessThan(5_000)
   expect(v.readoutLeftOn, 'the readout never left On while the relay was gone').toBe(true)
   expect(v.readoutBackOn, 'the readout never came back to On').toBe(true)
+  expect(v.resumedMs ?? Infinity, `the download did not move again within ${RESUME_BUDGET_MS / 1000} s of the relay's return`).toBeLessThanOrEqual(RESUME_BUDGET_MS)
+  expect(v.portHeld, 'the sockets did not come back on the reserved port').toBe(true)
+  expect(v.playedOn, 'the player did not carry on').toBe(true)
   expect(v.completeMs, 'the download never finished after the relay came back').not.toBeNull()
   expect(opfs.matchedBytes, 'OPFS does not hold the fixture piece for piece').toBe(size)
   expect(opfs.sha256, 'the OPFS file is not the fixture').toBe(sha256)
@@ -325,11 +344,17 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
     const leftOn = after.find((s) => word(s) !== 'on')
     const backOn = leftOn ? after.find((s) => s.t > Math.max(tStart, leftOn.t) && word(s) === 'on') : undefined
     const resumed = after.find((s) => s.t > tStart && s.done > (samples.filter((x) => x.t <= tStart + 500).at(-1)?.done ?? Infinity))
+    const end = samples.at(-1)!
+    const playheadAt = (t: number) => Math.max(0, ...samples.filter((s) => s.t <= t).map((s) => s.playhead ?? 0))
+    const playbackFailed = consoleLines.some((line) => line.text.startsWith('playback failed'))
     const verdict: Verdict = {
       maxGapMs: Math.max(...gaps),
       maxGapDuring: Math.max(0, ...after.map((s) => s.sinceState ?? 0)),
       readoutLeftOn: after.some((s) => s.t < tStart + 60_000 && word(s) === 'healing'),
       readoutBackOn: !!backOn && word(samples.at(-1)!) === 'on',
+      resumedMs: resumed ? resumed.t - tStart : null,
+      portHeld: !!end.portOpen && !!end.listeners?.length && end.listeners.every((l) => l.up && l.port === end.port),
+      playedOn: !playbackFailed && playheadAt(Infinity) > playheadAt(tStart) + 5,
       completeMs: completeAt ? completeAt - tStop : null,
       matched: false,
     }
@@ -343,7 +368,7 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
       bytesResumedAfterStartMs: resumed ? resumed.t - tStart : null,
       uploaded: await fleet.uploaded(),
     })
-    console.log(`swarm-rig relay-drop ${JSON.stringify({ ...verdict, leftOnAs: result.leftOnAs, backOnAfterStartMs: result.backOnAfterStartMs, bytesResumedAfterStartMs: result.bytesResumedAfterStartMs, layout: opfs.layout })}`)
+    console.log(`swarm-rig relay-drop ${JSON.stringify({ ...verdict, leftOnAs: result.leftOnAs, backOnAfterStartMs: result.backOnAfterStartMs, bytesResumedAfterStartMs: result.bytesResumedAfterStartMs, playbackFailed, playheadAtReturn: playheadAt(tStart), playheadEnd: playheadAt(Infinity), layout: opfs.layout })}`)
     assertHeld(verdict, fixture.size, opfs, fixture.sha256)
   } finally {
     sampling = false

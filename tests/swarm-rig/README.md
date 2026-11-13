@@ -76,11 +76,13 @@ count is part of the claim.
 own, since it stops the relay the config started: the seeders capped at 100 kB/s each,
 the relay stopped with SIGTERM once 20% of the fixture is in, and started again 20 s later from the same binary,
 environment and certificate. It asserts that the engine worker never goes 5 s without a state message, that the
-VPN readout goes to Reconnecting and back to On, and that OPFS ends up holding the fixture. It takes about 6
-minutes, most of it libtorrent's own timeouts on the uTP connections the outage left behind. On engine 0.3.21 the
-worker stops posting within 5 s of the drop and the spec fails. `RIPPLE_RIG_OUTAGE_MS`, `RIPPLE_RIG_SEEDER_KBPS`,
-`RIPPLE_RIG_OUTAGE_AT` and `RIPPLE_RIG_RECOVERY_MS` move it, and `RIPPLE_RIG_RESULT` names a file for the
-per-second record.
+VPN readout goes to Reconnecting and back to On, that bytes move again within 20 s of the relay's return (5.8 to
+8.9 s measured), that both sockets are back on the port the session reserved, that the player carries on with no
+"playback failed", and that OPFS ends up holding the fixture. It takes about 2.5 minutes. Engine 0.3.21 fails it on
+the worker going silent within 5 s of the drop; 0.3.22 fails it on the resume, its bytes coming back 236 to 245 s
+after the relay. `RIPPLE_RIG_OUTAGE_MS`, `RIPPLE_RIG_SEEDER_KBPS`, `RIPPLE_RIG_OUTAGE_AT`,
+`RIPPLE_RIG_RECOVERY_MS` (150 s) and `RIPPLE_RIG_RESUME_MS` (20 s) move it, and `RIPPLE_RIG_RESULT` names a file
+for the per-second record.
 
 ## Knobs
 
