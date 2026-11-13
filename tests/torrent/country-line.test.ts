@@ -6,16 +6,28 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { LISTED_ZONES, inListedCountry } from '../../src/torrent/country-line'
 
 const RELEASE = '2026f'
+const FIXTURE = `zone-tab-${RELEASE}.tab`
 
 const zoneTab = () => {
   const ids: Record<string, string[]> = {}
-  for (const line of readFileSync(join(import.meta.dirname, `zone-tab-${RELEASE}.tab`), 'utf8').split('\n')) {
+  for (const line of readFileSync(join(import.meta.dirname, FIXTURE), 'utf8').split('\n')) {
     if (!line || line.startsWith('#')) continue
     const [code, , id] = line.split('\t')
     ;(ids[code!] ??= []).push(id!)
   }
   return ids
 }
+
+// only the listed codes, so dropping a country is one edit and adding one is the constant plus its rows
+const differences = (listed: Readonly<Record<string, readonly string[]>>, rows: Record<string, string[]>) =>
+  Object.entries(listed).flatMap(([code, have]) => {
+    const want = rows[code]
+    if (!want) return [`${FIXTURE} has no ${code} rows: copy them from zone.tab ${RELEASE}`]
+    return [
+      ...want.filter(id => !have.includes(id)).map(id => `${code} lacks ${id}, which zone.tab ${RELEASE} gives it`),
+      ...have.filter(id => !want.includes(id)).map(id => `${code} has ${id}, which zone.tab ${RELEASE} does not give it`),
+    ]
+  })
 
 const LISTED = Object.entries(LISTED_ZONES).flatMap(([code, ids]) => ids.map(id => [code, id] as const))
 
@@ -38,16 +50,16 @@ describe('a listed country', () => {
   })
 
   test(`each code has exactly zone.tab's ids at ${RELEASE}`, () => {
-    const expected = zoneTab()
-    const differences = [...new Set([...Object.keys(expected), ...Object.keys(LISTED_ZONES)])].flatMap(code => {
-      const want = new Set(expected[code])
-      const have = new Set(LISTED_ZONES[code])
-      return [
-        ...[...want].filter(id => !have.has(id)).map(id => `${code} lacks ${id}, which zone.tab ${RELEASE} gives it`),
-        ...[...have].filter(id => !want.has(id)).map(id => `${code} has ${id}, which zone.tab ${RELEASE} does not give it`),
-      ]
-    })
-    expect(differences).toEqual([])
+    expect(differences(LISTED_ZONES, zoneTab())).toEqual([])
+  })
+
+  test('a difference says what to fix, and rows of a code no longer listed are none', () => {
+    const rows = { DE: ['Europe/Berlin', 'Europe/Busingen'], ES: ['Europe/Madrid'] }
+    expect(differences({ DE: ['Europe/Berlin', 'Europe/Stockholm'], SE: ['Europe/Stockholm'] }, rows)).toEqual([
+      `DE lacks Europe/Busingen, which zone.tab ${RELEASE} gives it`,
+      `DE has Europe/Stockholm, which zone.tab ${RELEASE} does not give it`,
+      `${FIXTURE} has no SE rows: copy them from zone.tab ${RELEASE}`,
+    ])
   })
 
   // Chrome and Node name the device's zone through ICU, which keeps an older name for three listed ids
