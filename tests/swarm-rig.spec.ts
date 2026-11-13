@@ -10,7 +10,6 @@
 import type { BrowserType, LaunchOptions, Page, ViewportSize } from '@playwright/test'
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -19,6 +18,7 @@ import { expect, test } from '@playwright/test'
 
 import { DEMO_SEEDED_KEY } from '../src/torrent/constants'
 import { ensureFixture, magnetFor, type Fixture } from './swarm-rig/fixture'
+import { readFixture } from './swarm-rig/opfs'
 import { SeederFleet } from './swarm-rig/seeders'
 
 // headful by project rule: headless Chromium parks every transfer at a flat 0 B/s
@@ -39,7 +39,7 @@ type Arm = {
   bytes: number
   peers: number
   /** What OPFS holds for the fixture, counted in pieces that hash to the fixture's own. */
-  opfs: { found: boolean, size: number, matchedBytes: number, sha256: string | null, locked: boolean }
+  opfs: Awaited<ReturnType<typeof readFixture>>
   brokers: string[]
   uploaded: number[]
   errors: string[]
@@ -59,15 +59,6 @@ const assertDelivered = (arm: Arm, fixture: Fixture) => {
   expect(arm.marks.firstFrame, 'no frame was rendered').toBeDefined()
   // the swarm's own account: nobody but the fleet can have served a payload that exists only here
   expect(arm.uploaded.reduce((a, b) => a + b, 0), 'the seeders uploaded less than the file').toBeGreaterThanOrEqual(fixture.size)
-}
-
-const pieceHashes = (fixture: Fixture) => {
-  const bytes = readFileSync(fixture.file)
-  const out: string[] = []
-  for (let at = 0; at < bytes.length; at += fixture.pieceLength) {
-    out.push(createHash('sha1').update(bytes.subarray(at, at + fixture.pieceLength)).digest('hex'))
-  }
-  return out
 }
 
 /** Armed before navigation, so the add, the first byte and the first painted frame are all seen. */
@@ -118,48 +109,6 @@ const instrument = (page: Page, fixture: Fixture) => page.addInitScript(({ key, 
   }, 100)
 }, { key: DEMO_SEEDED_KEY, infoHash: fixture.infoHash, size: fixture.size })
 
-/**
- * The fixture's bytes as OPFS holds them, verified piece by piece against the torrent.
- *
- * Matching pieces rather than reading a size, because a size says nothing about content and the
- * control needs a number that is 0 exactly when nothing real arrived.
- */
-const readOpfs = (page: Page, fixture: Fixture) => page.evaluate(async ({ infoHash, name, pieceLength, hashes }) => {
-  const empty = { found: false, size: 0, matchedBytes: 0, sha256: null as string | null, locked: false }
-  let dir = await navigator.storage.getDirectory()
-  for (const segment of ['dl', infoHash]) {
-    const next = await dir.getDirectoryHandle(segment).catch(() => null)
-    if (!next) return empty
-    dir = next
-  }
-  const find = async (at: FileSystemDirectoryHandle): Promise<FileSystemFileHandle | null> => {
-    for await (const child of (at as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values()) {
-      if (child.kind === 'file' && child.name === name) return child as FileSystemFileHandle
-      if (child.kind === 'directory') {
-        const found = await find(child as FileSystemDirectoryHandle)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  const handle = await find(dir)
-  if (!handle) return empty
-  let file: File
-  try {
-    file = await handle.getFile()
-  } catch {
-    return { ...empty, found: true, locked: true }
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const hex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('')
-  let matchedBytes = 0
-  for (const [i, expected] of hashes.entries()) {
-    const piece = bytes.subarray(i * pieceLength, (i + 1) * pieceLength)
-    if (piece.length && hex(await crypto.subtle.digest('SHA-1', piece)) === expected) matchedBytes += piece.length
-  }
-  return { found: true, size: file.size, matchedBytes, sha256: hex(await crypto.subtle.digest('SHA-256', bytes)), locked: false }
-}, { infoHash: fixture.infoHash, name: fixture.name, pieceLength: fixture.pieceLength, hashes: pieceHashes(fixture) })
-
 type Browser = { type: BrowserType, launchOptions: LaunchOptions, viewport: ViewportSize | null, baseURL: string | undefined }
 
 /**
@@ -196,7 +145,7 @@ const visit = async (browser: Browser, fixture: Fixture, magnet: string, until: 
 
     const rig = await page.evaluate(() => (window as unknown as { __rig: { marks: Marks, bytes: number, peers: number } }).__rig)
     const brokers = await page.locator('iframe').evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).src))
-    return { ...rig, brokers, errors, opfs: await readOpfs(page, fixture) }
+    return { ...rig, brokers, errors, opfs: await readFixture(page, fixture) }
   } finally {
     await context.close()
   }
