@@ -27,6 +27,8 @@ export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: num
 // a read waits for the covering pieces to land, which never settles if they never arrive; every caller retries.
 // Above the worker's longest read (READ_ATTEMPTS and READ_RECONNECTING_ATTEMPTS in worker.ts).
 const READ_TIMEOUT = 240_000
+// how long any other question to the engine waits for its answer
+const ASK_TIMEOUT = 120_000
 // how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
 // does not know, and the player stops sending after as long without an answer
 const IMPORT_START_TIMEOUT = 30_000
@@ -488,7 +490,7 @@ export const createTorrentClient = (): EngineClient => {
        */
       if ((epoch !== issued || !aimed) && isSessionScoped(msg?.type)) {
         // A read is the one command somebody is awaiting, so dropping it in silence parks that caller
-        // for the whole 120s timeout. Every caller already retries a failed read; none survives a
+        // for the whole READ_TIMEOUT. Every caller already retries a failed read; none survives a
         // promise that never settles.
         if (msg?.type === 'read') {
           settleRead(msg.id)?.reject(new Error(intl.formatMessage({
@@ -503,7 +505,7 @@ export const createTorrentClient = (): EngineClient => {
     gate.wait(attempt)
   }
 
-  const ask = (msg: { type: string, [key: string]: unknown }, ms = READ_TIMEOUT) => new Promise<unknown>((resolve, reject) => {
+  const ask = (msg: { type: string, [key: string]: unknown }, ms = ASK_TIMEOUT) => new Promise<unknown>((resolve, reject) => {
     if (fatal) { reject(fatal); return }
     const id = ++readId
     const timer = window.setTimeout(() => settleRead(id)?.reject(new Error(`${msg.type} timed out after ${ms}ms`)), ms)
