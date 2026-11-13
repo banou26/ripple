@@ -20,17 +20,20 @@ import { describe, expect, it } from 'vitest'
 const scripts = pkg.scripts as Record<string, string>
 
 /**
- * The four lanes, in the order they cost.
+ * The three lanes, in the order they cost.
  *
  *  - `local` needs a browser and nothing else, and is deterministic anywhere. It gates a push.
- *  - `machine` is deterministic only where the MACHINE is: `stable-widths` measures that tabular
- *    readouts hold their width, which a runner with a different font set fails while the code is
- *    perfect. Split out after CI failed it twice on font metrics alone.
  *  - `swarm` watches a torrent actually move bytes, so it needs a headful browser and live seeders.
  *  - `rig` moves bytes too, but from seeders on loopback through a local relay and broker, so it
  *    needs those three checkouts and Xvfb, and no CI runner has them. See playwright.rig.config.ts.
+ *
+ * There was a fourth, `machine`, for `stable-widths` alone, which the runner's fonts failed while it
+ * passed here. The runner was right, the room the readouts kept fitted one font, and the nightly job
+ * that lane ran in skipped the swarm specs behind it on all 72 nights from 2026-09-03, the day it was
+ * made. The spec now draws in fonts it sets itself, so it belongs in `local`: a spec that depends on
+ * the machine is a bug in the spec or in the page, not a lane.
  */
-const LANES = ['e2e:local', 'e2e:machine', 'e2e:swarm', 'e2e:rig']
+const LANES = ['e2e:local', 'e2e:swarm', 'e2e:rig']
 
 /** Every spec a run could pick up, straight off the directory. */
 const sources = import.meta.glob('./*.spec.ts', { query: '?raw', import: 'default', eager: true })
@@ -156,7 +159,7 @@ describe('the checks CI actually runs', () => {
   const workflows = import.meta.glob('../.github/workflows/*.yml', { query: '?raw', import: 'default', eager: true })
   const ci = Object.values(workflows).join('\n')
 
-  const GATES = ['typecheck', 'test', 'test:browser', 'test:e2e:local', 'test:e2e:machine', 'test:e2e:swarm']
+  const GATES = ['typecheck', 'test', 'test:browser', 'test:e2e:local', 'test:e2e:swarm']
 
   it('found the workflow at all, so a false pass here is not a bad glob', () => {
     expect(Object.keys(workflows), 'no workflow file was read, so every assertion below is vacuous').not.toEqual([])

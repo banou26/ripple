@@ -58,9 +58,9 @@ jobs:
   #
   # `e2e-local` used to sit here too. Its first run failed 13 of 35 while the identical lane passed
   # 35 of 35 locally, on environment differences a local run cannot show: a runner low on disk renders
-  # a storage-relief button and a storage `status`, which made two selectors ambiguous, and its font
-  # set moves the tabular readouts `stable-widths` measures. The selectors were real defects and are
-  # fixed; the font ones moved to the `machine` lane. It is green on the runner now, so it blocks.
+  # a storage-relief button and a storage `status`, which made two selectors ambiguous, and its fonts
+  # are wider than the room the live readouts kept. Both were real defects and are fixed. It is green
+  # on the runner now, so it blocks.
   browser:
     runs-on: ubuntu-24.04
     continue-on-error: true
@@ -136,9 +136,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: sudo apt-get install -y xvfb
-      # `machine` before `swarm`: it is fast, and it measures the RUNNER (font metrics), so a failure
-      # here says the environment moved rather than that the code did.
-      - run: npm run test:e2e:machine
       - run: xvfb-run -a -s "-screen 0 1280x720x24" npm run test:e2e:swarm
       - uses: actions/upload-artifact@v4
         if: failure()
