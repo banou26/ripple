@@ -50,7 +50,8 @@ export const LISTED_ZONES: Readonly<Record<string, readonly string[]>> = {
 const LISTED = new Set(Object.values(LISTED_ZONES).flat())
 
 // the name Chrome 156 and Node 26 report for a listed zone.tab id where ICU's differs, measured 2026-11-14; Firefox 158
-// reports the zone.tab id, and both browsers report an old name (US/Eastern, Japan, ROK) as its zone.tab id
+// reports the zone.tab id, and both browsers report an old name (US/Eastern, Japan, ROK) as its zone.tab id or as one
+// of these names (America/Fort_Wayne as America/Indianapolis)
 const ICU_NAMES: ReadonlyMap<string, string> = new Map([
   ['America/Coral_Harbour', 'America/Atikokan'],
   ['America/Indianapolis', 'America/Indiana/Indianapolis'],
