@@ -189,6 +189,11 @@ test('short bursts are held and the dialogue is left as it is, on by default, an
   await dialog.getByRole('button', { name: 'Close' }).click()
   const watch = page.getByRole('link', { name: `Watch ${NAME}` })
   await expect(watch).toBeVisible({ timeout: 120_000 })
+  // played from the library in place, the file names the tab, and leaving the player hands the page's own title back
+  await watch.click()
+  await expect(page).toHaveTitle(`${NAME} · Ripple Torrent`)
+  await page.goBack()
+  await expect(page).toHaveTitle('Ripple Torrent')
   await page.goto((await watch.getAttribute('href'))!)
   expect(await page.evaluate((key) => localStorage.getItem(key), NORMALIZE_VOLUME_KEY), 'nothing saved').toBeNull()
 
