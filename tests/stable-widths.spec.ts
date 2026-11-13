@@ -31,16 +31,17 @@ const FONTS: Record<string, string> = {
 
 /**
  * Every unit a figure is written in, at its widest and below it, as the page writes them in English
- * and in Japanese, whose 秒 is a full em where English has an s.
+ * and in Japanese, whose 秒 is a full em where English has an s. 1,000 MB/s is what it writes from
+ * 999.95 MB/s, because it picks the unit before it rounds.
  */
 const LANGUAGES = {
   en: {
-    speeds: ['0 B/s', '999.9 B/s', '9.9 kB/s', '999.9 kB/s', '9.9 MB/s', '99.9 MB/s', '999.9 MB/s', '1.23 GB/s', '9.99 GB/s'],
+    speeds: ['0 B/s', '999.9 B/s', '9.9 kB/s', '999.9 kB/s', '9.9 MB/s', '99.9 MB/s', '999.9 MB/s', '1,000 MB/s', '1.23 GB/s', '9.99 GB/s'],
     sizes: ['0 B', '999 B', '9.9 kB', '999.9 kB', '99.9 MB', '999.9 MB', '1.23 GB', '999.99 GB', '1.5 TB'],
     peers: ['0 peers', '9 peers', '99 peers', '999 peers'],
   },
   ja: {
-    speeds: ['0 B/秒', '999.9 B/秒', '9.9 KB/秒', '999.9 KB/秒', '9.9 MB/秒', '99.9 MB/秒', '999.9 MB/秒', '1.23 GB/秒', '9.99 GB/秒'],
+    speeds: ['0 B/秒', '999.9 B/秒', '9.9 KB/秒', '999.9 KB/秒', '9.9 MB/秒', '99.9 MB/秒', '999.9 MB/秒', '1,000 MB/秒', '1.23 GB/秒', '9.99 GB/秒'],
     sizes: ['0 B', '999 B', '9.9 KB', '999.9 KB', '99.9 MB', '999.9 MB', '1.23 GB', '999.99 GB', '1.5 TB'],
     peers: ['0ピア', '9ピア', '99ピア', '999ピア'],
   },

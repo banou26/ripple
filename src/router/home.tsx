@@ -1824,8 +1824,11 @@ const MissingRow = ({
   )
 }
 
-/** The widest a speed is written in each unit, to the single digit of gigabytes a second no browser transfer passes. */
-const WIDEST_SPEEDS = [999.9, 999.9e3, 999.9e6, 9.99e9]
+/**
+ * The widest a speed is written in each unit, to the single digit of gigabytes a second no browser transfer passes.
+ * 999.95e6 is written 1,000 MB/s, since the unit is picked before the rounding, and a comma can be wider than a point.
+ */
+const WIDEST_SPEEDS = [999.9, 999.9e3, 999.9e6, 999.95e6, 9.99e9]
 
 /** The widest a count of bytes is written in each unit, from bytes to terabytes. */
 const WIDEST_SIZES = [999.9, 999.9e3, 999.9e6, 999.99e9, 999.99e12]
