@@ -347,6 +347,9 @@ export const style = css`
       overflow: hidden;
       visibility: hidden;
       white-space: pre;
+      /* overflow makes this a scroll container, whose automatic minimum width in a grid is 0, so a
+         phone's narrow row would shrink the box below its room and wrap the figure onto a second line */
+      min-width: max-content;
     }
   }
 

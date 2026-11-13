@@ -46,7 +46,13 @@ const LANGUAGES = {
   },
 }
 
-test('live figures keep their room whatever the font and the language', async ({ page }) => {
+/**
+ * A desktop and a phone. On the phone each figure has a line to itself, so one that outgrows its room
+ * wraps and moves what follows down rather than along, which is why a position is a top and a left.
+ */
+const WIDTHS = [1280, 375]
+
+test('live figures keep their room whatever the font, the language and the width', async ({ page }) => {
   test.setTimeout(120_000)
   // the page needs nothing from outside for this, so nothing leaves the machine
   await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
@@ -61,48 +67,54 @@ test('live figures keep their room whatever the font and the language', async ({
     await expect(page.locator('html'), 'the page is not in the language its figures are written in').toHaveAttribute('lang', language)
     await page.locator('.torrent .meta .pair').first().waitFor({ timeout: 90_000 })
 
-    const seen = await page.evaluate(({ fonts, speeds, sizes, peers: counts }) => {
-      const [download, upload, peak] = document.querySelectorAll<HTMLElement>('.stats .stat.rate strong')
-      const nextStat = (figure: HTMLElement) => figure.parentElement!.nextElementSibling as HTMLElement
-      const meta = document.querySelector('.torrent .meta') as HTMLElement
-      const pair = meta.querySelector('.pair') as HTMLElement
-      const [down, up] = meta.querySelectorAll<HTMLElement>('.rate')
-      const peers = meta.querySelector('.peers') as HTMLElement
-      // a paused row ends at its peer count, so this stands for the time left a download shows there
-      const left = meta.appendChild(document.createElement('span'))
-      left.textContent = '4m left'
-      const total = pair.textContent.split(' / ')[1]!
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 720 })
+      const seen = await page.evaluate(({ fonts, speeds, sizes, peers: counts }) => {
+        const [download, upload, peak] = document.querySelectorAll<HTMLElement>('.stats .stat.rate strong')
+        const nextStat = (figure: HTMLElement) => figure.parentElement!.nextElementSibling as HTMLElement
+        const meta = document.querySelector('.torrent .meta') as HTMLElement
+        const pair = meta.querySelector('.pair') as HTMLElement
+        const [down, up] = meta.querySelectorAll<HTMLElement>('.rate')
+        const peers = meta.querySelector('.peers') as HTMLElement
+        // a paused row ends at its peer count, so this stands for the time left a download shows there
+        const timeLeft = meta.appendChild(document.createElement('span'))
+        timeLeft.textContent = '4m left'
+        const total = pair.textContent.split(' / ')[1]!
 
-      // each figure, and the box after it, whose left edge is what a figure growing would shove
-      const cases = [
-        { name: 'Download', figure: download!, beside: nextStat(download!), texts: speeds },
-        { name: 'Upload', figure: upload!, beside: nextStat(upload!), texts: speeds },
-        { name: 'Peak down', figure: peak!, beside: nextStat(peak!), texts: speeds },
-        { name: 'size pair', figure: pair, beside: down!, texts: sizes.map((done) => `${done} / ${total}`) },
-        { name: 'download speed', figure: down!, beside: up!, texts: speeds.map((value) => `↓ ${value}`) },
-        { name: 'upload speed', figure: up!, beside: peers, texts: speeds.map((value) => `↑ ${value}`) },
-        { name: 'peer count', figure: peers, beside: left, texts: counts },
-      ]
+        // each figure, and the box after it, whose position is what a figure growing would shove
+        const cases = [
+          { name: 'Download', figure: download!, beside: nextStat(download!), texts: speeds },
+          { name: 'Upload', figure: upload!, beside: nextStat(upload!), texts: speeds },
+          { name: 'Peak down', figure: peak!, beside: nextStat(peak!), texts: speeds },
+          { name: 'size pair', figure: pair, beside: down!, texts: sizes.map((done) => `${done} / ${total}`) },
+          { name: 'download speed', figure: down!, beside: up!, texts: speeds.map((value) => `↓ ${value}`) },
+          { name: 'upload speed', figure: up!, beside: peers, texts: speeds.map((value) => `↑ ${value}`) },
+          { name: 'peer count', figure: peers, beside: timeLeft, texts: counts },
+        ]
 
-      const sheet = document.head.appendChild(document.createElement('style'))
-      const out: { font: string, name: string, lefts: number[] }[] = []
-      for (const [font, css] of Object.entries(fonts)) {
-        sheet.textContent = css
-        for (const { name, figure, beside, texts } of cases) {
-          const was = figure.textContent
-          const lefts = texts.map((text) => {
-            figure.textContent = text
-            return Math.round(beside.getBoundingClientRect().left)
-          })
-          figure.textContent = was
-          out.push({ font, name, lefts })
+        const sheet = document.head.appendChild(document.createElement('style'))
+        const out: { font: string, name: string, spots: string[] }[] = []
+        for (const [font, css] of Object.entries(fonts)) {
+          sheet.textContent = css
+          for (const { name, figure, beside, texts } of cases) {
+            const was = figure.textContent
+            const spots = texts.map((text) => {
+              figure.textContent = text
+              const { left, top } = beside.getBoundingClientRect()
+              return `${left},${top}`
+            })
+            figure.textContent = was
+            out.push({ font, name, spots })
+          }
         }
-      }
-      return out
-    }, { fonts: FONTS, ...figures })
+        sheet.remove()
+        timeLeft.remove()
+        return out
+      }, { fonts: FONTS, ...figures })
 
-    for (const { font, name, lefts } of seen) {
-      expect.soft(new Set(lefts).size, `${language}, ${font}: what follows the ${name} moved to ${lefts.join(', ')}`).toBe(1)
+      for (const { font, name, spots } of seen) {
+        expect.soft(new Set(spots).size, `${language} at ${width} px, ${font}: what follows the ${name} moved to ${spots.join(' ')}`).toBe(1)
+      }
     }
   }
 })
