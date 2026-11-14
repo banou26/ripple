@@ -31,8 +31,9 @@ const query = new URLSearchParams(location.search)
 const direction = query.get('direction') ?? 'ripples'
 const cover = query.get('format') === 'cover'
 const [W, H] = cover ? [600, 900] : [3840, 1240]
-// the mark sits in the middle third, a little above centre as stub's does, and the cover's leaves room for the name
-const [mx, my, size] = cover ? [300, 360, 290] : [1920, 540, 500]
+// fkn.app's hero is at most 400px tall and holds the background at `object-position: 50% 10%`, with the name's
+// scrim over its lower half, so the mark sits in the top quarter as stub's does; the cover's leaves room for the name
+const [mx, my, size] = cover ? [300, 360, 290] : [1920, 290, 400]
 
 const frame = document.querySelector('.frame')
 frame.style.width = `${W}px`
