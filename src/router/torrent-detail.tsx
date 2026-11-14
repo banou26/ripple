@@ -16,7 +16,7 @@ import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { unitLocale } from '../i18n/languages'
-import { getHumanReadableByteString, writePercent } from '../utils/bytes'
+import { getHumanReadableByteString, numberFormat, writePercent } from '../utils/bytes'
 import { writeDuration } from '../torrent/uptime'
 import { speed } from './torrent-format'
 import { contentFiles } from '../torrent/types'
@@ -58,7 +58,7 @@ const pct = (fraction: number) => {
   const digits = fraction > 0 && fraction < 0.01 ? 2 : 0
   return writePercent(Number((fraction * 100).toFixed(digits)) / 100, digits)
 }
-const twoPlaces = (n: number) => new Intl.NumberFormat(unitLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
+const twoPlaces = (n: number) => numberFormat(unitLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
   .format(Number(n.toFixed(2)))
 
 /** `Pack/Season 1/E01.mkv` reads as `E01.mkv` with the rest kept, quieter, in front of it. */

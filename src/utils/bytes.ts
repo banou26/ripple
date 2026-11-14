@@ -12,12 +12,28 @@ import { unitLocale } from '../i18n/languages'
  */
 const UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte', 'petabyte']
 
+const formats = new Map<string, Intl.NumberFormat>()
+
+/**
+ * One `Intl.NumberFormat` per locale and options, kept.
+ *
+ * Building one costs 11 to 12 us in Chrome and Firefox against 0.5 to reuse it, and a library row
+ * writes about seven numbers per render. The key space is a handful of units and digit counts per
+ * language, so the map stays small.
+ */
+export const numberFormat = (locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat => {
+  const key = locale + JSON.stringify(options)
+  let format = formats.get(key)
+  if (!format) { format = new Intl.NumberFormat(locale, options); formats.set(key, format) }
+  return format
+}
+
 const sized = (bytes, compact: boolean | undefined, per = '') => {
   if (isNaN(bytes)) return 'NaN'
   const locale = unitLocale()
   const some = bytes >= 1
   const i = some ? Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), UNITS.length - 1) : 0
-  return new Intl.NumberFormat(locale, {
+  return numberFormat(locale, {
     unit: `${UNITS[i]}${per}`,
     notation: 'standard',
     style: 'unit',
@@ -37,7 +53,7 @@ export const getHumanReadableSpeed = (bytesPerSecond, compact?: boolean) => size
 
 /** A speed its caller rounded, to a tenth at most, in the page's language: `1.5 MB/s`, `1,5 Mo/s`. Never grouped. */
 export const writeSpeed = (count: number, unit: 'kilobyte' | 'megabyte' | 'gigabyte') =>
-  new Intl.NumberFormat(unitLocale(), {
+  numberFormat(unitLocale(), {
     unit: `${unit}-per-second`,
     style: 'unit',
     unitDisplay: 'short',
@@ -47,7 +63,7 @@ export const writeSpeed = (count: number, unit: 'kilobyte' | 'megabyte' | 'gigab
 
 /** A share of 1 as a percentage in the page's language: `12.3%`, `12,3 %`, `%12,3`. `digits` is exact, so `50.0%` keeps its zero. */
 export const writePercent = (share: number, digits = 0) =>
-  new Intl.NumberFormat(unitLocale(), { style: 'percent', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(share)
+  numberFormat(unitLocale(), { style: 'percent', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(share)
 
 /** A speed in whole units: `12 MB/s`, and `512 KB/s` with the capital ripple's English writes in this one place. */
 export const getRoundedSpeed = (bytesPerSecond: number) => {

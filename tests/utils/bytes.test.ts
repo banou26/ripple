@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { startLanguage } from '../../src/i18n'
 import { getHumanReadableByteString, getHumanReadableSpeed, getRoundedSpeed, writePercent } from '../../src/utils/bytes'
@@ -157,5 +157,33 @@ describe('a percentage', () => {
     expect(plain(writePercent(1))).toBe('100 %')
     await show('tr')
     expect(writePercent(0.5, 1)).toBe('%50,0')
+  })
+})
+
+describe('the formatters behind every number', () => {
+  // a fresh copy of the module, so formatters kept by the tests above do not count
+  const fresh = async () => {
+    vi.resetModules()
+    const Original = Intl.NumberFormat
+    const built = vi.spyOn(Intl, 'NumberFormat').mockImplementation(function (locales, options) { return new Original(locales, options) })
+    const bytes = await import('../../src/utils/bytes')
+    const languages = await import('../../src/i18n/languages')
+    return { built, ...bytes, ...languages }
+  }
+  afterEach(() => vi.restoreAllMocks())
+
+  it('builds one for a thousand sizes of one magnitude', async () => {
+    const { built, getHumanReadableByteString } = await fresh()
+    for (let i = 0; i < 1000; i++) getHumanReadableByteString(2_000_000 + i * 1000)
+    expect(built).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds another for another language, and writes in it', async () => {
+    const { built, getHumanReadableByteString, setUnitLocale } = await fresh()
+    setUnitLocale('en-US')
+    expect(getHumanReadableByteString(1_500_000)).toBe('1.5 MB')
+    setUnitLocale('fr')
+    expect(plain(getHumanReadableByteString(1_500_000))).toBe('1,5 Mo')
+    expect(built).toHaveBeenCalledTimes(2)
   })
 })

@@ -18,6 +18,7 @@
  */
 
 import { unitLocale } from '../i18n/languages'
+import { numberFormat } from '../utils/bytes'
 
 export type Uptime = {
   /** Seconds this torrent has been in the session, running, across all time. */
@@ -150,7 +151,7 @@ const DURATION_UNIT = { days: 'day', hours: 'hour', minutes: 'minute', seconds: 
  */
 export const writeDuration = (parts: Partial<Record<keyof typeof DURATION_UNIT, number>>): string =>
   Object.entries(parts)
-    .map(([unit, count]) => new Intl.NumberFormat(unitLocale(), {
+    .map(([unit, count]) => numberFormat(unitLocale(), {
       unit: DURATION_UNIT[unit],
       style: 'unit',
       unitDisplay: 'narrow',
