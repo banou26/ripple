@@ -351,7 +351,7 @@ const untrack = (h: number) => {
   limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
-  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h)
+  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h)
 }
@@ -369,6 +369,15 @@ const wake = (h: number) => {
 // was being streamed comes back with every other file still skipped. Put them back to default once
 // the layout lands, unless a viewer got there first and already planned a window.
 const needsPriorityReset = new Set<number>()
+// Held adds, in upload mode from the add until the pass above parks them. Without it libtorrent asks
+// a webseed for 16 MiB ranges within about 50 ms of the metadata, up to a pump before that pass: 1 to
+// 7 MB sent by a webseed paced like one behind the relay, measured on the swarm rig 2026-11-14.
+const holdingUpload = new Set<number>()
+// After the park's pause and before its save: out of upload mode, a running torrent with its layout
+// asks for pieces at once, and a blob saved in upload mode brings it back stuck on the next load.
+const releaseHold = (h: number) => {
+  if (holdingUpload.delete(h)) session?.setFlags(h, 0, TORRENT_FLAG.uploadMode)
+}
 
 /**
  * What each torrent's piece priorities should be when nobody is watching it.
@@ -576,6 +585,9 @@ const persistResume = async (h: number): Promise<boolean> => {
    */
   const st = session.status(h)
   if (st && CHECKING_STATES.has(st.state)) return false
+  // Nor a held add still in upload mode, as a page closing before the park flushes it: the blob
+  // would bring upload mode back on the next load, where nothing clears it.
+  if (holdingUpload.has(h)) return false
   resumeInFlight.add(h)
   try {
     const blob = await session.saveResumeData(h)
@@ -882,6 +894,7 @@ const applyViewing = (h: number) => {
       cacheIdle.add(h)
       wantPause(h)
       session.pauseTorrent(h)
+      releaseHold(h)
       void persistResume(h)
     }
     return
@@ -1704,6 +1717,7 @@ const init = async () => {
       // a plain size check would read that as "somebody is watching" and skip the very pass the
       // hold was asked for.
       if (!activeViewers(h).length) applyViewing(h)
+      releaseHold(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
     const prepared = preparedHandles()
@@ -2020,18 +2034,28 @@ const handleMessage = async (session: Session, m: any) => {
         /**
          * A hold settles this torrent's priorities the moment its layout lands.
          *
-         * A magnet has no pieces until its metadata arrives, so nothing is transferred before this
-         * fires and the gap costs nothing. What it buys is the pass at the bottom of the pump: with
-         * no viewer it calls `applyViewing`, which writes the stored plan and, for a CACHE torrent,
-         * parks it. That is what makes a page-opened torrent fetch its file list and then stop,
-         * instead of pulling the whole release at full speed while a Download button sits unpressed.
+         * In the first pump after the metadata, and `holdingUpload` covers the gap. What it buys is
+         * the pass at the bottom of the pump: with no viewer it calls `applyViewing`, which writes
+         * the stored plan and, for a CACHE torrent, parks it. That is what makes a page-opened
+         * torrent fetch its file list and then stop, instead of pulling the whole release at full
+         * speed while a Download button sits unpressed.
          *
          * Asked for rather than applied to every add, because a torrent somebody is about to WATCH
          * wants none of it: the player claims its viewer a round trip after the same pump publishes
          * the layout, so a park here would land in between and cost the swarm it had just built for
          * nothing anybody would ever see.
          */
-        if (m.hold === true) needsPriorityReset.add(h)
+        if (m.hold === true) {
+          needsPriorityReset.add(h)
+          if (ephemeral) {
+            holdingUpload.add(h)
+            // A tick runs the add and a pump registers it, so the flag lands now rather than at the
+            // next pump, which the metadata beat in 4 of 6 runs on the swarm rig (2026-11-14).
+            session.tick()
+            session.popAlerts()
+            session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+          }
+        }
         // a re-add of something this device already knows keeps the ceiling it was given, matching
         // mergeEntry, which carries the limit forward rather than letting an add quietly uncap it
         wantLimits(h, { down: known?.downloadLimit, up: known?.uploadLimit })

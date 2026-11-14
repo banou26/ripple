@@ -265,15 +265,15 @@ print(json.dumps({
     const button = page.getByRole('button', { name: 'Download', exact: true })
     // enabled means the file list arrived, so everything after this is the HELD state and not a page still loading
     await expect(button).toBeEnabled({ timeout: 60_000 })
+    // a webseed is asked for ranges the moment the metadata lands, so a hold that came too late shows here
+    expect(await payloadFiles(page), 'the engine wrote before the page had even shown the file list').toBe(0)
     // a swarm readout under an unpressed button would be describing a transfer that must not exist
     await expect(page.getByTestId('swarm')).toHaveCount(0)
 
     // Long enough to be a real observation rather than a race won: this torrent is webseeded, so a
     // running one has files on disk well inside it.
-    const held = await payloadFiles(page)
     await page.waitForTimeout(15_000)
-    expect(await payloadFiles(page), 'the engine wrote while the page was only holding metadata')
-      .toBe(held)
+    expect(await payloadFiles(page), 'the engine wrote while the page was only holding metadata').toBe(0)
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 120_000 }),
@@ -284,7 +284,7 @@ print(json.dumps({
     // the positive control: the same measurement, after the only thing that changed was the click
     await expect
       .poll(() => payloadFiles(page), { timeout: 120_000 })
-      .toBeGreaterThan(held)
+      .toBeGreaterThan(0)
   })
 
   /**
