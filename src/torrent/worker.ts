@@ -353,8 +353,8 @@ const inspectDetail = (now: number): TorrentDetail | null => {
   return { handle, peers: session!.lastPeers(handle), trackers: [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(handle) ?? []] }
 }
 
-// With no relay nothing reaches libtorrent's own trackers, yet their rows say 0 failures: a v1 or v2 torrent's row is
-// the best of both protocols', and the one it lacks never fails (measured 2026-11-14).
+// With no relay nothing reaches libtorrent's own trackers: each ask fails at once on the offline host, which says
+// nothing about the tracker, so the row says it was not contacted.
 const notContacted = (tracker: TrackerInfo): TrackerInfo => ({ ...tracker, message: '', fails: -1, updating: false, nextAnnounceIn: -1 })
 
 // Every state message is built here: the page reads a missing `detail` as none, which empties an open detail
