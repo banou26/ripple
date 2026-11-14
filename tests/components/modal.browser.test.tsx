@@ -188,18 +188,23 @@ describe('drawn inside a player', () => {
   const heard = { keys: [] as string[], clicks: 0, doubleClicks: 0 }
   const hearKey = (event: KeyboardEvent) => { heard.keys.push(event.key) }
 
-  const Player = ({ onClose = () => {}, inline = true }: { onClose?: () => void, inline?: boolean }) => (
-    <div id="player" style={{ position: 'relative', width: 480, height: 200 }} onClick={() => { heard.clicks++ }} onDoubleClick={() => { heard.doubleClicks++ }}>
-      <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 40, zIndex: 2 }}><button type="button">a control of the player</button></div>
-      <Modal labelledBy="s" onClose={onClose} inline={inline}>
-        <div style={{ height: 260 }}>
-          <p id="s">A sentence</p>
-          <button type="button">first</button>
-          <button type="button">last</button>
-        </div>
-      </Modal>
-    </div>
-  )
+  // the card is taller than the player, and the control that takes the focus is at its foot
+  const Player = ({ onClose = () => {}, inline = true }: { onClose?: () => void, inline?: boolean }) => {
+    const last = useRef<HTMLButtonElement>(null)
+    return (
+      <div id="player" style={{ position: 'relative', width: 480, height: 200 }} onClick={() => { heard.clicks++ }} onDoubleClick={() => { heard.doubleClicks++ }}>
+        <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 40, zIndex: 2 }}><button type="button">a control of the player</button></div>
+        <Modal labelledBy="s" onClose={onClose} inline={inline} initialFocus={last}>
+          <div>
+            <p id="s">A sentence</p>
+            <button type="button">first</button>
+            <div style={{ height: 220 }}/>
+            <button type="button" ref={last}>last</button>
+          </div>
+        </Modal>
+      </div>
+    )
+  }
 
   const listening = async (run: () => Promise<void>) => {
     heard.keys.length = 0
@@ -231,8 +236,9 @@ describe('drawn inside a player', () => {
   it('opens at its first line when it is taller than the player, and scrolls', async () => {
     render(<Player/>)
     await expect.poll(overlay).not.toBeNull()
-    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await expect.poll(() => document.activeElement?.textContent).toBe('last')
     expect(overlay().scrollHeight).toBeGreaterThan(overlay().clientHeight)
+    // not scrolled to the control that has the focus, which would hide the sentence
     expect(overlay().scrollTop).toBe(0)
     expect(getComputedStyle(overlay()).overflowY).toBe('auto')
   })
@@ -240,7 +246,7 @@ describe('drawn inside a player', () => {
   it('lets no key and no click reach the player', async () => {
     const onClose = vi.fn()
     render(<Player onClose={onClose}/>)
-    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await expect.poll(() => document.activeElement?.textContent).toBe('last')
     await listening(async () => {
       await userEvent.keyboard(' ')
       await userEvent.keyboard('f')
@@ -256,7 +262,7 @@ describe('drawn inside a player', () => {
   // THE CONTROL: the same keys and clicks, in a modal over the page, are heard
   it('is heard through a modal drawn over the page (control)', async () => {
     render(<Player inline={false}/>)
-    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await expect.poll(() => document.activeElement?.textContent).toBe('last')
     await listening(async () => {
       await userEvent.keyboard(' ')
       await userEvent.click(overlay().querySelector('p')!)
