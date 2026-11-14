@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, ShieldOff, User, Users } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, ShieldOff, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
@@ -401,8 +401,8 @@ const playerStyle = css`
      * carries off and reconnecting, and the tooltip carries the sentence.
      *
      * The torrent state folds with them for the plainer reason that Downloading is the longest word
-     * in the row, with Retrying not far behind. The peer count folds its two words and keeps both
-     * numbers, which are the readout.
+     * in the row, with Retrying not far behind. The peer count folds to its number, which is the
+     * readout.
      *
      * The VPN's word comes back last, at 960px. Shown from 768px, VPN Reconnecting cut both speeds
      * there by 13px in English and by 90px in Portuguese and Turkish beside Retrying, in DejaVu Sans
@@ -413,6 +413,11 @@ const playerStyle = css`
       display: none;
       @media (min-width: 768px) {
         display: inline;
+      }
+    }
+    .item.count .number {
+      @media (min-width: 768px) {
+        display: none;
       }
     }
     /* shown, the word keeps the room of the widest state it can read, so a change of state moves no readout beside it */
@@ -537,8 +542,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     uploadSpeed: st?.uploadRate ?? 0,
   }
   // the whole swarm per the trackers, never fewer than are connected (a tracker that does not carry the
-  // hash answers 0 and 0); until one answers with both counts, and on a magnet with none, the
-  // connected peers stand in
+  // hash answers 0 and 0), for the peer count's chip once one answers with both counts
   const swarm = st && st.swarmSeeds >= 0 && st.swarmPeers >= 0
     ? { seeders: Math.max(st.swarmSeeds, st.numSeeds), leechers: Math.max(st.swarmPeers, st.numPeers - st.numSeeds) }
     : null
@@ -774,29 +778,25 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
           <TooltipDisplay
             id="peers"
             tooltipPlace="bottom-end"
-            text={swarm
-              ? (
-                <div className="item count" data-testid="peers">
-                  <Users />
-                  <span>
-                    {intl.formatMessage({
-                      id: '{seeders, plural, one {{seeders}<word> seeder</word>} other {{seeders}<word> seeders</word>}} · {leechers, plural, one {{leechers}<word> leecher</word>} other {{leechers}<word> leechers</word>}}',
-                      defaultMessage: '{seeders, plural, one {{seeders}<word> seeder</word>} other {{seeders}<word> seeders</word>}} · {leechers, plural, one {{leechers}<word> leecher</word>} other {{leechers}<word> leechers</word>}}',
-                    }, { seeders: swarm.seeders, leechers: swarm.leechers, word: (text) => <span className="word">{text}</span> })}
-                  </span>
-                </div>
-              )
-              : <div className="item count" data-testid="peers"><User /><span>{info.peers}</span></div>}
-            toolTipText={swarm
-              ? (
-                <span>
-                  {intl.formatMessage({ id: 'Seeders: {count}', defaultMessage: 'Seeders: {count}' }, { count: swarm.seeders })}<br />
-                  {intl.formatMessage({ id: 'Leechers: {count}', defaultMessage: 'Leechers: {count}' }, { count: swarm.leechers })}<br />
-                  {downloads >= 0 && <>{intl.formatMessage({ id: 'Downloads: {count}', defaultMessage: 'Downloads: {count}' }, { count: downloads })}<br /></>}
-                  {intl.formatMessage({ id: 'Connected peers: {count}', defaultMessage: 'Connected peers: {count}' }, { count: info.peers })}
+            text={(
+              <div className="item count" data-testid="peers">
+                <Users />
+                <span className="number">{info.peers}</span>
+                <span className="word">
+                  {intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: info.peers })}
                 </span>
-              )
-              : <span>{intl.formatMessage({ id: 'Peers: {count}', defaultMessage: 'Peers: {count}' }, { count: info.peers })}</span>}
+              </div>
+            )}
+            toolTipText={(
+              <span>
+                {intl.formatMessage({ id: 'Connected peers: {count}', defaultMessage: 'Connected peers: {count}' }, { count: info.peers })}
+                {swarm && <><br />{[
+                  intl.formatMessage({ id: 'Seeders: {count}', defaultMessage: 'Seeders: {count}' }, { count: swarm.seeders }),
+                  intl.formatMessage({ id: 'Leechers: {count}', defaultMessage: 'Leechers: {count}' }, { count: swarm.leechers }),
+                  ...downloads >= 0 ? [intl.formatMessage({ id: 'Downloads: {count}', defaultMessage: 'Downloads: {count}' }, { count: downloads })] : [],
+                ].join(' · ')}</>}
+              </span>
+            )}
           />
           <TooltipDisplay
             id="download-speed"

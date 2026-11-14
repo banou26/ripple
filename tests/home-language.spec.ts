@@ -881,13 +881,10 @@ const engineSurfaces = async (page: Page, width: number) => {
   await expect(page.locator('.loading-information')).toBeVisible()
   await row.read('before its metadata')
   await post(page, { type: 'state', torrents: [PLAYING], ...READOUTS[0] })
-  await expect(page.getByTestId('peers')).toContainText('216')
+  await expect(page.getByTestId('peers')).toContainText('28')
   await row.read('playing')
-  // the counts and their words are one message, read whole
-  row.words.push(...await page.getByTestId('peers').allTextContents())
   await chips('playing')
   await post(page, { type: 'state', torrents: [{ ...PLAYING, status: { ...PLAYING.status, swarmSeeds: -1, swarmPeers: -1 } }], ...READOUTS[3] })
-  await expect(page.getByTestId('peers')).toHaveText('28')
   await row.read('before a tracker answers')
   await chips('before a tracker answers')
   await post(page, { type: 'storage-full', full: true })
@@ -1381,8 +1378,8 @@ test('the control: in English the player\'s top row and the engine\'s words are 
   const read = words.join('\n')
   for (const text of [
     'Loading metadata…', 'Open this torrent in Ripple', 'Download this torrent', 'Downloaded 2', 'VPN Reconnecting', 'VPN On',
-    '216 seeders · 3 leechers', 'Download Fresh.Pack.S01E01.1080p.mkv', 'Torrent: Downloading', 'VPN: On', 'Seeders: 216',
-    'Leechers: 3', 'Downloads: 8054', 'Connected peers: 28', 'Download speed: 8.7 MB/s', 'Upload speed: 312 kB/s', 'Peers: 28',
+    '28 peers', 'Download Fresh.Pack.S01E01.1080p.mkv', 'Torrent: Downloading', 'VPN: On', 'Seeders: 216',
+    'Leechers: 3', 'Downloads: 8054', 'Connected peers: 28', 'Download speed: 8.7 MB/s', 'Upload speed: 312 kB/s',
     'Out of storage space. Remove a download in Ripple to free room.', 'The download engine stopped. Reload the page to try again.',
     'Ripple needs a normal (non-private) window to play this', 'Streams as you watch',
     'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',

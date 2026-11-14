@@ -115,8 +115,7 @@ test.describe('the embedded player header', () => {
       widest('[data-testid="torrent-state"]', 'Downloading')
       widest('[data-tooltip-id="download-speed"] .item', '999.9 MB/s')
       widest('[data-tooltip-id="upload-speed"] .item', '999.9 MB/s')
-      // the connected peers, or the swarm's seeders and leechers once a tracker has answered: only the
-      // digits change, so the words the readout folds stay where they are
+      // the connected peers: only the digits change, so the word the readout folds stays where it is
       const count = document.querySelector('[data-testid="peers"]')
       const digits = count && document.createTreeWalker(count, NodeFilter.SHOW_TEXT)
       for (let node = digits?.nextNode(); node; node = digits!.nextNode()) {

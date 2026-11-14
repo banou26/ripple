@@ -114,7 +114,7 @@ const mount = async (size = DESKTOP, search = '?magnet=bWFnbmV0Og==') => {
 /**
  * The chip's text, read on a real hover. The pointer starts and ends on the video, away from the row:
  * a pointer left on a readout opens the chip of whatever the next mount draws under it, and a later
- * `getByText('82')` then also matches "Peers: 82".
+ * `getByText('82')` then also matches "Connected peers: 82".
  */
 const hoverText = async (screen: Awaited<ReturnType<typeof mount>>, testId: string) => {
   const video = screen.container.querySelector('video')!
@@ -182,7 +182,7 @@ describe('the watch route', () => {
 
   it('puts the torrent readout in the top right, not over the picture', async () => {
     const screen = await mount()
-    await expect.element(screen.getByText('82')).toBeInTheDocument()
+    await expect.element(screen.getByText('82', { exact: true })).toBeInTheDocument()
 
     const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
     const player = screen.container.firstElementChild!.getBoundingClientRect()
@@ -239,7 +239,7 @@ describe('the watch route', () => {
     // underneath the peer count painted on top of it. One row is what makes the two see each other.
     const screen = await mount(PHONE)
 
-    await expect.element(screen.getByText('82')).toBeInTheDocument()
+    await expect.element(screen.getByText('82', { exact: true })).toBeInTheDocument()
     const name = screen.container.querySelector('.file-name')!.getBoundingClientRect()
     const readout = screen.container.querySelector('[data-testid="media-information"]')!.getBoundingClientRect()
     const player = screen.container.firstElementChild!.getBoundingClientRect()
@@ -256,7 +256,7 @@ describe('the watch route', () => {
   it('drops the byte counter before the status text when the row runs out of room', async () => {
     // Both are text on the same line, but only one of them explains a player showing nothing.
     const narrow = await mount(PHONE)
-    await expect.element(narrow.getByText('82')).toBeInTheDocument()
+    await expect.element(narrow.getByText('82', { exact: true })).toBeInTheDocument()
     expect(narrow.container.querySelector('.downloaded')).not.toBeNull()
     expect(getComputedStyle(narrow.container.querySelector('.downloaded')!).display).toBe('none')
 
@@ -267,55 +267,46 @@ describe('the watch route', () => {
       .not.toBe('none')
   })
 
-  it('counts the swarm the trackers report, with the downloads and the connected peers in its hover', async () => {
+  // the words a library row gives its peers, and the swarm the trackers report in the hover
+  it('shows the connected peers, with the swarm the trackers report and its downloads in its hover', async () => {
     state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 }, 8054)
     const screen = await mount()
     await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 seeders · 3 leechers')
-    expect(await hoverText(screen, 'peers')).toBe('Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28')
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('28 peers')
+    expect(await hoverText(screen, 'peers')).toBe('Connected peers: 28\nSeeders: 216 · Leechers: 3 · Downloads: 8054')
   })
 
   // a UDP tracker never sends the count
   it('leaves the downloads out of the hover when no tracker counted them', async () => {
     state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 })
     const screen = await mount()
-    expect(await hoverText(screen, 'peers')).toBe('Seeders: 216\nLeechers: 3\nConnected peers: 28')
-  })
-
-  // a release just out, with its uploader as the only seeder
-  it('says seeder and leecher for a swarm of one', async () => {
-    state.current = withSwarm({ numPeers: 2, numSeeds: 1, swarmSeeds: 1, swarmPeers: 1 })
-    const screen = await mount()
-    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('1 seeder · 1 leecher')
+    expect(await hoverText(screen, 'peers')).toBe('Connected peers: 28\nSeeders: 216 · Leechers: 3')
   })
 
   // a tracker that does not carry the hash answers 0 and 0, which is not a dead torrent with 31 peers connected
   it('never counts fewer seeders or leechers than are connected', async () => {
     state.current = withSwarm({ numPeers: 31, numSeeds: 12, swarmSeeds: 0, swarmPeers: 0 }, 0)
     const screen = await mount()
-    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('12 seeders · 19 leechers')
-    expect(await hoverText(screen, 'peers')).toBe('Seeders: 12\nLeechers: 19\nDownloads: 0\nConnected peers: 31')
+    expect(await hoverText(screen, 'peers')).toBe('Connected peers: 31\nSeeders: 12 · Leechers: 19 · Downloads: 0')
   })
 
   // the first seconds, and a magnet with no trackers
-  it('shows the connected peers until a tracker has answered with both counts', async () => {
+  it('says only the connected peers in its hover until a tracker has answered with both counts', async () => {
     for (const swarm of [{ swarmSeeds: -1, swarmPeers: -1 }, { swarmSeeds: 216, swarmPeers: -1 }]) {
       state.current = withSwarm({ numPeers: 28, numSeeds: 26, ...swarm }, 8054)
       const screen = await mount()
       await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-      expect((screen.getByTestId('peers').element() as HTMLElement).innerText, JSON.stringify(swarm)).toBe('28')
-      expect(await hoverText(screen, 'peers'), JSON.stringify(swarm)).toBe('Peers: 28')
+      expect((screen.getByTestId('peers').element() as HTMLElement).innerText, JSON.stringify(swarm)).toBe('28 peers')
+      expect(await hoverText(screen, 'peers'), JSON.stringify(swarm)).toBe('Connected peers: 28')
       await screen.unmount()
     }
   })
 
-  it('folds the swarm\'s words on a phone and keeps both numbers', async () => {
+  it('folds the word on a phone and keeps the number', async () => {
     state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 })
     const screen = await mount(PHONE)
     await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
-    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('216 · 3')
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('28')
   })
 
   /*
@@ -345,7 +336,7 @@ describe('the watch route', () => {
       const cut = shown.map((item) => item.querySelector(':scope > span')!)
         .filter((span) => span.scrollWidth > span.clientWidth)
         .map((span) => span.textContent)
-      expect(cut, `${name}: the peer count is cut`).not.toContain(screen.getByTestId('peers').element().textContent)
+      expect(cut, `${name}: the peer count is cut`).not.toContain(String(status.numPeers))
       if (name === 'ordinary') expect(cut, name).toEqual([])
       // where each readout is painted: one squeezed under its icon keeps a box that fits and draws the icon past it
       const painted = shown.map((item) => [item.getBoundingClientRect(), item.querySelector('svg')!.getBoundingClientRect()] as const)
@@ -359,7 +350,7 @@ describe('the watch route', () => {
     }
   })
 
-  // a frame is often 560 to 700px wide, and the swarm's words alone take about 140px of it
+  // a frame is often 560 to 700px wide
   it('keeps every readout whole with ordinary figures in a frame of any width', async () => {
     const forms = { swarm: ORDINARY, peers: { ...ORDINARY, swarmSeeds: -1, swarmPeers: -1 } }
     for (const width of [480, 560, 640, 720, 768, 880, 960, 1280]) {
@@ -482,7 +473,7 @@ describe('the watch route', () => {
   it('says a file bigger than the room streams as it plays, and says nothing for one that fits', async () => {
     // THE CONTROL: a file that fits counts its bytes and carries no note
     const fits = await mount()
-    await expect.element(fits.getByText('82')).toBeInTheDocument()
+    await expect.element(fits.getByText('82', { exact: true })).toBeInTheDocument()
     expect(fits.container.querySelector('.loading-information')).toBeNull()
     expect(fits.container.querySelector('.downloaded')).not.toBeNull()
 
@@ -573,7 +564,7 @@ describe('the watch route', () => {
     state.framed = false
     try {
       const screen = await mount()
-      await expect.element(screen.getByText('82')).toBeInTheDocument()
+      await expect.element(screen.getByText('82', { exact: true })).toBeInTheDocument()
       expect(screen.container.querySelector('.loading-information')).toBeNull()
     } finally { state.framed = true }
   })
@@ -1111,23 +1102,23 @@ const STREAMS_DE = 'Zu groß, um es hier im Voraus herunterzuladen, daher wird e
 const LINKS = ['Open this torrent in Ripple', `Download ${FILE_NAME}`]
 // the VPN's switch is named for a screen reader as its chip reads, since a narrow player folds its word
 const READOUTS = ['Downloading', 'VPN: On', 'VPN On']
-const SWARM = ['216 seeders · 3 leechers', 'seeders', 'leechers', '8.7 MB/s', '312 kB/s']
-// the connected peers and the speeds of a torrent no tracker has counted
-const PEERS = ['82', '8.7 MB/s', '0 B/s']
+// the connected peers, as a phone and a wider player show them, and the speeds
+const PLAYING = ['28', '28 peers', '8.7 MB/s', '312 kB/s']
+const PEERS = ['82', '82 peers', '8.7 MB/s', '0 B/s']
 const CHIPS = [
   'open-in-ripple: Open this torrent in Ripple', `open-download-page: Download ${FILE_NAME}`, 'torrent-state: Torrent: Downloading',
   'vpn: VPN: On',
 ]
 const SPEEDS = ['download-speed: Download speed: 8.7 MB/s', 'upload-speed: Upload speed: 312 kB/s']
 const ENGLISH = {
-  playing: [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, ...SWARM, ...CHIPS, 'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28', ...SPEEDS],
-  'before a tracker answers': [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, '28', '8.7 MB/s', '312 kB/s', ...CHIPS, 'peers: Peers: 28', ...SPEEDS],
-  'before its metadata': ['Open this torrent in Ripple', 'Download this torrent', 'Loading metadata…', ...READOUTS, ...SWARM],
+  playing: [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, ...PLAYING, ...CHIPS, 'peers: Connected peers: 28\nSeeders: 216 · Leechers: 3 · Downloads: 8054', ...SPEEDS],
+  'before a tracker answers': [FILE_NAME, ...LINKS, 'Downloaded 0 bytes', ...READOUTS, ...PLAYING, ...CHIPS, 'peers: Connected peers: 28', ...SPEEDS],
+  'before its metadata': ['Open this torrent in Ripple', 'Download this torrent', 'Loading metadata…', ...READOUTS, ...PLAYING],
   'out of room in a frame': [FILE_NAME, ...LINKS, 'Too big for this browser\'s storage here. Open it in Ripple to play it.', 'Open it in Ripple', ...READOUTS, ...PEERS],
   'out of room': [FILE_NAME, ...LINKS, 'Out of storage space. Remove a download in Ripple to free room.', ...READOUTS, ...PEERS],
   'streaming in a frame': [
-    FILE_NAME, ...LINKS, 'Streams as you watch', ...READOUTS, ...SWARM,
-    ...CHIPS.slice(0, 2), `window-note: ${STREAMS}`, ...CHIPS.slice(2), 'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28', ...SPEEDS,
+    FILE_NAME, ...LINKS, 'Streams as you watch', ...READOUTS, ...PLAYING,
+    ...CHIPS.slice(0, 2), `window-note: ${STREAMS}`, ...CHIPS.slice(2), 'peers: Connected peers: 28\nSeeders: 216 · Leechers: 3 · Downloads: 8054', ...SPEEDS,
   ],
 }
 
@@ -1135,12 +1126,12 @@ const ENGLISH = {
 const GERMAN: Record<string, string> = {
   'Open this torrent in Ripple': 'Diesen Torrent in Ripple öffnen', [`Download ${FILE_NAME}`]: `${FILE_NAME} herunterladen`,
   'Downloaded 0 bytes': 'Heruntergeladen: 0 Byte', Downloading: 'Lädt herunter', 'VPN On': 'VPN An',
-  '216 seeders · 3 leechers': '216 Seeder · 3 Leecher', seeders: 'Seeder', leechers: 'Leecher', '8.7 MB/s': '8,7 MB/s', '312 kB/s': '312 kB/s', '0 B/s': '0 Byte/s',
+  '28 peers': '28 Peers', '82 peers': '82 Peers', '8.7 MB/s': '8,7 MB/s', '312 kB/s': '312 kB/s', '0 B/s': '0 Byte/s',
   'open-in-ripple: Open this torrent in Ripple': 'open-in-ripple: Diesen Torrent in Ripple öffnen',
   [`open-download-page: Download ${FILE_NAME}`]: `open-download-page: ${FILE_NAME} herunterladen`,
   'torrent-state: Torrent: Downloading': 'torrent-state: Torrent: Lädt herunter', 'vpn: VPN: On': 'vpn: VPN: An', 'VPN: On': 'VPN: An',
-  'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28': 'peers: Seeder: 216\nLeecher: 3\nDownloads: 8054\nVerbundene Peers: 28',
-  'peers: Peers: 28': 'peers: Peers: 28',
+  'peers: Connected peers: 28\nSeeders: 216 · Leechers: 3 · Downloads: 8054': 'peers: Verbundene Peers: 28\nSeeder: 216 · Leecher: 3 · Downloads: 8054',
+  'peers: Connected peers: 28': 'peers: Verbundene Peers: 28',
   'download-speed: Download speed: 8.7 MB/s': 'download-speed: Download-Geschwindigkeit: 8,7 MB/s', 'upload-speed: Upload speed: 312 kB/s': 'upload-speed: Upload-Geschwindigkeit: 312 kB/s',
   'Download this torrent': 'Diesen Torrent herunterladen', 'Loading metadata…': 'Metadaten werden geladen…',
   'Too big for this browser\'s storage here. Open it in Ripple to play it.': 'Zu groß für den Speicher dieses Browsers hier. Öffne es in Ripple, um es abzuspielen.',
