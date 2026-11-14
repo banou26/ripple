@@ -26,6 +26,11 @@ describe('every catalogue', () => {
     for (const [language, text] of Object.entries(words)) expect(catalogues()[language]![id], language).toBe(text)
   })
 
+  // the warning's two actions stand side by side, and Close beside Cancel would read as two ways to keep the VPN on
+  test.each(Object.entries(catalogues()))('%s names switching the VPN off by a word that is neither Close nor Cancel', (_, catalogue) => {
+    expect([catalogue.Close, catalogue.Cancel]).not.toContain(catalogue['Turn off'])
+  })
+
   // a field cannot wrap, and a phone leaves the English's own length to it
   test.each(Object.entries(catalogues()))('%s words the magnet field no longer than English', (_, catalogue) => {
     expect(catalogue[PLACEHOLDER]!.length).toBeLessThanOrEqual(PLACEHOLDER.length)
