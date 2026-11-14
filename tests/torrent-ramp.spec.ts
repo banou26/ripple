@@ -18,7 +18,6 @@ const MIB = 1_048_576
 const DEFAULT_MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969'
 const MAGNET = process.env.RIPPLE_BENCH_MAGNET ?? DEFAULT_MAGNET
 const BENCH_SECONDS = Number(process.env.RIPPLE_BENCH_SECONDS ?? 45)
-const REQUIRE_BYTES = process.env.RIPPLE_BENCH_REQUIRE_BYTES === '1'
 
 const tracedIncoming = new Set([
   'ready',
@@ -338,6 +337,6 @@ test.describe('torrent ramp', () => {
 
     expect(report.failures).toEqual([])
     expect(points.length).toBeGreaterThan(1)
-    if (REQUIRE_BYTES) expect(report.result.finalBytes).toBeGreaterThan(0)
+    expect(report.result.finalBytes, 'a cold download that moved nothing measured nothing').toBeGreaterThan(0)
   })
 })
