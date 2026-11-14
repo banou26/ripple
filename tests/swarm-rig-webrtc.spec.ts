@@ -35,7 +35,7 @@ const SEEDER_KBPS = 150
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-type Seen = { names: Record<string, number>, tracker: { announces: number, offers: number, answers: number, sockets: number, connections: Record<string, number>, peers: number, candidates: string[] } }
+type Seen = { names: Record<string, number>, tracker: { announces: number, offers: number, answers: number, sockets: number, connections: Record<string, number>, peers: number, candidates: string[], descriptions: { origin: string, candidates: string[] }[] } }
 const seen = async (): Promise<Seen> => (await fetch(`http://${relay.host}:${resolver.port}/seen`)).json() as Promise<Seen>
 
 /** The proxy's own count of what it was asked: every request, whatever became of it, and those that reached their target. */
@@ -248,6 +248,16 @@ test('with the VPN on, a download takes pieces from the seeders, from a ripple b
   const relayUdp = udpPorts(relayPid)
   const named = after.seen.tracker.candidates.filter((candidate) => /^[\d.]+:\d+$/.test(candidate) && !before.seen.tracker.candidates.includes(candidate))
   const behindRelay = named.filter((candidate) => relayUdp.has(Number(candidate.split(':')[1])))
+  // Each offer and answer of the test, by who made it. On one machine the relay's address is every browser's too,
+  // so an address says nothing: the stack that made a description does, with the port of each candidate in it.
+  const described = after.seen.tracker.descriptions.slice(before.seen.tracker.descriptions.length).map(({ origin, candidates }) => ({
+    // Chrome writes no user name in a description's origin, and the engine's own stack writes its own
+    ofTheBrowser: origin.startsWith('o=- '),
+    candidates: candidates.map((line) => {
+      const [, , , , address, port, , kind] = line.split(' ')
+      return { address, kind, ofTheRelay: relayUdp.has(Number(port)) }
+    }),
+  }))
   const text = logs()
 
   record.hybrid = {
@@ -259,6 +269,8 @@ test('with the VPN on, a download takes pieces from the seeders, from a ripple b
     fromTheLibrary: gaveOff.upload - before.library.upload,
     fromBehindTheRelay: { webrtc: gaveBehind.webrtc.up, ordinary: gaveBehind.ordinary.up },
     candidates: named.map((candidate) => candidate.replace(/:\d+$/, (port) => `${port} ${relayUdp.has(Number(port.slice(1))) ? '(a UDP port of the relay)' : ''}`)),
+    descriptions: described,
+    made: { download: took.made, behindTheRelay: gaveBehind.made, vpnOff: gaveOff.made },
     tracker: { sockets: after.seen.tracker.sockets - before.seen.tracker.sockets, offers: after.seen.tracker.offers - before.seen.tracker.offers, answers: after.seen.tracker.answers - before.seen.tracker.answers, connections: after.seen.tracker.connections },
     proxied: { opened: after.proxied.opened - before.proxied.opened, requests: after.proxied.requests - before.proxied.requests },
     relayed: { sessions: after.relayed.sessions - before.relayed.sessions, bytes: after.relayed.bytes - before.relayed.bytes },
@@ -280,6 +292,18 @@ test('with the VPN on, a download takes pieces from the seeders, from a ripple b
   // own connection to the tracker left from, and no ripple named another address
   expect(behindRelay.length, 'the download named no port of the relay as where it is reached').toBeGreaterThanOrEqual(1)
   expect(named.map((candidate) => candidate.split(':')[0]), 'a ripple named another address than the relay\'s').toEqual(named.map(() => tracker.address))
+  // A page behind the relay makes no connection of the browser, so no candidate of the device exists to name;
+  // THE CONTROL is the page with the VPN off, which makes them.
+  expect({ download: took.made, behindTheRelay: gaveBehind.made }, 'a page behind the relay made a peer connection of the browser').toEqual({ download: 0, behindTheRelay: 0 })
+  expect(gaveOff.made, 'the page with the VPN off made no connection, so the count sees none').toBeGreaterThan(0)
+  // and every description the engine's own stack made names one candidate, a host one, on a port the relay holds
+  const ofTheEngine = described.filter((description) => !description.ofTheBrowser)
+  expect(ofTheEngine.length, 'no description of the engine\'s own stack reached the tracker').toBeGreaterThan(0)
+  for (const description of ofTheEngine) expect(description.candidates, 'a ripple behind the relay named more than the relay').toEqual([{ address: tracker.address, kind: 'host', ofTheRelay: true }])
+  // while what the browser made came from the page with the VPN off: none of it is on a port of the relay
+  const ofTheBrowser = described.filter((description) => description.ofTheBrowser)
+  expect(ofTheBrowser.length, 'no description of the browser reached the tracker, so the two kinds are not told apart').toBeGreaterThan(0)
+  expect(ofTheBrowser.flatMap((description) => description.candidates).filter((candidate) => candidate.ofTheRelay)).toEqual([])
   // the tracker took two connections for it: the relay's, made to read its own address, and the proxy's socket.
   // On one machine both come from the address the tracker listens on, so only their number says anything.
   expect(after.seen.tracker.connections[tracker.address]! - before.seen.tracker.connections[tracker.address]!, 'the relay made no connection to the tracker to read its own address').toBe(2)

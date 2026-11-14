@@ -50,7 +50,7 @@ const answer = (query) => {
 createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/seen') {
     response.setHeader('content-type', 'application/json')
-    response.end(JSON.stringify({ names, tracker: { ...tracker.seen, peers: tracker.peers(), candidates: tracker.candidates() } }))
+    response.end(JSON.stringify({ names, tracker: { ...tracker.seen, peers: tracker.peers(), candidates: tracker.candidates(), descriptions: tracker.descriptions() } }))
     return
   }
   if (request.method !== 'POST' || request.url !== '/dns-query') {

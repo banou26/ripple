@@ -12,9 +12,11 @@ import { WebSocketServer } from 'ws'
  *   seen: { announces: number, offers: number, answers: number, sockets: number, connections: Record<string, number> },
  *   peers: () => number,
  *   candidates: () => string[],
+ *   descriptions: () => { origin: string, candidates: string[] }[],
  *   close: () => Promise<void>,
  * }>} `peers` is how many peers are announced right now, over every torrent, `candidates` every
- * `address:port` an offer or an answer said its sender is reached at, and `seen.connections` how many
+ * `address:port` an offer or an answer said its sender is reached at, `descriptions` each offer and answer by
+ * the stack that made it (its `o=` line) with the candidate lines it carried, and `seen.connections` how many
  * connections came from each address, the ones that never became a WebSocket included.
  */
 export const startTracker = async (port = 0, host = '127.0.0.1') => {
@@ -26,8 +28,11 @@ export const startTracker = async (port = 0, host = '127.0.0.1') => {
   const seen = { announces: 0, offers: 0, answers: 0, sockets: 0, connections: {} }
   http.on('connection', (socket) => { seen.connections[socket.remoteAddress] = (seen.connections[socket.remoteAddress] ?? 0) + 1 })
   const candidates = new Set()
+  const descriptions = []
   const note = (description) => {
-    for (const [, address, port] of String(description?.sdp).matchAll(/^a=candidate:\S+ \d+ udp \d+ (\S+) (\d+) typ /gim)) candidates.add(`${address}:${port}`)
+    const sdp = String(description?.sdp)
+    for (const [, address, port] of sdp.matchAll(/^a=candidate:\S+ \d+ udp \d+ (\S+) (\d+) typ /gim)) candidates.add(`${address}:${port}`)
+    descriptions.push({ origin: /^o=.*$/m.exec(sdp)?.[0].trim() ?? '', candidates: [...sdp.matchAll(/^a=candidate:.*$/gm)].map(([line]) => line.trim()) })
   }
 
   server.on('connection', (socket) => {
@@ -75,6 +80,7 @@ export const startTracker = async (port = 0, host = '127.0.0.1') => {
     seen,
     peers: () => [...swarms.values()].reduce((count, swarm) => count + swarm.size, 0),
     candidates: () => [...candidates],
+    descriptions: () => descriptions,
     close: () => new Promise((resolve) => {
       for (const client of server.clients) client.terminate()
       server.close()

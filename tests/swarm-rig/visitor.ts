@@ -40,6 +40,8 @@ export type Told = {
   /** every WebSocket tracker row of the torrent, as the Trackers tab would list it */
   trackers: { url: string, verified: boolean, fails: number, seeders: number }[]
   firstFrameAt: number | null
+  /** how many peer connections of the browser this frame made: none while its engine is behind the relay */
+  made: number
 }
 
 /**
@@ -58,7 +60,11 @@ const install = ({ key, infoHash, vpn }: { key: string, infoHash: string, vpn: '
   const told: Told = {
     transports: [], engines: 0, fatal: [], states: 0, lastStateAt: 0,
     handle: null, done: 0, state: null, numPeers: 0, upload: 0, noPeersSince: null, reachable: null,
-    webrtc: { down: 0, up: 0, peers: 0 }, ordinary: { down: 0, up: 0, peers: 0 }, connections: {}, trackers: [], firstFrameAt: null,
+    webrtc: { down: 0, up: 0, peers: 0 }, ordinary: { down: 0, up: 0, peers: 0 }, connections: {}, trackers: [], firstFrameAt: null, made: 0,
+  }
+  const NativeConnection = window.RTCPeerConnection
+  window.RTCPeerConnection = class extends NativeConnection {
+    constructor (configuration?: RTCConfiguration) { super(configuration); told.made++ }
   }
   let engine: Worker | null = null
   const last: Record<string, { down: number, up: number }> = {}
