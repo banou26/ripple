@@ -17,6 +17,7 @@ vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
 vi.mock('@fkn/lib/net', () => ({ connect: engine.asked.connect }))
 vi.mock('@fkn/lib/dgram', () => ({ createSocket: engine.asked.createSocket }))
 vi.mock('@fkn/lib/websocket', () => ({ WebSocket: class {} }))
+vi.mock('@fkn/lib/dns', () => ({ lookup: async () => undefined }))
 vi.mock('libtorrent-wasm/webrtc', () => ({ createWebRTC: engine.asked.createWebRTC }))
 vi.mock('libtorrent-wasm/webtorrent', () => ({
   webtorrentPeers: engine.asked.webtorrentPeers,
@@ -51,7 +52,8 @@ it('starts the engine behind the relay and looks for no WebRTC peer, even in a w
   const options = engine.created[0]!
   expect(options.net).toBe(await import('@fkn/lib/net'))
   expect(options.dgram).toBe(await import('@fkn/lib/dgram'))
-  expect(Object.keys(options).sort()).toEqual(['dgram', 'net', 'storage', 'utpReceiveBufferBytes'])
+  expect(options.dnsLookup).toBe((await import('@fkn/lib/dns')).lookup)
+  expect(Object.keys(options).sort()).toEqual(['dgram', 'dnsLookup', 'net', 'storage', 'utpReceiveBufferBytes'])
   expect(rig.of('state').at(-1)!.transport).toBe('relay')
   expect(rig.of('peer-links')).toEqual([])
   for (const [name, call] of Object.entries(engine.asked)) expect(call, name).toHaveBeenCalledTimes(0)

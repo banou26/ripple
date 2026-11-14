@@ -2,6 +2,7 @@ import './node-shims'
 
 import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
+import { lookup } from '@fkn/lib/dns'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
@@ -1630,7 +1631,8 @@ const init = async () => {
   storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
   session = await createSession(transport === 'direct'
     ? { ...offlineHost(), storage, enableDht: false, reserveListenPort: false }
-    : { net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
+    // the relay looks names up: with no `dnsLookup` the engine asks 1.1.1.1 itself, from the person's own address
+    : { net, dgram, dnsLookup: lookup, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
   if (WEBRTC_PEERS) webrtc = transport === 'direct' ? directPeers(session, post) : relayPeers(session)
 

@@ -89,6 +89,7 @@ vi.mock('@fkn/lib/net', () => ({
   },
 }))
 vi.mock('@fkn/lib/websocket', () => ({ WebSocket: RelayWebSocket }))
+vi.mock('@fkn/lib/dns', () => ({ lookup: async () => undefined }))
 vi.mock('libtorrent-wasm/webrtc', () => ({
   createWebRTC: async (options: Record<string, unknown>) => {
     const factory = { options, RTCPeerConnection: class {}, close: vi.fn() }
@@ -148,7 +149,9 @@ it('starts the engine behind the relay as before, with nothing asked of the page
   const options = engine.created[0]!
   expect(options.net).toBe(await import('@fkn/lib/net'))
   expect(options.dgram).toBe(await import('@fkn/lib/dgram'))
-  expect(Object.keys(options).sort()).toEqual(['dgram', 'net', 'storage', 'utpReceiveBufferBytes'])
+  // the relay looks every name up: with none passed the engine asks 1.1.1.1 from the browser itself
+  expect(options.dnsLookup).toBe((await import('@fkn/lib/dns')).lookup)
+  expect(Object.keys(options).sort()).toEqual(['dgram', 'dnsLookup', 'net', 'storage', 'utpReceiveBufferBytes'])
   expect(rig.of('peer-links')).toEqual([])
   expect(engine.pageLinks).toHaveBeenCalledTimes(0)
   await vi.waitFor(() => expect(lastState().transport).toBe('relay'))

@@ -10,7 +10,7 @@ const engine = vi.hoisted(() => ({
   swarms: [] as { session: unknown, options: Record<string, unknown> }[],
   ports: [] as unknown[],
   refresh: vi.fn(),
-  relay: { createSocket: vi.fn(), connect: vi.fn(), createWebRTC: vi.fn(), rtcLinks: vi.fn() },
+  relay: { createSocket: vi.fn(), connect: vi.fn(), lookup: vi.fn(), createWebRTC: vi.fn(), rtcLinks: vi.fn() },
   offline: { net: { is: 'no net' }, dgram: { is: 'no dgram' }, dnsLookup: () => {} },
   peers: 0,
 }))
@@ -27,6 +27,7 @@ vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
 vi.mock('@fkn/lib/net', () => ({ connect: engine.relay.connect, isIPv4: () => true }))
 vi.mock('@fkn/lib/dgram', () => ({ createSocket: engine.relay.createSocket }))
 vi.mock('@fkn/lib/websocket', () => ({ WebSocket: class RelayWebSocket {} }))
+vi.mock('@fkn/lib/dns', () => ({ lookup: engine.relay.lookup }))
 vi.mock('libtorrent-wasm/webrtc', () => ({ createWebRTC: engine.relay.createWebRTC }))
 vi.mock('libtorrent-wasm/webtorrent', () => ({
   webtorrentPeers: (session: unknown, options: Record<string, unknown>) => {
@@ -76,6 +77,8 @@ it('starts the engine on a host that reaches nothing, and hands the page the por
   expect(engine.created).toHaveLength(1)
   const { net, dgram, dnsLookup, enableDht, reserveListenPort, storage } = engine.created[0]!
   expect({ net, dgram, dnsLookup }).toEqual(engine.offline)
+  // the host's own, which answers no address for every name: neither the relay nor 1.1.1.1 is asked
+  expect(dnsLookup).toBe(engine.offline.dnsLookup)
   expect({ enableDht, reserveListenPort }).toEqual({ enableDht: false, reserveListenPort: false })
   expect(storage).toBeDefined()
 
