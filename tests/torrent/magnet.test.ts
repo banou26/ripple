@@ -107,6 +107,17 @@ describe('a magnet that names more than one torrent', () => {
   it('ignores an xt of another network beside the torrent', () => {
     expect(magnetInfoHash(`magnet:?xt=urn:btih:${A}&xt=urn:sha1:${'Q'.repeat(32)}`)).toBe(A)
   })
+
+  /**
+   * The engine skips both of these v1 hashes and downloads the v2 one, so reading the v1 listed the magnet under a
+   * torrent the engine never fetched.
+   */
+  it('skips a v1 hash the engine skips, beside a v2 one', () => {
+    expect(magnetInfoHash(`magnet:?xt=URN:BTIH:${A}&xt=urn:btmh:1220${D}`)).toBe(D)
+    expect(magnetInfoHash(`magnet:?flag&xt=urn:btih:${A}&xt=urn:btmh:1220${D}`)).toBe(D)
+    expect(magnetInfoHash(`magnet:?dn=x&&xt=urn:btih:${A}&xt=urn:btmh:1220${D}`)).toBe(D)
+    expect(magnetInfoHash(`magnet:?xt=URN:BTIH:${A}`)).toBeNull()
+  })
 })
 
 describe('reading one parameter back out', () => {

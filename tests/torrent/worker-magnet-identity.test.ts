@@ -69,6 +69,8 @@ const CASES: [string, string, string | null, string?][] = [
   ['one v1 in hex then in base32', `magnet:?xt=urn:btih:${v1(0x91)}&xt=urn:btih:${base32(v1(0x91)).toUpperCase()}`, v1(0x91)],
   ['one v1 in base32 then in hex', `magnet:?xt=urn:btih:${base32(v1(0xa1)).toUpperCase()}&xt=urn:btih:${v1(0xa1)}`, base32(v1(0xa1)), v1(0xa1)],
   ['one v1 in upper then lower case', `magnet:?xt=urn:btih:${v1(0xb1).toUpperCase()}&xt=urn:btih:${v1(0xb1)}`, v1(0xb1)],
+  ['an upper case URN:BTIH beside a v2', `magnet:?xt=URN:BTIH:${v1(0xc1)}&xt=urn:btmh:1220${v2(0xc2)}`, v2(0xc2)],
+  ['a parameter with no = before a v1, beside a v2', `magnet:?flag&xt=urn:btih:${v1(0xd1)}&xt=urn:btmh:1220${v2(0xd2)}`, v2(0xd2)],
 ]
 
 const listed = () => (store.get(LIST_KEY) as Persisted[] | undefined) ?? []

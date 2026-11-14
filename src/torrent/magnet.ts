@@ -12,23 +12,26 @@
  * older swarm answers to. Only a v2-only torrent answers with 64 characters.
  *
  * NULL FOR A MAGNET THAT NAMES TWO TORRENTS. `xt` is read as libtorrent reads it (`magnet_uri.cpp`):
- * the name in any case and with a `.<digits>` suffix, the value percent-decoded. libtorrent keeps the
- * LAST v1 and the last v2 it reads, so two different v1 hashes, or two v2, were listed here under
- * one torrent while the engine downloaded the other. One torrent written twice, in hex and base32
- * or in two cases, is still one, and answers as it is written first.
+ * the name in any case and with a `.<digits>` suffix, the value percent-decoded, its `urn:` prefix in
+ * lower case only. libtorrent keeps the LAST v1 and the last v2 it reads, so two different v1 hashes,
+ * or two v2, were listed here under one torrent while the engine downloaded the other. One torrent
+ * written twice, in hex and base32 or in two cases, is still one, and answers as it is written first.
  */
 export const magnetInfoHash = (magnet: string): string | null => {
   const v1: string[] = []
   const v2: string[] = []
+  // libtorrent's name runs to the next `=`, so a parameter with none swallows the one after it
+  let swallowed = false
   for (const part of magnet.slice(magnet.indexOf('?') + 1).split('&')) {
     const eq = part.indexOf('=')
-    if (eq < 0 || !/^xt(\.\d*)?$/i.test(part.slice(0, eq))) continue
+    if (swallowed || eq < 0) { swallowed = eq < 0; continue }
+    if (!/^xt(\.\d*)?$/i.test(part.slice(0, eq))) continue
     let value = part.slice(eq + 1)
     try { value = decodeURIComponent(value) } catch { /* left as written */ }
     // base32 is legal here as well as hex, which is why this is not a hex-only pattern
-    const hash = value.match(/^urn:btih:([0-9a-z]+)/i)?.[1]
+    const hash = value.match(/^urn:btih:([0-9a-zA-Z]+)/)?.[1]
     if (hash) { v1.push(hash.toLowerCase()); continue }
-    const multihash = value.match(/^urn:btmh:([0-9a-f]+)/i)?.[1]?.toLowerCase()
+    const multihash = value.match(/^urn:btmh:([0-9a-fA-F]+)/)?.[1]?.toLowerCase()
     /*
      * `1220` IS NOT PART OF THE ID. It is the multihash prefix: 0x12 for sha2-256, 0x20 for the 32
      * bytes that follow. Keeping it produced a 68-character id, and that had a cost far past being
