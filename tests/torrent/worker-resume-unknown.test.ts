@@ -5,10 +5,9 @@ import { expect, it, vi } from 'vitest'
 import { installWorkerGlobals } from '../utils/worker-rig'
 
 /**
- * The engine learns a handle at the first pump after its add, and never answers a save asked for before that:
- * the wait gave up 8 s later as "save_resume_data timed out". A flush sent to an engine as it started, which
- * two changes of the VPN in a row do, waited for it, and the engine that stayed logged an error (the 20 changes
- * of tests/vpn-off.spec.ts on a CI runner, 2026-11-14).
+ * The engine answers a save asked for with the add, but before it has reported on the torrent the torrent may
+ * not have checked its files yet, and such a blob holds none of its pieces, which the next load trusts without
+ * checking. A flush sent to an engine as it started, which two changes of the VPN in a row do, asks just then.
  */
 
 const FILM = 'a'.repeat(40)
@@ -31,7 +30,7 @@ vi.mock('libtorrent-wasm', async () => {
       status: () => engine.known ? DOWNLOADING : null,
       saveResumeData: () => {
         engine.asked++
-        return engine.known ? Promise.resolve(new Uint8Array([1])) : new Promise<Uint8Array>(() => {})
+        return Promise.resolve(new Uint8Array(engine.known ? [1] : []))
       },
       pauseTorrent: () => {},
       resumeTorrent: () => {},
@@ -63,8 +62,9 @@ it('asks the engine for no save before it has reported on the torrent, and answe
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
   rig.send({ type: 'flush-resume', id: 7 })
-  await vi.waitFor(() => expect(rig.of('answer'), 'the flush waited for a save the engine never answers').toEqual([{ type: 'answer', id: 7 }]))
+  await vi.waitFor(() => expect(rig.of('answer')).toEqual([{ type: 'answer', id: 7 }]))
   expect(engine.asked).toBe(0)
+  expect(engine.store.has('ripple:resume:' + FILM)).toBe(false)
 
   engine.known = true
   rig.send({ type: 'flush-resume', id: 8 })
