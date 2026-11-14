@@ -34,7 +34,7 @@ export const checkStyle = css`
 `
 
 /**
- * A ticked row, card or table row: an EMPHASIS edge on its leading side and a tint over whatever fill it has, so a row
+ * A ticked row, card or table row: an EMPHASIS edge on its left side and a tint over whatever fill it has, so a row
  * also open in the details keeps that state's border or fill. Background layers take no room, where a border would
  * move the row; an offset inset shadow drew a light line a pixel past the box at a fractional top in Firefox 157, and
  * WebKit 26 draws no shadow on a table row (both measured 2026-11-14).
