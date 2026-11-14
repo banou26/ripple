@@ -123,8 +123,15 @@ test('live figures keep their room whatever the font, the language and the width
 })
 
 const OFFERED: string[] = JSON.parse(readFileSync(new URL('../src/i18n/offered.json', import.meta.url), 'utf8'))
-/** Where the header's words are longer than a 1280 px row has room for, since before this test. */
-const TWO_ROWS_AT_1280 = ['fr', 'pt-BR', 'ru']
+/**
+ * The font the header's rows are counted in. A device's own font decides them otherwise: a CI runner's DejaVu
+ * Sans put English on two rows at 1280 px, where Noto Sans keeps it on one. Liberation Sans has Arial's widths,
+ * and Playwright installs it with Chromium.
+ */
+const ROWS_FONT = 'Liberation Sans'
+
+/** Where, in ROWS_FONT, the header's words leave the magnet field under its floor at 1280 px, or within 15 px of it. */
+const TWO_ROWS_AT_1280 = ['pt-BR', 'ru']
 
 /*
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
@@ -141,6 +148,14 @@ test('the library\'s header is one row at the widths most laptops have, in every
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('lang', language)
+    await page.addStyleTag({ content: `body * { font-family: '${ROWS_FONT}' !important }` })
+    // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does
+    const drawn = await page.evaluate((font) => {
+      const pen = document.createElement('canvas').getContext('2d')!
+      const width = (family: string) => { pen.font = `16px ${family}`; return pen.measureText('Add a magnet link').width }
+      return width(`'${font}', monospace`) !== width('monospace')
+    }, ROWS_FONT)
+    expect(drawn, `${ROWS_FONT} is not on this machine, and the header's rows are counted in it`).toBe(true)
     // the account's button is the last thing the header gets, and the first to take a row of its own
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
     for (const width of [1366, 1280]) {
