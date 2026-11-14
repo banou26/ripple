@@ -14,12 +14,16 @@ export const isFatal = (error: unknown) => (error as { name?: string })?.name ==
 type SyncAccessible = { createSyncAccessHandle: () => Promise<FileSystemSyncAccessHandle> }
 
 /**
- * `file.createSyncAccessHandle()`, with `file` held until the call settles.
+ * `file.createSyncAccessHandle()`, with `file` held until the call settles. `@banou/ponyfill` exports
+ * the same function from 0.0.15; this copy stays while media-player asks for 0.0.12, since
+ * tests/toolchain.test.ts allows one ponyfill only.
  *
  * Chromium never settles the call when the handle is collected before the browser answers its
- * storage access check (Chrome 156 in a worker, 2026-11-14: 182 of 200 calls on handles nothing else
- * held never settled, 0 of 200 held). The minifier turns `const file = await ...` into a temporary
- * that nothing holds, so the hold has to be explicit.
+ * storage access check (Chrome 156.0.8078.47 in a worker, 2026-11-14: 182 of 200 calls on handles
+ * nothing else held never settled, 0 of 200 held). Only the full build has that window:
+ * chrome-headless-shell 156 answers the check at once (0 of 100), so a browser test on it passes
+ * without the hold. The minifier turns `const file = await ...` into a temporary that nothing holds,
+ * so the hold has to be explicit.
  */
 export const createSyncAccessHandle = (file: FileSystemFileHandle) =>
   (file as unknown as SyncAccessible).createSyncAccessHandle().finally(() => file)
