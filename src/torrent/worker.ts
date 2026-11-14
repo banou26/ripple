@@ -2655,7 +2655,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih) await patchList(ih, { paused: true })
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
-      cacheIdle.delete(m.handle)
+      cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
       wantStart(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
@@ -2675,7 +2675,7 @@ const handleMessage = async (session: Session, m: any) => {
       userPaused.delete(m.handle)
       wantPaused.delete(m.handle)
       wantStarted.delete(m.handle)
-      cacheIdle.delete(m.handle)
+      cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
       recovery.forget(m.handle)
       session.forceRecheck(m.handle)
       recovery.hold(m.handle, Date.now())

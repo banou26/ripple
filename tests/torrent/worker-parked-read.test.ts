@@ -51,6 +51,8 @@ vi.mock('libtorrent-wasm', async () => {
       setStreamWindow: () => true,
       pauseTorrent: (h: number) => { engine.paused.add(h); engine.log.push('pause') },
       resumeTorrent: (h: number) => { engine.paused.delete(h); engine.log.push('resume') },
+      // libtorrent's check clears a pause itself
+      forceRecheck: (h: number) => { engine.paused.delete(h); engine.log.push('recheck') },
       saveResumeData: async () => new Uint8Array([1]),
       setDownloadLimit: () => {},
       setUploadLimit: () => {},
@@ -158,3 +160,37 @@ it('parks it again though a read of a player that has left still waits', async (
   await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'abandoned')).toBeDefined())
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)
+
+it('leaves it running when the person pauses and resumes it while a Save reads', async () => {
+  engine.slow.at = 14 * MiB
+  rig.send({ type: 'read', id: 'paused save', handle: 1, fileIndex: 1, offset: 14 * MiB, len: 64 * 1024 })
+  await vi.waitFor(() => expect(engine.log.slice(12)).toEqual(['resume']))
+  rig.send({ type: 'pause', handle: 1 })
+  rig.send({ type: 'resume', handle: 1 })
+  await vi.waitFor(() => expect(engine.log.slice(12)).toEqual(['resume', 'pause', 'resume']))
+  engine.slow.at = -1
+  engine.slow.go()
+  // the Save asks again for the chunk the pause refused, and ends
+  expect((await read('resumed save', 1, 14 * MiB)).type).toBe('read-result')
+  await quiet()
+  expect(engine.log.slice(12)).toEqual(['resume', 'pause', 'resume'])
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 20_000)
+
+it('leaves a check the person started while a Save reads to run', async () => {
+  // a player coming and going parks it again first
+  rig.send({ type: 'watch', viewer: 'player:3', handle: 1, fileIndex: 1, fromOffset: 0 })
+  rig.send({ type: 'unwatch', viewer: 'player:3' })
+  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause']))
+  engine.slow.at = 16 * MiB
+  rig.send({ type: 'read', id: 'checked save', handle: 1, fileIndex: 1, offset: 16 * MiB, len: 64 * 1024 })
+  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause', 'resume']))
+  rig.send({ type: 'recheck', handle: 1 })
+  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause', 'resume', 'recheck']))
+  engine.slow.at = -1
+  engine.slow.go()
+  expect((await read('save after the check', 1, 16 * MiB)).type).toBe('read-result')
+  await quiet()
+  expect(engine.log.slice(15)).toEqual(['pause', 'resume', 'recheck'])
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 25_000)
