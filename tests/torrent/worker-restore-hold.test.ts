@@ -10,6 +10,7 @@ const PARKED = 'a'.repeat(40)
 const WATCHED = 'b'.repeat(40)
 const KEPT = 'c'.repeat(40)
 const REMOVED = 'd'.repeat(40)
+const PAUSED = 'e'.repeat(40)
 const LIBRARY = '1'.repeat(40)
 const SAVED = '2'.repeat(40)
 const FROM_FILE = '3'.repeat(40)
@@ -112,6 +113,7 @@ vi.mock('idb-keyval', () => {
     ['ripple:torrents', [
       ...['a', 'b', 'c', 'd', '2', '3'].map((c) => entry(c.repeat(40), true)),
       entry('1'.repeat(40), false),
+      { ...entry('e'.repeat(40), true), paused: true },
     ]],
     // one parked earlier, which a resume blob brings back
     [`ripple:resume:${'2'.repeat(40)}`, new Uint8Array([1])],
@@ -141,12 +143,14 @@ it('holds a temporary torrent restored with no saved state until the pump that p
   expect(rig.of('answer').find((m) => m.id === 'give')!.value).toBeNull()
 
   // before any pump has seen them
-  for (const hash of [PARKED, WATCHED, KEPT, REMOVED, FROM_FILE]) {
+  for (const hash of [PARKED, WATCHED, KEPT, REMOVED, FROM_FILE, PAUSED]) {
     expect(engine.log.find((line) => line.startsWith(hash)), hash).toBe(`${hash} upload on`)
   }
   await pumps(2)
   for (const hash of [PARKED, WATCHED, KEPT, REMOVED]) expect(of(hash), hash).toEqual(['upload on'])
   expect(of(FROM_FILE)).toEqual(['upload on', 'pause', 'upload off', 'save plain'])
+  // one the person paused runs until a pump pauses it, so it is held too
+  expect(of(PAUSED)).toEqual(['upload on', 'pause'])
   // a saved state or a library download is not held, and the flush saved them
   expect(of(SAVED)).toContain('save plain')
   expect(of(LIBRARY)).toEqual(['save plain'])
@@ -179,6 +183,13 @@ it('takes one the library keeps before its metadata out of upload mode', async (
   await vi.waitFor(() => expect(of(KEPT)).toContain('upload off'), { timeout: 2_000 })
   await pumps(1)
   expect(of(KEPT)).toEqual(['upload on', 'upload off'])
+})
+
+it('parks one the person paused and resumed at its layout, out of upload mode', async () => {
+  rig.send({ type: 'resume', handle: handleOf(PAUSED) })
+  engine.withMeta.add(PAUSED)
+  await vi.waitFor(() => expect(of(PAUSED)).toContain('save plain'), { timeout: 2_000 })
+  expect(of(PAUSED)).toEqual(['upload on', 'pause', 'resume', 'pause', 'upload off', 'save plain'])
 })
 
 it('forgets the hold of one removed, so the same hash added again saves its resume data', async () => {
