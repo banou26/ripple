@@ -9,11 +9,18 @@ export const TRACKER_HOSTS = ['tracker.openwebtorrent.com', 'tracker.webtorrent.
 /** What tells a browser its public address with the VPN off. The privacy page names it. */
 export const STUN_HOST = 'stun.l.google.com'
 
+/**
+ * The swarm rig's own tracker, which its build alone bakes in (tests/swarm-rig): on that lane every peer, tracker
+ * and relay is the one machine, so the tracker stands in for the two above, no STUN host is asked, and a peer on
+ * a private address is taken. Undefined in every other build.
+ */
+export const RIG_TRACKER: string | undefined = import.meta.env?.VITE_RIPPLE_RIG_TRACKER || undefined
+
 /** Announced to beside a torrent's own `ws` and `wss` trackers, for every torrent that is not private. */
-export const TRACKERS = TRACKER_HOSTS.map((host) => `wss://${host}`)
+export const TRACKERS = RIG_TRACKER ? [RIG_TRACKER] : TRACKER_HOSTS.map((host) => `wss://${host}`)
 
 /** Asked with the VPN off only, where the browser has to learn its own public address. */
-export const ICE_SERVERS = [{ urls: `stun:${STUN_HOST}:19302` }]
+export const ICE_SERVERS = RIG_TRACKER ? [] : [{ urls: `stun:${STUN_HOST}:19302` }]
 
 /**
  * Every host the browser reaches by itself with the VPN off, beside the peers and the trackers a torrent names.

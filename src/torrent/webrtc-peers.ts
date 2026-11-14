@@ -9,7 +9,7 @@ import { pageLinks, rtcLinks, webtorrentPeers } from 'libtorrent-wasm/webtorrent
 // its own file, fetched: inlined, it would put 4 MB more in the chunks the service worker keeps
 import wasmUrl from 'libtorrent-wasm/webrtc.wasm?url&no-inline'
 
-import { TRACKERS } from './vpn-config'
+import { RIG_TRACKER, TRACKERS } from './vpn-config'
 
 /**
  * The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left.
@@ -61,11 +61,12 @@ const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
 })
 
 /**
- * The address a TCP socket connected through the relay to `host` left from, which is the relay's public IPv4
+ * The address a TCP socket connected through the relay to a tracker left from, which is the relay's public IPv4
  * address. The socket is closed again with nothing sent.
  */
-const addressSeenFrom = (host: string) => new Promise<string>((resolve, reject) => {
-  const socket = net.connect({ host, port: 443 })
+const addressSeenFrom = (tracker: string) => new Promise<string>((resolve, reject) => {
+  const { hostname, port, protocol } = new URL(tracker)
+  const socket = net.connect({ host: hostname, port: Number(port) || (protocol === 'wss:' ? 443 : 80) })
   const end = (address?: string) => {
     clearTimeout(timer)
     socket.destroy()
@@ -85,7 +86,7 @@ const addressSeenFrom = (host: string) => new Promise<string>((resolve, reject) 
  */
 const relayAddress = async () => {
   for (const tracker of TRACKERS) {
-    const address = await addressSeenFrom(new URL(tracker).hostname).catch(() => null)
+    const address = await addressSeenFrom(tracker).catch(() => null)
     if (address) return address
   }
   throw new Error('the relay did not say its address')
@@ -118,7 +119,7 @@ export const relayPeers = (session: Session): WebrtcPeers => {
           const address = await relayAddress()
           wasm ??= await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer())
           if (open) {
-            const webrtc = await createWebRTC({ socket, address, port: socket.address().port, wasm })
+            const webrtc = await createWebRTC({ socket, address, port: socket.address().port, wasm, allowPrivateCandidates: !!RIG_TRACKER })
             peers = webtorrentPeers(session, {
               links: rtcLinks({ RTCPeerConnection: webrtc.RTCPeerConnection }),
               WebSocket: RelayWebSocket,

@@ -1,6 +1,9 @@
 {
   "broker": { "origin": "http://localhost:5234", "port": 5234 },
   "relay": { "host": "127.0.0.1", "webtransport": 5433, "http": 5434, "websocket": 5443 },
+  "proxy": { "origin": "http://localhost:5470", "port": 5470, "metrics": 5471 },
+  "tracker": { "name": "ripple-tracker.test", "address": "192.0.2.1", "port": 5472 },
+  "resolver": { "port": 5473 },
   "app": { "origin": "http://localhost:5460", "port": 5460 },
   "closed": 5299,
   "seeders": { "count": 4, "firstHost": 2, "basePeerPort": 52600, "baseRpcPort": 9400 },

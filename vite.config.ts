@@ -41,6 +41,11 @@ if (rigLib && !existsSync(`${rigLib}/index.js`)) {
   throw new Error(`RIPPLE_RIG_FKN_CLIENT is set but ${rigLib}/index.js does not exist: run scripts/rig-prepare.mjs first`)
 }
 if (rigLib) console.warn(`ripple: building against the swarm rig's @fkn/lib at ${rigLib}, NOT the published one`)
+// the rig's build names the rig's own tracker in place of the public ones (src/torrent/vpn-config.ts)
+if (rigLib) {
+  const { tracker } = JSON.parse(readFileSync('./tests/swarm-rig/topology.json', 'utf8'))
+  process.env.VITE_RIPPLE_RIG_TRACKER = `ws://${tracker.name}:${tracker.port}`
+}
 
 const commitHash =
   process.env.CF_PAGES_COMMIT_SHA ||
