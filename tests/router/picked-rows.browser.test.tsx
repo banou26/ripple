@@ -131,23 +131,29 @@ describe('a ticked row', () => {
       })
     }
 
-    it(`is told by an edge 3:1 from the row's own fill in the ${view}, ticked alone or with its details open`, async () => {
+    it(`is told by a tint and an edge 3:1 from the row's own fill in the ${view}, ticked alone or with its details open`, async () => {
       const { box, row } = await library(view, NONE)
-      box(BLACK).click()
-      box(NONE).click()
-      await expect.poll(() => box(NONE).checked).toBe(true)
-      const at = await drawn()
       // the edge is 3 px inside the card's 1 px border, or at the table's own edge
       const inset = view === 'cards' ? 1 : 0
       const middle = (x: Torrent) => { const { left, top, height } = row(x).getBoundingClientRect(); return { left, y: top + height / 2 } }
-      const edge = (x: Torrent) => at(middle(x).left + inset + 1.5, middle(x).y)
-      const fill = (x: Torrent) => at(middle(x).left + inset + 5.5, middle(x).y)
+      const read = (at: (x: number, y: number) => number[]) => ({
+        edge: (x: Torrent) => at(middle(x).left + inset + 1.5, middle(x).y),
+        fill: (x: Torrent) => at(middle(x).left + inset + 5.5, middle(x).y),
+      })
+      const unticked = read(await drawn())
+      box(BLACK).click()
+      box(NONE).click()
+      await expect.poll(() => box(NONE).checked).toBe(true)
+      const { edge, fill } = read(await drawn())
       for (const ticked of [BLACK, NONE]) {
         expect(contrast(edge(ticked), fill(WHITE)), `${ticked.name} against an unticked row`).toBeGreaterThanOrEqual(3)
         expect(contrast(edge(ticked), fill(ticked)), `${ticked.name} against its own tint`).toBeGreaterThanOrEqual(3)
       }
       // the control: an unticked row has no edge, its fill runs to its border
       expect(contrast(edge(WHITE), fill(WHITE))).toBeLessThan(1.1)
+      // the tint: the same row's fill a step brighter once ticked
+      expect(luminance(fill(BLACK))).toBeGreaterThan(luminance(unticked.fill(BLACK)))
+      expect(contrast(fill(BLACK), unticked.fill(BLACK))).toBeGreaterThan(1.05)
     })
   }
 })
