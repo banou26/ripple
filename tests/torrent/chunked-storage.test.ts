@@ -4,7 +4,7 @@ import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 import { describe, expect, it } from 'vitest'
 
 import { createChunkedStorage } from '../../src/torrent/chunked-storage'
-import { installOpfs, memoryDir, memoryFile } from '../utils/memory-opfs'
+import { collectableHandles, installOpfs, memoryDir, memoryFile } from '../utils/memory-opfs'
 
 const C = 1024
 const HASH = 'a'.repeat(40)
@@ -149,6 +149,31 @@ describe('the chunked storage', () => {
     await expect(Promise.resolve().then(() => storage.write(1, 1, 0, bytes(64)))).rejects.toMatchObject({ name: 'QuotaExceededError' })
     expect(Date.now() - started).toBeLessThan(1_000)
     expect(storage.refusedFile(SAVE_PATH)).toBe(1)
+  })
+})
+
+const within = (promise: Promise<unknown>, ms: number) =>
+  Promise.race([promise.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms))])
+
+describe('a chunk opened on a handle nothing else holds', () => {
+  it('opens all the same: five first writes to five new chunks land and read back', async () => {
+    const dir = memoryDir(String(C))
+    installOpfs(memoryDir('', [memoryDir('cache', [memoryDir(HASH, [collectableHandles(dir)])])]))
+    const storage = createChunkedStorage(C)
+    await storage.onNewStorage(1, SAVE_PATH, FILES)
+    const chunks = [0, 1, 2, 3, 4]
+    const writes = chunks.map((k) => Promise.resolve(storage.write(1, 0, k * C, bytes(16, k))))
+    expect(await within(Promise.all(writes), 2_000), 'a write never landed').toBe(true)
+    for (const k of chunks) expect(await storage.read(1, 0, k * C, 16)).toEqual(bytes(16, k))
+  })
+
+  it('the control: the fake never answers a call on a handle nothing holds, and answers a held one', async () => {
+    const dir = collectableHandles(memoryDir('x'))
+    const dropped = (async () => (await dir.getFileHandle('a', { create: true })).createSyncAccessHandle())()
+    expect(await within(dropped, 500)).toBe(false)
+    const held = await dir.getFileHandle('b', { create: true })
+    expect(await within(held.createSyncAccessHandle(), 500)).toBe(true)
+    expect(held.name).toBe('b')
   })
 })
 

@@ -4,6 +4,9 @@
  * on Firefox 157 and Chromium 149, 2026-10-19: `NoModificationAllowedError`).
  */
 
+import v8 from 'node:v8'
+import vm from 'node:vm'
+
 type Node = MemoryDir | MemoryFile
 
 export type MemoryFile = {
@@ -118,6 +121,40 @@ export const memoryDir = (name: string, children: Node[] = [], room = { bytes: I
       if (locked(found)) throw domError('NoModificationAllowedError', `${child} is locked`)
       if (found.kind === 'directory' && found.children.size && !options?.recursive) throw domError('InvalidModificationError', `${child} is not empty`)
       map.delete(child)
+    },
+  }
+}
+
+type Opens = { getFileHandle: (name: string, options?: { create?: boolean }) => Promise<{ createSyncAccessHandle: () => Promise<unknown> }> }
+
+let collect: (() => void) | undefined
+
+/**
+ * `dir` with the file handles Chromium gives: a new object from each `getFileHandle`, whose
+ * `createSyncAccessHandle` answers in a later task, after a collection, and never answers when
+ * nothing held the handle through it (Chrome 156 in a worker, 2026-11-14; see `createSyncAccessHandle`
+ * in src/torrent/opfs-storage.ts).
+ */
+export const collectableHandles = <D extends Opens>(dir: D): D => {
+  if (!collect) {
+    v8.setFlagsFromString('--expose_gc')
+    collect = vm.runInNewContext('gc') as () => void
+  }
+  const gc = collect
+  return {
+    ...dir,
+    getFileHandle: async (name: string, options?: { create?: boolean }) => {
+      const file = await dir.getFileHandle(name, options)
+      return {
+        ...file,
+        createSyncAccessHandle () {
+          const held = new WeakRef(this)
+          return new Promise((resolve, reject) => setTimeout(() => {
+            gc()
+            if (held.deref()) file.createSyncAccessHandle().then(resolve, reject)
+          }, 0))
+        },
+      }
     },
   }
 }
