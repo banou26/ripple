@@ -124,53 +124,59 @@ test('live figures keep their room whatever the font, the language and the width
 
 const OFFERED: string[] = JSON.parse(readFileSync(new URL('../src/i18n/offered.json', import.meta.url), 'utf8'))
 /**
- * The font the header's rows are counted in. A device's own font decides them otherwise: a CI runner's DejaVu
- * Sans put English on two rows at 1280 px, where Noto Sans keeps it on one. Liberation Sans has Arial's widths,
- * and Playwright installs it with Chromium.
+ * The fonts the header's rows are counted in, each by name, since a device's own font decides them otherwise.
+ * Liberation Sans has Arial's widths, and Playwright installs it with Chromium. DejaVu Sans, system-ui on GitHub's
+ * runner and on many Linux desktops, is the widest measured: with every word, Russian needs a 1389 px window in it,
+ * against 1319 in Noto Sans.
  */
-const ROWS_FONT = 'Liberation Sans'
-
-/** Where, in ROWS_FONT, the header's words leave the magnet field under its floor at 1280 px, or within 15 px of it. */
-const TWO_ROWS_AT_1280 = ['pt-BR', 'ru']
+const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
 
 /*
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
  * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
- * the strip under it, which is there before the first torrent too.
+ * the strip under it, which is there before the first torrent too. Under 1440 px a header button gives up its words
+ * to stay on one row; at 1440 every one still shows them.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(240_000)
   await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
-  const rows: string[] = []
+  await page.goto('/')
+  // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does
+  const missing = await page.evaluate((fonts) => fonts.filter((font) => {
+    const pen = document.createElement('canvas').getContext('2d')!
+    const width = (family: string) => { pen.font = `16px ${family}`; return pen.measureText('Add a magnet link').width }
+    return width(`'${font}', monospace`) === width('monospace')
+  }), ROWS_FONTS)
+  expect(missing, 'not on this machine, and the header\'s rows are counted in them').toEqual([])
+  const wrong: string[] = []
   for (const language of OFFERED) {
-    await page.goto('/')
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('lang', language)
-    await page.addStyleTag({ content: `body * { font-family: '${ROWS_FONT}' !important }` })
-    // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does
-    const drawn = await page.evaluate((font) => {
-      const pen = document.createElement('canvas').getContext('2d')!
-      const width = (family: string) => { pen.font = `16px ${family}`; return pen.measureText('Add a magnet link').width }
-      return width(`'${font}', monospace`) !== width('monospace')
-    }, ROWS_FONT)
-    expect(drawn, `${ROWS_FONT} is not on this machine, and the header's rows are counted in it`).toBe(true)
     // the account's button is the last thing the header gets, and the first to take a row of its own
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
-    for (const width of [1366, 1280]) {
-      if (width === 1280 && TWO_ROWS_AT_1280.includes(language)) continue
-      await page.setViewportSize({ width, height: 720 })
-      const tops = await page.locator('header').evaluate((header) => [...header.children]
-        .map((child) => child.getBoundingClientRect())
-        .filter((box) => box.width > 0)
-        .map((box) => Math.round(box.top + box.height / 2)))
-      // one row: every item's middle is within a few pixels of the others'
-      if (Math.max(...tops) - Math.min(...tops) > 12) rows.push(`${language} at ${width} px: ${tops.join(' ')}`)
-      expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
+    for (const font of ROWS_FONTS) {
+      const style = await page.addStyleTag({ content: `body * { font-family: '${font}' !important }` })
+      for (const width of [1440, 1366, 1280]) {
+        await page.setViewportSize({ width, height: 720 })
+        const tops = await page.locator('header').evaluate((header) => [...header.children]
+          .map((child) => child.getBoundingClientRect())
+          .filter((box) => box.width > 0)
+          .map((box) => Math.round(box.top + box.height / 2)))
+        // one row: every item's middle is within a few pixels of the others'
+        if (Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
+        expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
+        if (width !== 1440) continue
+        const wordless = await page.locator('header > button').evaluateAll((buttons) => buttons
+          .filter((button) => !(button as HTMLElement).innerText.trim())
+          .map((button) => button.getAttribute('aria-label')))
+        if (wordless.length) wrong.push(`${language} in ${font} at ${width} px, without its words: ${wordless.join(', ')}`)
+      }
+      await style.evaluate((element) => (element as HTMLStyleElement).remove())
     }
   }
-  expect(rows, 'the header took a second row').toEqual([])
+  expect(wrong, 'the header took a second row, or gave up its words where it had the room').toEqual([])
 
   // and the switch is on the page with no torrent, under the header: where there is one to draw at all
   await expect(page.locator('.torrent')).toHaveCount(0)
