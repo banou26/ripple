@@ -3,7 +3,7 @@ import type { MeasurableStorage } from './opfs-storage'
 import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 import { write } from '@banou/ponyfill/file-system'
 
-import { isFatal, retrying } from './opfs-storage'
+import { createSyncAccessHandle, isFatal, retrying } from './opfs-storage'
 
 /**
  * The size of one chunk file of a cache torrent.
@@ -47,9 +47,6 @@ type Mount = {
 }
 
 type Segment = { name: string, at: number, from: number, to: number }
-
-// a worker-only call the DOM typings do not carry
-type SyncAccessible = { createSyncAccessHandle: () => Promise<FileSystemSyncAccessHandle> }
 
 const CHUNK_NAME = /^(\d+)-(\d+)$/
 const SIZE_NAME = /^\d+$/
@@ -121,8 +118,7 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
     const gate = m.dropping.get(name)
     const opened = (async () => {
       if (gate) await gate
-      const file = await m.dir.getFileHandle(name, { create: true })
-      const handle = await (file as unknown as SyncAccessible).createSyncAccessHandle()
+      const handle = await createSyncAccessHandle(await m.dir.getFileHandle(name, { create: true }))
       m.handles.set(name, handle)
       return handle
     })()

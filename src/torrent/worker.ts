@@ -14,7 +14,7 @@ import type { Persisted, Removal, SaveLocation } from './library'
 
 import { magnetInfoHash } from './magnet'
 import { READ_SIZE, deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
-import { createResilientStorage } from './opfs-storage'
+import { createResilientStorage, createSyncAccessHandle } from './opfs-storage'
 import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
 import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
@@ -1154,8 +1154,7 @@ const opfsAvailable = async (): Promise<boolean> => {
   try {
     root = await navigator.storage.getDirectory()
     probe = `.ripple-probe-${crypto.randomUUID()}`
-    const file = await root.getFileHandle(probe, { create: true })
-    const access = await (file as any).createSyncAccessHandle() as FileSystemSyncAccessHandle
+    const access = await createSyncAccessHandle(await root.getFileHandle(probe, { create: true }))
     access.close()
     await root.removeEntry(probe).catch(() => {})
     return true

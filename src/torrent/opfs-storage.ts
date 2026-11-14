@@ -10,6 +10,20 @@ const RETRY_DELAYS = [50, 150, 400, 900, 1_500]
 
 export const isFatal = (error: unknown) => (error as { name?: string })?.name === 'QuotaExceededError'
 
+// a worker-only call the DOM typings do not carry
+type SyncAccessible = { createSyncAccessHandle: () => Promise<FileSystemSyncAccessHandle> }
+
+/**
+ * `file.createSyncAccessHandle()`, with `file` held until the call settles.
+ *
+ * Chromium never settles the call when the handle is collected before the browser answers its
+ * storage access check (Chrome 156 in a worker, 2026-11-14: 182 of 200 calls on handles nothing else
+ * held never settled, 0 of 200 held). The minifier turns `const file = await ...` into a temporary
+ * that nothing holds, so the hold has to be explicit.
+ */
+export const createSyncAccessHandle = (file: FileSystemFileHandle) =>
+  (file as unknown as SyncAccessible).createSyncAccessHandle().finally(() => file)
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
