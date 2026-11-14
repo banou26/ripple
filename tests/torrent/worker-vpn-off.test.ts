@@ -157,15 +157,18 @@ it('says nothing of a paused download, and counts from the moment it runs again'
 // libtorrent has no use for a WebSocket tracker, so its rows never list the ones every peer here comes through
 it('lists the WebSocket trackers of the inspected torrent after libtorrent\'s own, with what each last said', async () => {
   const { handle } = lastState().torrents[0]!
-  // as the engine reads two trackers of a v1 torrent with nothing behind it: an ask that failed at once, and one in flight
+  // as the engine reads trackers with nothing behind them: a v1 torrent's ask that failed at once and one in flight,
+  // and a hybrid's, whose failures do count, with the error the tab would show beside its state
   engine.own = [
     { url: 'udp://tracker.example.org:6969/announce', message: '', tier: 0, fails: 0, updating: false, verified: false, nextAnnounceIn: 101, seeders: -1, leechers: -1, downloaded: -1 },
     { url: 'udp://192.0.2.7:1337/announce', message: '', tier: 1, fails: 0, updating: true, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+    { url: 'http://tracker.example.net/announce', message: 'timed out', tier: 2, fails: 2, updating: false, verified: false, nextAnnounceIn: 49, seeders: -1, leechers: -1, downloaded: -1 },
   ]
-  // nothing reaches them, so neither is working, nor being announced to, nor due again
+  // nothing reaches them, so none is working, nor being announced to, nor due again, nor has an error to give
   const notContacted = [
     { url: 'udp://tracker.example.org:6969/announce', message: '', tier: 0, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
     { url: 'udp://192.0.2.7:1337/announce', message: '', tier: 1, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+    { url: 'http://tracker.example.net/announce', message: '', tier: 2, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
   ]
   engine.torrents = [
     { handle: handle + 1, trackers: [{ url: 'wss://another.example.org', connected: true, seeders: 9, leechers: 9, answeredAt: 1, failure: null }] },
