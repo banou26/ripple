@@ -17,7 +17,7 @@ export type VpnFollowing = {
  * The engine is replaced, never switched: it waits while a page saves a file, lets the engine write its resume
  * data, and starts another. One change runs at a time and the choice is read again at every step, so any number of
  * changes end on the last one, with one engine. A page that runs no engine does nothing: the page that does hears
- * of the choice itself.
+ * of the choice itself. A restart that leaves the engine as it was is not tried again.
  *
  * Returns the function to call when the choice may have changed. It resolves once the engine is on the choice.
  */
@@ -31,7 +31,11 @@ export const vpnFollower = ({ wanted, running, busy, flush, restart }: VpnFollow
     while (differs()) {
       if (await busy()) { await new Promise((resolve) => setTimeout(resolve, pollMs)); continue }
       await flush().catch(() => {})
-      if (differs()) await restart()
+      if (!differs()) return
+      const before = running()
+      await restart()
+      // a restart puts the engine on the choice: one that did not would not the next time either, without end
+      if (running() === before) return
     }
   }
   return (): Promise<void> => following ??= run().finally(() => { following = null })

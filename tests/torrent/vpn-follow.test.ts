@@ -120,3 +120,23 @@ it('waits for a restart that takes its time, and starts the engine on the choice
   await done
   expect(state.started, 'one engine, started on the choice as it was when the old one was let go').toEqual([true, true])
 })
+
+// each restart is an engine start: a bind at the relay, a connection to a tracker's host, an announce
+it('tries a restart that leaves the engine as it was once, not without end', async () => {
+  let restarts = 0
+  const state = { owns: true }
+  const follow = vpnFollower({
+    wanted: () => false,
+    // a counted end of its own: past 50 restarts this page runs no engine, and the follower has nothing to follow
+    running: () => state.owns ? true : null,
+    busy: async () => false,
+    flush: async () => {},
+    restart: () => { if (++restarts >= 50) state.owns = false },
+  }, 1)
+  await follow()
+  expect(restarts).toBe(1)
+
+  // and it is tried again at the next change, once
+  await follow()
+  expect(restarts).toBe(2)
+})

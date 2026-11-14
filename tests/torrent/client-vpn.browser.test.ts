@@ -16,7 +16,11 @@ class FakeWorker {
   terminated = false
   posted: Message[] = []
   private listeners = new Set<(event: { data: unknown }) => void>()
-  constructor (readonly url: URL, readonly options: WorkerOptions) { FakeWorker.made.push(this) }
+  constructor (readonly url: URL, readonly options: WorkerOptions) {
+    // a page that starts engines without end must fail its test, not fill the machine
+    if (FakeWorker.made.length >= 40) throw new Error('more than 40 engine workers were started')
+    FakeWorker.made.push(this)
+  }
   postMessage (message: Message) {
     this.posted.push(message)
     if (message.type === 'close-sockets' && FakeWorker.closes) queueMicrotask(() => this.say({ type: 'answer', id: message.id }))
