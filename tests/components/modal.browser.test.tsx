@@ -178,3 +178,91 @@ describe('what is left reachable behind it', () => {
     } finally { already.remove(); fresh.remove() }
   })
 })
+
+/*
+ * Inside a player: the fullscreen element shows nothing outside itself, so a modal portalled to the body is
+ * invisible there. Drawn in place it is the player's child, and the player reads every key that reaches the
+ * window and every click that reaches its picture.
+ */
+describe('drawn inside a player', () => {
+  const heard = { keys: [] as string[], clicks: 0, doubleClicks: 0 }
+  const hearKey = (event: KeyboardEvent) => { heard.keys.push(event.key) }
+
+  const Player = ({ onClose = () => {}, inline = true }: { onClose?: () => void, inline?: boolean }) => (
+    <div id="player" style={{ position: 'relative', width: 480, height: 200 }} onClick={() => { heard.clicks++ }} onDoubleClick={() => { heard.doubleClicks++ }}>
+      <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 40, zIndex: 2 }}><button type="button">a control of the player</button></div>
+      <Modal labelledBy="s" onClose={onClose} inline={inline}>
+        <div style={{ height: 260 }}>
+          <p id="s">A sentence</p>
+          <button type="button">first</button>
+          <button type="button">last</button>
+        </div>
+      </Modal>
+    </div>
+  )
+
+  const listening = async (run: () => Promise<void>) => {
+    heard.keys.length = 0
+    heard.clicks = heard.doubleClicks = 0
+    window.addEventListener('keydown', hearKey)
+    try { await run() } finally { window.removeEventListener('keydown', hearKey) }
+  }
+
+  it('is the player\'s own child, over all of it, its controls included', async () => {
+    render(<Player/>)
+    await expect.poll(overlay).not.toBeNull()
+    const player = document.getElementById('player')!
+    expect(overlay().parentElement).toBe(player)
+    expect(overlay().getBoundingClientRect()).toEqual(player.getBoundingClientRect())
+    // what is hit where the player draws a control is the modal
+    const control = player.querySelector('button')!.getBoundingClientRect()
+    expect(overlay().contains(document.elementFromPoint(control.left + 5, control.top + 5))).toBe(true)
+  })
+
+  it('makes nothing behind it inert: the page around a player stays the page', async () => {
+    const behind = document.body.appendChild(document.createElement('div'))
+    try {
+      render(<Player/>)
+      await expect.poll(overlay).not.toBeNull()
+      expect(behind.inert).toBe(false)
+    } finally { behind.remove() }
+  })
+
+  it('opens at its first line when it is taller than the player, and scrolls', async () => {
+    render(<Player/>)
+    await expect.poll(overlay).not.toBeNull()
+    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    expect(overlay().scrollHeight).toBeGreaterThan(overlay().clientHeight)
+    expect(overlay().scrollTop).toBe(0)
+    expect(getComputedStyle(overlay()).overflowY).toBe('auto')
+  })
+
+  it('lets no key and no click reach the player', async () => {
+    const onClose = vi.fn()
+    render(<Player onClose={onClose}/>)
+    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await listening(async () => {
+      await userEvent.keyboard(' ')
+      await userEvent.keyboard('f')
+      await userEvent.keyboard('{Tab}')
+      await userEvent.click(overlay().querySelector('p')!)
+      await userEvent.dblClick(overlay().querySelector('p')!)
+      await userEvent.keyboard('{Escape}')
+    })
+    expect(heard).toEqual({ keys: [], clicks: 0, doubleClicks: 0 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // THE CONTROL: the same keys and clicks, in a modal over the page, are heard
+  it('is heard through a modal drawn over the page (control)', async () => {
+    render(<Player inline={false}/>)
+    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await listening(async () => {
+      await userEvent.keyboard(' ')
+      await userEvent.click(overlay().querySelector('p')!)
+    })
+    expect(heard.keys).toEqual([' '])
+    // a portal's events bubble through the tree it was rendered in
+    expect(heard.clicks).toBeGreaterThan(0)
+  })
+})

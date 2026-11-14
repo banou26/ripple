@@ -50,6 +50,23 @@ const style = css`
   background: ${OVERLAY_BG};
 `
 
+/*
+ * Over the player it is rendered in rather than over the page: a player in fullscreen shows nothing outside
+ * itself. One above the player's own layers, which sit at 2, its controls among them. The player hides the
+ * pointer with its controls, and a card taller than a small player scrolls.
+ */
+const inlineStyle = css`
+  position: absolute;
+  z-index: 3;
+  padding: 12px;
+  overflow-y: auto;
+  cursor: default;
+
+  > * {
+    margin: auto;
+  }
+`
+
 const FOCUSABLE = [
   'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])',
   'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
@@ -82,7 +99,7 @@ const inertBehind = (except: HTMLElement): (() => void) => {
 }
 
 export const Modal = ({
-  labelledBy, onClose, children, initialFocus,
+  labelledBy, onClose, children, initialFocus, inline = false,
 }: {
   /** id of the element naming this modal, for screen readers */
   labelledBy?: string
@@ -90,12 +107,19 @@ export const Modal = ({
   children: React.ReactNode
   /** what to focus on open. Point it at the SAFE control, never the destructive one. */
   initialFocus?: React.RefObject<HTMLElement | null>
+  /**
+   * Draws it where it is rendered, as the player's child and over all of it, in place of over the whole page.
+   * Nothing behind it is made inert, and no key or click in it reaches the player, which reads both.
+   */
+  inline?: boolean
 }) => {
   const overlay = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
   const trap = useCallback((event: React.KeyboardEvent) => {
+    // the player takes its shortcuts from keys that reach the window: Space on a button here would pause it
+    if (inline) event.stopPropagation()
     if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return }
     if (event.key !== 'Tab' || !overlay.current) return
     const items = focusable(overlay.current)
@@ -110,15 +134,16 @@ export const Modal = ({
     } else if (!event.shiftKey && active === last) {
       event.preventDefault(); first.focus()
     }
-  }, [])
+  }, [inline])
 
   useEffect(() => {
     const root = overlay.current
     if (!root) return
     const previous = document.activeElement as HTMLElement | null
-    const undo = inertBehind(root)
+    const undo = inline ? () => {} : inertBehind(root)
     const target = initialFocus?.current ?? focusable(root)[0]
-    target?.focus()
+    // a card taller than its player opens at its first line, not scrolled to the control that has the focus
+    target?.focus({ preventScroll: inline })
     return () => {
       undo()
       // back where they were, or the next Tab starts from the top of the document
@@ -127,25 +152,30 @@ export const Modal = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // A portal to the body, not an inline render: a modal inside an ancestor with a transform, filter
-  // or opacity gets that ancestor as its containing block, so `position: fixed` stops meaning the
-  // viewport and the z-index stops competing with the page at all.
-  return createPortal(
+  const shell = (
     <div
       ref={overlay}
-      css={style}
+      css={inline ? [style, inlineStyle] : style}
       role="dialog"
       aria-modal="true"
       aria-labelledby={labelledBy}
       // a click on its text leaves the focus here rather than on the page, so Escape and Tab are still its own
       tabIndex={-1}
       onKeyDown={trap}
-      onClick={(event) => { if (event.target === overlay.current) onCloseRef.current() }}
+      onClick={(event) => {
+        // a click on the picture pauses it, and a second one takes it fullscreen
+        if (inline) event.stopPropagation()
+        if (event.target === overlay.current) onCloseRef.current()
+      }}
+      onDoubleClick={inline ? (event) => event.stopPropagation() : undefined}
     >
       {children}
-    </div>,
-    document.body,
+    </div>
   )
+  // A portal to the body, not an inline render: a modal inside an ancestor with a transform, filter
+  // or opacity gets that ancestor as its containing block, so `position: fixed` stops meaning the
+  // viewport and the z-index stops competing with the page at all.
+  return inline ? shell : createPortal(shell, document.body)
 }
 
 export default Modal
