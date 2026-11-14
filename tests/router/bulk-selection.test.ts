@@ -136,7 +136,7 @@ describe('the bulk selection', () => {
       expect(hashes(pickRun(new Set([h[0], h[3]]), rows, gone, h[3]))).toEqual([h[0]])
     })
 
-    it('runs from the row clicked last, so the next run starts where this one ended', () => {
+    it('from the box that ended a run, ticks on past it or unticks back into it', () => {
       const { rows, h } = list()
       const first = pickRun(new Set([h[0]]), rows, h[0], h[2])
       expect(hashes(pickRun(first, rows, h[2], h[4]))).toEqual(hashes(new Set(h)))

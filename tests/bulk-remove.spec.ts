@@ -188,7 +188,7 @@ test('a shift+click ticks the run of rows between two boxes, in the order each v
   await tick('Run.Banana.bin').click({ modifiers: ['Shift'] })
   await expect(bar).toContainText('3 selected')
   expect(await ticked()).toEqual([true, true, true, false])
-  // Banana was ticked, so the run from it unticks
+  // Cherry is ticked, so the run from Banana unticks
   await tick('Run.Cherry.bin').click({ modifiers: ['Shift'] })
   await expect(bar).toContainText('1 selected')
   expect(await ticked()).toEqual([true, false, false, false])

@@ -184,7 +184,7 @@ describe('shift+clicking the boxes', () => {
       await userEvent.click(box('Apple'))
       await userEvent.click(box('Cherry'), { modifiers: ['Shift'] })
       expect(ticked()).toEqual([true, true, true, false, false, false])
-      // Cherry was ticked, so the run from it unticks
+      // Banana is ticked, so the run from Cherry unticks
       await userEvent.click(box('Banana'), { modifiers: ['Shift'] })
       expect(ticked()).toEqual([true, false, false, false, false, false])
       await userEvent.click(box('Fig'), { modifiers: ['Shift'] })
