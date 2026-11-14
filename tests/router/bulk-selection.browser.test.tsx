@@ -190,5 +190,16 @@ describe('shift+clicking the boxes', () => {
       await userEvent.click(box('Elder'))
       expect(ticked()).toEqual([true, false, false, false, true])
     })
+
+    /** Chrome otherwise selects the text between the two clicks there, and does not pass the click on to the box. */
+    it(`selects no text in the ${view} when the shift+click lands beside the box`, async () => {
+      const { screen, ticked } = await library(view)
+      const beside = (i: number) => [...screen.container.querySelectorAll<HTMLElement>('.row-check')][i]!
+      window.getSelection()?.removeAllRanges()
+      await userEvent.click(beside(0), { position: { x: 2, y: 2 } })
+      await userEvent.click(beside(2), { position: { x: 2, y: 2 }, modifiers: ['Shift'] })
+      expect(window.getSelection()?.toString()).toBe('')
+      expect(ticked()).toEqual([true, true, true, false, false])
+    })
   }
 })
