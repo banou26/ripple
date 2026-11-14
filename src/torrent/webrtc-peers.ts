@@ -45,7 +45,8 @@ const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
  * closed again, with nothing sent.
  */
 const relayAddress = () => new Promise<string>((resolve, reject) => {
-  const socket = net.connect({ host: new URL(TRACKERS[0]!).hostname, port: 443 })
+  const [tracker = ''] = TRACKERS
+  const socket = net.connect({ host: new URL(tracker).hostname, port: 443 })
   const end = (address?: string) => {
     clearTimeout(timer)
     socket.destroy()
