@@ -171,3 +171,20 @@ it('says which transport the engine runs on, to a page that asks later too', () 
   expect(early).toEqual(['relay', 'direct'])
   expect(late).toEqual(['direct'])
 })
+
+it('forgets the transport of an engine it replaced, until the new one says its own', async () => {
+  const client = getTorrentClient()
+  FakeWorker.made[0]!.say({ type: 'ready' })
+  FakeWorker.made[0]!.say({ type: 'state', torrents: [], transport: 'relay' })
+  const off = setVpn(false)
+  await vi.waitFor(() => expect(FakeWorker.made[0]!.posted.map((message) => message.type)).toContain('flush-resume'))
+  FakeWorker.made[0]!.say({ type: 'answer', id: FakeWorker.made[0]!.posted.find((message) => message.type === 'flush-resume')!.id })
+  await off
+
+  const told: string[] = []
+  client.onTransport((transport) => told.push(transport))
+  expect(told, 'the engine that said relay is gone').toEqual([])
+  FakeWorker.made[1]!.say({ type: 'ready' })
+  FakeWorker.made[1]!.say({ type: 'state', torrents: [], transport: 'direct' })
+  expect(told).toEqual(['direct'])
+})

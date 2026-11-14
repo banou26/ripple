@@ -489,6 +489,8 @@ export const createTorrentClient = (): EngineClient => {
     lastRawState = null
     // a new engine reserves its own port, so the old one describes a session that no longer exists
     lastReachable = null
+    // and may run on the other transport
+    lastTransport = null
     lastList = null
     // keyed by handle, so across a handover it would credit one torrent's bytes to another
     recentRate.retain(new Set())
