@@ -586,7 +586,7 @@ const TORRENT_REMOVED = forPage.formatMessage({ id: 'torrent removed', defaultMe
 const TORRENT_PAUSED = forPage.formatMessage({ id: 'torrent paused', defaultMessage: 'torrent paused' })
 
 // the reads waiting on each torrent, by id, with the bytes each one asked for
-const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number }>>()
+const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number, viewer?: string }>>()
 const failReads = (h: number, error: Said) => {
   const ids = readsByHandle.get(h)
   if (!ids?.size) return
@@ -1638,7 +1638,10 @@ const pumpWhileWaiting = () => {
   fastPump ??= setInterval(() => {
     const live = session
     const unlisted = [...viewers.keys()].filter((h) => activeViewers(h).length && !live?.files(h))
-    const reading = [...readsByHandle].filter(([, reads]) => reads.size).map(([h]) => h)
+    // a player that closes cancels none of its reads, so a read whose viewer has left waits for nobody
+    const reading = [...readsByHandle]
+      .filter(([h, reads]) => [...reads.values()].some((r) => !r.viewer || viewers.get(h)?.has(r.viewer)))
+      .map(([h]) => h)
     if (!live || closing || (!unlisted.length && !reading.length)) {
       clearInterval(fastPump)
       fastPump = undefined
@@ -2357,7 +2360,7 @@ const handleMessage = async (session: Session, m: any) => {
       }
       let inFlight = readsByHandle.get(m.handle)
       if (!inFlight) readsByHandle.set(m.handle, inFlight = new Map())
-      inFlight.set(m.id, { fileIndex: m.fileIndex, offset: m.offset, len: m.len })
+      inFlight.set(m.id, { fileIndex: m.fileIndex, offset: m.offset, len: m.len, viewer: m.viewer })
       pumpWhileWaiting()
       try {
         let reconnecting = 0

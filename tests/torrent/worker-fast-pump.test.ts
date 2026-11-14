@@ -128,12 +128,21 @@ it('the pump stops once the read is answered and the list is in', async () => {
   expect(await pumpsOver(2_000)).toBeLessThanOrEqual(5)
 }, 10_000)
 
-it('an engine being replaced is not pumped, though a read still waits in it', async () => {
-  rig.send({ type: 'read', id: 2, viewer: 'player', handle: 2, fileIndex: 0, offset: 0, len: 1_000 })
+it('a player that leaves with its read still waiting stops the pump, though it cancels no read', async () => {
+  rig.send({ type: 'read', id: 2, viewer: 'closing-player', handle: 2, fileIndex: 0, offset: 0, len: 1_000 })
   expect(await pumpsOver(1_000), 'the read waiting on pieces is pumped').toBeGreaterThanOrEqual(10)
 
-  rig.send({ type: 'close-sockets', id: 3 })
-  await vi.waitFor(() => expect(rig.of('answer').filter((m) => m.id === 3)).toHaveLength(1))
+  rig.send({ type: 'unwatch', viewer: 'closing-player' })
+  await sleep(100)
+  expect(await pumpsOver(1_000)).toBeLessThanOrEqual(3)
+}, 10_000)
+
+it('an engine being replaced is not pumped, though a read still waits in it', async () => {
+  rig.send({ type: 'read', id: 3, viewer: 'player', handle: 2, fileIndex: 0, offset: 0, len: 1_000 })
+  expect(await pumpsOver(1_000), 'the read waiting on pieces is pumped').toBeGreaterThanOrEqual(10)
+
+  rig.send({ type: 'close-sockets', id: 4 })
+  await vi.waitFor(() => expect(rig.of('answer').filter((m) => m.id === 4)).toHaveLength(1))
   expect(await pumpsOver(1_000)).toBeLessThanOrEqual(3)
   expect(rig.of('worker-error')).toEqual([])
 }, 10_000)
