@@ -67,6 +67,27 @@ test('the download page says it in each of ripple\'s languages', async ({ page }
   }
 })
 
+/** Opens `path` in a 900 by 520 frame of a page on another origin, as an embedding site shows it. */
+const inAnotherSite = async (page: Page, baseURL: string, path: string) => {
+  await page.goto(new URL('/legal', baseURL.replace('127.0.0.1', 'localhost')).href)
+  await page.evaluate((src) => {
+    document.body.append(Object.assign(document.createElement('iframe'), { id: 'embedded', src, style: 'width:900px;height:520px;border:0' }))
+  }, new URL(path, baseURL).href)
+  return page.frameLocator('#embedded')
+}
+
+test('the download page in another site\'s frame offers no way out to a link it cannot read', async ({ page, baseURL }) => {
+  for (const [kind, query] of Object.entries(UNREADABLE)) {
+    const frame = await inAnotherSite(page, baseURL!, `/download?${query}`)
+    await expect(frame.locator('.card .failure'), kind).toHaveText(BAD_LINK)
+    await expect(frame.locator('.note'), kind).toHaveCount(0)
+  }
+
+  // THE CONTROL: framed, a link it can read is offered in Ripple, since the site may not let the frame download
+  const frame = await inAnotherSite(page, baseURL!, `/download?${READABLE}`)
+  await expect(frame.locator('.note a')).toHaveCount(1)
+})
+
 test('the player says a link it cannot read is not a valid one, with no way out to it, and waits on one it can', async ({ page }) => {
   const line = page.locator('.loading-information')
   for (const [kind, query] of Object.entries(UNREADABLE)) {
@@ -113,8 +134,6 @@ const expectFits = async (shown: Page | Frame, where: string) => {
 
 test('the player\'s line fits a phone, a desktop and another site\'s frame, in each of ripple\'s languages', async ({ page, baseURL }) => {
   test.setTimeout(240_000)
-  // another origin, as an embedding site is
-  const embedder = new URL('/legal', baseURL!.replace('127.0.0.1', 'localhost')).href
   for (const language of OFFERED) {
     const watch = `/watch?${UNREADABLE['a malformed hash']}&language=${language}`
     await page.setViewportSize({ width: 1280, height: 720 })
@@ -126,11 +145,7 @@ test('the player\'s line fits a phone, a desktop and another site\'s frame, in e
     await expectFits(page, `${language} at 360 px`)
 
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.goto(embedder)
-    await page.evaluate((src) => {
-      document.body.append(Object.assign(document.createElement('iframe'), { id: 'embedded', src, style: 'width:900px;height:520px;border:0' }))
-    }, new URL(watch, baseURL).href)
-    const frame = page.frameLocator('#embedded')
+    const frame = await inAnotherSite(page, baseURL!, watch)
     await expect(frame.locator('.loading-information')).toHaveText(said(language))
     await expectFits(page.frames().find((each) => each.url().includes('/watch?'))!, `${language} in a 900 by 520 frame`)
   }
