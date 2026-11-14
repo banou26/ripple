@@ -5,7 +5,7 @@ import type { SaveLocation } from './library'
 // two round trips. It is not `missing`, which means the files are not on this device at all, and it
 // is not `queued`, which is a real position in libtorrent's queue. It is "we know this torrent, ask
 // again in a moment", and everything that needs an engine handle is unavailable while it lasts.
-export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'done' | 'error' | 'missing' | 'retrying' | 'checking' | 'starting'
+export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'completed' | 'error' | 'missing' | 'retrying' | 'checking' | 'starting'
 
 export type TorrentFile = {
   name: string
@@ -159,3 +159,9 @@ export type Torrent = {
     message?: string
   }
 }
+
+/** Not running, so its row, its options and the bar for selected rows offer to start it. */
+export const stopped = (t: Torrent): boolean => t.state === 'paused' || t.state === 'queued' || t.state === 'completed'
+
+/** Every chosen file on disk, so the control that pauses or resumes it says Stop or Start, as qBittorrent's does. */
+export const finished = (t: Torrent): boolean => t.state === 'seeding' || t.state === 'completed'

@@ -327,7 +327,7 @@ test('on the library, the VPN is switched off after its warning, a torrent a Web
   await expect
     .poll(async () => (await row(page, infoHash))?.progress, { timeout: 120_000, message: 'the file never arrived' })
     .toBe(1)
-  await expect(page.locator('.torrent .badge')).toHaveText(/Seeding|Done/)
+  await expect(page.locator('.torrent .badge')).toHaveText('Seeding')
   await expect.poll(async () => (await row(seeder.page, infoHash))!.upload, { timeout: 15_000 }).toBeGreaterThanOrEqual(FILE.bytes)
   expect((await seen(page)).made, 'the bytes came over no connection of this page').toBeGreaterThan(0)
 

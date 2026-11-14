@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Check, Pause, Play, Trash2, X } from 'lucide-react'
+import { Check, Pause, Play, Square, Trash2, X } from 'lucide-react'
 import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
@@ -161,6 +161,8 @@ export type BulkBarProps = {
   /** Whether Pause or Resume would change anything for the ticked rows; each is disabled otherwise. */
   canPause: boolean
   canResume: boolean
+  /** Whether every ticked torrent is finished, so the two say Stop and Start. */
+  finished?: boolean
   onPause: () => void
   onResume: () => void
   onRemove: () => void
@@ -168,10 +170,10 @@ export type BulkBarProps = {
 }
 
 /** What can be done to every ticked torrent at once, shown while any is ticked. */
-export const BulkBar = ({ count, canPause, canResume, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
+export const BulkBar = ({ count, canPause, canResume, finished, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
   const intl = useIntl()
-  const pause = intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
-  const resume = intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
+  const pause = finished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
+  const resume = finished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
   const clear = intl.formatMessage({ id: 'Clear selection', defaultMessage: 'Clear selection' })
   return (
     <div css={barStyle} className="bulk-bar">
@@ -179,7 +181,7 @@ export const BulkBar = ({ count, canPause, canResume, onPause, onResume, onRemov
         {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
       </span>
       <button type="button" className="icon" disabled={!canPause} onClick={onPause} aria-label={pause} {...hint(pause)}>
-        <Pause aria-hidden="true"/>
+        {finished ? <Square aria-hidden="true"/> : <Pause aria-hidden="true"/>}
       </button>
       <button type="button" className="icon" disabled={!canResume} onClick={onResume} aria-label={resume} {...hint(resume)}>
         <Play aria-hidden="true"/>

@@ -18,12 +18,12 @@ import { cloudRestoreSettled } from './use-cloud-backup'
 import { holdWhileStored } from '../utils/page-work'
 import { writeDuration } from './uptime'
 
-// keys are libtorrent torrent_status state_t
+// keys are libtorrent torrent_status state_t; 4 is `finished`, every chosen file and not every piece, which uploads what it has
 const STATE: Record<number, TorrentState> = {
   1: 'checking',
   2: 'downloading',
   3: 'downloading',
-  4: 'done',
+  4: 'seeding',
   5: 'seeding',
   7: 'checking',
 }
@@ -86,19 +86,12 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
   const st = s.status
   const retrying = s.recovery && !s.userPaused
   /**
-   * What a STOPPED torrent is called, and why completion outranks the stop.
-   *
-   * This used to be `queued` for anything the engine stopped, which describes the SESSION rather
-   * than the torrent. Two ordinary things land there with every byte already on disk: libtorrent
-   * parks a finished torrent past `active_seeds` in its own queue, and `applyViewing` idle-parks a
-   * cache torrent as soon as its last viewer leaves. Both then read as "waiting its turn to
-   * download", so somebody who just watched a download finish is told it is queued.
-   *
-   * The user's own pause still outranks `done`, because that one is a decision they made and the
-   * row is the only place it is reflected back to them.
+   * A finished torrent that does not run is `completed` whoever stopped it: the person's Stop, libtorrent's queue
+   * parking it past `active_seeds`, or `applyViewing` parking a cache torrent nobody watches. Its row offers Start.
+   * An unfinished one is `paused` when the person stopped it and `queued` otherwise.
    */
   const complete = !!st && COMPLETE.has(st.state)
-  const stopped: TorrentState = s.userPaused ? 'paused' : complete ? 'done' : 'queued'
+  const stopped: TorrentState = complete ? 'completed' : s.userPaused ? 'paused' : 'queued'
   /*
    * A check waiting its turn (libtorrent runs one at a time) reports itself paused with auto-management
    * still set, and is still a check. A pause that landed clears auto-management, and libtorrent then

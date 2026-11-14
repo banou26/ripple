@@ -7,7 +7,7 @@ import { intl } from '../i18n'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
 import { limitLabel } from './rate-limits'
-import { contentFiles } from './types'
+import { contentFiles, finished, stopped } from './types'
 
 /**
  * What a user may change about one torrent, defined once and rendered twice.
@@ -273,9 +273,11 @@ export const buildTorrentOptions = (
     {
       kind: 'action',
       id: 'toggle-run',
-      label: t.state === 'paused' || t.state === 'queued' ? intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' }),
+      label: stopped(t)
+        ? (finished(t) ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }))
+        : (finished(t) ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })),
       disabled: ghost,
-      run: () => (t.state === 'paused' || t.state === 'queued' ? a.resume() : a.pause()),
+      run: () => (stopped(t) ? a.resume() : a.pause()),
     },
     {
       kind: 'action',

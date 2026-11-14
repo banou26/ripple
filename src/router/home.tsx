@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Upload, X } from 'lucide-react'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Square, Upload, X } from 'lucide-react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -69,7 +69,7 @@ import { hint } from '../components/hint'
 import { PersistControl } from '../components/persist-control'
 import { LanguageSelect } from '../components/language-select'
 import { SampleOffer } from '../components/sample-offer'
-import { contentFiles } from '../torrent/types'
+import { contentFiles, finished, stopped } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnSwitch } from '../components/vpn-switch'
 import { vpnOffAvailable } from '../torrent/vpn-setting'
@@ -1918,7 +1918,8 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   const mainSaving = saving[savingKey(t.id, multi ? -1 : mainIndex)]
   const complete = t.progress >= 1
   // 'retrying' is not stopped, it is waiting out a backoff, so the control still offers to pause it
-  const running = t.state !== 'paused' && t.state !== 'queued'
+  const running = !stopped(t)
+  const isFinished = finished(t)
   // the panel keys by file index; the page keys by torrent-and-index, since one map covers every row
   const fileSaving: Record<number, number> = {}
   t.files?.forEach((_, i) => {
@@ -1991,7 +1992,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
                   and a row carrying both reads as two competing answers to "how long". */}
-              {(t.state === 'seeding' || t.state === 'done') && (t.stats?.seedingSeconds ?? 0) > 0 && (
+              {isFinished && (t.stats?.seedingSeconds ?? 0) > 0 && (
                 <span className="seeded">
                   {intl.formatMessage({ id: 'seeded for {duration}', defaultMessage: 'seeded for {duration}' }, { duration: formatDuration(t.stats?.seedingSeconds ?? 0) })}
                 </span>
@@ -2071,12 +2072,18 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
               {t.state !== 'checking' && (
                 <button
                   onClick={() => onToggle(t)}
-                  {...hint(running ? intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' }) : t.state === 'retrying' ? intl.formatMessage({ id: 'Try again now', defaultMessage: 'Try again now' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }))}
+                  {...hint(running
+                    ? (isFinished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' }))
+                    : isFinished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' }))}
                   aria-label={running
-                    ? intl.formatMessage({ id: 'Pause {name}', defaultMessage: 'Pause {name}' }, { name: t.name })
-                    : intl.formatMessage({ id: 'Resume {name}', defaultMessage: 'Resume {name}' }, { name: t.name })}
+                    ? (isFinished
+                      ? intl.formatMessage({ id: 'Stop {name}', defaultMessage: 'Stop {name}' }, { name: t.name })
+                      : intl.formatMessage({ id: 'Pause {name}', defaultMessage: 'Pause {name}' }, { name: t.name }))
+                    : isFinished
+                      ? intl.formatMessage({ id: 'Start {name}', defaultMessage: 'Start {name}' }, { name: t.name })
+                      : intl.formatMessage({ id: 'Resume {name}', defaultMessage: 'Resume {name}' }, { name: t.name })}
                 >
-                  {running ? <Pause size={16} aria-hidden="true"/> : <Play size={16} aria-hidden="true"/>}
+                  {running ? (isFinished ? <Square size={16} aria-hidden="true"/> : <Pause size={16} aria-hidden="true"/>) : <Play size={16} aria-hidden="true"/>}
                 </button>
               )}
               <button
@@ -2417,7 +2424,7 @@ const Home = () => {
   const onToggle = useCallback((t: Torrent) =>
     t.state === 'retrying'
       ? retry(Number(t.id))
-      : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id)), [retry, resume, pause])
+      : stopped(t) ? resume(Number(t.id)) : pause(Number(t.id)), [retry, resume, pause])
 
   const onStart = useCallback((t: Torrent) => { if (t.infoHash) start(t.infoHash) }, [start])
 
@@ -2825,7 +2832,7 @@ const Home = () => {
     if (!folder || !permitted) return
     const now = Date.now()
     for (const t of torrents) {
-      if (t.state !== 'done' && t.state !== 'seeding') continue
+      if (!finished(t)) continue
       /*
        * A created torrent is never mirrored.
        *
@@ -3520,6 +3527,7 @@ const Home = () => {
           count={bulk.rows.length}
           canPause={toPause(bulk.rows).length > 0}
           canResume={toResume(bulk.rows).length > 0}
+          finished={bulk.rows.every(finished)}
           onPause={pausePicked}
           onResume={resumePicked}
           onRemove={() => { void removePicked() }}

@@ -82,7 +82,7 @@ export const badgeRules = css`
     }
 
     /* the two outcomes, and the only badges that still spend a hue */
-    &.done { color: ${OK}; }
+    &.completed { color: ${OK}; }
     &.error { color: ${DANGER}; }
 
     /* stated rather than inherited from the base: this state is deliberately the quiet one */

@@ -3,7 +3,7 @@
  * confirmation, and after a reload the two are still gone and the third is still there.
  *
  * Ticking a row is not the selection that fills the detail panel, so the panel stays on the torrent it showed, and an
- * Escape clears the ticks before it would close the panel. The bar's Pause and Resume reach the ticked rows alone. Select
+ * Escape clears the ticks before it would close the panel. The bar's Stop and Start reach the ticked rows alone. Select
  * all takes the rows the filter shows, and no other. The removals are written where the cloud backup reads them
  * (`ripple:removed`), as a single row's Remove writes its own.
  *
@@ -98,16 +98,17 @@ test('two of three torrents removed in one action stay removed after a reload, a
   const [rows, held] = await Promise.all([page.locator('main').boundingBox(), bar.boundingBox()])
   expect(held!.y).toBeGreaterThanOrEqual(rows!.y + rows!.height)
 
-  // Pause and Resume reach the ticked rows and no other, and Pause is offered only while it would change one
-  await bar.getByRole('button', { name: 'Pause' }).click()
-  await expect(badge(one)).toHaveText('Paused', { timeout: 30_000 })
-  await expect(badge(two)).toHaveText('Paused', { timeout: 30_000 })
-  await expect(bar.getByRole('button', { name: 'Pause' })).toBeDisabled()
-  await expect(badge(three)).not.toHaveText('Paused')
-  await bar.getByRole('button', { name: 'Resume' }).click()
-  await expect(badge(one)).not.toHaveText('Paused', { timeout: 30_000 })
-  await expect(badge(two)).not.toHaveText('Paused', { timeout: 30_000 })
-  await expect(bar.getByRole('button', { name: 'Pause' })).toBeEnabled()
+  // finished, so the bar says Stop and Start; each reaches the ticked rows and no other, and Stop is offered only while
+  // it would change one. Stopped, a torrent reads Completed, and started again it seeds again.
+  await bar.getByRole('button', { name: 'Stop' }).click()
+  await expect(badge(one)).toHaveText('Completed', { timeout: 30_000 })
+  await expect(badge(two)).toHaveText('Completed', { timeout: 30_000 })
+  await expect(bar.getByRole('button', { name: 'Stop' })).toBeDisabled()
+  await expect(badge(three)).toHaveText('Seeding')
+  await bar.getByRole('button', { name: 'Start' }).click()
+  await expect(badge(one)).toHaveText('Seeding', { timeout: 30_000 })
+  await expect(badge(two)).toHaveText('Seeding', { timeout: 30_000 })
+  await expect(bar.getByRole('button', { name: 'Stop' })).toBeEnabled()
 
   // Escape clears the ticks first, and the panel, which closes on an Escape of its own, stays open
   await bar.getByRole('button', { name: 'Remove' }).press('Escape')
@@ -231,13 +232,13 @@ test('a torrent paused from the bar while it waits for its check reads Paused, a
 })
 
 // A save of the engine's state while the check had not run held no piece, and a reload trusted it, so Resume then
-// downloaded the whole torrent again from a swarm that does not exist.
-test('a torrent paused before its check still holds its files after a reload, and resumes to Seeding', async ({ page }) => {
+// downloaded the whole torrent again from a swarm that does not exist. Holding its files, it reads Completed.
+test('a torrent paused before its check still holds its files after a reload, and starts to Seeding', async ({ page }) => {
   test.setTimeout(300_000)
   const { name, row } = await pauseBeforeCheck(page, ['Reload.One.bin', 'Reload.Two.bin', 'Reload.Three.bin', 'Reload.Four.bin'])
   await page.reload()
-  await expect(badgeOf(page)(name)).toHaveText('Paused', { timeout: 120_000 })
-  await row.getByRole('button', { name: `Resume ${name}` }).click()
+  await expect(badgeOf(page)(name)).toHaveText('Completed', { timeout: 120_000 })
+  await row.getByRole('button', { name: `Start ${name}` }).click()
   await expect(badgeOf(page)(name)).toHaveText('Seeding', { timeout: 60_000 })
 })
 

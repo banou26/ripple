@@ -294,6 +294,8 @@ const ephemeralHandles = new Set<number>()
 // Stopped because nobody is watching, which is NOT the user's pause: it stays out of `userPaused`
 // and out of the persisted `paused` flag, so it never looks like a decision the user made.
 const cacheIdle = new Set<number>()
+// Started by the person, kept as the list's `resumed`: the idle park leaves a temporary one running, and their pause stops it.
+const userStarted = new Set<number>()
 // When a torrent last served a read made without a viewer. The library's save to disk and zip and
 // the auto-save folder mirror read that way, so a viewer check alone would call them idle and delete
 // the file out from under them mid-copy. A read under a viewer is held by that viewer's claim, and a
@@ -393,7 +395,7 @@ const untrack = (h: number) => {
   limitsByHandle.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
-  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
+  ephemeralHandles.delete(h); cacheIdle.delete(h); userStarted.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h); noPeersSince.delete(h)
 }
@@ -911,7 +913,7 @@ const applyViewing = (h: number) => {
     //
     // Never the sample either, though it is temporary: the person pressed Add for all of it, so it
     // downloads like their own.
-    if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !cacheIdle.has(h)) {
+    if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !userStarted.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPause(h)
       session.pauseTorrent(h)
@@ -1309,6 +1311,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // it as cache: it stopped being idle-parked, and the budget pass went on treating it as an
   // eviction candidate, which is a torrent that looks kept and is deleted anyway.
   const wasEphemeral = ephemeralHandles.has(h)
+  const wasStarted = userStarted.has(h)
 
   failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
@@ -1327,6 +1330,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // refused, which reaches libtorrent as a fatal disk error.
   if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
+  if (wasStarted) userStarted.add(next)
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
   // handle, so every tab learns about the move through the two channels it already watches
@@ -1736,6 +1740,7 @@ const init = async () => {
        * would sit stopped for the life of the session.
        */
       if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
+      if (e.resumed) userStarted.add(h)
       recovery.hold(h, Date.now())
       // Held like a page's add until the pump that parks it: it comes back running, with no saved state
       // or one saved while it ran, and asked a web source for up to 16 MiB before that pump (swarm rig,
@@ -2656,13 +2661,14 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih) await patchList(ih, { paused: true })
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
+      userStarted.add(m.handle)
       cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
       wantStart(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
       recovery.hold(m.handle, Date.now())
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: false })
+      if (ih) await patchList(ih, { paused: false, resumed: true })
     } else if (m.type === 'recheck') {
       // the engine forgets every piece before it starts hashing, so the saved blob now describes a have-set that no longer exists
       const ih = infoHashByHandle.get(m.handle)

@@ -18,7 +18,7 @@ export const STATE_LABEL = defineMessages<Torrent['state']>({
   seeding: { id: 'Seeding', defaultMessage: 'Seeding' },
   paused: { id: 'Paused', defaultMessage: 'Paused' },
   queued: { id: 'Queued', defaultMessage: 'Queued' },
-  done: { id: 'Done', defaultMessage: 'Done' },
+  completed: { id: 'Completed', defaultMessage: 'Completed' },
   error: { id: 'Error', defaultMessage: 'Error' },
   missing: { id: 'Files missing', defaultMessage: 'Files missing' },
   retrying: { id: 'Retrying', defaultMessage: 'Retrying' },

@@ -36,29 +36,29 @@ const snap = (status: Partial<NonNullable<TorrentSnapshot['status']>> | null, ov
 } as unknown as TorrentSnapshot)
 
 describe('the state a torrent row shows', () => {
-  it('says Done for a finished torrent the ENGINE stopped, not Queued', () => {
-    expect(snapshotState(snap({ state: 4, paused: true }))).toBe('done')
+  it('says Completed for a finished torrent the ENGINE stopped, not Queued', () => {
+    expect(snapshotState(snap({ state: 4, paused: true }))).toBe('completed')
   })
 
-  it('says Done for a seeding torrent parked by the session queue', () => {
-    expect(snapshotState(snap({ state: 5, paused: true }))).toBe('done')
+  it('says Completed for a seeding torrent parked by the session queue', () => {
+    expect(snapshotState(snap({ state: 5, paused: true }))).toBe('completed')
   })
 
   /**
    * The control for the two above. If completion were being read from something that is true of
-   * every stopped torrent, this would say Done as well, and the assertions above would pass for a
+   * every stopped torrent, this would say Completed as well, and the assertions above would pass for a
    * reason that has nothing to do with the torrent having its bytes.
    */
   it('still says Queued for an UNFINISHED torrent the engine stopped', () => {
     expect(snapshotState(snap({ state: 3, paused: true }))).toBe('queued')
   })
 
-  /**
-   * A pause the person chose is a decision, and the row is the only place it is reflected back at
-   * them. Done would be true and would also lose the one thing they need to see to undo it.
-   */
-  it('says Paused rather than Done when the person stopped it themselves', () => {
-    expect(snapshotState(snap({ state: 5, paused: true }, { userPaused: true }))).toBe('paused')
+  // qBittorrent's word for a finished torrent that does not run, whoever stopped it, and Start is what its row offers
+  it('says Completed for a finished torrent the person stopped, and Paused for an unfinished one', () => {
+    expect(snapshotState(snap({ state: 5, paused: true }, { userPaused: true }))).toBe('completed')
+    expect(snapshotState(snap({ state: 4, paused: true }, { userPaused: true }))).toBe('completed')
+    expect(snapshotState(snap({ state: 3, paused: true }, { userPaused: true }))).toBe('paused')
+    expect(toResume([snapshotToTorrent(snap({ state: 5, paused: true }))])).toHaveLength(1)
   })
 
   it('says Checking for a check that runs, and for one libtorrent holds paused while it waits its turn', () => {
@@ -82,16 +82,18 @@ describe('the state a torrent row shows', () => {
     }
   })
 
-  it('leaves a running torrent alone', () => {
+  // libtorrent's `finished` (every chosen file, not every piece) uploads what it has, so it is Seeding too
+  it('says Seeding for any finished torrent that runs', () => {
     expect(snapshotState(snap({ state: 3 }))).toBe('downloading')
     expect(snapshotState(snap({ state: 5 }))).toBe('seeding')
-    expect(snapshotState(snap({ state: 4 }))).toBe('done')
+    expect(snapshotState(snap({ state: 4 }))).toBe('seeding')
   })
 
   it('reports a retry over everything except the person\'s own pause', () => {
     const recovery = { reason: 'stalled', attempt: 1, retryAt: 0 }
     expect(snapshotState(snap({ state: 4, paused: true }, { recovery } as Partial<TorrentSnapshot>))).toBe('retrying')
-    expect(snapshotState(snap({ state: 4, paused: true }, { recovery, userPaused: true } as Partial<TorrentSnapshot>))).toBe('paused')
+    expect(snapshotState(snap({ state: 4, paused: true }, { recovery, userPaused: true } as Partial<TorrentSnapshot>))).toBe('completed')
+    expect(snapshotState(snap({ state: 3, paused: true }, { recovery, userPaused: true } as Partial<TorrentSnapshot>))).toBe('paused')
   })
 
   it('waits rather than guessing when the engine has said nothing yet', () => {
@@ -120,7 +122,7 @@ describe('which torrents count as active', () => {
 
   /** the control: if this counted everything, the readout would be a torrent count with extra steps */
   it('does not count states that move no bytes', () => {
-    for (const state of ['paused', 'queued', 'done', 'error', 'missing', 'retrying', 'checking', 'starting'] as const) {
+    for (const state of ['paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking', 'starting'] as const) {
       expect(isActive(state), `${state} should not be active`).toBe(false)
     }
   })

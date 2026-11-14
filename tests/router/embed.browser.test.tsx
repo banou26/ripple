@@ -441,7 +441,7 @@ describe('the watch route', () => {
     const states: Record<string, PlayerTorrent['snapshot']> = {
       downloading: snapshot!,
       seeding: { ...snapshot!, status: { ...snapshot!.status!, state: 5 } },
-      done: { ...snapshot!, status: { ...snapshot!.status!, state: 4 } },
+      completed: { ...snapshot!, status: { ...snapshot!.status!, state: 5, paused: true } },
       checking: { ...snapshot!, status: { ...snapshot!.status!, state: 1 } },
       queued: { ...snapshot!, status: { ...snapshot!.status!, paused: true } },
       paused: { ...snapshot!, status: { ...snapshot!.status!, paused: true }, userPaused: true },

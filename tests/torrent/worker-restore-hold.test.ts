@@ -207,11 +207,13 @@ it('takes one the library keeps before its metadata out of upload mode', async (
   expect(of(KEPT)).toEqual(['upload on', 'upload off'])
 })
 
-it('parks one the person paused and resumed at its layout, out of upload mode', async () => {
+// the person's resume outranks the park of a temporary torrent nobody watches
+it('takes one the person paused and resumed out of upload mode at its layout, and leaves it running', async () => {
   rig.send({ type: 'resume', handle: handleOf(PAUSED) })
   engine.withMeta.add(PAUSED)
-  await vi.waitFor(() => expect(of(PAUSED)).toContain('save plain'), { timeout: 2_000 })
-  expect(of(PAUSED)).toEqual(['upload on', 'pause', 'resume', 'pause', 'upload off', 'save plain'])
+  await vi.waitFor(() => expect(of(PAUSED)).toContain('upload off'), { timeout: 2_000 })
+  await pumps(2)
+  expect(of(PAUSED)).toEqual(['upload on', 'pause', 'resume', 'upload off'])
 })
 
 it('forgets the hold of one removed, so the same hash added again saves its resume data', async () => {

@@ -544,9 +544,24 @@ describe('a library row', () => {
       expect(names(screen)).toEqual([
         `Watch ${t.name}`,
         `Save ${t.name} as a zip`,
-        `Pause ${t.name}`,
+        `Stop ${t.name}`,
         `Options for ${t.name}`,
       ])
+    })
+
+    // qBittorrent's words: Stop and Start for a finished torrent, Pause and Resume for one still downloading
+    it('says Stop on a seeding torrent and Start on a completed one, and Pause and Resume on a download', async () => {
+      thumbnail.current = null
+      const words = { downloading: ['Pause', 'Pause'], paused: ['Resume', 'Resume'], queued: ['Resume', 'Resume'], seeding: ['Stop', 'Stop'], completed: ['Start', 'Start'] } as const
+      for (const [state, [label, hint]] of Object.entries(words)) {
+        const t = torrent({ progress: state === 'seeding' || state === 'completed' ? 1 : 0.5, state: state as Torrent['state'] })
+        const { screen, props } = await inPage(t)
+        const control = screen.getByRole('button', { name: `${label} ${t.name}` })
+        await expect.element(control).toHaveAttribute('data-tooltip-content', hint)
+        await control.click()
+        expect(props.onToggle, state).toHaveBeenCalledOnce()
+        screen.unmount()
+      }
     })
 
     it('has moved the rest into the menu rather than shrinking them', async () => {

@@ -191,6 +191,8 @@ const TORRENTS = [
   snapshot(6, '4', 'Also.Temporary', {}),
   snapshot(7, '5', 'Stalled', { downloadRate: 0 }),
   snapshot(8, '6', '', {}, { magnet: NAMELESS, files: null }),
+  // finished and stopped by the person, so it reads Completed and offers Start
+  snapshot(11, '9', 'Watched.Film', { ...SEEDING, paused: true }, { userPaused: true }),
 ]
 const LIST = [
   entry('a', 'Some.Release.Name.S01.1080p', { downloadLimit: 2_000_000, uploadLimit: 500_000 }),
@@ -203,6 +205,7 @@ const LIST = [
   entry('e', 'On.Its.Way'),
   entry('f', 'Elsewhere', { started: false }),
   entry('2', 'Made.Here', { started: false, saveTo: 'source' }),
+  entry('9', 'Watched.Film'),
 ]
 
 const PORT = { port: 41337, listenFailed: [], listeners: [], portOpen: true, inbound: 3 }
@@ -1335,6 +1338,7 @@ test('the control: in English the same reading finds the page\'s own words', asy
   const { words } = await everySurface(page, 1280)
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   expect(englishIn([...new Set(words)], english()).length).toBeGreaterThan(100)
+  for (const text of ['Seeding', 'Stop', 'Stop A.Season.Pack', 'Completed', 'Start', 'Start Watched.Film']) expect(words).toContain(text)
 })
 
 test('the control: in English the small parts\' own words are read too', async ({ page }) => {

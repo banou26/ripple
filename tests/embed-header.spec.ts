@@ -23,7 +23,7 @@ test.describe('the embedded player header', () => {
     const state = page.getByTestId('torrent-state')
     await expect(state, 'the header never said what the torrent was doing').toBeVisible({ timeout: 90_000 })
     // one of the library's own words, through the same STATE_LABEL a row uses
-    await expect(state).toHaveText(/Downloading|Seeding|Checking|Queued|Done|Paused|Starting|Retrying/)
+    await expect(state).toHaveText(/Downloading|Seeding|Checking|Queued|Completed|Paused|Starting|Retrying/)
 
     /*
      * Both links open a NEW TAB. Navigating the frame would replace the embedder's player with a page

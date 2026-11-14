@@ -145,11 +145,11 @@ describe('the bulk selection', () => {
   })
 
   /** The options menu's rule, row by row. */
-  it('pauses every row not stopped, resumes the paused and the queued, and leaves a ghost to neither', () => {
-    const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'done', 'error', 'missing', 'retrying', 'checking']
+  it('pauses every row not stopped, resumes the paused, the queued and the completed, and leaves a ghost to neither', () => {
+    const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking']
     const rows = STATES.map((state) => t({ state }))
-    expect(toPause(rows).map((x) => x.state)).toEqual(['downloading', 'seeding', 'done', 'error', 'retrying', 'checking'])
-    expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued'])
+    expect(toPause(rows).map((x) => x.state)).toEqual(['downloading', 'seeding', 'error', 'retrying', 'checking'])
+    expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued', 'completed'])
     expect(toPause([t({ state: 'paused' }), t({ state: 'missing' })])).toEqual([])
     expect(toResume([t({ state: 'seeding' }), t({ state: 'missing' })])).toEqual([])
   })

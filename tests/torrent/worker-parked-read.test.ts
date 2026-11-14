@@ -127,7 +127,7 @@ it('keeps it awake while the read that woke it waits for its pieces', async () =
   await vi.waitFor(() => expect(engine.log).toEqual(['pause', 'resume', 'pause', 'resume', 'pause']), { timeout: 8_000 })
 }, 20_000)
 
-it('leaves it to a player that came meanwhile, and running when the person resumed it', async () => {
+it('leaves it to a player that came meanwhile', async () => {
   void read('save', 1, 22 * MiB)
   await vi.waitFor(() => expect(engine.log.slice(5)).toEqual(['resume']))
   rig.send({ type: 'watch', viewer: 'player:1', handle: 1, fileIndex: 1, fromOffset: 0 })
@@ -136,61 +136,64 @@ it('leaves it to a player that came meanwhile, and running when the person resum
   // the player going is what parks it then
   rig.send({ type: 'unwatch', viewer: 'player:1' })
   await vi.waitFor(() => expect(engine.log.slice(5)).toEqual(['resume', 'pause']))
-
-  // not parked when the Save came: a Save of one the person paused and resumed leaves it running
-  rig.send({ type: 'pause', handle: 1 })
-  rig.send({ type: 'resume', handle: 1 })
-  await vi.waitFor(() => expect(engine.log.slice(5)).toEqual(['resume', 'pause', 'pause', 'resume']))
-  expect((await read('their save', 1, 24 * MiB)).type).toBe('read-result')
-  await quiet()
-  expect(engine.log.slice(5)).toEqual(['resume', 'pause', 'pause', 'resume'])
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
-}, 30_000)
+}, 20_000)
 
 it('parks it again though a read of a player that has left still waits', async () => {
   // a player closing cancels none of its reads: this one waits for nobody once its player has left, which parks it
   engine.slow.at = 26 * MiB
   rig.send({ type: 'read', id: 'abandoned', handle: 1, fileIndex: 1, offset: 26 * MiB, len: 64 * 1024, viewer: 'player:2' })
   rig.send({ type: 'unwatch', viewer: 'player:2' })
-  await vi.waitFor(() => expect(engine.log.slice(9)).toEqual(['pause']))
+  await vi.waitFor(() => expect(engine.log.slice(7)).toEqual(['resume', 'pause']))
   expect((await read('one more save', 1, 28 * MiB)).type).toBe('read-result')
-  expect(engine.log.slice(9)).toEqual(['pause', 'resume'])
-  await vi.waitFor(() => expect(engine.log.slice(9)).toEqual(['pause', 'resume', 'pause']), { timeout: 8_000 })
+  expect(engine.log.slice(7)).toEqual(['resume', 'pause', 'resume'])
+  await vi.waitFor(() => expect(engine.log.slice(7)).toEqual(['resume', 'pause', 'resume', 'pause']), { timeout: 8_000 })
   engine.slow.go()
   await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'abandoned')).toBeDefined())
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)
 
+it('leaves a check the person started while a Save reads to run', async () => {
+  engine.slow.at = 16 * MiB
+  rig.send({ type: 'read', id: 'checked save', handle: 1, fileIndex: 1, offset: 16 * MiB, len: 64 * 1024 })
+  await vi.waitFor(() => expect(engine.log.slice(11)).toEqual(['resume']))
+  rig.send({ type: 'recheck', handle: 1 })
+  await vi.waitFor(() => expect(engine.log.slice(11)).toEqual(['resume', 'recheck']))
+  engine.slow.at = -1
+  engine.slow.go()
+  expect((await read('save after the check', 1, 16 * MiB)).type).toBe('read-result')
+  await quiet()
+  expect(engine.log.slice(11)).toEqual(['resume', 'recheck'])
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 25_000)
+
+// last, as the person's Resume keeps it from being parked again
 it('leaves it running when the person pauses and resumes it while a Save reads', async () => {
+  // a player coming and going parks it again first
+  rig.send({ type: 'watch', viewer: 'player:3', handle: 1, fileIndex: 1, fromOffset: 0 })
+  rig.send({ type: 'unwatch', viewer: 'player:3' })
+  await vi.waitFor(() => expect(engine.log.slice(13)).toEqual(['pause']))
   engine.slow.at = 14 * MiB
   rig.send({ type: 'read', id: 'paused save', handle: 1, fileIndex: 1, offset: 14 * MiB, len: 64 * 1024 })
-  await vi.waitFor(() => expect(engine.log.slice(12)).toEqual(['resume']))
+  await vi.waitFor(() => expect(engine.log.slice(13)).toEqual(['pause', 'resume']))
   rig.send({ type: 'pause', handle: 1 })
   rig.send({ type: 'resume', handle: 1 })
-  await vi.waitFor(() => expect(engine.log.slice(12)).toEqual(['resume', 'pause', 'resume']))
+  await vi.waitFor(() => expect(engine.log.slice(13)).toEqual(['pause', 'resume', 'pause', 'resume']))
   engine.slow.at = -1
   engine.slow.go()
   // the Save asks again for the chunk the pause refused, and ends
   expect((await read('resumed save', 1, 14 * MiB)).type).toBe('read-result')
   await quiet()
-  expect(engine.log.slice(12)).toEqual(['resume', 'pause', 'resume'])
-  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
-}, 20_000)
-
-it('leaves a check the person started while a Save reads to run', async () => {
-  // a player coming and going parks it again first
-  rig.send({ type: 'watch', viewer: 'player:3', handle: 1, fileIndex: 1, fromOffset: 0 })
-  rig.send({ type: 'unwatch', viewer: 'player:3' })
-  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause']))
-  engine.slow.at = 16 * MiB
-  rig.send({ type: 'read', id: 'checked save', handle: 1, fileIndex: 1, offset: 16 * MiB, len: 64 * 1024 })
-  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause', 'resume']))
-  rig.send({ type: 'recheck', handle: 1 })
-  await vi.waitFor(() => expect(engine.log.slice(15)).toEqual(['pause', 'resume', 'recheck']))
-  engine.slow.at = -1
-  engine.slow.go()
-  expect((await read('save after the check', 1, 16 * MiB)).type).toBe('read-result')
-  await quiet()
-  expect(engine.log.slice(15)).toEqual(['pause', 'resume', 'recheck'])
+  expect(engine.log.slice(13)).toEqual(['pause', 'resume', 'pause', 'resume'])
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 25_000)
+
+it('leaves running a Save of one the person paused and resumed before it', async () => {
+  rig.send({ type: 'pause', handle: 1 })
+  rig.send({ type: 'resume', handle: 1 })
+  await vi.waitFor(() => expect(engine.log.slice(17)).toEqual(['pause', 'resume']))
+  expect((await read('their save', 1, 24 * MiB)).type).toBe('read-result')
+  await quiet()
+  expect(engine.log.slice(17)).toEqual(['pause', 'resume'])
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 20_000)

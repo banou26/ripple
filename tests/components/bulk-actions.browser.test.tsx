@@ -46,4 +46,14 @@ describe('the bulk bar', () => {
     expect(button(running, 'Resume').disabled).toBe(true)
     expect(button(running, 'Remove').disabled).toBe(false)
   })
+
+  it('says Stop and Start when every ticked torrent is finished, for the same two actions', async () => {
+    const { props, screen } = mount({ finished: true })
+    const c = (await screen).container
+    expect(button(c, 'Pause')).toBeUndefined()
+    button(c, 'Stop').click()
+    button(c, 'Start').click()
+    expect(props.onPause).toHaveBeenCalledTimes(1)
+    expect(props.onResume).toHaveBeenCalledTimes(1)
+  })
 })
