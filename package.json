@@ -15,8 +15,8 @@
     "background": "store/background.webp",
     "cover": "store/cover.webp",
     "screenshots": [
-      "store/library.webp",
       "store/player.webp",
+      "store/library.webp",
       "store/details.webp",
       "store/add.webp",
       "store/download.webp",

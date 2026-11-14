@@ -18,8 +18,8 @@ const ADDRESS = 'https://torrent.fkn.app/'
 // since HOR-233 slice 9 every release is signed IN PLACE: `signed: true` is what makes a device ask
 // unpkg for the release's fkn.json, and without it a signed package runs unchecked on every device
 // that holds no list for Ripple
-// since HOR-226 it also names ripple's own address, and since RIPPLE-104 its store images, which the api's claim
-// reader ignores (it reads `app` and `signed` only)
+// it also names ripple's own address and its store images, which the api's claim reader ignores (it reads `app` and
+// `signed` only)
 const CLAIM = {
   app: APP,
   signed: true,

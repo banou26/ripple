@@ -27,7 +27,9 @@ const option = (name) => { const at = args.indexOf(name); return at === -1 ? und
 const direction = option('--direction') ?? 'ripples'
 const each = option('--each')
 const only = option('--only')
+const PARTS = ['art', 'shots', 'player', 'library', 'details', 'add', 'download', 'phone']
 if (!DIRECTIONS.includes(direction)) throw new Error(`--direction is one of ${DIRECTIONS.join(', ')}`)
+if (only && !PARTS.includes(only)) throw new Error(`--only is one of ${PARTS.join(', ')}`)
 
 const DESKTOP = { viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 1.5 }
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
@@ -104,6 +106,7 @@ const GB = 1_000_000_000
 const MB = 1_000_000
 const DAY = 86_400
 const NOW = Math.floor(Date.now() / 1_000)
+const addedOf = (n) => NOW - 2 * DAY - n * 3_600
 // Sintel runs 14:48, so the seek bar reads as the film's
 const SINTEL_SECONDS = 888
 
@@ -115,13 +118,13 @@ const FILMS = [
   { name: 'Cosmos Laundromat', film: 'cosmos-laundromat', size: 1.61 * GB, progress: 1, peers: 3, up: 210_000 },
 ]
 const PACK = {
-  name: 'Blender Open Movies',
+  name: 'Open Movies',
   progress: 0.12,
   rate: 2.9 * MB,
   peers: 19,
   seeds: 8,
   up: 90_000,
-  files: FILMS.map(({ name, size }) => ({ path: `Blender Open Movies/${name}/${name}.mkv`, size })),
+  files: FILMS.map(({ name, size }) => ({ path: `Open Movies/${name}/${name}.mkv`, size })),
 }
 const MORE = [
   { name: 'Sintel Soundtrack', progress: 1, peers: 2, up: 48_000, files: Array.from({ length: 12 }, (_, i) => ({ path: `Sintel Soundtrack/Track ${String(i + 1).padStart(2, '0')}.flac`, size: 31 * MB + i * 1.7 * MB })) },
@@ -151,7 +154,7 @@ const snapshot = (torrent, handle, over = {}) => {
       downloadRate: torrent.rate ?? 0, uploadRate: torrent.up, numPeers: torrent.peers ?? 0, numSeeds: torrent.seeds ?? 0,
       allTimeDownload: done, allTimeUpload: done * 0.18, sessionDownload: done * 0.6, sessionUpload: done * 0.1, wasted: 0,
       swarmSeeds: 214, swarmPeers: 61, numConnections: torrent.peers ?? 0, connectionsLimit: 200, availability: 7.4,
-      addedAt: NOW - 2 * DAY, completedAt: seeding ? NOW - DAY : 0, lastSeenComplete: NOW - 600, hadIncoming: true,
+      addedAt: addedOf(handle - 1), completedAt: seeding ? NOW - DAY : 0, lastSeenComplete: NOW - 600, hadIncoming: true,
       savePath: '/Movies', numPiecesTotal: Math.ceil(files.contentSize / 1_048_576), numPiecesHave: Math.floor(done / 1_048_576),
     },
     bitfield: null,
@@ -165,10 +168,10 @@ const snapshot = (torrent, handle, over = {}) => {
     ...over,
   }
 }
-const entry = (torrent, at) => ({ infoHash: infoHashOf(torrent), magnet: magnetOf(torrent), name: torrent.name, size: filesOf(torrent).contentSize, addedAt: at, started: true })
+const entry = (torrent, at) => ({ infoHash: infoHashOf(torrent), magnet: magnetOf(torrent), name: torrent.name, size: filesOf(torrent).contentSize, addedAt: at * 1_000, started: true })
 
 const LIBRARY = [...FILMS, PACK, ...MORE]
-const LIST = LIBRARY.map((torrent, i) => entry(torrent, NOW - i * 3_600))
+const LIST = LIBRARY.map((torrent, i) => entry(torrent, addedOf(i)))
 const TORRENTS = LIBRARY.map((torrent, i) => snapshot(torrent, i + 1))
 const READOUT = {
   rateLimits: { down: 0, up: 0 },
@@ -215,9 +218,9 @@ const shots = await (async () => {
   if (only === 'art') return null
   if (!existsSync(join(ROOT, 'build', 'index.html'))) throw new Error('build/ has no app in it: run npm run build first')
   const stills = await drawStills()
-  // one frame a second keeps the encode to seconds; with x264's B-frames a seek in the player never ends (2026-11-15)
+  // one frame a second keeps the encode to seconds
   run('ffmpeg', '-loglevel', 'error', '-y', '-loop', '1', '-framerate', '1', '-i', join(scratch, 'sintel-1920.png'), '-t', String(SINTEL_SECONDS),
-    '-c:v', 'libx264', '-tune', 'stillimage', '-crf', '14', '-g', '20', '-bf', '0', '-pix_fmt', 'yuv420p', join(scratch, 'sintel.mkv'))
+    '-c:v', 'libx264', '-tune', 'stillimage', '-crf', '14', '-g', '20', '-pix_fmt', 'yuv420p', join(scratch, 'sintel.mkv'))
   return { stills, server: await serve(join(ROOT, 'build'), Number(process.env.RIPPLE_TEST_PORT ?? 4702), { app: true, extra: scratch }) }
 })()
 
@@ -266,7 +269,11 @@ const download = (page, torrents = TORRENTS) => page.evaluate(async ([torrents, 
       const wander = (phase) => 1 + 0.3 * Math.sin((now - start) / 1_400 + phase) + 0.15 * Math.sin((now - start) / 520 + phase * 3)
       status.uploadRate = Math.round(rates[i][1] * wander(i + 4))
       if (status.state === 5 || !rates[i][0]) continue
-      status.totalDone = Math.min(status.totalWanted, status.totalDone + rates[i][0] * wander(i) * (now - last) / 1_000)
+      const grown = Math.min(status.totalWanted - status.totalDone, rates[i][0] * wander(i) * (now - last) / 1_000)
+      status.totalDone += grown
+      status.allTimeDownload += grown
+      status.sessionDownload += grown
+      status.numPiecesHave = Math.floor(status.totalDone / 1_048_576)
       status.progress = status.totalDone / status.totalWanted
     }
     last = now
@@ -293,7 +300,7 @@ const SHOTS = {
     await download(page)
   }),
   player: () => capture('player', DESKTOP, `/watch?magnet=${encodeURIComponent(Buffer.from(magnetOf(FILMS[0])).toString('base64'))}`, async (page) => {
-    await post(page, { type: 'list', list: [entry(FILMS[0], NOW)] }, { type: 'state', torrents: [snapshot(FILMS[0], 1)], ...READOUT })
+    await post(page, { type: 'list', list: [LIST[0]] }, { type: 'state', torrents: [TORRENTS[0]], ...READOUT })
     const playing = (after) => page.waitForFunction((after) => {
       const video = document.querySelector('video')
       return video && video.currentTime > after && !video.seeking && video.readyState >= 3
@@ -309,11 +316,12 @@ const SHOTS = {
     await post(page, { type: 'list', list: [{ ...entry(FILMS[0], NOW), ephemeral: true }] }, { type: 'state', torrents: [sintel], ...READOUT })
     await page.locator('.card .file').first().waitFor()
   }, { list: [], torrents: [] }),
+  // the table view, so the shot does not read as the library's again at the size fkn.app shows it
   details: () => capture('details', DESKTOP, '/', async (page) => {
-    await page.locator('.torrent .title strong', { hasText: /^Sintel$/ }).click()
+    await page.locator('.torrent-table .title', { hasText: /^Sintel$/ }).click()
     await page.getByRole('region', { name: /^Details for/ }).locator('.fact').first().waitFor()
     await download(page)
-  }, { storage: { 'ripple:dock-height': '300' } }),
+  }, { storage: { 'ripple:dock-height': '420', 'ripple:list-view': 'table' } }),
   add: () => capture('add', DESKTOP, '/', async (page) => {
     await download(page, TORRENTS.slice(0, 5))
     const field = page.locator('header form input:not([type=file])')
@@ -323,6 +331,8 @@ const SHOTS = {
     const pack = snapshot({ ...PACK, progress: 0 }, 9)
     await post(page, { type: 'list', list: [...LIST.slice(0, 5), { ...entry(PACK, NOW), ephemeral: true }] }, { type: 'state', torrents: [...TORRENTS.slice(0, 5), pack], ...READOUT })
     await page.getByRole('dialog').locator('.file').first().waitFor()
+    // the Enter that opened it leaves the dialog's first button drawing a keyboard focus ring
+    await page.evaluate(() => document.activeElement?.blur())
   }, { list: LIST.slice(0, 5), torrents: TORRENTS.slice(0, 5), storage: { 'ripple:add-dialog': '1' } }),
   phone: () => capture('phone', PHONE, '/', async (page) => {
     await page.locator('.torrent').first().waitFor()
@@ -338,7 +348,7 @@ try {
       for (const format of ['background', 'cover']) await drawArt(name, format, join(resolve(each), name, `${format}.webp`))
     }
   }
-  for (const name of !shots ? [] : only in SHOTS ? [only] : Object.keys(SHOTS)) await SHOTS[name]()
+  for (const name of !shots ? [] : only && only !== 'shots' ? [only] : Object.keys(SHOTS)) await SHOTS[name]()
 } finally {
   await browser.close()
   art.close()
