@@ -18,7 +18,10 @@ import { Modal } from './modal'
 export type VpnSwitching = {
   /** False where the VPN cannot be switched off: its state is all there is to draw. */
   available: boolean
-  /** The stored choice, which a switch is drawn from at once. */
+  /**
+   * What a switch draws: off the moment that is chosen, on only once the engine is behind the relay, since peers
+   * see the address until it is.
+   */
   on: boolean
   /** What the engine says of itself, or that it has yet to follow the choice. Null until an engine has said. */
   status: VpnStatus | null
@@ -34,22 +37,23 @@ export type VpnSwitching = {
  */
 export const useVpnSwitch = (reachable: Reachability | null, transport?: EngineTransport | null): VpnSwitching => {
   const available = vpnOffAvailable()
-  const [on, setOn] = useState(vpnOn)
+  const [chosen, setChosen] = useState(vpnOn)
   const [warning, setWarning] = useState(false)
-  useEffect(() => onVpnStored(() => setOn(vpnOn())), [])
+  useEffect(() => onVpnStored(() => setChosen(vpnOn())), [])
 
   const choose = (next: boolean) => {
     void setVpn(next)
     // read back: a browser that refused to store it keeps the choice it had
-    setOn(vpnOn())
+    setChosen(vpnOn())
   }
+  const status = vpnStatus(reachable, transport, available ? chosen : undefined)
 
   return {
     available,
-    on,
-    status: vpnStatus(reachable, transport, available ? on : undefined),
+    on: chosen && status?.state !== 'waiting',
+    status,
     press: () => {
-      if (!on) choose(true)
+      if (!chosen) choose(true)
       else if (vpnWarningRemembered()) choose(false)
       else setWarning(true)
     },

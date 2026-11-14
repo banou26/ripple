@@ -18,8 +18,9 @@ import { showEnglish, showIn } from '../i18n/show-in'
  * was not up. So the first tests below are mostly about the UNREACHABLE and RECONNECTING states, which
  * is where the value is: a readout that is only ever correct when things work would not have helped.
  *
- * The switch is drawn from the stored choice at once and its word from the engine, which follows the
- * choice late. Switching off shows a person's IP address to strangers, so it asks first.
+ * The switch is drawn off the moment that is chosen, and on once the engine is behind the relay; its word
+ * is the engine's, which follows the choice late. Switching off shows a person's IP address to strangers, so
+ * it asks first.
  */
 
 const SENTENCE = 'Peers and trackers of every running torrent will see your IP address.'
@@ -189,7 +190,7 @@ describe('the VPN switch says what the engine runs on', () => {
   })
 })
 
-describe('the switch is drawn from the stored choice, at once', () => {
+describe('the switch is drawn from the stored choice, and never on before the engine is behind the relay', () => {
   it('is a switch named VPN, on until somebody switches it off', async () => {
     const screen = await mount(reach())
     const control = screen.getByRole('switch', { name: /^VPN/ })
@@ -217,7 +218,28 @@ describe('the switch is drawn from the stored choice, at once', () => {
     localStorage.clear()
     const turnedOn = await mount(NO_PORT, 'direct')
     expect(strong(turnedOn.container)?.textContent).toBe('Waiting')
-    expect(stat(turnedOn.container).getAttribute('aria-checked')).toBe('true')
+  })
+
+  // switched back on, the engine follows once no page saves a file, and peers see the address until it has
+  it('is drawn off at once, and on only once the engine is behind the relay', async () => {
+    const screen = await mountOff()
+    expect(stat(screen.container).getAttribute('aria-checked')).toBe('false')
+    await screen.getByRole('switch').click()
+    expect(page.setVpn.mock.calls).toEqual([[true]])
+    expect(strong(screen.container)?.textContent).toBe('Waiting')
+    expect(stat(screen.container).getAttribute('aria-checked'), 'drawn on while the engine has no relay').toBe('false')
+    // the thumb rests where it does for Off
+    expect(Number.parseFloat(getComputedStyle(screen.container.querySelector('.track')!, '::after').marginLeft)).toBe(0)
+
+    await screen.rerender(await switchOf(reach(), 'relay'))
+    expect(strong(screen.container)?.textContent).toBe('On')
+    expect(stat(screen.container).getAttribute('aria-checked')).toBe('true')
+
+    // THE OTHER WAY: off is drawn before the engine has followed
+    localStorage.setItem('ripple:vpn-off-remembered', '1')
+    await screen.getByRole('switch').click()
+    expect(strong(screen.container)?.textContent).toBe('Waiting')
+    expect(stat(screen.container).getAttribute('aria-checked')).toBe('false')
   })
 
   it('follows a change another page of this storage made', async () => {

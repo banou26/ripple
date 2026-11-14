@@ -722,6 +722,25 @@ describe('the VPN switch on /watch', () => {
     expect(getComputedStyle(control(off)).color, 'Off is a choice and takes no warning colour').toBe(getComputedStyle(off.getByTestId('peers').element()).color)
   })
 
+  // under 960 px the shield is all the row shows: plain, it says peers see the relay's address
+  it('keeps the shield crossed after it is switched back on, until the engine is behind the relay', async () => {
+    localStorage.setItem('ripple:vpn', 'off')
+    state.transport = 'direct'
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await userEvent.click(control(screen))
+    expect(setVpn.mock.calls).toEqual([[true]])
+    expect(control(screen).textContent).toBe('VPN Waiting')
+    expect(control(screen).getAttribute('aria-checked')).toBe('false')
+    expect(control(screen).querySelector('svg')?.classList.contains('lucide-shield-off'), 'the plain shield, with the engine on the person\'s own address').toBe(true)
+
+    state.transport = 'relay'
+    await screen.rerender(await watching(WITH_LINKS))
+    expect(control(screen).textContent).toBe('VPN On')
+    expect(control(screen).getAttribute('aria-checked')).toBe('true')
+    expect(control(screen).querySelector('svg')?.classList.contains('lucide-shield')).toBe(true)
+  })
+
   it('is named and pressable on a phone, where its word is folded', async () => {
     const screen = await mount(SMALL_PHONE, WITH_LINKS)
     await expect.poll(() => control(screen)).not.toBeNull()
