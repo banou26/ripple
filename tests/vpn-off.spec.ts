@@ -201,6 +201,71 @@ test('with the VPN on and no relay in reach, the switch says so and the strip ke
   expect(tracker.seen.announces, 'an engine behind the relay opened a tracker from the browser').toBe(0)
 })
 
+const SENTENCE = 'Peers and trackers of every running torrent will see your IP address.'
+const COUNTRY = 'In your country, sharing copyrighted files this way can lead to a demand for money.'
+
+/*
+ * What a person does, start to end: the library with the VPN on, the switch pressed and the warning confirmed, a
+ * magnet a WebRTC seeder holds added and seen complete, and the VPN switched back on. The device is in a listed
+ * country, so the warning carries its second sentence.
+ */
+test('on the library, the VPN is switched off after its warning, a torrent a WebRTC seeder holds arrives, and it is switched back on', async ({ browser, baseURL }) => {
+  test.setTimeout(300_000)
+  const url = `ws://ripple-tracker.test:${tracker.port}`
+  const seeder = await visitor(await browser.newContext(), baseURL!)
+  const infoHash = await seed(seeder.page, url)
+
+  const { page, errors } = await visitor(await browser.newContext({ timezoneId: 'Europe/Berlin' }), baseURL!, 'on')
+  const vpn = page.getByRole('switch', { name: /^VPN/ })
+  await expect(vpn).toHaveAttribute('aria-checked', 'true')
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('ripple:vpn')))).toEqual([])
+
+  // cancelled first: nothing changes, and no connection is made
+  await vpn.click()
+  const warning = page.getByRole('dialog')
+  await expect(warning.locator('p')).toHaveText([SENTENCE, COUNTRY])
+  await expect(warning.getByRole('checkbox', { name: 'Remember this decision' })).not.toBeChecked()
+  await warning.getByRole('button', { name: 'Cancel' }).click()
+  await expect(warning).toHaveCount(0)
+  await expect(vpn).toHaveAttribute('aria-checked', 'true')
+  expect(await page.evaluate(() => localStorage.getItem('ripple:vpn'))).toBeNull()
+
+  await vpn.click()
+  await warning.getByRole('button', { name: 'Turn off' }).click()
+  await expect(warning).toHaveCount(0)
+  // drawn from the choice at once, and the word once the engine has followed
+  await expect(vpn).toHaveAttribute('aria-checked', 'false')
+  await expect(vpn.locator('strong')).toHaveText('Off', { timeout: 60_000 })
+  expect((await seen(page)).transports.at(-1)).toBe('direct')
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('ripple:vpn')))).toEqual(['ripple:vpn'])
+
+  await add(page, `magnet:?xt=urn:btih:${infoHash}&tr=${encodeURIComponent(url)}`)
+  await expect
+    .poll(async () => (await row(page, infoHash))?.progress, { timeout: 120_000, message: 'the file never arrived' })
+    .toBe(1)
+  await expect(page.locator('.torrent .badge')).toHaveText(/Seeding|Done/)
+  await expect.poll(async () => (await row(seeder.page, infoHash))!.upload, { timeout: 15_000 }).toBeGreaterThanOrEqual(FILE.bytes)
+  expect((await seen(page)).made, 'the bytes came over no connection of this page').toBeGreaterThan(0)
+
+  // back on asks nothing: the switch moves at once, and the engine follows once the torrent it was handed is stored
+  await vpn.click()
+  await expect(warning).toHaveCount(0)
+  await expect(vpn).toHaveAttribute('aria-checked', 'true')
+  await expect(vpn.locator('strong')).toHaveText('Waiting')
+  await expect.poll(async () => (await seen(page)).transports.at(-1), { timeout: 60_000, message: 'no engine behind the relay took over' }).toBe('relay')
+  // no relay is in reach of this machine, and the switch says that rather than Off
+  await expect(vpn.locator('strong')).toHaveText(/Unreachable|Reconnecting/, { timeout: 60_000 })
+  expect(await page.evaluate(() => localStorage.getItem('ripple:vpn'))).toBeNull()
+
+  // the torrent came through both changes of engine, whole
+  await expect(page.locator('.torrent')).toHaveCount(1)
+  await expect.poll(async () => (await row(page, infoHash))?.progress, { timeout: 60_000 }).toBe(1)
+  expect(engines(page), 'an engine worker was left behind').toHaveLength(1)
+  expect((await seen(page)).fatal).toEqual([])
+  expect(errors).toEqual([])
+  expect(seeder.errors).toEqual([])
+})
+
 /*
  * The switch itself, as it reaches an engine: the stored choice changes 20 times in a row, from a tab that only
  * borrows the engine, while the engine's tab downloads from the seeder, held to a speed that leaves most of the
