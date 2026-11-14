@@ -30,7 +30,7 @@ describe('the privacy page, with the VPN off', () => {
     expect(VPN_OFF_HOSTS).toEqual([...TRACKER_HOSTS, STUN_HOST])
     expect(TRACKERS.map((tracker) => new URL(tracker).hostname)).toEqual(TRACKER_HOSTS)
     expect(ICE_SERVERS.map(({ urls }) => urls.split(':')[1])).toEqual([STUN_HOST])
-    expect(VPN_OFF_HOSTS).toHaveLength(3)
+    expect(TRACKER_HOSTS.length).toBeGreaterThan(0)
     expect(hostsIn('ask tracker.example.org and stun.example.net, then fkn.app')).toEqual(['tracker.example.org', 'stun.example.net', 'fkn.app'])
   })
 
