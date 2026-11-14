@@ -161,8 +161,8 @@ test('two browsers with the VPN off move a file between them over WebRTC, found 
 })
 
 // THE CONTROL: the same visit with no seeder moves nothing, makes no connection, and says so
-test('with nobody to find, no connection is made and the torrent says since when it has had nobody', async ({ browser, baseURL }) => {
-  test.setTimeout(120_000)
+test('with nobody to find, no connection is made, and each row says no peers were found while the search goes on', async ({ browser, baseURL }) => {
+  test.setTimeout(240_000)
   const url = `ws://ripple-tracker.test:${tracker.port}`
   const infoHash = 'c'.repeat(40)
   const alone = await visitor(await browser.newContext(), baseURL!)
@@ -185,6 +185,20 @@ test('with nobody to find, no connection is made and the torrent says since when
   await expect(vpn.locator('strong')).toHaveText('Off')
   await expect(vpn).not.toHaveClass(/error/)
   await expect(alone.page.locator('.stats .readouts .stat', { hasText: 'Inbound' })).toHaveCount(0)
+
+  // not yet: the first round of a search is not over, and a row that said so now would say it of every new magnet
+  const lines = alone.page.locator('.torrent .meta .retry')
+  await expect(lines).toHaveCount(0)
+  // once it is, each row says so, naming the VPN, and the engine is still asking the tracker
+  await expect(lines).toHaveText(Array(2).fill('No peers found with the VPN off. Still searching.'), { timeout: 120_000 })
+  const since = (await row(alone.page, infoHash))!.noPeersSince!
+  expect(Date.now() - since).toBeGreaterThanOrEqual(90_000)
+  // the tracker asks to hear from a torrent every 60 s: it is asked again after the line is up, and the line stays
+  const asked = tracker.seen.announces
+  await expect.poll(() => tracker.seen.announces, { timeout: 90_000, message: 'the search stopped once the row said nobody was found' }).toBeGreaterThan(asked)
+  await expect(lines).toHaveCount(2)
+  await expect(alone.page.locator('.torrent .badge')).toHaveText(['Downloading', 'Downloading'])
+  expect((await seen(alone.page)).made).toBe(0)
 })
 
 // THE CONTROL of the readouts above: the same page with the VPN on, and a relay this machine cannot reach
