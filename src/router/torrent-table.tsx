@@ -2,6 +2,7 @@ import type { MessageDescriptor } from 'react-intl'
 
 import type { Torrent } from '../torrent/types'
 import type { SortDir, SortKey } from '../torrent/list-view'
+import type { EngineTransport } from '../torrent/vpn-config'
 import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
@@ -9,6 +10,7 @@ import { Clock } from 'lucide-react'
 import { defineMessage, useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
+import { noPeersLine } from '../torrent/no-peers'
 import { badgeRules } from './badge-style'
 import { pickable } from './bulk-selection'
 import { STATE_LABEL, relativeDay, speed } from './torrent-format'
@@ -218,10 +220,12 @@ export type TorrentTableProps = {
   picked: Picked
   /** `shift` when shift was held, which ticks or unticks the run from the box clicked before. */
   onPick: (t: Torrent, shift: boolean) => void
+  /** What the engine reaches its peers through: with the VPN off a download that found nobody says so on its state. */
+  transport?: EngineTransport | null
 }
 
 export const TorrentTable = (
-  { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions, picked, onPick }: TorrentTableProps,
+  { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions, picked, onPick, transport }: TorrentTableProps,
 ) => {
   const intl = useIntl()
   return <table css={style} className="torrent-table">
@@ -298,7 +302,11 @@ export const TorrentTable = (
             </div>
           </td>
           <td className="c-status">
-            <span className={'badge ' + t.state}>{intl.formatMessage(STATE_LABEL[t.state])}</span>
+            {/* the cards have a line for it, and a row here has its state alone: with the VPN off nothing else tells
+                a download nobody serves from one that has just begun */}
+            <span className={'badge ' + t.state} {...hint(t.noPeers && transport === 'direct' ? noPeersLine(transport) : null)}>
+              {intl.formatMessage(STATE_LABEL[t.state])}
+            </span>
           </td>
           <td className="c-down num">{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
           <td className="c-up num">{t.up > 0 ? speed(t.up) : UNKNOWN}</td>

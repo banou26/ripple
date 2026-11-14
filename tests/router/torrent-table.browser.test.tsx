@@ -226,4 +226,21 @@ describe('the torrent table', () => {
       expect(c.querySelector('.badge')?.textContent).toBe('Dateien fehlen')
     })
   })
+
+  // the table has no line under a row as the cards do, so it is said on the state, with the VPN off as there
+  it('says on its state that a download found nobody, with the VPN off', async () => {
+    const alone = t({ peers: 0, down: 0, noPeers: true })
+    const badge = async (over: Partial<Parameters<typeof TorrentTable>[0]>) => {
+      const screen = await mount(over).screen
+      const element = screen.container.querySelector('td.c-status .badge')!
+      const said = [element.textContent, element.getAttribute('data-tooltip-content')]
+      await screen.unmount()
+      return said
+    }
+    expect(await badge({ torrents: [alone], transport: 'direct' })).toEqual(['Downloading', 'No peers found with the VPN off. Still searching.'])
+    // behind the relay the state itself turns to Retrying 30 s later
+    expect(await badge({ torrents: [alone], transport: 'relay' })).toEqual(['Downloading', null])
+    // THE CONTROL: one that has peers, or has not searched for long
+    expect(await badge({ torrents: [t({ noPeers: false })], transport: 'direct' })).toEqual(['Downloading', null])
+  })
 })

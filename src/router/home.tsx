@@ -3442,6 +3442,7 @@ const Home = () => {
             ? (
               <TorrentTable
                 torrents={visibleRows}
+                transport={transport}
                 sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
                 selectedId={selectedId}
                 onSelect={onSelect}
