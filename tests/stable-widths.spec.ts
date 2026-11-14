@@ -15,7 +15,9 @@
  * do in the window, where writing the range in tests the rule.
  */
 import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
+import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 import { LANGUAGE_KEY } from './languages'
 import { addSample } from './sample-offer'
 
@@ -118,4 +120,50 @@ test('live figures keep their room whatever the font, the language and the width
       }
     }
   }
+})
+
+const OFFERED: string[] = JSON.parse(readFileSync(new URL('../src/i18n/offered.json', import.meta.url), 'utf8'))
+/** Where the header's words are longer than a 1280 px row has room for, since before this test. */
+const TWO_ROWS_AT_1280 = ['fr', 'pt-BR', 'ru']
+
+/*
+ * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
+ * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
+ * the strip under it, which is there before the first torrent too.
+ */
+test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  const rows: string[] = []
+  for (const language of OFFERED) {
+    await page.goto('/')
+    await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('lang', language)
+    // the account's button is the last thing the header gets, and the first to take a row of its own
+    await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
+    for (const width of [1366, 1280]) {
+      if (width === 1280 && TWO_ROWS_AT_1280.includes(language)) continue
+      await page.setViewportSize({ width, height: 720 })
+      const tops = await page.locator('header').evaluate((header) => [...header.children]
+        .map((child) => child.getBoundingClientRect())
+        .filter((box) => box.width > 0)
+        .map((box) => Math.round(box.top + box.height / 2)))
+      // one row: every item's middle is within a few pixels of the others'
+      if (Math.max(...tops) - Math.min(...tops) > 12) rows.push(`${language} at ${width} px: ${tops.join(' ')}`)
+      expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
+    }
+  }
+  expect(rows, 'the header took a second row').toEqual([])
+
+  // and the switch is on the page with no torrent, under the header: where there is one to draw at all
+  await expect(page.locator('.torrent')).toHaveCount(0)
+  if (!WEBRTC_PEERS) {
+    await expect(page.locator('.stats')).toHaveCount(0)
+    return
+  }
+  const vpn = page.getByRole('switch', { name: /^VPN/ })
+  await expect(vpn).toBeVisible()
+  expect(await vpn.evaluate((element) => !!element.closest('header'))).toBe(false)
 })

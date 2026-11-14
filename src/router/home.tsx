@@ -72,6 +72,7 @@ import { SampleOffer } from '../components/sample-offer'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnSwitch } from '../components/vpn-switch'
+import { vpnOffAvailable } from '../torrent/vpn-setting'
 import { noPeersLine } from '../torrent/no-peers'
 import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
@@ -3265,8 +3266,6 @@ const Home = () => {
             {intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })}
           </button>
         )}
-        {/* in the header, so it is there before the first torrent is: the strip below is drawn once there is one */}
-        <VpnSwitch reachable={reachable} transport={transport}/>
         <AccountWidget onToast={showToast}/>
       </header>
 
@@ -3354,36 +3353,44 @@ const Home = () => {
         />
       )}
 
-      {torrents.length > 0 && (
+      {/* The strip is drawn before the first torrent too, with the VPN's switch alone: a header item more would
+          put the header on two rows at the commonest laptop widths. */}
+      {(torrents.length > 0 || vpnOffAvailable()) && (
         <section className="stats surface">
           <div className="readouts">
-            <div className="stat big rate">
-              <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
-              <strong data-room={speedRoom}>{speed(totalDown)}</strong>
-            </div>
-            <div className="stat rate">
-              <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
-              <strong data-room={speedRoom}>{speed(totalUp)}</strong>
-            </div>
-            {/* Which direction this is has to be said. `history` samples download alone, so a
-                library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
-                ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
-                forty peers. */}
-            <div className="stat rate">
-              <label>{intl.formatMessage({ id: 'Peak down', defaultMessage: 'Peak down' })}</label>
-              <strong data-room={speedRoom}>{speed(peak)}</strong>
-            </div>
-            <div className="stat">
-              <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
-              <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
-            </div>
-            {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
-            {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
-            {storage && <StorageStat storage={storage} low={lowStorage}/>}
-            {quota && <QuotaStat quota={quota}/>}
-            <SyncStat state={syncState}/>
+            {torrents.length > 0 && (
+              <>
+                <div className="stat big rate">
+                  <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
+                  <strong data-room={speedRoom}>{speed(totalDown)}</strong>
+                </div>
+                <div className="stat rate">
+                  <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
+                  <strong data-room={speedRoom}>{speed(totalUp)}</strong>
+                </div>
+                {/* Which direction this is has to be said. `history` samples download alone, so a
+                    library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
+                    ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
+                    forty peers. */}
+                <div className="stat rate">
+                  <label>{intl.formatMessage({ id: 'Peak down', defaultMessage: 'Peak down' })}</label>
+                  <strong data-room={speedRoom}>{speed(peak)}</strong>
+                </div>
+                <div className="stat">
+                  <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
+                  <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
+                </div>
+                {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
+                {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
+                {storage && <StorageStat storage={storage} low={lowStorage}/>}
+                {quota && <QuotaStat quota={quota}/>}
+              </>
+            )}
+            {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
+            <VpnSwitch reachable={reachable} transport={transport}/>
+            {torrents.length > 0 && <SyncStat state={syncState}/>}
           </div>
-          <SpeedGraph history={history}/>
+          {torrents.length > 0 && <SpeedGraph history={history}/>}
         </section>
       )}
 

@@ -181,7 +181,7 @@ test('with nobody to find, no connection is made, and each row says no peers wer
   expect((await seen(alone.page)).transports).toEqual(['direct'])
 
   // the switch says Off as the choice it is, and the strip nothing of a relay port, since there is none to dial in through
-  const vpn = alone.page.locator('header .stat.vpn')
+  const vpn = alone.page.locator('.stats .stat.vpn')
   await expect(vpn).toHaveAttribute('aria-checked', 'false')
   await expect(vpn.locator('strong')).toHaveText('Off')
   await expect(vpn).not.toHaveClass(/error/)
@@ -252,7 +252,7 @@ test('a torrent made from a folder is still listed and shared after the VPN is s
   const { page, errors } = await visitor(await browser.newContext(), baseURL!)
   const infoHash = await seed(page, `ws://ripple-tracker.test:${tracker.port}`)
   await expect(page.locator('.torrent')).toHaveCount(1)
-  const vpn = page.locator('header .stat.vpn')
+  const vpn = page.locator('.stats .stat.vpn')
 
   // on, where no relay is in reach and the engine starts all the same, then off again
   for (const transport of ['relay', 'direct']) {
@@ -277,7 +277,7 @@ test('with the VPN on and no relay in reach, the switch says so and the strip ke
   const relayed = await visitor(await browser.newContext(), baseURL!, 'on')
   await add(relayed.page, `magnet:?xt=urn:btih:${'d'.repeat(40)}`)
   await expect(relayed.page.locator('.stats .readouts .stat', { hasText: 'Inbound' })).toHaveCount(1, { timeout: 60_000 })
-  const vpn = relayed.page.locator('header .stat.vpn')
+  const vpn = relayed.page.locator('.stats .stat.vpn')
   await expect(vpn).toHaveAttribute('aria-checked', 'true')
   await expect(vpn.locator('strong')).not.toHaveText('Off')
   await expect(vpn).toHaveClass(/error/)
