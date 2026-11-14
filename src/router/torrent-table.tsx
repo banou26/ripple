@@ -16,7 +16,7 @@ import { pickable } from './bulk-selection'
 import { STATE_LABEL, relativeDay, speed } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
-import { RowCheck } from '../components/bulk-actions'
+import { RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import {
   BORDER, CONTROL_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
@@ -93,6 +93,8 @@ const style = css`
     &:hover { background: ${HOVER_WASH}; }
 
     &[data-selected] { background: ${CONTROL_BG}; }
+
+    &[data-picked] { ${pickedRowStyle} }
   }
 
   /* The box's label is its hit area, and its ::before spreads that over the whole cell, or a click just above or
@@ -269,6 +271,7 @@ export const TorrentTable = (
         <tr
           key={t.id}
           data-selected={t.id === selectedId || undefined}
+          data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
           onClick={() => onSelect(t)}
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >

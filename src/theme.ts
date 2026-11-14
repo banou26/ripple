@@ -251,6 +251,14 @@ export const CHART_SECONDARY = '#6b6b6b'
 export const HOVER_WASH = 'rgba(255, 255, 255, 0.07)'
 
 /**
+ * A ticked row's tint, laid over the fill the row already has, so a row also open in the details stays a step
+ * brighter than one only ticked. The EMPHASIS edge beside it is what says "ticked" at a glance (14.2:1 on the tint).
+ *
+ * As strong as TEXT_MUTED allows: 5.4:1 on it over SURFACE_BG, 4.6:1 over CONTROL_BG, where 0.06 would fall to 4.46.
+ */
+export const PICKED_WASH = 'rgba(242, 242, 242, 0.05)'
+
+/**
  * Under and around a control drawn on a picture, the box on a poster: an EMPHASIS ring keeps 3.5:1 beside it on a
  * white picture, and more on any darker one.
  */

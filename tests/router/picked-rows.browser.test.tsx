@@ -10,7 +10,8 @@ import { useBulkSelection } from '../../src/router/bulk-selection'
 import { TorrentTable } from '../../src/router/torrent-table'
 
 /**
- * How a row's box reads on its poster, white, black or none, from the pixels of a screenshot.
+ * How a ticked row reads in the cards and in the table: the mark its look hangs on, a layout that stays put, and the
+ * contrasts read off the pixels of a screenshot, on a white poster, a black one and none.
  */
 const pictures = new Map<string, string>()
 vi.mock('../../src/torrent/use-thumbnails', () => ({
@@ -89,6 +90,64 @@ const contrast = (a: number[], b: number[]) => {
 }
 
 afterEach(() => page.viewport(1280, 720))
+
+describe('a ticked row', () => {
+  for (const view of ['cards', 'table'] as const) {
+    it(`carries the mark its look hangs on in the ${view}, and an unticked row does not`, async () => {
+      const { box, row } = await library(view)
+      const marked = () => ROWS.map((x) => view === 'cards' ? row(x).classList.contains('picked') : row(x).hasAttribute('data-picked'))
+      expect(marked()).toEqual([false, false, false])
+      await userEvent.click(box(BLACK))
+      expect(marked()).toEqual([false, true, false])
+      await userEvent.click(box(BLACK))
+      expect(marked()).toEqual([false, false, false])
+    })
+
+    for (const width of [1280, 390]) {
+      it(`moves nothing in the ${view} at ${width} px when a row is ticked or unticked`, async () => {
+        await page.viewport(width, 900)
+        const { screen, box } = await library(view)
+        // the check inside a ticked box is the one thing meant to appear
+        const boxes = () => [...screen.container.querySelectorAll('*')]
+          .filter((element) => !element.closest('.row-check svg'))
+          .map((element) => JSON.stringify(element.getBoundingClientRect()))
+        const before = boxes()
+        await userEvent.click(box(WHITE))
+        expect(boxes()).toEqual(before)
+        await userEvent.click(box(WHITE))
+        expect(boxes()).toEqual(before)
+        // the control: a ticked row that took a pixel more is seen to move
+        const more = document.head.appendChild(document.createElement('style'))
+        more.textContent = '.picked, [data-picked] > td { padding-top: 13px !important }'
+        try {
+          await userEvent.click(box(WHITE))
+          expect(boxes()).not.toEqual(before)
+        } finally {
+          more.remove()
+        }
+      })
+    }
+
+    it(`is told by an edge 3:1 from the row's own fill in the ${view}, ticked alone or with its details open`, async () => {
+      const { box, row } = await library(view, NONE)
+      box(BLACK).click()
+      box(NONE).click()
+      await expect.poll(() => box(NONE).checked).toBe(true)
+      const at = await drawn()
+      // the edge is 3 px inside the card's 1 px border, or at the table's own edge
+      const inset = view === 'cards' ? 1 : 0
+      const middle = (x: Torrent) => { const { left, top, height } = row(x).getBoundingClientRect(); return { left, y: top + height / 2 } }
+      const edge = (x: Torrent) => at(middle(x).left + inset + 1.5, middle(x).y)
+      const fill = (x: Torrent) => at(middle(x).left + inset + 5.5, middle(x).y)
+      for (const ticked of [BLACK, NONE]) {
+        expect(contrast(edge(ticked), fill(WHITE)), `${ticked.name} against an unticked row`).toBeGreaterThanOrEqual(3)
+        expect(contrast(edge(ticked), fill(ticked)), `${ticked.name} against its own tint`).toBeGreaterThanOrEqual(3)
+      }
+      // the control: an unticked row has no edge, its fill runs to its border
+      expect(contrast(edge(WHITE), fill(WHITE))).toBeLessThan(1.1)
+    })
+  }
+})
 
 describe('the box on a poster', () => {
   it('is a checkbox named for its torrent, reached by Tab, and ringed in focus over a white picture', async () => {

@@ -5,7 +5,7 @@ import { useIntl } from 'react-intl'
 import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, EMPHASIS,
-  FOCUS_RING, PICTURE_SHADE, TEXT, TEXT_ON_LIGHT,
+  FOCUS_RING, PICKED_WASH, PICTURE_SHADE, TEXT, TEXT_ON_LIGHT,
 } from '../theme'
 
 /** A checkbox in a 40 px label, the label being its hit area: each row's box and Select all. */
@@ -31,6 +31,18 @@ export const checkStyle = css`
 
     &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 3px; }
   }
+`
+
+/**
+ * A ticked row, card or table row: an EMPHASIS edge on its leading side and a tint over whatever fill it has, so a row
+ * also open in the details keeps that state's border or fill. Background layers take no room, where a border would
+ * move the row; an offset inset shadow drew a light line a pixel past the box at a fractional top in Firefox 157, and
+ * WebKit 26 draws no shadow on a table row (both measured 2026-11-14).
+ */
+export const pickedRowStyle = css`
+  background-image: linear-gradient(${EMPHASIS}, ${EMPHASIS}), linear-gradient(${PICKED_WASH}, ${PICKED_WASH});
+  background-size: 3px 100%, auto;
+  background-repeat: no-repeat;
 `
 
 /* A ring that reads on any picture, a filled circle with a check once ticked. The label positions the check: an

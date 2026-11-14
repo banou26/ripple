@@ -85,7 +85,7 @@ import { STATE_LABEL, retryLine, speed } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
-import { BulkBar, RowCheck } from '../components/bulk-actions'
+import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, useBulkSelection } from './bulk-selection'
 import {
   LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
@@ -786,6 +786,8 @@ export const style = css`
       border-color: ${BORDER_INTERACTIVE};
       background: ${CONTROL_BG};
     }
+
+    &.picked { ${pickedRowStyle} }
 
     cursor: default;
 
@@ -1764,7 +1766,7 @@ const MissingRow = ({
   const intl = useIntl()
   return (
     <div
-      className={'torrent surface missing' + (selected ? ' selected' : '')}
+      className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       aria-current={selected || undefined}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('button, a')) return
@@ -1925,7 +1927,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   })
   return (
     <div
-      className={'torrent surface' + (selected ? ' selected' : '')}
+      className={'torrent surface' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       aria-current={selected || undefined}
       // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
       // that already does something of its own keeps doing it: the buttons, the Watch link, the

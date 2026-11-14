@@ -4,7 +4,7 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CHART_PRIMARY, CHART_SECONDARY, CONTROL_ACTIVE_BG,
   CONTROL_BG, CONTROL_HOVER_BG, DANGER, DANGER_SOLID, ELEVATED_BG, EMPHASIS, EMPHASIS_HOVER,
   FOCUS_RING, OK,
-  PAGE_BG, PICTURE_SHADE, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN
+  PAGE_BG, PICKED_WASH, PICTURE_SHADE, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN
 } from '../src/theme'
 
 /**
@@ -255,7 +255,12 @@ const over = (rgba: string, hex: string) => {
   return '#' + [r, g, b].map((c, i) => Math.round(a * c + (1 - a) * channels(hex)[i]!).toString(16).padStart(2, '0')).join('')
 }
 
-describe('the box on a poster', () => {
+describe('a ticked row and the box on a poster', () => {
+  it('keeps secondary text at AA on the tint, ticked alone or with the details open', () => {
+    expect(contrast(TEXT_MUTED, over(PICKED_WASH, SURFACE_BG))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(TEXT_MUTED, over(PICKED_WASH, CONTROL_BG))).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('keeps the box\'s ring 3:1 from its shade on a white picture', () => {
     expect(contrast(EMPHASIS, over(PICTURE_SHADE, '#ffffff'))).toBeGreaterThanOrEqual(3)
   })
