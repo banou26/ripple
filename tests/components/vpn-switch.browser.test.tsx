@@ -160,8 +160,8 @@ describe('the VPN switch says what the engine runs on', () => {
   })
 
   /**
-   * Mounted in two headers that share no rule. Without its own declarations it renders there as
-   * unstyled text: the same words, saying nothing at a glance.
+   * Mounted in the library's strip and in the download page's header, which share no rule. Without its own
+   * declarations it renders there as unstyled text: the same words, saying nothing at a glance.
    */
   it('brings its own colours rather than borrowing a page\'s', async () => {
     const on = await mount(reach())
