@@ -38,6 +38,8 @@ const READ_TIMEOUT = 240_000
 const ASK_TIMEOUT = 120_000
 // how long the engine gets to write its resume data before a change of the VPN replaces it
 const FLUSH_TIMEOUT = 2_000
+// how long an engine worker gets to close what it holds at the relay before it is ended, its own limit being 1 s
+const CLOSE_TIMEOUT = 1_500
 // how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
 // does not know, and the player stops sending after as long without an answer
 const IMPORT_START_TIMEOUT = 30_000
@@ -325,6 +327,12 @@ export type EngineClient = TorrentClient & {
   latestRateLimits: () => RateLimits | null
   started: () => boolean
   useTransport: (factory: TransportFactory, owns: boolean) => void
+  /**
+   * Has this page's engine worker close every socket it holds at the relay, which keeps them when a worker is
+   * only ended. Asked past the gate: an engine still starting may hold its port already. Resolves once the worker
+   * has, or after 1.5 s, and never rejects.
+   */
+  closeSockets: () => Promise<void>
 }
 
 /** Whether the engine worker this page last started has the relay behind it. Null before it started one. */
@@ -683,6 +691,13 @@ export const createTorrentClient = (): EngineClient => {
       // anything holding one of its handles is dropped rather than re-aimed at the new one.
       for (const msg of carried) if (!isSessionScoped(msg?.type)) transport.post(msg, [])
     },
+    closeSockets: () => new Promise<void>((resolve) => {
+      if (!transport || !owned) { resolve(); return }
+      const id = ++readId
+      const timer = window.setTimeout(() => { settleRead(id); resolve() }, CLOSE_TIMEOUT)
+      reads.set(id, { resolve: () => resolve(), reject: () => resolve(), timer })
+      transport.post({ type: 'close-sockets', id }, [])
+    }),
     importList: (list, removed = []) => send({ type: 'import-list', list, removed }),
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
@@ -787,7 +802,11 @@ export const getTorrentClient = (): TorrentClient => {
     busy: pageWorkRunning,
     // an engine that is still starting has nothing new to write
     flush: async () => { if (client.started()) await client.ask({ type: 'flush-resume' }, FLUSH_TIMEOUT) },
-    restart: startEngine,
+    restart: async () => {
+      // only an engine behind the relay holds anything there
+      if (workerOnVpn) await client.closeSockets()
+      startEngine()
+    },
   })
   const follow = followVpn
   stopFollowingVpn = onVpnStored(() => { void follow() })

@@ -1,7 +1,5 @@
 import './node-shims'
 
-import * as net from '@fkn/lib/net'
-import * as dgram from '@fkn/lib/dgram'
 import { lookup } from '@fkn/lib/dns'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
@@ -43,11 +41,12 @@ import type { WebrtcPeers } from './webrtc-peers'
 
 import { WEBRTC_PEERS } from './vpn-config'
 import { directPeers, relayPeers } from './webrtc-peers'
+import { relaySockets } from './relay-sockets'
 
 import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -112,6 +111,8 @@ export type { PeerInfo, TrackerInfo }
 
 /** The page names the worker `direct` when the VPN is off: no relay behind the engine, every peer a WebRTC one. */
 const transport: EngineTransport = WEBRTC_PEERS && self.name === 'direct' ? 'direct' : 'relay'
+/** Every socket this engine opens at the relay, so that all of them can be closed before the worker is ended. */
+const relay = transport === 'relay' ? relaySockets() : null
 
 let session: Session | null = null
 let webrtc: WebrtcPeers | null = null
@@ -1645,12 +1646,12 @@ const init = async () => {
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
   storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
-  session = await createSession(transport === 'direct'
-    ? { ...offlineHost(), storage, enableDht: false, reserveListenPort: false }
+  session = await createSession(relay
     // the relay looks names up: with no `dnsLookup` the engine asks 1.1.1.1 itself, from the person's own address
-    : { net, dgram, dnsLookup: lookup, storage, utpReceiveBufferBytes: 4_194_304 })
+    ? { net: relay.net, dgram: relay.dgram, dnsLookup: lookup, storage, utpReceiveBufferBytes: 4_194_304 }
+    : { ...offlineHost(), storage, enableDht: false, reserveListenPort: false })
   for (let i = 0; i < 30; i++) session.tick()
-  if (WEBRTC_PEERS) webrtc = transport === 'direct' ? directPeers(session, post) : relayPeers(session)
+  if (WEBRTC_PEERS) webrtc = relay ? relayPeers(session, relay) : directPeers(session, post)
 
   // before the restore loop below adds anything, so a stored ceiling is in force from the first byte
   // rather than from a tick later
@@ -2767,6 +2768,13 @@ let commands: Promise<void> = Promise.resolve()
 self.addEventListener('message', (e: MessageEvent) => {
   const m = e.data
   if (!m || typeof m !== 'object' || typeof m.type !== 'string' || !OWN.has(m.type)) return
+  // Ahead of every command and of an engine still starting, which may hold its port already: the page ends this
+  // worker as soon as it is answered, and the relay keeps whatever is still open then.
+  if (m.type === 'close-sockets') {
+    webrtc?.close()
+    void Promise.resolve(relay?.close()).then(() => post({ type: 'answer', id: m.id }))
+    return
+  }
   const live = session
   if (!live) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: 'the engine is still starting' })

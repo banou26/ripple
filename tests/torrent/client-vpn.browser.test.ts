@@ -11,11 +11,16 @@ type Message = { type: string, id?: number, [key: string]: unknown }
 
 class FakeWorker {
   static made: FakeWorker[] = []
+  /** Whether a worker answers when asked to close its sockets, as an engine worker does. */
+  static closes = true
   terminated = false
   posted: Message[] = []
   private listeners = new Set<(event: { data: unknown }) => void>()
   constructor (readonly url: URL, readonly options: WorkerOptions) { FakeWorker.made.push(this) }
-  postMessage (message: Message) { this.posted.push(message) }
+  postMessage (message: Message) {
+    this.posted.push(message)
+    if (message.type === 'close-sockets' && FakeWorker.closes) queueMicrotask(() => this.say({ type: 'answer', id: message.id }))
+  }
   terminate () { this.terminated = true }
   addEventListener (type: string, listener: (event: { data: unknown }) => void) { if (type === 'message') this.listeners.add(listener) }
   removeEventListener (_type: string, listener: (event: { data: unknown }) => void) { this.listeners.delete(listener) }
@@ -43,6 +48,7 @@ const alive = () => FakeWorker.made.filter((worker) => !worker.terminated)
 beforeEach(() => {
   localStorage.removeItem('ripple:vpn')
   FakeWorker.made = []
+  FakeWorker.closes = true
   page.relayed = []
   page.served = []
   page.closed = 0
@@ -119,6 +125,36 @@ it('lets a running engine write its resume data first, for 2 s at most', async (
   await vi.advanceTimersByTimeAsync(1)
   await on
   expect(second.terminated).toBe(true)
+  expect(alive()).toHaveLength(1)
+})
+
+// the relay keeps a worker's sockets until they are closed, and ending a worker closes none
+it('has an engine behind the relay close what it holds there before it is ended, one still starting too, for 1.5 s at most', async () => {
+  getTorrentClient()
+  const starting = FakeWorker.made[0]!
+  FakeWorker.closes = false
+
+  // not ready yet: it may hold its port already, so it is asked past everything that waits for an engine
+  const off = setVpn(false)
+  await vi.waitFor(() => expect(starting.posted.map((message) => message.type)).toEqual(['close-sockets']))
+  expect(alive(), 'ended before it said its sockets were closed').toEqual([starting])
+  starting.say({ type: 'answer', id: starting.posted[0]!.id })
+  await off
+  expect(starting.terminated).toBe(true)
+  expect(FakeWorker.made[1]!.posted, 'an engine with no relay holds nothing there').toEqual([])
+
+  // back behind the relay, and that worker never answers: replaced all the same
+  await setVpn(true)
+  const silent = FakeWorker.made[2]!
+  expect(FakeWorker.made[1]!.posted).toEqual([])
+  vi.useFakeTimers()
+  const offAgain = setVpn(false)
+  await vi.advanceTimersByTimeAsync(1_499)
+  expect(silent.posted.map((message) => message.type)).toEqual(['close-sockets'])
+  expect(alive()).toEqual([silent])
+  await vi.advanceTimersByTimeAsync(1)
+  await offAgain
+  expect(silent.terminated).toBe(true)
   expect(alive()).toHaveLength(1)
 })
 

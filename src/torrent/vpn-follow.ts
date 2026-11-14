@@ -8,7 +8,7 @@ export type VpnFollowing = {
   /** Lets the engine write its resume data, for as long as the caller allows. */
   flush: () => Promise<unknown>
   /** Replaces this page's engine with one started on the stored choice. */
-  restart: () => void
+  restart: () => void | Promise<void>
 }
 
 /**
@@ -31,7 +31,7 @@ export const vpnFollower = ({ wanted, running, busy, flush, restart }: VpnFollow
     while (differs()) {
       if (await busy()) { await new Promise((resolve) => setTimeout(resolve, pollMs)); continue }
       await flush().catch(() => {})
-      if (differs()) restart()
+      if (differs()) await restart()
     }
   }
   return (): Promise<void> => following ??= run().finally(() => { following = null })

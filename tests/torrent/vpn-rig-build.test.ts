@@ -58,7 +58,7 @@ afterEach(() => {
 const behindTheRelay = async () => {
   const config = await import('../../src/torrent/vpn-config')
   const { relayPeers } = await import('../../src/torrent/webrtc-peers')
-  relayPeers({} as never)
+  relayPeers({} as never, { net: await import('@fkn/lib/net'), dgram: await import('@fkn/lib/dgram') } as never)
   await vi.waitFor(() => expect(seen.swarms).toHaveLength(1))
   return config
 }

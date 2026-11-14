@@ -36,8 +36,11 @@ const engine = vi.hoisted(() => {
     addresses: ['203.0.113.7'],
     /** Hosts no probe reaches. */
     down: [] as string[],
-    udp: [] as (ReturnType<typeof emitter> & { type: unknown, bound: unknown[], closed: boolean, address: () => { port: number }, close: ReturnType<typeof vi.fn> })[],
+    udp: [] as (ReturnType<typeof emitter> & { type: unknown, bound: unknown[], listening: boolean, closed: boolean, address: () => { port: number }, close: ReturnType<typeof vi.fn> })[],
     tcp: [] as { options: unknown, destroyed: boolean }[],
+    listeners: [] as { closed: boolean }[],
+    /** How often the host that reaches nothing was asked for. */
+    offline: { asked: 0, sockets: 0 },
   }
   return { ...state, emitter }
 })
@@ -61,6 +64,7 @@ vi.mock('@fkn/lib/dgram', () => ({
       type,
       bound: [] as unknown[],
       address: () => ({ port: answer as number }),
+      listening: false,
       closed: false,
       close: vi.fn(() => {
         if (socket.closed) throw new Error('closed twice')
@@ -69,7 +73,11 @@ vi.mock('@fkn/lib/dgram', () => ({
       }),
       bind: (...args: unknown[]) => {
         socket.bound.push(args)
-        queueMicrotask(() => answer === false ? socket.emit('error', new Error('refused')) : socket.emit('listening'))
+        queueMicrotask(() => {
+          if (answer === false) { socket.emit('error', new Error('refused')); return }
+          socket.listening = true
+          socket.emit('listening')
+        })
       },
     }
     engine.udp.push(socket)
@@ -85,10 +93,25 @@ vi.mock('@fkn/lib/net', () => ({
     const socket = {
       ...engine.emitter(),
       localAddress: down ? undefined : engine.addresses.length > 1 ? engine.addresses.shift()! : engine.addresses[0]!,
-      destroy: () => { probe.destroyed = true },
+      // as FKN's: a destroyed socket says close once the relay has let it go
+      destroy: () => {
+        if (probe.destroyed) return
+        probe.destroyed = true
+        queueMicrotask(() => socket.emit('close'))
+      },
     }
     queueMicrotask(() => down ? socket.emit('error', new Error('refused')) : socket.emit('connect'))
     return socket
+  },
+  createServer: () => {
+    const listener = { closed: false }
+    engine.listeners.push(listener)
+    const server = {
+      ...engine.emitter(),
+      listen: () => queueMicrotask(() => server.emit('listening')),
+      close: () => { listener.closed = true; queueMicrotask(() => server.emit('close')) },
+    }
+    return server
   },
 }))
 vi.mock('@fkn/lib/websocket', () => ({ WebSocket: RelayWebSocket }))
@@ -123,7 +146,11 @@ vi.mock('libtorrent-wasm', async () => {
         resumeTorrent: () => {},
       })
     },
-    offlineHost: () => { throw new Error('an engine behind the relay asked for the host that reaches nothing') },
+    offlineHost: () => {
+      engine.offline.asked++
+      const nothing = () => { engine.offline.sockets++; return { on: () => {}, bind: () => {}, listen: () => {}, send: () => {}, close: () => {}, destroy: () => {} } }
+      return { net: { connect: nothing, createServer: nothing }, dgram: { createSocket: nothing }, dnsLookup: async () => undefined }
+    },
     PRIORITY: { skip: 0 },
     TORRENT_FLAG: { uploadMode: 1 },
   }
@@ -150,8 +177,7 @@ it('starts the engine behind the relay as before, with nothing asked of the page
 
   expect(engine.created).toHaveLength(1)
   const options = engine.created[0]!
-  expect(options.net).toBe(await import('@fkn/lib/net'))
-  expect(options.dgram).toBe(await import('@fkn/lib/dgram'))
+  expect(engine.offline.asked, 'an engine behind the relay was given the host that reaches nothing').toBe(0)
   // the relay looks every name up: with none passed the engine asks 1.1.1.1 from the browser itself
   expect(options.dnsLookup).toBe((await import('@fkn/lib/dns')).lookup)
   expect(Object.keys(options).sort()).toEqual(['dgram', 'dnsLookup', 'net', 'storage', 'utpReceiveBufferBytes'])
@@ -260,4 +286,45 @@ it('still reads a download with nobody for 2 minutes as stalled', async () => {
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(1))
   await vi.advanceTimersByTimeAsync(140_000)
   expect(lastState().torrents[0]!.recovery?.reason).toBe('stalled')
+})
+
+type Host = {
+  net: { connect: (options: unknown) => { destroy: () => void }, createServer: () => { listen: (port: number) => void, emit: (event: string, ...args: unknown[]) => void } }
+  dgram: { createSocket: (type: unknown) => { bind: (port: number) => void } }
+}
+const open = () => ({
+  udp: engine.udp.filter((socket) => socket.listening && !socket.closed).length,
+  tcp: engine.tcp.filter((socket) => !socket.destroyed).length,
+  listeners: engine.listeners.filter((listener) => !listener.closed).length,
+})
+
+// the relay keeps a socket until it is closed, and a worker that is ended closes none
+it('closes all it holds at the relay when asked, tells the trackers, answers, and opens nothing again', async () => {
+  // what the engine opens through the host it was given: a UDP socket, a listener, a peer it dialled, one that dialled in
+  const { net, dgram } = engine.created[0] as unknown as Host
+  dgram.createSocket({ type: 'udp4' }).bind(0)
+  const server = net.createServer()
+  server.listen(0)
+  net.connect({ host: '198.51.100.20', port: 6881 })
+  await vi.advanceTimersByTimeAsync(0)
+  server.emit('connection', (await import('@fkn/lib/net')).connect({ host: '198.51.100.21', port: 51_413 } as never))
+  const [swarm, factory] = [engine.swarms.at(-1)!, engine.factories.at(-1)!]
+  // THE CONTROL: the WebRTC stack's socket and the engine's, the listener, both peers
+  expect(open()).toEqual({ udp: 2, tcp: 2, listeners: 1 })
+  expect(swarm.close).toHaveBeenCalledTimes(0)
+
+  rig.send({ type: 'close-sockets', id: 7 })
+  await vi.waitFor(() => expect(rig.of('answer')).toEqual([{ type: 'answer', id: 7 }]))
+  expect(open()).toEqual({ udp: 0, tcp: 0, listeners: 0 })
+  expect(swarm.close, 'the trackers were not told stopped').toHaveBeenCalledTimes(1)
+  expect(factory.close).toHaveBeenCalledTimes(1)
+
+  // an engine opens a socket again when one closes under it, and the WebRTC half made its own again every 2 s
+  const made = { udp: engine.udp.length, tcp: engine.tcp.length, listeners: engine.listeners.length, stacks: engine.factories.length }
+  dgram.createSocket({ type: 'udp4' }).bind(0)
+  net.createServer().listen(0)
+  net.connect({ host: '198.51.100.20', port: 6881 })
+  await vi.advanceTimersByTimeAsync(120_000)
+  expect({ udp: engine.udp.length, tcp: engine.tcp.length, listeners: engine.listeners.length, stacks: engine.factories.length }).toEqual(made)
+  expect(engine.offline.sockets, 'the engine was handed nothing at all, where it needs a socket that carries nothing').toBe(3)
 })

@@ -105,3 +105,18 @@ it('starts no engine when the choice went back while the resume data was written
   await follow()
   expect(restart).toHaveBeenCalledTimes(0)
 })
+
+it('waits for a restart that takes its time, and starts the engine on the choice of that moment', async () => {
+  const { state, follow } = page({
+    restart: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      state.started.push(state.wanted)
+    },
+  })
+  state.wanted = false
+  const done = follow()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  state.wanted = true
+  await done
+  expect(state.started, 'one engine, started on the choice as it was when the old one was let go').toEqual([true, true])
+})

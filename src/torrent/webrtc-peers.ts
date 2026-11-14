@@ -1,8 +1,10 @@
 import type { Session, TrackerInfo } from 'libtorrent-wasm'
 import type { WebtorrentPeers } from 'libtorrent-wasm/webtorrent'
 
-import * as net from '@fkn/lib/net'
-import * as dgram from '@fkn/lib/dgram'
+import type { Socket } from '@fkn/lib/dgram'
+import type { RelaySockets } from './relay-sockets'
+
+import { isIPv4 } from '@fkn/lib/net'
 import { WebSocket as RelayWebSocket } from '@fkn/lib/websocket'
 import { createWebRTC } from 'libtorrent-wasm/webrtc'
 import { pageLinks, rtcLinks, webtorrentPeers } from 'libtorrent-wasm/webtorrent'
@@ -14,9 +16,10 @@ import { RIG_TRACKER, TRACKERS } from './vpn-config'
 /**
  * The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left.
  * `trackers` is the WebSocket trackers a running torrent is announced to, in the shape of the engine's own
- * tracker rows, which never list them.
+ * tracker rows, which never list them. `close` is for a worker about to be ended: every tracker is told
+ * `stopped`, every connection and tracker socket is closed, and nothing is made again.
  */
-export type WebrtcPeers = { refresh: () => void, trackers: (handle: number) => TrackerInfo[] }
+export type WebrtcPeers = { refresh: () => void, trackers: (handle: number) => TrackerInfo[], close: () => void }
 
 const trackerRows = (peers: WebtorrentPeers | null, handle: number): TrackerInfo[] =>
   (peers?.snapshot().torrents.find((torrent) => torrent.handle === handle)?.trackers ?? []).map((tracker) => ({
@@ -42,7 +45,7 @@ export const directPeers = (session: Session, post: (message: unknown, transfer:
   const { port1, port2 } = new MessageChannel()
   post({ type: 'peer-links', port: port2 }, [port2])
   const peers = webtorrentPeers(session, { links: pageLinks(port1), WebSocket, trackers: TRACKERS })
-  return { refresh: () => peers.refresh(), trackers: (handle) => trackerRows(peers, handle) }
+  return { refresh: () => peers.refresh(), trackers: (handle) => trackerRows(peers, handle), close: () => peers.close() }
 }
 
 const RETRY_MIN_MS = 500
@@ -52,46 +55,6 @@ const BIND_RETRY_MAX_MS = 2_000
 const RETRY_MAX_MS = 30_000
 const ADDRESS_TIMEOUT_MS = 10_000
 
-const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
-  const socket = dgram.createSocket('udp4')
-  socket.once('listening', () => resolve(socket))
-  // kept for the socket's life: an error nobody listens for is thrown
-  socket.on('error', reject)
-  socket.bind(0)
-})
-
-/**
- * The address a TCP socket connected through the relay to a tracker left from, which is the relay's public IPv4
- * address. The socket is closed again with nothing sent.
- */
-const addressSeenFrom = (tracker: string) => new Promise<string>((resolve, reject) => {
-  const { hostname, port, protocol } = new URL(tracker)
-  const socket = net.connect({ host: hostname, port: Number(port) || (protocol === 'wss:' ? 443 : 80) })
-  const end = (address?: string) => {
-    clearTimeout(timer)
-    socket.destroy()
-    if (address && net.isIPv4(address)) resolve(address)
-    else reject(new Error('the relay did not say its address'))
-  }
-  const timer = setTimeout(end, ADDRESS_TIMEOUT_MS)
-  socket.once('connect', () => end(socket.localAddress))
-  socket.on('error', () => end())
-  socket.once('close', () => end())
-})
-
-/**
- * The relay's public IPv4 address, which nothing FKN answers names: a UDP socket and a listener answer the
- * wildcard they bound, and FKN looks up no name of its own for an app, the relay's included. So it is read off
- * a connection to a tracker's host, each tried in turn, since those hosts hear from the relay anyway.
- */
-const relayAddress = async () => {
-  for (const tracker of TRACKERS) {
-    const address = await addressSeenFrom(tracker).catch(() => null)
-    if (address) return address
-  }
-  throw new Error('the relay did not say its address')
-}
-
 /**
  * WebRTC peers beside the session's ordinary ones, every packet through the relay: the engine's own WebRTC stack
  * over one more UDP socket, the trackers through the relay's WebSocket, and no STUN host, the relay's address and
@@ -100,12 +63,54 @@ const relayAddress = async () => {
  * The stack ends with its socket, so each time the relay goes away it is made again on a new socket, with the
  * address read again: after a failover it is another relay's.
  */
-export const relayPeers = (session: Session): WebrtcPeers => {
+export const relayPeers = (session: Session, { net, dgram }: Pick<RelaySockets, 'net' | 'dgram'>): WebrtcPeers => {
   let peers: WebtorrentPeers | null = null
   let wasm: WebAssembly.Module | undefined
+  let closed = false
+
+  const bound = () => new Promise<Socket>((resolve, reject) => {
+    const socket: Socket = dgram.createSocket('udp4')
+    socket.once('listening', () => resolve(socket))
+    // kept for the socket's life: an error nobody listens for is thrown
+    socket.on('error', reject)
+    socket.bind(0)
+  })
+
+  /**
+   * The address a TCP socket connected through the relay to a tracker left from, which is the relay's public IPv4
+   * address. The socket is closed again with nothing sent.
+   */
+  const addressSeenFrom = (tracker: string) => new Promise<string>((resolve, reject) => {
+    const { hostname, port, protocol } = new URL(tracker)
+    const socket = net.connect({ host: hostname, port: Number(port) || (protocol === 'wss:' ? 443 : 80) })
+    const end = (address?: string) => {
+      clearTimeout(timer)
+      socket.destroy()
+      if (address && isIPv4(address)) resolve(address)
+      else reject(new Error('the relay did not say its address'))
+    }
+    const timer = setTimeout(end, ADDRESS_TIMEOUT_MS)
+    socket.once('connect', () => end(socket.localAddress))
+    socket.on('error', () => end())
+    socket.once('close', () => end())
+  })
+
+  /**
+   * The relay's public IPv4 address, which nothing FKN answers names: a UDP socket and a listener answer the
+   * wildcard they bound, and FKN looks up no name of its own for an app, the relay's included. So it is read off
+   * a connection to a tracker's host, each tried in turn, since those hosts hear from the relay anyway.
+   */
+  const relayAddress = async () => {
+    for (const tracker of TRACKERS) {
+      const address = await addressSeenFrom(tracker).catch(() => null)
+      if (address) return address
+    }
+    throw new Error('the relay did not say its address')
+  }
+
   const run = async () => {
     let wait = RETRY_MIN_MS
-    for (;;) {
+    while (!closed) {
       const socket = await bound().catch(() => null)
       if (socket) {
         let open = true
@@ -118,7 +123,7 @@ export const relayPeers = (session: Session): WebrtcPeers => {
         try {
           const address = await relayAddress()
           wasm ??= await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer())
-          if (open) {
+          if (open && !closed) {
             const webrtc = await createWebRTC({ socket, address, port: socket.address().port, wasm, allowPrivateCandidates: !!RIG_TRACKER })
             peers = webtorrentPeers(session, {
               links: rtcLinks({ RTCPeerConnection: webrtc.RTCPeerConnection }),
@@ -128,7 +133,7 @@ export const relayPeers = (session: Session): WebrtcPeers => {
             })
             wait = RETRY_MIN_MS
             await ended
-            peers.close()
+            peers?.close()
             peers = null
             webrtc.close()
           }
@@ -140,5 +145,13 @@ export const relayPeers = (session: Session): WebrtcPeers => {
     }
   }
   void run()
-  return { refresh: () => peers?.refresh(), trackers: (handle) => trackerRows(peers, handle) }
+  return {
+    refresh: () => peers?.refresh(),
+    trackers: (handle) => trackerRows(peers, handle),
+    close: () => {
+      closed = true
+      peers?.close()
+      peers = null
+    },
+  }
 }

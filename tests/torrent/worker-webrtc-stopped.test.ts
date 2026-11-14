@@ -5,7 +5,7 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 
 const engine = vi.hoisted(() => ({
   created: [] as Record<string, unknown>[],
-  asked: { createSocket: vi.fn(), connect: vi.fn(), createWebRTC: vi.fn(), webtorrentPeers: vi.fn(), pageLinks: vi.fn(), rtcLinks: vi.fn(), offlineHost: vi.fn() },
+  asked: { createSocket: vi.fn(() => ({ on: () => {} })), connect: vi.fn(() => ({ on: () => {} })), createWebRTC: vi.fn(), webtorrentPeers: vi.fn(), pageLinks: vi.fn(), rtcLinks: vi.fn(), offlineHost: vi.fn() },
 }))
 
 const rig = installWorkerGlobals({ estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }), name: 'direct' })
@@ -49,12 +49,15 @@ it('starts the engine behind the relay and looks for no WebRTC peer, even in a w
   // two pumps, so anything started after the session had its chance
   await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(2), { timeout: 3_000 })
 
-  const options = engine.created[0]!
-  expect(options.net).toBe(await import('@fkn/lib/net'))
-  expect(options.dgram).toBe(await import('@fkn/lib/dgram'))
+  const options = engine.created[0] as { net: { connect: (to: unknown) => unknown }, dgram: { createSocket: (type: unknown) => unknown }, dnsLookup: unknown }
   expect(options.dnsLookup).toBe((await import('@fkn/lib/dns')).lookup)
   expect(Object.keys(options).sort()).toEqual(['dgram', 'dnsLookup', 'net', 'storage', 'utpReceiveBufferBytes'])
   expect(rig.of('state').at(-1)!.transport).toBe('relay')
   expect(rig.of('peer-links')).toEqual([])
   for (const [name, call] of Object.entries(engine.asked)) expect(call, name).toHaveBeenCalledTimes(0)
+
+  // and what the engine opens through the host it was given is FKN's
+  options.dgram.createSocket('udp4')
+  options.net.connect({ host: '198.51.100.20', port: 6881 })
+  expect([engine.asked.createSocket.mock.calls, engine.asked.connect.mock.calls]).toEqual([[['udp4']], [[{ host: '198.51.100.20', port: 6881 }]]])
 })
