@@ -106,6 +106,16 @@ describe('recovery tracker', () => {
     expect(r.state(1)).toMatchObject({ reason: 'stalled' })
   })
 
+  // with the VPN off a torrent that finds no WebRTC peer is ordinary: only one that stopped is retried
+  it('calls nothing stalled when told not to, and still retries a torrent that stopped', () => {
+    const r = createRecoveryTracker(false)
+    r.observe(1, quiet(100), false, 0)
+    r.observe(1, quiet(100), false, 600_000)
+    expect(r.state(1)).toBeNull()
+    r.observe(2, stopped, false, 600_000)
+    expect(r.state(2)).toMatchObject({ reason: 'stopped' })
+  })
+
   it('does not call a slow but progressing torrent stalled', () => {
     const r = createRecoveryTracker()
     for (let t = 0; t <= 600_000; t += 30_000) r.observe(1, quiet(t / 1_000), false, t)

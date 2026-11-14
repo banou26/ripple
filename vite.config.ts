@@ -259,7 +259,7 @@ export default defineConfig((env) => ({
       // its own entry, which the engine worker writes through
       '@banou/ponyfill/file-system',
       // Same reload, through the engine worker a browser test starts (tests/optimize-deps.test.ts).
-      '@fkn/lib/net', '@fkn/lib/dgram',
+      '@fkn/lib/net', '@fkn/lib/dgram', '@fkn/lib/websocket',
       // And again with no build/ (CI, a fresh clone): the player's GET /build/libav-worker.js falls
       // back to index.html, vite pre-transforms its /src/index.tsx, and that reaches the only
       // `react-router` import. A tree with a build never shows it.

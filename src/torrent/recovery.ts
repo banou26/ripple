@@ -24,7 +24,7 @@ const STALL_MS = 120_000
 const ACTION_GRACE_MS = 10_000
 const HEALTHY_MS = 60_000
 // Downloading metadata (2) or downloading (3): only these can be stalled.
-const ACTIVE_STATES = new Set([2, 3])
+export const ACTIVE_STATES = new Set([2, 3])
 /**
  * Checking files (1) and checking resume data (7). libtorrent hashes only a torrent that is not
  * paused, one at a time, so a check that runs reads not paused, and one waiting its turn reads paused
@@ -71,7 +71,8 @@ export type RecoveryTracker = {
   retain: (handles: Set<number>) => void
 }
 
-export const createRecoveryTracker = (): RecoveryTracker => {
+/** `stalls` false never reads a torrent with no peers as stalled: only one that stopped is retried. */
+export const createRecoveryTracker = (stalls = true): RecoveryTracker => {
   const entries = new Map<number, Entry>()
   const progress = new Map<number, { totalDone: number, at: number }>()
   const messages = new Map<number, string>()
@@ -122,7 +123,7 @@ export const createRecoveryTracker = (): RecoveryTracker => {
         status.paused
           ? 'stopped'
           // No peers as well as no bytes: a magnet still fetching metadata holds totalDone at 0, and the kick disconnects every peer.
-          : ACTIVE_STATES.has(status.state) && status.numPeers === 0 && status.downloadRate === 0 && now - since >= STALL_MS
+          : stalls && ACTIVE_STATES.has(status.state) && status.numPeers === 0 && status.downloadRate === 0 && now - since >= STALL_MS
             ? 'stalled'
             : null
 

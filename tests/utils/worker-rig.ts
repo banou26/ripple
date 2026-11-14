@@ -99,13 +99,19 @@ export type WorkerRig = {
  * getter" rather than doing nothing, which reads as a broken test rather than a wrong approach.
  */
 export const installWorkerGlobals = (
-  { estimate, root }: { estimate: () => Promise<{ usage?: number, quota?: number }>, root?: FakeDir },
+  { estimate, root, name }: {
+    estimate: () => Promise<{ usage?: number, quota?: number }>
+    root?: FakeDir
+    /** The name the page gave the worker, which says which engine it starts. */
+    name?: string
+  },
 ): WorkerRig => {
   const posted: Posted[] = []
   const listeners = new Map<string, ((event: { data: unknown }) => void)[]>()
   const dir = root ?? fakeDir('')
 
   const self = {
+    name: name ?? '',
     postMessage: (message: Posted) => { posted.push(message) },
     addEventListener: (type: string, fn: (event: { data: unknown }) => void) => {
       listeners.set(type, [...(listeners.get(type) ?? []), fn])

@@ -3,7 +3,7 @@ import './node-shims'
 import * as net from '@fkn/lib/net'
 import * as dgram from '@fkn/lib/dgram'
 import { get, set, del, update } from 'idb-keyval'
-import { createSession, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
+import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
@@ -16,7 +16,7 @@ import { magnetInfoHash } from './magnet'
 import { READ_SIZE, deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
 import { createResilientStorage, createSyncAccessHandle } from './opfs-storage'
 import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
-import { CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
+import { ACTIVE_STATES, CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
 import type { Totals, Uptime } from './uptime'
 
@@ -37,6 +37,11 @@ import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
 import type { SourceRef } from './walk-source'
 import type { Said } from '../i18n/said'
+import type { EngineTransport } from './vpn-config'
+import type { WebrtcPeers } from './webrtc-peers'
+
+import { WEBRTC_PEERS } from './vpn-config'
+import { directPeers, relayPeers } from './webrtc-peers'
 
 import { forPage } from '../i18n/said'
 
@@ -64,6 +69,11 @@ export type TorrentSnapshot = {
    * for only while the torrent has a viewer. A UDP tracker never sends it.
    */
   swarmDownloads: number
+  /**
+   * Since when this torrent has been downloading with nobody connected, as `Date.now()` of the engine. Absent
+   * while it has a peer, and while it is not looking for one. The engine keeps looking either way.
+   */
+  noPeersSince?: number
 }
 
 /**
@@ -99,7 +109,11 @@ export type { Reachability }
 /** The rows a detail panel draws. Re-exported for the same reason. */
 export type { PeerInfo, TrackerInfo }
 
+/** The page names the worker `direct` when the VPN is off: no relay behind the engine, every peer a WebRTC one. */
+const transport: EngineTransport = WEBRTC_PEERS && self.name === 'direct' ? 'direct' : 'relay'
+
 let session: Session | null = null
+let webrtc: WebrtcPeers | null = null
 let storage: MeasurableStorage | null = null
 // a build-time knob, for the end to end test of a file bigger than a small room
 const cache = createChunkedStorage(Number(import.meta.env.VITE_RIPPLE_CHUNK_BYTES) || CHUNK_BYTES)
@@ -158,7 +172,9 @@ const wantStarted = new Set<number>()
 const wantPause = (h: number) => { wantStarted.delete(h); wantPaused.add(h) }
 const wantStart = (h: number) => { wantPaused.delete(h); wantStarted.add(h) }
 const resumeRetry = new Map<number, { tries: number, at: number }>()
-const recovery = createRecoveryTracker()
+const noPeersSince = new Map<number, number>()
+// with no relay, a torrent that finds no WebRTC peer is ordinary, and kicking it only tells its trackers stopped
+const recovery = createRecoveryTracker(transport === 'relay')
 
 // the engine's -1 (empty input) and -2 (unparseable magnet or torrent file) come back widened to the top of the unsigned range; real handles count up from 1
 const addFailed = (handle: number) => handle >= 0xFFFFFF00
@@ -177,6 +193,7 @@ const snapshot = (): TorrentSnapshot[] =>
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
       windowed: windows.has(h),
+      noPeersSince: noPeersSince.get(h),
       swarmDownloads: Math.max(-1, ...(session?.lastTrackers(h).map((t) => t.downloaded) ?? [])),
       // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
       uptime: uptimeOf(h),
@@ -353,7 +370,7 @@ const untrack = (h: number) => {
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
-  exporting.delete(h)
+  exporting.delete(h); noPeersSince.delete(h)
 }
 
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
@@ -1610,8 +1627,11 @@ const init = async () => {
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
   storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
-  session = await createSession({ net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
+  session = await createSession(transport === 'direct'
+    ? { ...offlineHost(), storage, enableDht: false, reserveListenPort: false }
+    : { net, dgram, storage, utpReceiveBufferBytes: 4_194_304 })
   for (let i = 0; i < 30; i++) session.tick()
+  if (WEBRTC_PEERS) webrtc = transport === 'direct' ? directPeers(session, post) : relayPeers(session)
 
   // before the restore loop below adds anything, so a stored ceiling is in force from the first byte
   // rather than from a tick later
@@ -1694,7 +1714,7 @@ const init = async () => {
   // would otherwise spend that half second on screen as a row with no numbers in it. The alerts have
   // not been pumped yet, so some statuses are still null here; that is exactly the state a row is
   // built to render, and the next tick fills them in.
-  post({ type: 'state', torrents: snapshot(), reachable: session.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
+  post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
 
   setInterval(() => {
     if (!session) return
@@ -1703,6 +1723,7 @@ const init = async () => {
     // the stream itself is deliberately drained and dropped, since every failure worth acting on arrives attributed on the status instead
     session.popAlerts()
     for (const h of handles) session.postStatus(h)
+    webrtc?.refresh()
 
     // both of these need the file layout, which only exists once the torrent-ready record has been
     // decoded, so they wait here rather than being dropped at the call that wanted them
@@ -1854,6 +1875,8 @@ const init = async () => {
       // an idle-paused cache torrent is stopped on purpose too, so recovery must not read it as a
       // failure and start it again five seconds later
       recovery.observe(h, st && observed(st), userPaused.has(h) || cacheIdle.has(h), now)
+      if (!st || st.paused || !ACTIVE_STATES.has(st.state) || st.numPeers > 0) noPeersSince.delete(h)
+      else if (!noPeersSince.has(h)) noPeersSince.set(h, now)
     }
     for (const { handle, reason } of recovery.due(now)) {
       if (reason === 'stalled') session.pauseTorrent(handle)
@@ -1882,7 +1905,7 @@ const init = async () => {
       for (const h of viewers.keys()) void session.trackers(h)
     }
 
-    post({ type: 'state', torrents: snapshot(), reachable: session.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
+    post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
     for (const h of handles) {
       const st = session.status(h)
       /*
@@ -2560,7 +2583,7 @@ const handleMessage = async (session: Session, m: any) => {
         wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
-        post({ type: 'state', torrents: snapshot(), reachable: session.reachable() })
+        post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable() })
         await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {
@@ -2647,6 +2670,8 @@ const handleMessage = async (session: Session, m: any) => {
       recovery.retry(m.handle, Date.now())
     } else if (m.type === 'flush-resume') {
       await Promise.all(handles.map((h) => persistResume(h)))
+      // a page that asked waits for this before it replaces the engine
+      if (m.id !== undefined) post({ type: 'answer', id: m.id })
     } else if (m.type === 'watch') {
       // a move carrying a read length is a reader advancing, so it takes the same re-anchor test a read
       // takes; without one it is a user seek, which moves the anchor unconditionally

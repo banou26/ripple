@@ -1,0 +1,104 @@
+import type { Session } from 'libtorrent-wasm'
+import type { WebtorrentPeers } from 'libtorrent-wasm/webtorrent'
+
+import * as net from '@fkn/lib/net'
+import * as dgram from '@fkn/lib/dgram'
+import { WebSocket as RelayWebSocket } from '@fkn/lib/websocket'
+import { createWebRTC } from 'libtorrent-wasm/webrtc'
+import { pageLinks, rtcLinks, webtorrentPeers } from 'libtorrent-wasm/webtorrent'
+// its own file, fetched: inlined, it would put 4 MB more in the chunks the service worker keeps
+import wasmUrl from 'libtorrent-wasm/webrtc.wasm?url&no-inline'
+
+import { TRACKERS } from './vpn-config'
+
+/** The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left. */
+export type WebrtcPeers = { refresh: () => void }
+
+/**
+ * WebRTC peers for a session with no relay behind it. The page that owns the worker makes the connections, a worker
+ * having no RTCPeerConnection: it is handed the other end of `post`'s port, and the STUN host is its to pass.
+ * The trackers are opened from here, with the browser's own WebSocket.
+ */
+export const directPeers = (session: Session, post: (message: unknown, transfer: Transferable[]) => void): WebrtcPeers => {
+  const { port1, port2 } = new MessageChannel()
+  post({ type: 'peer-links', port: port2 }, [port2])
+  return webtorrentPeers(session, { links: pageLinks(port1), WebSocket, trackers: TRACKERS })
+}
+
+const RETRY_MIN_MS = 500
+// a relay that is away refuses the bind, and is asked again as often as the engine asks for its own sockets
+const BIND_RETRY_MAX_MS = 2_000
+// anything else that failed (the address, the stack's own file) is not back within moments
+const RETRY_MAX_MS = 30_000
+const ADDRESS_TIMEOUT_MS = 10_000
+
+const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
+  const socket = dgram.createSocket('udp4')
+  socket.once('listening', () => resolve(socket))
+  socket.once('error', reject)
+  socket.bind(0)
+})
+
+/**
+ * The relay's public IPv4 address, which no socket of it knows: a UDP socket answers the wildcard it bound. A TCP
+ * socket connected through the relay reports the address it left from, so one is opened to a tracker's host and
+ * closed again, with nothing sent.
+ */
+const relayAddress = () => new Promise<string>((resolve, reject) => {
+  const socket = net.connect({ host: new URL(TRACKERS[0]!).hostname, port: 443 })
+  const end = (address?: string) => {
+    clearTimeout(timer)
+    socket.destroy()
+    if (address && net.isIPv4(address)) resolve(address)
+    else reject(new Error('the relay did not say its address'))
+  }
+  const timer = setTimeout(end, ADDRESS_TIMEOUT_MS)
+  socket.once('connect', () => end(socket.localAddress))
+  socket.once('error', () => end())
+  socket.once('close', () => end())
+})
+
+/**
+ * WebRTC peers beside the session's ordinary ones, every packet through the relay: the engine's own WebRTC stack
+ * over one more UDP socket, the trackers through the relay's WebSocket, and no STUN host, the relay's address and
+ * the socket's port being the one candidate.
+ *
+ * The stack ends with its socket, so each time the relay goes away it is made again on a new socket, with the
+ * address read again: after a failover it is another relay's.
+ */
+export const relayPeers = (session: Session): WebrtcPeers => {
+  let peers: WebtorrentPeers | null = null
+  let wasm: WebAssembly.Module | undefined
+  const run = async () => {
+    let wait = RETRY_MIN_MS
+    for (;;) {
+      const socket = await bound().catch(() => null)
+      if (socket) {
+        let open = true
+        const closed = new Promise<void>((resolve) => socket.once('close', () => { open = false; resolve() }))
+        try {
+          const address = await relayAddress()
+          wasm ??= await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer())
+          if (open) {
+            const webrtc = await createWebRTC({ socket, address, port: socket.address().port, wasm })
+            peers = webtorrentPeers(session, {
+              links: rtcLinks({ RTCPeerConnection: webrtc.RTCPeerConnection }),
+              WebSocket: RelayWebSocket,
+              trackers: TRACKERS,
+              relay: true,
+            })
+            wait = RETRY_MIN_MS
+            await closed
+            peers.close()
+            peers = null
+            webrtc.close()
+          }
+        } catch { socket.close() }
+      }
+      await new Promise((resolve) => setTimeout(resolve, wait))
+      wait = Math.min(wait * 2, socket ? RETRY_MAX_MS : BIND_RETRY_MAX_MS)
+    }
+  }
+  void run()
+  return { refresh: () => peers?.refresh() }
+}
