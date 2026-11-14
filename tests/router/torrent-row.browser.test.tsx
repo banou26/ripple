@@ -422,7 +422,8 @@ describe('a library row', () => {
     const { screen } = await inPage(torrent())
     expect(screen.container.querySelector('.meta')?.textContent).toContain('4m left')
     const { screen: stalled } = await inPage(torrent({ eta: 'queued', etaSeconds: undefined }))
-    expect(stalled.container.querySelector('.meta')?.textContent).toContain('queued left')
+    expect(stalled.container.querySelector('.meta')?.textContent).toContain('queued')
+    expect(stalled.container.querySelector('.meta')?.textContent).not.toContain('queued left')
   })
 
   /**

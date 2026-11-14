@@ -1985,7 +1985,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
               <span className="rate" data-room={figures.rooms.down}>{figures.down(t.down)}</span>
               <span className="rate" data-room={figures.rooms.up}>{figures.up(t.up)}</span>
               <span className="peers" data-room={figures.rooms.peers}>{figures.peers(t.peers)}</span>
-              {t.state === 'downloading' && t.eta !== '-' && <span>{t.etaSeconds === undefined ? intl.formatMessage({ id: 'queued left', defaultMessage: 'queued left' }) : intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
+              {t.state === 'downloading' && t.eta !== '-' && <span>{t.etaSeconds === undefined ? intl.formatMessage({ id: 'queued', defaultMessage: 'queued' }) : intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
                   torrent still downloading has an ETA in this slot, which is the more useful number,
                   and a row carrying both reads as two competing answers to "how long". */}
@@ -2547,7 +2547,7 @@ const Home = () => {
     pickFolder,
     limitRate: (direction) => setRateEdit({ scope: { torrent: t.id }, direction }),
     // the row's Watch is a <Link>; from a menu it has to navigate itself
-    watch: () => { const href = watchHref(t); if (href) navigate(href) },
+    watch: () => { const href = watchHref(t); if (href) void navigate(href) },
     save: () => (contentFiles(t.files).length > 1 ? onSaveZip(t) : onSave(t, pickVideoFile(t.files))),
     embed: () => { void subjectOf(t).then(openEmbed) },
     retryNow: () => retry(Number(t.id)),

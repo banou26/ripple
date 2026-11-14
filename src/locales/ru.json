@@ -448,7 +448,6 @@
   "kB/s": "кБ/c",
   "or": "или",
   "queued": "в очереди",
-  "queued left": "в очереди",
   "read timed out after {ms}ms": "время ожидания чтения истекло через {ms} мс",
   "retrying in {time}": "повтор через {time}",
   "retrying now": "повторная попытка",

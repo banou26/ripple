@@ -448,7 +448,6 @@
   "kB/s": "kB/s",
   "or": "ou",
   "queued": "na fila",
-  "queued left": "na fila",
   "read timed out after {ms}ms": "a leitura excedeu o tempo limite após {ms} ms",
   "retrying in {time}": "nova tentativa em {time}",
   "retrying now": "tentando novamente",

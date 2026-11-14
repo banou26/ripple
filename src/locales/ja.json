@@ -448,7 +448,6 @@
   "kB/s": "KB/秒",
   "or": "または",
   "queued": "待機中",
-  "queued left": "待機中",
   "read timed out after {ms}ms": "読み取りが{ms}ミリ秒でタイムアウトしました",
   "retrying in {time}": "{time}後に再試行",
   "retrying now": "再試行しています",

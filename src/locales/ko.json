@@ -448,7 +448,6 @@
   "kB/s": "kB/s",
   "or": "또는",
   "queued": "대기 중",
-  "queued left": "대기 중",
   "read timed out after {ms}ms": "읽기가 {ms}ms 후 시간 초과됐어요",
   "retrying in {time}": "{time} 후 다시 시도",
   "retrying now": "다시 시도하는 중",

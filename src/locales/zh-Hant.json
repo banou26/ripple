@@ -448,7 +448,6 @@
   "kB/s": "kB/秒",
   "or": "或",
   "queued": "佇列中",
-  "queued left": "佇列中",
   "read timed out after {ms}ms": "讀取在{ms}毫秒後逾時",
   "retrying in {time}": "{time}後重試",
   "retrying now": "正在重試",

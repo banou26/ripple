@@ -448,7 +448,6 @@
   "kB/s": "kB/sn",
   "or": "veya",
   "queued": "kuyruğa alındı",
-  "queued left": "kuyruğa alındı",
   "read timed out after {ms}ms": "okuma {ms} ms sonra zaman aşımına uğradı",
   "retrying in {time}": "{time} sonra yeniden denenecek",
   "retrying now": "yeniden deneniyor",

@@ -448,7 +448,6 @@
   "kB/s": "ko/s",
   "or": "ou",
   "queued": "en file d’attente",
-  "queued left": "en file d’attente",
   "read timed out after {ms}ms": "délai de lecture dépassé après {ms} ms",
   "retrying in {time}": "nouvelle tentative dans {time}",
   "retrying now": "nouvelle tentative",
