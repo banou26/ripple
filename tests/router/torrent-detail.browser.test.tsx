@@ -86,6 +86,8 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
 
 const peer = (over: Partial<PeerInfo> = {}): PeerInfo => ({
   endpoint: '203.0.113.7:51413',
+  // as the engine fills it for a peer that is not a WebRTC one
+  transport: (over.flags ?? 0) & PEER_FLAG.utpSocket ? 'utp' : 'tcp',
   client: 'qBittorrent 4.6.5',
   flags: 0,
   source: 0,

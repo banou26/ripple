@@ -7,6 +7,8 @@ import { NO_INBOUND, countInbound, inboundLabel, isInbound, peerTransport } from
 
 const peer = (over: Partial<PeerInfo> = {}): PeerInfo => ({
   endpoint: '1.2.3.4:5678',
+  // as the engine fills it for a peer that is not a WebRTC one
+  transport: (over.flags ?? 0) & PEER_FLAG.utpSocket ? 'utp' : 'tcp',
   client: 'whatever',
   flags: 0,
   source: 0,
