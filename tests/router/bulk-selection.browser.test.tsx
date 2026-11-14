@@ -1,10 +1,19 @@
 import type { Torrent } from '../../src/torrent/types'
 
-import { describe, expect, it } from 'vitest'
-import { renderHook } from 'vitest-browser-react'
+import { describe, expect, it, vi } from 'vitest'
+import { render, renderHook } from 'vitest-browser-react'
+import { userEvent } from '@vitest/browser/context'
+import { MemoryRouter } from 'react-router-dom'
 
+import { IntlRoot } from '../../src/i18n'
 import { useBulkSelection } from '../../src/router/bulk-selection'
-import { visibleTorrents } from '../../src/torrent/list-view'
+import { TorrentTable } from '../../src/router/torrent-table'
+import { sortTorrents, visibleTorrents } from '../../src/torrent/list-view'
+
+vi.mock('../../src/torrent/use-thumbnails', () => ({
+  useThumbnail: () => null,
+  useThumbnailGeneration: () => {},
+}))
 
 /**
  * The selection as the page holds it, fed the list the page shows on every render.
@@ -93,4 +102,93 @@ describe('useBulkSelection', () => {
     expect(result.current.canPick).toBe(false)
     expect(result.current.all).toBe(false)
   })
+
+  describe('a shift+click', () => {
+    it('runs from the box clicked last, which each click moves', async () => {
+      const [a, b, c] = [t(), t(), t()]
+      const { result, act } = await mount([a, b, c])
+      await act(() => result.current.toggle(a))
+      await act(() => result.current.toggle(c, true))
+      expect(names(result.current.rows)).toEqual(names([a, b, c]))
+      // from c, the box clicked last, rather than from a
+      await act(() => result.current.toggle(a, true))
+      expect(result.current.rows).toEqual([])
+    })
+
+    it('runs from a box whose row moved to another engine, kept by its info hash', async () => {
+      const [a, b, c] = [t(), t(), t()]
+      const { result, rerender, act } = await mount([a, b, c])
+      await act(() => result.current.toggle(a))
+      const moved = [a, b, c].map((x, i) => ({ ...x, id: String(100 + i) }))
+      await rerender({ shown: moved })
+      await act(() => result.current.toggle(moved[2]!, true))
+      expect(names(result.current.rows)).toEqual(names([a, b, c]))
+    })
+
+    it('lets go of the box clicked last when its row leaves the list, even once it is back', async () => {
+      const [a, b, c] = [t(), t(), t()]
+      const { result, rerender, act } = await mount([a, b, c])
+      await act(() => result.current.toggle(a))
+      await rerender({ shown: [b, c] })
+      await rerender({ shown: [a, b, c] })
+      await act(() => result.current.toggle(c, true))
+      expect(names(result.current.rows)).toEqual(names([c]))
+    })
+  })
+})
+
+/**
+ * Real boxes, clicked with shift held, in each of the two ways the library is drawn. Both are handed the list the way
+ * the page hands it, sorted by name, so the order on screen is not the order the torrents arrived in.
+ */
+describe('shift+clicking the boxes', () => {
+  const ARRIVED = ['Cherry', 'Apple', 'Elder', 'Banana', 'Date'].map((name) => t({ name }))
+  const DRAWN = sortTorrents(ARRIVED, 'name', 'asc')
+  const handlers = {
+    saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onStart: vi.fn(), onOptions: vi.fn(),
+    selected: false, onSelect: vi.fn(), savedToUserStorage: false,
+  }
+
+  const library = async (view: 'cards' | 'table') => {
+    const { TorrentRow, style } = await import('../../src/router/home')
+    const Library = () => {
+      const bulk = useBulkSelection(DRAWN)
+      return view === 'table'
+        ? (
+          <TorrentTable
+            torrents={DRAWN} sortKey="name" sortDir="asc" onSort={vi.fn()}
+            selectedId={null} onSelect={vi.fn()} onOptions={vi.fn()} picked={bulk.picked} onPick={bulk.toggle}
+          />
+        )
+        : (
+          <div css={style}><main>
+            {DRAWN.map((x) => <TorrentRow key={x.id} t={x} {...handlers} checked={bulk.picked.has(x.infoHash!)} onPick={bulk.toggle}/>)}
+          </main></div>
+        )
+    }
+    const container = document.createElement('div')
+    container.style.cssText = 'width: 1200px;'
+    document.body.append(container)
+    const screen = await render(<IntlRoot><MemoryRouter><Library/></MemoryRouter></IntlRoot>, { container })
+    const box = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
+    // the boxes from the top of the list down
+    const ticked = () => [...screen.container.querySelectorAll<HTMLInputElement>('.row-check input')].map((x) => x.checked)
+    return { screen, box, ticked }
+  }
+
+  for (const view of ['cards', 'table'] as const) {
+    it(`ticks and unticks a run in the order the ${view} draw`, async () => {
+      const { box, ticked } = await library(view)
+      expect(DRAWN.map((x) => x.name)).toEqual(['Apple', 'Banana', 'Cherry', 'Date', 'Elder'])
+      await userEvent.click(box('Apple'))
+      await userEvent.click(box('Cherry'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([true, true, true, false, false])
+      // Cherry was ticked, so the run from it unticks
+      await userEvent.click(box('Banana'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([true, false, false, false, false])
+      // the control: without shift a click is one box
+      await userEvent.click(box('Elder'))
+      expect(ticked()).toEqual([true, false, false, false, true])
+    })
+  }
 })
