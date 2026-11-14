@@ -41,13 +41,11 @@ const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
 })
 
 /**
- * The relay's public IPv4 address, which no socket of it knows: a UDP socket answers the wildcard it bound. A TCP
- * socket connected through the relay reports the address it left from, so one is opened to a tracker's host and
- * closed again, with nothing sent.
+ * The address a TCP socket connected through the relay to `host` left from, which is the relay's public IPv4
+ * address. The socket is closed again with nothing sent.
  */
-const relayAddress = () => new Promise<string>((resolve, reject) => {
-  const [tracker = ''] = TRACKERS
-  const socket = net.connect({ host: new URL(tracker).hostname, port: 443 })
+const addressSeenFrom = (host: string) => new Promise<string>((resolve, reject) => {
+  const socket = net.connect({ host, port: 443 })
   const end = (address?: string) => {
     clearTimeout(timer)
     socket.destroy()
@@ -59,6 +57,19 @@ const relayAddress = () => new Promise<string>((resolve, reject) => {
   socket.on('error', () => end())
   socket.once('close', () => end())
 })
+
+/**
+ * The relay's public IPv4 address, which nothing FKN answers names: a UDP socket and a listener answer the
+ * wildcard they bound, and FKN looks up no name of its own for an app, the relay's included. So it is read off
+ * a connection to a tracker's host, each tried in turn, since those hosts hear from the relay anyway.
+ */
+const relayAddress = async () => {
+  for (const tracker of TRACKERS) {
+    const address = await addressSeenFrom(new URL(tracker).hostname).catch(() => null)
+    if (address) return address
+  }
+  throw new Error('the relay did not say its address')
+}
 
 /**
  * WebRTC peers beside the session's ordinary ones, every packet through the relay: the engine's own WebRTC stack

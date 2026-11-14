@@ -34,6 +34,8 @@ const engine = vi.hoisted(() => {
     binds: [40_123] as (number | false)[],
     /** The address each probe through the relay reports, in order. The last repeats. */
     addresses: ['203.0.113.7'],
+    /** Hosts no probe reaches. */
+    down: [] as string[],
     udp: [] as (ReturnType<typeof emitter> & { type: unknown, bound: unknown[], closed: boolean, address: () => { port: number }, close: ReturnType<typeof vi.fn> })[],
     tcp: [] as { options: unknown, destroyed: boolean }[],
   }
@@ -76,15 +78,16 @@ vi.mock('@fkn/lib/dgram', () => ({
 }))
 vi.mock('@fkn/lib/net', () => ({
   isIPv4: (address: string) => /^\d+\.\d+\.\d+\.\d+$/.test(address),
-  connect: (options: unknown) => {
+  connect: (options: { host: string }) => {
     const probe = { options, destroyed: false }
     engine.tcp.push(probe)
+    const down = engine.down.includes(options.host)
     const socket = {
       ...engine.emitter(),
-      localAddress: engine.addresses.length > 1 ? engine.addresses.shift()! : engine.addresses[0]!,
+      localAddress: down ? undefined : engine.addresses.length > 1 ? engine.addresses.shift()! : engine.addresses[0]!,
       destroy: () => { probe.destroyed = true },
     }
-    queueMicrotask(() => socket.emit('connect'))
+    queueMicrotask(() => down ? socket.emit('error', new Error('refused')) : socket.emit('connect'))
     return socket
   },
 }))
@@ -234,6 +237,21 @@ it('makes both again when the socket fails without closing, and lets go of the s
   await vi.waitFor(() => expect(engine.factories).toHaveLength(3))
   expect(engine.factories[2]!.options.socket).toBe(engine.udp.at(-1))
   expect(engine.udp.at(-1)).not.toBe(socket)
+})
+
+it('reads the address off the next tracker\'s host when the first is out of reach', async () => {
+  engine.down.push(new URL(TRACKERS[0]!).hostname)
+  engine.addresses.splice(0, 1, '192.0.2.9')
+  const [probes, stacks] = [engine.tcp.length, engine.factories.length]
+  const socket = engine.udp.at(-1)!
+  socket.closed = true
+  socket.emit('close')
+  await vi.advanceTimersByTimeAsync(500)
+  await vi.waitFor(() => expect(engine.factories).toHaveLength(stacks + 1))
+
+  expect(engine.tcp.slice(probes)).toEqual(TRACKERS.map((tracker) => ({ options: { host: new URL(tracker).hostname, port: 443 }, destroyed: true })))
+  expect(engine.factories.at(-1)!.options.address).toBe('192.0.2.9')
+  engine.down.length = 0
 })
 
 // THE CONTROL of worker-vpn-off.test.ts: behind the relay, a download nobody serves is still kicked
