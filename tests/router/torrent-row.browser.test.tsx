@@ -230,7 +230,7 @@ describe('a library row', () => {
       thumbnail.current = null
       const { TorrentRow, style } = await import('../../src/router/home')
       const props = handlers()
-      const row = (t: Torrent, over: Partial<ReturnType<typeof handlers>> = {}) => (
+      const row = (t: Torrent, over: Partial<ReturnType<typeof handlers> & { rates: typeof RATES }> = {}) => (
         <IntlRoot><MemoryRouter>
           <div css={style}><main><TorrentRow t={t} {...props} rates={structuredClone(RATES)} {...over} /></main></div>
         </MemoryRouter></IntlRoot>
@@ -251,6 +251,9 @@ describe('a library row', () => {
       await screen.rerender(row(torrent({ peers: 83 })))
       expect(renders.row).toBe(1)
       await expect.element(screen.getByText('83 peers')).toBeInTheDocument()
+      // the speed graph's window moved on by one sample
+      await screen.rerender(row(torrent({ peers: 83 }), { rates: { ...RATES, down: [8_700_000, 8_700_000] } }))
+      expect(renders.row).toBe(2)
     })
 
     /** So a handler made inline in the page renders every row on every tick. */
