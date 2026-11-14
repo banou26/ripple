@@ -172,6 +172,25 @@ test('with nobody to find, no connection is made and the torrent says since when
   expect(tracker.seen.offers).toBe(0)
   expect((await seen(alone.page)).made).toBe(0)
   expect((await seen(alone.page)).transports).toEqual(['direct'])
+
+  // the strip says Off as the choice it is, and nothing of a relay port, since there is none to dial in through
+  const strip = alone.page.locator('.stats .readouts')
+  await expect(strip.locator('.stat.vpn strong')).toHaveText('Off')
+  await expect(strip.locator('.stat.vpn')).not.toHaveClass(/error/)
+  await expect(strip.locator('.stat', { hasText: 'Inbound' })).toHaveCount(0)
+})
+
+// THE CONTROL of the strip above: the same page with the VPN on, and a relay this machine cannot reach
+test('with the VPN on and no relay in reach, the strip says so and keeps its inbound readout', async ({ browser, baseURL }) => {
+  test.setTimeout(120_000)
+  const relayed = await visitor(await browser.newContext(), baseURL!, 'on')
+  await add(relayed.page, `magnet:?xt=urn:btih:${'d'.repeat(40)}`)
+  const strip = relayed.page.locator('.stats .readouts')
+  await expect(strip.locator('.stat', { hasText: 'Inbound' })).toHaveCount(1, { timeout: 60_000 })
+  await expect(strip.locator('.stat.vpn strong')).not.toHaveText('Off')
+  await expect(strip.locator('.stat.vpn')).toHaveClass(/error/)
+  expect((await seen(relayed.page)).transports).toEqual(['relay'])
+  expect(tracker.seen.announces, 'an engine behind the relay opened a tracker from the browser').toBe(0)
 })
 
 /*
