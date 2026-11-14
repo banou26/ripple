@@ -192,6 +192,18 @@ const style = css`
       white-space: pre;
       min-width: max-content;
     }
+
+    /*
+     * Before an engine has said a word the same words keep the line, on one line with no width, so the first
+     * word moves nothing under the switch. Written in 1lh it would be the first font's line, and a word drawn
+     * in a fallback font, as Japanese is, stands 4px taller.
+     */
+    &:empty::before {
+      content: attr(data-room);
+      width: 0;
+      overflow: hidden;
+      visibility: hidden;
+    }
   }
 
   strong.ok { color: ${OK}; }

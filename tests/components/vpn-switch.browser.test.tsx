@@ -463,13 +463,14 @@ describe('the word keeps its room', () => {
     'reader text spacing': 'body * { letter-spacing: 0.12em !important; word-spacing: 0.16em !important }',
   }
 
-  it('moves nothing beside the switch in any state, language or font', async () => {
+  it('moves nothing beside or under the switch in any state, language or font', async () => {
     const { VpnSwitch } = await import('../../src/components/vpn-switch')
     const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
     const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
     expect(languages).toHaveLength(13)
-    // the five words: on, reconnecting, unreachable, off, and waiting each way
+    // no word, as before an engine has spoken, then the five: on, reconnecting, unreachable, off, and waiting each way
     const states: { reachable: Reachability | null, transport: EngineTransport, off: boolean }[] = [
+      { reachable: null, transport: 'relay', off: false },
       { reachable: reach(), transport: 'relay', off: false },
       { reachable: HEALING, transport: 'relay', off: false },
       { reachable: NO_PORT, transport: 'relay', off: false },
@@ -488,10 +489,13 @@ describe('the word keeps its room', () => {
           for (const { reachable, transport, off } of states) {
             if (off) localStorage.setItem('ripple:vpn', 'off'); else localStorage.removeItem('ripple:vpn')
             const screen = await render(
-              <IntlRoot><div style={{ display: 'flex', width: 600 }}><VpnSwitch reachable={reachable} transport={transport}/><span data-testid="beside">beside</span></div></IntlRoot>,
+              <IntlRoot>
+                <div style={{ display: 'flex', width: 600 }}><VpnSwitch reachable={reachable} transport={transport}/><span data-testid="beside">beside</span></div>
+                <div data-testid="under">under</div>
+              </IntlRoot>,
             )
             const { left, top } = screen.getByTestId('beside').element().getBoundingClientRect()
-            spots.push(`${left},${top}`)
+            spots.push(`${left},${top} over ${screen.getByTestId('under').element().getBoundingClientRect().top}`)
             words.add(`${language}: ${strong(screen.container)!.textContent}`)
             await screen.unmount()
           }
@@ -499,8 +503,8 @@ describe('the word keeps its room', () => {
         }
       }
     } finally { sheet.remove() }
-    // each state drew a word of its own in each language, so none was measured as another
-    expect(words.size).toBe(13 * 5)
+    // each state drew a word of its own in each language, or none, so no state was measured as another
+    expect(words.size).toBe(13 * 6)
     expect(moved).toEqual([])
   }, 60_000)
 })
