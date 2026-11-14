@@ -46,16 +46,24 @@ const COMPLETE = new Set([4, 5])
  * an estimate exists. Undefined rather than 0 or Infinity for "no estimate": a sort has to be able
  * to put those last rather than treat them as arriving instantly or never.
  */
+/**
+ * Bytes of the selection still to come. Not `totalWanted - totalDone`: `totalDone` counts a skipped file that is
+ * held, so a pack with one such file as large as what is left read as nothing left. An engine from before
+ * `totalWantedDone`, which a tab can still borrow during a rollout, gets the old subtraction.
+ */
+const leftOf = (status: NonNullable<TorrentSnapshot['status']>): number =>
+  status.totalWanted - (status.totalWantedDone ?? status.totalDone)
+
 const etaSecondsOf = (status: TorrentSnapshot['status']): number | undefined => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return undefined
-  const remain = status.totalWanted - status.totalDone
+  const remain = leftOf(status)
   if (remain <= 0 || status.downloadRate <= 0) return undefined
   return Math.round(remain / status.downloadRate)
 }
 
 const fmtEta = (status: TorrentSnapshot['status'], words: IntlShape): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return '-'
-  const remain = status.totalWanted - status.totalDone
+  const remain = leftOf(status)
   if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return words.formatMessage({ id: 'queued', defaultMessage: 'queued' })
   const s = Math.round(remain / status.downloadRate)

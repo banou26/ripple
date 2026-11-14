@@ -150,4 +150,17 @@ describe('how long a download has left', () => {
     await startLanguage({ language: 'fr', languages: ['fr-FR'], catalogues: { '../locales/fr.json': async () => ({}) } })
     expect(eta(3_900)).toBe('1h 5min')
   })
+
+  // a pack with one file skipped and already held: 100 kB selected, 40 kB of it here, and the 80 kB of the
+  // skipped file count in totalDone too, which is then more than the whole selection
+  it('counts what is left of the selection, not of everything held', () => {
+    const pack = snapshotToTorrent(snap({ state: 3, totalWanted: 100_000, totalWantedDone: 40_000, totalDone: 120_000, downloadRate: 1000 }))
+    expect(pack.eta).toBe('1m 00s')
+    expect(pack.etaSeconds).toBe(60)
+  })
+
+  it('still says how long is left for an engine that does not count the selection', () => {
+    const older = snapshotToTorrent(snap({ state: 3, totalWanted: 100_000, totalDone: 40_000, downloadRate: 1000 }))
+    expect(older.etaSeconds).toBe(60)
+  })
 })
