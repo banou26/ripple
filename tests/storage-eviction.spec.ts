@@ -31,7 +31,6 @@ const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 // Sintel/Sintel.mp4, 129,241,752 bytes. Index 0 is a subtitle track, and pointing the player at
 // that one leaves the stream window skipping every other file, so almost nothing is ever written.
 const SINTEL_VIDEO = 5
-const SINTEL_VIDEO_BYTES = 129_241_752
 // the video plus ten subtitle tracks and a poster, rounded up
 const SINTEL_TORRENT_BYTES = 129_300_000
 
@@ -330,24 +329,24 @@ test.describe('storage eviction', () => {
     expect(entries[0].infoHash).toBe(SINTEL_HASH)
     expect(entries[0].ephemeral, 'a torrent the player asked for is a cache entry').toBe(true)
     expect(entries[0].savePath, 'a cache torrent owns its directory, so deleting it reaches nothing else')
-      .toBe('/dl/' + SINTEL_HASH)
+      .toBe('/cache/' + SINTEL_HASH)
 
     // leave the player: nobody is watching it now
     await page.goto('/')
     await expect(page.locator('.torrent').first()).toBeVisible()
-    const held = await filesUnder(page, '/dl/' + SINTEL_HASH)
+    const held = await filesUnder(page, '/cache/' + SINTEL_HASH)
     expect(held.count, 'the torrent should have written something').toBeGreaterThan(0)
 
-    // Squeeze the origin so that giving this torrent up is exactly enough: the floor the engine
-    // keeps free is 10% of the browser's budget, so leaving a little more free than the floor minus
-    // the video's size puts the deficit inside one eviction.
-    const squeezed = await squeezeTo(page, Math.round(SINTEL_VIDEO_BYTES * 1.6))
+    // Just under the floor the engine keeps free (10% of the budget, at most 1 GB), so giving this
+    // torrent up covers the shortfall: one it cannot cover gives up nothing (planEviction).
+    const { quota } = await estimate(page)
+    const squeezed = await squeezeTo(page, Math.min(1_000_000_000, Math.floor(quota * 0.1)) - 10_000_000)
     console.log('[test] after squeeze:', squeezed, 'torrent holds', held)
     test.skip(squeezed.elastic, ELASTIC_REASON)
     expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
 
     await expect.poll(
-      async () => (await filesUnder(page, '/dl/' + SINTEL_HASH)).count,
+      async () => (await filesUnder(page, '/cache/' + SINTEL_HASH)).count,
       { timeout: 90_000, intervals: [2_000], message: 'the cache torrent never gave up its bytes' },
     ).toBe(0)
     expect(
@@ -381,8 +380,8 @@ test.describe('storage eviction', () => {
     expect(entries).toHaveLength(2)
     expect(entries.every((e) => e.ephemeral)).toBe(true)
 
-    const olderPath = '/dl/' + SINTEL_HASH
-    const newerPath = '/dl/' + BUNNY_HASH
+    const olderPath = '/cache/' + SINTEL_HASH
+    const newerPath = '/cache/' + BUNNY_HASH
     // past the window that keeps a just-opened torrent off the table
     await page.waitForTimeout(20_000)
     const older = await filesUnder(page, olderPath)
@@ -458,9 +457,8 @@ test.describe('storage eviction', () => {
    * come back from because its add runs once per magnet. It would sit at a disabled "Loading
    * torrent…" for good, with the bytes it was about to hand over already deleted.
    *
-   * The arm above ("gives up an embed torrent nobody is watching") is the control: the same squeeze,
-   * the same torrent, no page open, and the bytes go. Without that pair this would pass against an
-   * origin that simply never came under pressure.
+   * The control closes the page under the same squeeze, and the bytes go: 60 MB is under the margin
+   * the engine keeps free. Without it this would pass against an origin that never came under pressure.
    */
   test('never gives up the torrent a download page is holding', async ({ page }) => {
     test.setTimeout(240_000)
@@ -469,7 +467,7 @@ test.describe('storage eviction', () => {
     // hold would be protecting it from something that could not have happened
     await page.goto(embedUrl(SINTEL))
     await downloadSome(page, 30_000_000)
-    const savePath = '/dl/' + SINTEL_HASH
+    const savePath = '/cache/' + SINTEL_HASH
     const before = await filesUnder(page, savePath)
     expect(before.count).toBeGreaterThan(0)
 
@@ -490,6 +488,12 @@ test.describe('storage eviction', () => {
       .toBeGreaterThan(0)
     // and the page is still able to hand it over, which is the part the user would have lost
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
+
+    await page.goto('/')
+    await expect.poll(
+      async () => (await filesUnder(page, savePath)).count,
+      { timeout: 90_000, intervals: [2_000], message: 'with nothing holding it the torrent stayed, so the squeeze proved nothing' },
+    ).toBe(0)
   })
 
   test('never gives up the torrent being watched', async ({ page }) => {
