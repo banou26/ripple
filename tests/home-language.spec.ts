@@ -1274,6 +1274,39 @@ test.describe('on a phone', () => {
   })
 })
 
+/**
+ * Any row prop the page makes anew on each of its renders (an inline arrow, a handler without useCallback) silently
+ * redraws every row on every tick. A redraw shows here even when nothing in the row changed: React 19 sets a checkbox's
+ * name and type again on every render of it.
+ */
+test('an engine tick redraws no row whose figures stood still', async ({ page }) => {
+  const tick = async (torrents = TORRENTS) => {
+    await post(page, { type: 'state', torrents, rateLimits: { down: 5_000_000, up: 0 }, ...READOUTS[0] })
+    await drawn(page)
+  }
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  // a row's speed graph keeps the last 60 ticks, so even a row standing still moves until its graph is full
+  for (let i = 0; i < 60; i++) await tick()
+  await page.evaluate(() => {
+    const touched = new Set<string>()
+    Object.assign(window, { touched: () => [...touched] })
+    new MutationObserver((records) => {
+      for (const { target } of records) {
+        const row = (target instanceof Element ? target : target.parentElement)?.closest('.torrent')
+        if (row) touched.add(row.querySelector('.title')?.textContent ?? '')
+      }
+    }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
+  })
+  const touched = () => page.evaluate(() => (window as unknown as { touched: () => string[] }).touched())
+  await tick()
+  await tick()
+  expect((await touched()).filter(name => ['A.Season.Pack', 'Kept.Paused', 'Stalled'].includes(name))).toEqual([])
+  // the control: a figure that moves in one of them is seen
+  await tick(TORRENTS.map(t => t.handle === 3 ? { ...t, status: { ...t.status, numPeers: 5 } } : t))
+  expect(await touched()).toContain('Kept.Paused')
+})
+
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)
