@@ -164,3 +164,29 @@ test('a magnet that names two torrents is refused rather than listed as one of t
   await expect(page.getByRole('status').filter({ hasText: 'That is not a valid magnet link' }).first()).toBeVisible()
   await expect(page.locator('.torrent')).toHaveCount(0)
 })
+
+// Cloudflare Pages serves the app for any path, so what an unknown one shows is the router's choice
+test('an address the app does not know ends on the library', async ({ page }) => {
+  // first, while no service worker is installed, so the server answers the expired save address like any other
+  for (const path of ['/__ripple-stream/expired/film.mkv', '/no-such-page', '/download/film.mkv?files=all']) {
+    await page.goto(path)
+    await expect(page.getByRole('button', { name: 'Create a torrent' }), path).toBeVisible()
+    expect(new URL(page.url()).pathname, path).toBe('/')
+  }
+})
+
+test('the pages the app knows still render where they are', async ({ page }) => {
+  const magnet = Buffer.from(NOBODY).toString('base64')
+  const pages = [
+    ['/', page.getByRole('button', { name: 'Create a torrent' })],
+    ['/legal', page.getByRole('heading', { name: 'Legal & Terms' })],
+    ['/privacy', page.getByRole('heading', { name: 'Privacy', exact: true })],
+    [`/download?magnet=${magnet}`, page.locator('.card')],
+    [`/watch?magnet=${magnet}`, page.getByTestId('open-in-ripple')],
+  ] as const
+  for (const [path, marker] of pages) {
+    await page.goto(path)
+    await expect(marker, path).toBeVisible({ timeout: 30_000 })
+    expect(new URL(page.url()).pathname, path).toBe(path.split('?')[0])
+  }
+})

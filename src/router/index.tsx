@@ -1,5 +1,5 @@
 import { RouterProvider } from 'react-router'
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 
 import Add from './add'
 import Embed from './embed'
@@ -8,7 +8,7 @@ import Legal from './legal'
 import Privacy from './privacy'
 import { Hints } from '../components/hint'
 import { shownLanguage, startLanguage, uiLanguage } from '../i18n'
-import { getRouterRoutePath, Route } from './path'
+import { getRoutePath, getRouterRoutePath, Route } from './path'
 
 const router = createBrowserRouter([
   {
@@ -36,6 +36,11 @@ const router = createBrowserRouter([
   {
     path: getRouterRoutePath(Route.PRIVACY),
     element: <Privacy/>
+  },
+  // Cloudflare Pages serves the app for every path, so an address the app does not know lands on the library
+  {
+    path: '*',
+    element: <Navigate to={getRoutePath(Route.HOME)} replace/>
   }
 ])
 
