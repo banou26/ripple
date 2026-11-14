@@ -172,6 +172,12 @@ test('the library\'s header is one row at the widths most laptops have, in every
           for (const button of await page.locator('header > button').all()) {
             await expect(button, `${language}: a header button without a name`).toHaveAccessibleName(/\S/)
           }
+          // square, and as tall as Share, whose line a CJK fallback font makes up to 5 px taller
+          const setup = (await page.locator('header .setup').boundingBox())!
+          const share = (await page.locator('header .share').first().boundingBox())!
+          if (setup.width !== setup.height || share.height - setup.height > 5) {
+            wrong.push(`${language} in ${font} at ${width} px, the icon button: ${setup.width}x${setup.height} beside Share's ${share.height}`)
+          }
         }
         if (width === 1366 || width === 1280) continue
         const wordless = await page.locator('header > button').evaluateAll((buttons) => buttons
@@ -182,7 +188,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
       await style.evaluate((element) => (element as HTMLStyleElement).remove())
     }
   }
-  expect(wrong, 'the header took a second row, or gave up its words where it had the room').toEqual([])
+  expect(wrong, 'the header took a second row, gave up its words where it had the room, or drew its icon out of size').toEqual([])
 
   // and the switch is on the page with no torrent, under the header: where there is one to draw at all
   await expect(page.locator('.torrent')).toHaveCount(0)
