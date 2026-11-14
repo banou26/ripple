@@ -117,6 +117,21 @@ describe('service worker', () => {
     expect(decodeURIComponent(encoded!)).toBe(name)
   })
 
+  /** Chromium cancels a save named 250 bytes or more in UTF-8 and Firefox one of 244, and the page heard only a cancel. */
+  it('cuts a name too long to save to 200 bytes in UTF-8, keeping its extension', () => {
+    const on = boot()
+    const saved = (id: string, name: string) => {
+      openStream(on, id, name, 4)
+      const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/${id}/x`)
+      on.fetch!(event)
+      return decodeURIComponent(taken()!.headers.get('Content-Disposition')!.split("UTF-8''")[1]!)
+    }
+    expect(saved('jp', '映'.repeat(300) + '.mkv')).toBe('映'.repeat(65) + '.mkv')
+    expect(saved('emoji', '\u{1f3ac}'.repeat(70) + ' end.mp4')).toBe('\u{1f3ac}'.repeat(49) + '.mp4')
+    expect(saved('ascii', 'b'.repeat(300))).toBe('b'.repeat(200))
+    expect(saved('fits', '映'.repeat(60) + '.mkv')).toBe('映'.repeat(60) + '.mkv')
+  })
+
   it('answers an error, and tells the page, when the header cannot be built', async () => {
     const on = boot()
     const { port, source } = openStream(on, 'bad', 'half \ud800.mkv', 4)

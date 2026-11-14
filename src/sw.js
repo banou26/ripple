@@ -126,11 +126,31 @@ self.addEventListener('message', (event) => {
   }
 })
 
+/*
+ * Chromium 156 cancels a save named 250 UTF-8 bytes or more and Firefox 157 one of 244 or more, with no word to the
+ * page (measured on Linux, whose names hold 255 bytes: each browser writes under a longer temporary name first). So a
+ * longer name is cut, keeping its extension.
+ */
+const MAX_NAME_BYTES = 200
+const utf8Bytes = (text) => new TextEncoder().encode(text).length
+const fitName = (name) => {
+  if (utf8Bytes(name) <= MAX_NAME_BYTES) return name
+  const dot = name.lastIndexOf('.')
+  const extension = dot > 0 && name.length - dot <= 10 ? name.slice(dot) : ''
+  let stem = ''
+  for (const char of name.slice(0, name.length - extension.length)) {
+    if (utf8Bytes(stem + char + extension) > MAX_NAME_BYTES) break
+    stem += char
+  }
+  return stem + extension
+}
+
 // A header value holds no character above U+00FF, so the quoted name is ASCII and the browsers save under filename*
 // (RFC 6266), which carries the real one.
-const disposition = (name) => {
-  const safe = String(name || 'download').replace(/[^\x20-\x7e]|["\\]/g, '_')
-  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(name || 'download')}`
+const disposition = (asked) => {
+  const name = fitName(String(asked || 'download'))
+  const safe = name.replace(/[^\x20-\x7e]|["\\]/g, '_')
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(name)}`
 }
 
 self.addEventListener('fetch', (event) => {
