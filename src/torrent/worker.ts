@@ -2034,11 +2034,11 @@ const handleMessage = async (session: Session, m: any) => {
         /**
          * A hold settles this torrent's priorities the moment its layout lands.
          *
-         * In the first pump after the metadata, and `holdingUpload` covers the gap. What it buys is
-         * the pass at the bottom of the pump: with no viewer it calls `applyViewing`, which writes
-         * the stored plan and, for a CACHE torrent, parks it. That is what makes a page-opened
-         * torrent fetch its file list and then stop, instead of pulling the whole release at full
-         * speed while a Download button sits unpressed.
+         * That happens in the first pump after the metadata; `holdingUpload` covers the gap before
+         * it. What it buys is the pass at the bottom of the pump: with no viewer it calls
+         * `applyViewing`, which writes the stored plan and, for a CACHE torrent, parks it. That is
+         * what makes a page-opened torrent fetch its file list and then stop, instead of pulling
+         * the whole release at full speed while a Download button sits unpressed.
          *
          * Asked for rather than applied to every add, because a torrent somebody is about to WATCH
          * wants none of it: the player claims its viewer a round trip after the same pump publishes
