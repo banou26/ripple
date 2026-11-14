@@ -238,7 +238,7 @@
   "Paused": "一時停止中",
   "Peak down": "ダウンロードのピーク",
   "Peers": "ピア",
-  "Peers and trackers of every running torrent will see your IP address.": "実行中のすべての Torrent のピアとトラッカーに、あなたの IP アドレスが見えるようになります。",
+  "Peers and trackers of every running torrent will see your IP address.": "実行中のすべての Torrent のピアとトラッカーに、お使いの IP アドレスが見えるようになります。",
   "Peers stopped sending data": "ピアからのデータ送信が止まりました",
   "Peers: {count}": "ピア：{count}",
   "Persistent": "永続",
