@@ -14,7 +14,7 @@ import wasmUrl from 'libtorrent-wasm/webrtc.wasm?url&no-inline'
 import { RIG_TRACKER, TRACKERS } from './vpn-config'
 
 /**
- * The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left.
+ * The engine's WebRTC half. `refresh` goes after the pump of each state pass, so the swarm acts on what it left.
  * `trackers` is the WebSocket trackers a running torrent is announced to, in the shape of the engine's own
  * tracker rows, which never list them. `close` is for a worker about to be ended: every tracker is told
  * `stopped`, every connection and tracker socket is closed, and nothing is made again.
