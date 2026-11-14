@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { Reachability } from './client'
+import type { EngineTransport } from './vpn-config'
 import { getTorrentClient } from './client'
 
 /**
@@ -18,4 +19,12 @@ export const useReachability = (): Reachability | null => {
   const [reachable, setReachable] = useState<Reachability | null>(null)
   useEffect(() => client.onReachable(setReachable), [client])
   return reachable
+}
+
+/** What the running engine reaches its peers through. Null until one has said. */
+export const useEngineTransport = (): EngineTransport | null => {
+  const client = getTorrentClient()
+  const [transport, setTransport] = useState<EngineTransport | null>(null)
+  useEffect(() => client.onTransport(setTransport), [client])
+  return transport
 }

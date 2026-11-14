@@ -2,6 +2,7 @@ import { css } from '@emotion/react'
 import { useIntl } from 'react-intl'
 
 import type { Reachability } from '../torrent/client'
+import type { EngineTransport } from '../torrent/vpn-config'
 import { vpnStatus } from '../torrent/vpn-status'
 import { OK, TEXT, TEXT_MUTED, WARN } from '../theme'
 import { hint } from './hint'
@@ -46,23 +47,25 @@ const style = css`
   strong.ok { color: ${OK}; }
 
   /*
-   * Off is WARN rather than DANGER because nothing has failed: the tunnel is simply not up, which is
+   * Unreachable is WARN rather than DANGER because nothing has failed: the tunnel is simply not up, which is
    * recoverable, and the palette spends DANGER on outcomes rather than states. Both states carry a
-   * different WORD as well as a different colour, so the readout still separates without one.
+   * different WORD as well as a different colour, so the readout still separates without one. Off
+   * takes no colour: somebody chose it.
    */
   &.error strong { color: ${WARN}; }
 `
 
 /** Exported for its own test, like every other stat: a stat that throws takes the whole route with it. */
-export const VpnStat = ({ reachable }: { reachable: Reachability | null }) => {
+export const VpnStat = ({ reachable, transport }: { reachable: Reachability | null, transport?: EngineTransport | null }) => {
   const intl = useIntl()
-  const status = vpnStatus(reachable)
+  const status = vpnStatus(reachable, transport)
   // nothing known yet is not the same as off, and claiming off would invent a fault out of a gap
   if (!status) return null
   const on = status.state === 'on'
+  const fault = status.state === 'healing' || status.state === 'unreachable'
 
   return (
-    <div css={style} className={'stat vpn' + (on ? '' : ' error')} {...hint(status.detail)}>
+    <div css={style} className={'stat vpn' + (fault ? ' error' : '')} {...hint(status.detail)}>
       <label>{intl.formatMessage({ id: 'VPN', defaultMessage: 'VPN' })}</label>
       <div className="value">
         <strong className={on ? 'ok' : undefined}>{status.label}</strong>

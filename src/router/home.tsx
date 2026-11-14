@@ -2072,7 +2072,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
 
 const Home = () => {
   const intl = useIntl()
-  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, sampleOffered, answerSample, client } = useTorrents()
+  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -3028,7 +3028,9 @@ const Home = () => {
     : 0
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
-  const quota = useQuota(hasLive)
+  // with the VPN off nothing passes through the relay, so nothing is metered and nobody can dial in
+  const relayed = transport !== 'direct'
+  const quota = useQuota(hasLive && relayed)
   const syncState = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
   /**
@@ -3371,11 +3373,11 @@ const Home = () => {
               <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
               <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
             </div>
-            <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>
+            {relayed && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
-            {quota && <QuotaStat quota={quota}/>}
+            {relayed && quota && <QuotaStat quota={quota}/>}
             {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
-            <VpnStat reachable={reachable}/>
+            <VpnStat reachable={reachable} transport={transport}/>
             <SyncStat state={syncState}/>
           </div>
           <SpeedGraph history={history}/>

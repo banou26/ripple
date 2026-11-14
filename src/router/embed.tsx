@@ -19,7 +19,7 @@ import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { usePrepare } from '../torrent/use-prepare'
-import { useReachability } from '../torrent/use-reachability'
+import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnStatus } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
@@ -344,10 +344,11 @@ const playerStyle = css`
      *
      * A green tick on every healthy playback would be one more permanently lit thing over the
      * picture, and this row sits on top of somebody's video. On reads in the same text as the peer
-     * count beside it; off and reconnecting are the ones that explain a player showing nothing, so
-     * they are the ones allowed to stand out. The WORD differs in all three cases either way.
+     * count beside it, and so does Off, which somebody chose; unreachable and reconnecting are the ones
+     * that explain a player showing nothing, so they are the ones allowed to stand out. The WORD
+     * differs in all four cases either way.
      */
-    .item.vpn[data-state='off'],
+    .item.vpn[data-state='unreachable'],
     .item.vpn[data-state='healing'] {
       color: ${WARN};
     }
@@ -457,7 +458,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * what a torrent nobody is seeding looks like. One of those is worth waiting out and the other is
    * not, and until this readout existed the picture was identical.
    */
-  const vpn = vpnStatus(useReachability())
+  const vpn = vpnStatus(useReachability(), useEngineTransport())
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.

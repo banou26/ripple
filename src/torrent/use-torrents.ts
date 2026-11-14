@@ -2,6 +2,7 @@ import type { Torrent, TorrentState } from './types'
 import type { InboundNow } from './inbound'
 import type { Persisted, Reachability, TorrentClient, TorrentSnapshot } from './client'
 import type { IntlShape } from 'react-intl'
+import type { EngineTransport } from './vpn-config'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
@@ -324,6 +325,8 @@ export type UseTorrents = {
   workerError: string | null
   /** Null until the engine has reported once; see ConnectionStat for what the fields mean. */
   reachable: Reachability | null
+  /** What the running engine reaches its peers through. Null until one has said. */
+  transport: EngineTransport | null
   /** Peers dialled IN right now, which is not the running total `reachable` carries. */
   inboundNow: InboundNow
   /** A first visit in this browser, with an empty library: offer the sample torrent. */
@@ -362,10 +365,12 @@ export const useTorrents = (): UseTorrents => {
   const [storageUnavailable, setStorageUnavailable] = useState(false)
   const [workerError, setWorkerError] = useState<string | null>(null)
   const [reachable, setReachable] = useState<Reachability | null>(null)
+  const [transport, setTransport] = useState<EngineTransport | null>(null)
   const [inboundNow, setInboundNow] = useState<InboundNow>(NO_INBOUND)
   const [sampleOffered, setSampleOffered] = useState(false)
   useEffect(() => {
     const offReachable = client.onReachable(setReachable)
+    const offTransport = client.onTransport(setTransport)
     const offInbound = client.onInboundNow(setInboundNow)
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
@@ -407,7 +412,7 @@ export const useTorrents = (): UseTorrents => {
           } catch { }
         })
     })
-    return () => { offReachable(); offInbound(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
+    return () => { offReachable(); offTransport(); offInbound(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
   const torrents = useMemo(() => {
@@ -454,5 +459,5 @@ export const useTorrents = (): UseTorrents => {
     setSampleOffered(false)
     if (add) void addDemo(client)
   }, [client])
-  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, sampleOffered, answerSample, client }
+  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client }
 }

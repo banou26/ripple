@@ -1,4 +1,5 @@
 import type { Reachability } from './client'
+import type { EngineTransport } from './vpn-config'
 
 import { intl } from '../i18n'
 
@@ -15,19 +16,14 @@ import { intl } from '../i18n'
  * the life of the session, while `listeners` is what is actually holding it right now, so a session
  * whose tunnel dropped keeps its number long after anything can reach it.
  *
- * OFF is exactly one measurement, "the WebVPN is not carrying this", and it currently covers two
- * situations that are opposite in every way that matters:
+ * UNREACHABLE is an engine behind the relay with neither: nothing is carrying anything, and every
+ * torrent sits on "Loading torrent…" with zero peers and no error anywhere on screen. That is the
+ * state this readout was built to name.
  *
- *  - In the desktop app the connections go over the machine's own network stack. Nothing is wrong.
- *  - In a plain browser there is no second transport at all. `@fkn/lib/desktop` is a declared
- *    placeholder in 0.9.24 whose `available()` returns false and whose every method throws, so off
- *    here means nothing is carrying anything: every torrent sits on "Loading torrent…" with zero
- *    peers and no error anywhere on screen. That is the state this readout was built to name.
- *
- * NOTHING IN `Reachability` SEPARATES THE TWO. When a desktop backend ships, give this a third
- * answer instead of leaving one word meaning both.
+ * OFF is the person's choice, and nothing failed: the engine runs with no relay and its peers are
+ * the browser's own WebRTC connections.
  */
-export type VpnState = 'on' | 'healing' | 'off'
+export type VpnState = 'on' | 'healing' | 'unreachable' | 'off'
 
 export type VpnStatus = {
   state: VpnState
@@ -38,7 +34,8 @@ export type VpnStatus = {
 }
 
 /** Null while the engine has said nothing: not knowing is not the same as off. */
-export const vpnStatus = (reachable: Reachability | null): VpnStatus | null => {
+export const vpnStatus = (reachable: Reachability | null, transport?: EngineTransport | null): VpnStatus | null => {
+  if (transport === 'direct') return { state: 'off', label: intl.formatMessage({ id: 'Off', defaultMessage: 'Off' }), detail: null }
   if (!reachable) return null
   // an engine older than this readout sends no `listeners` at all, and a missing field cannot be
   // read as a healthy one: nothing is KNOWN to be bound, so it cannot claim On
@@ -46,13 +43,13 @@ export const vpnStatus = (reachable: Reachability | null): VpnStatus | null => {
   const bound = listeners.some((l) => l.up)
   const healing = listeners.some((l) => l.healing)
   const on = reachable.port !== null && bound
-  const state: VpnState = on ? 'on' : healing ? 'healing' : 'off'
+  const state: VpnState = on ? 'on' : healing ? 'healing' : 'unreachable'
 
   return {
     state,
     label: on ? intl.formatMessage({ id: 'On', defaultMessage: 'On' })
       : healing ? intl.formatMessage({ id: 'Reconnecting', defaultMessage: 'Reconnecting' })
-      : intl.formatMessage({ id: 'Off', defaultMessage: 'Off' }),
+      : intl.formatMessage({ id: 'Unreachable', defaultMessage: 'Unreachable' }),
     detail: on || healing ? null : intl.formatMessage({ id: 'No peers can connect. Try reloading the page.', defaultMessage: 'No peers can connect. Try reloading the page.' }),
   }
 }

@@ -1,4 +1,5 @@
 import type { Reachability } from '../../src/torrent/client'
+import type { EngineTransport } from '../../src/torrent/vpn-config'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -15,7 +16,7 @@ import { showEnglish, showIn } from '../i18n/show-in'
  * anywhere was a console line and the absence of a WebSocket. Nothing on screen said the transport
  * was not up. This is that missing sentence.
  *
- * So the tests below are mostly about the OFF and RECONNECTING states, which is where the value is.
+ * So the tests below are mostly about the UNREACHABLE and RECONNECTING states, which is where the value is.
  * A readout that is only ever correct when things work would not have helped.
  *
  * It also has to survive an engine older than itself, for the reason connection-stat.browser.test
@@ -35,9 +36,9 @@ const reach = (over: Partial<Reachability> = {}): Reachability => ({
   ...over,
 })
 
-const mount = async (reachable: Reachability | null) => {
+const mount = async (reachable: Reachability | null, transport?: EngineTransport) => {
   const { VpnStat } = await import('../../src/components/vpn-stat')
-  return render(<IntlRoot><VpnStat reachable={reachable}/></IntlRoot>)
+  return render(<IntlRoot><VpnStat reachable={reachable} transport={transport}/></IntlRoot>)
 }
 
 const strong = (c: HTMLElement) => c.querySelector('strong')
@@ -53,20 +54,38 @@ describe('the VPN stat', () => {
    * The state that cost a session. A signed-out app reserves no relay port, so nothing carries peer
    * traffic, and every other readout on the strip looks unremarkable while it happens.
    */
-  it('says Off when the relay never reserved a port', async () => {
+  it('says Unreachable when the relay never reserved a port', async () => {
     const { container } = await mount(reach({ port: null, listeners: [] }))
-    expect(strong(container)?.textContent).toBe('Off')
+    expect(strong(container)?.textContent).toBe('Unreachable')
     expect(container.querySelector('.stat.vpn')?.className).toContain('error')
   })
 
-  it('says Off when a port was reserved but nothing is bound to it', async () => {
+  it('says Unreachable when a port was reserved but nothing is bound to it', async () => {
     const { container } = await mount(reach({
       listeners: [{ transport: 'tcp', port: null, up: false, healing: false, attempts: 3 }],
     }))
+    expect(strong(container)?.textContent).toBe('Unreachable')
+  })
+
+  /**
+   * Off is somebody's choice, so it is one word of its own with nothing to act on: an engine with no relay has
+   * no port and no listener either, which is exactly what Unreachable reads.
+   */
+  it('says Off, with no warning and nothing to do, when the engine runs with the VPN off', async () => {
+    const { container } = await mount(reach({ port: null, listeners: [] }), 'direct')
+    expect(strong(container)?.textContent).toBe('Off')
+    expect(container.querySelector('.stat.vpn')?.className).not.toContain('error')
+    expect(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toBeNull()
+    const fault = await mount(reach({ port: null, listeners: [] }), 'relay')
+    expect(getComputedStyle(strong(container)!).color).not.toBe(getComputedStyle(strong(fault.container)!).color)
+  })
+
+  it('says Off before an engine with the VPN off has said where it can be reached', async () => {
+    const { container } = await mount(null, 'direct')
     expect(strong(container)?.textContent).toBe('Off')
   })
 
-  it('says Reconnecting rather than Off while the tunnel is being reclaimed', async () => {
+  it('says Reconnecting rather than Unreachable while the tunnel is being reclaimed', async () => {
     const { container } = await mount(reach({
       port: null,
       listeners: [{ transport: 'tcp', port: null, up: false, healing: true, attempts: 1 }],
@@ -91,7 +110,7 @@ describe('the VPN stat', () => {
     } as unknown as Reachability
     const { container } = await mount(legacy)
     // no `listeners` means nothing is known to be bound, so it cannot claim On
-    expect(strong(container)?.textContent).toBe('Off')
+    expect(strong(container)?.textContent).toBe('Unreachable')
   })
 
   /**
@@ -104,7 +123,7 @@ describe('the VPN stat', () => {
     expect(strong(on.container)?.textContent).not.toBe(strong(off.container)?.textContent)
   })
 
-  it('says what to do about Off, since nothing else on screen does', async () => {
+  it('says what to do about Unreachable, since nothing else on screen does', async () => {
     const { container } = await mount(reach({ port: null, listeners: [] }))
     expect(container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toMatch(/reloading/)
   })
@@ -123,13 +142,15 @@ describe('the VPN stat', () => {
   describe('in the language of the page', () => {
     afterEach(showEnglish)
 
-    it('words each state, and what to do about Off', async () => {
+    it('words each state, and what to do about Unreachable', async () => {
       await showIn('de', de)
       const on = await mount(reach())
       expect(strong(on.container)?.textContent).toBe('An')
-      const off = await mount(reach({ port: null, listeners: [] }))
+      const unreachable = await mount(reach({ port: null, listeners: [] }))
+      expect(strong(unreachable.container)?.textContent).toBe('Nicht erreichbar')
+      expect(unreachable.container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toBe('Keine Peers können sich verbinden. Lade die Seite neu.')
+      const off = await mount(reach({ port: null, listeners: [] }), 'direct')
       expect(strong(off.container)?.textContent).toBe('Aus')
-      expect(off.container.querySelector('.stat.vpn')?.getAttribute('data-tooltip-content')).toBe('Keine Peers können sich verbinden. Lade die Seite neu.')
       const healing = await mount(reach({ port: null, listeners: [{ transport: 'tcp', port: null, up: false, healing: true, attempts: 1 }] }))
       expect(strong(healing.container)?.textContent).toBe('Verbindet neu')
     })

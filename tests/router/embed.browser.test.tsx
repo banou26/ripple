@@ -42,7 +42,7 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
   ...over,
 } as PlayerTorrent)
 
-const state = { current: torrent(), named: [] as (number | undefined)[], framed: true, reachable: null as unknown }
+const state = { current: torrent(), named: [] as (number | undefined)[], framed: true, reachable: null as unknown, transport: null as unknown }
 vi.mock('../../src/torrent/use-player-torrent', () => ({
   usePlayerTorrent: (_: string | undefined, fileIndex: number | undefined) => {
     state.named.push(fileIndex)
@@ -50,7 +50,7 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
   },
 }))
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
-vi.mock('../../src/torrent/use-reachability', () => ({ useReachability: () => state.reachable }))
+vi.mock('../../src/torrent/use-reachability', () => ({ useReachability: () => state.reachable, useEngineTransport: () => state.transport }))
 
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
@@ -139,7 +139,7 @@ const describedAs = async (selector: string) => {
 }
 
 describe('the watch route', () => {
-  beforeEach(() => { state.current = torrent(); state.reachable = null })
+  beforeEach(() => { state.current = torrent(); state.reachable = null; state.transport = null })
   // the viewport is shared by every test in the file, so a phone-sized one has to be handed back
   afterEach(async () => { await page.viewport(DESKTOP.width, DESKTOP.height) })
 
@@ -350,7 +350,8 @@ describe('the watch route', () => {
       paused: { ...snapshot!, status: { ...snapshot!.status!, paused: true }, userPaused: true },
       retrying: { ...snapshot!, recovery: { reason: 'stalled', attempt: 1, retryAt: 0 } },
     }
-    const vpns = { on: VPN_ON, reconnecting: { port: null, listeners: [{ up: false, healing: true }] }, off: { port: null, listeners: [] } }
+    // off is the engine with no relay, which has no port and no listener either
+    const vpns = { on: VPN_ON, reconnecting: { port: null, listeners: [{ up: false, healing: true }] }, unreachable: { port: null, listeners: [] }, off: { port: null, listeners: [] } }
     const cut: string[] = []
     const seen = new Set<string>()
     try {
@@ -362,6 +363,7 @@ describe('the watch route', () => {
             for (const [vpn, reachable] of Object.entries(vpns)) {
               state.current = torrent({ snapshot: played })
               state.reachable = reachable
+              state.transport = vpn === 'off' ? 'direct' : 'relay'
               await screen.rerender(await watching(WITH_LINKS))
               await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
               cut.push(...[...screen.container.querySelectorAll('.media-information .item > span')]
@@ -376,7 +378,7 @@ describe('the watch route', () => {
     } finally { await showEnglish() }
     expect(languages).toHaveLength(13)
     // each state drawn as its own, so none of them was measured as another
-    expect(seen.size).toBe(21)
+    expect(seen.size).toBe(28)
     expect(cut).toEqual([])
   }, 60_000)
 

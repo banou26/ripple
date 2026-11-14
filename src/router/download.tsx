@@ -35,7 +35,7 @@ import {
   saveTorrentFileToDisk,
 } from '../torrent/save-file'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
-import { useReachability } from '../torrent/use-reachability'
+import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
 import { VpnStat } from '../components/vpn-stat'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
@@ -576,6 +576,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    * strip to check and usually no idea ripple has a transport at all.
    */
   const reachable = useReachability()
+  const transport = useEngineTransport()
 
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -1059,7 +1060,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             />
           )}
         </span>
-        <VpnStat reachable={reachable}/>
+        <VpnStat reachable={reachable} transport={transport}/>
       </header>
 
       <main>
