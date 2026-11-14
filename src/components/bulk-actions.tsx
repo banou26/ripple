@@ -17,6 +17,9 @@ export const checkStyle = css`
   width: 40px;
   height: 40px;
   cursor: pointer;
+  /* a shift+click beside the box would select the text from the last click to it, and Chrome then does not pass the
+     click on to the box */
+  user-select: none;
 
   input {
     width: 18px;
