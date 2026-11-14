@@ -78,8 +78,8 @@ const sized = () => {
 }
 
 const handlers = () => ({
-  saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onRecheck: vi.fn(),
-  onRemove: vi.fn(), onStart: vi.fn(), onPause: vi.fn(), onEmbed: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(), checked: false, onPick: vi.fn(), savedToUserStorage: false,
+  saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(),
+  onStart: vi.fn(), onOptions: vi.fn(), selected: false, onSelect: vi.fn(), checked: false, onPick: vi.fn(), savedToUserStorage: false,
 })
 
 /**

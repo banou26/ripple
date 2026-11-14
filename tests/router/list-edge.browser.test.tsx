@@ -61,8 +61,8 @@ const mount = async (view: 'cards' | 'table', { above = 0, dock = 0 } = {}) => {
             ? <TorrentTable torrents={torrents} sortKey="added" sortDir="desc" onSort={noop} selectedId={null} onSelect={noop} onOptions={noop} picked={new Set()} onPick={noop}/>
             : torrents.map((t) => (
               <TorrentRow
-                key={t.id} t={t} saving={{}} onToggle={noop} onSave={noop} onSaveZip={noop} onRecheck={noop}
-                onRemove={noop} onStart={noop} onPause={noop} onEmbed={noop} onOptions={noop}
+                key={t.id} t={t} saving={{}} onToggle={noop} onSave={noop} onSaveZip={noop}
+                onStart={noop} onOptions={noop}
                 selected={false} onSelect={noop} savedToUserStorage={false} checked={false} onPick={noop}
               />
             ))}

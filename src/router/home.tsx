@@ -1684,11 +1684,7 @@ type RowProps = {
   onToggle: (t: Torrent) => void
   onSave: (t: Torrent, fileIndex: number) => void
   onSaveZip: (t: Torrent) => void
-  onRecheck: (t: Torrent) => void
-  onRemove: (t: Torrent) => void
   onStart: (t: Torrent) => void
-  onPause: (t: Torrent) => void
-  onEmbed: (t: Torrent) => void
   /** `at` opens the menu at a point; null opens the options dialog instead. */
   onOptions: (t: Torrent, at: MenuPosition | null) => void
   selected: boolean
@@ -2378,8 +2374,6 @@ const Home = () => {
     t.state === 'retrying'
       ? retry(Number(t.id))
       : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id))
-
-  const onPause = (t: Torrent) => pause(Number(t.id))
 
   const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
 
@@ -3436,11 +3430,7 @@ const Home = () => {
               onToggle={onToggle}
               onSave={onSave}
               onSaveZip={onSaveZip}
-              onRecheck={onRecheck}
-              onRemove={onRemove}
               onStart={onStart}
-              onPause={onPause}
-              onEmbed={(t) => { void subjectOf(t).then(openEmbed) }}
               onOptions={onOptions}
               selected={t.id === selectedId}
               onSelect={onSelect}
