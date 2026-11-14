@@ -98,16 +98,23 @@ bytes each time). The seeders' own upload count stays part of the claim.
 ## WebRTC peers, and the VPN switch
 
 `npm run e2e:rig` then runs [`tests/swarm-rig-webrtc.spec.ts`](../swarm-rig-webrtc.spec.ts), seven tests in
-order around one library page that stays open (about 1.5 minutes):
+order around one library page that stays open (about 2 minutes):
 
 - **The lane.** The running relay asks the rig's resolver, the running proxy admits the broker alone and
   takes loopback targets, the tracker's name is this machine and no public name is anything, and the served
   engine worker names the rig's tracker and no public one.
 - **The library.** The film arrives from the seeders through the relay. The switch asks first, and with the
-  VPN off the page holds the film as a WebRTC peer that is not behind the relay.
+  VPN off the page holds the film as a WebRTC peer that is not behind the relay. The relay then holds no socket
+  and no UDP port of the page (`webvpn_active_sockets` and its own ports, back to what they were before the
+  page opened), and 10 s on it has taken no peer and counted no byte for it. The control is the same count
+  with the VPN on, which is above that.
 - **The VPN on.** A download takes pieces from the seeders, from a second ripple behind the same relay and
-  from the library page, each counted. Its tracker socket went through the proxy, its candidate is a UDP
-  port the relay holds, and neither the relay's log nor the proxy's holds the info hash or the tracker's name.
+  from the library page, each counted. Its tracker socket went through the proxy, and neither the relay's log
+  nor the proxy's holds the info hash or the tracker's name. On one machine the relay's address is every
+  browser's too, so the candidates are told apart by who made them: each page behind the relay made no
+  connection of the browser, and each description of the engine's own stack names one candidate, on a UDP port
+  the relay holds; the page with the VPN off made connections, and what Chrome described is on no port of the
+  relay.
 - **The VPN off.** A film plays from the library page alone. The page asked its own server, FKN's frame and
   the tracker, and the relay's own counts (sessions admitted, bytes carried) and the proxy's (requests) did not
   move, where the download before it moved them: that is the control.
