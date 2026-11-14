@@ -29,6 +29,19 @@ export const magnetInfoHash = (magnet: string): string | null => {
   return multihash.startsWith('1220') && multihash.length === 68 ? multihash.slice(4) : multihash
 }
 
+const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567'
+
+/** A v1 infohash as 40 hex characters, from either spelling a magnet may carry: hex, or base32. */
+export const hexInfoHash = (infoHash: string): string => {
+  const id = infoHash.toLowerCase()
+  if (!/^[a-z2-7]{32}$/.test(id)) return id
+  let bits = ''
+  for (const char of id) bits += BASE32.indexOf(char).toString(2).padStart(5, '0')
+  let hex = ''
+  for (let i = 0; i < bits.length; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16)
+  return hex
+}
+
 /**
  * EVERY value of a repeated magnet key, decoded and in order.
  *

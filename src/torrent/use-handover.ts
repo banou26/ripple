@@ -4,11 +4,11 @@ import type { Chunk, Offer } from './handover'
 import { useEffect, useRef } from 'react'
 import { get } from 'idb-keyval'
 
-import { hexInfoHash } from '../router/magnet-codec'
 import { isFramed } from '../utils/framed'
 import { getTorrentClient } from './client'
 import { ACK, CHUNK, CREDIT, DONE, GIVE, STOP, TAKE, createPieceCheck, fits, layoutOf, resumeWith } from './handover'
 import { LIST_KEY, cacheSavePathFor } from './library'
+import { hexInfoHash } from './magnet'
 import { infoHashOf } from './make-torrent'
 import { infoFromResume } from './torrent-export'
 
