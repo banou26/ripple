@@ -331,12 +331,14 @@ test('on the library, the VPN is switched off after its warning, a torrent a Web
   await expect.poll(async () => (await row(seeder.page, infoHash))!.upload, { timeout: 15_000 }).toBeGreaterThanOrEqual(FILE.bytes)
   expect((await seen(page)).made, 'the bytes came over no connection of this page').toBeGreaterThan(0)
 
-  // back on asks nothing: the switch moves at once, and the engine follows once the torrent it was handed is stored
+  // back on asks nothing, and the engine follows once the torrent it was handed is stored. Until it has, peers
+  // still see the address, and the switch stays drawn off
   await vpn.click()
   await expect(warning).toHaveCount(0)
-  await expect(vpn).toHaveAttribute('aria-checked', 'true')
   await expect(vpn.locator('strong')).toHaveText('Waiting')
+  await expect(vpn).toHaveAttribute('aria-checked', 'false')
   await expect.poll(async () => (await seen(page)).transports.at(-1), { timeout: 60_000, message: 'no engine behind the relay took over' }).toBe('relay')
+  await expect(vpn).toHaveAttribute('aria-checked', 'true')
   // no relay is in reach of this machine, and the switch says that rather than Off
   await expect(vpn.locator('strong')).toHaveText(/Unreachable|Reconnecting/, { timeout: 60_000 })
   expect(await page.evaluate(() => localStorage.getItem('ripple:vpn'))).toBeNull()
