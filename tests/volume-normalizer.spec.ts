@@ -217,7 +217,8 @@ test('short bursts are held and the dialogue is left as it is, on by default, an
   await expect.poll(() => page.evaluate(() => !!(window as any).__analyser), { timeout: 60_000 }).toBe(true)
   // opens the settings menu when the switch is not on screen, and reads or flips it
   const normalizeSwitch = (flip: boolean) => page.evaluate(async (flip) => {
-    const find = () => document.querySelector<HTMLElement>('[role="switch"]')
+    // the player's own, in its menu: the row above the picture has the VPN's
+    const find = () => document.querySelector<HTMLElement>('.control-bar [role="switch"]')
     if (!find()) (document.querySelector('button.settings') as HTMLElement).click()
     for (let i = 0; i < 20 && !find(); i++) await new Promise((done) => setTimeout(done, 50))
     if (flip) find()?.click()

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, User, Users } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, ShieldOff, User, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
 
@@ -21,8 +21,9 @@ import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { usePrepare } from '../torrent/use-prepare'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { useGiveToRipple } from '../torrent/use-handover'
-import { vpnStatus } from '../torrent/vpn-status'
+import { vpnLabels } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
+import { VpnWarning, useVpnSwitch } from '../components/vpn-switch'
 import DownloadPage from './download'
 import { browserLanguage, embedPath, linkLanguages } from './embed-link'
 import { tellPicked, useEmbedder } from './embedder'
@@ -307,6 +308,7 @@ const playerStyle = css`
        the next one added here would have to be remembered into; and so does the peer count, which is
        wrong once it loses a digit */
     > [data-tooltip-id]:has(.item.link),
+    > [data-tooltip-id]:has(button.item),
     > [data-tooltip-id]:has(.item.state),
     > [data-tooltip-id]:has(.item.count) {
       flex-shrink: 0;
@@ -337,6 +339,32 @@ const playerStyle = css`
     /* an icon never shrinks: it is the whole label once the words fold */
     svg {
       flex-shrink: 0;
+    }
+
+    /* The VPN's switch, pressable as the two links are: a 40px tall target and the same pill under the
+       pointer. Narrower at its sides than theirs, since the readouts beside it are a gap away. */
+    button.item {
+      margin: -8px -4px;
+      padding: 8px 4px;
+      border: 0;
+      border-radius: 4px;
+      background: none;
+      font: inherit;
+      color: inherit;
+      text-align: start;
+      text-shadow: inherit;
+      cursor: pointer;
+      transition: background-color 120ms ease;
+
+      &:hover,
+      &:focus-visible {
+        background-color: rgba(255, 255, 255, 0.16);
+      }
+
+      &:focus-visible {
+        outline: 2px solid ${TEXT};
+        outline-offset: 2px;
+      }
     }
 
     /*
@@ -386,10 +414,21 @@ const playerStyle = css`
         display: inline;
       }
     }
+    /* Shown, the word keeps the room of the widest state it can read, so a change of state moves no
+       readout beside it: data-room carries each one on a line, laid under it with no height. */
     .item.vpn span {
       display: none;
       @media (min-width: 960px) {
-        display: inline;
+        display: inline-grid;
+      }
+
+      &::after {
+        content: attr(data-room);
+        height: 0;
+        overflow: hidden;
+        visibility: hidden;
+        white-space: pre;
+        min-width: max-content;
       }
     }
   }
@@ -452,13 +491,13 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     return video ? keepPlayerVolume(video) : undefined
   }, [played])
   /**
-   * Whether anything is carrying peer traffic, drawn beside the peer count it explains.
+   * Whether anything is carrying peer traffic, drawn beside the peer count it explains, and the switch for it.
    *
    * A player with the tunnel down shows "Loading metadata…" and zero peers forever, which is exactly
    * what a torrent nobody is seeding looks like. One of those is worth waiting out and the other is
    * not, and until this readout existed the picture was identical.
    */
-  const vpn = vpnStatus(useReachability(), useEngineTransport())
+  const vpn = useVpnSwitch(useReachability(), useEngineTransport())
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.
@@ -626,6 +665,19 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     ? intl.formatMessage({ id: 'Download {name}#a file', defaultMessage: 'Download {name}', description: 'a file' }, { name: fileName })
     : intl.formatMessage({ id: 'Download this torrent', defaultMessage: 'Download this torrent' })
 
+  const vpnName = intl.formatMessage({ id: 'VPN', defaultMessage: 'VPN' })
+  const vpnWord = (state: string) => intl.formatMessage({ id: 'VPN {state}', defaultMessage: 'VPN {state}' }, { state })
+  const vpnChip = vpn.status
+    ? intl.formatMessage({ id: 'VPN: {state}', defaultMessage: 'VPN: {state}' }, { state: vpn.status.label })
+    : vpnName
+  // drawn from the stored choice at once: the shield is crossed as soon as the VPN is switched off
+  const vpnItem = (
+    <>
+      {vpn.on ? <Shield /> : <ShieldOff />}
+      <span data-room={vpnLabels().map(vpnWord).join('\n')}>{vpn.status ? vpnWord(vpn.status.label) : vpnName}</span>
+    </>
+  )
+
   const overlay = (
     <div className="ripple-overlay-content">
       {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
@@ -694,7 +746,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
               toolTipText={<span>{intl.formatMessage({ id: 'Torrent: {state}', defaultMessage: 'Torrent: {state}' }, { state: stateLabel })}</span>}
             />
           )}
-          {vpn && (
+          {(vpn.available || vpn.status) && (
             <TooltipDisplay
               id="vpn"
               /* The row is at the TOP of the picture, so a chip placed above it has nowhere to go and
@@ -702,13 +754,25 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                  150 to 220px away from the item they belong to. Naming the placement it would flip to
                  anyway keeps every chip under its own item. */
               tooltipPlace="bottom-end"
-              text={(
-                <div className="item vpn" data-state={vpn.state}>
-                  <Shield />
-                  <span>{intl.formatMessage({ id: 'VPN {state}', defaultMessage: 'VPN {state}' }, { state: vpn.label })}</span>
-                </div>
-              )}
-              toolTipText={<span>{intl.formatMessage({ id: 'VPN: {state}', defaultMessage: 'VPN: {state}' }, { state: vpn.label })}</span>}
+              text={vpn.available
+                ? (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={vpn.on}
+                    /* the word is folded on a narrow player, and a glyph alone names nothing */
+                    aria-label={vpnChip}
+                    className="item vpn"
+                    data-state={vpn.status?.state}
+                    onClick={vpn.press}
+                    /* Space presses it, and must not also reach the player, which pauses on it */
+                    onKeyDown={(event) => { if (event.key === ' ') event.stopPropagation() }}
+                  >
+                    {vpnItem}
+                  </button>
+                )
+                : <div className="item vpn" data-state={vpn.status?.state}>{vpnItem}</div>}
+              toolTipText={<span>{vpnChip}</span>}
             />
           )}
           <TooltipDisplay
@@ -803,7 +867,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         // playback's reader would let it steal download order from the bytes playback is blocked on.
         thumbnailRead={readQuiet}
         onSeek={(fraction) => { if (fileSize) prioritizeFrom(fraction * fileSize) }}
-      />
+      >
+        {/* inside the player, which in fullscreen shows nothing outside itself */}
+        {vpn.answer && <VpnWarning inline onAnswer={vpn.answer}/>}
+      </MediaPlayer>
     </div>
   )
 }

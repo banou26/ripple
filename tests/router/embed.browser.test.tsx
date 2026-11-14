@@ -51,6 +51,22 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
 }))
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
 vi.mock('../../src/torrent/use-reachability', () => ({ useReachability: () => state.reachable, useEngineTransport: () => state.transport }))
+// whatever the constant is set to in the source, the row here has the VPN's switch
+vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
+  WEBRTC_PEERS: true,
+}))
+// the warning's second sentence follows the machine's time zone, and this file is not about it
+vi.mock('../../src/torrent/country-line', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/country-line')>()),
+  inListedCountry: () => false,
+}))
+// the choice is stored and no engine follows it: none of this file's players runs one of its own
+const setVpn = vi.hoisted(() => vi.fn())
+vi.mock('../../src/torrent/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/client')>()),
+  setVpn,
+}))
 
 const DESKTOP = { width: 1280, height: 720 }
 const PHONE = { width: 390, height: 780 }
@@ -137,6 +153,19 @@ const describedAs = async (selector: string) => {
   const { nodes } = await session.send('Accessibility.getPartialAXTree', { objectId: result.objectId, fetchRelatives: false })
   return nodes[0]?.description?.value
 }
+
+/** Stores the VPN's choice as another page would, so a player that is already drawn follows it. */
+const storeVpnChoice = (on: boolean) => {
+  if (on) localStorage.removeItem('ripple:vpn'); else localStorage.setItem('ripple:vpn', 'off')
+  window.dispatchEvent(new StorageEvent('storage', { key: 'ripple:vpn' }))
+}
+
+beforeEach(async () => {
+  localStorage.removeItem('ripple:vpn')
+  localStorage.removeItem('ripple:vpn-off-remembered')
+  const { storeVpn } = await import('../../src/torrent/vpn-setting')
+  setVpn.mockReset().mockImplementation(async (on: boolean) => { storeVpn(on) })
+})
 
 describe('the watch route', () => {
   beforeEach(() => { state.current = torrent(); state.reachable = null; state.transport = null })
@@ -334,7 +363,8 @@ describe('the watch route', () => {
    * of each layout the row has: a phone's, then with the upload speed, then with the byte counter, then with the state's
    * and the swarm's words, then with the VPN's and a larger font. In DejaVu Sans, Turkish's speed was cut at 480px, and
    * VPN Reconnecting beside Retrying cut both speeds at 768px in English, Portuguese and Turkish (measured 2026-11-03).
-   * It draws 1365 frames, which took 15.8 s on GitHub's runner on 2026-11-05, past the default 15 s.
+   * It drew 1365 frames with four states of the VPN, which took 15.8 s on GitHub's runner on 2026-11-05, past the
+   * default 15 s, and draws 2275 with the fifth.
    */
   it('keeps every readout whole with ordinary figures in every language, state and width', async () => {
     const { showEnglish, showIn } = await import('../i18n/show-in')
@@ -350,8 +380,8 @@ describe('the watch route', () => {
       paused: { ...snapshot!, status: { ...snapshot!.status!, paused: true }, userPaused: true },
       retrying: { ...snapshot!, recovery: { reason: 'stalled', attempt: 1, retryAt: 0 } },
     }
-    // off is the engine with no relay, which has no port and no listener either
-    const vpns = { on: VPN_ON, reconnecting: { port: null, listeners: [{ up: false, healing: true }] }, unreachable: { port: null, listeners: [] }, off: { port: null, listeners: [] } }
+    // off is the engine with no relay, which has no port and no listener either; waiting is a choice no engine has followed yet
+    const vpns = { on: VPN_ON, reconnecting: { port: null, listeners: [{ up: false, healing: true }] }, unreachable: { port: null, listeners: [] }, off: { port: null, listeners: [] }, waiting: VPN_ON }
     const cut: string[] = []
     const seen = new Set<string>()
     try {
@@ -364,6 +394,7 @@ describe('the watch route', () => {
               state.current = torrent({ snapshot: played })
               state.reachable = reachable
               state.transport = vpn === 'off' ? 'direct' : 'relay'
+              storeVpnChoice(vpn !== 'off' && vpn !== 'waiting')
               await screen.rerender(await watching(WITH_LINKS))
               await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
               cut.push(...[...screen.container.querySelectorAll('.media-information .item > span')]
@@ -378,9 +409,9 @@ describe('the watch route', () => {
     } finally { await showEnglish() }
     expect(languages).toHaveLength(13)
     // each state drawn as its own, so none of them was measured as another
-    expect(seen.size).toBe(28)
+    expect(seen.size).toBe(35)
     expect(cut).toEqual([])
-  }, 60_000)
+  }, 90_000)
 
   // the tab keeps this player as its opener, to take what it downloaded; with nothing taken it has the magnet to add
   it('opens Ripple with this player as its opener, naming the torrent and carrying its magnet', async () => {
@@ -649,6 +680,211 @@ describe('the tab\'s title on /watch', () => {
   })
 })
 
+/*
+ * The VPN's switch in the player, which is where most people meet ripple: inside another site's page, often
+ * fullscreen, often on a phone. A fullscreen element shows nothing outside itself, so the warning is drawn inside
+ * the player, over all of it.
+ */
+describe('the VPN switch on /watch', () => {
+  const SENTENCE = 'Peers and trackers of every running torrent will see your IP address.'
+  beforeEach(() => { state.current = torrent(); state.reachable = VPN_ON; state.transport = 'relay' })
+  afterEach(async () => {
+    state.reachable = null
+    state.transport = null
+    await page.viewport(DESKTOP.width, DESKTOP.height)
+  })
+
+  const control = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector('.media-information [role="switch"]') as HTMLElement
+  const warning = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector('[role="dialog"]') as HTMLElement | null
+
+  it('is a switch in the row, drawn from the stored choice, with the shield crossed while it is off', async () => {
+    const on = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(on)).not.toBeNull()
+    expect(control(on).tagName).toBe('BUTTON')
+    expect(control(on).getAttribute('aria-checked')).toBe('true')
+    expect(control(on).getAttribute('aria-label')).toBe('VPN: On')
+    expect(control(on).textContent).toBe('VPN On')
+    expect(control(on).querySelector('svg')?.classList.contains('lucide-shield')).toBe(true)
+    await on.unmount()
+
+    localStorage.setItem('ripple:vpn', 'off')
+    // the engine has not followed yet: the shield is crossed at once, and the word waits
+    const off = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(off)).not.toBeNull()
+    expect(control(off).getAttribute('aria-checked')).toBe('false')
+    expect(control(off).querySelector('svg')?.classList.contains('lucide-shield-off')).toBe(true)
+    expect(control(off).textContent).toBe('VPN Waiting')
+    expect(control(off).getAttribute('data-state')).toBe('waiting')
+    state.transport = 'direct'
+    await off.rerender(await watching(WITH_LINKS))
+    expect(control(off).textContent).toBe('VPN Off')
+    expect(getComputedStyle(control(off)).color, 'Off is a choice and takes no warning colour').toBe(getComputedStyle(off.getByTestId('peers').element()).color)
+  })
+
+  it('is named and pressable on a phone, where its word is folded', async () => {
+    const screen = await mount(SMALL_PHONE, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    expect(getComputedStyle(control(screen).querySelector('span')!).display).toBe('none')
+    await expect.element(screen.getByRole('switch', { name: 'VPN: On' })).toBeInTheDocument()
+    const box = control(screen).getBoundingClientRect()
+    expect(box.height).toBeGreaterThanOrEqual(40)
+    expect(box.width).toBeGreaterThanOrEqual(32)
+    await asPhone(async (tap) => {
+      await tap(control(screen))
+      await expect.poll(() => warning(screen)).not.toBeNull()
+    })
+  })
+
+  it('asks inside the player, over all of it, and leaves the VPN on when cancelled', async () => {
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await userEvent.click(control(screen))
+    await expect.poll(() => warning(screen)).not.toBeNull()
+    const card = warning(screen)!
+    expect(card.textContent).toBe(`${SENTENCE}Remember this decisionCancelTurn off`)
+
+    // in the element the player takes fullscreen, which is the one that holds its picture and its controls
+    const player = screen.container.querySelector('.control-bar')!.parentElement!
+    expect(player.contains(screen.container.querySelector('video'))).toBe(true)
+    expect(player.contains(card)).toBe(true)
+    expect(card.getBoundingClientRect()).toEqual(player.getBoundingClientRect())
+    // over the player's own controls and over the row, not under them
+    for (const under of [screen.container.querySelector('.control-bar button')!, control(screen), screen.getByTestId('open-in-ripple').element()]) {
+      const { left, top, width, height } = under.getBoundingClientRect()
+      expect(card.contains(document.elementFromPoint(left + width / 2, top + height / 2)), under.className).toBe(true)
+    }
+    await expect.poll(() => document.activeElement?.textContent).toBe('Cancel')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }).element())
+    await expect.poll(() => warning(screen)).toBeNull()
+    expect(setVpn).not.toHaveBeenCalled()
+    expect(localStorage.getItem('ripple:vpn')).toBeNull()
+    expect(control(screen).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('switches off once confirmed, crosses the shield at once, and switches back on without asking', async () => {
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await userEvent.click(control(screen))
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off' }).element())
+    await expect.poll(() => warning(screen)).toBeNull()
+    expect(setVpn.mock.calls).toEqual([[false]])
+    expect(localStorage.getItem('ripple:vpn')).toBe('off')
+    expect(control(screen).getAttribute('aria-checked')).toBe('false')
+    expect(control(screen).querySelector('svg')?.classList.contains('lucide-shield-off')).toBe(true)
+
+    await userEvent.click(control(screen))
+    expect(warning(screen)).toBeNull()
+    expect(setVpn.mock.calls).toEqual([[false], [true]])
+    expect(control(screen).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('is not asked again in this storage once Remember this decision was ticked', async () => {
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await userEvent.click(control(screen))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Remember this decision' }).element())
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off' }).element())
+    await userEvent.click(control(screen))
+    await userEvent.click(control(screen))
+    expect(warning(screen)).toBeNull()
+    expect(setVpn.mock.calls).toEqual([[false], [true], [false]])
+  })
+
+  // the player pauses on Space and goes fullscreen on f, from any key that reaches the window
+  it('is pressed with Space, which does not reach the player, and neither does a key in the warning', async () => {
+    const heard: string[] = []
+    const hear = (event: KeyboardEvent) => { heard.push(event.key) }
+    window.addEventListener('keydown', hear)
+    try {
+      const screen = await mount(DESKTOP, WITH_LINKS)
+      await expect.poll(() => control(screen)).not.toBeNull()
+      // THE CONTROL: a key on one of the row's links is heard
+      screen.getByTestId('open-in-ripple').element().focus()
+      await userEvent.keyboard('m')
+      expect(heard).toEqual(['m'])
+      heard.length = 0
+
+      control(screen).focus()
+      await userEvent.keyboard(' ')
+      await expect.poll(() => warning(screen)).not.toBeNull()
+      await expect.poll(() => document.activeElement?.textContent).toBe('Cancel')
+      await userEvent.keyboard('f')
+      await userEvent.keyboard('m')
+      await userEvent.keyboard('{Escape}')
+      await expect.poll(() => warning(screen)).toBeNull()
+      expect(heard).toEqual([])
+      expect(document.activeElement, 'the focus did not come back to the switch').toBe(control(screen))
+    } finally { window.removeEventListener('keydown', hear) }
+  })
+
+  /*
+   * A phone held upright gives a player some 200px of height. The card is drawn smaller there, and where it is
+   * still taller than the player it opens at its first line and scrolls.
+   */
+  it('fits a phone\'s player, its first line on screen and its two actions side by side', async () => {
+    const screen = await mount({ width: 360, height: 203 }, WITH_LINKS)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await userEvent.click(control(screen))
+    await expect.poll(() => warning(screen)).not.toBeNull()
+    const card = warning(screen)!
+    const player = card.getBoundingClientRect()
+    const sentence = card.querySelector('p')!.getBoundingClientRect()
+    expect(card.scrollTop).toBe(0)
+    expect(sentence.top).toBeGreaterThanOrEqual(player.top)
+    const [cancel, off] = [...card.querySelectorAll('.actions button')].map((button) => button.getBoundingClientRect())
+    expect(cancel!.top).toBe(off!.top)
+    expect(off!.bottom, 'the actions are below the player\'s edge with one sentence').toBeLessThanOrEqual(player.bottom)
+    expect(off!.right).toBeLessThanOrEqual(player.right)
+  })
+
+  /*
+   * At 960px and up the word is on the row, and it changes while somebody watches: On, then Reconnecting as a
+   * relay drops, then On. Each state keeps the room of the widest, in each language and in a wider font.
+   */
+  it('moves no readout beside it when its word changes, in any language', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+    const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
+    const vpns = {
+      on: [VPN_ON, 'relay', true], reconnecting: [{ port: null, listeners: [{ up: false, healing: true }] }, 'relay', true],
+      unreachable: [{ port: null, listeners: [] }, 'relay', true], off: [{ port: null, listeners: [] }, 'direct', false], waiting: [VPN_ON, 'relay', false],
+    } as const
+    const fonts = { 'device font': '', 'monospace fallback': 'body * { font-family: monospace !important }' }
+    const sheet = document.head.appendChild(document.createElement('style'))
+    const moved: string[] = []
+    const words = new Set<string>()
+    try {
+      for (const [language, catalogue] of languages) {
+        await (catalogue ? showIn(language, catalogue) : showEnglish())
+        state.current = withSwarm(ORDINARY, 8054, 10_400_000)
+        const screen = await mount({ width: 1280, height: 720 }, WITH_LINKS)
+        for (const [font, css] of Object.entries(fonts)) {
+          sheet.textContent = css
+          const spots: number[] = []
+          for (const [reachable, transport, on] of Object.values(vpns)) {
+            state.reachable = reachable
+            state.transport = transport
+            storeVpnChoice(on)
+            await screen.rerender(await watching(WITH_LINKS))
+            await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+            spots.push(control(screen).getBoundingClientRect().left, screen.getByTestId('peers').element().getBoundingClientRect().left)
+            words.add(`${language}: ${control(screen).textContent}`)
+          }
+          const [switchAt, peersAt] = [spots.filter((_, i) => i % 2 === 0), spots.filter((_, i) => i % 2 === 1)]
+          if (new Set(switchAt).size !== 1 || new Set(peersAt).size !== 1) moved.push(`${language}, ${font}: the switch at ${switchAt.join(' ')}, the peer count at ${peersAt.join(' ')}`)
+        }
+        await screen.unmount()
+      }
+    } finally {
+      sheet.remove()
+      await showEnglish()
+    }
+    expect(words.size).toBe(13 * 5)
+    expect(moved).toEqual([])
+  }, 60_000)
+})
+
 describe('the volume normalizer switch on /watch', () => {
   beforeEach(() => {
     state.current = torrent()
@@ -659,8 +895,9 @@ describe('the volume normalizer switch on /watch', () => {
   const openSwitch = async (screen: Awaited<ReturnType<typeof mount>>) => {
     await expect.poll(() => screen.container.querySelector('button.settings')).not.toBeNull()
     ;(screen.container.querySelector('button.settings') as HTMLElement).click()
-    await expect.poll(() => screen.container.querySelector('[role="switch"]')).not.toBeNull()
-    return () => screen.container.querySelector('[role="switch"]') as HTMLElement
+    // the player's own switch, in its menu: the row above the picture has the VPN's
+    await expect.poll(() => screen.container.querySelector('.control-bar [role="switch"]')).not.toBeNull()
+    return () => screen.container.querySelector('.control-bar [role="switch"]') as HTMLElement
   }
 
   /**
@@ -753,7 +990,8 @@ const FILE_NAME = 'Some.Release.Name.S01E04.1080p.mkv'
 const STREAMS = 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.'
 const STREAMS_DE = 'Zu groß, um es hier im Voraus herunterzuladen, daher wird es beim Ansehen gestreamt. In Ripple (Link oben) kann es mit mehr erlaubtem Platz vollständig heruntergeladen werden, ohne nächste Folge, Tracking und gemeinsames Ansehen.'
 const LINKS = ['Open this torrent in Ripple', `Download ${FILE_NAME}`]
-const READOUTS = ['Downloading', 'VPN On']
+// the VPN's switch is named for a screen reader as its chip reads, since a narrow player folds its word
+const READOUTS = ['Downloading', 'VPN: On', 'VPN On']
 const SWARM = ['216 seeders · 3 leechers', 'seeders', 'leechers', '8.7 MB/s', '312 kB/s']
 // the connected peers and the speeds of a torrent no tracker has counted
 const PEERS = ['82', '8.7 MB/s', '0 B/s']
@@ -781,7 +1019,7 @@ const GERMAN: Record<string, string> = {
   '216 seeders · 3 leechers': '216 Seeder · 3 Leecher', seeders: 'Seeder', leechers: 'Leecher', '8.7 MB/s': '8,7 MB/s', '312 kB/s': '312 kB/s', '0 B/s': '0 Byte/s',
   'open-in-ripple: Open this torrent in Ripple': 'open-in-ripple: Diesen Torrent in Ripple öffnen',
   [`open-download-page: Download ${FILE_NAME}`]: `open-download-page: ${FILE_NAME} herunterladen`,
-  'torrent-state: Torrent: Downloading': 'torrent-state: Torrent: Lädt herunter', 'vpn: VPN: On': 'vpn: VPN: An',
+  'torrent-state: Torrent: Downloading': 'torrent-state: Torrent: Lädt herunter', 'vpn: VPN: On': 'vpn: VPN: An', 'VPN: On': 'VPN: An',
   'peers: Seeders: 216\nLeechers: 3\nDownloads: 8054\nConnected peers: 28': 'peers: Seeder: 216\nLeecher: 3\nDownloads: 8054\nVerbundene Peers: 28',
   'peers: Peers: 28': 'peers: Peers: 28',
   'download-speed: Download speed: 8.7 MB/s': 'download-speed: Download-Geschwindigkeit: 8,7 MB/s', 'upload-speed: Upload speed: 312 kB/s': 'upload-speed: Upload-Geschwindigkeit: 312 kB/s',
