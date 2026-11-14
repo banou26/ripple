@@ -145,16 +145,17 @@ const sized = () => {
  */
 const MAGNET = 'bWFnbmV0Oj94dD11cm46YnRpaDphYmMmZG49UGFjay5OYW1l'
 
-const mount = async (search = '', magnet = MAGNET) => {
+const downloadPage = async (search = '', magnet = MAGNET) => {
   const { default: Embed } = await import('../../src/router/embed')
   const { IntlRoot } = await import('../../src/i18n')
-  return render(
+  return (
     <IntlRoot><MemoryRouter initialEntries={[`/download?magnet=${magnet}${search}`]}>
       <Embed mode="download" />
-    </MemoryRouter></IntlRoot>,
-    sized(),
+    </MemoryRouter></IntlRoot>
   )
 }
+
+const mount = async (search = '', magnet = MAGNET) => render(await downloadPage(search, magnet), sized())
 
 /** The player, for the one test that checks this page is NOT what /watch renders. */
 const mountPlayer = async (search = '') => {
@@ -383,6 +384,35 @@ describe('the download route', () => {
     const screen = await mount()
     await expect.element(screen.getByText(/The download engine stopped/)).toBeInTheDocument()
     expect(screen.container.querySelector('[data-testid="swarm"]')).toBeNull()
+  })
+
+  // a link nobody serves used to sit on "Loading torrent…" for good, with nothing saying why
+  it('says no peers were found once the first search is over, and takes it back when one connects', async () => {
+    const searching = (since: number) => torrent({ snapshot: { ...torrent().snapshot!, files: null, noPeersSince: Date.now() - since }, handle: null })
+    state.current = searching(89_000)
+    const screen = await mount()
+    await expect.element(screen.getByRole('button', { name: 'Loading torrent…' })).toBeDisabled()
+    expect(screen.container.querySelector('[role="status"]')).toBeNull()
+
+    state.current = searching(91_000)
+    await screen.rerender(await downloadPage())
+    await expect.element(screen.getByRole('status')).toHaveTextContent('No peers found. Still searching.')
+    // not drawn as a failure: nothing has failed, and the search goes on
+    expect(screen.getByRole('status').element().className).toBe('note')
+
+    state.current = torrent({ snapshot: { ...torrent().snapshot!, files: null }, handle: null })
+    await screen.rerender(await downloadPage())
+    expect(screen.container.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('leaves that line out under an engine failure, which stops the search', async () => {
+    state.current = torrent({
+      engineError: 'The download engine stopped. Reload the page to try again.',
+      snapshot: { ...torrent().snapshot!, noPeersSince: Date.now() - 91_000 },
+    })
+    const screen = await mount()
+    await expect.element(screen.getByText(/The download engine stopped/)).toBeInTheDocument()
+    expect(screen.container.querySelector('[role="status"]')).toBeNull()
   })
 
   /**

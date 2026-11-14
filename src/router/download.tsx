@@ -35,6 +35,7 @@ import {
   saveTorrentFileToDisk,
 } from '../torrent/save-file'
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
+import { noPeersFound, noPeersLine } from '../torrent/no-peers'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
 import { VpnSwitch } from '../components/vpn-switch'
@@ -1159,6 +1160,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
 
           {status && <div className="failure">{status}</div>}
           {failure && <div className="failure">{failure}</div>}
+          {!status && noPeersFound(snapshot) && <div className="note" role="status">{noPeersLine(transport)}</div>}
           {finished !== null && (
             <div className="done">
               {typeof finished === 'string'

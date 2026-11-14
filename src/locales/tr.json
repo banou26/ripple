@@ -196,6 +196,8 @@
   "No magnet link yet.": "Henüz magnet bağlantısı yok.",
   "No matching files": "Eşleşen dosya yok",
   "No peers can connect. Try reloading the page.": "Hiçbir kişi bağlanamıyor. Sayfayı yeniden yüklemeyi deneyin.",
+  "No peers found with the VPN off. Still searching.": "VPN kapalıyken kişi bulunamadı. Arama sürüyor.",
+  "No peers found. Still searching.": "Kişi bulunamadı. Arama sürüyor.",
   "No temporary downloads.": "Geçici indirme yok.",
   "No thanks": "Hayır, teşekkürler",
   "No trackers.": "İzleyici yok.",

@@ -164,3 +164,18 @@ describe('how long a download has left', () => {
     expect(older.etaSeconds).toBe(60)
   })
 })
+
+describe('a download that has found nobody', () => {
+  const NOW = 1_800_000_000_000
+
+  it('says so on its row once the first search is over, and not before', () => {
+    expect(snapshotToTorrent(snap({ state: 3 }, { noPeersSince: NOW - 89_000 }), NOW).noPeers).toBe(false)
+    expect(snapshotToTorrent(snap({ state: 3 }, { noPeersSince: NOW - 90_000 }), NOW).noPeers).toBe(true)
+  })
+
+  // the engine leaves the field out of a torrent that has a peer, or that is not looking for one
+  it('says nothing of a torrent the engine reports no search for', () => {
+    expect(snapshotToTorrent(snap({ state: 3, numPeers: 4 }), NOW).noPeers).toBe(false)
+    expect(snapshotToTorrent(snap({ state: 5 }), NOW).noPeers).toBe(false)
+  })
+})

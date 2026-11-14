@@ -91,7 +91,7 @@ const handlers = () => ({
  * it renders correctly and reports every box at the origin with zero size, which makes a geometry
  * assertion pass or fail on nothing at all.
  */
-const inPage = async (t: Torrent, extra: Partial<Torrent> = {}, over: Partial<ReturnType<typeof handlers>> = {}) => {
+const inPage = async (t: Torrent, extra: Partial<Torrent> = {}, over: Partial<ReturnType<typeof handlers>> & { transport?: 'relay' | 'direct' } = {}) => {
   const { TorrentRow, style } = await import('../../src/router/home')
   const props = { ...handlers(), ...over }
   const screen = await render(
@@ -657,6 +657,40 @@ describe('a library row', () => {
       const { screen: plain } = await inPage(torrent({ infoHash: undefined }))
       expect(plain.container.querySelector('.row-check')).toBeNull()
       expect(box(screen.container.querySelector('.body'))!.width).toBe(box(plain.container.querySelector('.body'))!.width)
+    })
+  })
+
+  /*
+   * With the VPN off nothing calls a torrent with no peers stalled, so without this line a magnet nobody serves
+   * reads Downloading at 0 B/s for good.
+   */
+  describe('a download that found nobody', () => {
+    const alone = { peers: 0, down: 0, noPeers: true }
+
+    it('says so among its figures, and that the search goes on', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent(alone), {}, { transport: 'relay' })
+      expect(screen.container.querySelector('.meta .retry')?.textContent).toBe('No peers found. Still searching.')
+    })
+
+    it('names the VPN where it is off', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent(alone), {}, { transport: 'direct' })
+      expect(screen.container.querySelector('.meta .retry')?.textContent).toBe('No peers found with the VPN off. Still searching.')
+    })
+
+    // behind the relay the engine retries such a download from 2 minutes in, and that line says more
+    it('leaves the place to the retry line where there is one', async () => {
+      thumbnail.current = null
+      const retry = { reason: 'stalled' as const, attempt: 1, retryInSeconds: 30 }
+      const { screen } = await inPage(torrent({ ...alone, state: 'retrying', retry }), {}, { transport: 'relay' })
+      expect([...screen.container.querySelectorAll('.meta .retry')].map((line) => line.textContent)).toEqual(['Not connected to any peers · retrying in 30s'])
+    })
+
+    it('says nothing while it has a peer or has not searched for long (control)', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent({ peers: 0, down: 0, noPeers: false }), {}, { transport: 'direct' })
+      expect(screen.container.querySelector('.meta .retry')).toBeNull()
     })
   })
 

@@ -18,6 +18,7 @@ import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
 import { usePlayerTorrent } from '../torrent/use-player-torrent'
+import { noPeersFound, noPeersLine } from '../torrent/no-peers'
 import { usePrepare } from '../torrent/use-prepare'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { useGiveToRipple } from '../torrent/use-handover'
@@ -497,7 +498,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * what a torrent nobody is seeding looks like. One of those is worth waiting out and the other is
    * not, and until this readout existed the picture was identical.
    */
-  const vpn = useVpnSwitch(useReachability(), useEngineTransport())
+  const transport = useEngineTransport()
+  const vpn = useVpnSwitch(useReachability(), transport)
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.
@@ -581,6 +583,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     ?? (storageFull
       ? intl.formatMessage({ id: 'Out of storage space. Remove a download in Ripple to free room.', defaultMessage: 'Out of storage space. Remove a download in Ripple to free room.' })
       : null)
+    // in place of the loading line: a magnet nobody serves would otherwise read as loading for good
+    ?? (noPeersFound(snapshot) ? noPeersLine(transport) : null)
     ?? (hasMetadata ? null : intl.formatMessage({ id: 'Loading metadata…', defaultMessage: 'Loading metadata…' }))
     ?? (snapshot?.windowed && isFramed()
       ? (

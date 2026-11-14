@@ -196,6 +196,8 @@
   "No magnet link yet.": "まだマグネットリンクがありません。",
   "No matching files": "一致するファイルがありません",
   "No peers can connect. Try reloading the page.": "ピアが接続できません。ページを再読み込みしてみてください。",
+  "No peers found with the VPN off. Still searching.": "VPN がオフではピアが見つかりません。引き続き検索しています。",
+  "No peers found. Still searching.": "ピアが見つかりません。引き続き検索しています。",
   "No temporary downloads.": "一時的なダウンロードはありません。",
   "No thanks": "今はしない",
   "No trackers.": "トラッカーはありません。",

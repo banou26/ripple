@@ -196,6 +196,8 @@
   "No magnet link yet.": "Магнит-ссылки пока нет.",
   "No matching files": "Нет подходящих файлов",
   "No peers can connect. Try reloading the page.": "Пиры не могут подключиться. Попробуйте перезагрузить страницу.",
+  "No peers found with the VPN off. Still searching.": "С выключенным VPN пиры не найдены. Поиск продолжается.",
+  "No peers found. Still searching.": "Пиры не найдены. Поиск продолжается.",
   "No temporary downloads.": "Нет временных загрузок.",
   "No thanks": "Нет, спасибо",
   "No trackers.": "Трекеров нет.",

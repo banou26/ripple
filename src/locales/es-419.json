@@ -196,6 +196,8 @@
   "No magnet link yet.": "Todavía no hay enlace magnet.",
   "No matching files": "No hay archivos que coincidan",
   "No peers can connect. Try reloading the page.": "Ningún par puede conectarse. Intenta recargar la página.",
+  "No peers found with the VPN off. Still searching.": "No se encontraron pares con la VPN desactivada. La búsqueda continúa.",
+  "No peers found. Still searching.": "No se encontraron pares. La búsqueda continúa.",
   "No temporary downloads.": "No hay descargas temporales.",
   "No thanks": "No, gracias",
   "No trackers.": "No hay trackers.",

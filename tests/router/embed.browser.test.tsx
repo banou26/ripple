@@ -885,6 +885,60 @@ describe('the VPN switch on /watch', () => {
   }, 60_000)
 })
 
+describe('a download nobody serves, on /watch', () => {
+  const searching = (since: number, files = true) => {
+    const { snapshot } = torrent()
+    return torrent({ snapshot: { ...snapshot!, files: files ? snapshot!.files : null, status: { ...snapshot!.status!, numPeers: 0 }, noPeersSince: Date.now() - since } })
+  }
+  beforeEach(() => { state.reachable = VPN_ON; state.transport = 'relay' })
+  afterEach(() => { state.reachable = null; state.transport = null })
+
+  it('says no peers were found once the first search is over, in place of the loading line', async () => {
+    state.current = searching(91_000, false)
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(screen.getByText('No peers found. Still searching.')).toBeInTheDocument()
+    expect(screen.container.textContent).not.toContain('Loading metadata…')
+    // and for a file whose metadata is known, where the row would count its bytes
+    state.current = searching(91_000)
+    await screen.rerender(await watching(WITH_LINKS))
+    expect(screen.container.querySelector('.loading-information')?.textContent).toBe('No peers found. Still searching.')
+    expect(screen.container.querySelector('.downloaded')).toBeNull()
+  })
+
+  it('names the VPN where it is off', async () => {
+    localStorage.setItem('ripple:vpn', 'off')
+    state.transport = 'direct'
+    state.current = searching(91_000, false)
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(screen.getByText('No peers found with the VPN off. Still searching.')).toBeInTheDocument()
+  })
+
+  it('keeps the loading line until then, and takes the line back when a peer connects', async () => {
+    state.current = searching(89_000, false)
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(screen.getByText('Loading metadata…')).toBeInTheDocument()
+    expect(screen.container.textContent).not.toContain('No peers found')
+
+    state.current = searching(91_000, false)
+    await screen.rerender(await watching(WITH_LINKS))
+    await expect.element(screen.getByText('No peers found. Still searching.')).toBeInTheDocument()
+
+    // the engine drops the field the moment somebody connects
+    const { snapshot } = torrent()
+    state.current = torrent({ snapshot: { ...snapshot!, files: null } })
+    await screen.rerender(await watching(WITH_LINKS))
+    await expect.element(screen.getByText('Loading metadata…')).toBeInTheDocument()
+    expect(screen.container.textContent).not.toContain('No peers found')
+  })
+
+  it('gives way to an engine failure and to a full origin, which stop the download for good', async () => {
+    state.current = { ...searching(91_000), engineError: 'The download engine stopped. Reload the page to try again.' }
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(screen.getByText('The download engine stopped. Reload the page to try again.')).toBeInTheDocument()
+    expect(screen.container.textContent).not.toContain('No peers found')
+  })
+})
+
 describe('the volume normalizer switch on /watch', () => {
   beforeEach(() => {
     state.current = torrent()

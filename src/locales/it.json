@@ -196,6 +196,8 @@
   "No magnet link yet.": "Nessun collegamento magnet per ora.",
   "No matching files": "Nessun file corrispondente",
   "No peers can connect. Try reloading the page.": "Nessun peer può connettersi. Prova a ricaricare la pagina.",
+  "No peers found with the VPN off. Still searching.": "Nessun peer trovato con la VPN disattivata. La ricerca continua.",
+  "No peers found. Still searching.": "Nessun peer trovato. La ricerca continua.",
   "No temporary downloads.": "Nessun download temporaneo.",
   "No thanks": "No, grazie",
   "No trackers.": "Nessun tracker.",

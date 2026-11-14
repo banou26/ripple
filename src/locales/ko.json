@@ -196,6 +196,8 @@
   "No magnet link yet.": "아직 마그넷 링크가 없어요.",
   "No matching files": "일치하는 파일이 없어요",
   "No peers can connect. Try reloading the page.": "피어가 연결할 수 없어요. 페이지를 새로고침해 보세요.",
+  "No peers found with the VPN off. Still searching.": "VPN이 꺼진 상태에서는 피어를 찾지 못했어요. 계속 찾는 중이에요.",
+  "No peers found. Still searching.": "피어를 찾지 못했어요. 계속 찾는 중이에요.",
   "No temporary downloads.": "임시 다운로드가 없어요.",
   "No thanks": "괜찮아요",
   "No trackers.": "트래커가 없어요.",

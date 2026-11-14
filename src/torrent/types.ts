@@ -150,6 +150,8 @@ export type Torrent = {
   downloadLimit?: number
   uploadLimit?: number
   files?: TorrentFile[]
+  /** True once a download has gone long enough with nobody connected for its row to say so. See `no-peers.ts`. */
+  noPeers?: boolean
   retry?: {
     reason: 'stopped' | 'stalled'
     attempt: number

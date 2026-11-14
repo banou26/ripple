@@ -12,6 +12,7 @@ import { getTorrentClient } from './client'
 import { DEMO_MAGNET, DEMO_SAVE_PATH, DEMO_SEEDED_KEY } from './constants'
 import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
+import { noPeersFound } from './no-peers'
 import { CHECKING_STATES, pauseLanded } from './recovery'
 import { cloudRestoreSettled } from './use-cloud-backup'
 import { holdWhileStored } from '../utils/page-work'
@@ -193,6 +194,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
     // pads stay in the array so `files[i]` is still the engine's file i, and carry a flag so nothing
     // a person sees, saves or archives includes them; see `contentFiles`
     files: s.files?.files.map((f, index) => ({ name: f.path, size: f.size, progress, index, pad: f.pad })),
+    noPeers: noPeersFound(s, now),
     retry: s.recovery && !s.userPaused
       ? {
         reason: s.recovery.reason,

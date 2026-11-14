@@ -8,6 +8,7 @@ import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
+import type { EngineTransport } from '../torrent/vpn-config'
 import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
@@ -71,6 +72,7 @@ import { SampleOffer } from '../components/sample-offer'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnSwitch } from '../components/vpn-switch'
+import { noPeersLine } from '../torrent/no-peers'
 import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
@@ -1695,6 +1697,8 @@ type RowProps = {
   savedToUserStorage: boolean
   /** This row's recent transfer, newest last. Absent until the second state tick has been seen. */
   rates?: { down: number[], up: number[] }
+  /** What carries the engine's peers, which the line of a download that found nobody names. */
+  transport?: EngineTransport | null
 }
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -1865,7 +1869,7 @@ const same = (a: unknown, b: unknown): boolean => {
 }
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates }: RowProps) => {
+export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates, transport }: RowProps) => {
   const intl = useIntl()
   /**
    * Before the missing branch, not after it.
@@ -1982,7 +1986,10 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
                   {intl.formatMessage({ id: '↑ max {limit}', defaultMessage: '↑ max {limit}' }, { limit: formatLimit(t.uploadLimit, intl) })}
                 </span>
               )}
-              {t.retry && <span className="retry">{retryLine(t, t.retry)}</span>}
+              {/* one or the other: behind the relay, a download with nobody is retried from 2 minutes in, and that line says so */}
+              {t.retry
+                ? <span className="retry">{retryLine(t, t.retry)}</span>
+                : t.noPeers && <span className="retry">{noPeersLine(transport)}</span>}
             </div>
             {/* only while there is something to watch: at 100% it is a solid bar saying what the
                 percentage beside the name already says, across the whole width of the card */}
@@ -3453,6 +3460,7 @@ const Home = () => {
               onPick={bulk.toggle}
               savedToUserStorage={!!folder && permitted && savedToFolder.has(t.id)}
               rates={rowRates[t.id]}
+              transport={transport}
             />
           ))}
         {/**

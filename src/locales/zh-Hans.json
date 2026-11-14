@@ -196,6 +196,8 @@
   "No magnet link yet.": "还没有磁力链接。",
   "No matching files": "没有匹配的文件",
   "No peers can connect. Try reloading the page.": "没有用户能够连接。请尝试重新加载页面。",
+  "No peers found with the VPN off. Still searching.": "VPN 关闭时未找到用户。仍在搜索。",
+  "No peers found. Still searching.": "未找到用户。仍在搜索。",
   "No temporary downloads.": "没有临时下载。",
   "No thanks": "不用了",
   "No trackers.": "没有 Tracker。",
