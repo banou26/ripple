@@ -101,6 +101,18 @@ describe('the built site as the package root', () => {
     expect(packageProblems(npmManifest(REPO), REPO, tree(missing)).join('\n')).toContain('/assets/worker-SJZDGuG-.js')
   })
 
+  // the engine worker fetches the WebRTC stack's wasm by an absolute path, which only the worker's own bytes name
+  it('refuses a path a script the entry names asks for, when the package does not carry it', () => {
+    const WORKER = 'const wasm=`/assets/webrtc-DCtPDVeu.wasm`;fetch(wasm)'
+    const files = (paths: string[]) => ({
+      read: (path: string) => !paths.includes(path) ? undefined : path === 'assets/worker-SJZDGuG-.js' ? WORKER : ENTRY,
+      exists: (path: string) => paths.includes(path),
+    })
+    expect(packageProblems(npmManifest(REPO), REPO, files([...SITE, 'assets/webrtc-DCtPDVeu.wasm']))).toEqual([])
+    expect(packageProblems(npmManifest(REPO), REPO, files(SITE)).join('\n'))
+      .toContain('/assets/worker-SJZDGuG-.js, which index.js names, names /assets/webrtc-DCtPDVeu.wasm')
+  })
+
   it('refuses a file the entry only reaches by building a url at runtime', () => {
     // no scan of the entry can see `new URL('worker.js', jassubBase)`, so these are named outright
     const missing = SITE.filter((p) => p !== 'jassub/jassub-worker.wasm')

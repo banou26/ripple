@@ -38,6 +38,8 @@ const RESOLVED_AT_RUNTIME = [
   'jassub/noto-sans-jp.otf',
 ]
 
+const named = (code) => new Set([...code.matchAll(ABSOLUTE_ASSET)].map((m) => m[1]))
+
 /**
  * Every reason this directory would not load as an app, worst first. An empty array is a pass.
  *
@@ -80,9 +82,17 @@ export const packageProblems = (pkg, repo, tree) => {
   }
 
   // the class 0.0.7 shipped: an absolute path is a package path here, so it has to resolve here
-  for (const path of new Set([...code.matchAll(ABSOLUTE_ASSET)].map((m) => m[1]))) {
+  for (const path of named(code)) {
     if (!tree.exists(path.slice(1))) {
       problems.push(`${main} names ${path}, which the package does not carry. A tenant fetches that path from the package root, so it has to be there.`)
+      continue
+    }
+    // a script the entry names is read for its own paths: the engine worker fetches the WebRTC stack's wasm by one
+    if (!path.endsWith('.js')) continue
+    for (const inner of named(tree.read(path.slice(1)) ?? '')) {
+      if (!tree.exists(inner.slice(1))) {
+        problems.push(`${path}, which ${main} names, names ${inner}, which the package does not carry.`)
+      }
     }
   }
 

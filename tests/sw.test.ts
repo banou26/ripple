@@ -249,6 +249,8 @@ describe('the caching half of the worker', () => {
     // path here used to be `/jassub-worker.js`, which stopped existing when they moved.
     for (const path of [
       '/', '/watch', '/download', '/index.js', '/sw.js', '/assets/logo.png',
+      // the WebRTC stack's wasm, which the engine worker fetches: hashed, but 3 MB that the cache has no room for
+      '/assets/webrtc-DCtPDVeu.wasm',
       '/jassub/worker.js', '/jassub/jassub-worker-modern.wasm', '/jassub/jassub-worker-modern.js', '/jassub/default.woff2',
       // unhashed: `normalizer-worklet` would pass for a hash under a rule allowing more than eight
       '/volume-normalizer-worklet.js',
