@@ -906,11 +906,12 @@ export const style = css`
       /* No glow under this any more. The old fill was a mid-saturation orange on a purple track and
          needed a 10px bloom to be perceptible at 3%; against a sunken track this is the brightest
          object on the page at 17:1, so the sliver reads on its own. */
+      /* No width transition: the width moves on every engine tick, so one never ends and lays the
+         page out 48 times a second while anything downloads (23 against 9 ms/s of main thread). */
       .fill {
         height: 100%;
         border-radius: 2px;
         background: ${EMPHASIS};
-        transition: width 400ms ease;
       }
     }
 

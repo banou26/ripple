@@ -203,6 +203,24 @@ describe('a library row', () => {
     await expect.element(screen.getByText('100%')).toBeInTheDocument()
   })
 
+  /** The width moves on every engine tick, so an animated width never settles while a download runs. */
+  it('moves the bar in a step rather than animating it', async () => {
+    thumbnail.current = null
+    const { TorrentRow, style } = await import('../../src/router/home')
+    const props = handlers()
+    const row = (t: Torrent) => (
+      <IntlRoot><MemoryRouter><div css={style}><main><TorrentRow t={t} {...props} /></main></div></MemoryRouter></IntlRoot>
+    )
+    const screen = await render(row(torrent({ progress: 0.2 })), sized())
+    const fill = screen.container.querySelector('.bar .fill') as HTMLElement
+    // a transition starts only from a style the browser has already computed
+    expect(getComputedStyle(fill).width).not.toBe('')
+
+    await screen.rerender(row(torrent({ progress: 0.6 })))
+    expect(fill.style.width).toBe('60%')
+    expect(fill.getAnimations()).toEqual([])
+  })
+
   /** A check runs 0 to 1 over an already complete torrent, so this is the one full-progress case. */
   it('keeps the bar while a recheck runs, even at full progress', async () => {
     thumbnail.current = null
