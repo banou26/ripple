@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import { openStreamSink } from '../../src/torrent/stream-download'
 
@@ -55,4 +55,14 @@ it('keeps the save when the page only goes into the back-forward cache', async (
   await settle()
   expect(got).toEqual(['chunk'])
   await sink!.abort()
+})
+
+it('does nothing when the page goes away after the save has ended', async () => {
+  fakeWorker()
+  const sink = await openStreamSink('a.bin', 8)
+  await sink!.abort()
+  const post = vi.spyOn(MessagePort.prototype, 'postMessage')
+  pageHide(false)
+  expect(post).not.toHaveBeenCalled()
+  post.mockRestore()
 })
