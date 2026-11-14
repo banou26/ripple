@@ -363,8 +363,10 @@ test.describe('storage eviction', () => {
   })
 
   test('gives up the least recently watched of two, and only that one', async ({ page }) => {
-    test.setTimeout(300_000)
+    test.setTimeout(360_000)
 
+    const olderPath = '/cache/' + SINTEL_HASH
+    const newerPath = '/cache/' + BUNNY_HASH
     // watched first, so it is the one that should go
     await page.goto(embedUrl(SINTEL, SINTEL_VIDEO))
     await downloadSome(page, 25_000_000)
@@ -372,6 +374,8 @@ test.describe('storage eviction', () => {
     // unwatched, so nothing after this touches its place in the order
     await page.goto(embedUrl(BUNNY, BUNNY_VIDEO))
     await downloadSome(page, 25_000_000)
+    expect((await filesUnder(page, olderPath)).count, 'the restore has to bring the older one back with its bytes')
+      .toBeGreaterThan(0)
 
     // leave both players: neither is watched now
     await page.goto('/')
@@ -380,32 +384,34 @@ test.describe('storage eviction', () => {
     expect(entries).toHaveLength(2)
     expect(entries.every((e) => e.ephemeral)).toBe(true)
 
-    const olderPath = '/cache/' + SINTEL_HASH
-    const newerPath = '/cache/' + BUNNY_HASH
-    // past the window that keeps a just-opened torrent off the table
-    await page.waitForTimeout(20_000)
-    const older = await filesUnder(page, olderPath)
+    // Past READ_GRACE_MS (60 s from the library reading a torrent for its thumbnail) and a budget
+    // pass after it. A pass that sees only one of the two cannot show an order, and one that sees
+    // only the newer would give it up.
+    await page.waitForTimeout(90_000)
     const newer = await filesUnder(page, newerPath)
-    expect(older.count).toBeGreaterThan(0)
-    expect(newer.count).toBeGreaterThan(0)
+    expect(newer.count, 'only the least recently watched should go').toBeGreaterThan(0)
 
-    // Leave the origin just under the floor the engine keeps free, so the shortfall is a few MB and
+    // On a ceiling as small as a CI runner's (about 1 GB) the two outgrow the quarter of it the cold
+    // cache may keep (cacheBudget), and the engine has given one up for that already. Anywhere else,
+    // leave the origin just under the floor the engine keeps free, so the shortfall is a few MB and
     // ONE torrent covers it. Anything more would not tell an ordering apart from a purge.
-    const { quota } = await estimate(page)
-    const floor = Math.min(1_000_000_000, Math.floor(quota * 0.1))
-    const squeezed = await squeezeTo(page, floor - 10_000_000)
-    console.log('[test] floor', floor, 'after squeeze', squeezed, { older, newer })
-    test.skip(squeezed.elastic, ELASTIC_REASON)
-    expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
+    if ((await filesUnder(page, olderPath)).count > 0) {
+      const { quota } = await estimate(page)
+      const floor = Math.min(1_000_000_000, Math.floor(quota * 0.1))
+      const squeezed = await squeezeTo(page, floor - 10_000_000)
+      console.log('[test] floor', floor, 'after squeeze', squeezed, { newer })
+      test.skip(squeezed.elastic, ELASTIC_REASON)
+      expect(squeezed.reached, 'the origin never came under pressure, so nothing below is evidence').toBe(true)
+    } else console.log('[test] given up for the cold cache share, quota', (await estimate(page)).quota, { newer })
 
     await expect.poll(
       async () => (await filesUnder(page, olderPath)).count,
       { timeout: 90_000, intervals: [2_000], message: 'the older torrent was never given up' },
     ).toBe(0)
 
-    // the whole point: the shortfall was covered, so the newer one is untouched
+    // an eviction takes every file at once, so a count that did not fall is the newer one untouched
     expect((await filesUnder(page, newerPath)).count, 'only the least recently watched should go')
-      .toBe(newer.count)
+      .toBeGreaterThanOrEqual(newer.count)
 
     const after = await library(page)
     expect(after).toHaveLength(2)
