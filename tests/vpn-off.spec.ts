@@ -61,6 +61,7 @@ const install = ({ file, vpn }: { file: typeof FILE, vpn: 'on' | 'off' }) => {
       // the player's and the thumbnails' workers are not engines
       if (!/\/assets\/worker-/.test(String(url))) return
       seen.engines++
+      w.__engine = this
       this.addEventListener('message', ({ data }: MessageEvent) => hear(data))
     }
   }
@@ -199,6 +200,46 @@ test('with nobody to find, no connection is made, and each row says no peers wer
   await expect(lines).toHaveCount(2)
   await expect(alone.page.locator('.torrent .badge')).toHaveText(['Downloading', 'Downloading'])
   expect((await seen(alone.page)).made).toBe(0)
+})
+
+/** The torrents this storage holds resume data for, by their keys in the engine's store. */
+const resumeKeys = () => new Promise<string[]>((resolve, reject) => {
+  const open = indexedDB.open('keyval-store')
+  open.onerror = () => reject(open.error)
+  open.onsuccess = () => {
+    const keys = open.result.transaction('keyval').objectStore('keyval').getAllKeys()
+    keys.onerror = () => reject(keys.error)
+    keys.onsuccess = () => resolve(keys.result.map(String).filter((key) => key.startsWith('ripple:resume:')))
+  }
+})
+
+/*
+ * An engine that starts again still holds a torrent that had found nobody. Resume data is written as a page
+ * goes and as the VPN changes, and a magnet has no directory in the browser's storage until its first write:
+ * the next engine read the one without the other as storage the browser had cleared, and stopped the torrent.
+ */
+test('a magnet that has found nobody is still looked for by the engine a reload starts', async ({ browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const infoHash = 'b'.repeat(40)
+  const { page, errors } = await visitor(await browser.newContext(), baseURL!)
+  await add(page, `magnet:?xt=urn:btih:${infoHash}&tr=${encodeURIComponent(`ws://ripple-tracker.test:${tracker.port}`)}`)
+  await expect.poll(async () => (await row(page, infoHash))?.noPeersSince, { timeout: 30_000 }).toBeGreaterThan(0)
+  const asked = tracker.seen.announces
+
+  // what a page asks of its engine as it goes, and a change of the VPN before it replaces one
+  await page.evaluate(() => (window as any).__engine.postMessage({ type: 'flush-resume' }))
+  await expect
+    .poll(() => page.evaluate(resumeKeys), { timeout: 15_000, message: 'no resume data was written, so the reload below proves nothing' })
+    .toEqual([`ripple:resume:${infoHash}`])
+
+  await page.reload()
+  await expect
+    .poll(async () => (await row(page, infoHash))?.state, { timeout: 60_000, message: 'the engine the reload started does not hold the magnet' })
+    .toBe(2)
+  await expect(page.locator('.torrent .badge')).toHaveText('Downloading')
+  await expect.poll(() => tracker.seen.announces, { timeout: 30_000, message: 'the new engine never asked the tracker' }).toBeGreaterThan(asked)
+  expect((await seen(page)).fatal).toEqual([])
+  expect(errors).toEqual([])
 })
 
 // THE CONTROL of the readouts above: the same page with the VPN on, and a relay this machine cannot reach

@@ -582,6 +582,17 @@ const failReads = (h: number, error: Said) => {
   ids.clear()
 }
 
+/**
+ * Makes a save path's directory in OPFS when it is not there. A magnet has none until its first write, and
+ * the restore reads a resume blob with no directory behind it as storage the browser cleared (`opfsHasData`):
+ * it stopped a torrent that had found nobody yet at the next start of an engine, which a change of the VPN is.
+ */
+const ensureSavePath = async (savePath: string | undefined) => {
+  if (!savePath || isGrantedSavePath(savePath)) return
+  let dir = await navigator.storage.getDirectory()
+  for (const segment of savePath.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(segment, { create: true })
+}
+
 // saveResumeData gives up after 8s, longer than the loops that call this, so a second snapshot must not stack on the first
 const resumeInFlight = new Set<number>()
 const persistResume = async (h: number): Promise<boolean> => {
@@ -614,6 +625,7 @@ const persistResume = async (h: number): Promise<boolean> => {
     // a snapshot that lands after the torrent was given up describes files that no longer exist,
     // and the next reload would restore a have-set the disk cannot back
     if (!handles.includes(h)) return false
+    await ensureSavePath(savePathByHandle.get(h))
     await set(resumeKey(ih), blob)
     return true
   } catch (err) {
