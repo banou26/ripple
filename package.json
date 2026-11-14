@@ -11,7 +11,17 @@
   "fkn": {
     "app": "fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq",
     "signed": true,
-    "url": "https://torrent.fkn.app/"
+    "url": "https://torrent.fkn.app/",
+    "background": "store/background.webp",
+    "cover": "store/cover.webp",
+    "screenshots": [
+      "store/library.webp",
+      "store/player.webp",
+      "store/details.webp",
+      "store/add.webp",
+      "store/download.webp",
+      "store/phone.webp"
+    ]
   },
   "main": "build/index.js",
   "keywords": [
@@ -28,10 +38,11 @@
     "npm-package": "node scripts/write-npm-manifest.mjs && node scripts/check-npm-package.mjs",
     "copy-libav": "shx cp node_modules/libav-wasm/build/worker.js build/libav-worker.js && shx cp node_modules/libav-wasm/build/libav.wasm build/libav.wasm && shx cp node_modules/libav-wasm/build/libav-jspi.wasm build/libav-jspi.wasm",
     "build-jassub": "vp build -c vite.jassub.config.ts",
-    "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && shx cp README.md build/README.md && shx cp LICENSE build/LICENSE && copyfiles -u 2 ./src/assets/* build/assets && node scripts/build-sw.mjs",
+    "copy-html": "shx cp src/_headers build/_headers && shx cp src/index.html build/index.html && shx cp src/app.webmanifest build/app.webmanifest && shx cp README.md build/README.md && shx cp LICENSE build/LICENSE && copyfiles -u 2 ./src/assets/* build/assets && shx cp -r store build/store && node scripts/build-sw.mjs",
     "lint": "vp lint",
     "typecheck": "tsc --noEmit",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "store-art": "node scripts/store-art.mjs",
     "test": "vitest run --project unit",
     "test:e2e": "npm run test:e2e:local && npm run test:e2e:swarm",
     "test:pause": "npm run build && playwright test --project=chromium tests/stale-pause-flag.spec.ts",

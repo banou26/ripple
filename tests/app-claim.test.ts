@@ -18,11 +18,21 @@ const ADDRESS = 'https://torrent.fkn.app/'
 // since HOR-233 slice 9 every release is signed IN PLACE: `signed: true` is what makes a device ask
 // unpkg for the release's fkn.json, and without it a signed package runs unchecked on every device
 // that holds no list for Ripple
-// since HOR-226 it also names ripple's own address, which the api's claim reader ignores (it reads `app` and `signed` only)
-it('claims the managed Ripple app, says its releases are signed and names its address, and nothing else', () => {
+// since HOR-226 it also names ripple's own address, and since RIPPLE-104 its store images, which the api's claim
+// reader ignores (it reads `app` and `signed` only)
+const CLAIM = {
+  app: APP,
+  signed: true,
+  url: ADDRESS,
+  background: expect.any(String),
+  cover: expect.any(String),
+  screenshots: expect.any(Array),
+}
+
+it('claims the managed Ripple app, says its releases are signed and names its address and store images, and nothing else', () => {
   expect(pkg.name).toBe('@banou/ripple')
-  // the whole object, so a reserved key riding along is caught too
-  expect(pkg.fkn).toEqual({ app: APP, signed: true, url: ADDRESS })
+  // the whole object, so a reserved key riding along is caught too; store-listing.test.ts checks the images
+  expect(pkg.fkn).toEqual(CLAIM)
 })
 
 it('the claim is a managed app id, and not the retired signed one', () => {
@@ -32,8 +42,8 @@ it('the claim is a managed app id, and not the retired signed one', () => {
 
 // `npm publish ./build` sends the FILTERED manifest, not this one, and that filter once dropped the
 // field without a word (fixed in 7d5b0cf). So the claim is checked where the registry will read it.
-it('the manifest that is actually published carries the claim, the flag and the address', () => {
-  expect(npmManifest(pkg).fkn).toEqual({ app: APP, signed: true, url: ADDRESS })
+it('the manifest that is actually published carries the claim, the flag, the address and the store images', () => {
+  expect(npmManifest(pkg).fkn).toEqual(CLAIM)
   // build/package.json names no files, so the fkn.json CI writes into build/ ships with the rest
   expect(npmManifest(pkg)).not.toHaveProperty('files')
 })

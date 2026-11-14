@@ -119,6 +119,14 @@ describe('the built site as the package root', () => {
     expect(packageProblems(npmManifest(REPO), REPO, tree(missing)).join('\n')).toContain('jassub/jassub-worker.wasm')
   })
 
+  it('refuses a store listing that names an image the package does not carry', () => {
+    const LISTING = { background: 'store/background.webp', cover: 'store/cover.webp', screenshots: ['store/library.webp'] }
+    const listed = npmManifest({ ...REPO, fkn: LISTING })
+    expect(packageProblems(listed, REPO, tree([...SITE, 'store/background.webp', 'store/cover.webp', 'store/library.webp']))).toEqual([])
+    expect(packageProblems(listed, REPO, tree([...SITE, 'store/background.webp', 'store/cover.webp'])).join('\n'))
+      .toContain('the store listing names store/library.webp, which the package does not carry')
+  })
+
   it('refuses a manifest left over from an older version', () => {
     const stale = { ...npmManifest(REPO), version: '0.0.7' }
     expect(packageProblems(stale, REPO, tree(SITE)).join('\n')).toContain('the published version is "0.0.7"')

@@ -100,6 +100,12 @@ export const packageProblems = (pkg, repo, tree) => {
     if (!tree.exists(path)) problems.push(`${path} is missing, and the entry builds its url at runtime so nothing else would notice`)
   }
 
+  // fkn.app's package page reads these from the published package, and the signer refuses a release that names one it lacks
+  const { background, cover, screenshots = [] } = pkg.fkn ?? {}
+  for (const path of [background, cover, ...screenshots].filter(Boolean)) {
+    if (!tree.exists(path)) problems.push(`the store listing names ${path}, which the package does not carry`)
+  }
+
   return problems
 }
 
