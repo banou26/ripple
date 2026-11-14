@@ -19,6 +19,12 @@ export type PlayerTorrent = {
   prioritizeFrom: (offset: number) => void
 }
 
+/**
+ * How long a read waits for an engine that is being replaced to list the torrent again: a change of the VPN,
+ * an update, another tab taking the engine over. Above the 8 s an engine gives its port reservation.
+ */
+export const ENGINE_CHANGE_MS = 30_000
+
 const playedFile = (named: number | undefined, snapshot: TorrentSnapshot | null): number =>
   named ?? pickVideoFile(snapshot?.files?.files.map((f) => ({ name: f.path, size: f.size, pad: f.pad })))
 
@@ -26,6 +32,9 @@ const playedFile = (named: number | undefined, snapshot: TorrentSnapshot | null)
 export const usePlayerTorrent = (magnet: string | undefined, named: number | undefined): PlayerTorrent => {
   const client = getTorrentClient()
   const handleRef = useRef<number | null>(null)
+  // counts the engines this player has been through, and who waits for the next one to list the torrent
+  const engineRef = useRef(0)
+  const waitingRef = useRef(new Set<(handle: number) => void>())
   // one id per open player: the engine merges every viewer's claim on the shared priority map
   const viewerRef = useRef<string>(undefined as unknown as string)
   if (!viewerRef.current) viewerRef.current = client.newViewerId()
@@ -64,13 +73,18 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     const offReset = client.onEngineReset(() => {
       claimed = null
       handleRef.current = null
+      engineRef.current++
       readWindows.current.clear()
     })
     const off = client.onState((snaps) => {
       const snap = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
-      if (snap) handleRef.current = snap.handle
+      if (snap) {
+        handleRef.current = snap.handle
+        for (const resolve of waitingRef.current) resolve(snap.handle)
+        waitingRef.current.clear()
+      }
       // with no file named this claims file 0 until the layout lands, then moves to the video file
       const index = playedFile(named, snap)
       if (snap && index !== claimed) {
@@ -92,18 +106,36 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
 
   const fileIndex = playedFile(named, snapshot)
 
+  /** The torrent's handle in the engine that runs now, waited for while that engine is still starting. */
+  const held = () => handleRef.current ?? new Promise<number>((resolve, reject) => {
+    const listed = (handle: number) => { clearTimeout(timer); resolve(handle) }
+    const timer = setTimeout(() => { waitingRef.current.delete(listed); reject(new Error('torrent not ready')) }, ENGINE_CHANGE_MS)
+    waitingRef.current.add(listed)
+  })
+
+  /**
+   * A read outlives a change of engine: one that finds no engine waits for the next to list the torrent, and
+   * one the engine was replaced under is asked again of the next. A failed read is an error the player shows
+   * over the picture and keeps in its list, and a person who switched the VPN did nothing wrong.
+   */
   const readAt = async (offset: number, size: number, prioritize: boolean): Promise<ArrayBuffer> => {
-    const handle = handleRef.current
-    if (handle == null) throw new Error('torrent not ready')
     // clamp to the file boundary or a read near EOF awaits pieces that never land
     const fileSize = snapshot?.files?.files[fileIndex]?.size
     const clamped = fileSize != null ? Math.max(0, Math.min(size, fileSize - offset)) : size
     if (clamped === 0) return new ArrayBuffer(0)
-    const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current)
-    const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
-      ? u8.buffer
-      : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
-    return buf as ArrayBuffer
+    for (;;) {
+      const handle = await held()
+      const engine = engineRef.current
+      try {
+        const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current)
+        const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
+          ? u8.buffer
+          : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
+        return buf as ArrayBuffer
+      } catch (error) {
+        if (engine === engineRef.current) throw error
+      }
+    }
   }
 
   /**

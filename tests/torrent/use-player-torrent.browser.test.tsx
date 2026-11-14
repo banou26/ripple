@@ -3,7 +3,7 @@ import type { TorrentSnapshot } from '../../src/torrent/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
-import { usePlayerTorrent } from '../../src/torrent/use-player-torrent'
+import { ENGINE_CHANGE_MS, usePlayerTorrent } from '../../src/torrent/use-player-torrent'
 import { showEnglish, showIn } from '../i18n/show-in'
 
 import de from '../../src/locales/de.json'
@@ -13,6 +13,7 @@ const listeners = vi.hoisted(() => ({
   reset: () => {},
   watch: vi.fn(),
   unwatch: vi.fn(),
+  read: vi.fn(),
   unavailable: null as null | (() => void),
   failed: null as null | ((error: { message: string, fatal: boolean }) => void),
 }))
@@ -29,6 +30,7 @@ const client = {
   onEngineReset: (cb: typeof listeners.reset) => { listeners.reset = cb; return () => {} },
   watch: listeners.watch,
   unwatch: listeners.unwatch,
+  read: listeners.read,
 }
 const MAGNET = `magnet:?xt=urn:btih:${'a'.repeat(40)}`
 const Harness = ({ fileIndex = 1 }: { fileIndex?: number }) => {
@@ -99,6 +101,80 @@ it('plays the file a link names, even when another one is bigger', async () => {
   expect(listeners.watch).toHaveBeenCalledExactlyOnceWith('player', 7, 0)
   await expect.element(screen.getByTestId('played')).toHaveTextContent('0')
   await screen.unmount()
+})
+
+/*
+ * A change of engine under a player: the VPN switched, an update, another tab taking the engine over. A read
+ * that fails is an error the player draws over the picture and keeps in its list, so a read outlives the
+ * change: it waits for the next engine to list the torrent and is asked of that one.
+ */
+describe('a read across a change of engine', () => {
+  let reader: ReturnType<typeof usePlayerTorrent>
+  const Reader = () => {
+    reader = usePlayerTorrent(MAGNET, 0)
+    return <div />
+  }
+  const listed = (handle: number) => listeners.state([{ handle, magnet: MAGNET, files: RELEASE } as TorrentSnapshot])
+  // what an engine answers: the bytes asked for, each one its handle
+  const answer = async (handle: number, _file: number, _offset: number, length: number) => new Uint8Array(length).fill(handle)
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  afterEach(() => { vi.useRealTimers() })
+
+  it('asks the next engine for a read the engine was replaced under, and for one asked in between', async () => {
+    listeners.read.mockReset()
+    const screen = await render(<Reader />)
+    listed(7)
+
+    let fail = (_: Error) => {}
+    listeners.read.mockImplementationOnce(() => new Promise<Uint8Array>((_, reject) => { fail = reject }))
+    const under = reader.read(0, 100)
+    await expect.poll(() => listeners.read.mock.calls).toEqual([[7, 0, 0, 100, true, 'player']])
+    // as the client does when it replaces its engine: the reset, and every read it had is rejected
+    listeners.reset()
+    fail(new Error('the engine behind this tab was replaced'))
+    const between = reader.read(100, 50)
+    await pause()
+    expect(listeners.read, 'a read was asked of an engine that is gone').toHaveBeenCalledTimes(1)
+
+    listeners.read.mockImplementation(answer)
+    // the next engine numbers its torrents from one again, so the handle alone says nothing
+    listed(7)
+    expect(new Uint8Array(await under)).toEqual(new Uint8Array(100).fill(7))
+    expect(new Uint8Array(await between)).toEqual(new Uint8Array(50).fill(7))
+    // each asked once of the new engine, in whichever order they came to wait
+    expect(listeners.read.mock.calls.slice(1)).toHaveLength(2)
+    expect(listeners.read.mock.calls.slice(1)).toEqual(expect.arrayContaining([[7, 0, 0, 100, true, 'player'], [7, 0, 100, 50, true, 'player']]))
+    await screen.unmount()
+  })
+
+  // THE CONTROL: with no change of engine a failed read fails, as it has to for the player to say so
+  it('still fails a read the engine could not answer', async () => {
+    listeners.read.mockReset()
+    const screen = await render(<Reader />)
+    listed(7)
+    listeners.read.mockRejectedValueOnce(new Error('read timed out after 240000ms'))
+    await expect(reader.read(0, 100)).rejects.toThrow('read timed out after 240000ms')
+    expect(listeners.read).toHaveBeenCalledTimes(1)
+    await screen.unmount()
+  })
+
+  it('gives a read up when no engine lists the torrent again', async () => {
+    listeners.read.mockReset()
+    const screen = await render(<Reader />)
+    listed(7)
+    listeners.reset()
+    vi.useFakeTimers()
+    const waiting = reader.read(0, 100)
+    const outcome = vi.fn()
+    void waiting.then(outcome, outcome)
+    await vi.advanceTimersByTimeAsync(ENGINE_CHANGE_MS - 1)
+    expect(outcome, 'given up before an engine had the time to start').not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(waiting).rejects.toThrow('torrent not ready')
+    expect(listeners.read).not.toHaveBeenCalled()
+    await screen.unmount()
+  })
 })
 
 describe('the player hook\'s words', () => {
