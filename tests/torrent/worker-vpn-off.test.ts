@@ -13,6 +13,7 @@ const engine = vi.hoisted(() => ({
   relay: { createSocket: vi.fn(), connect: vi.fn(), lookup: vi.fn(), createWebRTC: vi.fn(), rtcLinks: vi.fn() },
   offline: { net: { is: 'no net' }, dgram: { is: 'no dgram' }, dnsLookup: () => {} },
   peers: 0,
+  paused: false,
   /** What the swarm says of each running torrent. */
   torrents: [] as { handle: number, trackers: Record<string, unknown>[] }[],
   /** libtorrent's own tracker rows for the inspected torrent. */
@@ -49,7 +50,7 @@ vi.mock('libtorrent-wasm', async () => {
       return fakeSession({
         // a download that runs and finds nobody, until `peers` says otherwise
         status: () => ({
-          state: 3, paused: false, autoManaged: true, errorCode: 0, totalDone: 0, downloadRate: 0, numPeers: engine.peers,
+          state: 3, paused: engine.paused, autoManaged: true, errorCode: 0, totalDone: 0, downloadRate: 0, numPeers: engine.peers,
           activeSeconds: 0, seedingSeconds: 0, allTimeDownload: 0, allTimeUpload: 0, wasted: 0,
         }),
         saveResumeData: async () => new Uint8Array([1]),
@@ -133,6 +134,24 @@ it('says since when a download has had nobody, takes it back with a peer, and ne
   engine.peers = 1
   await vi.advanceTimersByTimeAsync(1_000)
   expect('noPeersSince' in lastState().torrents[0]!, 'the beat carries it for a torrent that has peers').toBe(false)
+})
+
+// a paused download looks for nobody, and a row that said Still searching of it would not be true
+it('says nothing of a paused download, and counts from the moment it runs again', async () => {
+  engine.peers = 0
+  await vi.advanceTimersByTimeAsync(1_000)
+  const since = lastState().torrents[0]!.noPeersSince
+  // THE CONTROL: running with nobody, it says since when
+  expect(since).toBeTypeOf('number')
+
+  engine.paused = true
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect('noPeersSince' in lastState().torrents[0]!).toBe(false)
+
+  await vi.advanceTimersByTimeAsync(60_000)
+  engine.paused = false
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(lastState().torrents[0]!.noPeersSince, 'counted from before the pause').toBeGreaterThan(since! + 60_000)
 })
 
 // libtorrent has no use for a WebSocket tracker, so its rows never list the ones every peer here comes through
