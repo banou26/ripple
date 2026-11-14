@@ -32,6 +32,10 @@ const lateEntries: Record<string, string> = {
   '@banou/ponyfill': '../src/torrent/save-file.ts',
   // the engine worker writes through it
   '@banou/ponyfill/file-system': '../src/torrent/opfs-storage.ts',
+  // the engine worker's WebRTC half ("dependencies optimized: libtorrent-wasm/webrtc, libtorrent-wasm/webtorrent",
+  // then two files failed on the reload, 2026-11-14)
+  'libtorrent-wasm/webtorrent': '../src/torrent/webrtc-peers.ts',
+  'libtorrent-wasm/webrtc': '../src/torrent/webrtc-peers.ts',
   'react-router': '../src/router/index.tsx',
   'react-intl': '../src/i18n/index.ts',
 }
