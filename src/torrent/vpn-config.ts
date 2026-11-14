@@ -4,8 +4,10 @@
  */
 export const WEBRTC_PEERS = true
 
-const TRACKER_HOSTS = ['tracker.openwebtorrent.com', 'tracker.webtorrent.dev']
-const STUN_HOST = 'stun.l.google.com'
+/** The two trackers a torrent is announced to beside its own. The privacy page names them. */
+export const TRACKER_HOSTS = ['tracker.openwebtorrent.com', 'tracker.webtorrent.dev']
+/** What tells a browser its public address with the VPN off. The privacy page names it. */
+export const STUN_HOST = 'stun.l.google.com'
 
 /** Announced to beside a torrent's own `ws` and `wss` trackers, for every torrent that is not private. */
 export const TRACKERS = TRACKER_HOSTS.map((host) => `wss://${host}`)

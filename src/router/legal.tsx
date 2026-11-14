@@ -6,7 +6,7 @@ import LegalDoc from '../components/legal-doc'
 const Legal = () => (
   <LegalDoc>
     <h1>Legal &amp; Terms</h1>
-    <div className="updated">Last updated 6 November 2026</div>
+    <div className="updated">Last updated 14 November 2026</div>
 
     <p>
       Ripple is a torrent client that runs in your browser, built on the{' '}
@@ -34,10 +34,12 @@ const Legal = () => (
     <p>
       Ripple never hosts or indexes content, so there is nothing on our side to take down:
       what users transfer exists only in the torrent swarms they join and on their own
-      devices. Peer traffic is forwarded through the FKN relay, which does not store
-      content and does not keep logs that could link a transfer to a user afterwards (see
-      the <Link to={getRoutePath(Route.PRIVACY)}>Privacy page</Link>). If you have a
-      concern about abuse of the relay itself, contact{' '}
+      devices. With the VPN on, peer traffic is forwarded through the FKN relay, which does
+      not store content and does not keep logs that could link a transfer to a user
+      afterwards (see the <Link to={getRoutePath(Route.PRIVACY)}>Privacy page</Link>). With
+      the VPN off, peer traffic goes straight between your browser and the other peers and
+      does not pass through FKN at all. If you have a concern about the relay itself,
+      contact{' '}
       <a href="mailto:admin@fkn.app">admin@fkn.app</a>.
     </p>
 

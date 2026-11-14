@@ -62,10 +62,14 @@ const style = css`
     margin: 32px 0 10px;
   }
 
-  p {
+  p, ul {
     font-size: 0.95rem;
     line-height: 1.7;
     margin: 0 0 10px;
+  }
+
+  ul {
+    padding-inline-start: 22px;
   }
 
   /* Colour used to be the ONLY thing marking a link here (amber glyphs, no underline), and these two

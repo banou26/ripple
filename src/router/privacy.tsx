@@ -1,19 +1,22 @@
 import LegalDoc from '../components/legal-doc'
+import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 6 November 2026</div>
+    <div className="updated">Last updated 14 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
-      everything on your device and stores nothing about you on any server.
+      everything on your device, and neither Ripple nor FKN stores anything about you on a
+      server.
     </p>
 
     <h2>What Ripple stores on your device</h2>
     <p>
       Your torrent list, each torrent&rsquo;s resume data and thumbnail, and your settings
-      (such as speed limits and how the list is sorted) live in your browser&rsquo;s storage
+      (such as speed limits, how the list is sorted and whether the VPN is on) live in your
+      browser&rsquo;s storage
       (IndexedDB and local storage). Downloaded files live in your browser&rsquo;s storage
       (OPFS). If you choose a folder on your disk, finished downloads are saved there. Once
       you sign in, Ripple also remembers which FKN account your list belongs to.
@@ -38,16 +41,37 @@ const Privacy = () => (
       torrents you have. Without an account connected, nothing is synced.
     </p>
 
-    <h2>The relay and your IP address</h2>
+    <h2>The VPN and your IP address</h2>
     <p>
-      Peer connections are tunneled through the FKN relay rather than opened directly, so
-      the other peers in a swarm see the relay&rsquo;s IP address, not yours. The relay
-      forwards traffic without storing it. Usage metering for the free and premium tiers is
-      anonymized with daily-rotating keys and purged within about a day, so past transfers
-      cannot be mapped back to a person, by us or anyone else. The full details are in the{' '}
+      With the VPN on, which is how Ripple starts, connections to peers and to trackers are
+      tunneled through the FKN relay rather than opened directly, so the other peers in a
+      swarm and its trackers see the relay&rsquo;s IP address, not yours. The relay also looks
+      up the names of trackers. It forwards traffic without storing it. Usage metering for the
+      free and premium tiers is anonymized with daily-rotating keys and purged within about a
+      day, so past transfers cannot be mapped back to a person, by us or anyone else. The full
+      details are in the{' '}
       <a href="https://fkn.app/privacy" target="_blank" rel="noreferrer noopener">
         FKN platform privacy policy
       </a>.
+    </p>
+    <p>
+      With the VPN off, Ripple connects to peers straight from your browser, and nothing
+      passes through the FKN relay. Your IP address is then seen by:
+    </p>
+    <ul data-testid="vpn-off-hosts">
+      <li>the other peers of each torrent that is running;</li>
+      <li>
+        the trackers Ripple announces those torrents to: {TRACKER_HOSTS.join(' and ')}, and any
+        WebSocket tracker a torrent names itself. A tracker also sees which torrents they are.
+        A torrent marked private is announced to its own trackers only, once Ripple has read
+        that mark;
+      </li>
+      <li>{STUN_HOST}, which tells your browser its public address and sees nothing about your torrents;</li>
+      <li>the name server your device uses, which is asked for the addresses of those hosts as it is for any site.</li>
+    </ul>
+    <p>
+      The VPN setting is kept in your browser&rsquo;s storage. A player embedded in another
+      site keeps its own.
     </p>
 
     <h2>Your control</h2>

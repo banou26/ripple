@@ -2,8 +2,8 @@
 
 Download and stream torrents in your browser. Ripple runs a real BitTorrent engine
 ([libtorrent](https://www.libtorrent.org), compiled to WebAssembly) in the page, reaches peers
-through the [FKN](https://fkn.app) relay, and plays a video while it downloads. There is nothing to
-install and no Ripple server.
+through the [FKN](https://fkn.app) relay, or straight from the browser over WebRTC with the VPN
+off, and plays a video while it downloads. There is nothing to install and no Ripple server.
 
 - Live at [torrent.fkn.app](https://torrent.fkn.app), and inside FKN at
   [fkn.app/app/npm:@banou/ripple](https://fkn.app/app/npm:@banou/ripple)
@@ -26,6 +26,8 @@ install and no Ripple server.
 - **One engine for all your tabs.** One tab runs it and the others use it.
 - **Speed limits** for everything or per torrent, and the peers, trackers, files and all-time share
   ratio of each torrent.
+- **A VPN switch.** On, peers and trackers see the FKN relay's address. Off, Ripple reaches WebRTC
+  peers straight from the browser, unmetered, and they see yours.
 - **No Ripple account and no analytics.**
 
 ## How it is built
@@ -37,7 +39,11 @@ install and no Ripple server.
   under a Web Lock and the others reach it over a BroadcastChannel (`engine-election.ts`,
   `engine-share.ts`).
 - **Network**: `@fkn/lib/net` and `@fkn/lib/dgram`, carried through the FKN relay (`relayWorker`
-  bridges the worker). Inbound peers reach a port the relay reserves.
+  bridges the worker). Inbound peers reach a port the relay reserves, and the relay looks names up.
+  WebRTC peers come through `libtorrent-wasm/webtorrent` (`src/torrent/webrtc-peers.ts`): with the
+  VPN on over the engine's own WebRTC stack and a UDP socket of the relay, with it off over the
+  browser's `RTCPeerConnection`, in an engine that has no relay at all. `src/torrent/vpn-config.ts`
+  names the trackers and the STUN host, and holds the one constant that stops all of it.
 - **Storage**: OPFS, or a folder you grant (`src/torrent/hybrid-storage.ts`). The list, resume data
   and thumbnails are in IndexedDB.
 - **Player**: [`@banou/media-player`](https://www.npmjs.com/package/@banou/media-player) at
@@ -126,9 +132,10 @@ Why each part works the way it does is in [docs/embedding.md](./docs/embedding.m
 
 Ripple needs no account and runs no analytics. Your list and your files stay in your browser, or in
 a folder you choose. Signed in to FKN, your list and its thumbnails sync to your FKN account,
-encrypted in your browser first. Peers see the FKN relay's address, not yours. The
-[privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps
-(`src/router/privacy.tsx`).
+encrypted in your browser first. Peers and trackers see the FKN relay's address, not yours, unless
+you turn the VPN off: they then see your own, and so does the STUN server that tells your browser
+its address. The [privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps and names
+each of those hosts (`src/router/privacy.tsx`).
 
 ## License
 
