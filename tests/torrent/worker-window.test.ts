@@ -53,9 +53,10 @@ const holdPasses = () => {
 vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
-  const { fakeSession } = await import('../utils/worker-rig')
+  const { DOWNLOADING, fakeSession } = await import('../utils/worker-rig')
   return {
     createSession: async () => fakeSession({
+      status: () => DOWNLOADING,
       files: (h: number) => h === 1
         ? { storageIndex: 0, pieceLength: PIECE, numPieces: FILM / PIECE, totalSize: FILM, contentSize: FILM, files: [{ path: 'remux.mkv', offset: 0, size: FILM, pad: false }] }
         : { storageIndex: 1, pieceLength: PIECE, numPieces: 1, totalSize: PIECE, contentSize: PIECE, files: [{ path: 'small.mkv', offset: 0, size: PIECE, pad: false }] },
@@ -249,6 +250,8 @@ describe('a cache film bigger than a fixed ceiling', () => {
   it('holds a torrent at the trickle when its own limit is 0, as a restore leaves it', async () => {
     state.limits.length = 0
     rig.send({ type: 'set-limits', handle: 1, down: 0 })
+    await vi.waitFor(() => expect(state.limits).toEqual([[1, 0]]))
+    state.limits.length = 0
     state.bitfield!.pieces.fill(0xff)
     await vi.waitFor(() => expect(state.limits).toEqual([[1, 16 * 1024]]))
     state.bitfield!.pieces.fill(0, 10, 11)
@@ -258,6 +261,8 @@ describe('a cache film bigger than a fixed ceiling', () => {
   it('keeps a limit the viewer set when the trickle lets go', async () => {
     state.limits.length = 0
     rig.send({ type: 'set-limits', handle: 1, down: 1_000_000 })
+    await vi.waitFor(() => expect(state.limits).toEqual([[1, 1_000_000]]))
+    state.limits.length = 0
     state.bitfield!.pieces.fill(0xff)
     await vi.waitFor(() => expect(state.limits).toEqual([[1, 16 * 1024]]))
     state.bitfield!.pieces.fill(0, 10, 11)

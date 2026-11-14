@@ -620,7 +620,9 @@ const persistResume = async (h: number): Promise<boolean> => {
    * Resume downloaded from zero. The blob from before the check stays, and with none the next load checks.
    */
   const st = session.status(h)
-  if (st && CHECKING_STATES.has(st.state)) return false
+  // Nor one the engine has not reported on: it learns a handle at the first pump after the add, and a save
+  // asked for before that is never answered, so a flush sent to an engine as it started waited 8 s for one.
+  if (!st || CHECKING_STATES.has(st.state)) return false
   // Nor a held add still in upload mode, as a page closing before the park flushes it: the blob
   // would bring upload mode back on the next load, where nothing clears it.
   if (holdingUpload.has(h)) return false

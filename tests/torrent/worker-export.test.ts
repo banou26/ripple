@@ -32,9 +32,10 @@ const rig = installWorkerGlobals({ estimate: async () => ({ usage: state.used, q
 vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
-  const { fakeSession } = await import('../utils/worker-rig')
+  const { DOWNLOADING, fakeSession } = await import('../utils/worker-rig')
   return {
     createSession: async () => fakeSession({
+      status: () => DOWNLOADING,
       files: (h: number) => h === 1
         ? { storageIndex: 0, pieceLength: PIECE, numPieces: FILM / PIECE, totalSize: FILM, contentSize: FILM, files: [{ path: 'remux.mkv', offset: 0, size: FILM, pad: false }] }
         : { storageIndex: 1, pieceLength: PIECE, numPieces: 1, totalSize: PIECE, contentSize: PIECE, files: [{ path: 'small.mkv', offset: 0, size: PIECE, pad: false }] },

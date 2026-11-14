@@ -145,6 +145,12 @@ export const installWorkerGlobals = (
  */
 export type FakeSession = { removed: number[] } & Record<string, unknown>
 
+/** What the engine reports of a torrent that is downloading. It reports on none before the first pump after its add. */
+export const DOWNLOADING = {
+  state: 3, paused: false, autoManaged: true, errorCode: 0, totalDone: 1, downloadRate: 0, numPeers: 0,
+  activeSeconds: 0, seedingSeconds: 0, allTimeDownload: 0, allTimeUpload: 0, wasted: 0,
+}
+
 export const fakeSession = (over: Partial<Record<string, unknown>> = {}): FakeSession => {
   let next = 1
   const removed: number[] = []

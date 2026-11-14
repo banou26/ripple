@@ -48,9 +48,10 @@ const one = (path: string, size: number) =>
 vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
-  const { fakeSession } = await import('../utils/worker-rig')
+  const { DOWNLOADING, fakeSession } = await import('../utils/worker-rig')
   return {
     createSession: async () => fakeSession({
+      status: () => DOWNLOADING,
       addMagnet: (magnet: string) => { const h = state.hashes.size + 1; state.hashes.set(h, magnet.slice(-40)); return h },
       // a pack of a film and a short extra, a library download, and films; the rest have no layout
       files: (h: number) => {
