@@ -854,8 +854,8 @@ export const style = css`
     /* the bulk selection's box, over the picture's corner, so it takes no width from the name */
     > .row-check {
       position: absolute;
-      top: 4px;
-      left: 6px;
+      top: 7px;
+      left: 9px;
       z-index: 1;
     }
 
@@ -1777,7 +1777,7 @@ const MissingRow = ({
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
-      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)}/>}
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
       {/* the files are gone from this device but the picture was cached here, so it still shows */}
       <Poster url={poster} t={t}/>
       <div className="content">
@@ -1959,7 +1959,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
-      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)}/>}
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
       <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">

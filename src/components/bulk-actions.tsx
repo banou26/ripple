@@ -1,11 +1,11 @@
 import { css } from '@emotion/react'
-import { Pause, Play, Trash2, X } from 'lucide-react'
+import { Check, Pause, Play, Trash2, X } from 'lucide-react'
 import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
 import {
   BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, EMPHASIS,
-  FOCUS_RING, SURFACE_BG, TEXT,
+  FOCUS_RING, PICTURE_SHADE, TEXT, TEXT_ON_LIGHT,
 } from '../theme'
 
 /** A checkbox in a 40 px label, the label being its hit area: each row's box and Select all. */
@@ -33,21 +33,51 @@ export const checkStyle = css`
   }
 `
 
-/* a ring of the surface, so a row's box reads over a poster */
-const ringStyle = css`
-  input { box-shadow: 0 0 0 3px ${SURFACE_BG}; }
+/* A ring that reads on any picture, a filled circle with a check once ticked. The label positions the check: an
+   absolute child of a flex box sits where justify-content and align-items put it, on the box. */
+const overPictureStyle = css`
+  input {
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid ${EMPHASIS};
+    background: none;
+    box-shadow: 0 0 0 1px ${PICTURE_SHADE}, inset 0 0 0 1px ${PICTURE_SHADE}, 0 1px 4px ${PICTURE_SHADE};
+
+    &:checked { background: ${EMPHASIS}; box-shadow: 0 0 0 1px ${PICTURE_SHADE}, 0 1px 4px ${PICTURE_SHADE}; }
+
+    /* the outline over a wider shade, so it is seen on a white picture too */
+    &:focus-visible { outline-offset: 2px; box-shadow: 0 0 0 6px ${PICTURE_SHADE}; }
+  }
+
+  svg {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    color: ${TEXT_ON_LIGHT};
+    pointer-events: none;
+  }
+
+  input:not(:checked) + svg { display: none; }
 `
 
 /**
  * A row's box in the bulk selection, the label being its 40 px hit area. `onChange` is told whether shift was held.
+ * `overPicture` draws it as a ring for a card's poster corner.
  *
  * A click inside it stops here, so ticking a row never reaches the row's own click, which is what
  * opens the detail panel.
  */
-export const RowCheck = ({ name, checked, onChange }: { name: string, checked: boolean, onChange: (shift: boolean) => void }) => {
+export const RowCheck = ({ name, checked, onChange, overPicture = false }: {
+  name: string
+  checked: boolean
+  onChange: (shift: boolean) => void
+  overPicture?: boolean
+}) => {
   const intl = useIntl()
   return (
-    <label css={[checkStyle, ringStyle]} className="row-check" onClick={(e) => e.stopPropagation()}>
+    <label css={[checkStyle, overPicture && overPictureStyle]} className="row-check" onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         checked={checked}
@@ -55,6 +85,7 @@ export const RowCheck = ({ name, checked, onChange }: { name: string, checked: b
         onChange={(e) => onChange((e.nativeEvent as MouseEvent).shiftKey)}
         aria-label={intl.formatMessage({ id: 'Select {name}', defaultMessage: 'Select {name}' }, { name })}
       />
+      {overPicture && <Check aria-hidden="true" strokeWidth={3}/>}
     </label>
   )
 }

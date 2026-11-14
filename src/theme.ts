@@ -249,3 +249,9 @@ export const CHART_SECONDARY = '#6b6b6b'
 
 /** Faint hover washes, where a fill has to register without becoming a surface of its own. */
 export const HOVER_WASH = 'rgba(255, 255, 255, 0.07)'
+
+/**
+ * Under and around a control drawn on a picture, the box on a poster: an EMPHASIS ring keeps 3.5:1 beside it on a
+ * white picture, and more on any darker one.
+ */
+export const PICTURE_SHADE = 'rgba(0, 0, 0, 0.5)'

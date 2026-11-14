@@ -4,7 +4,7 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CHART_PRIMARY, CHART_SECONDARY, CONTROL_ACTIVE_BG,
   CONTROL_BG, CONTROL_HOVER_BG, DANGER, DANGER_SOLID, ELEVATED_BG, EMPHASIS, EMPHASIS_HOVER,
   FOCUS_RING, OK,
-  PAGE_BG, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN
+  PAGE_BG, PICTURE_SHADE, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN
 } from '../src/theme'
 
 /**
@@ -246,5 +246,17 @@ describe('a monochrome chart still has two readable series', () => {
 
   it('keeps the quieter series visible against the card it is drawn on', () => {
     expect(contrast(CHART_SECONDARY, SURFACE_BG)).toBeGreaterThanOrEqual(3)
+  })
+})
+
+/** An rgba token laid over a colour, as the page draws it. */
+const over = (rgba: string, hex: string) => {
+  const [r, g, b, a] = rgba.match(/[\d.]+/g)!.map(Number) as [number, number, number, number]
+  return '#' + [r, g, b].map((c, i) => Math.round(a * c + (1 - a) * channels(hex)[i]!).toString(16).padStart(2, '0')).join('')
+}
+
+describe('the box on a poster', () => {
+  it('keeps the box\'s ring 3:1 from its shade on a white picture', () => {
+    expect(contrast(EMPHASIS, over(PICTURE_SHADE, '#ffffff'))).toBeGreaterThanOrEqual(3)
   })
 })
