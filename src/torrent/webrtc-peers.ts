@@ -111,7 +111,9 @@ export const relayPeers = (session: Session, { net, dgram }: Pick<RelaySockets, 
   const run = async () => {
     let wait = RETRY_MIN_MS
     while (!closed) {
-      const socket = await bound().catch(() => null)
+      // the stack's own file first: one that cannot start binds nothing, and no tracker's host hears from the relay
+      wasm ??= await fetch(wasmUrl).then((file) => file.arrayBuffer()).then((bytes) => WebAssembly.compile(bytes)).catch(() => undefined)
+      const socket = wasm && await bound().catch(() => null)
       if (socket) {
         let open = true
         // an error after the bind ends the stack as a close does, and may come with no close
@@ -122,7 +124,6 @@ export const relayPeers = (session: Session, { net, dgram }: Pick<RelaySockets, 
         })
         try {
           const address = await relayAddress()
-          wasm ??= await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer())
           if (open && !closed) {
             const webrtc = await createWebRTC({ socket, address, port: socket.address().port, wasm, allowPrivateCandidates: !!RIG_TRACKER })
             peers = webtorrentPeers(session, {
@@ -141,7 +142,8 @@ export const relayPeers = (session: Session, { net, dgram }: Pick<RelaySockets, 
         try { socket.close() } catch { /* it closed by itself */ }
       }
       await new Promise((resolve) => setTimeout(resolve, wait))
-      wait = Math.min(wait * 2, socket ? RETRY_MAX_MS : BIND_RETRY_MAX_MS)
+      // a bind the relay refused is asked again as soon as the engine's own; the rest is not back within moments
+      wait = Math.min(wait * 2, wasm && !socket ? BIND_RETRY_MAX_MS : RETRY_MAX_MS)
     }
   }
   void run()
