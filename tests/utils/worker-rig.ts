@@ -110,16 +110,20 @@ export const installWorkerGlobals = (
   const listeners = new Map<string, ((event: { data: unknown }) => void)[]>()
   const dir = root ?? fakeDir('')
 
-  const self = {
+  // osra (under @fkn/lib, which listens on `self` as it loads since 0.9.74) takes `self` for a worker only when it is a
+  // DedicatedWorkerGlobalScope; a plain object rejects with "u.addEventListener is not a function"
+  class DedicatedWorkerGlobalScope {}
+  const self = Object.assign(new DedicatedWorkerGlobalScope(), {
     name: name ?? '',
     postMessage: (message: Posted) => { posted.push(message) },
     addEventListener: (type: string, fn: (event: { data: unknown }) => void) => {
       listeners.set(type, [...(listeners.get(type) ?? []), fn])
     },
     removeEventListener: () => {},
-  }
+  })
 
   for (const [name, value] of [
+    ['DedicatedWorkerGlobalScope', DedicatedWorkerGlobalScope],
     ['self', self],
     ['navigator', { storage: { estimate, getDirectory: async () => dir } }],
   ] as const) {
