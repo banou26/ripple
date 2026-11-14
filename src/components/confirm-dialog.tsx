@@ -42,7 +42,8 @@ export type ConfirmRequest = {
   tone?: 'danger' | 'normal'
 }
 
-const style = css`
+/** The card of a confirmation: a sentence, an optional box to tick, and its actions. */
+export const confirmStyle = css`
   color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   max-width: min(460px, calc(100vw - 32px));
@@ -207,7 +208,7 @@ export const useConfirm = () => {
          */
         initialFocus={cancelRef}
       >
-        <div css={style}>
+        <div css={confirmStyle}>
         <div className="card">
           <h2 id="confirm-title">{request.title}</h2>
           <p>{request.body}</p>

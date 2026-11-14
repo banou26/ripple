@@ -1,6 +1,8 @@
 import type { Reachability } from './client'
 import type { EngineTransport } from './vpn-config'
 
+import { defineMessages } from 'react-intl'
+
 import { intl } from '../i18n'
 
 /**
@@ -22,8 +24,11 @@ import { intl } from '../i18n'
  *
  * OFF is the person's choice, and nothing failed: the engine runs with no relay and its peers are
  * the browser's own WebRTC connections.
+ *
+ * WAITING is a choice the engine has yet to follow. It is replaced by one on the other transport,
+ * and that waits while a page saves a file, which a new engine would end.
  */
-export type VpnState = 'on' | 'healing' | 'unreachable' | 'off'
+export type VpnState = 'on' | 'healing' | 'unreachable' | 'off' | 'waiting'
 
 export type VpnStatus = {
   state: VpnState
@@ -33,23 +38,30 @@ export type VpnStatus = {
   detail: string | null
 }
 
-/** Null while the engine has said nothing: not knowing is not the same as off. */
-export const vpnStatus = (reachable: Reachability | null, transport?: EngineTransport | null): VpnStatus | null => {
-  if (transport === 'direct') return { state: 'off', label: intl.formatMessage({ id: 'Off', defaultMessage: 'Off' }), detail: null }
+const LABEL = defineMessages<VpnState>({
+  on: { id: 'On', defaultMessage: 'On' },
+  healing: { id: 'Reconnecting', defaultMessage: 'Reconnecting' },
+  unreachable: { id: 'Unreachable', defaultMessage: 'Unreachable' },
+  off: { id: 'Off', defaultMessage: 'Off' },
+  waiting: { id: 'Waiting', defaultMessage: 'Waiting' },
+})
+
+/** The word of every state, in the language in use: the room a readout keeps so that a change of state moves nothing. */
+export const vpnLabels = (): string[] => Object.values(LABEL).map((label) => intl.formatMessage(label))
+
+/**
+ * Null while the engine has said nothing: not knowing is not the same as off. `wanted` is the stored choice of
+ * the VPN, where the caller draws a switch: an engine on the other transport reads as waiting.
+ */
+export const vpnStatus = (reachable: Reachability | null, transport?: EngineTransport | null, wanted?: boolean): VpnStatus | null => {
+  const answer = (state: VpnState, detail: string | null = null): VpnStatus => ({ state, label: intl.formatMessage(LABEL[state]), detail })
+  if (wanted !== undefined && transport && (transport === 'relay') !== wanted) return answer('waiting')
+  if (transport === 'direct') return answer('off')
   if (!reachable) return null
   // an engine older than this readout sends no `listeners` at all, and a missing field cannot be
   // read as a healthy one: nothing is KNOWN to be bound, so it cannot claim On
   const listeners = reachable.listeners ?? []
-  const bound = listeners.some((l) => l.up)
-  const healing = listeners.some((l) => l.healing)
-  const on = reachable.port !== null && bound
-  const state: VpnState = on ? 'on' : healing ? 'healing' : 'unreachable'
-
-  return {
-    state,
-    label: on ? intl.formatMessage({ id: 'On', defaultMessage: 'On' })
-      : healing ? intl.formatMessage({ id: 'Reconnecting', defaultMessage: 'Reconnecting' })
-      : intl.formatMessage({ id: 'Unreachable', defaultMessage: 'Unreachable' }),
-    detail: on || healing ? null : intl.formatMessage({ id: 'No peers can connect. Try reloading the page.', defaultMessage: 'No peers can connect. Try reloading the page.' }),
-  }
+  if (reachable.port !== null && listeners.some((l) => l.up)) return answer('on')
+  if (listeners.some((l) => l.healing)) return answer('healing')
+  return answer('unreachable', intl.formatMessage({ id: 'No peers can connect. Try reloading the page.', defaultMessage: 'No peers can connect. Try reloading the page.' }))
 }

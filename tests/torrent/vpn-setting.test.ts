@@ -79,3 +79,25 @@ describe('the stored choice', () => {
     expect(changed).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('Remember this decision', () => {
+  it('is not set until somebody ticks it, and is kept beside the choice, not in it', async () => {
+    const { rememberVpnWarning, storeVpn, vpnOn, vpnWarningRemembered } = await setting()
+    expect(vpnWarningRemembered()).toBe(false)
+    rememberVpnWarning()
+    expect(vpnWarningRemembered()).toBe(true)
+    expect([...store]).toEqual([['ripple:vpn-off-remembered', '1']])
+    // remembering the warning switches nothing, and the choice changing forgets nothing
+    expect(vpnOn()).toBe(true)
+    storeVpn(false)
+    storeVpn(true)
+    expect(vpnWarningRemembered()).toBe(true)
+  })
+
+  it('asks again where the browser refuses storage, rather than throwing', async () => {
+    refuse.storage = true
+    const { rememberVpnWarning, vpnWarningRemembered } = await setting()
+    expect(() => rememberVpnWarning()).not.toThrow()
+    expect(vpnWarningRemembered()).toBe(false)
+  })
+})

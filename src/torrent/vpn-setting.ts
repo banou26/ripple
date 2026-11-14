@@ -24,6 +24,18 @@ export const storeVpn = (on: boolean): boolean => {
   } catch { return false }
 }
 
+const REMEMBERED_KEY = 'ripple:vpn-off-remembered'
+
+/** Whether a person asked, in this browser storage, not to be warned again when the VPN is switched off. */
+export const vpnWarningRemembered = (): boolean => {
+  try { return localStorage.getItem(REMEMBERED_KEY) === '1' } catch { return false }
+}
+
+/** Stores that the warning shown when the VPN is switched off is not to be shown here again. */
+export const rememberVpnWarning = (): void => {
+  try { localStorage.setItem(REMEMBERED_KEY, '1') } catch { /* a browser that refused is warned again */ }
+}
+
 /** Calls back when another page of this storage changes the choice. Returns the function that stops it. */
 export const onVpnStored = (changed: () => void): (() => void) => {
   // a null key is the whole storage cleared

@@ -37,7 +37,7 @@ import {
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
 import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
-import { VpnStat } from '../components/vpn-stat'
+import { VpnSwitch } from '../components/vpn-switch'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { magnetInfoHash, magnetParam } from '../torrent/magnet'
 import { saveTorrentFile } from '../torrent/torrent-export'
@@ -1060,7 +1060,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             />
           )}
         </span>
-        <VpnStat reachable={reachable} transport={transport}/>
+        <VpnSwitch reachable={reachable} transport={transport}/>
       </header>
 
       <main>

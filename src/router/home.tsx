@@ -70,7 +70,7 @@ import { LanguageSelect } from '../components/language-select'
 import { SampleOffer } from '../components/sample-offer'
 import { contentFiles } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
-import { VpnStat } from '../components/vpn-stat'
+import { VpnSwitch } from '../components/vpn-switch'
 import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
@@ -706,9 +706,6 @@ export const style = css`
       &.sync.error strong {
         color: ${WARN};
       }
-
-      /* the VPN readout brings its own colours: it is mounted on the download page too, where none
-         of these rules exist, so it cannot lean on them here either */
     }
 
     /*
@@ -3261,6 +3258,8 @@ const Home = () => {
             {intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })}
           </button>
         )}
+        {/* in the header, so it is there before the first torrent is: the strip below is drawn once there is one */}
+        <VpnSwitch reachable={reachable} transport={transport}/>
         <AccountWidget onToast={showToast}/>
       </header>
 
@@ -3375,8 +3374,6 @@ const Home = () => {
             {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
             {quota && <QuotaStat quota={quota}/>}
-            {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
-            <VpnStat reachable={reachable} transport={transport}/>
             <SyncStat state={syncState}/>
           </div>
           <SpeedGraph history={history}/>
