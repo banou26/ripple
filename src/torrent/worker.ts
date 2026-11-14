@@ -385,7 +385,7 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); newlyWatched.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
-  limitsByHandle.delete(h); pendingLimits.delete(h); pendingFlags.delete(h)
+  limitsByHandle.delete(h); pendingLimits.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
@@ -462,21 +462,6 @@ const limitsByHandle = new Map<number, { down?: number, up?: number }>()
 const pendingLimits = new Set<number>()
 
 /**
- * Flag words to set once the engine has actually registered the handle.
- *
- * MEASURED IN THE ENGINE'S OWN SOURCE, because this reads like belt and braces and is not. In
- * `libtorrent-wasm`'s `wrapper.cpp`, `lt_torrent_set_flags` calls `lookup_handle(id)` and returns
- * -1 doing nothing when the id is not there, `register_handle` has exactly ONE call site, inside
- * `lt_session_pump_alerts` on `add_torrent_alert`, and the JS wrapper discards the return value. So
- * `setFlags` immediately after an add is a SILENT no-op: no throw, no console line, nothing.
- *
- * The same rule `pendingLimits` above exists for, and the same rule stated at `wantPaused`. It
- * matters most for `uploadMode`, which is the one thing standing between a read-only backend and a
- * write it must refuse, and a refused write reaches libtorrent as a fatal disk error.
- */
-const pendingFlags = new Map<number, { flags: number, mask: number }>()
-
-/**
  * What the engine's own run timers read when each torrent was added, and the totals last written.
  *
  * The first is what makes the accumulation a DELTA rather than a sum: a torrent restored from a
@@ -531,14 +516,6 @@ const totalsOf = (h: number): Totals => {
   const atAdd = totalsAtAdd.get(h)
   if (!now || !atAdd) return totalsStored.get(h) ?? NO_TOTALS
   return accumulate(totalsStored.get(h), atAdd, readingOf(now))
-}
-
-const wantFlags = (h: number, flags: number, mask: number) => {
-  const already = pendingFlags.get(h)
-  // merged rather than replaced, so two callers before the first pump do not silently cancel
-  pendingFlags.set(h, already
-    ? { flags: (already.flags & ~mask) | (flags & mask), mask: already.mask | mask }
-    : { flags: flags & mask, mask })
 }
 
 /**
@@ -1358,11 +1335,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // Upload only, for a folder. There is no way to write there that is safe for the user's own files,
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
-  // Recorded rather than set, for the reason `pendingFlags` gives: a flag word set before the engine
-  // has pumped the add alert is discarded, silently. This line used to call setFlags directly and
-  // therefore never applied, which left a folder-located torrent free to request a piece and ask a
-  // read-only backend to write it.
-  if (to === 'folder') wantFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+  if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
@@ -1390,7 +1363,7 @@ const addSource = (
   const h = live.addTorrentFile(bytes, savePath)
   if (addFailed(h)) { sourceHandles.delete(savePath); return null }
   track(h, magnet, infoHash, savePath, false)
-  wantFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+  live.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (paused) { userPaused.add(h); wantPause(h) }
   recovery.hold(h, Date.now())
   return h
@@ -1780,14 +1753,12 @@ const init = async () => {
       // Held like a page's add until the pump that parks it: with no saved state it comes back running
       // and asked a web source for 16 MiB before that pump (swarm rig, 2026-11-14). Not with a saved
       // state, as releasing the hold would clear the upload mode a folder's blob carries.
-      if (e.ephemeral && !resume?.byteLength) holdingUpload.add(h)
+      if (e.ephemeral && !resume?.byteLength) {
+        holdingUpload.add(h)
+        session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+      }
     }
     if (changed) await set(LIST_KEY, list)
-    if (holdingUpload.size) {
-      session.tick()
-      session.popAlerts()
-      for (const h of holdingUpload) session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
-    }
   } catch (err) { console.error('[worker] restore failed', err) }
 
   // ready posts before any IndexedDB read: a blocked or corrupted list read would leave every command queued behind a promise that never settles
@@ -1855,15 +1826,6 @@ const init = async () => {
       // the byte counters rebase on the same pump and for the same reason: without a reading from
       // the moment this torrent joined, everything it moves before the first persist is lost
       totalsAtAdd.set(h, readingOf(st))
-    }
-
-    // Same gate, same reason, and see `pendingFlags` for why a flag set at add time never landed.
-    // Safe to arrive a pump late: a torrent whose files are already on disk spends that pump
-    // checking them, and a check neither downloads nor writes.
-    for (const [h, want] of [...pendingFlags]) {
-      if (!session.status(h)) continue
-      pendingFlags.delete(h)
-      session.setFlags(h, want.flags >>> 0, want.mask >>> 0)
     }
 
     /*
@@ -2156,10 +2118,6 @@ const handleMessage = async (session: Session, m: any) => {
           needsPriorityReset.add(h)
           if (ephemeral) {
             holdingUpload.add(h)
-            // A tick runs the add and a pump registers it, so the flag lands now rather than at the
-            // next pump, which the metadata beat in 4 of 6 runs on the swarm rig (2026-11-14).
-            session.tick()
-            session.popAlerts()
             session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
           }
         }

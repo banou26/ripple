@@ -17,9 +17,9 @@ const FROM_FILE = '3'.repeat(40)
 const UPLOAD = 1
 const MiB = 1024 * 1024
 
-// the engine's rules from worker-hold-upload.test.ts: calls land in order, a hash keeps its id, an add
-// is registered only by a pump after a tick, and one added from a .torrent or a saved state has its
-// layout from the start
+// the engine's rules from worker-hold-upload.test.ts: calls land in order from the add on, a hash keeps
+// its id, an add is reported on only by a pump after a tick, and one added from a .torrent or a saved
+// state has its layout from the start
 const engine = vi.hoisted(() => ({
   ids: new Map<string, number>(),
   queued: new Set<number>(),
@@ -50,6 +50,7 @@ vi.mock('libtorrent-wasm', async () => {
     { path: 'b.mp4', offset: MiB, size: 29 * MiB, pad: false },
   ] }
   const hashOf = (h: number) => [...engine.ids].find(([, id]) => id === h)?.[0]
+  const added = (h: number) => engine.queued.has(h) || engine.live.has(h)
   const tick = () => { for (const h of engine.queued) engine.live.add(h); engine.queued.clear() }
   setInterval(tick, 250)
   // every add names its save path, which ends in the hash
@@ -74,13 +75,13 @@ vi.mock('libtorrent-wasm', async () => {
         : engine.paused.has(h) ? { ...running, paused: true, autoManaged: false } : running),
       files: (h: number) => (engine.registered.has(h) && engine.withMeta.has(hashOf(h)!) ? layout : null),
       setFlags: (h: number, flags: number, mask: number) => {
-        if (!engine.registered.has(h) || !(mask & UPLOAD) || engine.upload.has(h) === !!(flags & UPLOAD)) return
+        if (!added(h) || !(mask & UPLOAD) || engine.upload.has(h) === !!(flags & UPLOAD)) return
         if (flags & UPLOAD) engine.upload.add(h); else engine.upload.delete(h)
         engine.log.push(`${hashOf(h)} upload ${flags & UPLOAD ? 'on' : 'off'}`)
       },
       postStatus: (h: number) => { engine.log.push(`${hashOf(h)} pump`) },
       pauseTorrent: (h: number) => {
-        if (engine.registered.has(h)) engine.paused.add(h)
+        if (added(h)) engine.paused.add(h)
         engine.log.push(`${hashOf(h)} pause`)
       },
       resumeTorrent: (h: number) => { engine.paused.delete(h); engine.log.push(`${hashOf(h)} resume`) },
@@ -151,9 +152,10 @@ it('holds a temporary torrent restored with no saved state until the pump that p
   expect(of(FROM_FILE)).toEqual(['upload on', 'pause', 'upload off', 'save plain'])
   // one the person paused runs until a pump pauses it, so it is held too
   expect(of(PAUSED)).toEqual(['upload on', 'pause'])
-  // a saved state or a library download is not held, and the flush saved them
+  // a saved state or a library download is not held; the flush came before the engine reported on
+  // either, so only the park of the saved state saved it
   expect(of(SAVED)).toContain('save plain')
-  expect(of(LIBRARY)).toEqual(['save plain'])
+  expect(of(LIBRARY)).toEqual([])
   expect([...of(SAVED), ...of(LIBRARY)].filter((line) => line.startsWith('upload'))).toEqual([])
 
   engine.withMeta.add(PARKED)

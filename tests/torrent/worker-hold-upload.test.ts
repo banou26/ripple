@@ -11,8 +11,8 @@ const UPLOAD = 1
 const MiB = 1024 * 1024
 
 // the fake keeps the engine's three rules this depends on: a call lands in the order it was made,
-// libtorrent-wasm gives a hash the same id every time it is added, and an add is registered only by
-// a pump after a tick (the session ticks itself every 250 ms)
+// from the add on, libtorrent-wasm gives a hash the same id every time it is added, and an add is
+// reported on only by a pump after a tick (the session ticks itself every 250 ms)
 const engine = vi.hoisted(() => ({
   ids: new Map<string, number>(),
   queued: new Set<number>(),
@@ -39,6 +39,7 @@ vi.mock('libtorrent-wasm', async () => {
     { path: 'b.mp4', offset: MiB, size: 29 * MiB, pad: false },
   ] }
   const hashOf = (h: number) => [...engine.ids].find(([, id]) => id === h)?.[0]
+  const added = (h: number) => engine.queued.has(h) || engine.live.has(h)
   const tick = () => { for (const h of engine.queued) engine.live.add(h); engine.queued.clear() }
   setInterval(tick, 250)
   return {
@@ -58,15 +59,15 @@ vi.mock('libtorrent-wasm', async () => {
       status: (h: number) => (!engine.registered.has(h) ? null
         : engine.paused.has(h) ? { ...running, paused: true, autoManaged: false } : running),
       files: (h: number) => (engine.registered.has(h) && engine.withMeta.has(hashOf(h)!) ? layout : null),
-      // like libtorrent: an unregistered handle ignores it, and an unchanged flag changes nothing
+      // like libtorrent: a removed torrent ignores it, and an unchanged flag changes nothing
       setFlags: (h: number, flags: number, mask: number) => {
-        if (!engine.registered.has(h) || !(mask & UPLOAD) || engine.upload.has(h) === !!(flags & UPLOAD)) return
+        if (!added(h) || !(mask & UPLOAD) || engine.upload.has(h) === !!(flags & UPLOAD)) return
         if (flags & UPLOAD) engine.upload.add(h); else engine.upload.delete(h)
         engine.log.push(`${hashOf(h)} upload ${flags & UPLOAD ? 'on' : 'off'}`)
       },
       postStatus: (h: number) => { engine.log.push(`${hashOf(h)} pump`) },
       pauseTorrent: (h: number) => {
-        if (engine.registered.has(h)) engine.paused.add(h)
+        if (added(h)) engine.paused.add(h)
         engine.log.push(`${hashOf(h)} pause`)
       },
       resumeTorrent: (h: number) => { engine.paused.delete(h) },
