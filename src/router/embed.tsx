@@ -2,7 +2,7 @@ import type { MediaPlayerSource } from '@banou/media-player'
 import type { LinkLanguages } from './embed-link'
 import type { EmbedMode } from './file-selection'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -388,9 +388,9 @@ const playerStyle = css`
      * This row is competing with the filename, and an icon still says which one is which where a
      * truncated word does not. The tooltip carries the full sentence at every width.
      *
-     * Up to 768px, not the byte counter's 560: with the swarm's words an ordinary row (216 seeders ·
-     * 3 leechers, VPN On, 10.4 MB/s) showed 3px of VPN On and 9px of the speed at 560px in the runner's
-     * DejaVu Sans, and was whole only from 700px (measured 2026-10-30). A frame is often that wide.
+     * Up to 768px, not the byte counter's 560: shown from 560px, the state's and the peer count's words
+     * cut both speeds of an ordinary row in German, French, Italian, Polish, Portuguese and Turkish in
+     * the runner's DejaVu Sans, Polish in every state (measured 2026-11-15). A frame is often that wide.
      *
      * Three items fold, and the VPN one is here for a reason worth writing down. Its label is the
      * WIDEST thing in the row and it is only wide TRANSIENTLY: VPN On measures 72px and
@@ -794,7 +794,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                   intl.formatMessage({ id: 'Seeders: {count}', defaultMessage: 'Seeders: {count}' }, { count: swarm.seeders }),
                   intl.formatMessage({ id: 'Leechers: {count}', defaultMessage: 'Leechers: {count}' }, { count: swarm.leechers }),
                   ...downloads >= 0 ? [intl.formatMessage({ id: 'Downloads: {count}', defaultMessage: 'Downloads: {count}' }, { count: downloads })] : [],
-                ].join(' · ')}</>}
+                ].map((fact, i, facts) => (i < facts.length - 1 ? `${fact} ·` : fact)).map((fact) => (
+                  // each count unbroken with its words and its dot, so a line breaks only at the space before the next
+                  <Fragment key={fact}> <span style={{ whiteSpace: 'nowrap' }}>{fact}</span></Fragment>
+                ))}</>}
               </span>
             )}
           />

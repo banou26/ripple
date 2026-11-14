@@ -290,6 +290,56 @@ describe('the watch route', () => {
     expect(await hoverText(screen, 'peers')).toBe('Connected peers: 31\nSeeders: 12 · Leechers: 19 · Downloads: 0')
   })
 
+  // in English at 1280px "Downloads:" ended one line and "8054" began the next, and in French "Sources" / "partielles : 973"
+  it('keeps each of the swarm\'s counts on one line with its words in every language, as wide as they get', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+    const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
+    const facts = { 'Seeders: {count}': 216, 'Leechers: {count}': 973, 'Downloads: {count}': 8054 }
+    // how many lines the chip draws `text` across, wherever its text nodes split it
+    const linesOf = (chip: Element, text: string) => {
+      const nodes: Text[] = []
+      const walker = document.createTreeWalker(chip, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node as Text)
+      const starts = nodes.map((_, i) => nodes.slice(0, i).reduce((length, node) => length + node.data.length, 0))
+      const at = nodes.map(node => node.data).join('').indexOf(text)
+      if (at < 0) return 0
+      const range = document.createRange()
+      const place = (offset: number) => {
+        const i = starts.findLastIndex(start => start <= offset)
+        return [nodes[i]!, offset - starts[i]!] as const
+      }
+      range.setStart(...place(at))
+      range.setEnd(...place(at + text.length))
+      return new Set([...range.getClientRects()].filter(rect => rect.width > 0).map(rect => Math.round(rect.top))).size
+    }
+    const split: string[] = []
+    try {
+      for (const [language, catalogue] of languages) {
+        await (catalogue ? showIn(language, catalogue) : showEnglish())
+        for (const size of [SMALL_PHONE, DESKTOP]) {
+          state.current = withSwarm({ numPeers: 999, numSeeds: 26, swarmSeeds: 216, swarmPeers: 973 }, 8054)
+          const screen = await mount(size)
+          const video = screen.container.querySelector('video')!
+          await userEvent.hover(video)
+          await userEvent.hover(screen.getByTestId('peers').element())
+          await expect.poll(() => screen.container.querySelector('[role="tooltip"]')).not.toBeNull()
+          const chip = screen.container.querySelector('[role="tooltip"]')!
+          const words = Object.entries(facts).map(([id, count]) => (catalogue?.[id] ?? id).replace('{count}', String(count)))
+          for (const [i, fact] of words.entries()) {
+            const shown = i < words.length - 1 ? `${fact} ·` : fact
+            const lines = linesOf(chip, shown)
+            if (lines !== 1) split.push(`${language} at ${size.width}px: ${shown} on ${lines} lines`)
+          }
+          await userEvent.hover(video)
+          await screen.unmount()
+        }
+      }
+    } finally { await showEnglish() }
+    expect(languages).toHaveLength(13)
+    expect(split).toEqual([])
+  }, 60_000)
+
   // the first seconds, and a magnet with no trackers
   it('says only the connected peers in its hover until a tracker has answered with both counts', async () => {
     for (const swarm of [{ swarmSeeds: -1, swarmPeers: -1 }, { swarmSeeds: 216, swarmPeers: -1 }]) {
@@ -371,7 +421,7 @@ describe('the watch route', () => {
   /*
    * The same ordinary figures in every state a player can show, with the VPN in each of its own, at the narrowest width
    * of each layout the row has: a phone's, then with the upload speed, then with the byte counter, then with the state's
-   * and the swarm's words, then with the VPN's and a larger font. In DejaVu Sans, Turkish's speed was cut at 480px, and
+   * and the peer count's words, then with the VPN's and a larger font. In DejaVu Sans, Turkish's speed was cut at 480px, and
    * VPN Reconnecting beside Retrying cut both speeds at 768px in English, Portuguese and Turkish (measured 2026-11-03).
    * It drew 1365 frames with four states of the VPN, which took 15.8 s on GitHub's runner on 2026-11-05, past the
    * default 15 s, and draws 2275 with the fifth.
