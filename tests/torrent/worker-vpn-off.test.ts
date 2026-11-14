@@ -19,6 +19,11 @@ const engine = vi.hoisted(() => ({
 vi.useFakeTimers()
 const rig = installWorkerGlobals({ estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }), name: 'direct' })
 
+// whatever the constant is set to in the source, this file is about WebRTC peers running
+vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
+  WEBRTC_PEERS: true,
+}))
 vi.mock('@fkn/lib/net', () => ({ connect: engine.relay.connect, isIPv4: () => true }))
 vi.mock('@fkn/lib/dgram', () => ({ createSocket: engine.relay.createSocket }))
 vi.mock('@fkn/lib/websocket', () => ({ WebSocket: class RelayWebSocket {} }))

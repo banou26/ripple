@@ -41,6 +41,12 @@ const rig = installWorkerGlobals({ estimate: async () => ({ usage: 0, quota: 10 
 
 class RelayWebSocket {}
 
+// whatever the constant is set to in the source, this file is about WebRTC peers running
+vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
+  WEBRTC_PEERS: true,
+}))
+
 vi.mock('@fkn/lib/dgram', () => ({
   createSocket: (type: unknown) => {
     const answer = engine.binds.length > 1 ? engine.binds.shift()! : engine.binds[0]!

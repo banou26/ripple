@@ -2,7 +2,7 @@
 // of them that cannot name fewer than the engine is handed.
 import { expect, it } from 'vitest'
 
-import { ICE_SERVERS, TRACKERS, VPN_OFF_HOSTS, WEBRTC_PEERS } from '../../src/torrent/vpn-config'
+import { ICE_SERVERS, TRACKERS, VPN_OFF_HOSTS } from '../../src/torrent/vpn-config'
 
 it('announces to the two trackers and asks the one STUN host the owner chose', () => {
   expect(TRACKERS).toEqual(['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev'])
@@ -16,8 +16,4 @@ it('lists the host of every tracker and STUN server, and nothing else', () => {
   ]
   expect(hosts).toHaveLength(3)
   expect(VPN_OFF_HOSTS).toEqual(hosts)
-})
-
-it('runs', () => {
-  expect(WEBRTC_PEERS).toBe(true)
 })

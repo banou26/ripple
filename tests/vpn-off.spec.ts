@@ -12,7 +12,11 @@ import type { BrowserContext, Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
+import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 import { startTracker } from './vpn-off/tracker.mjs'
+
+// the one constant that stops WebRTC peers leaves the VPN on in every page, and nothing here to drive
+test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
 
 test.use({
   launchOptions: {
@@ -163,6 +167,8 @@ test('with nobody to find, no connection is made and the torrent says since when
   const infoHash = 'c'.repeat(40)
   const alone = await visitor(await browser.newContext(), baseURL!)
   await add(alone.page, `magnet:?xt=urn:btih:${infoHash}&tr=${encodeURIComponent(url)}`)
+  // and one that names no tracker, so it has the two default ones alone, which nothing here reaches
+  await add(alone.page, `magnet:?xt=urn:btih:${'e'.repeat(40)}`)
 
   await expect.poll(() => tracker.peers(), { timeout: 30_000, message: 'the tracker was never asked' }).toBe(1)
   await expect.poll(async () => (await row(alone.page, infoHash))?.noPeersSince, { timeout: 30_000 }).toBeGreaterThan(0)

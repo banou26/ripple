@@ -10,7 +10,8 @@ beforeEach(() => {
   listeners.clear()
   refuse.storage = false
   vi.resetModules()
-  vi.doUnmock('../../src/torrent/vpn-config')
+  // whatever the constant is set to in the source: each case says which it is about
+  vi.doMock('../../src/torrent/vpn-config', () => ({ WEBRTC_PEERS: true }))
   vi.stubGlobal('RTCPeerConnection', class {})
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => { if (refuse.storage) throw new Error('refused'); return store.get(key) ?? null },

@@ -25,6 +25,11 @@ class FakeWorker {
 
 const page = vi.hoisted(() => ({ relayed: [] as unknown[], served: [] as { port: unknown, options: unknown }[], closed: 0 }))
 
+// whatever the constant is set to in the source, this file is about the switch working
+vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
+  WEBRTC_PEERS: true,
+}))
 vi.mock('@fkn/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@fkn/lib')>()),
   relayWorker: async (worker: unknown) => { page.relayed.push(worker) },
