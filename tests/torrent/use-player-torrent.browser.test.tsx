@@ -138,13 +138,19 @@ describe('a read across a change of engine', () => {
     expect(listeners.read, 'a read was asked of an engine that is gone').toHaveBeenCalledTimes(1)
 
     listeners.read.mockImplementation(answer)
-    // the next engine numbers its torrents from one again, so the handle alone says nothing
+    // the next engine lists the torrent before it knows its files, and refuses a read until it does
+    listeners.state([{ handle: 7, magnet: MAGNET, files: null } as TorrentSnapshot])
+    const early = reader.read(150, 10)
+    await pause()
+    expect(listeners.read, 'a read was asked of an engine that does not know the files yet').toHaveBeenCalledTimes(1)
+    // it numbers its torrents from one again, so the handle alone says nothing
     listed(7)
     expect(new Uint8Array(await under)).toEqual(new Uint8Array(100).fill(7))
     expect(new Uint8Array(await between)).toEqual(new Uint8Array(50).fill(7))
+    expect(new Uint8Array(await early)).toEqual(new Uint8Array(10).fill(7))
     // each asked once of the new engine, in whichever order they came to wait
-    expect(listeners.read.mock.calls.slice(1)).toHaveLength(2)
-    expect(listeners.read.mock.calls.slice(1)).toEqual(expect.arrayContaining([[7, 0, 0, 100, true, 'player'], [7, 0, 100, 50, true, 'player']]))
+    expect(listeners.read.mock.calls.slice(1)).toHaveLength(3)
+    expect(listeners.read.mock.calls.slice(1)).toEqual(expect.arrayContaining([[7, 0, 0, 100, true, 'player'], [7, 0, 100, 50, true, 'player'], [7, 0, 150, 10, true, 'player']]))
     await screen.unmount()
   })
 
@@ -175,6 +181,32 @@ describe('a read across a change of engine', () => {
     expect(listeners.read).not.toHaveBeenCalled()
     await screen.unmount()
   })
+})
+
+// an engine that has just started lists a restored torrent before it knows its files
+it('keeps the layout of its torrent through an engine that does not know it yet, and of no other torrent', async () => {
+  listeners.watch.mockClear()
+  const Shown = ({ magnet }: { magnet: string }) => {
+    const { snapshot, fileIndex } = usePlayerTorrent(magnet, undefined)
+    return <div data-testid="shown">{`file ${fileIndex} of ${snapshot?.files?.files.length ?? 'none'}`}</div>
+  }
+  const screen = await render(<Shown magnet={MAGNET} />)
+  listeners.state([{ handle: 7, magnet: MAGNET, files: RELEASE } as TorrentSnapshot])
+  await expect.element(screen.getByTestId('shown')).toHaveTextContent('file 1 of 2')
+
+  listeners.reset()
+  listeners.state([{ handle: 1, magnet: MAGNET, files: null } as TorrentSnapshot])
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  await expect.element(screen.getByTestId('shown')).toHaveTextContent('file 1 of 2')
+  // the film is claimed in the new engine at once, not the first file until the layout lands
+  expect(listeners.watch).toHaveBeenLastCalledWith('player', 1, 1)
+
+  // THE CONTROL: another torrent starts with no layout, whatever the last one had
+  const other = `magnet:?xt=urn:btih:${'b'.repeat(40)}`
+  await screen.rerender(<Shown magnet={other} />)
+  listeners.state([{ handle: 2, magnet: other, files: null } as TorrentSnapshot])
+  await expect.element(screen.getByTestId('shown')).toHaveTextContent('file 0 of none')
+  await screen.unmount()
 })
 
 describe('the player hook\'s words', () => {

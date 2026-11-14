@@ -32,7 +32,9 @@ const playedFile = (named: number | undefined, snapshot: TorrentSnapshot | null)
 export const usePlayerTorrent = (magnet: string | undefined, named: number | undefined): PlayerTorrent => {
   const client = getTorrentClient()
   const handleRef = useRef<number | null>(null)
-  // counts the engines this player has been through, and who waits for the next one to list the torrent
+  // the handle again once the engine that runs now knows the torrent's files, which is when it can be read from
+  const readableRef = useRef<number | null>(null)
+  // counts the engines this player has been through, and who waits for the next one to be readable
   const engineRef = useRef(0)
   const waitingRef = useRef(new Set<(handle: number) => void>())
   // one id per open player: the engine merges every viewer's claim on the shared priority map
@@ -70,21 +72,28 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
     let claimed: number | null = null
+    // A torrent's layout never changes, and an engine that has just started does not know it for a moment.
+    // Shown with none, the player has no file to play and builds its whole pipeline again, mid film.
+    let layout: TorrentSnapshot['files'] = null
     const offReset = client.onEngineReset(() => {
       claimed = null
       handleRef.current = null
+      readableRef.current = null
       engineRef.current++
       readWindows.current.clear()
     })
     const off = client.onState((snaps) => {
-      const snap = snaps.find((s) => s.magnet === magnet)
+      const listed = snaps.find((s) => s.magnet === magnet)
         ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
         ?? null
-      if (snap) {
-        handleRef.current = snap.handle
-        for (const resolve of waitingRef.current) resolve(snap.handle)
+      if (listed?.files) {
+        layout = listed.files
+        readableRef.current = listed.handle
+        for (const resolve of waitingRef.current) resolve(listed.handle)
         waitingRef.current.clear()
       }
+      const snap = listed && !listed.files && layout ? { ...listed, files: layout } : listed
+      if (snap) handleRef.current = snap.handle
       // with no file named this claims file 0 until the layout lands, then moves to the video file
       const index = playedFile(named, snap)
       if (snap && index !== claimed) {
@@ -101,22 +110,23 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
       offFull()
       client.unwatch(viewer)
       handleRef.current = null
+      readableRef.current = null
     }
   }, [client, magnet, named])
 
   const fileIndex = playedFile(named, snapshot)
 
-  /** The torrent's handle in the engine that runs now, waited for while that engine is still starting. */
-  const held = () => handleRef.current ?? new Promise<number>((resolve, reject) => {
+  /** The torrent's handle in the engine that runs now, waited for while that engine does not know its files yet. */
+  const held = () => readableRef.current ?? new Promise<number>((resolve, reject) => {
     const listed = (handle: number) => { clearTimeout(timer); resolve(handle) }
     const timer = setTimeout(() => { waitingRef.current.delete(listed); reject(new Error('torrent not ready')) }, ENGINE_CHANGE_MS)
     waitingRef.current.add(listed)
   })
 
   /**
-   * A read outlives a change of engine: one that finds no engine waits for the next to list the torrent, and
-   * one the engine was replaced under is asked again of the next. A failed read is an error the player shows
-   * over the picture and keeps in its list, and a person who switched the VPN did nothing wrong.
+   * A read outlives a change of engine: one that finds no engine waits for the next to know the torrent's
+   * files, and one the engine was replaced under is asked again of the next. A failed read is an error the
+   * player shows over the picture and keeps in its list, and a person who switched the VPN did nothing wrong.
    */
   const readAt = async (offset: number, size: number, prioritize: boolean): Promise<ArrayBuffer> => {
     // clamp to the file boundary or a read near EOF awaits pieces that never land
