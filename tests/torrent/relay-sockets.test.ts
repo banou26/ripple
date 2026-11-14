@@ -7,7 +7,7 @@ import { relaySockets } from '../../src/torrent/relay-sockets'
 type Listener = (...args: unknown[]) => void
 
 /** FKN's net and dgram as the relay behaves: a bind is answered a moment later, a close is confirmed a moment later. */
-const relay = ({ refuse = false, answers = true } = {}) => {
+const relay = ({ refuse = false, answers = true, binds = true } = {}) => {
   const held = new Set<string>()
   const later = (answer: () => void) => { if (answers) setTimeout(answer, 1) }
   const emitter = () => {
@@ -23,7 +23,7 @@ const relay = ({ refuse = false, answers = true } = {}) => {
       name,
       /** A bind the test answers itself, for one still on its way when the worker is asked to close. */
       granted: () => { held.add(name); socket.emit('listening') },
-      bind: () => later(() => refuse ? socket.emit('error', new Error('refused')) : socket.granted()),
+      bind: () => { if (binds) later(() => refuse ? socket.emit('error', new Error('refused')) : socket.granted()) },
       listen: () => socket.bind(),
       close: () => later(() => { held.delete(name); socket.emit('close') }),
     }
@@ -63,9 +63,10 @@ it('closes the listener, the connections it took, the UDP sockets and the dialle
 })
 
 it('closes a socket whose bind was still on its way, as soon as the relay answers it', async () => {
-  const fkn = relay()
+  const fkn = relay({ binds: false })
   const sockets = relaySockets(fkn)
   const late = sockets.dgram.createSocket('udp4')
+  late.bind(0)
   let closed = false
   const closing = sockets.close().then(() => { closed = true })
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -76,9 +77,13 @@ it('closes a socket whose bind was still on its way, as soon as the relay answer
   expect([...fkn.held]).toEqual([])
 })
 
-it('does not wait for a bind the relay refused, nor for a socket that closed by itself', async () => {
+// the engine makes a UDP socket it never binds, which says nothing at all: found on the rig, where every change
+// of the VPN took the whole second
+it('does not wait for a socket nobody bound, a bind the relay refused, nor a socket that closed by itself', async () => {
   const fkn = relay({ refuse: true })
   const sockets = relaySockets(fkn)
+  sockets.dgram.createSocket('udp4')
+  sockets.net.createServer()
   sockets.dgram.createSocket('udp4').bind(0)
   sockets.net.createServer().listen(0)
   const gone = sockets.net.connect({ host: '198.51.100.20', port: 6881 })

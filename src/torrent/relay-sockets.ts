@@ -7,7 +7,6 @@ const CLOSE_MS = 1_000
 
 // `on` alone, which is all the engine asks of a host's sockets
 type Emitter = { on: (event: string, listener: (...args: any[]) => void) => unknown }
-type Bound = Emitter & { close: () => unknown }
 type Connection = Emitter & { destroy: () => unknown }
 
 /**
@@ -28,17 +27,25 @@ export const relaySockets = ({ net, dgram }: { net: any, dgram: any } = { net: f
     held.set(gone, close)
     void gone.then(() => held.delete(gone))
   }
-  const bound = <T extends Bound>(socket: T) => {
-    let listening = false
-    socket.on('listening', () => { listening = true })
-    hold(
-      new Promise((resolve) => {
-        socket.on('close', resolve)
-        // a bind the relay refused holds nothing there, and no close follows it
-        socket.on('error', () => { if (!listening) resolve() })
-      }),
-      () => { if (listening) socket.close(); else socket.on('listening', () => socket.close()) },
-    )
+  /**
+   * A UDP socket or a listener, held from the moment its bind is asked: the engine makes sockets it never binds,
+   * which hold nothing at the relay and never say anything, and waiting for one would be waiting the whole second.
+   */
+  const bound = (socket: any, bind: 'bind' | 'listen') => {
+    const ask = socket[bind]
+    socket[bind] = (...args: unknown[]) => {
+      let listening = false
+      socket.on('listening', () => { listening = true })
+      hold(
+        new Promise((resolve) => {
+          socket.on('close', resolve)
+          // a bind the relay refused holds nothing there, and no close follows it
+          socket.on('error', () => { if (!listening) resolve() })
+        }),
+        () => { if (listening) socket.close(); else socket.on('listening', () => socket.close()) },
+      )
+      return ask.apply(socket, args)
+    }
     return socket
   }
   const connection = <T extends Connection>(socket: T) => {
@@ -51,13 +58,13 @@ export const relaySockets = ({ net, dgram }: { net: any, dgram: any } = { net: f
       connect: (...args: unknown[]) => nothing ? nothing.net.connect() : connection(net.connect(...args)),
       createServer: () => {
         if (nothing) return nothing.net.createServer()
-        const server = bound(net.createServer())
+        const server = bound(net.createServer(), 'listen')
         server.on('connection', connection)
         return server
       },
     },
     dgram: {
-      createSocket: (...args: unknown[]) => nothing ? nothing.dgram.createSocket() : bound(dgram.createSocket(...args)),
+      createSocket: (...args: unknown[]) => nothing ? nothing.dgram.createSocket() : bound(dgram.createSocket(...args), 'bind'),
     },
     close: (): Promise<unknown> => {
       nothing ??= offlineHost()
