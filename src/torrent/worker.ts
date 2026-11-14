@@ -385,7 +385,7 @@ const untrack = (h: number) => {
   userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); newlyWatched.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
-  limitsByHandle.delete(h); pendingLimits.delete(h)
+  limitsByHandle.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
@@ -444,22 +444,8 @@ const planByHandle = new Map<number, { wanted?: number[], firstLast?: boolean }>
  */
 let sessionLimits: RateLimits = { down: 0, up: 0 }
 
-/**
- * Per-torrent ceilings waiting for a handle the engine will admit.
- *
- * NOT applied at add time, which looks like it should work and silently does not:
- * `lt_torrent_set_download_limit` looks the handle up and returns -1 for one libtorrent has not
- * registered yet, registration only happens when the add alert is pumped, and the JS wrapper
- * discards that return value. There is no throw and nothing in any console. The symptom is a limit
- * that is ignored on a fresh add and works after a reload, which is a miserable thing to chase.
- *
- * The gate is `status(h)` being non-null, which means registered, and deliberately NOT `files(h)`,
- * which means metadata has arrived. The piece plan needs the file layout; a rate limit needs only a
- * handle. Waiting for metadata would leave a cold magnet running uncapped for the tens of seconds
- * during which someone who just set a cap is watching it.
- */
+// Per-torrent ceilings, kept because the engine's limits are write-only and a trickle is put on top of them.
 const limitsByHandle = new Map<number, { down?: number, up?: number }>()
-const pendingLimits = new Set<number>()
 
 /**
  * What the engine's own run timers read when each torrent was added, and the totals last written.
@@ -519,22 +505,19 @@ const totalsOf = (h: number): Totals => {
 }
 
 /**
- * Remember what this torrent should be held to, and apply it as soon as the engine will accept it.
- *
- * Returns whether anything was recorded, so a caller can tell "nothing to do" from "done".
+ * Remember what this torrent should be held to, and apply it.
  *
  * Merged field by field rather than by spreading the pair, because a spread carries an explicit
  * `undefined` over the top of a real value: changing only the upload ceiling would quietly forget
  * the download one this map was holding.
  */
-const wantLimits = (h: number, limits: { down?: number, up?: number }): boolean => {
+const wantLimits = (h: number, limits: { down?: number, up?: number }) => {
   const merged = { ...limitsByHandle.get(h) }
   if (isLimit(limits.down)) merged.down = limits.down
   if (isLimit(limits.up)) merged.up = limits.up
-  if (!isLimit(merged.down) && !isLimit(merged.up)) return false
+  if (!isLimit(merged.down) && !isLimit(merged.up)) return
   limitsByHandle.set(h, merged)
-  pendingLimits.add(h)
-  return true
+  applyLimits(h)
 }
 
 // 0 is unlimited, so under no ceiling of the viewer's a trickle is the trickle alone
@@ -1803,20 +1786,12 @@ const init = async () => {
     }
     for (const h of [...windows.keys()]) { keepSlackMissing(h); trickle(h) }
 
-    // a ceiling needs a REGISTERED handle and nothing more, so this gate is status rather than the
-    // files() the two loops above wait on. Registration happens when the add alert is pumped, a few
-    // lines up, so this normally lands on the very next pass.
-    for (const h of [...pendingLimits]) {
-      if (!session.status(h)) continue
-      pendingLimits.delete(h)
-      applyLimits(h)
-    }
     /*
      * The engine's run timers as they were when this torrent joined the session.
      *
-     * Captured here rather than at the add, for the reason `pendingLimits` above is: a status does
-     * not exist until the alert pump registers the handle. Everything after this is a delta against
-     * it, which is what keeps a resume-restored counter from being counted a second time.
+     * Captured here rather than at the add, because a status does not exist until the alert pump
+     * has reported on the torrent. Everything after this is a delta against it, which is what keeps
+     * a resume-restored counter from being counted a second time.
      */
     for (const h of handles) {
       if (uptimeAtAdd.has(h)) continue
@@ -2748,12 +2723,7 @@ const handleMessage = async (session: Session, m: any) => {
       // kept only in libtorrent's head is gone on the next reload with nothing on screen to say so.
       const down = isLimit(m.down) ? m.down : undefined
       const up = isLimit(m.up) ? m.up : undefined
-      // only clear the pending flag when something was actually recorded, or a command carrying
-      // nothing usable would drop a ceiling that a restore had queued and never applied yet
-      if (wantLimits(m.handle, { down, up }) && session.status(m.handle)) {
-        pendingLimits.delete(m.handle)
-        applyLimits(m.handle)
-      }
+      wantLimits(m.handle, { down, up })
       const ih = infoHashByHandle.get(m.handle)
       if (ih) {
         const patch: Partial<Persisted> = {}

@@ -6,9 +6,9 @@ import { fakeDir, installWorkerGlobals } from '../utils/worker-rig'
 
 /**
  * A resume blob carries the download limit in force when it was saved, so a blob saved while a
- * window trickled brings the trickle back on a reload. This engine does what libtorrent-wasm 0.3.21
- * was measured doing (node, 2026-10-23): an add with a blob takes the blob's limit, and a limit set
- * before the alert pump has registered the handle is dropped without a word.
+ * window trickled brings the trickle back on a reload. This engine does what libtorrent-wasm does: an
+ * add with a blob takes the blob's limit, and a limit sent after the add lands behind it, before the
+ * alert pump has reported on the torrent.
  */
 
 const TRICKLE = 16 * 1024
@@ -20,7 +20,8 @@ const UPLOAD_CAPPED = 'a'.repeat(40)
 const engine = vi.hoisted(() => ({
   added: [] as number[],
   registered: new Set<number>(),
-  limit: new Map<number, number>(),
+  // every limit each torrent was given, its blob's first
+  limits: new Map<number, number[]>(),
 }))
 
 // the field as libtorrent writes it, -1 being unlimited
@@ -49,12 +50,12 @@ vi.mock('libtorrent-wasm', async () => {
       addTorrentWithResume: (blob: Uint8Array) => {
         const h = engine.added.length + 1
         engine.added.push(h)
-        engine.limit.set(h, limitIn(blob))
+        engine.limits.set(h, [limitIn(blob)])
         return h
       },
       popAlerts: () => { for (const h of engine.added) engine.registered.add(h); return [] },
       status: (h: number) => (engine.registered.has(h) ? running : null),
-      setDownloadLimit: (h: number, limit: number) => { if (engine.registered.has(h)) engine.limit.set(h, limit) },
+      setDownloadLimit: (h: number, limit: number) => { engine.limits.get(h)!.push(limit) },
       setUploadLimit: () => {},
       pauseTorrent: () => {},
       resumeTorrent: () => {},
@@ -89,9 +90,8 @@ vi.mock('idb-keyval', () => {
 it('lifts the trickle a resume blob brings back, to the limit the list holds or to none', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
-  expect([...engine.limit.values()], 'each blob restores its own limit').toEqual([TRICKLE, TRICKLE, TRICKLE])
-  // THE CONTROL: a limit the list holds reaches the engine once the pump has registered the handles
-  await vi.waitFor(() => expect(engine.limit.get(3)).toBe(CAP))
-  expect(engine.limit.get(1), 'a cache torrent, which holds no limit').toBe(0)
-  expect(engine.limit.get(2), 'a torrent with an upload limit alone').toBe(0)
+  expect(engine.registered.size, 'a pump has run').toBe(0)
+  expect(engine.limits.get(3), 'the limit the list holds').toEqual([TRICKLE, CAP])
+  expect(engine.limits.get(1), 'a cache torrent, which holds no limit').toEqual([TRICKLE, 0])
+  expect(engine.limits.get(2), 'a torrent with an upload limit alone').toEqual([TRICKLE, 0])
 })

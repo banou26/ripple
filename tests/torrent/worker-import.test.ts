@@ -9,8 +9,8 @@ import { installWorkerGlobals } from '../utils/worker-rig'
  * blob the tab rewrote, at the chunk directory it copied into, as a library download. The player's
  * blob carries its own download limit, a window's trickle included, so the engine is told none, and
  * its piece priorities, a window's skips included, which the priority reset writes over. This engine
- * does what libtorrent-wasm 0.3.21 was measured doing (node, 2026-10-23): an add with a blob takes the
- * blob's limit and pause, and a command sent before the alert pump has registered the handle is dropped.
+ * does what libtorrent-wasm does: an add with a blob takes the blob's limit and pause, and a command
+ * sent after the add lands behind it, before the alert pump has reported on the torrent.
  */
 
 const TRICKLE = 16 * 1024
@@ -20,7 +20,8 @@ const MAGNET = 'magnet:?xt=urn:btih:' + HASH + '&dn=Film'
 const engine = vi.hoisted(() => ({
   added: [] as { blob: Uint8Array, savePath: string }[],
   registered: new Set<number>(),
-  limit: new Map<number, number>(),
+  // every limit the torrent was given, the blob's first
+  limits: [] as number[],
   paused: new Set<number>(),
   cleared: [] as number[],
   store: new Map<string, unknown>(),
@@ -45,7 +46,7 @@ vi.mock('libtorrent-wasm', async () => {
       addTorrentWithResume: (blob: Uint8Array, savePath: string) => {
         engine.added.push({ blob, savePath })
         const h = engine.added.length
-        engine.limit.set(h, limitIn(blob))
+        engine.limits.push(limitIn(blob))
         if (/6:pausedi1e/.test(new TextDecoder().decode(blob))) engine.paused.add(h)
         return h
       },
@@ -55,10 +56,10 @@ vi.mock('libtorrent-wasm', async () => {
         ? { storageIndex: 0, pieceLength: PIECE, numPieces: 1, totalSize: PIECE, contentSize: PIECE, files: [{ path: 'film.mkv', offset: 0, size: PIECE, pad: false }] }
         : null),
       clearStreamWindow: (h: number) => { if (engine.registered.has(h)) engine.cleared.push(h) },
-      setDownloadLimit: (h: number, limit: number) => { if (engine.registered.has(h)) engine.limit.set(h, limit) },
+      setDownloadLimit: (_h: number, limit: number) => { engine.limits.push(limit) },
       setUploadLimit: () => {},
       pauseTorrent: () => {},
-      resumeTorrent: (h: number) => { if (engine.registered.has(h)) engine.paused.delete(h) },
+      resumeTorrent: (h: number) => { engine.paused.delete(h) },
     }),
     PRIORITY: { skip: 0 },
     TORRENT_FLAG: { uploadMode: 1 },
@@ -96,9 +97,9 @@ it('lists the torrent while it copies, then adds it from the copy at full speed'
   expect(engine.added).toEqual([{ blob: resume, savePath: '/cache/' + HASH }])
   // kept for a reload, which adds it with the same blob rather than checking the files
   expect(engine.store.get('ripple:resume:' + HASH)).toBe(resume)
-  expect(engine.limit.get(1), 'the blob brings its trickle').toBe(TRICKLE)
+  // the blob brings its trickle, and the limit sent with the add lifts it
+  expect(engine.limits).toEqual([TRICKLE, 0])
   expect(engine.paused.has(1), 'the blob brings its pause').toBe(true)
-  await vi.waitFor(() => expect(engine.limit.get(1)).toBe(0))
   // the entry says started, so the blob's pause is undone, and its priorities with the window's
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(false))
   await vi.waitFor(() => expect(engine.cleared).toContain(1))

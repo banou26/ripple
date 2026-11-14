@@ -107,7 +107,8 @@ it('wants the whole film, keeps the cache, and drops and trickles nothing', asyn
   expect(state.keeps.every((keep) => keep === undefined)).toBe(true)
   expect(rig.of('state').flatMap((s) => s.torrents as { windowed: boolean }[]).some((t) => t.windowed)).toBe(false)
   expect(state.events).toEqual([])
-  expect(state.limits).toEqual([])
+  // the restore's own: an episode whose entry holds no limit takes none, whatever its blob carried
+  expect(state.limits).toEqual([[1, 0], [2, 0]])
   expect(sessions[0]!.removed, 'the cache went for a film that does not window').toEqual([])
 
   // ten more GiB of it: past the quota the worker first read, and every write still lands
