@@ -9,7 +9,8 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 /**
  * A magnet the worker adds is listed under the torrent the REAL engine downloads, or refused before the engine sees
  * it. Every way a magnet comes in (the add box, a paste, a drop, `/add`, a share link, the watch and download pages,
- * an embedder's prepare) ends in this one add, with the magnet as it arrived.
+ * an embedder's prepare) ends in this one add, with the magnet as it arrived. A stored magnet reaches the engine by
+ * the restore on start-up and by Download on a synced entry.
  */
 
 const GiB = 1024 ** 3
@@ -75,6 +76,11 @@ const CASES: [string, string, string | null, string?][] = [
 
 const listed = () => (store.get(LIST_KEY) as Persisted[] | undefined) ?? []
 
+// filed under its first id by a Ripple from before the refusal, here and on another device
+const STORED = `magnet:?xt=urn:btih:${v1(0xe1)}&xt.1=urn:btih:${v1(0xe2)}`
+const SYNCED = `magnet:?xt=urn:btih:${v1(0xf1)}&xt=urn:btih:${v1(0xf2)}`
+store.set(LIST_KEY, [{ infoHash: v1(0xe1), magnet: STORED, savePath: `/dl/${v1(0xe1)}`, addedAt: 1, started: true }])
+
 it('lists a magnet under the torrent the engine downloads, and refuses one that names two', async () => {
   // the helper's own control: twenty bytes of 0xff are thirty-two sevens
   expect(base32('ff'.repeat(20))).toBe('7'.repeat(32))
@@ -101,3 +107,15 @@ it('lists a magnet under the torrent the engine downloads, and refuses one that 
   expect(rig.of('add-failed').map((m) => m.message)).toEqual(refused.map(() => ({ message: 'That is not a valid magnet link' })))
   for (const [name, magnet] of refused) expect(engine.handed, `${name}: handed to the engine`).not.toContain(magnet)
 }, 60_000)
+
+it('hands the engine no stored magnet that names two torrents, restored or synced and started', async () => {
+  rig.send({ type: 'import-list', list: [{ infoHash: v1(0xf1), magnet: SYNCED, savePath: '', addedAt: 1 }] })
+  await vi.waitFor(() => expect(listed().some((e) => e.magnet === SYNCED)).toBe(true))
+  const failed = rig.of('add-failed').length
+  rig.send({ type: 'start', infoHash: v1(0xf1) })
+  await vi.waitFor(() => expect(rig.of('add-failed').length, 'the start was never refused').toBe(failed + 1), { timeout: 5_000 })
+
+  expect(rig.of('add-failed').at(-1)!.message).toEqual({ message: 'That torrent could not be read' })
+  expect(engine.handed).not.toContain(STORED)
+  expect(engine.handed).not.toContain(SYNCED)
+}, 30_000)

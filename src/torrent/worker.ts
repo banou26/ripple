@@ -181,6 +181,10 @@ const recovery = createRecoveryTracker(transport === 'relay')
 // the engine's -1 (empty input) and -2 (unparseable magnet or torrent file) come back widened to the top of the unsigned range; real handles count up from 1
 const addFailed = (handle: number) => handle >= 0xFFFFFF00
 
+/** Every magnet handed to the engine, typed, stored or synced. One naming two torrents gets the engine's own -2, not the last of them. */
+const addMagnet = (live: Session, magnet: string, savePath: string): number =>
+  magnetInfoHash(magnet) ? live.addMagnet(magnet, savePath) : -2 >>> 0
+
 const post = (msg: any, transfer?: Transferable[]) => (self as any).postMessage(msg, transfer ?? [])
 
 const snapshot = (): TorrentSnapshot[] =>
@@ -1326,7 +1330,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   untrack(h)
   await del(resumeKey(ih)).catch(() => {})
 
-  const next = live.addMagnet(magnet, savePath)
+  const next = addMagnet(live, magnet, savePath)
   if (addFailed(next)) {
     post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Moving the files left the torrent unaddable', defaultMessage: 'Moving the files left the torrent unaddable' }) })
     await patchList(ih, { savePath, saveTo: to, started: false })
@@ -1692,7 +1696,7 @@ const init = async () => {
         ? session.addTorrentWithResume(resume, savePath)
         : bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
-          : session.addMagnet(e.magnet, savePath)
+          : addMagnet(session, e.magnet, savePath)
       if (addFailed(h)) continue
       track(h, e.magnet, e.infoHash, savePath, e.ephemeral === true)
       // before needsPriorityReset, so the pass that clears the window has the plan to write back
@@ -2033,7 +2037,6 @@ const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
       const ih = magnetInfoHash(m.magnet)
-      if (!ih) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
       const existing = ih ? handles.find((h) => infoHashByHandle.get(h) === ih) : undefined
       if (existing !== undefined) {
         if (ih && !m.ephemeral) {
@@ -2066,7 +2069,7 @@ const handleMessage = async (session: Session, m: any) => {
         // ephemeralHandles and get it idle-parked the moment the player closed.
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
         const savePath = m.savePath || known?.savePath || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
-        const h = session.addMagnet(m.magnet, savePath)
+        const h = addMagnet(session, m.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
         track(h, m.magnet, ih, savePath, ephemeral)
         // before needsPriorityReset, so the pass that clears the window has the plan to write back.
@@ -2593,7 +2596,7 @@ const handleMessage = async (session: Session, m: any) => {
         const bytes = (await get(torrentKey(e.infoHash)))
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
-          : session.addMagnet(e.magnet, savePath)
+          : addMagnet(session, e.magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
         // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
         // promotion an evicted item re-downloads straight back into the front of the eviction queue
