@@ -41,7 +41,8 @@ const painted = (colour: string) => {
 const WHITE = t('White.Poster')
 const BLACK = t('Black.Poster')
 const NONE = t('No.Poster')
-const ROWS = [WHITE, BLACK, NONE]
+const MISSING: Torrent = { ...t('Files.Missing'), state: 'missing' }
+const ROWS = [WHITE, BLACK, NONE, MISSING]
 pictures.set(WHITE.infoHash!, painted('white'))
 pictures.set(BLACK.infoHash!, painted('black'))
 
@@ -96,11 +97,13 @@ describe('a ticked row', () => {
     it(`carries the mark its look hangs on in the ${view}, and an unticked row does not`, async () => {
       const { box, row } = await library(view)
       const marked = () => ROWS.map((x) => view === 'cards' ? row(x).classList.contains('picked') : row(x).hasAttribute('data-picked'))
-      expect(marked()).toEqual([false, false, false])
+      expect(marked()).toEqual([false, false, false, false])
       await userEvent.click(box(BLACK))
-      expect(marked()).toEqual([false, true, false])
+      await userEvent.click(box(MISSING))
+      expect(marked()).toEqual([false, true, false, true])
       await userEvent.click(box(BLACK))
-      expect(marked()).toEqual([false, false, false])
+      await userEvent.click(box(MISSING))
+      expect(marked()).toEqual([false, false, false, false])
     })
 
     for (const width of [1280, 390]) {
