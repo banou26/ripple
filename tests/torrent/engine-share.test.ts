@@ -148,6 +148,23 @@ describe('the leader server', () => {
     stop()
   })
 
+  it('tells a follower that joins which transport the engine runs on', async () => {
+    const { client } = makeClient()
+    Object.assign(client, { latestState: () => [], latestReachable: () => null, latestInboundNow: () => null, latestRateLimits: () => null, latestTransport: () => 'direct' })
+    const stop = serveFollowers(client)
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    const replies = track(new BroadcastChannel(replyChannel('tab-b')))
+    const heard: any[] = []
+    replies.addEventListener('message', ({ data }) => heard.push(data.msg))
+    await settle()
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'hello' } })
+    await settle()
+
+    expect(heard.find((m) => m.type === 'state')).toMatchObject({ type: 'state', transport: 'direct' })
+    stop()
+  })
+
   it('stays silent to a new follower until its own engine has a session', async () => {
     const { client } = makeClient(false)
     const stop = serveFollowers(client)

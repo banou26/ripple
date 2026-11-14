@@ -10,8 +10,11 @@ import type { Chunk, Offer } from './handover'
 import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 import type { SourceRef } from './walk-source'
+import type { EngineTransport } from './vpn-config'
 
+import { RTCPeerConnection } from '@banou/ponyfill/webrtc'
 import { relayWorker } from '@fkn/lib'
+import { servePeerLinks } from 'libtorrent-wasm/webtorrent/page'
 
 import { intl, wordsOf } from '../i18n'
 
@@ -20,6 +23,10 @@ import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
 import { ENGINE_RESET, hasWebLocks, isSessionScoped, newClientId } from './engine-protocol'
 import { createGate } from './gate'
+import { ICE_SERVERS } from './vpn-config'
+import { vpnFollower } from './vpn-follow'
+import { onVpnStored, storeVpn, vpnOn } from './vpn-setting'
+import { pageWorkRunning } from '../utils/page-work'
 
 export type { Persisted, Reachability, TorrentDetail }
 export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: number }
@@ -29,6 +36,8 @@ export type TorrentSnapshot = WorkerTorrentSnapshot & { displayDownloadRate: num
 const READ_TIMEOUT = 240_000
 // how long any other question to the engine waits for its answer
 const ASK_TIMEOUT = 120_000
+// how long the engine gets to write its resume data before a change of the VPN replaces it
+const FLUSH_TIMEOUT = 2_000
 // how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
 // does not know, and the player stops sending after as long without an answer
 const IMPORT_START_TIMEOUT = 30_000
@@ -52,6 +61,11 @@ export type TorrentClient = {
    * the worker off the peer lists and is a different kind of fact, so it travels as one.
    */
   onInboundNow: (cb: (inbound: InboundNow) => void) => () => void
+  /**
+   * What the running engine reaches its peers through, which is what a readout shows: the stored choice says what
+   * was asked for, and the engine follows it a moment later. Latched.
+   */
+  onTransport: (cb: (transport: EngineTransport) => void) => () => void
   /**
    * Peers and trackers for the one torrent {@link inspect} named, on every state broadcast.
    *
@@ -306,24 +320,41 @@ export type EngineClient = TorrentClient & {
   latestState: () => WorkerTorrentSnapshot[] | null
   latestReachable: () => Reachability | null
   latestInboundNow: () => InboundNow | null
+  latestTransport: () => EngineTransport | null
   /** For the leader replaying state to a follower that just joined. Null before the first broadcast. */
   latestRateLimits: () => RateLimits | null
   started: () => boolean
   useTransport: (factory: TransportFactory, owns: boolean) => void
 }
 
+/** Whether the engine worker this page last started has the relay behind it. Null before it started one. */
+let workerOnVpn: boolean | null = null
+
 const workerTransport: TransportFactory = (host: TransportHost): Transport => {
-  const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+  const onVpn = workerOnVpn = vpnOn()
+  // the name tells the worker which engine to start, before it runs. Two literals, since the bundler reads the options
+  const worker = onVpn
+    ? new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+    : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'direct' })
   // the abort on destroy is load-bearing: a leaked relay neuters MessagePorts meant for the next worker
   const relayAbort = new AbortController()
   // relayWorker returns a promise, and this is the ONE call that bridges the worker's osra
   // transport to the broker. Dropping its rejection leaves a worker whose every socket call parks
   // with no listening, no error and nothing on screen, which is precisely the state that made a
   // missing relay port present as a transport fault and cost a long diagnosis.
-  relayWorker(worker, { unregisterSignal: relayAbort.signal })
-    .catch((e: unknown) => host.error(`relayWorker: ${e instanceof Error ? e.message : String(e)}`, true))
+  //
+  // Not with the VPN off: that engine has no relay, and unbridged its worker cannot reach one.
+  if (onVpn) {
+    relayWorker(worker, { unregisterSignal: relayAbort.signal })
+      .catch((e: unknown) => host.error(`relayWorker: ${e instanceof Error ? e.message : String(e)}`, true))
+  }
+  // with the VPN off the worker asks this page for its WebRTC connections, a worker having none
+  let closeLinks = () => {}
   const onError = (e: ErrorEvent) => host.error(`${e.message} (${e.filename}:${e.lineno})`, false)
-  const onMessage = (e: MessageEvent) => host.message(e.data)
+  const onMessage = (e: MessageEvent) => {
+    if (e.data?.type !== 'peer-links') { host.message(e.data); return }
+    closeLinks = servePeerLinks(e.data.port, { RTCPeerConnection, iceServers: ICE_SERVERS })
+  }
   worker.addEventListener('error', onError)
   worker.addEventListener('message', onMessage)
   return {
@@ -332,6 +363,7 @@ const workerTransport: TransportFactory = (host: TransportHost): Transport => {
       worker.removeEventListener('error', onError)
       worker.removeEventListener('message', onMessage)
       relayAbort.abort()
+      closeLinks()
       worker.terminate()
     },
   }
@@ -355,6 +387,8 @@ export const createTorrentClient = (): EngineClient => {
   const reachableCbs = new Set<(r: Reachability) => void>()
   const inboundNowCbs = new Set<(i: InboundNow) => void>()
   let lastInboundNow: InboundNow | null = null
+  const transportCbs = new Set<(t: EngineTransport) => void>()
+  let lastTransport: EngineTransport | null = null
   const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
   const detailCbs = new Set<(d: TorrentDetail | null) => void>()
   // the reads waiting on the engine, and the asks with them, by id
@@ -543,6 +577,7 @@ export const createTorrentClient = (): EngineClient => {
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
+        if (m.transport && m.transport !== lastTransport) { lastTransport = m.transport; transportCbs.forEach((cb) => cb(m.transport)) }
         // absent rather than empty when an older engine or a synthesized reply omits it, so the strip
         // keeps the last real count instead of blinking to nothing
         if (m.inboundNow) { lastInboundNow = m.inboundNow; inboundNowCbs.forEach((cb) => cb(m.inboundNow)) }
@@ -607,6 +642,7 @@ export const createTorrentClient = (): EngineClient => {
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
     onInboundNow: (cb) => { inboundNowCbs.add(cb); cb(lastInboundNow ?? NO_INBOUND); return () => { inboundNowCbs.delete(cb) } },
+    onTransport: (cb) => { transportCbs.add(cb); if (lastTransport) cb(lastTransport); return () => { transportCbs.delete(cb) } },
     onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
     inspect: (handle) => send({ type: 'inspect', handle }),
     setFlags: (handle, flags, mask) => send({ type: 'set-flags', handle, flags, mask }),
@@ -622,6 +658,7 @@ export const createTorrentClient = (): EngineClient => {
     latestState: () => lastRawState,
     latestReachable: () => lastReachable,
     latestInboundNow: () => lastInboundNow,
+    latestTransport: () => lastTransport,
     latestRateLimits: () => lastRateLimits,
     started: () => started,
     owns: () => owned,
@@ -709,8 +746,22 @@ export const createTorrentClient = (): EngineClient => {
 }
 
 let stopServing: (() => void) | null = null
+let followVpn: (() => Promise<void>) | null = null
+let stopFollowingVpn: (() => void) | null = null
 
 let shared: TorrentClient | null = null
+
+/**
+ * Turns the VPN on or off for every torrent of this browser storage, and stores the choice there.
+ *
+ * The engine is replaced by one on the other transport, in whichever page runs it, once no page is saving a file
+ * and its resume data is written. Rows keep their place and get new handles, as after any engine change. Resolves
+ * once this page has done its part, which in a page that only borrows the engine is storing the choice: the page
+ * that runs the engine hears of it from the storage.
+ */
+export const setVpn = async (on: boolean): Promise<void> => {
+  if (storeVpn(on)) await followVpn?.()
+}
 
 // a libtorrent session holds an exclusive OPFS lock on each file it is writing, so exactly one may run per browser
 export const getTorrentClient = (): TorrentClient => {
@@ -718,8 +769,29 @@ export const getTorrentClient = (): TorrentClient => {
   const client = createTorrentClient()
   shared = client
 
-  if (!hasWebLocks()) {
+  /** Starts this page's engine on the transport the stored choice asks for, in place of any it runs. */
+  const startEngine = () => {
+    if (hasWebLocks()) {
+      // listen before the transport swap: the worker's `ready` is what tells followers the engine is up, and a server started after it would miss that message
+      stopServing?.()
+      stopServing = serveFollowers(client)
+    }
     client.useTransport(workerTransport, true)
+  }
+
+  followVpn = vpnFollower({
+    wanted: vpnOn,
+    running: () => shared === client && client.owns() ? workerOnVpn : null,
+    busy: pageWorkRunning,
+    // an engine that is still starting has nothing new to write
+    flush: async () => { if (client.started()) await client.ask({ type: 'flush-resume' }, FLUSH_TIMEOUT) },
+    restart: startEngine,
+  })
+  const follow = followVpn
+  stopFollowingVpn = onVpnStored(() => { void follow() })
+
+  if (!hasWebLocks()) {
+    startEngine()
     return client
   }
 
@@ -733,9 +805,7 @@ export const getTorrentClient = (): TorrentClient => {
   const takeOver = () => {
     if (shared !== client) return
     attempts += 1
-    // listen before the transport swap: the worker's `ready` is what tells followers the engine is up, and a server started after it would miss that message
-    stopServing = serveFollowers(client)
-    client.useTransport(workerTransport, true)
+    startEngine()
   }
 
   const standDown = () => {
@@ -759,6 +829,9 @@ export const getTorrentClient = (): TorrentClient => {
 }
 
 export const destroyTorrentClient = () => {
+  stopFollowingVpn?.()
+  stopFollowingVpn = null
+  followVpn = null
   stopServing?.()
   stopServing = null
   shared?.destroy()
