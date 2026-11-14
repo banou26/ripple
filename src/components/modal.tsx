@@ -42,6 +42,7 @@ const style = css`
   justify-content: center;
   padding: 24px;
   box-sizing: border-box;
+  outline: none;
   /* The scrim is the entire separation from the page: this element draws no border and no shadow.
      It used to be 62% over a 2px backdrop blur, and the blur was doing less than it looked, mostly
      softening the hairlines of the torrent table underneath. OVERLAY_BG is 75% for that reason, and
@@ -104,7 +105,7 @@ export const Modal = ({
     const active = document.activeElement
     // wrapping by hand, because without it Tab walks out of the modal and into a page that looks
     // interactive and is inert, which reads as the keyboard having stopped working
-    if (event.shiftKey && (active === first || !overlay.current.contains(active))) {
+    if (event.shiftKey && (active === first || active === overlay.current || !overlay.current.contains(active))) {
       event.preventDefault(); last.focus()
     } else if (!event.shiftKey && active === last) {
       event.preventDefault(); first.focus()
@@ -136,6 +137,8 @@ export const Modal = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby={labelledBy}
+      // a click on its text leaves the focus here rather than on the page, so Escape and Tab are still its own
+      tabIndex={-1}
       onKeyDown={trap}
       onClick={(event) => { if (event.target === overlay.current) onCloseRef.current() }}
     >

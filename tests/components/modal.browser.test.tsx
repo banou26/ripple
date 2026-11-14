@@ -105,6 +105,23 @@ describe('the modal shell', () => {
     await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
     expect(document.activeElement?.textContent).toBe('cancel')
   })
+
+  // a click on its text used to leave the focus on the page, where Escape closed nothing and Tab walked off
+  it('keeps Escape and Tab its own after a click on its text', async () => {
+    const onClose = vi.fn()
+    render(<Harness onClose={onClose}/>)
+    await expect.poll(() => document.activeElement?.textContent).toBe('first')
+    await userEvent.click(overlay().querySelector('h2')!)
+    expect(overlay().contains(document.activeElement)).toBe(true)
+    await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
+    expect(document.activeElement?.textContent).toBe('cancel')
+    await userEvent.click(overlay().querySelector('h2')!)
+    await userEvent.keyboard('{Tab}')
+    expect(document.activeElement?.textContent).toBe('first')
+    await userEvent.click(overlay().querySelector('h2')!)
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('what is left reachable behind it', () => {
