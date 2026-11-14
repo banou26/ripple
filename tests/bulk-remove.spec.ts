@@ -157,6 +157,44 @@ test('two of three torrents removed in one action stay removed after a reload, a
 })
 
 /*
+ * A shift+click on a box ticks every row from the box clicked before it, in the order the list draws them: by name, which
+ * is not the order the torrents were made in, in the cards and then, the other way round, in the table.
+ */
+test('a shift+click ticks the run of rows between two boxes, in the order each view draws them', async ({ page }) => {
+  test.setTimeout(300_000)
+  const names = ['Run.Cherry.bin', 'Run.Apple.bin', 'Run.Date.bin', 'Run.Banana.bin']
+  await prepare(page)
+  await page.goto('/')
+  await make(page, await filesFor(names))
+
+  const tick = tickOf(page)
+  for (const name of names) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
+  await page.getByRole('combobox', { name: 'Sort by' }).selectOption('name')
+  const bar = page.locator('.bulk-bar')
+  // the boxes from the top of the list down
+  const ticked = () => page.locator('.row-check input').evaluateAll((boxes) => boxes.map((box) => (box as HTMLInputElement).checked))
+
+  // Apple, Banana, Cherry, Date
+  await tick('Run.Apple.bin').click()
+  await tick('Run.Cherry.bin').click({ modifiers: ['Shift'] })
+  await expect(bar).toContainText('3 selected')
+  expect(await ticked()).toEqual([true, true, true, false])
+
+  await bar.getByRole('button', { name: 'Clear selection' }).click()
+  await page.getByRole('button', { name: 'Table' }).click()
+  await page.getByRole('button', { name: 'Sorted ascending, click for descending' }).click()
+  // Date, Cherry, Banana, Apple
+  await tick('Run.Date.bin').click()
+  await tick('Run.Banana.bin').click({ modifiers: ['Shift'] })
+  await expect(bar).toContainText('3 selected')
+  expect(await ticked()).toEqual([true, true, true, false])
+  // Banana was ticked, so the run from it unticks
+  await tick('Run.Cherry.bin').click({ modifiers: ['Shift'] })
+  await expect(bar).toContainText('1 selected')
+  expect(await ticked()).toEqual([true, false, false, false])
+})
+
+/*
  * libtorrent checks one torrent at a time and starts the next at most once a second, so the last of four made back to
  * back reads Checking for a few seconds before its check begins. Its Pause, pressed from the bar in the first frame it
  * reads Checking, lands then and stops the check where it is, and that torrent has to read Paused, with a Resume on its
