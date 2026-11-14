@@ -4,14 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const store = new Map<string, string>()
 const listeners = new Set<(event: { key: string | null }) => void>()
 const refuse = { storage: false }
+// One mock whose value a case sets: vitest resolves two queued doMock calls of one path in parallel, and the
+// one resolved last wins, so a second doMock in a case lost to the first now and then under load.
+const config = { WEBRTC_PEERS: true }
 
 beforeEach(() => {
   store.clear()
   listeners.clear()
   refuse.storage = false
+  config.WEBRTC_PEERS = true
   vi.resetModules()
   // whatever the constant is set to in the source: each case says which it is about
-  vi.doMock('../../src/torrent/vpn-config', () => ({ WEBRTC_PEERS: true }))
+  vi.doMock('../../src/torrent/vpn-config', () => ({ WEBRTC_PEERS: config.WEBRTC_PEERS }))
   vi.stubGlobal('RTCPeerConnection', class {})
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => { if (refuse.storage) throw new Error('refused'); return store.get(key) ?? null },
@@ -42,7 +46,7 @@ describe('the stored choice', () => {
 
   it('reads as On while the feature is stopped, whatever was stored', async () => {
     store.set('ripple:vpn', 'off')
-    vi.doMock('../../src/torrent/vpn-config', () => ({ WEBRTC_PEERS: false }))
+    config.WEBRTC_PEERS = false
     const { vpnOffAvailable, vpnOn } = await setting()
     expect(vpnOffAvailable()).toBe(false)
     expect(vpnOn()).toBe(true)
