@@ -49,7 +49,7 @@ const filesMatching = (dir, pattern) => {
 
 // www.fkn.app is the site, which the broker only links to (the frame bar's "via"): nothing fetches it
 const PRODUCTION_ORIGIN = /(?:https|wss):\/\/(?!www\.)(?:[a-z0-9-]+\.)*fkn\.app/
-const { broker, relay, closed } = topology
+const { broker, relay, proxy, closed } = topology
 const relayOrigin = `https://${relay.host}:${relay.webtransport}/`
 const certHashUrl = `http://${relay.host}:${relay.http}/cert-hash`
 const dead = `localhost:${closed}`
@@ -70,15 +70,15 @@ if (filesMatching(libOut, /WEB_ORIGIN" environment variable/).length) fail('the 
 
 const web = join(checkout, 'web')
 writeFileSync(join(web, '.env.local'), [
-  '# written by ripple scripts/rig-prepare.mjs: the swarm rig broker. Every origin is loopback, and the',
-  `# ones the rig does not run point at ${dead}, which nothing listens on, so no request can reach production`,
+  '# written by ripple scripts/rig-prepare.mjs: the swarm rig broker, relay and proxy. Every origin is loopback, and',
+  `# the ones the rig does not run point at ${dead}, which nothing listens on, so no request can reach production`,
   `VITE_WEB_ORIGIN=${broker.origin}`,
   `VITE_WEB_SANDBOX_ORIGIN=http://${dead}`,
   `VITE_WEB_PROXY_SANDBOX_ORIGIN=http://${dead}`,
   `VITE_API_ORIGIN=http://${dead}`,
   `VITE_WEBSOCKETS_ORIGIN=ws://${dead}/graphql`,
   `VITE_ROOMS_ORIGIN=ws://${dead}`,
-  `VITE_PROXY_ORIGIN=http://${dead}/v0/`,
+  `VITE_PROXY_ORIGIN=${proxy.origin}/v0/`,
   `VITE_DEV_CONSOLE_ORIGIN=http://${dead}`,
   `VITE_DEV_API_ORIGIN=http://${dead}`,
   `VITE_WEBVPN_ORIGIN=${relayOrigin}`,

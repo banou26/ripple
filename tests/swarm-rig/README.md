@@ -1,53 +1,77 @@
 # The swarm rig
 
 `npm run test:e2e:rig` downloads a torrent that exists only on this machine. The seeders are
-transmission daemons on `127.0.0.2` and up, the relay is a local webvpn build, and the broker is a
-local fkn-client web build, so the only source of a byte is the fleet the magnet names. The public
-swarm cannot give that: byte-identical code measured 14.7 s to 73.4 s to first frame there.
+transmission daemons on `127.0.0.2` and up, the relay is a local webvpn build, the broker is a
+local fkn-client web build and the proxy a local build too, so the only source of a byte is the
+fleet the magnet names and the WebRTC peers the lane's own tracker introduces. The public swarm
+cannot give that: byte-identical code measured 14.7 s to 73.4 s to first frame there.
 
 | piece | where | port |
 | --- | --- | --- |
 | broker (fkn-client `web`, development build) | `http://localhost:5234/api` | 5234 |
 | relay (webvpn release build) | WebTransport, HTTP, WebSocket on `127.0.0.1` | 5433, 5434, 5443 |
+| proxy (proxy release build) | `http://localhost:5470/v0`, metrics on 5471 | 5470, 5471 |
+| tracker ([`names.mjs`](./names.mjs)) | `ws://ripple-tracker.test:5472`, which is `192.0.2.1` | 5472 |
+| name resolver (`names.mjs`), and what it and the tracker saw | `http://127.0.0.1:5473/dns-query`, `/seen` | 5473 |
 | ripple (`build/`, served) | `http://localhost:5460` | 5460 |
 | seeders (transmission 4) | `127.0.0.2:52600` and up, rpc `9400` and up | |
 
 None of it overlaps fkn/local's rig (1234, 3000, 4433, 4560, 8443), so the two run side by side. The
 ports live in [`topology.json`](./topology.json).
 
+## A network of its own
+
+The lane runs inside [`netns.sh`](./netns.sh), and the config refuses to start outside it. It makes a
+network namespace with loopback and one interface that leads nowhere (`192.0.2.1`, the default
+route), hides the machine's name services and answers one name, the tracker's. So nothing the lane
+starts reaches another machine: not the browser, not the engine's DHT, not the seeders. It is also
+what the proxy needs, which listens on every address and looks names up with the machine's resolver.
+
+The relay asks the lane's resolver for names (`WEBVPN_DNS_UPSTREAM`), which knows the tracker and
+answers that nothing else exists. Ripple's build for the lane names that tracker in place of the two
+public ones, asks no STUN host and takes peers on private addresses (`RIG_TRACKER` in
+`src/torrent/vpn-config.ts`), since every peer here is this machine. `192.0.2.1` stands for the
+relay's public address: the relay's connection to the tracker leaves from it, so it is what a peer
+behind the relay says it is reached at.
+
 ## Running it
 
-It needs three checkouts, and an fkn-client worktree of its own, because the rig rewrites that
-checkout's `.env.local` files and build output:
+It needs four checkouts, and an fkn-client worktree of its own, because the rig rewrites that
+checkout's `.env.local` files and build output. The relay has to be 0.5.3 or later (it looks names
+up) and the proxy one that reads a WebSocket's target from a subprotocol entry, both on their
+`main` since 2026-11-13:
 
 ```sh
 git -C ~/dev/horionsoftware/fkn-client worktree add --detach ~/dev/fkn-client-rig origin/main
 (cd ~/dev/horionsoftware/webvpn && cargo build --release)
+(cd ~/dev/horionsoftware/proxy && nix-shell --run 'cargo build --release')
 
 export RIPPLE_RIG_FKN_CLIENT=~/dev/fkn-client-rig
 export RIPPLE_RIG_WEBVPN=~/dev/horionsoftware/webvpn
+export RIPPLE_RIG_PROXY=~/dev/horionsoftware/proxy
 export RIPPLE_RIG_LOCAL=~/dev/horionsoftware/local
 export RIPPLE_CHROME=$(command -v google-chrome-stable)
 export RIG_TRANSMISSION=$(nix build --no-link --print-out-paths 'nixpkgs#transmission_4')
 
 nix shell nixpkgs#xvfb-run -c env -u WAYLAND_DISPLAY -u NIXOS_OZONE_WL \
-  xvfb-run -a -s "-screen 0 1280x720x24" npm run test:e2e:rig
+  tests/swarm-rig/netns.sh xvfb-run -a -s "-screen 0 1280x720x24" npm run test:e2e:rig
 ```
 
 It runs headful, because headless Chromium stalls the engine at a flat 0 B/s, and under Xvfb so no
 window opens. `test:e2e:rig` runs three steps:
 
 1. [`scripts/rig-prepare.mjs`](../../scripts/rig-prepare.mjs) builds `@fkn/lib` with
-   `VITE_WEB_ORIGIN=http://localhost:5234` and the web app as the broker, then checks what each
-   build baked in. It refuses a main worktree.
+   `VITE_WEB_ORIGIN=http://localhost:5234` and the web app as the broker, with the rig's relay and
+   proxy as its only ones, then checks what each build baked in. It refuses a main worktree.
 2. `npm run build`, which sees `RIPPLE_RIG_FKN_CLIENT` and resolves `@fkn/lib` to that local build
-   (the published lib has `https://fkn.app` baked in, and no setting of ripple's can move it). The
-   build warns when it does this. Afterwards `build/` points at the rig's broker, so rebuild without
-   the variable before serving it for anything else.
+   (the published lib has `https://fkn.app` baked in, and no setting of ripple's can move it), and
+   bakes the rig's tracker in. The build warns when it does this. Afterwards `build/` points at the
+   rig's broker and tracker, so rebuild without the variable before serving it for anything else.
 3. [`playwright.rig.config.ts`](../../playwright.rig.config.ts) starts the relay (the environment
-   `byo.sh webvpn --export` prints, moved to the rig's ports, with a fresh certificate and
-   `FREE_RATE_BYTES_PER_SEC` at 1 GiB/s), the broker and ripple, then runs
-   [`tests/swarm-rig.spec.ts`](../swarm-rig.spec.ts).
+   `byo.sh webvpn --export` prints, moved to the rig's ports, with a fresh certificate,
+   `FREE_RATE_BYTES_PER_SEC` at 1 GiB/s and the rig's resolver), the proxy, the tracker and the
+   resolver, the broker and ripple, then runs each spec in a run of its own. What the relay and the
+   proxy wrote is kept under `logs/` in `RIPPLE_RIG_STATE`.
 
 ## What it checks
 
