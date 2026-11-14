@@ -3028,9 +3028,7 @@ const Home = () => {
     : 0
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
-  // with the VPN off nothing passes through the relay, so nothing is metered and nobody can dial in
-  const relayed = transport !== 'direct'
-  const quota = useQuota(hasLive && relayed)
+  const quota = useQuota(hasLive)
   const syncState = useCloudBackup()
   const retrying = torrents.filter((t) => t.state === 'retrying').length
   /**
@@ -3373,9 +3371,10 @@ const Home = () => {
               <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
               <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
             </div>
-            {relayed && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
+            {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
+            {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
             {storage && <StorageStat storage={storage} low={lowStorage}/>}
-            {relayed && quota && <QuotaStat quota={quota}/>}
+            {quota && <QuotaStat quota={quota}/>}
             {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
             <VpnStat reachable={reachable} transport={transport}/>
             <SyncStat state={syncState}/>
