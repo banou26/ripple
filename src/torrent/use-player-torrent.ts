@@ -47,11 +47,16 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
   const [storageFull, setStorageFull] = useState(false)
   // playback only; the thumbnailer seeks all over the file and would evict the windows the player needs
   const readWindows = useRef(makeReadWindowStore())
+  // Every read of this torrent ends with the player: a read left behind kept its pieces urgent and went on
+  // reporting stalls to a page that was gone, for up to 108 s.
+  const readsRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!magnet) return
     // held windows belong to one file of one torrent; nothing about them survives a change of either
     readWindows.current.clear()
+    const reads = new AbortController()
+    readsRef.current = reads
     const offUnavailable = client.onStorageUnavailable(() => setEngineError(intl.formatMessage({
       id: 'Ripple needs a normal (non-private) window to play this',
       defaultMessage: 'Ripple needs a normal (non-private) window to play this',
@@ -106,6 +111,7 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
       setSnapshot(snap)
     })
     return () => {
+      reads.abort()
       off()
       offReset()
       offUnavailable()
@@ -140,7 +146,7 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
       const handle = await held()
       const engine = engineRef.current
       try {
-        const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current)
+        const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current, readsRef.current?.signal)
         const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
           ? u8.buffer
           : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)

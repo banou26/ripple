@@ -150,7 +150,7 @@ describe('a read across a change of engine', () => {
     let fail = (_: Error) => {}
     listeners.read.mockImplementationOnce(() => new Promise<Uint8Array>((_, reject) => { fail = reject }))
     const under = reader.read(0, 100)
-    await expect.poll(() => listeners.read.mock.calls).toEqual([[7, 0, 0, 100, true, 'player']])
+    await expect.poll(() => listeners.read.mock.calls).toEqual([[7, 0, 0, 100, true, 'player', expect.any(AbortSignal)]])
     // as the client does when it replaces its engine: the reset, and every read it had is rejected
     listeners.reset()
     fail(new Error('the engine behind this tab was replaced'))
@@ -171,8 +171,21 @@ describe('a read across a change of engine', () => {
     expect(new Uint8Array(await early)).toEqual(new Uint8Array(10).fill(7))
     // each asked once of the new engine, in whichever order they came to wait
     expect(listeners.read.mock.calls.slice(1)).toHaveLength(3)
-    expect(listeners.read.mock.calls.slice(1)).toEqual(expect.arrayContaining([[7, 0, 0, 100, true, 'player'], [7, 0, 100, 50, true, 'player'], [7, 0, 150, 10, true, 'player']]))
+    expect(listeners.read.mock.calls.slice(1)).toEqual(expect.arrayContaining([[7, 0, 0, 100, true, 'player', expect.any(AbortSignal)], [7, 0, 100, 50, true, 'player', expect.any(AbortSignal)], [7, 0, 150, 10, true, 'player', expect.any(AbortSignal)]]))
     await screen.unmount()
+  })
+
+  it('ends a read still waiting when the player goes, and tells the engine', async () => {
+    listeners.read.mockReset()
+    listeners.read.mockImplementation(() => new Promise<Uint8Array>(() => {}))
+    const screen = await render(<Reader />)
+    listed(7)
+    void reader.read(0, 100).catch(() => {})
+    await expect.poll(() => listeners.read.mock.calls).toHaveLength(1)
+    const signal = listeners.read.mock.calls[0]![6] as AbortSignal
+    expect(signal.aborted, 'ended before the player went').toBe(false)
+    await screen.unmount()
+    expect(signal.aborted, 'the read outlived the player').toBe(true)
   })
 
   // THE CONTROL: with no change of engine a failed read fails, as it has to for the player to say so
