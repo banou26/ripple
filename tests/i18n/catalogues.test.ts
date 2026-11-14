@@ -31,6 +31,14 @@ describe('every catalogue', () => {
     expect([catalogue.Close, catalogue.Cancel]).not.toContain(catalogue['Turn off'])
   })
 
+  // the switch's Off stands beside the line of a download that found nobody, which names the VPN with its article
+  test.each(['es-419', 'pt-BR', 'it', 'fr'])('%s words the switch\'s state in the gender it gives the VPN', (language) => {
+    const catalogue = catalogues()[language]!
+    expect(catalogue['No peers found with the VPN off. Still searching.']!.toLowerCase()).toContain(catalogue.Off!.toLowerCase())
+    // On and Off are one word in two states
+    expect(catalogue.On!.at(-1)).toBe(catalogue.Off!.at(-1))
+  })
+
   // a field cannot wrap, and a phone leaves the English's own length to it
   test.each(Object.entries(catalogues()))('%s words the magnet field no longer than English', (_, catalogue) => {
     expect(catalogue[PLACEHOLDER]!.length).toBeLessThanOrEqual(PLACEHOLDER.length)

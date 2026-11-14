@@ -104,6 +104,7 @@ The VPN takes an article where the language has one: `la VPN` in `es-419` and `i
 `fr`, `das VPN` in `de`. Its state is one word on the switch (On, Off, Reconnecting, Unreachable, Waiting), and the
 switch keeps the room of the widest of them, so a new or changed one is no wider than the widest that language has.
 Off there is the state, and `Turn off` the action that leads to it (`Désactivé` and `Désactiver`, `Aus` and
-`Ausschalten`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for Close: where
+`Ausschalten`). The state agrees with the VPN where it has a gender (`Desactivada`, `Desativada`, `Disattivata`,
+`Désactivé`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for Close: where
 the two would be one word it names the VPN (`VPN'i kapat`, `关闭 VPN`, `關閉 VPN`). A peer and a tracker in the
 warning and in the line of a download that found nobody are the table's words above.
