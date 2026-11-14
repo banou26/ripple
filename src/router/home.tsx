@@ -1987,10 +1987,11 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
                   {intl.formatMessage({ id: '↑ max {limit}', defaultMessage: '↑ max {limit}' }, { limit: formatLimit(t.uploadLimit, intl) })}
                 </span>
               )}
-              {/* one or the other: behind the relay, a download with nobody is retried from 2 minutes in, and that line says so */}
+              {/* with the VPN off alone: behind the relay, a download with nobody is retried from 2 minutes in, and
+                  that line says so, where two lines in turn would say one thing twice */}
               {t.retry
                 ? <span className="retry">{retryLine(t, t.retry)}</span>
-                : t.noPeers && <span className="retry">{noPeersLine(transport)}</span>}
+                : t.noPeers && transport === 'direct' && <span className="retry">{noPeersLine(transport)}</span>}
             </div>
             {/* only while there is something to watch: at 100% it is a solid bar saying what the
                 percentage beside the name already says, across the whole width of the card */}

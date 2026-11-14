@@ -667,16 +667,17 @@ describe('a library row', () => {
   describe('a download that found nobody', () => {
     const alone = { peers: 0, down: 0, noPeers: true }
 
-    it('says so among its figures, and that the search goes on', async () => {
-      thumbnail.current = null
-      const { screen } = await inPage(torrent(alone), {}, { transport: 'relay' })
-      expect(screen.container.querySelector('.meta .retry')?.textContent).toBe('No peers found. Still searching.')
-    })
-
-    it('names the VPN where it is off', async () => {
+    it('says so among its figures with the VPN off, and that the search goes on', async () => {
       thumbnail.current = null
       const { screen } = await inPage(torrent(alone), {}, { transport: 'direct' })
       expect(screen.container.querySelector('.meta .retry')?.textContent).toBe('No peers found with the VPN off. Still searching.')
+    })
+
+    // 30 s later the retry line says it for good there, and two lines in turn would say one thing twice
+    it('says nothing of it behind the relay, where the retry line comes', async () => {
+      thumbnail.current = null
+      const { screen } = await inPage(torrent(alone), {}, { transport: 'relay' })
+      expect(screen.container.querySelector('.meta .retry')).toBeNull()
     })
 
     // behind the relay the engine retries such a download from 2 minutes in, and that line says more
