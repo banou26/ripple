@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, Pause, Play, Plus, Upload, X } from 'lucide-react'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Upload, X } from 'lucide-react'
 
 import { magnetInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -572,6 +572,25 @@ export const style = css`
       &:hover {
         background: ${CONTROL_HOVER_BG};
         border-color: ${BORDER_STRONG};
+      }
+    }
+
+    .setup svg { display: none; }
+
+    /* With every word the row needs a window of up to 1389 px (Russian in DejaVu Sans, system-ui on many Linux
+       desktops and on GitHub's runner), and it wraps rather than take the magnet field under its floor. Under 1440 px
+       this button gives up its words, which leaves the field at least 120 px above its floor at 1280 px in every
+       language, in Noto, DejaVu and Liberation Sans. */
+    @media (700px < width < 1440px) {
+      .setup {
+        /* square, as tall as the buttons beside it, which a line of their words sets */
+        width: calc(1lh + 18px);
+        height: calc(1lh + 18px);
+        padding: 0;
+        justify-content: center;
+
+        svg { display: block; }
+        span { display: none; }
       }
     }
   }
@@ -2157,6 +2176,7 @@ const Home = () => {
   useThumbnailGeneration(client)
 
   const [showSetup] = useState(() => !isAppInstalled())
+  const setupLabel = intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })
   const onSetupHandlers = useCallback(async () => {
     const outcome = await setupHandlers()
     if (outcome === 'installed') showToast(intl.formatMessage({ id: 'Ripple installed', defaultMessage: 'Ripple installed' }))
@@ -3266,8 +3286,9 @@ const Home = () => {
           </button>
         )}
         {showSetup && (
-          <button className="setup" type="button" onClick={() => { void onSetupHandlers() }}>
-            {intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })}
+          <button className="setup" type="button" aria-label={setupLabel} {...hint(setupLabel)} onClick={() => { void onSetupHandlers() }}>
+            <MonitorDown/>
+            <span>{setupLabel}</span>
           </button>
         )}
         <AccountWidget onToast={showToast}/>
