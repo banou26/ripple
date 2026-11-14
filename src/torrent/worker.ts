@@ -594,7 +594,7 @@ const ensureSavePath = async (savePath: string | undefined) => {
 }
 
 // saveResumeData gives up after 8s, longer than the loops that call this, so a second snapshot must not stack on the first
-const resumeInFlight = new Set<number>()
+const resumeInFlight = new Map<number, Promise<boolean>>()
 const persistResume = async (h: number): Promise<boolean> => {
   const ih = infoHashByHandle.get(h)
   if (!ih || !session || resumeInFlight.has(h)) return false
@@ -619,19 +619,22 @@ const persistResume = async (h: number): Promise<boolean> => {
   // Nor a held add still in upload mode, as a page closing before the park flushes it: the blob
   // would bring upload mode back on the next load, where nothing clears it.
   if (holdingUpload.has(h)) return false
-  resumeInFlight.add(h)
-  try {
-    const blob = await session.saveResumeData(h)
-    // a snapshot that lands after the torrent was given up describes files that no longer exist,
-    // and the next reload would restore a have-set the disk cannot back
-    if (!handles.includes(h)) return false
-    await ensureSavePath(savePathByHandle.get(h))
-    await set(resumeKey(ih), blob)
-    return true
-  } catch (err) {
-    console.error('[worker] saving resume data failed', String(err))
-    return false
-  } finally { resumeInFlight.delete(h) }
+  const saving = (async () => {
+    try {
+      const blob = await session.saveResumeData(h)
+      // a snapshot that lands after the torrent was given up describes files that no longer exist,
+      // and the next reload would restore a have-set the disk cannot back
+      if (!handles.includes(h)) return false
+      await ensureSavePath(savePathByHandle.get(h))
+      await set(resumeKey(ih), blob)
+      return true
+    } catch (err) {
+      console.error('[worker] saving resume data failed', String(err))
+      return false
+    }
+  })().finally(() => resumeInFlight.delete(h))
+  resumeInFlight.set(h, saving)
+  return saving
 }
 
 const filePieceRange = (h: number, fileIndex: number) => {
@@ -2685,7 +2688,10 @@ const handleMessage = async (session: Session, m: any) => {
       // only the schedule moves: a stalled torrent is not paused, so resuming it here would do nothing at all
       recovery.retry(m.handle, Date.now())
     } else if (m.type === 'flush-resume') {
-      await Promise.all(handles.map((h) => persistResume(h)))
+      // A save under way began before this was asked, and a second one is refused while it runs. So it is
+      // waited for and the torrent saved again: the page replaces this engine as soon as it is answered, and
+      // answered at once it left a download that had just completed with the blob of before its first piece.
+      await Promise.all(handles.map(async (h) => { await resumeInFlight.get(h); await persistResume(h) }))
       // a page that asked waits for this before it replaces the engine
       if (m.id !== undefined) post({ type: 'answer', id: m.id })
     } else if (m.type === 'watch') {
