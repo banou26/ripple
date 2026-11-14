@@ -139,10 +139,11 @@ describe('useBulkSelection', () => {
 
 /**
  * Real boxes, clicked with shift held, in each of the two ways the library is drawn. Both are handed the list the way
- * the page hands it, sorted by name, so the order on screen is not the order the torrents arrived in.
+ * the page hands it, sorted by name, so the order on screen is not the order the torrents arrived in. Fig is a ghost,
+ * whose card draws its box in a component of its own.
  */
 describe('shift+clicking the boxes', () => {
-  const ARRIVED = ['Cherry', 'Apple', 'Elder', 'Banana', 'Date'].map((name) => t({ name }))
+  const ARRIVED = [...['Cherry', 'Apple', 'Elder', 'Banana', 'Date'].map((name) => t({ name })), t({ name: 'Fig', state: 'missing' })]
   const DRAWN = sortTorrents(ARRIVED, 'name', 'asc')
   const handlers = {
     saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onStart: vi.fn(), onOptions: vi.fn(),
@@ -179,16 +180,18 @@ describe('shift+clicking the boxes', () => {
   for (const view of ['cards', 'table'] as const) {
     it(`ticks and unticks a run in the order the ${view} draw`, async () => {
       const { box, ticked } = await library(view)
-      expect(DRAWN.map((x) => x.name)).toEqual(['Apple', 'Banana', 'Cherry', 'Date', 'Elder'])
+      expect(DRAWN.map((x) => x.name)).toEqual(['Apple', 'Banana', 'Cherry', 'Date', 'Elder', 'Fig'])
       await userEvent.click(box('Apple'))
       await userEvent.click(box('Cherry'), { modifiers: ['Shift'] })
-      expect(ticked()).toEqual([true, true, true, false, false])
+      expect(ticked()).toEqual([true, true, true, false, false, false])
       // Cherry was ticked, so the run from it unticks
       await userEvent.click(box('Banana'), { modifiers: ['Shift'] })
-      expect(ticked()).toEqual([true, false, false, false, false])
+      expect(ticked()).toEqual([true, false, false, false, false, false])
+      await userEvent.click(box('Fig'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([true, true, true, true, true, true])
       // the control: without shift a click is one box
       await userEvent.click(box('Elder'))
-      expect(ticked()).toEqual([true, false, false, false, true])
+      expect(ticked()).toEqual([true, true, true, true, false, true])
     })
 
     /** Chrome otherwise selects the text between the two clicks there, and does not pass the click on to the box. */
@@ -199,7 +202,7 @@ describe('shift+clicking the boxes', () => {
       await userEvent.click(beside(0), { position: { x: 2, y: 2 } })
       await userEvent.click(beside(2), { position: { x: 2, y: 2 }, modifiers: ['Shift'] })
       expect(window.getSelection()?.toString()).toBe('')
-      expect(ticked()).toEqual([true, true, true, false, false])
+      expect(ticked()).toEqual([true, true, true, false, false, false])
     })
   }
 })
