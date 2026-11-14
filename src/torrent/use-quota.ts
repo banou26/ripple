@@ -15,7 +15,6 @@ export const useQuota = (active: boolean): QuotaStatus | null => {
   const [quota, setQuota] = useState<QuotaStatus | null>(null)
   const metered = useEngineTransport() !== 'direct'
   useEffect(() => {
-    if (!metered) setQuota(null)
     if (!active || !metered) return
     let cancelled = false
     const poll = () =>
@@ -26,5 +25,5 @@ export const useQuota = (active: boolean): QuotaStatus | null => {
     const id = window.setInterval(poll, 15_000)
     return () => { cancelled = true; window.clearInterval(id) }
   }, [active, metered])
-  return quota
+  return metered ? quota : null
 }
