@@ -158,15 +158,14 @@ const savePathByHandle = new Map<number, string>()
 const resumeSaved = new Map<number, boolean>()
 const userPaused = new Set<number>()
 /*
- * What Ripple wants the engine's pause flag to be, for torrents it has not been able to tell yet.
+ * What Ripple wants the engine's pause flag to be, for torrents whose state it has to see first.
  *
- * libtorrent only takes commands for handles it has registered, which happens the first time its
- * alerts are pumped, so anything issued during the restore is silently discarded. Both directions
- * are recorded, because a resume blob carries libtorrent's `paused` flag and restores it on add:
- * without `wantStarted`, a torrent that was paused when its blob was written comes back stopped
- * with nothing in Ripple recording that it should be, and ten seconds later `recovery` reads that
- * as a failure. The library entry is the record of what the user chose, so it is what decides here
- * and the blob never does.
+ * A pause waits for the torrent's check to end, as it would stop the check where it is. A start
+ * waits for the state the restore brought back, because a resume blob carries libtorrent's
+ * `paused` flag and restores it on add: without `wantStarted`, a torrent that was paused when its
+ * blob was written comes back stopped with nothing in Ripple recording that it should be, and ten
+ * seconds later `recovery` reads that as a failure. The library entry is the record of what the
+ * user chose, so it is what decides here and the blob never does.
  */
 const wantPaused = new Set<number>()
 const wantStarted = new Set<number>()
@@ -1758,7 +1757,6 @@ const init = async () => {
   setInterval(() => {
     if (!session) return
     const now = Date.now()
-    // called for the side effect: pumping the alerts is what registers handles with the engine, so commands recorded before the first pump (wantPaused) are applied here
     // the stream itself is deliberately drained and dropped, since every failure worth acting on arrives attributed on the status instead
     session.popAlerts()
     for (const h of handles) session.postStatus(h)
@@ -1872,8 +1870,8 @@ const init = async () => {
       // is given below and cannot drift from them.
       if (userPaused.has(h) || cacheIdle.has(h)) { wantStarted.delete(h); continue }
       const st = session.status(h)
-      // nothing can be told to a handle the engine has not registered yet, and a check waiting its
-      // turn reports itself paused until libtorrent's queue starts it
+      // the state it came back in is not known before the engine reports on it, and a check waiting
+      // its turn reports itself paused until libtorrent's queue starts it
       if (!st || CHECKING_STATES.has(st.state)) continue
       if (!st.paused) { wantStarted.delete(h); continue }
       /*
@@ -2636,23 +2634,6 @@ const handleMessage = async (session: Session, m: any) => {
       userPaused.add(m.handle)
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
       cacheIdle.delete(m.handle)
-      /*
-       * RECORDED as well as sent, because the send can be a silent no-op.
-       *
-       * `lt_torrent_pause` starts with `lookup_handle`, and that registry is written in exactly one
-       * place: `register_handle`, on `add_torrent_alert`, inside the alert pump. So a pause aimed at
-       * a torrent whose add has not been pumped yet returns -1 and does nothing at all, and the JS
-       * binding discards the return.
-       *
-       * MEASURED, and not exotic: when the tab hosting the engine closes, another is promoted and
-       * restores the library, and a command from a THIRD tab arrives while that add is still in
-       * flight. The trace at that instant reads `tracked=true hasStatus=false`, which is exactly the
-       * window. Ripple knew about the handle, the engine did not, and the torrent went on downloading
-       * with the row reading Downloading and nothing anywhere saying why.
-       *
-       * The want is what makes the pump try again once the handle exists.
-       */
-      wantPause(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, TORRENT_PAUSED)
