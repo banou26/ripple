@@ -167,10 +167,11 @@ it('finds peers through the relay\'s WebSocket, at the two trackers, with no STU
   expect(options.relay).toBe(true)
 })
 
-it('lets the swarm act on each pump', async () => {
+it('lets the swarm act on each pump, and says which transport it runs on with each', async () => {
   const before = engine.refresh.mock.calls.length
   await vi.advanceTimersByTimeAsync(1_500)
   expect(engine.refresh.mock.calls.length - before).toBe(3)
+  expect(rig.of('state').slice(-3).map((state) => state.transport)).toEqual(['relay', 'relay', 'relay'])
 })
 
 it('makes both again on a new socket when the relay went away, with the address read again', async () => {

@@ -97,6 +97,8 @@ it('says which transport it runs on, and lets the swarm act on each pump', async
   const before = engine.refresh.mock.calls.length
   await vi.advanceTimersByTimeAsync(1_500)
   expect(engine.refresh.mock.calls.length - before).toBe(3)
+  // on every beat: a tab that joins later is told by the one it hears first
+  expect(rig.of('state').slice(-3).map((state) => state.transport)).toEqual(['direct', 'direct', 'direct'])
 })
 
 it('says since when a download has had nobody, takes it back with a peer, and never calls that a stall', async () => {

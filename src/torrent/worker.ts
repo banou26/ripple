@@ -2583,7 +2583,7 @@ const handleMessage = async (session: Session, m: any) => {
         wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
-        post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable() })
+        post({ type: 'state', torrents: snapshot(), reachable: session.reachable() })
         await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {

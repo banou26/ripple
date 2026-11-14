@@ -25,6 +25,14 @@ it('replaces the engine once when the choice changes, after its resume data is w
   expect(state.flushed).toBe(1)
 })
 
+it('runs one change at a time: a call made meanwhile waits for it, and the engine is asked to write once', async () => {
+  const { state, follow } = page()
+  state.wanted = false
+  await Promise.all([follow(), follow(), follow()])
+  expect(state.started).toEqual([true, false])
+  expect(state.flushed).toBe(1)
+})
+
 it('does nothing while the engine is already on the choice', async () => {
   const { state, follow } = page()
   await follow()
