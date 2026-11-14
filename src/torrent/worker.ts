@@ -299,6 +299,12 @@ const cacheIdle = new Set<number>()
 // the file out from under them mid-copy. A read under a viewer is held by that viewer's claim, and a
 // player that has let its film go must not keep it from the release opened next.
 const lastReadAt = new Map<number, number>()
+// Parked torrents a read woke, as the library's Save of a file not wholly on disk does, which nothing
+// else parks again. The pump does, unless one is watched, once no read waits for somebody and none
+// without a viewer has come for PARK_AFTER_READ_MS: a save asks for its next chunk within moments of
+// the last, and for a failed one again within 3 s.
+const wokenByRead = new Set<number>()
+const PARK_AFTER_READ_MS = 5_000
 // Waiting to have their one top-level name written into the list, which needs the file layout.
 const needsRootEntry = new Set<number>()
 
@@ -387,7 +393,7 @@ const untrack = (h: number) => {
   limitsByHandle.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
-  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
+  ephemeralHandles.delete(h); cacheIdle.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h); noPeersSince.delete(h)
 }
@@ -551,6 +557,8 @@ const TORRENT_PAUSED = forPage.formatMessage({ id: 'torrent paused', defaultMess
 
 // the reads waiting on each torrent, by id, with the bytes each one asked for
 const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number, viewer?: string }>>()
+// a player that closes cancels none of its reads, so a read whose viewer has left waits for nobody
+const waitedOn = (h: number) => [...readsByHandle.get(h)?.values() ?? []].some((r) => !r.viewer || viewers.get(h)?.has(r.viewer))
 const failReads = (h: number, error: Said) => {
   const ids = readsByHandle.get(h)
   if (!ids?.size) return
@@ -1598,10 +1606,7 @@ const pumpWhileWaiting = () => {
   fastPump ??= setInterval(() => {
     const live = session
     const unlisted = [...viewers.keys()].filter((h) => activeViewers(h).length && !live?.files(h))
-    // a player that closes cancels none of its reads, so a read whose viewer has left waits for nobody
-    const reading = [...readsByHandle]
-      .filter(([h, reads]) => [...reads.values()].some((r) => !r.viewer || viewers.get(h)?.has(r.viewer)))
-      .map(([h]) => h)
+    const reading = [...readsByHandle.keys()].filter(waitedOn)
     if (!live || closing || (!unlisted.length && !reading.length)) {
       clearInterval(fastPump)
       fastPump = undefined
@@ -1777,6 +1782,11 @@ const init = async () => {
       releaseHold(h)
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+    for (const h of [...wokenByRead]) {
+      if (waitedOn(h) || now - (lastReadAt.get(h) ?? 0) < PARK_AFTER_READ_MS) continue
+      wokenByRead.delete(h)
+      applyViewing(h)
+    }
     const prepared = preparedHandles()
     if (prepared.length && playersHeld() !== preparing) {
       preparing = !preparing
@@ -2280,10 +2290,13 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       // Wanting bytes the disk lacks is what puts a torrent back to work, whether or not the reader is a
-      // player. A read of bytes on disk leaves a parked one parked, as nothing parks it again once no
-      // viewer is left: the library's pictures and its Save woke every one, and a 276 MB film downloaded
-      // its last 56 MB (swarm rig, 2026-11-14). A quiet read of bytes not on disk is refused below.
-      if (m.prioritize !== false && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) wake(m.handle)
+      // player. A read of bytes on disk leaves a parked one parked: the library's pictures and its Save
+      // woke every one, and a 276 MB film downloaded its last 56 MB (swarm rig, 2026-11-14). A quiet
+      // read of bytes not on disk is refused below.
+      if (m.prioritize !== false && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
+        if (cacheIdle.has(m.handle)) wokenByRead.add(m.handle)
+        wake(m.handle)
+      }
       if (!m.viewer) lastReadAt.set(m.handle, Date.now())
       if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: TORRENT_PAUSED })
