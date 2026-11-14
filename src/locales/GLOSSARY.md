@@ -7,7 +7,8 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
 
 ## Every language
 
-- **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, VPN, and the protocol names DHT, PeX, LSD and uTP.
+- **Never translated:** Ripple, FKN, Sintel, BitTorrent, qBittorrent, VPN, and the protocol names DHT, PeX, LSD, uTP and
+  WebRTC.
 - **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The exceptions are `ko`
   Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words; and two words stub means of a
   watch list. Paused takes qBittorrent's word where stub's reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`,
@@ -96,3 +97,12 @@ download is one the library does not keep.
 | `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 |
 | `tr` | kütüphane | paylaşım bağlantısı | geçici indirme |
 | `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie |
+
+## The VPN switch
+
+The VPN takes an article where the language has one: `la VPN` in `es-419` and `it`, `a VPN` in `pt-BR`, `le VPN` in
+`fr`, `das VPN` in `de`. Its state is one word on the switch (On, Off, Reconnecting, Unreachable, Waiting), and the
+switch keeps the room of the widest of them, so a new or changed one is no wider than the widest that language has.
+Off there is the state, and `Turn off` the action that leads to it (`Désactivé` and `Désactiver`, `Aus` and
+`Ausschalten`). A peer and a tracker in the warning and in the line of a download that found nobody are the table's
+words above.
