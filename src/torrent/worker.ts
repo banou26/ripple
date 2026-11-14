@@ -942,6 +942,10 @@ const applyViewing = (h: number) => {
     return
   }
   wake(h)
+  // Watched, so nothing is left to hold back, and not at the layout: in upload mode libtorrent drops every
+  // seed the moment the metadata lands (`upload_upload_connection`). With the VPN off the one WebRTC peer
+  // came back at the tracker's next announce, and the player's read gave up first (swarm rig, 2026-11-14).
+  releaseHold(h)
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
   if (newlyWatched.delete(h)) void runStorageBudget()

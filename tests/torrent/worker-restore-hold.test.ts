@@ -167,12 +167,12 @@ it('holds a temporary torrent restored with no saved state until the pump that p
   expect(engine.upload.has(handleOf(PARKED))).toBe(false)
 }, 20_000)
 
-it('lets a player watching it before its metadata have it, out of upload mode and never parked', async () => {
+it('lets a player watching it have it at once: out of upload mode before its metadata, and never parked', async () => {
   rig.send({ type: 'watch', viewer: 'player:1', handle: handleOf(WATCHED), fileIndex: 1, fromOffset: 0 })
-  await pumps(1)
+  // not at the layout: a torrent in upload mode drops every seed the moment its metadata lands
+  await vi.waitFor(() => expect(of(WATCHED)).toEqual(['upload on', 'upload off']), { timeout: 2_000 })
   engine.withMeta.add(WATCHED)
-  await vi.waitFor(() => expect(of(WATCHED)).toContain('upload off'), { timeout: 2_000 })
-  await pumps(1)
+  await pumps(2)
   expect(of(WATCHED)).toEqual(['upload on', 'upload off'])
 })
 
