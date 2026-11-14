@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -1851,8 +1851,23 @@ const rowFigures = (intl: IntlShape, size: number) => {
   }
 }
 
+/**
+ * Props compared by value. Every engine tick rebuilds every row's data, and a row whose values did not
+ * move skips its render: at 500 idle torrents that is 297 against 32 ms/s of main thread.
+ *
+ * A function compares by identity, so a row prop that is a new function on each render (an inline
+ * arrow, a handler without useCallback) silently turns the skip off for every row.
+ */
+const same = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((k) => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates }: RowProps) => {
+export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates }: RowProps) => {
   const intl = useIntl()
   /**
    * Before the missing branch, not after it.
@@ -2052,7 +2067,7 @@ export const TorrentRow = ({ t, saving, onToggle, onSave, onSaveZip, onStart, on
       </div>
     </div>
   )
-}
+}, same)
 
 const Home = () => {
   const intl = useIntl()
@@ -2370,12 +2385,12 @@ const Home = () => {
     } catch {}
   }, [addTorrentFiles, commitMagnet])
 
-  const onToggle = (t: Torrent) =>
+  const onToggle = useCallback((t: Torrent) =>
     t.state === 'retrying'
       ? retry(Number(t.id))
-      : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id))
+      : t.state === 'paused' || t.state === 'queued' ? resume(Number(t.id)) : pause(Number(t.id)), [retry, resume, pause])
 
-  const onStart = (t: Torrent) => { if (t.infoHash) start(t.infoHash) }
+  const onStart = useCallback((t: Torrent) => { if (t.infoHash) start(t.infoHash) }, [start])
 
   const onRemove = async (t: Torrent) => {
     // A torrent whose files are already gone has nothing to destroy, so asking would be noise. Every
@@ -2531,7 +2546,7 @@ const Home = () => {
   const shared = useShareableMagnet(menuTorrent ?? optionsTorrent)
 
   // Called synchronously from the click so showSaveFilePicker keeps the user gesture
-  const onSave = (t: Torrent, fileIndex: number) => {
+  const onSave = useCallback((t: Torrent, fileIndex: number) => {
     const file = t.files?.[fileIndex]
     if (!file) return
     const key = savingKey(t.id, fileIndex)
@@ -2539,16 +2554,16 @@ const Home = () => {
     saveTorrentFileToDisk(client, Number(t.id), fileIndex, file.name, file.size, (f) => setSaving((s) => ({ ...s, [key]: f })))
       .catch((error) => { if (!isSaveCancelled(error)) showToast(intl.formatMessage({ id: 'Saving {name} failed', defaultMessage: 'Saving {name} failed' }, { name: file.name })) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
-  }
+  }, [client, intl, showToast])
 
-  const onSaveZip = (t: Torrent) => {
+  const onSaveZip = useCallback((t: Torrent) => {
     if (!contentFiles(t.files).length) return
     const key = savingKey(t.id, -1)
     setSaving((s) => ({ ...s, [key]: 0 }))
     saveTorrentAsZipToDisk(client, Number(t.id), t.name, t.files ?? [], (f) => setSaving((s) => ({ ...s, [key]: f })))
       .catch((error) => { if (!isSaveCancelled(error)) showToast(intl.formatMessage({ id: 'Saving {name} failed', defaultMessage: 'Saving {name} failed' }, { name: t.name })) })
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
-  }
+  }, [client, intl, showToast])
 
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
 

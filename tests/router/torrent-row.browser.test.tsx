@@ -16,8 +16,10 @@ import { IntlRoot } from '../../src/i18n'
  * it just hangs the row off the bottom of the image.
  */
 const thumbnail = { current: null as string | null }
+// the row's renders, counted from inside it: a Profiler around a memoized row reports the renders it skipped
+const renders = { row: 0 }
 vi.mock('../../src/torrent/use-thumbnails', () => ({
-  useThumbnail: () => thumbnail.current,
+  useThumbnail: () => { renders.row++; return thumbnail.current },
   useThumbnailGeneration: () => {},
 }))
 
@@ -219,6 +221,44 @@ describe('a library row', () => {
     await screen.rerender(row(torrent({ progress: 0.6 })))
     expect(fill.style.width).toBe('60%')
     expect(fill.getAnimations()).toEqual([])
+  })
+
+  /** Every engine tick hands every row new objects, which mostly carry the values the row already shows. */
+  describe('on an engine tick', () => {
+    const RATES = { down: [0, 8_700_000], up: [0, 120_000] }
+    const ticking = async () => {
+      thumbnail.current = null
+      const { TorrentRow, style } = await import('../../src/router/home')
+      const props = handlers()
+      const row = (t: Torrent, over: Partial<ReturnType<typeof handlers>> = {}) => (
+        <IntlRoot><MemoryRouter>
+          <div css={style}><main><TorrentRow t={t} {...props} rates={structuredClone(RATES)} {...over} /></main></div>
+        </MemoryRouter></IntlRoot>
+      )
+      const screen = await render(row(torrent()), sized())
+      renders.row = 0
+      return { screen, row }
+    }
+
+    it('skips the render of a row whose values did not move', async () => {
+      const { screen, row } = await ticking()
+      await screen.rerender(row(structuredClone(torrent())))
+      expect(renders.row).toBe(0)
+    })
+
+    it('renders a row whose values moved', async () => {
+      const { screen, row } = await ticking()
+      await screen.rerender(row(torrent({ peers: 83 })))
+      expect(renders.row).toBe(1)
+      await expect.element(screen.getByText('83 peers')).toBeInTheDocument()
+    })
+
+    /** So a handler made inline in the page renders every row on every tick. */
+    it('renders a row again when it is handed a new handler', async () => {
+      const { screen, row } = await ticking()
+      await screen.rerender(row(structuredClone(torrent()), { onToggle: vi.fn() }))
+      expect(renders.row).toBe(1)
+    })
   })
 
   /** A check runs 0 to 1 over an already complete torrent, so this is the one full-progress case. */
