@@ -185,6 +185,15 @@ export class SeederFleet {
     throw new Error('the seeders never finished verifying the payload')
   }
 
+  /** Caps every seeder's upload at `kBps` and answers what each then says its cap is. */
+  async limitUpload (kBps: number) {
+    return Promise.all(this.procs.map(async ({ rpc }) => {
+      await this.rpc(rpc, 'session-set', { 'speed-limit-up': kBps, 'speed-limit-up-enabled': true })
+      const got = await this.rpc<Record<string, unknown>>(rpc, 'session-get', { fields: ['speed-limit-up', 'speed-limit-up-enabled'] })
+      return { limit: got['speed-limit-up'], enabled: got['speed-limit-up-enabled'] }
+    }))
+  }
+
   /** Payload bytes each seeder has uploaded, the swarm's own account of who served a run. */
   async uploaded (): Promise<number[]> {
     return Promise.all(this.procs.map(async ({ rpc }) => (await this.torrents(rpc))[0]?.uploadedEver ?? 0))

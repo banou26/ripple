@@ -75,7 +75,7 @@ window opens. `test:e2e:rig` runs three steps:
 
 ## What it checks
 
-The spec has three tests, run in order:
+[`tests/swarm-rig.spec.ts`](../swarm-rig.spec.ts) has three tests, run in order:
 
 - **Configuration.** The relay answers. The RUNNING relay's environment allows private targets and
   carries the raised rate. `/api` serves the broker's own document, not the SPA fallback.
@@ -94,19 +94,44 @@ The engine's DHT is on, and it announces the infohash through the relay. So the 
 stray peer (1 peer in two of three runs, 0 bytes each time). This is why the seeders' own upload
 count is part of the claim.
 
+## WebRTC peers, and the VPN switch
+
+`npm run e2e:rig` then runs [`tests/swarm-rig-webrtc.spec.ts`](../swarm-rig-webrtc.spec.ts), seven tests in
+order around one library page that stays open (about 1.5 minutes):
+
+- **The lane.** The running relay asks the rig's resolver, the running proxy admits the broker alone and
+  takes loopback targets, the tracker's name is this machine and no public name is anything, and the served
+  engine worker names the rig's tracker and no public one.
+- **The library.** The film arrives from the seeders through the relay. The switch asks first, and with the
+  VPN off the page holds the film as a WebRTC peer that is not behind the relay.
+- **The VPN on.** A download takes pieces from the seeders, from a second ripple behind the same relay and
+  from the library page, each counted. Its tracker socket went through the proxy, its candidate is a UDP
+  port the relay holds, and neither the relay's log nor the proxy's holds the info hash or the tracker's name.
+- **The VPN off.** A film plays from the library page alone. The page asked its own server, FKN's frame and
+  the tracker, and the relay's own counts (sessions admitted, bytes carried) and the proxy's (requests) did not
+  move, where the download before it moved them: that is the control.
+- **A share link's watch page, and the player framed by another site** (in the storage the browser keeps for
+  that site): nobody found with the VPN on, the switch and its warning, the film over WebRTC, and the VPN
+  back on while it plays, the film going on with no "playback failed".
+- **Back on the library**, the VPN on again, behind the relay, the film whole.
+
+`RIPPLE_RIG_RESULT` names a file for what each test measured.
+
 ## The relay drop
 
 `npm run e2e:rig` then runs [`tests/swarm-rig-relay-drop.spec.ts`](../swarm-rig-relay-drop.spec.ts) in a run of its
-own, since it stops the relay the config started: the seeders capped at 100 kB/s each,
-the relay stopped with SIGTERM once 20% of the fixture is in, and started again 20 s later from the same binary,
-environment and certificate. It asserts that the engine worker never goes 5 s without a state message, that the
-VPN readout goes to Reconnecting and back to On, that bytes move again within 20 s of the relay's return (5.8 to
-8.9 s measured), that both sockets are back on the port the session reserved, that the player carries on with no
+own, since it stops the relay the config started: a ripple with the VPN off holds the film as a WebRTC peer,
+the seeders and that peer are capped at 100 kB/s each,
+the relay is stopped with SIGTERM once 20% of the fixture is in with both kinds giving, and started again 20 s
+later from the same binary, environment and certificate. It asserts that the engine worker never goes 5 s without
+a state message, that the VPN readout goes to Reconnecting and back to On, that bytes move again within 20 s of
+the relay's return from a seeder and within 30 s from the WebRTC peer (4.9 s and 3.9 s measured), that both
+sockets are back on the port the session reserved, that the player carries on with no
 "playback failed", and that OPFS ends up holding the fixture. It takes about 2.5 minutes. Engine 0.3.21 fails it on
 the worker going silent within 5 s of the drop; 0.3.22 fails it on the resume, its bytes coming back 236 to 245 s
 after the relay. `RIPPLE_RIG_OUTAGE_MS`, `RIPPLE_RIG_SEEDER_KBPS`, `RIPPLE_RIG_OUTAGE_AT`,
-`RIPPLE_RIG_RECOVERY_MS` (150 s) and `RIPPLE_RIG_RESUME_MS` (20 s) move it, and `RIPPLE_RIG_RESULT` names a file
-for the per-second record.
+`RIPPLE_RIG_RECOVERY_MS` (150 s), `RIPPLE_RIG_RESUME_MS` (20 s) and `RIPPLE_RIG_WEBRTC_RESUME_MS` (30 s) move it,
+and `RIPPLE_RIG_RESULT` names a file for the per-second record.
 
 ## Knobs
 

@@ -55,7 +55,7 @@
     "e2e:swarm": "playwright test --forbid-only --project=chromium tests/embed-remote.spec.ts tests/embed-remote-autoplay.spec.ts tests/embed-download.spec.ts tests/resume-verify.spec.ts tests/sample-reload.spec.ts tests/startup-breakdown.spec.ts tests/storage-eviction.spec.ts tests/stream-contiguity.spec.ts tests/torrent-ramp.spec.ts",
     "test:e2e:local": "npm run build && npm run e2e:local",
     "test:e2e:swarm": "npm run build && npm run e2e:swarm",
-    "e2e:rig": "playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig.spec.ts && playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig-relay-drop.spec.ts",
+    "e2e:rig": "playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig.spec.ts && playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig-webrtc.spec.ts && playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig-relay-drop.spec.ts",
     "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
   },
   "dependencies": {
