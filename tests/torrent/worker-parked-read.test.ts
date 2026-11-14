@@ -1,4 +1,5 @@
-// A picture read of a parked temporary torrent is answered from disk and leaves it parked.
+// A read of bytes a parked temporary torrent has on disk, a picture's or a Save's, is answered and
+// leaves it parked.
 import type { Persisted } from '../../src/torrent/library'
 
 import { expect, it, vi } from 'vitest'
@@ -78,7 +79,7 @@ const read = async (id: string, fileIndex: number, offset: number, prioritize?: 
   return rig.posted.find((m) => m.id === id)!
 }
 
-it('answers a picture read of a parked temporary torrent from disk and leaves it parked', async () => {
+it('answers a read of bytes a parked temporary torrent has on disk and leaves it parked', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
   await vi.waitFor(() => expect(engine.log).toEqual(['pause']), { timeout: 2_000 })
@@ -86,6 +87,9 @@ it('answers a picture read of a parked temporary torrent from disk and leaves it
   expect((await read('poster', 0, 0, false)).type).toBe('read-result')
   expect(engine.log).toEqual(['pause'])
   expect((await read('not there', 1, 10 * MiB, false))).toMatchObject({ type: 'read-error', error: 'not downloaded' })
+  expect(engine.log).toEqual(['pause'])
+  // the library's Save reads with priority and no viewer
+  expect((await read('save', 0, 0)).type).toBe('read-result')
   expect(engine.log).toEqual(['pause'])
 
   // a read that may wait for pieces still wakes it, so the check above can see a wake
