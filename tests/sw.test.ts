@@ -1,6 +1,6 @@
 // The service worker sits in front of every request, so what it does NOT do is what matters
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 // Text rather than fs: node's fs is shimmed away in this browser-targeted vitest environment
 import source from '../src/sw.js?raw'
@@ -193,6 +193,44 @@ describe('service worker', () => {
     on.fetch!(event)
     await taken()!.body!.cancel('user cancelled')
     expect((await cancelled).type).toBe('cancel')
+  })
+
+  /** Chrome keeps the download in progress for good once its page is evicted from the back-forward cache. */
+  it('fails a save whose page has not pinged for 11 minutes, and keeps one that pings', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const on = boot()
+      const saving = (id: string) => {
+        const { port, source } = openStream(on, id, 'film.mkv', 4)
+        const said: string[] = []
+        port.onmessage = (event: MessageEvent) => { said.push(event.data?.type) }
+        const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/${id}/film.mkv`)
+        on.fetch!(event)
+        const save = { said, source, port, outcome: 'reading' }
+        taken()!.body!.getReader().read().then(() => { save.outcome = 'read' }, () => { save.outcome = 'failed' })
+        return save
+      }
+      const left = saving('left')
+      const stays = saving('stays')
+      const minutes = async (n: number) => {
+        for (let minute = 0; minute < n; minute++) {
+          on.message!({ data: { type: 'ping', id: 'stays' }, source: stays.source })
+          await vi.advanceTimersByTimeAsync(60_000)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      await minutes(10)
+      expect([left.outcome, left.said]).toEqual(['reading', ['stream-ready', 'pull']])
+      await minutes(10)
+      expect([left.outcome, left.said]).toEqual(['failed', ['stream-ready', 'pull', 'error']])
+      expect([stays.outcome, stays.said]).toEqual(['reading', ['stream-ready', 'pull']])
+      // and neither leaves its watch running once it has ended
+      stays.port.postMessage({ type: 'end' })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

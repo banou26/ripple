@@ -139,7 +139,8 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   }
   // A page that goes away mid-save otherwise leaves Chrome's download in progress forever and Firefox's short but
   // listed as finished; aborted, both show it failed. Chrome does keep a page mid-save in its back-forward cache, and
-  // brought back it carries the save on to the end, so that one is left alone (all measured).
+  // brought back it carries the save on to the end, so that one is left alone (all measured), and sw.js fails it if it
+  // never comes back. Firefox 157 never caches a page that holds a Web Lock, which every save does (pageWork).
   const onPageHide = (event: PageTransitionEvent) => { if (!event.persisted) abort() }
   window.addEventListener('pagehide', onPageHide)
 

@@ -103,18 +103,27 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
+/*
+ * Chrome keeps a page that left mid-save in its back-forward cache for up to 10 minutes, and one brought back goes on
+ * pinging every 10 s and feeding the save. Evicted, it says nothing, and Chrome keeps this worker and the download in
+ * progress for good (Chromium 156: still in progress 13 minutes later). So a save whose page has not pinged for 11
+ * minutes is failed. Counted in minutes rather than timed, so a machine waking from sleep is not taken for a page gone.
+ */
+const SILENT_MINUTES = 11
+
 self.addEventListener('message', (event) => {
   const data = event.data
   if (!data) return
   if (data.type === 'stream-open') {
     const port = event.ports[0]
     if (!port) return
-    live.set(data.id, { name: data.name, size: data.size, port, resolvePull: null })
+    live.set(data.id, { name: data.name, size: data.size, port, resolvePull: null, silent: 0 })
     port.postMessage({ type: 'stream-ready' })
     return
   }
   // Answered only while the download is still live: a worker killed mid-download comes back with an empty map.
   if (data.type === 'ping' && live.has(data.id) && event.source) {
+    live.get(data.id).silent = 0
     event.source.postMessage({ type: 'pong', id: data.id })
     return
   }
@@ -212,6 +221,7 @@ self.addEventListener('fetch', (event) => {
   const finish = () => {
     if (entry.done) return
     entry.done = true
+    clearInterval(entry.watch)
     live.delete(id)
     const resolve = entry.resolvePull
     entry.resolvePull = null
@@ -220,6 +230,12 @@ self.addEventListener('fetch', (event) => {
 
   const body = new ReadableStream({
     start(controller) {
+      entry.watch = setInterval(() => {
+        if (++entry.silent <= SILENT_MINUTES) return
+        controller.error(new Error('the page is gone'))
+        entry.port.postMessage({ type: 'error' })
+        finish()
+      }, 60_000)
       entry.port.onmessage = (e) => {
         const msg = e.data
         if (!msg || entry.done) return
