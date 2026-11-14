@@ -481,7 +481,7 @@
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {{count}個のファイル}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {{count}件を除外}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {{count}ピアがポート{port}に接続しています：{detail}。}}",
-  "{count, plural, one {{count} peers} other {{count} peers}}": "{count, plural, other {{count}ピア}}",
+  "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {{count}ピア}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {{count}件を選択中}}",
   "{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}": "{count, plural, other {一時的なダウンロード{count}件を非表示 · {size}}}",
   "{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}": "{count, plural, other {一時的なダウンロード{count}件を非表示}}",

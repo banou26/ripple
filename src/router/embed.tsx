@@ -783,7 +783,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                 <Users />
                 <span className="number">{info.peers}</span>
                 <span className="word">
-                  {intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: info.peers })}
+                  {intl.formatMessage({ id: '{count, plural, one {{count} peer} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peer} other {{count} peers}}' }, { count: info.peers })}
                 </span>
               </div>
             )}

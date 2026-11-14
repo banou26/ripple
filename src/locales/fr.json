@@ -481,7 +481,7 @@
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, one {{count} fichier} other {{count} fichiers}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, one {{count} exclu} other {{count} exclus}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, one {{count} pair connecté sur le port {port} : {detail}.} other {{count} pairs connectés sur le port {port} : {detail}.}}",
-  "{count, plural, one {{count} peers} other {{count} peers}}": "{count, plural, one {{count} pair} other {{count} pairs}}",
+  "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, one {{count} pair} other {{count} pairs}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, one {{count} sélectionné} other {{count} sélectionnés}}",
   "{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}": "{count, plural, one {{count} téléchargement temporaire masqué · {size}} other {{count} téléchargements temporaires masqués · {size}}}",
   "{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}": "{count, plural, one {{count} téléchargement temporaire masqué} other {{count} téléchargements temporaires masqués}}",

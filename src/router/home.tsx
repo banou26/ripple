@@ -1842,7 +1842,7 @@ const rowFigures = (intl: IntlShape, size: number) => {
   const pair = (done: number) => intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(done, true), total })
   const down = (bps: number) => intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(bps) })
   const up = (bps: number) => intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(bps) })
-  const peers = (count: number) => intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count })
+  const peers = (count: number) => intl.formatMessage({ id: '{count, plural, one {{count} peer} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peer} other {{count} peers}}' }, { count })
   return {
     pair, down, up, peers,
     rooms: {

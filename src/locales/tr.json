@@ -481,7 +481,7 @@
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, one {{count} dosya} other {{count} dosya}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, one {{count} öğe dışarıda kaldı} other {{count} öğe dışarıda kaldı}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, one {{port} numaralı bağlantı noktasına {count} kişi bağlandı: {detail}.} other {{port} numaralı bağlantı noktasına {count} kişi bağlandı: {detail}.}}",
-  "{count, plural, one {{count} peers} other {{count} peers}}": "{count, plural, one {{count} kişi} other {{count} kişi}}",
+  "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, one {{count} kişi} other {{count} kişi}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, one {{count} seçildi} other {{count} seçildi}}",
   "{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}": "{count, plural, one {{count} geçici indirme gizlendi · {size}} other {{count} geçici indirme gizlendi · {size}}}",
   "{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}": "{count, plural, one {{count} geçici indirme gizlendi} other {{count} geçici indirme gizlendi}}",

@@ -1184,7 +1184,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             <div className="swarm" data-testid="swarm">
               <span className="item">
                 <User />
-                {intl.formatMessage({ id: '{count, plural, one {{count} peers} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peers} other {{count} peers}}' }, { count: peers })}
+                {intl.formatMessage({ id: '{count, plural, one {{count} peer} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peer} other {{count} peers}}' }, { count: peers })}
               </span>
               <span className="item"><ArrowDown />{getHumanReadableSpeed(rate, true)}</span>
             </div>

@@ -481,7 +481,7 @@
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {{count}个文件}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {已排除{count}项}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {{count}个用户通过端口{port}连入：{detail}。}}",
-  "{count, plural, one {{count} peers} other {{count} peers}}": "{count, plural, other {{count}个用户}}",
+  "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {{count}个用户}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {已选择{count}个}}",
   "{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}": "{count, plural, other {已隐藏{count}个临时下载 · {size}}}",
   "{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}": "{count, plural, other {已隐藏{count}个临时下载}}",

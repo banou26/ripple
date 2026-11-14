@@ -481,7 +481,7 @@
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {파일 {count}개}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {{count}개 제외됨}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {피어 {count}개가 포트 {port}에 연결됨: {detail}.}}",
-  "{count, plural, one {{count} peers} other {{count} peers}}": "{count, plural, other {피어 {count}개}}",
+  "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {피어 {count}개}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {{count}개 선택됨}}",
   "{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}": "{count, plural, other {임시 다운로드 {count}개 숨김 · {size}}}",
   "{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}": "{count, plural, other {임시 다운로드 {count}개 숨김}}",

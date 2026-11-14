@@ -352,6 +352,13 @@ describe('the watch route', () => {
     }
   })
 
+  it('says one peer in the singular', async () => {
+    state.current = withSwarm({ numPeers: 1, numSeeds: 1 })
+    const screen = await mount()
+    await expect.element(screen.getByTestId('peers')).toBeInTheDocument()
+    expect((screen.getByTestId('peers').element() as HTMLElement).innerText).toBe('1 peer')
+  })
+
   it('folds the word on a phone and keeps the number', async () => {
     state.current = withSwarm({ numPeers: 28, numSeeds: 26, swarmSeeds: 216, swarmPeers: 3 })
     const screen = await mount(PHONE)
