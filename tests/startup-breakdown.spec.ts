@@ -33,7 +33,8 @@ test.use({ headless: false })
 
 const DEFAULT_MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969'
 const MAGNET = process.env.RIPPLE_BENCH_MAGNET ?? DEFAULT_MAGNET
-const FILE_INDEX = process.env.RIPPLE_BENCH_FILE_INDEX ?? '0'
+// unset, a watch link names no file and plays the torrent's video: Big Buck Bunny's file 0 is a subtitle
+const FILE_INDEX = process.env.RIPPLE_BENCH_FILE_INDEX
 const TRIALS = Number(process.env.RIPPLE_STARTUP_TRIALS ?? 3)
 const FRAME_BUDGET_MS = Number(process.env.RIPPLE_STARTUP_BUDGET_MS ?? 180_000)
 
@@ -155,7 +156,7 @@ const runTrial = async (browser: Browser, index: number) => {
   const page = await context.newPage()
   try {
     await instrument(page)
-    await page.goto(`/watch?${new URLSearchParams({ magnet: Buffer.from(MAGNET).toString('base64'), fileIndex: FILE_INDEX })}`)
+    await page.goto(`/watch?${new URLSearchParams({ magnet: Buffer.from(MAGNET).toString('base64'), ...(FILE_INDEX ? { fileIndex: FILE_INDEX } : {}) })}`)
     // Focus matters: rVFC is throttled in a background tab exactly like rAF.
     await page.bringToFront()
 
