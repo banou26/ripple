@@ -2174,7 +2174,7 @@ const Home = () => {
     if (!request.ok) { showToast(request.problem); return }
     const existing = torrentsRef.current.find((t) => t.infoHash === request.infoHash && !t.ephemeral && t.state !== 'missing')
     if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return }
-    client.addMagnet(request.magnet, { ephemeral: true })
+    client.addMagnet(request.magnet, { ephemeral: true, hold: true })
     setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
     setChoices(null)
   }, [client, showToast, intl])

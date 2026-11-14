@@ -425,3 +425,18 @@ print(json.dumps({
     await download.cancel().catch(() => {})
   })
 })
+
+// The library's add dialog asks before anything downloads, so a link from another site holds its torrent the same way.
+test('the add dialog writes nothing until Add torrent is pressed, then writes', async ({ page }) => {
+  await page.goto(`/add?magnet=${encodeURIComponent(SINTEL)}`)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('.files .file').first()).toBeVisible({ timeout: 60_000 })
+  expect(await payloadFiles(page), 'the engine wrote before the dialog had even shown the file list').toBe(0)
+  await page.waitForTimeout(10_000)
+  expect(await payloadFiles(page), 'the engine wrote while the dialog was asking').toBe(0)
+
+  await dialog.getByRole('button', { name: 'Select none' }).click()
+  await dialog.locator('.files .file', { hasText: '.srt' }).first().locator('input').check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await expect.poll(() => payloadFiles(page), { timeout: 120_000 }).toBeGreaterThan(0)
+})
