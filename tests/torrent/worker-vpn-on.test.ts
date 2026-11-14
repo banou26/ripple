@@ -9,13 +9,17 @@ type Listener = (...args: unknown[]) => void
 
 const engine = vi.hoisted(() => {
   const emitter = () => {
-    const listeners = new Map<string, Listener[]>()
+    const listeners = new Map<string, { listener: Listener, once: boolean }[]>()
+    const add = (once: boolean) => (event: string, listener: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), { listener, once }]) }
     return {
-      once: (event: string, listener: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), listener]) },
+      once: add(true),
+      on: add(false),
+      /** As node's: an `error` nobody listens for is thrown. */
       emit: (event: string, ...args: unknown[]) => {
         const waiting = listeners.get(event) ?? []
-        listeners.delete(event)
-        for (const listener of waiting) listener(...args)
+        if (event === 'error' && !waiting.length) throw new Error('an error nobody listened for')
+        listeners.set(event, waiting.filter(({ once }) => !once))
+        for (const { listener } of waiting) listener(...args)
       },
     }
   }
@@ -30,7 +34,7 @@ const engine = vi.hoisted(() => {
     binds: [40_123] as (number | false)[],
     /** The address each probe through the relay reports, in order. The last repeats. */
     addresses: ['203.0.113.7'],
-    udp: [] as (ReturnType<typeof emitter> & { type: unknown, bound: unknown[], address: () => { port: number }, close: ReturnType<typeof vi.fn> })[],
+    udp: [] as (ReturnType<typeof emitter> & { type: unknown, bound: unknown[], closed: boolean, address: () => { port: number }, close: ReturnType<typeof vi.fn> })[],
     tcp: [] as { options: unknown, destroyed: boolean }[],
   }
   return { ...state, emitter }
@@ -55,7 +59,12 @@ vi.mock('@fkn/lib/dgram', () => ({
       type,
       bound: [] as unknown[],
       address: () => ({ port: answer as number }),
-      close: vi.fn(() => { socket.emit('close') }),
+      closed: false,
+      close: vi.fn(() => {
+        if (socket.closed) throw new Error('closed twice')
+        socket.closed = true
+        socket.emit('close')
+      }),
       bind: (...args: unknown[]) => {
         socket.bound.push(args)
         queueMicrotask(() => answer === false ? socket.emit('error', new Error('refused')) : socket.emit('listening'))
@@ -184,6 +193,7 @@ it('makes both again on a new socket when the relay went away, with the address 
   // the relay refuses four binds while it is away, then answers as another relay would: a new port and address
   engine.binds.splice(0, 1, false, false, false, false, 51_000)
   engine.addresses.splice(0, 1, '198.51.100.4')
+  engine.udp[0]!.closed = true
   engine.udp[0]!.emit('close')
   await vi.advanceTimersByTimeAsync(0)
   expect(engine.swarms[0]!.close).toHaveBeenCalledTimes(1)
@@ -206,6 +216,21 @@ it('makes both again on a new socket when the relay went away, with the address 
   const before = engine.refresh.mock.calls.length
   await vi.advanceTimersByTimeAsync(500)
   expect(engine.refresh.mock.calls.length - before).toBe(1)
+})
+
+it('makes both again when the socket fails without closing, and lets go of the socket', async () => {
+  const [socket, swarm, factory] = [engine.udp.at(-1)!, engine.swarms.at(-1)!, engine.factories.at(-1)!]
+  socket.emit('error', new Error('send failed'))
+  // again, as a socket that keeps failing does: nothing may be left that throws on it
+  socket.emit('error', new Error('send failed'))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(swarm.close).toHaveBeenCalledTimes(1)
+  expect(factory.close).toHaveBeenCalledTimes(1)
+  expect(socket.close).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(500)
+  await vi.waitFor(() => expect(engine.factories).toHaveLength(3))
+  expect(engine.factories[2]!.options.socket).toBe(engine.udp.at(-1))
+  expect(engine.udp.at(-1)).not.toBe(socket)
 })
 
 // THE CONTROL of worker-vpn-off.test.ts: behind the relay, a download nobody serves is still kicked

@@ -35,7 +35,8 @@ const ADDRESS_TIMEOUT_MS = 10_000
 const bound = () => new Promise<dgram.Socket>((resolve, reject) => {
   const socket = dgram.createSocket('udp4')
   socket.once('listening', () => resolve(socket))
-  socket.once('error', reject)
+  // kept for the socket's life: an error nobody listens for is thrown
+  socket.on('error', reject)
   socket.bind(0)
 })
 
@@ -55,7 +56,7 @@ const relayAddress = () => new Promise<string>((resolve, reject) => {
   }
   const timer = setTimeout(end, ADDRESS_TIMEOUT_MS)
   socket.once('connect', () => end(socket.localAddress))
-  socket.once('error', () => end())
+  socket.on('error', () => end())
   socket.once('close', () => end())
 })
 
@@ -76,7 +77,12 @@ export const relayPeers = (session: Session): WebrtcPeers => {
       const socket = await bound().catch(() => null)
       if (socket) {
         let open = true
-        const closed = new Promise<void>((resolve) => socket.once('close', () => { open = false; resolve() }))
+        // an error after the bind ends the stack as a close does, and may come with no close
+        const ended = new Promise<void>((resolve) => {
+          const end = () => { open = false; resolve() }
+          socket.once('close', end)
+          socket.once('error', end)
+        })
         try {
           const address = await relayAddress()
           wasm ??= await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer())
@@ -89,12 +95,13 @@ export const relayPeers = (session: Session): WebrtcPeers => {
               relay: true,
             })
             wait = RETRY_MIN_MS
-            await closed
+            await ended
             peers.close()
             peers = null
             webrtc.close()
           }
-        } catch { socket.close() }
+        } catch { /* asked for again below */ }
+        try { socket.close() } catch { /* it closed by itself */ }
       }
       await new Promise((resolve) => setTimeout(resolve, wait))
       wait = Math.min(wait * 2, socket ? RETRY_MAX_MS : BIND_RETRY_MAX_MS)
