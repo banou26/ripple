@@ -108,3 +108,24 @@ test('the choice and its Remember this decision stay with the storage they were 
   expect(await stored(framed)).toEqual({})
   expect(await stored(library)).toEqual({ 'ripple:vpn-off-remembered': '1' })
 })
+
+// a fullscreen element shows nothing outside itself, and a player is where a person is most often fullscreen
+test('a player in fullscreen shows the warning, drawn inside it, and stays fullscreen once it is answered', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const context = await browser.newContext({ timezoneId: 'Europe/Stockholm' })
+  const page = await context.newPage()
+  await page.goto(WATCH)
+  await expect(vpnOf(page)).toBeVisible({ timeout: 30_000 })
+  await page.locator('button.full-screen').click()
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true)
+
+  await vpnOf(page).click()
+  const warning = page.getByRole('dialog')
+  await expect(warning.locator('p')).toHaveText([SENTENCE])
+  expect(await page.evaluate(() => document.fullscreenElement!.contains(document.querySelector('[role="dialog"]')))).toBe(true)
+  // a real click: the action is on screen and nothing of the player covers it
+  await warning.getByRole('button', { name: 'Turn off' }).click()
+  await expect(warning).toHaveCount(0)
+  await expect(vpnOf(page)).toHaveAttribute('aria-checked', 'false')
+  expect(await page.evaluate(() => !!document.fullscreenElement), 'answering took the player out of fullscreen').toBe(true)
+})
