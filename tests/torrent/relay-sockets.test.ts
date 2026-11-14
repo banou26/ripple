@@ -6,9 +6,10 @@ import { relaySockets } from '../../src/torrent/relay-sockets'
 
 type Listener = (...args: unknown[]) => void
 
-/** FKN's net and dgram as the relay behaves: a bind is answered a step later, a close is confirmed a step later. */
+/** FKN's net and dgram as the relay behaves: a bind is answered a moment later, a close is confirmed a moment later. */
 const relay = ({ refuse = false, answers = true } = {}) => {
   const held = new Set<string>()
+  const later = (answer: () => void) => { if (answers) setTimeout(answer, 1) }
   const emitter = () => {
     const listeners = new Map<string, Listener[]>()
     const on = (event: string, listener: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), listener]) }
@@ -22,16 +23,16 @@ const relay = ({ refuse = false, answers = true } = {}) => {
       name,
       /** A bind the test answers itself, for one still on its way when the worker is asked to close. */
       granted: () => { held.add(name); socket.emit('listening') },
-      bind: () => { if (answers) queueMicrotask(() => refuse ? socket.emit('error', new Error('refused')) : socket.granted()) },
+      bind: () => later(() => refuse ? socket.emit('error', new Error('refused')) : socket.granted()),
       listen: () => socket.bind(),
-      close: () => { if (answers) queueMicrotask(() => { held.delete(name); socket.emit('close') }) },
+      close: () => later(() => { held.delete(name); socket.emit('close') }),
     }
     return socket
   }
   const connection = (kind = 'connection') => {
     const name = `${kind} ${++made}`
     held.add(name)
-    const socket = { ...emitter(), name, destroy: () => { if (answers) queueMicrotask(() => { held.delete(name); socket.emit('close') }) } }
+    const socket = { ...emitter(), name, destroy: () => later(() => { held.delete(name); socket.emit('close') }) }
     return socket
   }
   return {
@@ -52,16 +53,13 @@ it('closes the listener, the connections it took, the UDP sockets and the dialle
   const server = sockets.net.createServer()
   server.listen(0)
   sockets.net.connect({ host: '198.51.100.20', port: 6881 })
-  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 10))
   server.emit('connection', fkn.connection('accepted'))
   // THE CONTROL: all five are the relay's until somebody closes them
   expect([...fkn.held].sort()).toEqual(['accepted 5', 'connection 4', 'listener 3', 'udp 1', 'udp 2'])
 
-  let closed = false
-  const closing = sockets.close().then(() => { closed = true })
-  expect(closed, 'answered before the relay confirmed').toBe(false)
-  await closing
-  expect([...fkn.held]).toEqual([])
+  // read at the moment it resolves: the worker is ended then, and the relay keeps whatever is left
+  expect(await sockets.close().then(() => [...fkn.held])).toEqual([])
 })
 
 it('closes a socket whose bind was still on its way, as soon as the relay answers it', async () => {
@@ -85,7 +83,7 @@ it('does not wait for a bind the relay refused, nor for a socket that closed by 
   sockets.net.createServer().listen(0)
   const gone = sockets.net.connect({ host: '198.51.100.20', port: 6881 })
   gone.destroy()
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setTimeout(resolve, 10))
   vi.useFakeTimers()
   let closed = false
   void sockets.close().then(() => { closed = true })
