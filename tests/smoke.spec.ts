@@ -153,3 +153,14 @@ test('a link turned down leaves the offer standing', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Add Sintel' })).toBeVisible({ timeout: 20_000 })
   expect(await seeded(page)).toBeNull()
 })
+
+test('a magnet that names two torrents is refused rather than listed as one of them', async ({ page }) => {
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+
+  await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${'1a'.repeat(20)}&xt.1=urn:btih:${'2b'.repeat(20)}&dn=Two`)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'That is not a valid magnet link' }).first()).toBeVisible()
+  await expect(page.locator('.torrent')).toHaveCount(0)
+})

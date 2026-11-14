@@ -10,23 +10,36 @@
  * V1 WINS WHEREVER THERE IS ONE, regardless of which `xt` appears first. Every client understands
  * it, `savePathFor` already produces 40-character directories, and it is the half of a hybrid the
  * older swarm answers to. Only a v2-only torrent answers with 64 characters.
+ *
+ * NULL FOR A MAGNET THAT NAMES TWO TORRENTS. `xt` is read as libtorrent reads it (`magnet_uri.cpp`):
+ * the name in any case and with a `.<digits>` suffix, the value percent-decoded. libtorrent keeps the
+ * LAST v1 and the last v2 it reads, so two different v1 hashes, or two v2, were listed here under
+ * one torrent while the engine downloaded the other. One torrent written twice, in hex and base32
+ * or in two cases, is still one, and answers as it is written first.
  */
 export const magnetInfoHash = (magnet: string): string | null => {
-  // base32 is legal here as well as hex, which is why this is not a hex-only pattern
-  const v1 = magnet.match(/xt=urn:btih:([0-9a-z]+)/i)
-  if (v1) return v1[1]!.toLowerCase()
-
-  const v2 = magnet.match(/xt=urn:btmh:([0-9a-f]+)/i)
-  if (!v2) return null
-  const multihash = v2[1]!.toLowerCase()
-  /*
-   * `1220` IS NOT PART OF THE ID. It is the multihash prefix: 0x12 for sha2-256, 0x20 for the 32
-   * bytes that follow. Keeping it produced a 68-character id, and that had a cost far past being
-   * untidy: `opfs-sweep.ts` recognises a save directory by its name being 40 or 64 hex characters,
-   * a 68-character one matches neither, and the sweep removed the torrent's whole directory about a
-   * minute after the page loaded even though the library still listed it.
-   */
-  return multihash.startsWith('1220') && multihash.length === 68 ? multihash.slice(4) : multihash
+  const v1: string[] = []
+  const v2: string[] = []
+  for (const part of magnet.slice(magnet.indexOf('?') + 1).split('&')) {
+    const eq = part.indexOf('=')
+    if (eq < 0 || !/^xt(\.\d*)?$/i.test(part.slice(0, eq))) continue
+    let value = part.slice(eq + 1)
+    try { value = decodeURIComponent(value) } catch { /* left as written */ }
+    // base32 is legal here as well as hex, which is why this is not a hex-only pattern
+    const hash = value.match(/^urn:btih:([0-9a-z]+)/i)?.[1]
+    if (hash) { v1.push(hash.toLowerCase()); continue }
+    const multihash = value.match(/^urn:btmh:([0-9a-f]+)/i)?.[1]?.toLowerCase()
+    /*
+     * `1220` IS NOT PART OF THE ID. It is the multihash prefix: 0x12 for sha2-256, 0x20 for the 32
+     * bytes that follow. Keeping it produced a 68-character id, and that had a cost far past being
+     * untidy: `opfs-sweep.ts` recognises a save directory by its name being 40 or 64 hex characters,
+     * a 68-character one matches neither, and the sweep removed the torrent's whole directory about a
+     * minute after the page loaded even though the library still listed it.
+     */
+    if (multihash) v2.push(multihash.startsWith('1220') && multihash.length === 68 ? multihash.slice(4) : multihash)
+  }
+  if (new Set(v1.map(hexInfoHash)).size > 1 || new Set(v2).size > 1) return null
+  return v1[0] ?? v2[0] ?? null
 }
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567'

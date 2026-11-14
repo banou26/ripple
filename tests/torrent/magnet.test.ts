@@ -65,6 +65,50 @@ describe('which torrent a magnet names', () => {
   })
 })
 
+/**
+ * libtorrent reads `XT`, `xt.1` and a percent-escaped value as `xt`, and keeps the LAST v1 and the last v2 hash it
+ * reads, so a magnet naming two torrents was listed under the first and downloaded as the second.
+ */
+describe('a magnet that names more than one torrent', () => {
+  const A = '1a'.repeat(20)
+  const B = '2b'.repeat(20)
+  const C = '3c'.repeat(32)
+  const D = '4d'.repeat(32)
+  // 20 bytes of 0xff, which base32 writes as 32 sevens
+  const F = 'ff'.repeat(20)
+
+  it.each([
+    ['xt and xt.1', `magnet:?xt=urn:btih:${A}&xt.1=urn:btih:${B}`],
+    ['xt twice', `magnet:?xt=urn:btih:${A}&xt=urn:btih:${B}`],
+    ['xt and XT', `magnet:?xt=urn:btih:${A}&XT=urn:btih:${B}`],
+    ['xt and a percent-escaped xt', `magnet:?xt=urn:btih:${A}&xt=urn%3Abtih%3A${B}`],
+    ['two v2 hashes', `magnet:?xt=urn:btmh:1220${C}&xt=urn:btmh:1220${D}`],
+    ['a hybrid and a second v1', `magnet:?xt=urn:btih:${A}&xt=urn:btmh:1220${C}&xt.1=urn:btih:${B}`],
+    ['a hash and one of the wrong length', `magnet:?xt=urn:btih:${A}&xt.1=urn:btih:${B.slice(0, 39)}`],
+  ])('names none when it carries %s', (_name, magnet) => {
+    expect(magnetInfoHash(magnet)).toBeNull()
+  })
+
+  it('reads an xt written with a number, as the engine does', () => {
+    expect(magnetInfoHash(`magnet:?xt.1=urn:btih:${B}`)).toBe(B)
+    expect(magnetInfoHash(`magnet:?xt.1=urn:btih:${A}&xt.2=urn:btmh:1220${C}`)).toBe(A)
+  })
+
+  it('counts one torrent written twice as one, keyed as it is written first', () => {
+    expect(magnetInfoHash(`magnet:?xt=urn:btih:${F}&xt=urn:btih:${'7'.repeat(32)}`)).toBe(F)
+    expect(magnetInfoHash(`magnet:?xt=urn:btih:${'7'.repeat(32)}&xt=urn:btih:${F}`)).toBe('7'.repeat(32))
+    expect(magnetInfoHash(`magnet:?xt=urn:btih:${A.toUpperCase()}&xt=urn:btih:${A}`)).toBe(A)
+  })
+
+  it('keeps a lone hash of the wrong length as written, for the add dialog to call malformed', () => {
+    expect(magnetInfoHash(`magnet:?xt=urn:btih:${A.slice(0, 39)}`)).toBe(A.slice(0, 39))
+  })
+
+  it('ignores an xt of another network beside the torrent', () => {
+    expect(magnetInfoHash(`magnet:?xt=urn:btih:${A}&xt=urn:sha1:${'Q'.repeat(32)}`)).toBe(A)
+  })
+})
+
 describe('reading one parameter back out', () => {
   it('decodes a percent-encoded name', () => {
     expect(magnetParam(`magnet:?xt=urn:btih:${V1}&dn=%E6%98%A0%E7%94%BB`, 'dn')).toBe('映画')

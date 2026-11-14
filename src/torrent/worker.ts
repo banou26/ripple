@@ -2033,6 +2033,7 @@ const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
       const ih = magnetInfoHash(m.magnet)
+      if (!ih) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
       const existing = ih ? handles.find((h) => infoHashByHandle.get(h) === ih) : undefined
       if (existing !== undefined) {
         if (ih && !m.ephemeral) {
