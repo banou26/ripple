@@ -19,6 +19,8 @@ import de from '../../src/locales/de.json'
 
 /** Every client.watch call, exactly as the hook made it, arguments and all. */
 const watched: unknown[][] = []
+/** Every magnet the hook handed the engine to add. */
+const added: string[] = []
 let emit: ((snapshots: TorrentSnapshot[]) => void) | null = null
 /** What the engine says went wrong, as the client hands it to the hook. */
 const engine = {
@@ -32,7 +34,7 @@ const client = {
   onStorageFull: () => () => {},
   onEngineReset: () => () => {},
   onState: (cb: (snapshots: TorrentSnapshot[]) => void) => { emit = cb; return () => {} },
-  addMagnet: () => {},
+  addMagnet: (magnet: string) => { added.push(magnet) },
   newViewerId: () => 'viewer-1',
   watch: (...args: unknown[]) => { watched.push(args) },
   unwatch: () => {},
@@ -40,7 +42,9 @@ const client = {
 
 vi.mock('../../src/torrent/client', () => ({ getTorrentClient: () => client }))
 
-const MAGNET = 'magnet:?xt=urn:btih:abc&dn=Pack.Name'
+const MAGNET = `magnet:?xt=urn:btih:${'a'.repeat(40)}&dn=Pack.Name`
+// a malformed hash, and two torrents in one link
+const UNREADABLE = ['magnet:?xt=urn:btih:08ada5a7', `magnet:?xt=urn:btih:${'1a'.repeat(20)}&xt.1=urn:btih:${'2b'.repeat(20)}`]
 
 const snapshot = () => ({
   handle: 7,
@@ -76,6 +80,7 @@ const api = { useDownloadTorrent: null as never as typeof import('../../src/torr
 describe('the download page hook', () => {
   beforeEach(async () => {
     watched.length = 0
+    added.length = 0
     emit = null
     api.useDownloadTorrent = (await import('../../src/torrent/use-download-torrent')).useDownloadTorrent
   })
@@ -113,6 +118,23 @@ describe('the download page hook', () => {
     expect(watched[2], 'release must hand back a HELD claim, not re-claim file 0').toEqual(
       ['viewer-1', 7, 0, 0, undefined, true],
     )
+  })
+
+  // the engine tells every tab it refused a link, and an open library shows that
+  it('sends the engine no link it cannot add, and says that link cannot be read', async () => {
+    const Shown = ({ magnet }: { magnet?: string }) => <p>{`unreadable ${api.useDownloadTorrent(magnet).unreadable}`}</p>
+    const screen = await render(<Shown/>)
+    await expect.element(screen.getByText('unreadable true')).toBeInTheDocument()
+    for (const magnet of UNREADABLE) {
+      await screen.rerender(<Shown magnet={magnet}/>)
+      await expect.element(screen.getByText('unreadable true'), { message: magnet }).toBeInTheDocument()
+    }
+
+    // THE CONTROL: a link it can read is added, and by then each link before it has been through the hook's effect
+    await screen.rerender(<Shown magnet={MAGNET}/>)
+    await expect.element(screen.getByText('unreadable false')).toBeInTheDocument()
+    await expect.poll(() => added).toEqual([MAGNET])
+    await screen.unmount()
   })
 
   /** An index the torrent does not have plans NOTHING in the engine, so it is clamped rather than sent. */

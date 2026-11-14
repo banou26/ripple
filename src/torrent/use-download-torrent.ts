@@ -84,7 +84,8 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     // budget for good. Adding the same magnet by hand in the library promotes it out of the cache.
     // `hold` is what makes arriving here free: the engine reads the file list off the network and
     // then stops, so the page can offer a Download button instead of describing one already running.
-    client.addMagnet(magnet, { ephemeral: true, hold: true })
+    // A link it cannot read is not sent: the engine tells every tab it refused one, and an open library shows that.
+    if (readableMagnet(magnet)) client.addMagnet(magnet, { ephemeral: true, hold: true })
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current
     let holding = false

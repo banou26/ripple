@@ -69,7 +69,8 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     // engine may reclaim when the origin runs short, which is what keeps one embedding page playing
     // episode after episode from filling the browser's whole budget and stalling on a failed write.
     // Adding the same magnet by hand in the library promotes it out of the cache for good.
-    client.addMagnet(magnet, { ephemeral: true })
+    // A link it cannot read is not sent: the engine tells every tab it refused one, and an open library shows that.
+    if (readableMagnet(magnet)) client.addMagnet(magnet, { ephemeral: true })
     // match on the infoHash, never on the magnet string, and never on "the first one"
     const infoHash = magnetInfoHash(magnet)
     const viewer = viewerRef.current

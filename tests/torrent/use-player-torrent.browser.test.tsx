@@ -14,6 +14,7 @@ const listeners = vi.hoisted(() => ({
   watch: vi.fn(),
   unwatch: vi.fn(),
   read: vi.fn(),
+  add: vi.fn(),
   unavailable: null as null | (() => void),
   failed: null as null | ((error: { message: string, fatal: boolean }) => void),
 }))
@@ -22,7 +23,7 @@ vi.mock('../../src/torrent/client', () => ({
 }))
 const client = {
   newViewerId: () => 'player',
-  addMagnet: () => {},
+  addMagnet: listeners.add,
   onStorageUnavailable: (cb: () => void) => { listeners.unavailable = cb; return () => {} },
   onWorkerError: (cb: NonNullable<typeof listeners.failed>) => { listeners.failed = cb; return () => {} },
   onStorageFull: () => () => {},
@@ -33,6 +34,8 @@ const client = {
   read: listeners.read,
 }
 const MAGNET = `magnet:?xt=urn:btih:${'a'.repeat(40)}`
+// a malformed hash, and two torrents in one link
+const UNREADABLE = ['magnet:?xt=urn:btih:08ada5a7', `magnet:?xt=urn:btih:${'1a'.repeat(20)}&xt.1=urn:btih:${'2b'.repeat(20)}`]
 const Harness = ({ fileIndex = 1 }: { fileIndex?: number }) => {
   usePlayerTorrent(MAGNET, fileIndex)
   return <div />
@@ -57,6 +60,24 @@ it('claims before metadata, claims once per engine, and releases on file changes
   expect(listeners.watch).toHaveBeenLastCalledWith('player', 8, 2)
   await screen.unmount()
   expect(listeners.unwatch).toHaveBeenCalledTimes(2)
+})
+
+// the engine tells every tab it refused a link, and an open library shows that
+it('sends the engine no link it cannot add, and says that link cannot be read', async () => {
+  listeners.add.mockClear()
+  const Shown = ({ magnet }: { magnet?: string }) => <p>{`unreadable ${usePlayerTorrent(magnet, undefined).unreadable}`}</p>
+  const screen = await render(<Shown />)
+  await expect.element(screen.getByText('unreadable true')).toBeInTheDocument()
+  for (const magnet of UNREADABLE) {
+    await screen.rerender(<Shown magnet={magnet} />)
+    await expect.element(screen.getByText('unreadable true'), { message: magnet }).toBeInTheDocument()
+  }
+
+  // THE CONTROL: a link it can read is added, and by then each link before it has been through the hook's effect
+  await screen.rerender(<Shown magnet={MAGNET} />)
+  await expect.element(screen.getByText('unreadable false')).toBeInTheDocument()
+  await expect.poll(() => listeners.add.mock.calls).toEqual([[MAGNET, { ephemeral: true }]])
+  await screen.unmount()
 })
 
 // a film release with a special ahead of the film, opened by a link that names no file, the way
