@@ -168,6 +168,11 @@ test('the library\'s header is one row at the widths most laptops have, in every
         // one row: every item's middle is within a few pixels of the others'
         if (width > 700 && Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
         expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
+        if (width === 1280) {
+          for (const button of await page.locator('header > button').all()) {
+            await expect(button, `${language}: a header button without a name`).toHaveAccessibleName(/\S/)
+          }
+        }
         if (width === 1366 || width === 1280) continue
         const wordless = await page.locator('header > button').evaluateAll((buttons) => buttons
           .filter((button) => !(button as HTMLElement).innerText.trim())
