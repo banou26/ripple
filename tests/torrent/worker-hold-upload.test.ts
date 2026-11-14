@@ -6,6 +6,7 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 const HELD = 'e'.repeat(40)
 const AGAIN = 'f'.repeat(40)
 const WATCHED = 'a'.repeat(40)
+const KEPT = 'b'.repeat(40)
 const UPLOAD = 1
 const MiB = 1024 * 1024
 
@@ -90,9 +91,9 @@ vi.mock('idb-keyval', () => {
   }
 })
 
-const add = async (hash: string, hold: boolean) => {
+const add = async (hash: string, hold: boolean, ephemeral = true) => {
   const before = rig.of('added').length
-  rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${hash}`, ephemeral: true, hold })
+  rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${hash}`, ephemeral, hold })
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(before + 1))
   return rig.of('added').at(-1)!.handle as number
 }
@@ -137,5 +138,16 @@ it('forgets the hold of a torrent removed before its metadata, so the same hash 
   await vi.waitFor(() => expect(engine.registered.has(h)).toBe(true))
   rig.send({ type: 'pause', handle: h })
   await vi.waitFor(() => expect(saved(AGAIN)).toEqual(['save plain']), { timeout: 2_000 })
+  expect(rig.of('worker-error')).toEqual([])
+})
+
+it('takes a held torrent the library keeps before its metadata out of upload mode', async () => {
+  const h = await add(KEPT, true)
+  await vi.waitFor(() => expect(engine.upload.has(h)).toBe(true), { timeout: 2_000 })
+  expect(await add(KEPT, false, false)).toBe(h)
+
+  engine.withMeta.add(KEPT)
+  await vi.waitFor(() => expect(of(KEPT)).toContain('upload off'), { timeout: 2_000 })
+  expect(of(KEPT)).not.toContain('pause')
   expect(rig.of('worker-error')).toEqual([])
 })
