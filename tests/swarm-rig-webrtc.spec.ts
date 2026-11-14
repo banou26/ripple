@@ -49,13 +49,14 @@ const proxied = async () => {
 }
 
 /**
- * The relay's own counts since it started: the sessions it admitted, and the bytes it carried, which are what
- * it meters a person by. Nothing reaches a peer through the relay without moving both.
+ * The relay's own counts: the sessions it admitted and the bytes it carried since it started, which are what
+ * it meters a person by, and the sockets it holds for its sessions right now. Nothing reaches a peer through
+ * the relay without moving the first two, and nobody reaches a page through it without the third.
  */
 const relayed = async () => {
   const text = await (await fetch(`http://${relay.host}:${relay.http}/metrics`)).text()
   const sum = (name: string) => [...text.matchAll(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\d+)$`, 'gm'))].reduce((total, [, count]) => total + Number(count), 0)
-  return { sessions: sum('webvpn_handshakes_total'), bytes: sum('webvpn_bandwidth_bytes_total') }
+  return { sessions: sum('webvpn_handshakes_total'), bytes: sum('webvpn_bandwidth_bytes_total'), sockets: sum('webvpn_active_sockets') }
 }
 
 /**
@@ -170,7 +171,9 @@ test('the lane has a proxy, a tracker and a resolver of its own, and the build n
 })
 
 test('on the library the film arrives through the relay, the switch asks first, and with the VPN off the page is a WebRTC peer', async () => {
-  test.setTimeout(240_000)
+  test.setTimeout(300_000)
+  const relayPid = pidOn(relay.http)!
+  const idle = { sockets: (await relayed()).sockets, udp: [...udpPorts(relayPid)].sort() }
   library = await open()
   const { page } = library
   await page.goto('/')
@@ -178,6 +181,10 @@ test('on the library the film arrives through the relay, the switch asks first, 
   await expect(vpn).toHaveAttribute('aria-checked', 'true')
   await add(page, magnetFor(fixture, fleet.peers))
   const whole = await until('the film from the seeders', page, (now) => now.done === fixture.size, 120_000)
+  // THE CONTROL of what the relay holds after Off: with the VPN on it holds this page's listener and UDP sockets
+  const held = { sockets: (await relayed()).sockets, udp: udpPorts(relayPid).size }
+  expect(held.sockets, 'the relay holds no socket for a page behind it').toBeGreaterThan(idle.sockets)
+  expect(held.udp, 'the relay holds no UDP port for a page behind it').toBeGreaterThan(idle.udp.length)
   expect(whole.transports).toEqual(['relay'])
   expect(whole.webrtc.peers, 'a WebRTC peer gave the library the film, and none holds it yet').toBe(0)
   // transmission counts what it sent on its own tick
@@ -196,6 +203,16 @@ test('on the library the film arrives through the relay, the switch asks first, 
   const off = await until('the engine with no relay', page, (now) => now.transports.at(-1) === 'direct' && now.done === fixture.size, 60_000)
   expect(off.transports).toEqual(['relay', 'direct'])
   expect(off.fatal).toEqual([])
+  // The engine behind the relay closed all it held there before it was ended: no listener the seeders still know
+  // of, no UDP port, no connection. And 10 s on the relay holds none and has counted nothing more for the page.
+  await expect.poll(async () => (await relayed()).sockets, { timeout: 15_000, message: 'the relay still holds sockets of the engine that was ended' }).toBe(idle.sockets)
+  expect([...udpPorts(relayPid)].sort(), 'the relay still holds UDP ports of the engine that was ended').toEqual(idle.udp)
+  const carried = (await relayed()).bytes
+  await sleep(10_000)
+  const later = await relayed()
+  record.afterOff = { idle, held, sockets: later.sockets, udp: udpPorts(relayPid).size, bytes: later.bytes - carried }
+  expect(later.sockets, 'a peer was taken on a socket of the engine that was ended').toBe(idle.sockets)
+  expect(later.bytes - carried, 'the relay counted bytes for a page with the VPN off').toBe(0)
   // it tells the tracker itself now, from the browser, and holds the film still
   await until('the tracker to answer the library', page, announced, 60_000)
   await post(page, { type: 'set-session-limits', up: SEEDER_UP })
