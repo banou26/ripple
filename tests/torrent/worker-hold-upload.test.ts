@@ -10,10 +10,12 @@ const KEPT = 'b'.repeat(40)
 const UPLOAD = 1
 const MiB = 1024 * 1024
 
-// the fake keeps the engine's two rules this depends on: a call lands in the order it was made, and
-// libtorrent-wasm gives a hash the same id every time it is added
+// the fake keeps the engine's three rules this depends on: a call lands in the order it was made,
+// libtorrent-wasm gives a hash the same id every time it is added, and an add is registered only by
+// a pump after a tick (the session ticks itself every 250 ms)
 const engine = vi.hoisted(() => ({
   ids: new Map<string, number>(),
+  queued: new Set<number>(),
   live: new Set<number>(),
   registered: new Set<number>(),
   withMeta: new Set<string>(),
@@ -37,17 +39,20 @@ vi.mock('libtorrent-wasm', async () => {
     { path: 'b.mp4', offset: MiB, size: 29 * MiB, pad: false },
   ] }
   const hashOf = (h: number) => [...engine.ids].find(([, id]) => id === h)?.[0]
+  const tick = () => { for (const h of engine.queued) engine.live.add(h); engine.queued.clear() }
+  setInterval(tick, 250)
   return {
     createSession: async () => fakeSession({
+      tick,
       addMagnet: (magnet: string) => {
         const hash = /btih:(\w{40})/.exec(magnet)![1]!
         if (!engine.ids.has(hash)) engine.ids.set(hash, engine.ids.size + 1)
         const h = engine.ids.get(hash)!
-        engine.live.add(h)
+        engine.queued.add(h)
         return h
       },
       removeTorrent: (h: number) => {
-        for (const set of [engine.live, engine.registered, engine.upload, engine.paused]) set.delete(h)
+        for (const set of [engine.queued, engine.live, engine.registered, engine.upload, engine.paused]) set.delete(h)
       },
       popAlerts: () => { for (const h of engine.live) engine.registered.add(h); return [] },
       status: (h: number) => (!engine.registered.has(h) ? null
