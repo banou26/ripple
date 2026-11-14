@@ -24,7 +24,7 @@ import { useEngineTransport, useReachability } from '../torrent/use-reachability
 import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnLabels } from '../torrent/vpn-status'
 import { TooltipDisplay } from '../components/tooltip-display'
-import { VpnWarning, useVpnSwitch } from '../components/vpn-switch'
+import { VpnWarning, useVpnSwitch, wordRoom } from '../components/vpn-switch'
 import DownloadPage from './download'
 import { browserLanguage, embedPath, linkLanguages } from './embed-link'
 import { tellPicked, useEmbedder } from './embedder'
@@ -415,22 +415,13 @@ const playerStyle = css`
         display: inline;
       }
     }
-    /* Shown, the word keeps the room of the widest state it can read, so a change of state moves no
-       readout beside it: data-room carries each one on a line, laid under it with no height. */
+    /* shown, the word keeps the room of the widest state it can read, so a change of state moves no readout beside it */
     .item.vpn span {
       display: none;
       @media (min-width: 960px) {
         display: inline-grid;
       }
-
-      &::after {
-        content: attr(data-room);
-        height: 0;
-        overflow: hidden;
-        visibility: hidden;
-        white-space: pre;
-        min-width: max-content;
-      }
+      ${wordRoom}
     }
   }
 `

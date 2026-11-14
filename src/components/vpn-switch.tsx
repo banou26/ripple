@@ -145,8 +145,24 @@ export const VpnWarning = ({ onAnswer, inline }: { onAnswer: (off: boolean, reme
   )
 }
 
+/**
+ * Gives a word the room of the widest one it can show, so a change of state moves nothing beside it. `data-room`
+ * carries every word, one per line, laid under it with no height: the box is as wide as the widest in whatever
+ * font and language draw the page, which no width written here could be. For an element drawn as a grid.
+ */
+export const wordRoom = css`
+  &::after {
+    content: attr(data-room);
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    white-space: pre;
+    min-width: max-content;
+  }
+`
+
 /*
- * Self contained: it is mounted in the library's header and in the download page's, which share no rule.
+ * Self contained: it is mounted in the library's strip and in the download page's header, which share no rule.
  *
  * Unreachable is WARN rather than DANGER because nothing has failed: the tunnel is simply not up, which is
  * recoverable, and the palette spends DANGER on outcomes rather than states. Every state carries a different
@@ -173,25 +189,12 @@ const style = css`
     gap: 6px;
   }
 
-  /*
-   * The word keeps the room of the widest one it can show, so a change of state moves nothing beside the switch.
-   * data-room carries every word, one per line, laid under it with no height: the box is as wide as the widest
-   * in whatever font and language draw the page, which no width written here could be.
-   */
   strong {
     display: inline-grid;
     font-size: 1.05rem;
     white-space: nowrap;
     color: ${TEXT};
-
-    &::after {
-      content: attr(data-room);
-      height: 0;
-      overflow: hidden;
-      visibility: hidden;
-      white-space: pre;
-      min-width: max-content;
-    }
+    ${wordRoom}
 
     /*
      * Before an engine has said a word the same words keep the line, on one line with no width, so the first
