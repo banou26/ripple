@@ -58,7 +58,7 @@ const style = css`
 const inlineStyle = css`
   position: absolute;
   z-index: 3;
-  padding: 12px;
+  padding: 8px;
   overflow-y: auto;
   cursor: default;
 

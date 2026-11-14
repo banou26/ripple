@@ -56,10 +56,11 @@ vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
   WEBRTC_PEERS: true,
 }))
-// the warning's second sentence follows the machine's time zone, and this file is not about it
+// the warning's second sentence follows the machine's time zone, so each case says which it is about
+const country = vi.hoisted(() => ({ listed: false }))
 vi.mock('../../src/torrent/country-line', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/country-line')>()),
-  inListedCountry: () => false,
+  inListedCountry: () => country.listed,
 }))
 // the choice is stored and no engine follows it: none of this file's players runs one of its own
 const setVpn = vi.hoisted(() => vi.fn())
@@ -837,6 +838,33 @@ describe('the VPN switch on /watch', () => {
     expect(off!.bottom, 'the actions are below the player\'s edge with one sentence').toBeLessThanOrEqual(player.bottom)
     expect(off!.right).toBeLessThanOrEqual(player.right)
   })
+
+  // with its second sentence the card was 192px in eight languages, 13px more than a 203px player had (2026-11-14)
+  it('fits a phone\'s player whole with both sentences, in every language', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+    const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
+    const scrolls: string[] = []
+    country.listed = true
+    try {
+      for (const [language, catalogue] of languages) {
+        await (catalogue ? showIn(language, catalogue) : showEnglish())
+        const screen = await mount({ width: 360, height: 203 }, WITH_LINKS)
+        await expect.poll(() => control(screen)).not.toBeNull()
+        await userEvent.click(control(screen))
+        await expect.poll(() => warning(screen)).not.toBeNull()
+        const card = warning(screen)!
+        expect(card.querySelectorAll('p'), language).toHaveLength(2)
+        if (card.scrollHeight > card.clientHeight) scrolls.push(`${language}: ${card.scrollHeight}px in ${card.clientHeight}px`)
+        await screen.unmount()
+      }
+    } finally {
+      country.listed = false
+      await showEnglish()
+    }
+    expect(languages).toHaveLength(13)
+    expect(scrolls).toEqual([])
+  }, 30_000)
 
   /*
    * At 960px and up the word is on the row, and it changes while somebody watches: On, then Reconnecting as a

@@ -72,7 +72,7 @@ const warningStyle = css`
 
   @media (max-height: 320px) {
     .card {
-      padding: 12px;
+      padding: 8px 12px;
     }
 
     p {
