@@ -85,3 +85,16 @@ describe('usageOf', () => {
     expect(await storage.usageOf(SAVE_PATH, 1)).toBe(6_000)
   })
 })
+
+const sources = import.meta.glob('../../src/**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true })
+
+// a call through a named `const` handle passes every behaviour test, since V8 keeps the const alive across the
+// `await`, and ships unheld once the minifier makes it a temporary: only the sources show it
+describe('createSyncAccessHandle', () => {
+  it('is the only code in src that asks for a sync access handle', () => {
+    const asking = Object.entries(sources)
+      .filter(([, source]) => source.split('\n').some(line => !/^\s*(\*|\/\/)/.test(line) && line.includes('.createSyncAccessHandle(')))
+      .map(([path]) => path)
+    expect(asking).toEqual(['../../src/torrent/opfs-storage.ts'])
+  })
+})
