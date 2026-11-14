@@ -1727,8 +1727,17 @@ const init = async () => {
        */
       if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
       recovery.hold(h, Date.now())
+      // Held like a page's add until the pump that parks it: with no saved state it comes back running
+      // and asked a web source for 16 MiB before that pump (swarm rig, 2026-11-14). Not with a saved
+      // state, as releasing the hold would clear the upload mode a folder's blob carries.
+      if (e.ephemeral && !resume?.byteLength) holdingUpload.add(h)
     }
     if (changed) await set(LIST_KEY, list)
+    if (holdingUpload.size) {
+      session.tick()
+      session.popAlerts()
+      for (const h of holdingUpload) session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+    }
   } catch (err) { console.error('[worker] restore failed', err) }
 
   // ready posts before any IndexedDB read: a blocked or corrupted list read would leave every command queued behind a promise that never settles
@@ -2441,11 +2450,12 @@ const handleMessage = async (session: Session, m: any) => {
       }
     } else if (m.type === 'export-start') {
       // a fresh blob for the metadata and the chunk files holding bytes; only a chunked cache torrent
-      // can be handed over, since the tab keeps what it receives as the same chunk files
+      // can be handed over, since the tab keeps what it receives as the same chunk files, and not a held
+      // one, whose blob would bring the tab's copy back in upload mode
       const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
       const savePath = h === undefined ? undefined : savePathByHandle.get(h)
       const files = h === undefined ? null : session.files(h)
-      if (h === undefined || !files || savePath === undefined || !isCacheSavePath(savePath)) {
+      if (h === undefined || !files || savePath === undefined || !isCacheSavePath(savePath) || holdingUpload.has(h)) {
         post({ type: 'answer', id: m.id, value: null })
         return
       }
