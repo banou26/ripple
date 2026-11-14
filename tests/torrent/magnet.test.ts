@@ -89,8 +89,14 @@ describe('a magnet that names more than one torrent', () => {
     expect(magnetInfoHash(magnet)).toBeNull()
   })
 
+  it('counts no xt inside a tracker address, which the engine reads as part of the tracker', () => {
+    expect(magnetInfoHash(`magnet:?tr=http://t.example/a?xt=urn:btih:${B}&xt=urn:btih:${A}`)).toBe(A)
+    expect(magnetInfoHash(`magnet:?tr=${encodeURIComponent(`http://t.example/a?xt=urn:btih:${B}`)}&xt=urn:btih:${A}`)).toBe(A)
+  })
+
   it('reads an xt written with a number, as the engine does', () => {
     expect(magnetInfoHash(`magnet:?xt.1=urn:btih:${B}`)).toBe(B)
+    expect(magnetInfoHash(`magnet:?xt.2=urn:btih:${B}`)).toBe(B)
     expect(magnetInfoHash(`magnet:?xt.1=urn:btih:${A}&xt.2=urn:btmh:1220${C}`)).toBe(A)
   })
 
