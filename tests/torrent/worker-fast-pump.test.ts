@@ -139,7 +139,9 @@ it('a player that leaves with its read still waiting stops the pump, though it c
 
 it('an engine being replaced is not pumped, though a read still waits in it', async () => {
   rig.send({ type: 'read', id: 3, viewer: 'player', handle: 2, fileIndex: 0, offset: 0, len: 1_000 })
+  const states = rig.of('state').length
   expect(await pumpsOver(1_000), 'the read waiting on pieces is pumped').toBeGreaterThanOrEqual(10)
+  expect(rig.of('state').length - states, 'with no state message beyond the 500 ms pass').toBeLessThanOrEqual(3)
 
   rig.send({ type: 'close-sockets', id: 4 })
   await vi.waitFor(() => expect(rig.of('answer').filter((m) => m.id === 4)).toHaveLength(1))
