@@ -13,6 +13,10 @@ const engine = vi.hoisted(() => ({
   relay: { createSocket: vi.fn(), connect: vi.fn(), lookup: vi.fn(), createWebRTC: vi.fn(), rtcLinks: vi.fn() },
   offline: { net: { is: 'no net' }, dgram: { is: 'no dgram' }, dnsLookup: () => {} },
   peers: 0,
+  /** What the swarm says of each running torrent. */
+  torrents: [] as { handle: number, trackers: Record<string, unknown>[] }[],
+  /** libtorrent's own tracker rows for the inspected torrent. */
+  own: [] as Record<string, unknown>[],
 }))
 
 // before the worker starts: 130 s pass in this file, on the worker's own timers
@@ -32,7 +36,7 @@ vi.mock('libtorrent-wasm/webrtc', () => ({ createWebRTC: engine.relay.createWebR
 vi.mock('libtorrent-wasm/webtorrent', () => ({
   webtorrentPeers: (session: unknown, options: Record<string, unknown>) => {
     engine.swarms.push({ session, options })
-    return { refresh: engine.refresh, close: () => {}, snapshot: () => ({ torrents: [], dropped: 0, unmade: 0 }), onchange: null }
+    return { refresh: engine.refresh, close: () => {}, snapshot: () => ({ torrents: engine.torrents, dropped: 0, unmade: 0 }), onchange: null }
   },
   pageLinks: (port: unknown) => { engine.ports.push(port); return { links: 'of the page' } },
   rtcLinks: engine.relay.rtcLinks,
@@ -49,6 +53,7 @@ vi.mock('libtorrent-wasm', async () => {
           activeSeconds: 0, seedingSeconds: 0, allTimeDownload: 0, allTimeUpload: 0, wasted: 0,
         }),
         saveResumeData: async () => new Uint8Array([1]),
+        lastTrackers: () => engine.own,
         pauseTorrent: () => {},
         resumeTorrent: () => {},
       })
@@ -68,7 +73,11 @@ vi.mock('idb-keyval', () => {
   }
 })
 
-const lastState = () => rig.of('state').at(-1) as unknown as { transport?: string, torrents: { noPeersSince?: number, recovery: unknown }[] }
+const lastState = () => rig.of('state').at(-1) as unknown as {
+  transport?: string
+  torrents: { handle: number, noPeersSince?: number, recovery: unknown }[]
+  detail: { trackers: Record<string, unknown>[] } | null
+}
 
 it('starts the engine on a host that reaches nothing, and hands the page the port its connections are asked on', async () => {
   await import('../../src/torrent/worker')
@@ -124,6 +133,40 @@ it('says since when a download has had nobody, takes it back with a peer, and ne
   engine.peers = 1
   await vi.advanceTimersByTimeAsync(1_000)
   expect('noPeersSince' in lastState().torrents[0]!, 'the beat carries it for a torrent that has peers').toBe(false)
+})
+
+// libtorrent has no use for a WebSocket tracker, so its rows never list the ones every peer here comes through
+it('lists the WebSocket trackers of the inspected torrent after libtorrent\'s own, with what each last said', async () => {
+  const { handle } = lastState().torrents[0]!
+  engine.own = [{ url: 'udp://tracker.example.org:6969/announce', message: 'refused', tier: 0, fails: 3, updating: false, verified: false, nextAnnounceIn: 60, seeders: -1, leechers: -1, downloaded: -1 }]
+  engine.torrents = [
+    { handle: handle + 1, trackers: [{ url: 'wss://another.example.org', connected: true, seeders: 9, leechers: 9, answeredAt: 1, failure: null }] },
+    {
+      handle,
+      trackers: [
+        { url: TRACKERS[0]!, connected: true, seeders: 4, leechers: 2, answeredAt: 1_700_000_000_000, failure: null },
+        { url: TRACKERS[1]!, connected: false, seeders: null, leechers: null, answeredAt: null, failure: null },
+        { url: 'wss://tracker.example.org', connected: true, seeders: null, leechers: null, answeredAt: 1_700_000_000_000, failure: 'unregistered torrent' },
+      ],
+    },
+  ]
+  rig.send({ type: 'inspect', handle })
+  await vi.advanceTimersByTimeAsync(1_000)
+
+  const quiet = { tier: 0, updating: false, nextAnnounceIn: -1, downloaded: -1 }
+  expect(lastState().detail!.trackers).toEqual([
+    engine.own[0],
+    { ...quiet, url: TRACKERS[0], message: '', fails: 0, verified: true, seeders: 4, leechers: 2 },
+    // never answered is not zero failures
+    { ...quiet, url: TRACKERS[1], message: '', fails: -1, verified: false, seeders: -1, leechers: -1 },
+    { ...quiet, url: 'wss://tracker.example.org', message: 'unregistered torrent', fails: 1, verified: true, seeders: -1, leechers: -1 },
+  ])
+
+  // a torrent the swarm does not run, a paused one for instance, has libtorrent's rows alone
+  engine.torrents = []
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(lastState().detail!.trackers).toEqual(engine.own)
+  rig.send({ type: 'inspect', handle: null })
 })
 
 it('answers a page that waits for the resume data to be written', async () => {

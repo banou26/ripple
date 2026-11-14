@@ -343,7 +343,8 @@ const inspectDetail = (now: number): TorrentDetail | null => {
     trackersPolledAt = now
     void session!.trackers(handle)
   }
-  return { handle, peers: session!.lastPeers(handle), trackers: session!.lastTrackers(handle) }
+  // the WebSocket trackers WebRTC peers are found through are no trackers of libtorrent's, so its list lacks them
+  return { handle, peers: session!.lastPeers(handle), trackers: [...session!.lastTrackers(handle), ...webrtc?.trackers(handle) ?? []] }
 }
 
 /** The names this torrent occupies directly inside its save path. Empty until the layout lands. */

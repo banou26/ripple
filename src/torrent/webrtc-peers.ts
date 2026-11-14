@@ -1,4 +1,4 @@
-import type { Session } from 'libtorrent-wasm'
+import type { Session, TrackerInfo } from 'libtorrent-wasm'
 import type { WebtorrentPeers } from 'libtorrent-wasm/webtorrent'
 
 import * as net from '@fkn/lib/net'
@@ -11,8 +11,27 @@ import wasmUrl from 'libtorrent-wasm/webrtc.wasm?url&no-inline'
 
 import { TRACKERS } from './vpn-config'
 
-/** The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left. */
-export type WebrtcPeers = { refresh: () => void }
+/**
+ * The engine's WebRTC half. `refresh` goes after each pump of the session, so the swarm acts on what it left.
+ * `trackers` is the WebSocket trackers a running torrent is announced to, in the shape of the engine's own
+ * tracker rows, which never list them.
+ */
+export type WebrtcPeers = { refresh: () => void, trackers: (handle: number) => TrackerInfo[] }
+
+const trackerRows = (peers: WebtorrentPeers | null, handle: number): TrackerInfo[] =>
+  (peers?.snapshot().torrents.find((torrent) => torrent.handle === handle)?.trackers ?? []).map((tracker) => ({
+    url: tracker.url,
+    message: tracker.failure ?? '',
+    tier: 0,
+    // never contacted is not zero failures: a tracker that has not answered yet says so
+    fails: tracker.failure ? 1 : tracker.answeredAt === null ? -1 : 0,
+    updating: false,
+    verified: tracker.answeredAt !== null,
+    nextAnnounceIn: -1,
+    seeders: tracker.seeders ?? -1,
+    leechers: tracker.leechers ?? -1,
+    downloaded: -1,
+  }))
 
 /**
  * WebRTC peers for a session with no relay behind it. The page that owns the worker makes the connections, a worker
@@ -22,7 +41,8 @@ export type WebrtcPeers = { refresh: () => void }
 export const directPeers = (session: Session, post: (message: unknown, transfer: Transferable[]) => void): WebrtcPeers => {
   const { port1, port2 } = new MessageChannel()
   post({ type: 'peer-links', port: port2 }, [port2])
-  return webtorrentPeers(session, { links: pageLinks(port1), WebSocket, trackers: TRACKERS })
+  const peers = webtorrentPeers(session, { links: pageLinks(port1), WebSocket, trackers: TRACKERS })
+  return { refresh: () => peers.refresh(), trackers: (handle) => trackerRows(peers, handle) }
 }
 
 const RETRY_MIN_MS = 500
@@ -119,5 +139,5 @@ export const relayPeers = (session: Session): WebrtcPeers => {
     }
   }
   void run()
-  return { refresh: () => peers?.refresh() }
+  return { refresh: () => peers?.refresh(), trackers: (handle) => trackerRows(peers, handle) }
 }
