@@ -12,23 +12,20 @@ import type { Frame, Page } from '@playwright/test'
 
 import { expect, test } from '@playwright/test'
 
+import { PARTITIONED } from './partitioned'
+
 const PORT = process.env.RIPPLE_TEST_PORT || '4560'
 const SITE = `http://localhost:${PORT}`
 const PLUGIN = `http://127.0.0.1:${PORT}`
 // stub's sandbox on the plugin frame, which the player's frame inherits
 const SANDBOX = 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'
 
-/*
- * Playwright turns off the popup blocker and storage partitioning, and either would make this pass
- * for the wrong reason. Its feature list for 1.58 less the one wanted back; if it drifts the
- * partition control below fails first.
- */
-const PLAYWRIGHT_OFF = ['AvoidUnnecessaryBeforeUnloadCheckSync', 'BoundaryEventDispatchTracksNodeRemoval', 'DestroyProfileOnBrowserClose', 'DialMediaRouteProvider', 'GlobalMediaControls', 'HttpsUpgrades', 'LensOverlay', 'MediaRouter', 'PaintHolding', 'ThirdPartyStoragePartitioning', 'Translate', 'AutoDeElevate', 'RenderDocument', 'OptimizationHints']
+// Playwright turns off the popup blocker and storage partitioning, and either would make this pass for the wrong reason.
 test.use({
   launchOptions: {
     executablePath: process.env.RIPPLE_CHROME || undefined,
-    args: ['--mute-audio', `--disable-features=${PLAYWRIGHT_OFF.filter((f) => f !== 'ThirdPartyStoragePartitioning').join(',')}`],
-    ignoreDefaultArgs: ['--disable-popup-blocking', `--disable-features=${PLAYWRIGHT_OFF.join(',')}`],
+    args: ['--mute-audio', ...PARTITIONED.args],
+    ignoreDefaultArgs: ['--disable-popup-blocking', ...PARTITIONED.ignoreDefaultArgs],
   },
 })
 
