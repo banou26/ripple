@@ -135,7 +135,7 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
  * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
  * the strip under it, which is there before the first torrent too. Under 1440 px a header button gives up its words
- * to stay on one row; at 1440 every one still shows them.
+ * to stay on one row; at 1440 and on a phone every one still shows them.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
   test.setTimeout(240_000)
@@ -158,16 +158,17 @@ test('the library\'s header is one row at the widths most laptops have, in every
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
     for (const font of ROWS_FONTS) {
       const style = await page.addStyleTag({ content: `body * { font-family: '${font}' !important }` })
-      for (const width of [1440, 1366, 1280]) {
+      // 700 px is a phone's layout, which wraps by design and keeps every word
+      for (const width of [1440, 1366, 1280, 700]) {
         await page.setViewportSize({ width, height: 720 })
         const tops = await page.locator('header').evaluate((header) => [...header.children]
           .map((child) => child.getBoundingClientRect())
           .filter((box) => box.width > 0)
           .map((box) => Math.round(box.top + box.height / 2)))
         // one row: every item's middle is within a few pixels of the others'
-        if (Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
+        if (width > 700 && Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
         expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
-        if (width !== 1440) continue
+        if (width === 1366 || width === 1280) continue
         const wordless = await page.locator('header > button').evaluateAll((buttons) => buttons
           .filter((button) => !(button as HTMLElement).innerText.trim())
           .map((button) => button.getAttribute('aria-label')))
