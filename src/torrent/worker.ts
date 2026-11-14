@@ -348,9 +348,14 @@ const inspectDetail = (now: number): TorrentDetail | null => {
     trackersPolledAt = now
     void session!.trackers(handle)
   }
+  const own = session!.lastTrackers(handle)
   // the WebSocket trackers WebRTC peers are found through are no trackers of libtorrent's, so its list lacks them
-  return { handle, peers: session!.lastPeers(handle), trackers: [...session!.lastTrackers(handle), ...webrtc?.trackers(handle) ?? []] }
+  return { handle, peers: session!.lastPeers(handle), trackers: [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(handle) ?? []] }
 }
+
+// With no relay nothing reaches libtorrent's own trackers, yet their rows say 0 failures: a v1 or v2 torrent's row is
+// the best of both protocols', and the one it lacks never fails (measured 2026-11-14).
+const notContacted = (tracker: TrackerInfo): TrackerInfo => ({ ...tracker, message: '', fails: -1, updating: false, nextAnnounceIn: -1 })
 
 // Every state message is built here: the page reads a missing `detail` as none, which empties an open detail
 // panel for an update.

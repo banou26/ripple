@@ -157,7 +157,16 @@ it('says nothing of a paused download, and counts from the moment it runs again'
 // libtorrent has no use for a WebSocket tracker, so its rows never list the ones every peer here comes through
 it('lists the WebSocket trackers of the inspected torrent after libtorrent\'s own, with what each last said', async () => {
   const { handle } = lastState().torrents[0]!
-  engine.own = [{ url: 'udp://tracker.example.org:6969/announce', message: 'refused', tier: 0, fails: 3, updating: false, verified: false, nextAnnounceIn: 60, seeders: -1, leechers: -1, downloaded: -1 }]
+  // as the engine reads two trackers of a v1 torrent with nothing behind it: an ask that failed at once, and one in flight
+  engine.own = [
+    { url: 'udp://tracker.example.org:6969/announce', message: '', tier: 0, fails: 0, updating: false, verified: false, nextAnnounceIn: 101, seeders: -1, leechers: -1, downloaded: -1 },
+    { url: 'udp://192.0.2.7:1337/announce', message: '', tier: 1, fails: 0, updating: true, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+  ]
+  // nothing reaches them, so neither is working, nor being announced to, nor due again
+  const notContacted = [
+    { url: 'udp://tracker.example.org:6969/announce', message: '', tier: 0, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+    { url: 'udp://192.0.2.7:1337/announce', message: '', tier: 1, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+  ]
   engine.torrents = [
     { handle: handle + 1, trackers: [{ url: 'wss://another.example.org', connected: true, seeders: 9, leechers: 9, answeredAt: 1, failure: null }] },
     {
@@ -174,7 +183,7 @@ it('lists the WebSocket trackers of the inspected torrent after libtorrent\'s ow
 
   const quiet = { tier: 0, updating: false, nextAnnounceIn: -1, downloaded: -1 }
   expect(lastState().detail!.trackers).toEqual([
-    engine.own[0],
+    ...notContacted,
     { ...quiet, url: TRACKERS[0], message: '', fails: 0, verified: true, seeders: 4, leechers: 2 },
     // never answered is not zero failures
     { ...quiet, url: TRACKERS[1], message: '', fails: -1, verified: false, seeders: -1, leechers: -1 },
@@ -184,7 +193,7 @@ it('lists the WebSocket trackers of the inspected torrent after libtorrent\'s ow
   // a torrent the swarm does not run, a paused one for instance, has libtorrent's rows alone
   engine.torrents = []
   await vi.advanceTimersByTimeAsync(1_000)
-  expect(lastState().detail!.trackers).toEqual(engine.own)
+  expect(lastState().detail!.trackers).toEqual(notContacted)
   rig.send({ type: 'inspect', handle: null })
 })
 

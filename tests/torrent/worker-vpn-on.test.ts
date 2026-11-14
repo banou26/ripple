@@ -41,6 +41,8 @@ const engine = vi.hoisted(() => {
     listeners: [] as { closed: boolean }[],
     /** How often the host that reaches nothing was asked for. */
     offline: { asked: 0, sockets: 0 },
+    /** libtorrent's own tracker rows for the inspected torrent. */
+    own: [] as Record<string, unknown>[],
   }
   return { ...state, emitter }
 })
@@ -144,6 +146,7 @@ vi.mock('libtorrent-wasm', async () => {
         }),
         pauseTorrent: () => {},
         resumeTorrent: () => {},
+        lastTrackers: () => engine.own,
       })
     },
     offlineHost: () => {
@@ -169,7 +172,11 @@ vi.mock('idb-keyval', () => {
 const fetched = vi.fn(async (_url: string) => ({ arrayBuffer: async () => new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]).buffer }))
 vi.stubGlobal('fetch', fetched)
 
-const lastState = () => rig.of('state').at(-1) as unknown as { transport?: string, torrents: { recovery: { reason: string } | null }[] }
+const lastState = () => rig.of('state').at(-1) as unknown as {
+  transport?: string
+  torrents: { handle: number, recovery: { reason: string } | null }[]
+  detail: { trackers: Record<string, unknown>[] } | null
+}
 
 it('starts the engine behind the relay as before, with nothing asked of the page', async () => {
   await import('../../src/torrent/worker')
@@ -286,6 +293,20 @@ it('still reads a download with nobody for 2 minutes as stalled', async () => {
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(1))
   await vi.advanceTimersByTimeAsync(140_000)
   expect(lastState().torrents[0]!.recovery?.reason).toBe('stalled')
+})
+
+// THE CONTROL of worker-vpn-off.test.ts: behind the relay the engine reaches its trackers, and its rows are shown as it says them
+it('lists libtorrent\'s own trackers as the engine says them', async () => {
+  const { handle } = lastState().torrents[0]!
+  engine.own = [
+    { url: 'udp://tracker.example.org:6969/announce', message: '', tier: 0, fails: 0, updating: false, verified: true, nextAnnounceIn: 1_700, seeders: 40, leechers: 9, downloaded: 500 },
+    { url: 'udp://192.0.2.7:1337/announce', message: 'timed out', tier: 1, fails: 2, updating: false, verified: false, nextAnnounceIn: 49, seeders: -1, leechers: -1, downloaded: -1 },
+    { url: 'http://tracker.example.net/announce', message: '', tier: 2, fails: 0, updating: true, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+  ]
+  rig.send({ type: 'inspect', handle })
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(lastState().detail!.trackers).toEqual(engine.own)
+  rig.send({ type: 'inspect', handle: null })
 })
 
 type Host = {
