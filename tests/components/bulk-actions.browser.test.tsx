@@ -31,6 +31,7 @@ describe('the bulk bar', () => {
     const { props, screen } = mount()
     const c = (await screen).container
     expect(c.querySelector('.count')?.textContent).toBe('2 selected')
+    expect(button(c, 'Pause').querySelector('svg')!.classList).toContain('lucide-pause')
     for (const [name, call] of [['Pause', props.onPause], ['Resume', props.onResume], ['Remove', props.onRemove], ['Clear selection', props.onClear]] as const) {
       button(c, name).click()
       expect(call, name).toHaveBeenCalledTimes(1)
@@ -51,6 +52,8 @@ describe('the bulk bar', () => {
     const { props, screen } = mount({ finished: true })
     const c = (await screen).container
     expect(button(c, 'Pause')).toBeUndefined()
+    expect(button(c, 'Stop').querySelector('svg')!.classList).toContain('lucide-square')
+    expect(button(c, 'Start').querySelector('svg')!.classList).toContain('lucide-play')
     button(c, 'Stop').click()
     button(c, 'Start').click()
     expect(props.onPause).toHaveBeenCalledTimes(1)

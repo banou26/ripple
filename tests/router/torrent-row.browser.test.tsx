@@ -549,15 +549,30 @@ describe('a library row', () => {
       ])
     })
 
+    it('says how long a finished torrent has seeded, running or stopped, and not a download', async () => {
+      thumbnail.current = null
+      for (const [state, seeded] of [['seeding', true], ['completed', true], ['downloading', false], ['paused', false]] as const) {
+        const screen = await mount(torrent({ progress: seeded ? 1 : 0.5, state }))
+        const line = screen.container.querySelector('.seeded')
+        if (seeded) expect(line?.textContent, state).toMatch(/^seeded for \S/)
+        else expect(line, state).toBeNull()
+        screen.unmount()
+      }
+    })
+
     // qBittorrent's words: Stop and Start for a finished torrent, Pause and Resume for one still downloading
     it('says Stop on a seeding torrent and Start on a completed one, and Pause and Resume on a download', async () => {
       thumbnail.current = null
-      const words = { downloading: ['Pause', 'Pause'], paused: ['Resume', 'Resume'], queued: ['Resume', 'Resume'], seeding: ['Stop', 'Stop'], completed: ['Start', 'Start'] } as const
-      for (const [state, [label, hint]] of Object.entries(words)) {
+      const words = {
+        downloading: ['Pause', 'Pause', 'pause'], paused: ['Resume', 'Resume', 'play'], queued: ['Resume', 'Resume', 'play'],
+        seeding: ['Stop', 'Stop', 'square'], completed: ['Start', 'Start', 'play'],
+      } as const
+      for (const [state, [label, hint, icon]] of Object.entries(words)) {
         const t = torrent({ progress: state === 'seeding' || state === 'completed' ? 1 : 0.5, state: state as Torrent['state'] })
         const { screen, props } = await inPage(t)
         const control = screen.getByRole('button', { name: `${label} ${t.name}` })
         await expect.element(control).toHaveAttribute('data-tooltip-content', hint)
+        expect(control.element().querySelector('svg')!.classList, state).toContain(`lucide-${icon}`)
         await control.click()
         expect(props.onToggle, state).toHaveBeenCalledOnce()
         screen.unmount()

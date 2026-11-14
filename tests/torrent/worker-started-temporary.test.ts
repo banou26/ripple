@@ -15,6 +15,8 @@ const engine = vi.hoisted(() => ({
   paused: new Set<number>(),
   log: [] as string[],
   added: 0,
+  // one handle per torrent for the session, as libtorrent-wasm's id_for_hash gives: a re-add or a move keeps it
+  ids: new Map<string, number>(),
 }))
 
 const store = vi.hoisted(() => new Map<string, unknown>())
@@ -37,7 +39,12 @@ vi.mock('libtorrent-wasm', async () => {
   return {
     createSession: async () => fakeSession({
       tick,
-      addMagnet: () => { const h = ++engine.added; engine.queued.add(h); return h },
+      addMagnet: (magnet: string) => {
+        const h = engine.ids.get(magnet) ?? ++engine.added
+        engine.ids.set(magnet, h)
+        engine.queued.add(h)
+        return h
+      },
       popAlerts: () => { for (const h of engine.live) engine.registered.add(h); return [] },
       status: (h: number) => (!engine.registered.has(h) ? null
         : engine.paused.has(h) ? { ...seeding, paused: true, autoManaged: false } : seeding),
@@ -107,12 +114,21 @@ it('keeps seeding a parked temporary torrent the person started, until the perso
   await pumps()
   expect(engine.log).toEqual(['pause 1', 'resume 1', 'pause 1'])
 
-  // moved to the folder, the started one comes back under a new handle and still seeds
+  // moved to the folder, removed from the engine and added again, the started one still seeds
   rig.send({ type: 'relocate', infoHash: 'b'.repeat(40), to: 'folder' })
-  await vi.waitFor(() => expect(engine.registered.has(3)).toBe(true))
-  rig.send({ type: 'watch', viewer: 'page-3', handle: 3, fileIndex: 0, fromOffset: 0, held: true })
-  rig.send({ type: 'unwatch', viewer: 'page-3' })
+  await vi.waitFor(() => expect(entryOf('b')).toMatchObject({ saveTo: 'folder' }))
+  rig.send({ type: 'watch', viewer: 'page-2', handle: 2, fileIndex: 0, fromOffset: 0, held: true })
+  rig.send({ type: 'unwatch', viewer: 'page-2' })
   await pumps()
   expect(engine.log).toEqual(['pause 1', 'resume 1', 'pause 1'])
+
+  // removed, then opened again by a player under the same handle: a temporary torrent nobody started, parked once left
+  rig.send({ type: 'remove', handle: 2 })
+  await vi.waitFor(() => expect(entryOf('b')).toBeUndefined())
+  rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}`, ephemeral: true })
+  await vi.waitFor(() => expect(entryOf('b')).toMatchObject({ ephemeral: true }))
+  rig.send({ type: 'watch', viewer: 'page-2', handle: 2, fileIndex: 0, fromOffset: 0, held: true })
+  rig.send({ type: 'unwatch', viewer: 'page-2' })
+  await vi.waitFor(() => expect(engine.log).toEqual(['pause 1', 'resume 1', 'pause 1', 'pause 2']), { timeout: 2_000 })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)

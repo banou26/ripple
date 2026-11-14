@@ -73,6 +73,8 @@ const standIns = (folder: string) => {
   // the reads a save asks for, each answered with zeroes once the test calls answerReads, or failed with the words
   // it hands refuseReads
   const reads: { id: number, len: number }[] = []
+  // the torrents those reads were for
+  const readFrom = new Set<number>()
   let answering = false
   let refusal: unknown
   // each worker the page made, by its script: the engine's, and libav's for a thumbnail
@@ -90,8 +92,9 @@ const standIns = (folder: string) => {
       }
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
       removeEventListener (_: string, listener: EventListener) { heard.delete(listener) }
-      postMessage (message: { type?: string, id: number, len: number }) {
+      postMessage (message: { type?: string, id: number, len: number, handle: number }) {
         if (message?.type !== 'read') return
+        readFrom.add(message.handle)
         reads.push(message)
         setTimeout(answerAll)
       }
@@ -103,6 +106,7 @@ const standIns = (folder: string) => {
     workers: () => workers.map(made => ({ ...made })),
     engine,
     answerReads: () => { answering = true; answerAll() },
+    readFrom: () => [...readFrom],
     refuseReads: (error: unknown) => { refusal = error; answerAll() },
     // refused as a framed page's is, by the test's setting
     showSaveFilePicker: async () => {
@@ -1272,6 +1276,28 @@ test.describe('on a phone', () => {
     const details = await page.locator('main + section').boundingBox()
     expect(details!.y).toBeLessThan(844)
   })
+})
+
+test('the bar for ticked rows says Stop and Start only while every ticked torrent is finished', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const bar = page.locator('.bulk-bar')
+  for (const name of ['A.Season.Pack', 'Watched.Film']) await page.getByRole('checkbox', { name: `Select ${name}` }).check()
+  await expect(bar.getByRole('button', { name: 'Stop' }).locator('svg')).toHaveClass(/lucide-square/)
+  await expect(bar.getByRole('button', { name: 'Start' })).toBeEnabled()
+  await page.getByRole('checkbox', { name: 'Select Some.Release.Name.S01.1080p' }).check()
+  await expect(bar.getByRole('button', { name: 'Pause' }).locator('svg')).toHaveClass(/lucide-pause/)
+  await expect(bar.getByRole('button', { name: 'Resume' })).toBeEnabled()
+  await expect(bar.getByRole('button', { name: 'Stop' })).toHaveCount(0)
+})
+
+test('the auto-save folder takes a completed torrent as well as a seeding one, and no download', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await page.locator('footer .folder').last().getByRole('button').first().click()
+  const readFrom = () => page.evaluate(() => (window as unknown as { readFrom: () => number[] }).readFrom().sort((a, b) => a - b))
+  // A.Season.Pack seeding and Watched.Film completed, each read through the engine to be copied
+  await expect.poll(readFrom).toEqual([2, 11])
 })
 
 /**
