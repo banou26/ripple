@@ -193,7 +193,8 @@ const snapshot = (): TorrentSnapshot[] =>
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
       windowed: windows.has(h),
-      noPeersSince: noPeersSince.get(h),
+      // left out while it has nothing to say: this rides every beat, for every torrent
+      ...(noPeersSince.has(h) ? { noPeersSince: noPeersSince.get(h) } : {}),
       swarmDownloads: Math.max(-1, ...(session?.lastTrackers(h).map((t) => t.downloaded) ?? [])),
       // the ACCUMULATED totals, not the engine's session-only counters; see uptime.ts
       uptime: uptimeOf(h),

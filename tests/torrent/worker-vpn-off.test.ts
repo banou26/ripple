@@ -120,7 +120,7 @@ it('says since when a download has had nobody, takes it back with a peer, and ne
 
   engine.peers = 1
   await vi.advanceTimersByTimeAsync(1_000)
-  expect(lastState().torrents[0]!.noPeersSince).toBeUndefined()
+  expect('noPeersSince' in lastState().torrents[0]!, 'the beat carries it for a torrent that has peers').toBe(false)
 })
 
 it('answers a page that waits for the resume data to be written', async () => {
