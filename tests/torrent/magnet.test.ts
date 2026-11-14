@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { TORRENT_ID_PATTERN } from '../../src/torrent/opfs-sweep'
-import { magnetInfoHash, magnetParam } from '../../src/torrent/magnet'
+import { magnetInfoHash, magnetParam, readableMagnet } from '../../src/torrent/magnet'
 
 const V1 = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const V2 = 'caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e'
@@ -123,6 +123,32 @@ describe('a magnet that names more than one torrent', () => {
     expect(magnetInfoHash(`magnet:?flag&xt=urn:btih:${A}&xt=urn:btmh:1220${D}`)).toBe(D)
     expect(magnetInfoHash(`magnet:?dn=x&&xt=urn:btih:${A}&xt=urn:btmh:1220${D}`)).toBe(D)
     expect(magnetInfoHash(`magnet:?xt=URN:BTIH:${A}`)).toBeNull()
+  })
+})
+
+// what the download page and the player wait on: the engine refuses a magnet this refuses, and lists nothing for it
+describe('whether the engine can add a magnet', () => {
+  it.each([
+    ['a v1 hash', `magnet:?xt=urn:btih:${V1}&dn=Sintel`],
+    ['a v1 hash in upper case', `magnet:?xt=urn:btih:${V1.toUpperCase()}`],
+    ['a v1 hash in base32', 'magnet:?xt=urn:btih:BCWSLJ5GDA5K4HQJ3AY57Z2I2VTASWQQ'],
+    ['a v2 hash', `magnet:?xt=urn:btmh:1220${V2}`],
+    ['a hybrid', `magnet:?xt=urn:btih:${V1}&xt=urn:btmh:1220${V2}`],
+    ['one torrent written twice', `magnet:?xt=urn:btih:${'ff'.repeat(20)}&xt=urn:btih:${'7'.repeat(32)}`],
+  ])('reads %s', (_name, magnet) => {
+    expect(readableMagnet(magnet)).toBe(true)
+  })
+
+  it.each([
+    ['words', 'Sintel'],
+    ['a web address carrying a hash', `https://example.test/?xt=urn:btih:${V1}`],
+    ['a magnet with no hash', 'magnet:?dn=Sintel'],
+    ['a v1 hash too short', 'magnet:?xt=urn:btih:08ada5a7'],
+    ['a v1 hash that is not hex', `magnet:?xt=urn:btih:${'z'.repeat(40)}`],
+    ['a v2 hash too short', `magnet:?xt=urn:btmh:1220${V2.slice(0, 40)}`],
+    ['two torrents', `magnet:?xt=urn:btih:${'1a'.repeat(20)}&xt.1=urn:btih:${'2b'.repeat(20)}`],
+  ])('refuses %s', (_name, magnet) => {
+    expect(readableMagnet(magnet)).toBe(false)
   })
 })
 

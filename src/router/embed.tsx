@@ -454,7 +454,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     const selection = parseFileSelection(null, _fileIndex)
     return selection.kind === 'single' ? selection.index : undefined
   }, [_fileIndex])
-  const { snapshot, engineError, storageFull, fileIndex, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, named)
+  const { snapshot, engineError, storageFull, unreadable, fileIndex, read, readQuiet, prioritizeFrom } = usePlayerTorrent(magnet, named)
   const navigate = useNavigate()
   const prepare = usePrepare()
   useEmbedder((ask) => {
@@ -564,7 +564,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // the space is held by torrents the user added themselves, or, in a frame, whose storage holds
   // nothing else, that the file is too big for it.
   const tooBig = storageFull && isFramed()
-  const status = engineError
+  const status = (unreadable ? intl.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) : null)
+    ?? engineError
     ?? (tooBig
       ? intl.formatMessage({
         id: 'Too big for this browser\'s storage here. <link>Open it in Ripple</link> to play it.',
@@ -630,10 +631,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   const infoHash = useMemo(() => (magnet ? magnetInfoHash(magnet) : null), [magnet])
   useGiveToRipple(infoHash)
   const libraryHref = useMemo(
-    () => (magnet && infoHash
+    () => (magnet && infoHash && !unreadable
       ? new URL(getRoutePath(Route.HOME, { torrent: infoHash, magnet: encodeMagnetParam(magnet) }), origin).toString()
       : null),
-    [magnet, infoHash, origin],
+    [magnet, infoHash, unreadable, origin],
   )
 
   /*
@@ -649,11 +650,11 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * the file the button names rather than the whole release.
    */
   const downloadHref = useMemo(() => {
-    if (!magnet) return null
+    if (!magnet || unreadable) return null
     const query = new URLSearchParams(searchParams)
     if (selectedFile) query.set('fileIndex', String(fileIndex))
     return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${query.toString()}`, origin).toString()
-  }, [magnet, searchParams, origin, selectedFile, fileIndex])
+  }, [magnet, unreadable, searchParams, origin, selectedFile, fileIndex])
 
   const openInRipple = intl.formatMessage({ id: 'Open this torrent in Ripple', defaultMessage: 'Open this torrent in Ripple' })
   const downloadLabel = fileName

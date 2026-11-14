@@ -832,7 +832,8 @@ const everyState = async () => {
     ['out of room', { storageFull: true }, '', MAGNET],
     ['before its file list', { snapshot: { ...torrent().snapshot!, files: null } }, '', MAGNET],
     ['no matching files', {}, '&files=9', MAGNET],
-    ['no magnet', { snapshot: null, handle: null }, '', ''],
+    ['no magnet', { snapshot: null, handle: null, unreadable: true }, '', ''],
+    ['a magnet the engine cannot add', { snapshot: null, handle: null, unreadable: true }, '', MAGNET],
   ] as const) {
     state.current = torrent(over)
     screen = await mount(search, magnet)
@@ -892,7 +893,8 @@ const ENGLISH = {
   'out of room': [...READY, 'Out of storage space. Remove a download in Ripple to free room.', '4 files', ...BULK, ...rows(), ...HINTS],
   'before its file list': ['Pack.Name', 'Reading the torrent from the network', 'Loading torrent…', ...SHARE, ...HINTS],
   'no matching files': ['Pack.Name', 'None of the requested files are in this torrent', 'No matching files', ...SHARE, ...HINTS],
-  'no magnet': ['this torrent', 'Reading the torrent from the network', 'Nothing to download'],
+  'no magnet': ['this torrent', 'Nothing to download', 'That is not a valid magnet link'],
+  'a magnet the engine cannot add': ['Pack.Name', 'Nothing to download', 'That is not a valid magnet link'],
 }
 
 /** Each English text of the walk above in German, but for the names, which stay as they are. A space read is any space. */
@@ -916,6 +918,7 @@ const GERMAN: Record<string, string> = {
   'Reading the torrent from the network': 'Torrent wird aus dem Netzwerk gelesen', 'Loading torrent…': 'Torrent wird geladen…',
   'None of the requested files are in this torrent': 'Keine der angeforderten Dateien ist in diesem Torrent', 'No matching files': 'Keine passenden Dateien',
   'this torrent': 'dieser Torrent', 'Nothing to download': 'Nichts zum Herunterladen',
+  'That is not a valid magnet link': 'Das ist kein gültiger Magnet-Link',
 }
 
 describe('the download page\'s words', () => {

@@ -45,6 +45,16 @@ export const magnetInfoHash = (magnet: string): string | null => {
   return v1[0] ?? v2[0] ?? null
 }
 
+/**
+ * Whether the engine can add this magnet: it starts `magnet:?`, names one torrent, and writes that torrent's hash as
+ * libtorrent reads one, 40 hex or 32 base32 characters for v1 and 64 hex for v2. A page waiting on a magnet that
+ * fails this waits on a torrent the engine never lists.
+ */
+export const readableMagnet = (magnet: string): boolean => {
+  const id = magnetInfoHash(magnet)
+  return magnet.startsWith('magnet:?') && id !== null && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(hexInfoHash(id))
+}
+
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567'
 
 /** A v1 infohash as 40 hex characters, from either spelling a magnet may carry: hex, or base32. */

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
 import { intl } from '../i18n'
-import { magnetInfoHash } from './magnet'
+import { magnetInfoHash, readableMagnet } from './magnet'
 import { makeReadWindowStore } from './read-window-store'
 import { pickVideoFile } from './watch'
 
@@ -12,6 +12,8 @@ export type PlayerTorrent = {
   engineError: string | null
   /** The browser's storage budget is exhausted and the engine has nothing left it may reclaim. */
   storageFull: boolean
+  /** The link names no torrent the engine can add, so none will ever be listed for it. */
+  unreadable: boolean
   /** The file being played: the one the link named, or else the video file once the layout is known. */
   fileIndex: number
   read: (offset: number, size: number) => Promise<ArrayBuffer>
@@ -185,5 +187,5 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     if (handle != null) client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, engineError, storageFull, fileIndex, read, readQuiet, prioritizeFrom }
+  return { snapshot, engineError, storageFull, unreadable: !magnet || !readableMagnet(magnet), fileIndex, read, readQuiet, prioritizeFrom }
 }

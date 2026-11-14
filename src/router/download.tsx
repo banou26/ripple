@@ -568,7 +568,7 @@ type Props = {
 
 const DownloadPage = ({ magnet, selection, linked }: Props) => {
   const intl = useIntl()
-  const { client, snapshot, handle, viewer, claim, release, engineError, storageFull } = useDownloadTorrent(magnet)
+  const { client, snapshot, handle, viewer, claim, release, engineError, storageFull, unreadable } = useDownloadTorrent(magnet)
   /**
    * Whether anything is carrying peer traffic, which is the one explanation this page never had.
    *
@@ -1002,7 +1002,8 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
     setFailure(intl.formatMessage({ id: 'The download stopped. Start it again.', defaultMessage: 'The download stopped. Start it again.' }))
   }), [client, intl])
 
-  const status = engineError
+  const status = (unreadable ? intl.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) : null)
+    ?? engineError
     ?? (storageFull
       ? intl.formatMessage({ id: 'Out of storage space. Remove a download in Ripple to free room.', defaultMessage: 'Out of storage space. Remove a download in Ripple to free room.' })
       : null)
@@ -1021,7 +1022,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    * turned Select none into a page with nothing on it that does anything.
    */
   const listReady = Boolean(files) && handle != null
-  const label = !magnet
+  const label = unreadable
     ? intl.formatMessage({ id: 'Nothing to download', defaultMessage: 'Nothing to download' })
     : !files
       ? intl.formatMessage({ id: 'Loading torrent…', defaultMessage: 'Loading torrent…' })
@@ -1082,7 +1083,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
                 {offered.length === 0
                   ? files
                     ? intl.formatMessage({ id: 'None of the requested files are in this torrent', defaultMessage: 'None of the requested files are in this torrent' })
-                    : intl.formatMessage({ id: 'Reading the torrent from the network', defaultMessage: 'Reading the torrent from the network' })
+                    : unreadable ? null : intl.formatMessage({ id: 'Reading the torrent from the network', defaultMessage: 'Reading the torrent from the network' })
                   : entries.length === 0
                     ? intl.formatMessage({ id: 'Nothing selected', defaultMessage: 'Nothing selected' })
                     : single
@@ -1116,9 +1117,9 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             </Link>
           )}
 
-          {/* Offered whenever there is a magnet at all, which is before metadata: copying a link
+          {/* Offered whenever the magnet is one the engine can read, which is before metadata: copying a link
               never needed the swarm, and Save says for itself when the metadata has not landed. */}
-          {magnet && (
+          {!unreadable && (
             <div className="share">
               <button type="button" onClick={copyMagnet} {...hint(intl.formatMessage({ id: 'Copy this torrent\'s magnet link', defaultMessage: 'Copy this torrent\'s magnet link' }))}>
                 <Link2 />
@@ -1266,7 +1267,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             * silent: the frame navigation is dropped, no event fires and nothing throws. So the way out
             * is offered up front rather than after a download that quietly never started.
             */}
-          {framed && openHere && (
+          {framed && openHere && !unreadable && (
             <div className="note">
               {intl.formatMessage({ id: 'Download not starting? <link>Open this page in Ripple</link>.', defaultMessage: 'Download not starting? <link>Open this page in Ripple</link>.' }, {
                 link: (text) => <a href={openHere} target="_blank" rel="noreferrer">{text}</a>,

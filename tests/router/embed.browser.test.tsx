@@ -215,6 +215,24 @@ describe('the watch route', () => {
     expect(screen.container.querySelector('[class*="css"] > .title')).toBeNull()
   })
 
+  // the engine lists no torrent for such a link, so "Loading metadata…" would stand for good
+  it('says a link the engine cannot add is not a valid one, and offers no way out to the same link', async () => {
+    state.current = torrent({ snapshot: null, unreadable: true })
+    const screen = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(screen.getByText('That is not a valid magnet link')).toBeInTheDocument()
+    expect(screen.container.textContent).not.toContain('Loading metadata…')
+    expect(screen.container.querySelector('[data-testid="open-in-ripple"]')).toBeNull()
+    expect(screen.container.querySelector('[data-testid="open-download-page"]')).toBeNull()
+    await screen.unmount()
+
+    // THE CONTROL: the same link, readable, is waited on and has both links
+    state.current = torrent({ snapshot: null })
+    const readable = await mount(DESKTOP, WITH_LINKS)
+    await expect.element(readable.getByText('Loading metadata…')).toBeInTheDocument()
+    expect(readable.container.querySelector('[data-testid="open-in-ripple"]')).not.toBeNull()
+    expect(readable.container.querySelector('[data-testid="open-download-page"]')).not.toBeNull()
+  })
+
   it('lets the filename give way to the numbers rather than running under them', async () => {
     // The bug this replaced: the player drew the title full width in its own layer and the readout
     // in another, so on a phone the filename ellipsized against the WHOLE width and then ran

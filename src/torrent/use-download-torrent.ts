@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TorrentClient, TorrentSnapshot } from './client'
 import { intl } from '../i18n'
 import { getTorrentClient } from './client'
-import { magnetInfoHash } from './magnet'
+import { magnetInfoHash, readableMagnet } from './magnet'
 
 export type DownloadTorrent = {
   client: TorrentClient
@@ -33,6 +33,8 @@ export type DownloadTorrent = {
   release: () => void
   engineError: string | null
   storageFull: boolean
+  /** The link names no torrent the engine can add, so none will ever be listed for it. */
+  unreadable: boolean
 }
 
 /**
@@ -158,5 +160,6 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     release,
     engineError,
     storageFull,
+    unreadable: !magnet || !readableMagnet(magnet),
   }
 }
