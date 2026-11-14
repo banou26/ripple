@@ -119,7 +119,7 @@ describe('service worker', () => {
 
   it('answers an error, and tells the page, when the header cannot be built', async () => {
     const on = boot()
-    const { port } = openStream(on, 'bad', 'half \ud800.mkv', 4)
+    const { port, source } = openStream(on, 'bad', 'half \ud800.mkv', 4)
     const said: string[] = []
     port.onmessage = (event: MessageEvent) => { said.push(event.data?.type) }
     const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/bad/x.mkv`)
@@ -127,6 +127,9 @@ describe('service worker', () => {
     expect(taken()!.ok).toBe(false)
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(said).toEqual(['stream-ready', 'error'])
+    // and the download is forgotten: no longer answered as live
+    on.message!({ data: { type: 'ping', id: 'bad' }, source })
+    expect(source.sent).toEqual([])
   })
 
   it('omits Content-Length when the size is not known, as for a zip', async () => {
