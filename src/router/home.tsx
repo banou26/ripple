@@ -2941,8 +2941,12 @@ const Home = () => {
   }
 
   const [history, setHistory] = useState<number[]>([])
+  // since the page opened, so neither the graph's window moving on nor a new engine lowers it
+  const [peak, setPeak] = useState(0)
   useEffect(() => {
-    setHistory((prev) => [...prev.slice(-(HISTORY - 1)), torrents.reduce((n, t) => n + t.down, 0)])
+    const down = torrents.reduce((n, t) => n + t.down, 0)
+    setHistory((prev) => [...prev.slice(-(HISTORY - 1)), down])
+    setPeak((prev) => Math.max(prev, down))
   }, [torrents])
 
   /**
@@ -2969,7 +2973,6 @@ const Home = () => {
 
   const totalDown = torrents.reduce((n, t) => n + t.down, 0)
   const totalUp = torrents.reduce((n, t) => n + t.up, 0)
-  const peak = Math.max(...history, 0)
   const speedRoom = room(speed, WIDEST_SPEEDS)
   const active = torrents.filter((t) => isActive(t.state)).length
 

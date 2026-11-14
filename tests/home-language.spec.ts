@@ -1307,6 +1307,32 @@ test('an engine tick redraws no row whose figures stood still', async ({ page })
   expect(await touched()).toContain('Kept.Paused')
 })
 
+test('the peak download is the highest since the page opened, past the graph\'s two minutes and an engine change', async ({ page }) => {
+  const at = (rate: number) => [{ ...TORRENTS[0]!, status: { ...TORRENTS[0]!.status, downloadRate: rate } }]
+  const download = page.locator('.stats .stat.rate strong').first()
+  const peak = page.locator('.stats .stat.rate strong').nth(2)
+  await page.goto(origin)
+  await library(page, LIST.slice(0, 1), at(9_400_000))
+  const highest = (await peak.textContent())!
+  await expect(download).toHaveText(highest)
+  // more ticks than the graph keeps, each drawn on a frame of its own
+  await page.evaluate(async (torrents) => {
+    const { engine } = window as unknown as { engine: (data: object) => void }
+    for (let i = 0; i < 130; i++) {
+      engine({ type: 'state', torrents })
+      await new Promise(requestAnimationFrame)
+    }
+  }, at(1_000))
+  await expect(download).not.toHaveText(highest)
+  await expect(peak).toHaveText(highest)
+  // a VPN switch replaces the engine: the rows go back to connecting, then the new one reports
+  await post(page, { type: 'engine-reset' })
+  await expect(page.locator('.torrent.starting')).toHaveCount(1)
+  await post(page, { type: 'ready' }, { type: 'state', torrents: at(1_000) })
+  await expect(page.locator('.torrent.starting')).toHaveCount(0)
+  await expect(peak).toHaveText(highest)
+})
+
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)
