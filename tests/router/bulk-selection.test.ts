@@ -2,7 +2,7 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { keepShown, pickAll, pickable, pickedRows, toPause, toResume, togglePick } from '../../src/router/bulk-selection'
+import { keepShown, pickAll, pickRun, pickable, pickedRows, toPause, toResume, togglePick } from '../../src/router/bulk-selection'
 import { visibleTorrents } from '../../src/torrent/list-view'
 
 /**
@@ -87,6 +87,61 @@ describe('the bulk selection', () => {
     expect(pickedRows([reconnecting], picked)).toEqual([])
     const back = { ...a, id: '42' }
     expect(pickedRows([back], picked)).toEqual([back])
+  })
+
+  describe('a shift+click', () => {
+    const list = () => {
+      const rows = [t(), t(), t(), t(), t()]
+      return { rows, h: rows.map((x) => x.infoHash!) as [string, string, string, string, string] }
+    }
+
+    it('ticks the run from the box clicked before down to the one clicked, both included', () => {
+      const { rows, h } = list()
+      expect(hashes(pickRun(new Set([h[1]]), rows, h[1], h[3]))).toEqual(hashes(new Set([h[1], h[2], h[3]])))
+    })
+
+    it('ticks the run up to a box drawn above the one clicked before', () => {
+      const { rows, h } = list()
+      expect(hashes(pickRun(new Set([h[3]]), rows, h[3], h[0]))).toEqual(hashes(new Set([h[0], h[1], h[2], h[3]])))
+    })
+
+    it('follows the order it is handed, which is the order drawn', () => {
+      const { rows, h } = list()
+      const drawn = [rows[4]!, rows[0]!, rows[3]!, rows[1]!, rows[2]!]
+      expect(hashes(pickRun(new Set([h[0]]), drawn, h[0], h[1]))).toEqual(hashes(new Set([h[0], h[3], h[1]])))
+    })
+
+    it('unticks the run when the box clicked was ticked, and leaves the rest as they were', () => {
+      const { rows, h } = list()
+      expect(hashes(pickRun(new Set(h), rows, h[1], h[3]))).toEqual(hashes(new Set([h[0], h[4]])))
+    })
+
+    it('passes over a row in the run that cannot be ticked', () => {
+      const starting = t({ state: 'starting' })
+      const nameless = t({ infoHash: undefined })
+      const [a, b] = [t(), t()]
+      const picked = pickRun(new Set([a.infoHash!]), [a, starting, nameless, b], a.infoHash!, b.infoHash!)
+      expect(hashes(picked)).toEqual(hashes(new Set([a.infoHash!, b.infoHash!])))
+    })
+
+    it('with no box clicked before, ticks the one clicked alone', () => {
+      const { rows, h } = list()
+      expect(hashes(pickRun(new Set([h[0]]), rows, null, h[3]))).toEqual(hashes(new Set([h[0], h[3]])))
+    })
+
+    it('with the box clicked before no longer drawn, ticks or unticks the one clicked alone', () => {
+      const { rows, h } = list()
+      const gone = t().infoHash!
+      expect(hashes(pickRun(new Set([h[0]]), rows, gone, h[3]))).toEqual(hashes(new Set([h[0], h[3]])))
+      expect(hashes(pickRun(new Set([h[0], h[3]]), rows, gone, h[3]))).toEqual([h[0]])
+    })
+
+    it('runs from the row clicked last, so the next run starts where this one ended', () => {
+      const { rows, h } = list()
+      const first = pickRun(new Set([h[0]]), rows, h[0], h[2])
+      expect(hashes(pickRun(first, rows, h[2], h[4]))).toEqual(hashes(new Set(h)))
+      expect(hashes(pickRun(first, rows, h[2], h[1]))).toEqual([h[0]])
+    })
   })
 
   /** The options menu's rule, row by row. */
