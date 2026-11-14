@@ -2289,8 +2289,10 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'read-error', id: m.id, error: TORRENT_REMOVED })
         return
       }
-      // wanting bytes is what puts a torrent back to work, whether or not the reader is a player
-      wake(m.handle)
+      // Wanting bytes is what puts a torrent back to work, whether or not the reader is a player. A
+      // quiet read is answered from disk or refused, so it leaves a parked one parked: the library's
+      // pictures woke every one, and a 276 MB film downloaded its last 56 MB (swarm rig, 2026-11-14).
+      if (m.prioritize !== false) wake(m.handle)
       if (!m.viewer) lastReadAt.set(m.handle, Date.now())
       if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: TORRENT_PAUSED })
