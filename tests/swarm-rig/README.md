@@ -90,9 +90,10 @@ window opens. `test:e2e:rig` runs three steps:
 The seeders run under a shell that kills them when the test process is gone, so a run killed
 outright leaves nothing on their addresses. Without that shell, all four outlived a SIGKILL.
 
-The engine's DHT is on, and it announces the infohash through the relay. So the control can see a
-stray peer (1 peer in two of three runs, 0 bytes each time). This is why the seeders' own upload
-count is part of the claim.
+The engine's DHT is on, and inside the lane's network the names it starts from resolve to nothing,
+so it finds nobody and the control sees no peer. While the lane's relay reached the internet the
+fixture's infohash was announced there, and the control saw a stray peer in two of three runs (0
+bytes each time). The seeders' own upload count stays part of the claim.
 
 ## WebRTC peers, and the VPN switch
 

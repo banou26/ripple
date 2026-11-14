@@ -3,8 +3,8 @@
 //
 // Every other swarm spec rides the public swarm, where byte-identical code measured 14.7 s to 73.4 s
 // to first frame. Here the only source is the fleet the magnet names, so a number can move for a
-// reason. The engine's DHT is still on and announces the infohash through the relay, which is why
-// the seeders' own upload count is part of the claim. Runs only under playwright.rig.config.ts
+// reason. The engine's DHT is still on, and in the lane's own network it finds nobody; the seeders'
+// own upload count stays part of the claim. Runs only under playwright.rig.config.ts
 // (`npm run test:e2e:rig`, see tests/swarm-rig/README.md).
 
 import type { BrowserType, LaunchOptions, Page, ViewportSize } from '@playwright/test'
