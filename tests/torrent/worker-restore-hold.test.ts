@@ -1,9 +1,10 @@
-// A temporary torrent restored with no saved state asks for no piece before the pump that parks it,
-// and every way out of a page's hold still leads out of this one.
+// A temporary torrent restored under /cache, or with no saved state, asks for no piece before the pump
+// that parks it, and every way out of a page's hold still leads out of this one.
 import type { Persisted } from '../../src/torrent/library'
 
 import { expect, it, vi } from 'vitest'
 
+import { DEMO_SAVE_PATH } from '../../src/torrent/constants'
 import { fakeDir, installWorkerGlobals } from '../utils/worker-rig'
 
 const PARKED = 'a'.repeat(40)
@@ -14,12 +15,16 @@ const PAUSED = 'e'.repeat(40)
 const LIBRARY = '1'.repeat(40)
 const SAVED = '2'.repeat(40)
 const FROM_FILE = '3'.repeat(40)
+const FOLDER = '4'.repeat(40)
+const OWNED = '5'.repeat(40)
+const LEGACY = '6'.repeat(40)
+const SAMPLE = DEMO_SAVE_PATH.slice(-40)
 const UPLOAD = 1
 const MiB = 1024 * 1024
 
 // the engine's rules from worker-hold-upload.test.ts: calls land in order from the add on, a hash keeps
-// its id, an add is reported on only by a pump after a tick, and one added from a .torrent or a saved
-// state has its layout from the start
+// its id, an add is reported on only by a pump after a tick, one added from a .torrent or a saved state
+// has its layout from the start, and a folder's saved state its upload mode
 const engine = vi.hoisted(() => ({
   ids: new Map<string, number>(),
   queued: new Set<number>(),
@@ -66,7 +71,12 @@ vi.mock('libtorrent-wasm', async () => {
       tick,
       addMagnet: (magnet: string) => add(/btih:(\w{40})/.exec(magnet)![1]!),
       addTorrentFile: bySavePath,
-      addTorrentWithResume: bySavePath,
+      addTorrentWithResume: (_: unknown, savePath: string) => {
+        const h = bySavePath(_, savePath)
+        engine.withMeta.add(savePath.slice(-40))
+        if (savePath.startsWith('/native/')) engine.upload.add(h)
+        return h
+      },
       removeTorrent: (h: number) => {
         for (const set of [engine.queued, engine.live, engine.registered, engine.upload, engine.paused]) set.delete(h)
       },
@@ -105,20 +115,29 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({ usageOf: async () => 0, refusedFile: () => undefined }),
 }))
-vi.mock('idb-keyval', () => {
+vi.mock('idb-keyval', async () => {
+  const { DEMO_SAVE_PATH } = await import('../../src/torrent/constants')
   // what the next tab finds when the one running the engine closed before these had their metadata
-  const entry = (hash: string, ephemeral: boolean): Persisted => ({
-    infoHash: hash, magnet: `magnet:?xt=urn:btih:${hash}`, savePath: `/${ephemeral ? 'cache' : 'dl'}/${hash}`, addedAt: 1, lastUsedAt: 1, started: true, paused: false, ephemeral,
+  const entry = (hash: string, ephemeral: boolean, savePath = `/${ephemeral ? 'cache' : 'dl'}/${hash}`): Persisted => ({
+    infoHash: hash, magnet: `magnet:?xt=urn:btih:${hash}`, savePath, addedAt: 1, lastUsedAt: 1, started: true, paused: false, ephemeral,
   })
+  const sample = DEMO_SAVE_PATH.slice(-40)
   const store = new Map<string, unknown>([
     ['ripple:torrents', [
       ...['a', 'b', 'c', 'd', '2', '3'].map((c) => entry(c.repeat(40), true)),
       entry('1'.repeat(40), false),
       { ...entry('e'.repeat(40), true), paused: true },
+      { ...entry('4'.repeat(40), true, `/native/${'4'.repeat(40)}`), saveTo: 'folder' },
+      entry('5'.repeat(40), false, `/cache/${'5'.repeat(40)}`),
+      entry(sample, true, DEMO_SAVE_PATH),
+      // a temporary one from before /cache
+      entry('6'.repeat(40), true, `/dl/${'6'.repeat(40)}`),
     ]],
-    // one parked earlier, which a resume blob brings back
+    // saved while it ran: a film whose tab closed, or a change of the VPN switch, mid film
     [`ripple:resume:${'2'.repeat(40)}`, new Uint8Array([1])],
     [`ripple:torrent:${'3'.repeat(40)}`, new Uint8Array([1])],
+    // a folder's carries the upload mode a move there set, and one kept and the sample are no cache to park
+    ...['4'.repeat(40), '5'.repeat(40), sample].map((hash) => [`ripple:resume:${hash}`, new Uint8Array([1])] as const),
   ])
   return {
     get: async (key: string) => store.get(key),
@@ -132,7 +151,7 @@ const of = (hash: string) => engine.log.filter((line) => line.startsWith(hash) &
 const handleOf = (hash: string) => engine.ids.get(hash)!
 const pumps = (n: number) => new Promise((resolve) => setTimeout(resolve, n * 500 + 100))
 
-it('holds a temporary torrent restored with no saved state until the pump that parks it', async () => {
+it('holds a temporary torrent restored under /cache or with no saved state until the pump that parks it', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
@@ -144,19 +163,20 @@ it('holds a temporary torrent restored with no saved state until the pump that p
   expect(rig.of('answer').find((m) => m.id === 'give')!.value).toBeNull()
 
   // before any pump has seen them
-  for (const hash of [PARKED, WATCHED, KEPT, REMOVED, FROM_FILE, PAUSED]) {
+  for (const hash of [PARKED, WATCHED, KEPT, REMOVED, FROM_FILE, PAUSED, SAVED, LEGACY]) {
     expect(engine.log.find((line) => line.startsWith(hash)), hash).toBe(`${hash} upload on`)
   }
   await pumps(2)
-  for (const hash of [PARKED, WATCHED, KEPT, REMOVED]) expect(of(hash), hash).toEqual(['upload on'])
-  expect(of(FROM_FILE)).toEqual(['upload on', 'pause', 'upload off', 'save plain'])
+  for (const hash of [PARKED, WATCHED, KEPT, REMOVED, LEGACY]) expect(of(hash), hash).toEqual(['upload on'])
+  // a .torrent or a saved state brings its layout, so the first pump parks it
+  for (const hash of [FROM_FILE, SAVED]) expect(of(hash), hash).toEqual(['upload on', 'pause', 'upload off', 'save plain'])
   // one the person paused runs until a pump pauses it, so it is held too
   expect(of(PAUSED)).toEqual(['upload on', 'pause'])
-  // a saved state or a library download is not held; the flush came before the engine reported on
-  // either, so only the park of the saved state saved it
-  expect(of(SAVED)).toContain('save plain')
+  // a library download, one kept, and the sample's or a folder's saved state are not held; the flush came
+  // before the engine reported on any of them, so it saved none
   expect(of(LIBRARY)).toEqual([])
-  expect([...of(SAVED), ...of(LIBRARY)].filter((line) => line.startsWith('upload'))).toEqual([])
+  for (const hash of [LIBRARY, OWNED, SAMPLE, FOLDER]) expect(of(hash).filter((line) => line.startsWith('upload')), hash).toEqual([])
+  expect(engine.upload.has(handleOf(FOLDER))).toBe(true)
 
   engine.withMeta.add(PARKED)
   await vi.waitFor(() => expect(of(PARKED)).toContain('save plain'), { timeout: 2_000 })

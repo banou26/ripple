@@ -1737,10 +1737,11 @@ const init = async () => {
        */
       if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
       recovery.hold(h, Date.now())
-      // Held like a page's add until the pump that parks it: with no saved state it comes back running
-      // and asked a web source for 16 MiB before that pump (swarm rig, 2026-11-14). Not with a saved
-      // state, as releasing the hold would clear the upload mode a folder's blob carries.
-      if (e.ephemeral && !resume?.byteLength) {
+      // Held like a page's add until the pump that parks it: it comes back running, with no saved state
+      // or one saved while it ran, and asked a web source for up to 16 MiB before that pump (swarm rig,
+      // 2026-11-14). A saved state only under /cache, as releasing the hold would clear the upload mode
+      // a folder's blob carries.
+      if (e.ephemeral && (!resume?.byteLength || isCacheSavePath(savePath))) {
         holdingUpload.add(h)
         session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
       }
