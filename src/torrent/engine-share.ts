@@ -134,9 +134,12 @@ export const serveFollowers = (client: EngineClient): () => void => {
       return
     }
 
+    // Any message, not hello alone: a follower says hello once, to whichever engine was serving then, and this one
+    // may have started since, in this page or another.
+    if (!followers.has(from)) followers.set(from, new BroadcastChannel(replyChannel(from)))
+
     if (msg.type === 'hello') {
       // A follower has no generation yet, so hello is the one message accepted without one.
-      if (!followers.has(from)) followers.set(from, new BroadcastChannel(replyChannel(from)))
       // Saying ready before the session exists would release held commands into a worker that drops them.
       if (!client.started()) return
       reply(from, { type: 'ready' })

@@ -129,6 +129,25 @@ describe('the leader server', () => {
     stop()
   })
 
+  // a follower says hello once, to the engine serving then: one started since, in this page or another, never hears it
+  it('answers a follower that never said hello to this engine', async () => {
+    const { client } = makeClient()
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    let gen: string | undefined
+    control.addEventListener('message', ({ data }) => { if (data?.to === 'all') gen = data.gen })
+    const stop = serveFollowers(client)
+    const replies = track(new BroadcastChannel(replyChannel('tab-b')))
+    const heard: any[] = []
+    replies.addEventListener('message', ({ data }) => heard.push(data.msg))
+    await settle()
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 3, handle: 1, fileIndex: 0, offset: 0, len: 3 } })
+    await settle()
+
+    expect(heard).toContainEqual({ type: 'read-result', id: 3, data: new Uint8Array([1, 2, 3]) })
+    stop()
+  })
+
   it('stays silent to a new follower until its own engine has a session', async () => {
     const { client } = makeClient(false)
     const stop = serveFollowers(client)
