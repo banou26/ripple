@@ -30,9 +30,8 @@ import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
 export const isInbound = (peer: PeerInfo): boolean =>
   !(peer.flags & PEER_FLAG.localConnection) || !!(peer.source & PEER_SOURCE.incoming)
 
-/** `utp` or `tcp`, lowercased to match the keys `Reachability.inboundByTransport` uses. */
-export const peerTransport = (peer: PeerInfo): 'utp' | 'tcp' =>
-  peer.flags & PEER_FLAG.utpSocket ? 'utp' : 'tcp'
+/** `utp`, `tcp` or `webrtc`: the engine's own word, in the case the keys of `Reachability.inboundByTransport` use. */
+export const peerTransport = (peer: PeerInfo): PeerInfo['transport'] => peer.transport
 
 export type InboundNow = {
   total: number

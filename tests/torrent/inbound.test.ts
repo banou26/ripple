@@ -48,6 +48,7 @@ describe('which peers dialled in', () => {
   it('reads the transport off the socket flag', () => {
     expect(peerTransport(peer())).toBe('tcp')
     expect(peerTransport(peer({ flags: PEER_FLAG.utpSocket }))).toBe('utp')
+    expect(peerTransport(dialledOut({ transport: 'webrtc', endpoint: 'webrtc:3' }))).toBe('webrtc')
   })
 })
 

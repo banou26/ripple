@@ -230,13 +230,15 @@ const Files = ({
  * about twenty flags and most of them describe choking state machinery. Transport and direction are
  * the two that explain the numbers next to them.
  */
+const TRANSPORT_TAG = { tcp: 'TCP', utp: 'uTP', webrtc: 'WebRTC' }
+
 const peerTags = (p: PeerInfo, intl: IntlShape): string[] => {
   const tags: string[] = []
   // Both of these go through `inbound.ts`, which the strip's live inbound count also uses. Two copies
   // of this rule would put two numbers about one thing on screen, disagreeing, with nothing to say
   // which was right: the strip counting `localConnection` alone and this tagging the pair would
   // differ for every peer we dialled after it first reached us.
-  tags.push(peerTransport(p) === 'utp' ? 'uTP' : 'TCP')
+  tags.push(TRANSPORT_TAG[peerTransport(p)])
   if (isInbound(p)) tags.push(intl.formatMessage({ id: 'incoming', defaultMessage: 'incoming' }))
   if (p.flags & (PEER_FLAG.rc4Encrypted | PEER_FLAG.plaintextEncrypted)) tags.push(intl.formatMessage({ id: 'encrypted', defaultMessage: 'encrypted' }))
   if (p.flags & PEER_FLAG.seed) tags.push(intl.formatMessage({ id: 'seed', defaultMessage: 'seed' }))
@@ -266,7 +268,8 @@ const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
       {sorted.map((p) => (
         <div className="row" key={p.endpoint}>
           <span className="name">
-            <span className="mono">{p.endpoint}</span>
+            {/* a WebRTC peer's endpoint is the engine's own number for it, not an address */}
+            <span className="mono">{p.transport === 'webrtc' ? '' : p.endpoint}</span>
             <span className="tags">{peerTags(p, intl).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</span>
           </span>
           {/* arbitrary text a stranger chose, so it is rendered as text and never as markup */}

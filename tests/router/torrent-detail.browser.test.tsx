@@ -540,6 +540,18 @@ describe('the docked torrent details', () => {
     expect(rows[1]!.textContent).toContain('DHT')
   })
 
+  // the engine made the endpoint up for it: a number, where the others have an address
+  it('lists a WebRTC peer as one, with no address', async () => {
+    const screen = await mount()
+    tabButton(screen, 'Peers').click()
+    send({ peers: [peer({ endpoint: 'webrtc:3', transport: 'webrtc', downloadRate: 500_000, flags: 1 << 5, source: 1 << 0 })] })
+    await expect.element(screen.getByText('WebRTC')).toBeInTheDocument()
+    const name = screen.container.querySelector('.rows .row:not(.head) .name')!
+    expect([...name.querySelectorAll('.tag')].map((tag) => tag.textContent)).toEqual(['WebRTC', 'tracker'])
+    expect(name.querySelector('.mono')!.textContent).toBe('')
+    expect(screen.container.textContent).not.toContain('webrtc:3')
+  })
+
   /**
    * -1 is libtorrent's "never scraped", and it has to read as unknown. A 0 there would say the
    * tracker answered and knows of nobody, which is a completely different thing to a user deciding
