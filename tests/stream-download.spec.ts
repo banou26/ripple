@@ -146,7 +146,7 @@ test('an unclaimed download URL does not serve the app itself', async ({ page })
  */
 const FILE = { name: 'E01.mkv', bytes: 300_000, fill: 0x11 }
 
-const libraryFile = async (page: Page) => {
+const libraryFile = async (page: Page, file = FILE) => {
   await page.addInitScript(() => {
     const w = window as any
     try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
@@ -161,8 +161,8 @@ const libraryFile = async (page: Page) => {
     }
   })
 
-  const path = test.info().outputPath(FILE.name)
-  writeFileSync(path, Buffer.alloc(FILE.bytes, FILE.fill))
+  const path = test.info().outputPath(file.name)
+  writeFileSync(path, Buffer.alloc(file.bytes, file.fill))
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Create a torrent' }).click()
@@ -174,7 +174,7 @@ const libraryFile = async (page: Page) => {
   await expect(dialog.locator('[data-outcome="copied"]')).toBeVisible({ timeout: 120_000 })
   await dialog.getByRole('button', { name: 'Close' }).click()
 
-  const save = page.getByRole('button', { name: `Save ${FILE.name} to disk` })
+  const save = page.getByRole('button', { name: `Save ${file.name} to disk` })
   await expect(save, 'the torrent never completed').toBeVisible({ timeout: 150_000 })
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
   return {
@@ -215,4 +215,44 @@ test('a worker that never registers the stream falls back while the click still 
   expect(readFileSync(await download.path()).equals(Buffer.alloc(FILE.bytes, FILE.fill))).toBe(true)
   // the picker needs the click's activation, which lapses about five seconds after it
   expect(await pickerCalls(), 'the fallback was reached after the click stopped counting').toEqual([true])
+})
+
+/*
+ * With the page gone mid-save, Chrome showed the download in progress forever and Firefox kept a short
+ * file it listed as finished. The page tells the worker on pagehide, and both show the download failed.
+ */
+test('closing the page mid-save fails the browser\'s download', async ({ page, browserName }) => {
+  /*
+   * Playwright's Firefox takes a download through its own handler, which reports it finished the moment
+   * its page closes, whatever the worker does. Firefox with nothing attached lists this one as failed,
+   * and as finished but short without the abort (measured).
+   */
+  test.skip(browserName === 'firefox', 'Playwright\'s Firefox download handler cannot show this')
+  test.setTimeout(300_000)
+  // nothing reaches the worker past the first chunk, so the save is still running when the page closes
+  await page.addInitScript(() => {
+    const w = window as any
+    w.__fed = false
+    // oxlint-disable-next-line typescript/unbound-method
+    MessagePort.prototype.postMessage = new Proxy(MessagePort.prototype.postMessage, {
+      apply: (post, port, args) => {
+        const type = args[0]?.type
+        if (w.__fed && (type === 'chunk' || type === 'end')) return
+        if (type === 'chunk') w.__fed = true
+        return Reflect.apply(post, port, args)
+      },
+    })
+  })
+  const { save } = await libraryFile(page, { name: 'E02.mkv', bytes: 9_000_000, fill: 0x22 })
+
+  const downloading = page.waitForEvent('download', { timeout: 60_000 })
+  await save.click()
+  const download = await downloading
+  await page.waitForFunction(() => (window as any).__fed)
+  await page.close()
+  const outcome = await Promise.race([
+    download.failure().then((failure) => failure ?? 'finished'),
+    new Promise((resolve) => setTimeout(() => resolve('still in progress 30 s after the page closed'), 30_000)),
+  ])
+  expect(outcome).toBe('canceled')
 })

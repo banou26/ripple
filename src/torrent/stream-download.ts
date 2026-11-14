@@ -128,10 +128,20 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   const teardown = () => {
     clearInterval(heartbeat)
     navigator.serviceWorker.removeEventListener('message', onWorkerMessage)
+    window.removeEventListener('pagehide', onPageHide)
     port.onmessage = null
     port.close()
     frame.remove()
   }
+  const abort = () => {
+    try { port.postMessage({ type: 'abort', reason: 'cancelled' }) } catch { /* already gone */ }
+    teardown()
+  }
+  // A page that goes away mid-save otherwise leaves Chrome's download in progress forever and Firefox's short but
+  // listed as finished; aborted, both show it failed. Chrome does keep a page mid-save in its back-forward cache, and
+  // brought back it carries the save on to the end, so that one is left alone (all measured).
+  const onPageHide = (event: PageTransitionEvent) => { if (!event.persisted) abort() }
+  window.addEventListener('pagehide', onPageHide)
 
   const started = await Promise.race([
     ready.then(() => true),
@@ -159,9 +169,6 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
       // streams the moment a new worker takes over (a 512 MB save ended 11 MB short, measured).
       void pageWork(() => grace(teardown))
     },
-    abort: async () => {
-      try { port.postMessage({ type: 'abort', reason: 'cancelled' }) } catch { /* already gone */ }
-      teardown()
-    },
+    abort: async () => abort(),
   }
 }
