@@ -1,9 +1,10 @@
 // The swarm rig's relay taken away mid-download and brought back, as a relay restart does it.
-// The engine worker must keep posting state, the VPN readout must leave On while the relay is gone
-// and come back to it, bytes must move again within RESUME_BUDGET_MS of the relay's return on the
-// port the session reserved, the player must carry on, and the file must finish with the fixture's
-// bytes. Engine 0.3.21 fails it: its worker spins inside one tick from the UDP socket's error on and
-// never posts again. Engine 0.3.22 fails it too: its bytes come back about 4 minutes after the relay.
+// The download has the seeders and a WebRTC peer. The engine worker must keep posting state, the VPN
+// readout must leave On while the relay is gone and come back to it, bytes of each kind must move
+// again within its budget of the relay's return, the seeders' on the port the session reserved, the
+// player must carry on, and the file must finish with the fixture's bytes. Engine 0.3.21 fails it:
+// its worker spins inside one tick from the UDP socket's error on and never posts again. Engine
+// 0.3.22 fails it too: its bytes come back about 4 minutes after the relay.
 // Runs only under playwright.rig.config.ts, after the lane's own spec (`npm run e2e:rig`, see tests/swarm-rig/README.md).
 
 import type { Page, Worker } from '@playwright/test'
@@ -19,6 +20,7 @@ import { DEMO_SEEDED_KEY } from '../src/torrent/constants'
 import { ensureFixture, magnetFor, type Fixture } from './swarm-rig/fixture'
 import { readFixture } from './swarm-rig/opfs'
 import { SeederFleet } from './swarm-rig/seeders'
+import { holder, post, type Visitor } from './swarm-rig/visitor'
 
 test.use({ headless: false })
 
@@ -30,6 +32,8 @@ const SEEDER_KBPS = Number(process.env.RIPPLE_RIG_SEEDER_KBPS ?? 100)
 const OUTAGE_AT = Number(process.env.RIPPLE_RIG_OUTAGE_AT ?? 0.2)
 const RECOVERY_BUDGET_MS = Number(process.env.RIPPLE_RIG_RECOVERY_MS ?? 150_000)
 const RESUME_BUDGET_MS = Number(process.env.RIPPLE_RIG_RESUME_MS ?? 20_000)
+// the WebRTC half is made again once the relay gives a socket: a new address probe, a new tracker socket, new offers
+const WEBRTC_RESUME_BUDGET_MS = Number(process.env.RIPPLE_RIG_WEBRTC_RESUME_MS ?? 30_000)
 const RESULT_FILE = process.env.RIPPLE_RIG_RESULT
 const { relay } = topology
 
@@ -54,7 +58,7 @@ type Sample = {
   listeners: Listener[] | null
   /** the player's position in the video, in seconds */
   playhead: number | null
-  peerList: { endpoint: string, utp: boolean, total: number, rate: number, fail: number, rtt: number, req: number }[]
+  peerList: { endpoint: string, transport: string, utp: boolean, total: number, rate: number, fail: number, rtt: number, req: number }[]
 }
 type Event = { t: number, what: string }
 
@@ -87,9 +91,9 @@ const instrument = (page: Page, fixture: Fixture) => page.addInitScript(({ key, 
         if (!r.inspected && typeof torrent.handle === 'number') { r.inspected = true; worker.postMessage({ type: 'inspect', handle: torrent.handle }) }
       }
       if (Array.isArray(m.detail?.peers)) {
-        r.peerList = m.detail.peers.map((p: { endpoint: string, flags: number, totalDownload: number, downloadRate: number, failCount: number, rtt: number, requestsInFlight: number }) => ({
-          // the engine's DHT is on, so a peer off loopback is a stranger, and its address is not kept
-          endpoint: p.endpoint.startsWith('127.') ? p.endpoint : 'dht peer', utp: (p.flags & (1 << 17)) !== 0, total: p.totalDownload, rate: p.downloadRate, fail: p.failCount, rtt: p.rtt, req: p.requestsInFlight,
+        r.peerList = m.detail.peers.map((p: { endpoint: string, transport: string, flags: number, totalDownload: number, downloadRate: number, failCount: number, rtt: number, requestsInFlight: number }) => ({
+          // a seeder is on loopback and a WebRTC peer has no address: anything else is a stranger, whose address is not kept
+          endpoint: p.endpoint.startsWith('127.') || p.transport === 'webrtc' ? p.endpoint : 'stranger', transport: p.transport, utp: (p.flags & (1 << 17)) !== 0, total: p.totalDownload, rate: p.downloadRate, fail: p.failCount, rtt: p.rtt, req: p.requestsInFlight,
         }))
         const k = JSON.stringify((r.peerList as { endpoint: string, utp: boolean }[]).map((p) => `${p.endpoint}${p.utp ? '/utp' : '/tcp'}`).sort())
         if (k !== lastPeerKey) { lastPeerKey = k; r.peerChanges.push({ t: Date.now(), peers: r.peerList }) }
@@ -184,26 +188,6 @@ const startRelay = async (captured: ReturnType<typeof captureRelay>, log: string
   throw new Error(`the restarted relay never answered /health, see ${log}`)
 }
 
-/** Caps a seeder's upload over its RPC and reads the cap back. */
-const throttle = async (rpcPort: number, kBps: number) => {
-  let sid = ''
-  const call = async (method: string, args: Record<string, unknown>) => {
-    for (let i = 0; i < 3; i++) {
-      const response = await fetch(`http://127.0.0.1:${rpcPort}/transmission/rpc`, {
-        method: 'POST', headers: { 'x-transmission-session-id': sid }, body: JSON.stringify({ method, arguments: args }),
-      })
-      if (response.status === 409) { sid = response.headers.get('x-transmission-session-id') ?? ''; continue }
-      const body = await response.json() as { result: string, arguments: Record<string, unknown> }
-      if (body.result !== 'success') throw new Error(`transmission ${method} on ${rpcPort}: ${body.result}`)
-      return body.arguments
-    }
-    throw new Error(`transmission ${method} on ${rpcPort}: no session id`)
-  }
-  await call('session-set', { 'speed-limit-up': kBps, 'speed-limit-up-enabled': true })
-  const got = await call('session-get', { fields: ['speed-limit-up', 'speed-limit-up-enabled'] })
-  return { limit: got['speed-limit-up'], enabled: got['speed-limit-up-enabled'] }
-}
-
 /** Whether the engine worker's event loop answers, never stacking a probe on one still waiting. */
 const workerProbe = () => {
   let pending = false
@@ -216,6 +200,23 @@ const workerProbe = () => {
   }
 }
 
+/** What each kind of peer had delivered by each sample. A peer that connects again starts its count over. */
+const byKind = (samples: Sample[]) => {
+  const last = new Map<string, number>()
+  let webrtc = 0
+  let ordinary = 0
+  return samples.map((sample) => {
+    for (const peer of sample.peerList) {
+      const before = last.get(peer.endpoint)
+      const gained = peer.total - (before !== undefined && peer.total >= before ? before : 0)
+      if (peer.transport === 'webrtc') webrtc += gained
+      else ordinary += gained
+      last.set(peer.endpoint, peer.total)
+    }
+    return { t: sample.t, webrtc, ordinary }
+  })
+}
+
 export type Verdict = {
   maxGapMs: number
   maxGapDuring: number
@@ -223,6 +224,11 @@ export type Verdict = {
   readoutBackOn: boolean
   /** from the relay's return to the first sample with more bytes */
   resumedMs: number | null
+  /** what the WebRTC peer had given when the relay was stopped */
+  webrtcBefore: number
+  /** from the relay's return to the first sample with more bytes from a seeder, and from a WebRTC peer */
+  ordinaryResumedMs: number | null
+  webrtcResumedMs: number | null
   /** whether the last sample has both sockets on the reserved port */
   portHeld: boolean
   /** whether the player's position moved on after the relay came back, with no "playback failed" */
@@ -237,6 +243,9 @@ export const assertHeld = (v: Verdict, size: number, opfs: { matchedBytes: numbe
   expect(v.readoutLeftOn, 'the readout never left On while the relay was gone').toBe(true)
   expect(v.readoutBackOn, 'the readout never came back to On').toBe(true)
   expect(v.resumedMs ?? Infinity, `the download did not move again within ${RESUME_BUDGET_MS / 1000} s of the relay's return`).toBeLessThanOrEqual(RESUME_BUDGET_MS)
+  expect(v.webrtcBefore, 'the WebRTC peer had given nothing when the relay went, so its return proves nothing').toBeGreaterThan(0)
+  expect(v.ordinaryResumedMs ?? Infinity, `no seeder's bytes moved again within ${RESUME_BUDGET_MS / 1000} s of the relay's return`).toBeLessThanOrEqual(RESUME_BUDGET_MS)
+  expect(v.webrtcResumedMs ?? Infinity, `no WebRTC peer's bytes moved again within ${WEBRTC_RESUME_BUDGET_MS / 1000} s of the relay's return`).toBeLessThanOrEqual(WEBRTC_RESUME_BUDGET_MS)
   expect(v.portHeld, 'the sockets did not come back on the reserved port').toBe(true)
   expect(v.playedOn, 'the player did not carry on').toBe(true)
   expect(v.completeMs, 'the download never finished after the relay came back').not.toBeNull()
@@ -261,11 +270,15 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
   let sampler: Promise<void> | null = null
 
   const context = await playwright.chromium.launchPersistentContext('', { ...launchOptions, headless: false, baseURL, viewport })
+  let webrtc: Visitor | null = null
   try {
     await fleet.start()
     await fleet.waitSeeding()
-    const caps: unknown[] = []
-    for (let i = 0; i < fleet.peers.length; i++) caps.push(await throttle(topology.seeders.baseRpcPort + i, SEEDER_KBPS))
+    // a ripple with the VPN off that holds the film: it is not behind the relay, so the outage is the download's alone
+    webrtc = await holder({ type: playwright.chromium, launchOptions, viewport, baseURL }, fixture, magnetFor(fixture, fleet.peers))
+    await post(webrtc.page, { type: 'set-session-limits', up: SEEDER_KBPS * 1000 })
+    event('a WebRTC peer holds the film, with the VPN off')
+    const caps = await fleet.limitUpload(SEEDER_KBPS)
     event(`fleet of ${fleet.peers.length} seeding, upload caps ${JSON.stringify(caps)}`)
 
     const page = context.pages()[0] ?? await context.newPage()
@@ -300,7 +313,8 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
     const armDeadline = Date.now() + 180_000
     while (Date.now() < armDeadline) {
       const s = last()
-      if (s && s.done >= fixture.size * OUTAGE_AT && (s.vpn ?? s.derived) === 'on') break
+      // both kinds of peer are giving by then, or the outage cuts only one
+      if (s && s.done >= fixture.size * OUTAGE_AT && (s.vpn ?? s.derived) === 'on' && byKind(samples).at(-1)!.webrtc > 0) break
       if (s && s.done >= fixture.size) break
       await sleep(250)
     }
@@ -344,6 +358,9 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
     const leftOn = after.find((s) => word(s) !== 'on')
     const backOn = leftOn ? after.find((s) => s.t > Math.max(tStart, leftOn.t) && word(s) === 'on') : undefined
     const resumed = after.find((s) => s.t > tStart && s.done > (samples.filter((x) => x.t <= tStart + 500).at(-1)?.done ?? Infinity))
+    const kinds = byKind(samples)
+    const atReturn = kinds.filter((k) => k.t <= tStart + 500).at(-1) ?? { webrtc: Infinity, ordinary: Infinity }
+    const again = (kind: 'webrtc' | 'ordinary') => kinds.find((k) => k.t > tStart && k[kind] > atReturn[kind])
     const end = samples.at(-1)!
     const playheadAt = (t: number) => Math.max(0, ...samples.filter((s) => s.t <= t).map((s) => s.playhead ?? 0))
     const playbackFailed = consoleLines.some((line) => line.text.startsWith('playback failed'))
@@ -353,6 +370,9 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
       readoutLeftOn: after.some((s) => s.t < tStart + 60_000 && word(s) === 'healing'),
       readoutBackOn: !!backOn && word(samples.at(-1)!) === 'on',
       resumedMs: resumed ? resumed.t - tStart : null,
+      webrtcBefore: kinds.filter((k) => k.t <= tStop).at(-1)?.webrtc ?? 0,
+      ordinaryResumedMs: again('ordinary') ? again('ordinary')!.t - tStart : null,
+      webrtcResumedMs: again('webrtc') ? again('webrtc')!.t - tStart : null,
       portHeld: !!end.portOpen && !!end.listeners?.length && end.listeners.every((l) => l.up && l.port === end.port),
       playedOn: !playbackFailed && playheadAt(Infinity) > playheadAt(tStart) + 5,
       completeMs: completeAt ? completeAt - tStop : null,
@@ -367,6 +387,7 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
       backOnAfterStartMs: backOn ? backOn.t - tStart : null,
       bytesResumedAfterStartMs: resumed ? resumed.t - tStart : null,
       uploaded: await fleet.uploaded(),
+      byKind: kinds.at(-1),
     })
     console.log(`swarm-rig relay-drop ${JSON.stringify({ ...verdict, leftOnAs: result.leftOnAs, backOnAfterStartMs: result.backOnAfterStartMs, bytesResumedAfterStartMs: result.bytesResumedAfterStartMs, playbackFailed, playheadAtReturn: playheadAt(tStart), playheadEnd: playheadAt(Infinity), layout: opfs.layout })}`)
     assertHeld(verdict, fixture.size, opfs, fixture.sha256)
@@ -388,6 +409,7 @@ test('a relay taken away mid-download leaves the engine running, and the downloa
       writeFileSync(RESULT_FILE, JSON.stringify({ fixture: { size: fixture.size, sha256: fixture.sha256, infoHash: fixture.infoHash }, ...result, events, samples, consoleLines }, null, 2))
     }
     await context.close().catch(() => {})
+    await webrtc?.context.close().catch(() => {})
     await fleet.stop().catch(() => {})
     if (restarted) {
       try { process.kill(-restarted.pid, 'SIGKILL') } catch {}
