@@ -1,0 +1,23 @@
+/**
+ * WebRTC peers, with the VPN on and off, and the switch between the two. False stops all of it: no WebRTC peer
+ * is looked for, the engine runs behind the relay, and a stored Off reads as On. It takes effect as each page reloads.
+ */
+export const WEBRTC_PEERS = true
+
+const TRACKER_HOSTS = ['tracker.openwebtorrent.com', 'tracker.webtorrent.dev']
+const STUN_HOST = 'stun.l.google.com'
+
+/** Announced to beside a torrent's own `ws` and `wss` trackers, for every torrent that is not private. */
+export const TRACKERS = TRACKER_HOSTS.map((host) => `wss://${host}`)
+
+/** Asked with the VPN off only, where the browser has to learn its own public address. */
+export const ICE_SERVERS = [{ urls: `stun:${STUN_HOST}:19302` }]
+
+/**
+ * Every host the browser reaches by itself with the VPN off, beside the peers and the trackers a torrent names.
+ * Each sees the person's IP address, so the privacy page names each.
+ */
+export const VPN_OFF_HOSTS = [...TRACKER_HOSTS, STUN_HOST]
+
+/** What carries an engine's peer connections: FKN's relay, or the browser itself with the VPN off. */
+export type EngineTransport = 'relay' | 'direct'
