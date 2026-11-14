@@ -242,6 +242,35 @@ test('a magnet that has found nobody is still looked for by the engine a reload 
   expect(errors).toEqual([])
 })
 
+/*
+ * A torrent a person made from a folder of their own is in no engine by itself: its page hands it over, once for
+ * each engine. A change of the VPN is a new engine, and a page that remembered the handing over left the torrent
+ * out of the library and shared with nobody until a reload.
+ */
+test('a torrent made from a folder is still listed and shared after the VPN is switched, each way', async ({ browser, baseURL }) => {
+  test.setTimeout(300_000)
+  const { page, errors } = await visitor(await browser.newContext(), baseURL!)
+  const infoHash = await seed(page, `ws://ripple-tracker.test:${tracker.port}`)
+  await expect(page.locator('.torrent')).toHaveCount(1)
+  const vpn = page.locator('header .stat.vpn')
+
+  // on, where no relay is in reach and the engine starts all the same, then off again
+  for (const transport of ['relay', 'direct']) {
+    await vpn.click()
+    if (transport === 'direct') await page.getByRole('dialog').getByRole('button', { name: 'Turn off' }).click()
+    // the rows read below are the new engine's from its first word on
+    await expect.poll(async () => (await seen(page)).transports.at(-1), { timeout: 90_000, message: `the engine never followed to ${transport}` }).toBe(transport)
+    await expect
+      .poll(async () => (await row(page, infoHash))?.state, { timeout: 60_000, message: `the engine on ${transport} was not handed the torrent` })
+      .toBe(5)
+    await expect(page.locator('.torrent')).toHaveCount(1)
+  }
+  expect((await seen(page)).transports).toEqual(['direct', 'relay', 'direct'])
+  await expect.poll(() => tracker.peers(), { timeout: 30_000, message: 'the torrent is not announced again' }).toBe(1)
+  expect((await seen(page)).fatal).toEqual([])
+  expect(errors).toEqual([])
+})
+
 // THE CONTROL of the readouts above: the same page with the VPN on, and a relay this machine cannot reach
 test('with the VPN on and no relay in reach, the switch says so and the strip keeps its inbound readout', async ({ browser, baseURL }) => {
   test.setTimeout(120_000)

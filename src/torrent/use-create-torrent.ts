@@ -582,6 +582,9 @@ export const useCreatedSources = (
 ): { waiting: WaitingSource[], allow: (infoHash: string) => Promise<boolean> } => {
   const [waiting, setWaiting] = useState<WaitingSource[]>([])
   const started = useRef(new Set<string>())
+  const [engine, setEngine] = useState(0)
+  // a new engine holds none of them, a change of the VPN's included: each is handed over again
+  useEffect(() => client.onEngineReset(() => { started.current.clear(); setEngine((count) => count + 1) }), [client])
 
   const startFrom = useCallback(async (entry: Persisted, root: FileSystemDirectoryHandle | FileSystemFileHandle) => {
     const read = await readPick(root, {})
@@ -652,7 +655,7 @@ export const useCreatedSources = (
       if (!cancelled) setWaiting(stillWaiting)
     })()
     return () => { cancelled = true }
-  }, [list, owns, startFrom])
+  }, [list, owns, startFrom, engine])
 
   /**
    * Ask for one torrent's source back, from a click.
