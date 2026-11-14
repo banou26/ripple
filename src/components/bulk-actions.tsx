@@ -36,19 +36,20 @@ const ringStyle = css`
 `
 
 /**
- * A row's box in the bulk selection, the label being its 40 px hit area.
+ * A row's box in the bulk selection, the label being its 40 px hit area. `onChange` is told whether shift was held.
  *
  * A click inside it stops here, so ticking a row never reaches the row's own click, which is what
  * opens the detail panel.
  */
-export const RowCheck = ({ name, checked, onChange }: { name: string, checked: boolean, onChange: () => void }) => {
+export const RowCheck = ({ name, checked, onChange }: { name: string, checked: boolean, onChange: (shift: boolean) => void }) => {
   const intl = useIntl()
   return (
     <label css={[checkStyle, ringStyle]} className="row-check" onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         checked={checked}
-        onChange={onChange}
+        // React fires a box's change from its click, so the event under it carries the keys held
+        onChange={(e) => onChange((e.nativeEvent as MouseEvent).shiftKey)}
         aria-label={intl.formatMessage({ id: 'Select {name}', defaultMessage: 'Select {name}' }, { name })}
       />
     </label>

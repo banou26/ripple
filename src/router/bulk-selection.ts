@@ -1,6 +1,6 @@
 import type { Torrent } from '../torrent/types'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 /**
  * The torrents ticked for one action on several at once, apart from the one row the detail panel shows.
@@ -35,6 +35,26 @@ export const togglePick = (picked: Picked, infoHash: string): Picked => {
   return next
 }
 
+/**
+ * The selection after a click on the box of `clicked`, with `anchor` the box clicked before it, or null.
+ *
+ * With the anchor among `drawn`, which is the list in the order it is drawn, every row that can be ticked from the
+ * anchor to `clicked`, both included, takes the state the clicked box takes. With no anchor, or one no longer drawn, the
+ * click ticks or unticks `clicked` alone.
+ */
+export const pickRun = (picked: Picked, drawn: readonly Torrent[], anchor: string | null, clicked: string): Picked => {
+  const from = drawn.findIndex((t) => t.infoHash === anchor)
+  const to = drawn.findIndex((t) => t.infoHash === clicked)
+  if (from < 0 || to < 0) return togglePick(picked, clicked)
+  const tick = !picked.has(clicked)
+  const next = new Set(picked)
+  for (const t of drawn.slice(Math.min(from, to), Math.max(from, to) + 1).filter(pickable)) {
+    if (tick) next.add(t.infoHash)
+    else next.delete(t.infoHash)
+  }
+  return next
+}
+
 /** Every row that can be ticked among those shown, so a filter decides what "all" means. */
 export const pickAll = (shown: readonly Torrent[]): Picked => new Set(shown.filter(pickable).map((t) => t.infoHash))
 
@@ -49,16 +69,31 @@ export const keepShown = (picked: Picked, shown: readonly (string | undefined)[]
   return [...picked].every((h) => present.has(h)) ? picked : new Set([...picked].filter((h) => present.has(h)))
 }
 
+/** `shown` is the list in the order it is drawn, which is the order a shift+click's run follows. */
 export const useBulkSelection = (shown: readonly Torrent[]) => {
   const [held, setPicked] = useState<Picked>(NONE)
   // adjusted while rendering rather than in an effect, so no frame shows a count that went stale
   const picked = keepShown(held, shown.map((t) => t.infoHash))
   if (picked !== held) setPicked(picked)
+  const drawn = useRef(shown)
+  const anchor = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    drawn.current = shown
+    // the box clicked last, let go of once its row leaves the list, as its tick is
+    if (!shown.some((t) => t.infoHash === anchor.current)) anchor.current = null
+  })
 
   const rows = pickedRows(shown, picked)
   const canPick = shown.some(pickable)
   const all = canPick && rows.length === shown.filter(pickable).length
-  const toggle = useCallback((t: Torrent) => { if (pickable(t)) setPicked((prev) => togglePick(prev, t.infoHash)) }, [])
+  /** A click on `t`'s box, which with `shift` ticks or unticks the run from the box clicked before it. */
+  const toggle = useCallback((t: Torrent, shift = false) => {
+    if (!pickable(t)) return
+    const from = shift ? anchor.current : null
+    const list = drawn.current
+    anchor.current = t.infoHash
+    setPicked((prev) => pickRun(prev, list, from, t.infoHash))
+  }, [])
   const clear = useCallback(() => setPicked(NONE), [])
   const toggleAll = () => setPicked(all ? NONE : pickAll(shown))
 

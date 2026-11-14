@@ -150,7 +150,7 @@ describe('the torrent table', () => {
     const rows = [t({ infoHash: 'a'.repeat(40), name: 'pick me' })]
     const { props, screen } = mount({ torrents: rows })
     await (await screen).getByRole('checkbox', { name: 'Select pick me' }).click()
-    expect(props.onPick).toHaveBeenCalledWith(rows[0])
+    expect(props.onPick).toHaveBeenCalledWith(rows[0], false)
     expect(props.onSelect).not.toHaveBeenCalled()
   })
 

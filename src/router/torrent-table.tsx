@@ -216,7 +216,8 @@ export type TorrentTableProps = {
   onOptions: (t: Torrent, at: { x: number, y: number } | null) => void
   /** The ticked rows, by info hash, which are not the one row the dock shows. */
   picked: Picked
-  onPick: (t: Torrent) => void
+  /** `shift` when shift was held, which ticks or unticks the run from the box clicked before. */
+  onPick: (t: Torrent, shift: boolean) => void
 }
 
 export const TorrentTable = (
@@ -268,7 +269,7 @@ export const TorrentTable = (
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >
           <td className="check">
-            {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={() => onPick(t)}/>}
+            {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
           </td>
           <td className="name" {...hint(t.name)}>
             <div className="cell-name">

@@ -1692,7 +1692,8 @@ type RowProps = {
   onSelect: (t: Torrent) => void
   /** Ticked for a bulk action, which is not the selection above. */
   checked: boolean
-  onPick: (t: Torrent) => void
+  /** `shift` when shift was held, which ticks or unticks the run from the box clicked before. */
+  onPick: (t: Torrent, shift: boolean) => void
   /** Whether this torrent's files are already in the folder the user chose. Hides the save button. */
   savedToUserStorage: boolean
   /** This row's recent transfer, newest last. Absent until the second state tick has been seen. */
@@ -1755,7 +1756,7 @@ const MissingRow = ({
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
-      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)}/>}
       {/* the files are gone from this device but the picture was cached here, so it still shows */}
       <Poster url={poster} t={t}/>
       <div className="content">
@@ -1937,7 +1938,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
         onOptions(t, { x: e.clientX, y: e.clientY })
       }}
     >
-      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={() => onPick(t)}/>}
+      {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)}/>}
       <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">
