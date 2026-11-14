@@ -3438,6 +3438,7 @@ const Home = () => {
               />
             )
             : visibleRows.map((t) => (
+            // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
             <TorrentRow
               key={t.id}
               t={t}
