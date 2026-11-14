@@ -352,6 +352,13 @@ const inspectDetail = (now: number): TorrentDetail | null => {
   return { handle, peers: session!.lastPeers(handle), trackers: [...session!.lastTrackers(handle), ...webrtc?.trackers(handle) ?? []] }
 }
 
+// Every state message is built here: the page reads a missing `detail` as none, which empties an open detail
+// panel for an update.
+const postState = () => post({
+  type: 'state', torrents: snapshot(), transport, reachable: session!.reachable(), inboundNow,
+  detail: inspectDetail(Date.now()), rateLimits: { ...sessionLimits },
+})
+
 /** The names this torrent occupies directly inside its save path. Empty until the layout lands. */
 const rootEntriesOf = (h: number): string[] => {
   const files = session?.files(h)
@@ -1753,7 +1760,7 @@ const init = async () => {
   // would otherwise spend that half second on screen as a row with no numbers in it. The alerts have
   // not been pumped yet, so some statuses are still null here; that is exactly the state a row is
   // built to render, and the next tick fills them in.
-  post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable(), inboundNow, rateLimits: { ...sessionLimits } })
+  postState()
 
   setInterval(() => {
     if (!session) return
@@ -1944,7 +1951,7 @@ const init = async () => {
       for (const h of viewers.keys()) void session.trackers(h)
     }
 
-    post({ type: 'state', torrents: snapshot(), transport, reachable: session.reachable(), inboundNow, detail: inspectDetail(now), rateLimits: { ...sessionLimits } })
+    postState()
     for (const h of handles) {
       const st = session.status(h)
       /*
@@ -2626,7 +2633,7 @@ const handleMessage = async (session: Session, m: any) => {
         wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
-        post({ type: 'state', torrents: snapshot(), reachable: session.reachable() })
+        postState()
         await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {
