@@ -158,6 +158,15 @@ it('has an engine behind the relay close what it holds there before it is ended,
   expect(alive()).toHaveLength(1)
 })
 
+it('makes no connection of the browser for an engine behind the relay, whatever its worker asks', () => {
+  getTorrentClient()
+  const heard: unknown[] = []
+  ;(getTorrentClient() as unknown as { onRaw: (cb: (message: unknown) => void) => void }).onRaw((message) => heard.push(message))
+  FakeWorker.made[0]!.say({ type: 'peer-links', port: new MessageChannel().port2 })
+  expect(page.served).toEqual([])
+  expect(heard).toEqual([])
+})
+
 it('follows a change another page stored', async () => {
   getTorrentClient()
   localStorage.setItem('ripple:vpn', 'off')

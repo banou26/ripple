@@ -361,7 +361,8 @@ const workerTransport: TransportFactory = (host: TransportHost): Transport => {
   const onError = (e: ErrorEvent) => host.error(`${e.message} (${e.filename}:${e.lineno})`, false)
   const onMessage = (e: MessageEvent) => {
     if (e.data?.type !== 'peer-links') { host.message(e.data); return }
-    closeLinks = servePeerLinks(e.data.port, { RTCPeerConnection, iceServers: ICE_SERVERS })
+    // never for an engine behind the relay, whatever its worker asks: its page makes no connection of the browser
+    if (!onVpn) closeLinks = servePeerLinks(e.data.port, { RTCPeerConnection, iceServers: ICE_SERVERS })
   }
   worker.addEventListener('error', onError)
   worker.addEventListener('message', onMessage)
