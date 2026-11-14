@@ -51,6 +51,8 @@ const aborted = (message: string) => {
   return error
 }
 
+const interrupted = () => new Error(intl.formatMessage({ id: 'The download was interrupted', defaultMessage: 'The download was interrupted' }))
+
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> =>
   new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), ms)
@@ -97,6 +99,8 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
         return
       }
       if (msg.type === 'cancel') fail(aborted('The download was cancelled'))
+      // the worker could not answer the frame, so no bytes will ever be asked for
+      if (msg.type === 'error') { fail(interrupted()); resolve() }
     }
   })
 
@@ -113,7 +117,7 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   let ended = false
   const heartbeat = setInterval(() => {
     if (ended) return
-    if (++missed > MISSED_PONGS) fail(new Error(intl.formatMessage({ id: 'The download was interrupted', defaultMessage: 'The download was interrupted' })))
+    if (++missed > MISSED_PONGS) fail(interrupted())
     else worker.postMessage({ type: 'ping', id })
   }, PING_MS)
   const onWorkerMessage = (event: MessageEvent) => {

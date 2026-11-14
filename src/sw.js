@@ -126,8 +126,10 @@ self.addEventListener('message', (event) => {
   }
 })
 
+// A header value holds no character above U+00FF, so the quoted name is ASCII and the browsers save under filename*
+// (RFC 6266), which carries the real one.
 const disposition = (name) => {
-  const safe = String(name || 'download').replace(/[\r\n"\\]/g, '_')
+  const safe = String(name || 'download').replace(/[^\x20-\x7e]|["\\]/g, '_')
   return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(name || 'download')}`
 }
 
@@ -169,6 +171,23 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(new Response('Unknown download', { status: 404 }))
     return
   }
+
+  let headers
+  try {
+    headers = new Headers({
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': disposition(entry.name),
+      'Cache-Control': 'no-store',
+    })
+  } catch {
+    // Unanswered, the frame would get the app's page and the page would wait for bytes forever.
+    live.delete(id)
+    entry.port.postMessage({ type: 'error' })
+    event.respondWith(new Response('Download failed', { status: 500 }))
+    return
+  }
+  // Only when it is known exactly: a zip's length is not known until it has been written.
+  if (entry.size > 0) headers.set('Content-Length', String(entry.size))
 
   const finish = () => {
     if (entry.done) return
@@ -214,14 +233,6 @@ self.addEventListener('fetch', (event) => {
       finish()
     },
   })
-
-  const headers = {
-    'Content-Type': 'application/octet-stream',
-    'Content-Disposition': disposition(entry.name),
-    'Cache-Control': 'no-store',
-  }
-  // Only when it is known exactly: a zip's length is not known until it has been written.
-  if (entry.size > 0) headers['Content-Length'] = String(entry.size)
 
   event.respondWith(new Response(body, { headers }))
 })

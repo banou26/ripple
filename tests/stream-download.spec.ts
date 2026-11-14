@@ -16,22 +16,9 @@ const expected = () => {
   return bytes
 }
 
-test('the service worker turns posted chunks into a real download', async ({ page }) => {
-  const pageErrors: string[] = []
-  page.on('pageerror', (error) => pageErrors.push(String(error)))
-
-  await page.goto('/')
-  await page.waitForFunction(
-    () => navigator.serviceWorker?.controller != null,
-    undefined,
-    { timeout: 30_000 },
-  )
-
-  // armed before the frame exists, because the download can begin before the evaluate that opens it returns
-  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 })
-
-  // hand-rolled copy of the wire protocol in src/torrent/stream-download.ts
-  await page.evaluate(async ({ total, chunkSize }) => {
+/** Opens a download named `name` and starts feeding it, through a hand-rolled copy of the wire protocol in src/torrent/stream-download.ts. */
+const startStream = (page: Page, name: string) =>
+  page.evaluate(async ({ total, chunkSize, name }) => {
     const registration = await navigator.serviceWorker.ready
     const worker = registration.active!
     const id = crypto.randomUUID()
@@ -50,7 +37,7 @@ test('the service worker turns posted chunks into a real download', async ({ pag
       credits++
       notify()
     }
-    worker.postMessage({ type: 'stream-open', id, name: 'probe.bin', size: total }, [channel.port2])
+    worker.postMessage({ type: 'stream-open', id, name, size: total }, [channel.port2])
     /*
      * The frame's fetch and this message reach the worker by separate routes, and a fetch that gets
      * there first is answered 404 "Unknown download": 3 of 10 runs under one busy loop per core,
@@ -62,7 +49,7 @@ test('the service worker turns posted chunks into a real download', async ({ pag
     const frame = document.createElement('iframe')
     frame.hidden = true
     frame.setAttribute('sandbox', 'allow-downloads allow-same-origin')
-    frame.src = `/__ripple-stream/${id}/probe.bin`
+    frame.src = `/__ripple-stream/${id}/${encodeURIComponent(name)}`
     document.body.appendChild(frame)
 
     ;(window as any).__feed = (async () => {
@@ -79,7 +66,22 @@ test('the service worker turns posted chunks into a real download', async ({ pag
       port.postMessage({ type: 'end' })
       return peakOutstanding
     })()
-  }, { total: TOTAL, chunkSize: CHUNK })
+  }, { total: TOTAL, chunkSize: CHUNK, name })
+
+test('the service worker turns posted chunks into a real download', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+
+  await page.goto('/')
+  await page.waitForFunction(
+    () => navigator.serviceWorker?.controller != null,
+    undefined,
+    { timeout: 30_000 },
+  )
+
+  // armed before the frame exists, because the download can begin before the evaluate that opens it returns
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 })
+  await startStream(page, 'probe.bin')
 
   // fed and drained at once on purpose: awaiting either one first waits on the other forever
   const feeding = page.evaluate(() => (window as any).__feed as Promise<number>)
@@ -94,6 +96,36 @@ test('the service worker turns posted chunks into a real download', async ({ pag
     .toBe(createHash('sha256').update(expected()).digest('hex'))
   expect(peak).toBe(1)
   expect(pageErrors).toEqual([])
+})
+
+/*
+ * A header holds no character above U+00FF. Written raw into Content-Disposition, such a name made the
+ * worker's answer throw, the frame got the app's page instead, and the save waited forever for its
+ * second pull with no error.
+ */
+test('a file named beyond Latin-1 is saved whole under its own name', async ({ page }) => {
+  test.setTimeout(150_000)
+  await page.goto('/')
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
+
+  const names = [
+    '\u65e5\u672c\u8a9e\u306e\u6620\u753b \u7b2c1\u8a71.mkv',
+    'clip \u{1f3ac}.mkv',
+    'Somebody\u2019s Home Video (2011).mkv',
+    'plain name.mkv',
+  ]
+  const want = expected()
+  const saved: string[] = []
+  for (const name of names) {
+    const downloading = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null)
+    await startStream(page, name)
+    const download = await downloading
+    if (!download) { saved.push(`${name}: no download within 15 s`); continue }
+    const [, path] = await Promise.all([page.evaluate(() => (window as any).__feed as Promise<number>), download.path()])
+    const got = readFileSync(path)
+    saved.push(`${download.suggestedFilename()}: ${got.length} bytes, ${got.equals(want) ? 'exact' : 'wrong'}`)
+  }
+  expect(saved).toEqual(names.map((name) => `${name}: ${TOTAL} bytes, exact`))
 })
 
 test('an unclaimed download URL does not serve the app itself', async ({ page }) => {

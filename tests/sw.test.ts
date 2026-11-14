@@ -104,6 +104,31 @@ describe('service worker', () => {
     expect(peak).toBe(1)
   })
 
+  /** A header holds no character above U+00FF, and a name past it used to throw here, leaving the save waiting forever. */
+  it('names a file beyond Latin-1 in an ASCII header, its real name in filename*', () => {
+    const on = boot()
+    const name = '\u65e5\u672c\u8a9e \u{1f3ac} Somebody\u2019s \u2013 caf\u00e9 "x".mkv'
+    openStream(on, 'jp', name, 4)
+    const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/jp/${encodeURIComponent(name)}`)
+    on.fetch!(event)
+    const header = taken()!.headers.get('Content-Disposition')!
+    const [, quoted, encoded] = header.match(/^attachment; filename="([^"]*)"; filename\*=UTF-8''(.+)$/)!
+    expect(quoted).toMatch(/^[\x20-\x7e]+$/)
+    expect(decodeURIComponent(encoded!)).toBe(name)
+  })
+
+  it('answers an error, and tells the page, when the header cannot be built', async () => {
+    const on = boot()
+    const { port } = openStream(on, 'bad', 'half \ud800.mkv', 4)
+    const said: string[] = []
+    port.onmessage = (event: MessageEvent) => { said.push(event.data?.type) }
+    const { event, taken } = requestFor(`${ORIGIN}/__ripple-stream/bad/x.mkv`)
+    on.fetch!(event)
+    expect(taken()!.ok).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(said).toEqual(['stream-ready', 'error'])
+  })
+
   it('omits Content-Length when the size is not known, as for a zip', async () => {
     const on = boot()
     const { port } = openStream(on, 'zip1', 'library.zip')

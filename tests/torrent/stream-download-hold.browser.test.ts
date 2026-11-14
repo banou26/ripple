@@ -14,15 +14,18 @@ vi.mock('../../src/utils/page-work', () => ({
   },
 }))
 
-/** A worker that answers `stream-open` the way sw.js does and asks for chunks without end. */
-const fakeWorker = () => {
+/**
+ * A worker that answers `stream-open` the way sw.js does and asks for chunks without end, or, with
+ * `error`, says it could not answer the download.
+ */
+const fakeWorker = (answer: 'pull' | 'error' = 'pull') => {
   const worker = {
     postMessage: (data: { type: string }, transfer?: Transferable[]) => {
       if (data.type !== 'stream-open') return
       const port = transfer![0] as MessagePort
       port.postMessage({ type: 'stream-ready' })
       port.onmessage = (event) => { if (event.data?.type === 'chunk') port.postMessage({ type: 'pull' }) }
-      port.postMessage({ type: 'pull' })
+      port.postMessage({ type: answer })
     },
   }
   Object.defineProperty(navigator, 'serviceWorker', {
@@ -73,4 +76,14 @@ it('says the download was interrupted in the page\'s language', async () => {
   expect(await interrupted()).toBe('The download was interrupted')
   await showIn('de', de, 'de-DE')
   expect(await interrupted()).toBe('Der Download wurde unterbrochen')
+})
+
+/** sw.js answers `error` when it cannot build the download, and the save must fail rather than wait for bytes. */
+it('fails at once, saying the download was interrupted, when the worker cannot answer it', async () => {
+  fakeWorker('error')
+  const outcome = await Promise.race([
+    openStreamSink('a.bin', 4).then(() => 'opened', (e: unknown) => (e as Error).message),
+    new Promise((resolve) => setTimeout(() => resolve('still waiting after 2 s'), 2_000)),
+  ])
+  expect(outcome).toBe('The download was interrupted')
 })
