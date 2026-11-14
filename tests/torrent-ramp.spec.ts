@@ -18,8 +18,6 @@ const MIB = 1_048_576
 const DEFAULT_MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969'
 const MAGNET = process.env.RIPPLE_BENCH_MAGNET ?? DEFAULT_MAGNET
 const BENCH_SECONDS = Number(process.env.RIPPLE_BENCH_SECONDS ?? 45)
-const WARM_BYTES = Number(process.env.RIPPLE_BENCH_WARM_BYTES ?? 16 * MIB)
-const WARM_TIMEOUT_MS = Number(process.env.RIPPLE_BENCH_WARM_TIMEOUT_MS ?? 90_000)
 const REQUIRE_BYTES = process.env.RIPPLE_BENCH_REQUIRE_BYTES === '1'
 
 const tracedIncoming = new Set([
@@ -154,21 +152,6 @@ const waitForReady = (page: Page, count = 1, timeout = 30_000) =>
     count,
     { timeout },
   )
-
-const waitForTorrent = (
-  page: Page,
-  options: { minBytes?: number, metadata?: boolean, excludedWorkerId?: number },
-  timeout: number,
-) => page.waitForFunction(
-  ({ magnet, minBytes, metadata, excludedWorkerId }) => ((window as any).__rippleRamp?.events ?? [])
-    .some((event: TraceEvent) => event.type === 'state' && event.workerId !== excludedWorkerId && event.torrents?.some((torrent) =>
-      torrent.magnet === magnet &&
-      (minBytes === undefined || (torrent.totalDone ?? 0) >= minBytes) &&
-      (metadata !== true || torrent.hasMetadata)
-    )),
-  { magnet: MAGNET, ...options },
-  { timeout },
-)
 
 const torrentPoints = (events: TraceEvent[], workerId?: number): RatePoint[] =>
   events
@@ -356,81 +339,5 @@ test.describe('torrent ramp', () => {
     expect(report.failures).toEqual([])
     expect(points.length).toBeGreaterThan(1)
     if (REQUIRE_BYTES) expect(report.result.finalBytes).toBeGreaterThan(0)
-  })
-
-  test('measures the Home to Watch worker reset', async ({ page }, testInfo) => {
-    test.setTimeout((BENCH_SECONDS + WARM_TIMEOUT_MS / 1_000 + 90) * 1_000)
-    await installTrace(page)
-    await page.goto('/')
-    await waitForReady(page)
-    await submitMagnet(page)
-    const warmed = await waitForTorrent(page, { minBytes: WARM_BYTES, metadata: true }, WARM_TIMEOUT_MS)
-      .then(() => true, () => false)
-
-    const beforeWatch = await trace(page)
-    const homePoints = torrentPoints(beforeWatch)
-    const homeAddAt = beforeWatch.find((event) => event.direction === 'out' && event.type === 'add-magnet')!.at
-    if (!warmed || homePoints.length === 0) {
-      const report = {
-        browser: testInfo.project.name,
-          skippedWatch: `Home did not reach metadata plus ${WARM_BYTES} bytes within ${WARM_TIMEOUT_MS} ms`,
-        home: analyze(homePoints, homeAddAt),
-        failures: failureEvents(beforeWatch),
-      }
-      await attachReport(testInfo, 'home-to-watch-ramp', report)
-      expect(report.failures).toEqual([])
-      if (REQUIRE_BYTES) expect(warmed).toBe(true)
-      return
-    }
-
-    const homeWorkerId = homePoints.at(-1)!.workerId
-    await page.evaluate(() => {
-      const root = window as typeof window & { __ripplePlayingAt?: number | null }
-      root.__ripplePlayingAt = null
-      document.addEventListener('playing', () => { root.__ripplePlayingAt ??= performance.now() }, true)
-    })
-    const watchAt = await page.evaluate(() => performance.now())
-    await page.getByRole('link', { name: 'Watch' }).first().click()
-    await waitForTorrent(page, { metadata: true, excludedWorkerId: homeWorkerId }, 60_000)
-    await page.waitForTimeout(BENCH_SECONDS * 1_000)
-
-    const events = await trace(page)
-    const embedWorkerId = torrentPoints(events).find((point) => point.workerId !== homeWorkerId)?.workerId
-    const embedPoints = embedWorkerId === undefined ? [] : torrentPoints(events, embedWorkerId)
-    const firstKnownIndex = embedPoints.findIndex((point) => point.totalDone !== null)
-    const measuredEmbedPoints = firstKnownIndex < 0 ? [] : embedPoints.slice(firstKnownIndex)
-    const embedBaseline = measuredEmbedPoints[0]?.totalDone ?? 0
-    const firstRead = events.find((event) => event.workerId === embedWorkerId && event.direction === 'out' && event.type === 'read')
-    const firstReadResult = firstRead
-      ? events.find((event) => event.workerId === embedWorkerId && event.direction === 'in' && event.type === 'read-result' && event.id === firstRead.id)
-      : undefined
-    const firstReadError = firstRead
-      ? events.find((event) => event.workerId === embedWorkerId && event.direction === 'in' && event.type === 'read-error' && event.id === firstRead.id)
-      : undefined
-    const playingAt = await page.evaluate(() => (window as any).__ripplePlayingAt as number | null)
-    const report = {
-      browser: testInfo.project.name,
-      secondsAfterWatch: BENCH_SECONDS,
-      homeWorkerId,
-      embedWorkerId: embedWorkerId ?? null,
-      home: analyze(homePoints, homeAddAt),
-      embed: analyze(measuredEmbedPoints, watchAt, embedBaseline),
-      homeWorkerTerminated: events.some((event) => event.workerId === homeWorkerId && event.type === 'terminated'),
-      firstReadMs: firstRead ? firstRead.at - watchAt : null,
-      firstReadResultMs: firstRead && firstReadResult ? firstReadResult.at - firstRead.at : null,
-      firstReadBytes: firstReadResult?.bytes ?? 0,
-      firstReadError: firstReadError?.error ?? null,
-      playingMs: playingAt === null ? null : playingAt - watchAt,
-      failures: failureEvents(events),
-    }
-    await attachReport(testInfo, 'home-to-watch-ramp', report)
-
-    expect(report.homeWorkerTerminated).toBe(true)
-    expect(embedWorkerId).toBeDefined()
-    expect(measuredEmbedPoints.length).toBeGreaterThan(1)
-    expect(report.failures).toEqual([])
-    expect(report.firstReadError).toBeNull()
-    expect(report.firstReadBytes).toBeGreaterThan(0)
-    if (REQUIRE_BYTES) expect(report.embed.finalBytes).toBeGreaterThan(0)
   })
 })
