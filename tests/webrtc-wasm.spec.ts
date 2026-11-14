@@ -6,6 +6,11 @@
  */
 import { expect, test } from '@playwright/test'
 
+import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
+
+// with the one constant that stops WebRTC peers, the bundler leaves the stack out of the worker: nothing names it
+test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
+
 const TENANT_CSP = "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'none'; base-uri 'self'"
 
 for (const tenant of [false, true]) {
