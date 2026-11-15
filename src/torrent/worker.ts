@@ -2616,7 +2616,8 @@ const handleMessage = async (session: Session, m: any) => {
         if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
         // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
         // promotion an evicted item re-downloads straight back into the front of the eviction queue
-        // and the button spends the user's metered quota in a loop.
+        // and the button spends the user's metered quota in a loop. A Start it had as cache goes too:
+        // the entry of one deleted for room or cleared by the browser still carries `resumed`.
         track(h, e.magnet, e.infoHash, savePath, false)
         // the entry is already in hand, so the ceiling it carries comes back with it. The piece plan
         // is NOT seeded here, which is a live bug of its own rather than a precedent to copy.
@@ -2624,7 +2625,7 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
         postState()
-        await upsertList({ ...e, started: true, paused: false, ephemeral: false, lastUsedAt: Date.now() })
+        await upsertList({ ...e, started: true, paused: false, resumed: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
