@@ -1121,6 +1121,15 @@ describe('the quota offer on /watch', () => {
     await expect.poll(() => screen.container.querySelector<HTMLElement>('[role="tooltip"]')?.innerText).toBe('VPN: On')
   })
 
+  it('gives the focus back to the VPN item once answered from the keyboard', async () => {
+    const screen = await alone(DESKTOP)
+    await expect.poll(() => shown(screen)).toBe(true)
+    action(screen, 'No thanks').focus()
+    await userEvent.keyboard('{Enter}')
+    await expect.poll(() => offer(screen)).toBeNull()
+    expect(document.activeElement, 'the focus fell to the start of the page').toBe(control(screen))
+  })
+
   it('asks inside the player by Turn off VPN, as the switch does', async () => {
     const screen = await alone(DESKTOP)
     await expect.poll(() => shown(screen)).toBe(true)
