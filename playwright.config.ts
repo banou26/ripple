@@ -45,6 +45,8 @@ export default defineConfig({
     ? undefined
     : {
       command: `npx serve -s -C -p ${PORT} build`,
+      // serve otherwise asks npm's registry for a newer version of itself, on every start on a fresh runner
+      env: { NO_UPDATE_CHECK: '1' },
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: false,
       timeout: 30_000,
