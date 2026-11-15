@@ -29,6 +29,9 @@ export const toPause = (rows: readonly Torrent[]) => rows.filter((t) => t.state 
 /** The rows Resume changes: the paused, the queued and the completed. */
 export const toResume = (rows: readonly Torrent[]) => rows.filter(stopped)
 
+/** The rows Download fetches: those not on this device, as the row's own button, so never a created source. */
+export const toStart = (rows: readonly Torrent[]) => rows.filter((t) => t.state === 'missing' && t.saveTo !== 'source')
+
 export const togglePick = (picked: Picked, infoHash: string): Picked => {
   const next = new Set(picked)
   if (!next.delete(infoHash)) next.add(infoHash)

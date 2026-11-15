@@ -48,6 +48,15 @@ describe('the bulk bar', () => {
     expect(button(running, 'Remove').disabled).toBe(false)
   })
 
+  it('offers Download only while a ticked torrent is not on this device, and sends the press to it', async () => {
+    expect(button((await mount().screen).container, 'Download')).toBeUndefined()
+    const { props, screen } = mount({ canDownload: true, onDownload: vi.fn() })
+    const c = (await screen).container
+    expect(button(c, 'Download').querySelector('svg')!.classList).toContain('lucide-download')
+    button(c, 'Download').click()
+    expect(props.onDownload).toHaveBeenCalledTimes(1)
+  })
+
   it('says Stop and Start when every ticked torrent is finished, for the same two actions', async () => {
     const { props, screen } = mount({ finished: true })
     const c = (await screen).container

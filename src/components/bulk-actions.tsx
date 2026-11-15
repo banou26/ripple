@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Check, Pause, Play, Square, Trash2, X } from 'lucide-react'
+import { Check, Download, Pause, Play, Square, Trash2, X } from 'lucide-react'
 import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
@@ -163,6 +163,9 @@ export type BulkBarProps = {
   canResume: boolean
   /** Whether every ticked torrent is finished, so the two say Stop and Start. */
   finished?: boolean
+  /** Whether a ticked torrent is not on this device, which is when Download shows. */
+  canDownload?: boolean
+  onDownload?: () => void
   onPause: () => void
   onResume: () => void
   onRemove: () => void
@@ -170,8 +173,9 @@ export type BulkBarProps = {
 }
 
 /** What can be done to every ticked torrent at once, shown while any is ticked. */
-export const BulkBar = ({ count, canPause, canResume, finished, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
+export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onDownload, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
   const intl = useIntl()
+  const download = intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })
   const pause = finished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
   const resume = finished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
   const clear = intl.formatMessage({ id: 'Clear selection', defaultMessage: 'Clear selection' })
@@ -180,6 +184,11 @@ export const BulkBar = ({ count, canPause, canResume, finished, onPause, onResum
       <span className="count" role="status">
         {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
       </span>
+      {canDownload && (
+        <button type="button" className="icon" onClick={onDownload} aria-label={download} {...hint(download)}>
+          <Download aria-hidden="true"/>
+        </button>
+      )}
       <button type="button" className="icon" disabled={!canPause} onClick={onPause} aria-label={pause} {...hint(pause)}>
         {finished ? <Square aria-hidden="true"/> : <Pause aria-hidden="true"/>}
       </button>

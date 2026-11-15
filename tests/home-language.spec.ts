@@ -75,6 +75,8 @@ const standIns = (folder: string) => {
   const reads: { id: number, len: number }[] = []
   // the torrents those reads were for
   const readFrom = new Set<number>()
+  // the info hash of each start the page sent
+  const started: string[] = []
   let answering = false
   let refusal: unknown
   // each worker the page made, by its script: the engine's, and libav's for a thumbnail
@@ -92,7 +94,8 @@ const standIns = (folder: string) => {
       }
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
       removeEventListener (_: string, listener: EventListener) { heard.delete(listener) }
-      postMessage (message: { type?: string, id: number, len: number, handle: number }) {
+      postMessage (message: { type?: string, id: number, len: number, handle: number, infoHash: string }) {
+        if (message?.type === 'start') started.push(message.infoHash)
         if (message?.type !== 'read') return
         readFrom.add(message.handle)
         reads.push(message)
@@ -107,6 +110,7 @@ const standIns = (folder: string) => {
     engine,
     answerReads: () => { answering = true; answerAll() },
     readFrom: () => [...readFrom],
+    started: () => [...started],
     refuseReads: (error: unknown) => { refusal = error; answerAll() },
     // refused as a framed page's is, by the test's setting
     showSaveFilePicker: async () => {
@@ -1281,6 +1285,22 @@ test.describe('on a phone', () => {
     const details = await page.locator('main + section').boundingBox()
     expect(details!.y).toBeLessThan(844)
   })
+})
+
+test('the bar for ticked rows downloads every ticked torrent not on this device in one press, and offers it only then', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, [...LIST, entry('7', 'Elsewhere.Too', { started: false })], TORRENTS)
+  const bar = page.locator('.bulk-bar')
+  const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
+  await tick('A.Season.Pack')
+  await expect(bar).toContainText('1 selected')
+  await expect(bar.getByRole('button', { name: 'Download' })).toHaveCount(0)
+  // Made.Here is a created source, whose own row offers no download either
+  for (const name of ['Elsewhere', 'Elsewhere.Too', 'Made.Here']) await tick(name)
+  await expect(bar).toContainText('4 selected')
+  await bar.getByRole('button', { name: 'Download' }).click()
+  const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
+  await expect.poll(started).toEqual(['7'.repeat(40), 'f'.repeat(40)])
 })
 
 test('the bar for ticked rows says Stop and Start only while every ticked torrent is finished', async ({ page }) => {

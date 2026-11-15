@@ -86,7 +86,7 @@ import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
-import { pickable, toPause, toResume, useBulkSelection } from './bulk-selection'
+import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
   LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
   filterCounts, readFilter, readSort, readView, writeSort,
@@ -3104,6 +3104,7 @@ const Home = () => {
   const pickedNow = () => torrentsRef.current.filter((t) => pickable(t) && bulk.picked.has(t.infoHash))
   const pausePicked = () => { for (const t of toPause(pickedNow())) pause(Number(t.id)) }
   const resumePicked = () => { for (const t of toResume(pickedNow())) resume(Number(t.id)) }
+  const startPicked = () => { for (const t of toStart(pickedNow())) onStart(t) }
   const removePicked = async () => {
     const live = bulk.rows.filter((t) => t.state !== 'missing')
     if (live.length) {
@@ -3603,6 +3604,8 @@ const Home = () => {
           canPause={toPause(bulk.rows).length > 0}
           canResume={toResume(bulk.rows).length > 0}
           finished={bulk.rows.every(finished)}
+          canDownload={toStart(bulk.rows).length > 0}
+          onDownload={startPicked}
           onPause={pausePicked}
           onResume={resumePicked}
           onRemove={() => { void removePicked() }}

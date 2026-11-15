@@ -2,7 +2,7 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { keepShown, pickAll, pickRun, pickable, pickedRows, toPause, toResume, togglePick } from '../../src/router/bulk-selection'
+import { keepShown, pickAll, pickRun, pickable, pickedRows, toPause, toResume, toStart, togglePick } from '../../src/router/bulk-selection'
 import { visibleTorrents } from '../../src/torrent/list-view'
 
 /**
@@ -152,5 +152,13 @@ describe('the bulk selection', () => {
     expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued', 'completed'])
     expect(toPause([t({ state: 'paused' }), t({ state: 'missing' })])).toEqual([])
     expect(toResume([t({ state: 'seeding' }), t({ state: 'missing' })])).toEqual([])
+  })
+
+  /** A created source's files were never in a swarm, so its row offers no download either. */
+  it('downloads every ticked row not on this device, and never a created source', () => {
+    const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking', 'starting']
+    const ghost = t({ state: 'missing', saveTo: 'browser' })
+    const rows = [...STATES.map((state) => t({ state })), ghost, t({ state: 'missing', saveTo: 'source' })]
+    expect(toStart(rows).map((x) => x.id)).toEqual([rows[6]!.id, ghost.id])
   })
 })
