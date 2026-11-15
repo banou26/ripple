@@ -764,7 +764,7 @@ describe('the VPN switch on /watch', () => {
   })
 
   const control = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector('.media-information [role="switch"]') as HTMLElement
-  const warning = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector('[role="dialog"]') as HTMLElement | null
+  const warning = (screen: Awaited<ReturnType<typeof mount>>) => screen.container.querySelector<HTMLElement>('[role="dialog"]')
 
   it('is a switch in the row, drawn from the stored choice, with the shield crossed while it is off', async () => {
     const on = await mount(DESKTOP, WITH_LINKS)
