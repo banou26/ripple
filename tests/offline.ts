@@ -24,17 +24,26 @@ const isLocal = (url: string) => {
   return !/^https?:$/.test(protocol) || ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
 }
 
+const reached: string[] = []
+
 export const test = base.extend<{ onlyLocal: void }>({
   // under whatever launchOptions a spec sets, and first, so a spec that names rules of its own replaces these
   browser: [async ({ playwright, browserName, launchOptions }, use) => {
     const browser = await playwright[browserName].launch(browserName === 'chromium' && !DEPLOYED ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
+    // every context a spec opens, and the default one, which Playwright opens through this too
+    const newContext = browser.newContext.bind(browser)
+    browser.newContext = async (options) => {
+      const context = await newContext(options)
+      context.on('response', (response) => { if (!isLocal(response.url())) reached.push(response.url()) })
+      return context
+    }
     await use(browser)
     await browser.close()
   }, { scope: 'worker', timeout: 0 }],
   // the app still asks for fkn.app on every page and the block refuses it, so a response is a request that got past
-  onlyLocal: [async ({ context }, use) => {
-    const reached: string[] = []
-    context.on('response', (response) => { if (!isLocal(response.url())) reached.push(response.url()) })
+  // eslint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies off this pattern
+  onlyLocal: [async ({}, use) => {
+    reached.length = 0
     await use()
     if (!DEPLOYED) expect(reached, 'a request reached past this machine').toEqual([])
   }, { auto: true }],
