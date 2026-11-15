@@ -1,7 +1,6 @@
 /*
  * `test` and `expect` for the e2e:local specs, in a browser that reaches nothing off this machine. Every local spec
- * imports these but the few tests/lanes.test.ts names as needing the network; the swarm and rig lanes keep
- * Playwright's own.
+ * imports these (tests/lanes.test.ts checks it); the swarm and rig lanes keep Playwright's own.
  *
  * The published @fkn/lib has https://fkn.app built in as its broker, so the app under test loads fkn.app's frames
  * and reserves a port on a production relay like any visitor. A route() never sees the relay's WebTransport

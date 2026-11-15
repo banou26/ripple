@@ -46,11 +46,6 @@ const lane = (name: string): string[] => {
 const fixmes = (path: string) =>
   (sources[path.replace('tests/', './')]?.match(/\btest\.fixme\(/g) ?? []).length
 
-/** The local specs that need the network, and why. Every other one runs on tests/offline.ts, which blocks it. */
-const NETWORKED: Record<string, string> = {
-  'tests/download-share.spec.ts': "rebuilding a .torrent needs Sintel's metadata from the swarm",
-}
-
 describe('the e2e lanes', () => {
   it('covers every spec on disk exactly once', () => {
     const lanes = LANES.map(lane)
@@ -64,12 +59,9 @@ describe('the e2e lanes', () => {
     ).toEqual([])
   })
 
-  it('runs every local spec on tests/offline.ts, but the ones that need the network', () => {
+  it('runs every local spec on tests/offline.ts, which keeps its browser on this machine', () => {
     const offline = (path: string) => /^import \{[^}]*\btest\b[^}]*\} from '\.\/offline'$/m.test(sources[path.replace('tests/', './')] ?? '')
-    expect(
-      lane('e2e:local').filter((path) => offline(path) === (path in NETWORKED)),
-      'an e2e:local spec takes its test from ./offline, unless NETWORKED names it with its reason',
-    ).toEqual([])
+    expect(lane('e2e:local').filter((path) => !offline(path)), 'an e2e:local spec takes its test from ./offline').toEqual([])
   })
 
   it('builds before each lane, and neither tolerates a committed .only', () => {

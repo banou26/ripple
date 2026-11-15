@@ -8,13 +8,14 @@
 // Sintel is used because it carries a webseed, so the run does not depend on a swarm being alive.
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
+const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 
 /**
  * Index 5 is the 129 MB video; 0 through 4 are subtitle tracks of a few dozen KB.
@@ -29,7 +30,7 @@ const downloadUrl = (params: string) =>
   `/download?magnet=${Buffer.from(SINTEL).toString('base64')}&${params}`
 
 // the page's own torrent is a cache torrent, kept as chunk files under /cache/<infoHash>/<chunk size>/
-const SINTEL_SAVE_PATH = '/cache/08ada5a7a6183aae1e09d831df6748d566095a10'
+const SINTEL_SAVE_PATH = `/cache/${SINTEL_HASH}`
 
 /**
  * How many payload files the engine has written for this torrent, counted recursively.
@@ -423,6 +424,78 @@ print(json.dumps({
     expect(download.suggestedFilename()).toMatch(/\.srt$/)
     expect(await page.evaluate(() => (window as any).__pickerCalls)).toBe(0)
     await download.cancel().catch(() => {})
+  })
+
+  /*
+   * Taking the torrent itself away, rather than its files.
+   *
+   * There is nothing to fetch, because a magnet carries an infohash and the engine gets the rest from the swarm,
+   * after which the info dictionary lives only inside libtorrent, which exposes no way to read it back. The page
+   * rebuilds it from the resume blob, which libtorrent is asked to write with `save_info_dict`. This drives that whole
+   * chain and then checks the one property that matters: the file describes the SAME torrent.
+   */
+  test('rebuilds a .torrent that names the same torrent', async ({ page }) => {
+    test.setTimeout(180_000)
+    await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}`)
+
+    /*
+     * Metadata arriving is the precondition, and the meta line is what states it. NOT the Download
+     * button's label, which changes with the selection (a bare link says "Download 11 files as .zip"),
+     * so matching it exactly finds nothing and reports a page that never loaded.
+     */
+    await expect(page.locator('.subject .meta'), 'the swarm never delivered metadata')
+      .not.toHaveText(/Reading the torrent from the network/, { timeout: 90_000 })
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 90_000 }),
+      page.getByRole('button', { name: /Save \.torrent/ }).click(),
+    ])
+    expect(download.suggestedFilename()).toMatch(/\.torrent$/)
+
+    const path = await download.path()
+    expect(path, 'the download produced no file').toBeTruthy()
+    const bytes = readFileSync(path)
+
+    /*
+     * The infohash is computed HERE, off the bytes that actually landed, rather than trusted from the
+     * page. It is the SHA-1 of the info dictionary exactly as it appears, so this is the assertion
+     * that a decode-and-re-encode rebuild would fail: such a file parses, lists the right files at
+     * the right sizes, and belongs to a swarm that does not exist.
+     */
+    const identity = await page.evaluate(async (data) => {
+      const b = new Uint8Array(data)
+      // find the byte range of the `info` value, the same way the app does
+      const dec = new TextDecoder()
+      let at = 1
+      const readOne = (i: number): number => {
+        const c = b[i]!
+        if (c === 0x69) { let j = i + 1; while (b[j] !== 0x65) j++; return j + 1 }
+        if (c === 0x6c || c === 0x64) { let j = i + 1; while (b[j] !== 0x65) j = readOne(j); return j + 1 }
+        let j = i
+        while (b[j] !== 0x3a) j++
+        return j + 1 + Number(dec.decode(b.subarray(i, j)))
+      }
+      while (at < b.length && b[at] !== 0x65) {
+        const afterKey = readOne(at)
+        const key = dec.decode(b.subarray(at, afterKey)).replace(/^\d+:/, '')
+        const afterValue = readOne(afterKey)
+        if (key === 'info') {
+          const slice = new Uint8Array(b.slice(afterKey, afterValue))
+          const digest = await crypto.subtle.digest('SHA-1', slice.buffer)
+          return [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, '0')).join('')
+        }
+        at = afterValue
+      }
+      return null
+    }, [...bytes])
+
+    expect(identity, 'no info dictionary in the file that was saved').toBeTruthy()
+    expect(identity, 'the rebuilt file is a valid torrent for a DIFFERENT swarm').toBe(SINTEL_HASH)
+
+    // and the trackers the magnet carried came across, so the file can actually find peers
+    const text = bytes.toString('latin1')
+    expect(text).toContain('udp://tracker.opentrackr.org:1337')
+    expect(text).toContain('https://webtorrent.io/torrents/')
   })
 })
 
