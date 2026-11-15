@@ -472,11 +472,12 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     return <IntlRoot><div style={{ padding: '28px 34px' }}><VpnSwitch reachable={reach()} transport={transport} quota={reading}/></div></IntlRoot>
   }
   const mountOffer = async (reading: QuotaStatus | null, transport: EngineTransport = 'relay') => render(await offerOf(reading, transport))
-  /** Where the offer is drawn against the switch, and where its arrow points. */
+  /** Where the offer is drawn against the switch, and where its arrow points, which is at the switch's `toggle`. */
   const placed = (control: Element) => {
     const box = offer()!.getBoundingClientRect()
     const arrow = offer()!.querySelector('.react-tooltip-arrow')!.getBoundingClientRect()
-    return { box, at: control.getBoundingClientRect(), arrowX: arrow.left + arrow.width / 2, arrowTop: arrow.top }
+    const toggle = control.querySelector('.track')!.getBoundingClientRect()
+    return { box, at: control.getBoundingClientRect(), toggle, arrowX: arrow.left + arrow.width / 2, arrowTop: arrow.top }
   }
 
   afterEach(async () => {
@@ -497,10 +498,10 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     }
     await expect.poll(() => getComputedStyle(offer()!).opacity).toBe('1')
 
-    const { box, at, arrowX, arrowTop } = placed(screen.getByRole('switch').element())
+    const { box, at, toggle, arrowX, arrowTop } = placed(screen.getByRole('switch').element())
     expect(box.top).toBeGreaterThanOrEqual(at.bottom)
-    expect(arrowX).toBeGreaterThan(at.left)
-    expect(arrowX).toBeLessThan(at.right)
+    expect(arrowX, 'the arrow misses the toggle').toBeGreaterThan(toggle.left)
+    expect(arrowX, 'the arrow misses the toggle').toBeLessThan(toggle.right)
     expect(arrowTop, 'the arrow is between the switch and the box').toBeLessThan(box.top)
     expect(document.activeElement).toBe(document.body)
     expect(localStorage.length, 'something was stored for showing it').toBe(0)
@@ -696,12 +697,12 @@ describe('the offer to switch off once the FKN quota is used up', () => {
         </IntlRoot>,
       )
       await expect.poll(shown).toBe(true)
-      const { box, at, arrowX } = placed(screen.getByRole('switch').element())
+      const { box, at, toggle, arrowX } = placed(screen.getByRole('switch').element())
       expect(box.left, justify).toBeGreaterThanOrEqual(0)
       expect(box.right, justify).toBeLessThanOrEqual(390)
       expect(box.top, justify).toBeGreaterThanOrEqual(at.bottom)
-      expect(arrowX, justify).toBeGreaterThan(at.left)
-      expect(arrowX, justify).toBeLessThan(at.right)
+      expect(arrowX, justify).toBeGreaterThan(toggle.left)
+      expect(arrowX, justify).toBeLessThan(toggle.right)
       expect(document.documentElement.scrollWidth, justify).toBeLessThanOrEqual(390)
       await screen.unmount()
     }

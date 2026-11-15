@@ -93,11 +93,16 @@ const playerStyle = css`
 
 /**
  * What the VPN's switch offers once the FKN quota is used up: to switch the VPN off, which nothing meters. Drawn under
- * the element whose id is `anchor`, with an arrow to it, and open until answered; an answer given with the focus in it
- * hands the focus to that element. `onAnswer(true)` is Turn off VPN. `inPlayer` draws it in the player's top row, at
- * its end and in its unit.
+ * the element whose id is `anchor`, with an arrow to it, or to the part of it `pointAt` selects, and open until
+ * answered; an answer given with the focus in it hands the focus to that element. `onAnswer(true)` is Turn off VPN.
+ * `inPlayer` draws it in the player's top row, at its end and in its unit.
  */
-export const QuotaOffer = ({ anchor, onAnswer, inPlayer }: { anchor: string, onAnswer: (off: boolean) => void, inPlayer?: boolean }) => {
+export const QuotaOffer = ({ anchor, pointAt, onAnswer, inPlayer }: {
+  anchor: string
+  pointAt?: string
+  onAnswer: (off: boolean) => void
+  inPlayer?: boolean
+}) => {
   const intl = useIntl()
   const line = useId()
   const box = useRef<HTMLDivElement>(null)
@@ -109,7 +114,7 @@ export const QuotaOffer = ({ anchor, onAnswer, inPlayer }: { anchor: string, onA
   return (
     <Tooltip
       css={[style, inPlayer && playerStyle]}
-      anchorSelect={`#${CSS.escape(anchor)}`}
+      anchorSelect={`#${CSS.escape(anchor)}${pointAt ? ` ${pointAt}` : ''}`}
       isOpen
       imperativeModeOnly
       clickable

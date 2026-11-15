@@ -330,7 +330,8 @@ export const VpnSwitch = ({ reachable, transport, quota }: {
   return (
     <>
       <button type="button" role="switch" id={anchor} aria-checked={vpn.on} onClick={vpn.press} {...shared}>{body}</button>
-      {vpn.offer && <QuotaOffer anchor={anchor} onAnswer={vpn.offer}/>}
+      {/* at the toggle: the button keeps room for the widest state word, so its middle is blank under a short one */}
+      {vpn.offer && <QuotaOffer anchor={anchor} pointAt=".track" onAnswer={vpn.offer}/>}
       {vpn.answer && <VpnWarning onAnswer={vpn.answer}/>}
     </>
   )
