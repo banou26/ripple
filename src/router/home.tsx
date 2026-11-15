@@ -89,7 +89,7 @@ import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, useBulkSelection } from './bulk-selection'
 import {
   LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
-  isTemporary, readFilter, readSort, readView, writeSort,
+  filterCounts, readFilter, readSort, readView, writeSort,
 } from '../torrent/list-view'
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
@@ -3089,7 +3089,7 @@ const Home = () => {
    * the second one, and letting it silence the first would make the app report 0 B/s while it is
    * plainly downloading.
    */
-  const temporaryCount = torrents.filter(isTemporary).length
+  const filterCount = filterCounts(torrents)
   const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
   // the add field, when what it holds adds nothing, narrows the list instead
   const adds = readMagnets(input).length > 0
@@ -3140,9 +3140,6 @@ const Home = () => {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [anyPicked, clearPicked])
   const hiddenByFilter = torrents.length - visibleRows.length
-  const hiddenBytes = listFilter === 'library'
-    ? torrents.filter(isTemporary).reduce((n, t) => n + t.size, 0)
-    : 0
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
@@ -3512,7 +3509,7 @@ const Home = () => {
           filter={listFilter} onFilter={chooseFilter}
           sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
           view={listView} onView={chooseView}
-          temporaryCount={temporaryCount}
+          counts={filterCount}
           picked={bulk.all ? 'all' : anyPicked ? 'some' : 'none'}
           canPick={bulk.canPick}
           onPickAll={bulk.toggleAll}
@@ -3539,11 +3536,12 @@ const Home = () => {
                * full library that it is empty. It names the filter as the reason and offers the way
                * back, because a control the person set two seconds ago is still the least obvious
                * thing on the page once the list it emptied is gone.
+               *
+               * Not while a row is still starting: its state is not known yet, so a state filter
+               * remembered from the last visit would read empty for the second after every reload.
                */
-              <div className="empty">
-                {listFilter === 'temporary'
-                  ? intl.formatMessage({ id: 'No temporary downloads.', defaultMessage: 'No temporary downloads.' })
-                  : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
+              !torrents.some((t) => t.state === 'starting') && <div className="empty">
+                {intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
                   <button type="button" className="link" onClick={() => { chooseFilter('all'); setInput('') }}>
                     {intl.formatMessage({ id: 'Show everything', defaultMessage: 'Show everything' })}
@@ -3593,9 +3591,7 @@ const Home = () => {
             same way back, and two Show buttons is one too many */}
         {hiddenByFilter > 0 && shown.length > 0 && (
           <div className="hidden-note" role="status">
-            {hiddenBytes > 0
-              ? intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}', defaultMessage: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}' }, { count: hiddenByFilter, size: getHumanReadableByteString(hiddenBytes, true) })
-              : intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}', defaultMessage: '{count, plural, one {{count} temporary download hidden} other {{count} temporary downloads hidden}}' }, { count: hiddenByFilter })}
+            {intl.formatMessage({ id: '{count, plural, one {{count} torrent hidden} other {{count} torrents hidden}}', defaultMessage: '{count, plural, one {{count} torrent hidden} other {{count} torrents hidden}}' }, { count: hiddenByFilter })}
             <button type="button" className="link" onClick={() => chooseFilter('all')}>{intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}</button>
           </div>
         )}

@@ -382,7 +382,7 @@ const everySurface = async (page: Page, width: number) => {
   await page.goto(origin)
   await library(page, [LIST[0]!, LIST[2]!], [TORRENTS[0]!, { ...TORRENTS[2]!, files: null }])
   await expect(page.locator('.hidden-note')).toBeVisible()
-  await read('one hidden, no size')
+  await read('one hidden')
 
   await page.goto(origin)
   await library(page, [LIST[2]!], TORRENTS.slice(2, 3))
@@ -392,7 +392,7 @@ const everySurface = async (page: Page, width: number) => {
   await reopen('temporary')
   await library(page, LIST.slice(0, 2), TORRENTS.slice(0, 2))
   await expect(page.locator('.empty')).toBeVisible()
-  await read('no temporary downloads')
+  await read('nothing temporary')
 
   await page.evaluate(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
   await reopen('all')
@@ -1046,7 +1046,7 @@ test.describe('in each language', () => {
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'library'])
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
-    await expect(page.locator('.hidden-note')).toContainText(/^2 temporäre Downloads ausgeblendet · 9\sGB/u)
+    await expect(page.locator('.hidden-note')).toContainText(/^2 Torrents ausgeblendet/u)
   })
 })
 
@@ -1294,6 +1294,44 @@ test('the bar for ticked rows says Stop and Start only while every ticked torren
   await expect(bar.getByRole('button', { name: 'Pause' }).locator('svg')).toHaveClass(/lucide-pause/)
   await expect(bar.getByRole('button', { name: 'Resume' })).toBeEnabled()
   await expect(bar.getByRole('button', { name: 'Stop' })).toHaveCount(0)
+})
+
+test('the Show menu shows the rows of the state picked, counts each, offers none with no rows, and is remembered', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const show = page.getByRole('combobox', { name: 'Show' })
+  await show.selectOption('seeding')
+  await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
+  await expect(show.locator('option:checked')).toHaveText('Seeding (1)')
+  const offered = await show.locator('option').evaluateAll(all => all.map(option => (option as HTMLOptionElement).value))
+  expect(offered).toEqual(['all', 'library', 'temporary', 'downloading', 'seeding', 'completed', 'paused', 'missing', 'retrying'])
+  for (const value of offered) {
+    await show.selectOption(value)
+    const count = Number(/\((\d+)\)$/u.exec(await show.locator('option:checked').textContent() ?? '')?.[1])
+    await expect(page.locator('.torrent'), value).toHaveCount(count)
+  }
+
+  await show.selectOption('paused')
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await expect(show).toHaveValue('paused')
+  await expect(page.locator('.torrent .title')).toHaveText(['Kept.Paused'])
+
+  await show.selectOption('all')
+  await page.goto(origin)
+  await library(page, LIST.slice(0, 2), TORRENTS.slice(0, 2))
+  await expect(show.locator('option')).toHaveText(['All (2)', 'Downloading (1)', 'Seeding (1)'])
+})
+
+test('a state filter says nothing matches only once no row is still starting', async ({ page }) => {
+  await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'seeding'])
+  await page.goto(origin)
+  await library(page, [entry('e', 'On.Its.Way')], [])
+  // the starting row is in the library, so the toolbar counts it
+  await expect(page.getByRole('combobox', { name: 'Show' }).locator('option').first()).toHaveText('All (1)')
+  await expect(page.locator('.empty')).toHaveCount(0)
+  await post(page, { type: 'state', torrents: [snapshot(9, 'e', 'On.Its.Way', {})] })
+  await expect(page.locator('.empty')).toContainText('Nothing matches this filter.')
 })
 
 test('the auto-save folder takes a completed torrent as well as a seeding one, and no download', async ({ page }) => {

@@ -30,7 +30,22 @@ export const TEMPORARY_GONE_HINT = defineMessage({ id: 'Deleted to free space.',
 
 // -------------------------------------------------------------------------------------- the filter
 
-export type ListFilter = 'all' | 'library' | 'temporary'
+/** What the Show menu offers, in its order. Every value past Temporary is a `TorrentState`, matched as it is. */
+export const FILTERS = ['all', 'library', 'temporary', 'downloading', 'seeding', 'completed', 'paused', 'missing', 'retrying'] as const
+
+export type ListFilter = typeof FILTERS[number]
+
+export const FILTER_LABEL = defineMessages<ListFilter>({
+  all: { id: 'All', defaultMessage: 'All' },
+  library: { id: 'Kept', defaultMessage: 'Kept' },
+  temporary: { id: 'Temporary#filter', defaultMessage: 'Temporary', description: 'filter' },
+  downloading: { id: 'Downloading#filter', defaultMessage: 'Downloading', description: 'filter' },
+  seeding: { id: 'Seeding#filter', defaultMessage: 'Seeding', description: 'filter' },
+  completed: { id: 'Completed#filter', defaultMessage: 'Completed', description: 'filter' },
+  paused: { id: 'Paused#filter', defaultMessage: 'Paused', description: 'filter' },
+  missing: { id: 'Not on this device#filter', defaultMessage: 'Not on this device', description: 'filter' },
+  retrying: { id: 'Retrying#filter', defaultMessage: 'Retrying', description: 'filter' },
+})
 
 /**
  * `=== true` is the only positive test, so a row whose flag is unknown counts as LIBRARY.
@@ -41,12 +56,20 @@ export type ListFilter = 'all' | 'library' | 'temporary'
  */
 export const isTemporary = (t: Torrent): boolean => t.ephemeral === true
 
-export const visibleTorrents = (all: readonly Torrent[], filter: ListFilter): Torrent[] =>
-  filter === 'all'
-    ? [...all]
-    : filter === 'temporary'
-      ? all.filter(isTemporary)
-      : all.filter((t) => !isTemporary(t))
+const shows = (filter: ListFilter, t: Torrent): boolean =>
+  filter === 'all' || (filter === 'library' ? !isTemporary(t) : filter === 'temporary' ? isTemporary(t) : t.state === filter)
+
+export const visibleTorrents = (all: readonly Torrent[], filter: ListFilter): Torrent[] => all.filter((t) => shows(filter, t))
+
+export const filterCounts = (all: readonly Torrent[]): Record<ListFilter, number> =>
+  Object.fromEntries(FILTERS.map((f) => [f, all.filter((t) => shows(f, t)).length])) as Record<ListFilter, number>
+
+/**
+ * What the Show menu offers: All, each filter that shows a row, and `chosen` even once it shows none, so the menu still
+ * names what emptied the list. Kept goes only with Temporary, since with nothing temporary it shows what All does.
+ */
+export const offeredFilters = (counts: Record<ListFilter, number>, chosen: ListFilter): ListFilter[] =>
+  FILTERS.filter((f) => f === 'all' || f === chosen || (counts[f] > 0 && (f !== 'library' || counts.temporary > 0)))
 
 // ---------------------------------------------------------------------------------------- the sort
 
@@ -193,7 +216,7 @@ export type ViewMode = 'cards' | 'table'
  * These are PAGE preferences, so localStorage is right. The temporary flag is not one of these and
  * never comes here: it is engine state, owned by whichever tab won the election.
  */
-const isFilter = (v: unknown): v is ListFilter => v === 'all' || v === 'library' || v === 'temporary'
+const isFilter = (v: unknown): v is ListFilter => (FILTERS as readonly unknown[]).includes(v)
 const isView = (v: unknown): v is ViewMode => v === 'cards' || v === 'table'
 const isKey = (v: unknown): v is SortKey => typeof v === 'string' && v in SORT_LABEL
 const isDir = (v: unknown): v is SortDir => v === 'asc' || v === 'desc'

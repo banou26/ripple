@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useIntl } from 'react-intl'
 
-import { NATURAL_DIR, SORT_LABEL } from '../torrent/list-view'
+import { FILTER_LABEL, NATURAL_DIR, SORT_LABEL, offeredFilters } from '../torrent/list-view'
 import { checkStyle } from './bulk-actions'
 import { hint } from './hint'
 import {
@@ -72,16 +72,10 @@ const style = css`
         outline: none;
         box-shadow: 0 0 0 2px ${FOCUS_RING};
       }
-
-      .count {
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        opacity: 0.85;
-      }
     }
   }
 
-  label.sort {
+  label.show, label.sort {
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -138,8 +132,8 @@ export type ListToolbarProps = {
   onSort: (key: SortKey, dir: SortDir) => void
   view: ViewMode
   onView: (view: ViewMode) => void
-  /** How many temporary downloads exist, which decides whether the filter is worth showing at all. */
-  temporaryCount: number
+  /** How many rows each filter shows, which also decides the ones offered: see `offeredFilters`. */
+  counts: Record<ListFilter, number>
   /** How many of the rows shown are ticked for a bulk action; the box ticks them all or none. */
   picked: 'none' | 'some' | 'all'
   /** False when no row shown can be ticked, which disables the box. */
@@ -148,13 +142,14 @@ export type ListToolbarProps = {
 }
 
 export const ListToolbar = (
-  { filter, onFilter, sortKey, sortDir, onSort, view, onView, temporaryCount, picked, canPick, onPickAll }: ListToolbarProps,
+  { filter, onFilter, sortKey, sortDir, onSort, view, onView, counts, picked, canPick, onPickAll }: ListToolbarProps,
 ) => {
   const intl = useIntl()
   const pickAll = useRef<HTMLInputElement>(null)
   // a property with no attribute, so React cannot set it
   useEffect(() => { if (pickAll.current) pickAll.current.indeterminate = picked === 'some' }, [picked])
   const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
+  const show = intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })
   return <div css={style} className="list-toolbar">
     <label css={checkStyle} className="pick-all" {...hint(selectAll)}>
       <input
@@ -168,32 +163,21 @@ export const ListToolbar = (
     </label>
 
     {/*
-      * Hidden entirely when nothing is temporary, which is the state most people are in for good.
-      * An option that cannot change an outcome is not shown, and a filter offering to hide a
-      * category with nothing in it teaches the wrong thing about what the app is doing.
-      */}
-    {temporaryCount > 0 && (
-      <div className="seg" role="group" aria-label={intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}>
-        <button
-          type="button" data-on={filter === 'all' || undefined} aria-pressed={filter === 'all'}
-          onClick={() => onFilter('all')}
-        >{intl.formatMessage({ id: 'All', defaultMessage: 'All' })}</button>
-        <button
-          type="button" data-on={filter === 'library' || undefined} aria-pressed={filter === 'library'}
-          onClick={() => onFilter('library')}
-        >{intl.formatMessage({ id: 'Kept', defaultMessage: 'Kept' })}</button>
-        <button
-          type="button" data-on={filter === 'temporary' || undefined} aria-pressed={filter === 'temporary'}
-          onClick={() => onFilter('temporary')}
-        >{intl.formatMessage({ id: 'Temporary#filter', defaultMessage: 'Temporary', description: 'filter' })} <span className="count">{temporaryCount}</span></button>
-      </div>
-    )}
-
-    {/*
-      * A native select rather than the app's own menu. It is one of eight mutually exclusive values
+      * Native selects rather than the app's own menu. Each is one of a few mutually exclusive values
       * with no icons and no per-item state, which is what a select is for, and it brings keyboard
       * handling, type-ahead and a touch picker that none of this code has to own.
       */}
+    <label className="show">
+      {show}
+      <select aria-label={show} value={filter} onChange={(e) => onFilter(e.target.value as ListFilter)}>
+        {offeredFilters(counts, filter).map((f) => (
+          <option key={f} value={f}>
+            {intl.formatMessage({ id: '{filter} ({count})', defaultMessage: '{filter} ({count})' }, { filter: intl.formatMessage(FILTER_LABEL[f]), count: counts[f] })}
+          </option>
+        ))}
+      </select>
+    </label>
+
     <label className="sort">
       {intl.formatMessage({ id: 'Sort', defaultMessage: 'Sort' })}
       <select

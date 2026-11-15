@@ -1,10 +1,10 @@
-import type { Torrent } from '../../src/torrent/types'
+import type { Torrent, TorrentState } from '../../src/torrent/types'
 
 import { describe, expect, it } from 'vitest'
 
 import {
-  DEFAULT_SORT, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
-  compareTorrents, isTemporary, isVolatile, readFilter, readSort, readView,
+  DEFAULT_SORT, FILTERS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
+  compareTorrents, filterCounts, isTemporary, isVolatile, offeredFilters, readFilter, readSort, readView,
   shouldReorder, sortTorrents, visibleTorrents, writeSort,
 } from '../../src/torrent/list-view'
 
@@ -71,6 +71,41 @@ describe('the temporary filter', () => {
     const input = [mine, temp]
     visibleTorrents(input, 'library')
     expect(input).toHaveLength(2)
+  })
+})
+
+describe('the state filters', () => {
+  const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking', 'starting']
+  const rows = STATES.map((state) => t({ name: state, state }))
+
+  it('shows only the rows in each state', () => {
+    for (const state of ['downloading', 'seeding', 'completed', 'paused', 'missing', 'retrying'] as const) {
+      expect(names(visibleTorrents(rows, state)), state).toEqual([state])
+    }
+  })
+
+  it('counts the rows each filter shows, from the same rule', () => {
+    const library = [...rows, t({ state: 'seeding', ephemeral: true }), t({ state: 'seeding' })]
+    const counts = filterCounts(library)
+    expect(counts).toEqual({ all: 12, library: 11, temporary: 1, downloading: 1, seeding: 3, completed: 1, paused: 1, missing: 1, retrying: 1 })
+    for (const f of FILTERS) expect(counts[f], f).toBe(visibleTorrents(library, f).length)
+  })
+
+  const none = Object.fromEntries(FILTERS.map((f) => [f, 0])) as ReturnType<typeof filterCounts>
+
+  it('offers All and each filter that shows a row, never one that shows none', () => {
+    expect(offeredFilters({ ...none, all: 5, library: 3, temporary: 2, seeding: 4, missing: 1 }, 'all'))
+      .toEqual(['all', 'library', 'temporary', 'seeding', 'missing'])
+  })
+
+  /** with nothing temporary, Kept shows exactly what All does */
+  it('offers Kept only beside Temporary', () => {
+    expect(offeredFilters({ ...none, all: 3, library: 3, downloading: 3 }, 'all')).toEqual(['all', 'downloading'])
+  })
+
+  /** a remembered filter can match nothing after a reload, and the menu still has to say which it is */
+  it('keeps offering the chosen filter once it shows nothing', () => {
+    expect(offeredFilters({ ...none, all: 3, downloading: 3 }, 'seeding')).toEqual(['all', 'downloading', 'seeding'])
   })
 })
 
@@ -232,6 +267,7 @@ describe('the stored preferences', () => {
   it('reads back what it wrote', () => {
     expect(readSort(from({ 'ripple:list-sort': writeSort('size', 'asc') }))).toEqual({ key: 'size', dir: 'asc' })
     expect(readFilter(from({ 'ripple:list-filter': 'temporary' }))).toBe('temporary')
+    for (const filter of FILTERS) expect(readFilter(from({ 'ripple:list-filter': filter }))).toBe(filter)
     expect(readView(from({ 'ripple:list-view': 'table' }))).toBe('table')
   })
 

@@ -54,7 +54,7 @@ const mount = async (view: 'cards' | 'table', { above = 0, dock = 0 } = {}) => {
         {above > 0 && <div style={{ flex: 'none', height: above }}/>}
         <ListToolbar
           filter="all" onFilter={noop} sortKey="added" sortDir="desc" onSort={noop}
-          view={view} onView={noop} temporaryCount={0} picked="none" canPick onPickAll={noop}
+          view={view} onView={noop} counts={{ all: 30, library: 30, temporary: 0, downloading: 30, seeding: 0, completed: 0, paused: 0, missing: 0, retrying: 0 }} picked="none" canPick onPickAll={noop}
         />
         <main>
           {view === 'table'

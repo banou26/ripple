@@ -14,6 +14,8 @@ import { showEnglish, showIn } from '../i18n/show-in'
  * says which option is live, and that choosing a sort key sends the direction that answers the
  * question it was chosen to ask rather than whatever was set last.
  */
+const COUNTS = { all: 6, library: 4, temporary: 2, downloading: 2, seeding: 2, completed: 1, paused: 0, missing: 1, retrying: 0 }
+
 const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
   const props = {
     filter: 'all' as const,
@@ -23,7 +25,7 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
     onSort: vi.fn(),
     view: 'cards' as const,
     onView: vi.fn(),
-    temporaryCount: 2,
+    counts: COUNTS,
     picked: 'none' as 'none' | 'some' | 'all',
     canPick: true,
     onPickAll: vi.fn(),
@@ -34,6 +36,10 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
 
 const pressed = (c: HTMLElement, name: string) =>
   [...c.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(name))?.getAttribute('aria-pressed')
+
+const shown = (c: HTMLElement) => c.querySelector<HTMLSelectElement>('label.show select')!
+const sorted = (c: HTMLElement) => c.querySelector<HTMLSelectElement>('label.sort select')!
+const options = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent)
 
 describe('the list toolbar', () => {
   /** One box for every row shown, ticked when all are, mixed when some are. */
@@ -57,33 +63,37 @@ describe('the list toolbar', () => {
   it('says which filter, sort direction and view are live', async () => {
     const { screen } = mount({ filter: 'library', view: 'table' })
     const c = (await screen).container
-    expect(pressed(c, 'Kept')).toBe('true')
-    expect(pressed(c, 'All')).toBe('false')
+    expect(shown(c)).toHaveValue('library')
     expect(pressed(c, 'Table')).toBe('true')
-    expect(c.querySelector('select')).toHaveValue('added')
+    expect(sorted(c)).toHaveValue('added')
   })
 
-  it('counts the temporary downloads on the filter itself', async () => {
-    const { screen } = mount({ temporaryCount: 7 })
-    expect((await screen).container.textContent).toContain('7')
+  it('offers each filter that shows a row, with how many it shows', async () => {
+    const { screen } = mount()
+    const select = (await screen).getByRole('combobox', { name: 'Show' }).element() as HTMLSelectElement
+    expect(options(select)).toEqual(['All (6)', 'Kept (4)', 'Temporary (2)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
   })
 
   /**
-   * The state most people are in permanently. A filter offering to hide a category with nothing in
-   * it is a control that cannot change an outcome, and it teaches the wrong thing about the app.
+   * The state most people are in permanently. An option that cannot change an outcome is not shown, and
+   * a filter offering to hide a category with nothing in it teaches the wrong thing about the app.
    */
-  it('hides the filter entirely when nothing is temporary', async () => {
-    const { screen } = mount({ temporaryCount: 0 })
-    const c = (await screen).container
-    expect(pressed(c, 'Kept')).toBeUndefined()
-    // the view switch is still there: it is not about temporary downloads
-    expect(pressed(c, 'Cards')).toBe('true')
+  it('offers neither Kept nor Temporary when nothing is temporary', async () => {
+    const { screen } = mount({ counts: { ...COUNTS, all: 4, temporary: 0 } })
+    expect(options(shown((await screen).container))).toEqual(['All (4)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
+  })
+
+  it('still names the chosen filter once it shows nothing', async () => {
+    const { screen } = mount({ filter: 'paused' })
+    const select = shown((await screen).container)
+    expect(select).toHaveValue('paused')
+    expect(select.selectedOptions[0]?.textContent).toBe('Paused (0)')
   })
 
   it('reports each filter when chosen', async () => {
     const { props, screen } = mount()
-    await (await screen).getByRole('button', { name: /Temporary/ }).click()
-    expect(props.onFilter).toHaveBeenCalledWith('temporary')
+    await (await screen).getByRole('combobox', { name: 'Show' }).selectOptions('seeding')
+    expect(props.onFilter).toHaveBeenCalledWith('seeding')
   })
 
   /**
@@ -92,7 +102,7 @@ describe('the list toolbar', () => {
    */
   it('starts a newly chosen key in the direction that answers it', async () => {
     const { props, screen } = mount({ sortKey: 'name', sortDir: 'asc' })
-    const select = (await screen).container.querySelector('select')!
+    const select = sorted((await screen).container)
     select.value = 'size'
     select.dispatchEvent(new Event('change', { bubbles: true }))
     expect(props.onSort).toHaveBeenCalledWith('size', 'desc')
@@ -106,8 +116,7 @@ describe('the list toolbar', () => {
 
   it('offers every sort key the rules define', async () => {
     const { screen } = mount()
-    const options = [...(await screen).container.querySelectorAll('option')].map((o) => o.value)
-    expect(options).toEqual(['added', 'name', 'size', 'progress', 'down', 'up', 'peers', 'eta'])
+    expect([...sorted((await screen).container).options].map((o) => o.value)).toEqual(['added', 'name', 'size', 'progress', 'down', 'up', 'peers', 'eta'])
   })
 
   it('names the direction control for a screen reader, since it is only an arrow', async () => {
@@ -120,13 +129,18 @@ describe('the list toolbar', () => {
 
     it('words every control and every sort key', async () => {
       await showIn('de', de)
-      const { screen } = mount({ sortDir: 'asc', temporaryCount: 3 })
+      const { screen } = mount({ sortDir: 'asc' })
       const c = (await screen).container
-      expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Alle', 'Behalten', 'Temporär 3', '', 'Karten', 'Tabelle'])
-      expect([...c.querySelectorAll('[role=group]')].map((g) => g.getAttribute('aria-label'))).toEqual(['Anzeigen', 'Ansicht'])
+      expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['', 'Karten', 'Tabelle'])
+      expect([...c.querySelectorAll('[role=group]')].map((g) => g.getAttribute('aria-label'))).toEqual(['Ansicht'])
+      expect(c.querySelector('label.show')?.firstChild?.textContent).toBe('Anzeigen')
+      expect(shown(c).getAttribute('aria-label')).toBe('Anzeigen')
+      expect(options(shown(c))).toEqual([
+        'Alle (6)', 'Behalten (4)', 'Temporär (2)', 'Lädt herunter (2)', 'Seeden (2)', 'Abgeschlossen (1)', 'Nicht auf diesem Gerät (1)',
+      ])
       expect(c.querySelector('label.sort')?.firstChild?.textContent).toBe('Sortieren')
-      expect(c.querySelector('select')?.getAttribute('aria-label')).toBe('Sortieren nach')
-      expect([...c.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+      expect(sorted(c).getAttribute('aria-label')).toBe('Sortieren nach')
+      expect(options(sorted(c))).toEqual([
         'Hinzugefügt am', 'Name', 'Größe', 'Fortschritt', 'Download-Geschwindigkeit', 'Upload-Geschwindigkeit', 'Peers', 'Restzeit',
       ])
       expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Aufsteigend sortiert, klicken für absteigend')
@@ -136,9 +150,10 @@ describe('the list toolbar', () => {
     // a row's chip is one temporary download, the filter is all of them
     it('names the filters in the plural, as a group', async () => {
       await showIn('fr', fr)
-      const { screen } = mount({ temporaryCount: 2 })
-      const filters = [...(await screen).container.querySelector('.seg')!.querySelectorAll('button')].map((b) => b.textContent)
-      expect(filters).toEqual(['Tous', 'Conservés', 'Temporaires 2'])
+      const { screen } = mount()
+      expect(options(shown((await screen).container))).toEqual([
+        'Tous (6)', 'Conservés (4)', 'Temporaires (2)', 'Téléchargement (2)', 'Partage (2)', 'Terminés (1)', 'Pas sur cet appareil (1)',
+      ])
     })
 
     it('words the other direction', async () => {
