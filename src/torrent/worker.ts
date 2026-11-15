@@ -829,15 +829,15 @@ const dropOutside = async (h: number) => {
 }
 
 /**
- * Write this torrent's own priorities over the default map.
+ * Write this torrent's own priorities over whatever the engine holds, the ordinary map included: a plan back to every
+ * file has to undo the skips the one before it wrote.
  *
- * Silent when there is nothing to say, so an ordinary torrent costs no vector copy across the
- * boundary. The layout is required rather than waited for: with no file list there are no piece
- * ranges to compute, and `needsPriorityReset` brings the handle back once the metadata lands.
+ * The layout is required rather than waited for: with no file list there are no piece ranges to compute, and
+ * `needsPriorityReset` brings the handle back once the metadata lands.
  */
 const applyPiecePlan = (h: number) => {
   const plan = planByHandle.get(h)
-  if (!session || !plan || planIsDefault(plan)) return
+  if (!session || !plan) return
   const files = session.files(h)
   if (!files) return
   session.prioritizePieces(h, piecePlan({
@@ -899,8 +899,9 @@ const applyViewing = (h: number) => {
     session.clearStreamWindow(h)
     // clearStreamWindow just wrote normal over every piece, so anything the person chose has to be
     // written back on top of it. This is the only place that happens, which is why it is also what
-    // makes a selection survive a reload.
-    applyPiecePlan(h)
+    // makes a selection survive a reload. An ordinary torrent has nothing to write back, and costs no
+    // vector copy across the boundary.
+    if (!planIsDefault(planByHandle.get(h) ?? {})) applyPiecePlan(h)
     // Clearing the window also puts every OTHER file in the torrent back to normal priority, so a
     // player closing on one episode of a pack turns into a full speed download of the whole pack
     // that nobody asked for and no screen shows. For a cache torrent that is bytes the budget pass
