@@ -1491,6 +1491,16 @@ test('with Ask on, a picked .torrent\'s dialog is drawn with every file ticked f
   expect(problem).toBe('')
 })
 
+test('with Ask on, a magnet the dialog refuses is passed over for the next one', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const field = page.locator('header form input:not([type=file])')
+  await field.fill(`magnet:?xt=urn:btih:${'z'.repeat(40)}&dn=Bad ${magnetOf('7', 'Seven')}`)
+  await field.press('Enter')
+  await expect(page.getByRole('dialog').locator('h2')).toHaveText('Seven')
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
