@@ -153,3 +153,16 @@ it('keeps running one the person resumed while a Save read it, after the Save an
   expect(of('g')).toEqual(['pause', 'resume', 'resume'])
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 25_000)
+
+it('ends the Start with the person\'s Stop, so once a check has cleared the Stop it is parked as before', async () => {
+  rig.send({ type: 'pause', handle: handleOf('g') })
+  await vi.waitFor(() => expect(entryOf('g')).toMatchObject({ paused: true, resumed: false }))
+  // a check clears the person's pause, as libtorrent's does
+  rig.send({ type: 'recheck', handle: handleOf('g') })
+  await vi.waitFor(() => expect(entryOf('g')).toMatchObject({ paused: false }))
+  comeAndGo('g', 'player:2')
+  await vi.waitFor(() => expect(of('g')).toEqual(['pause', 'resume', 'resume', 'pause', 'recheck', 'pause']), { timeout: 2_000 })
+  expect((await save('after the check', 'g', 8 * MiB)).type).toBe('read-result')
+  await vi.waitFor(() => expect(of('g').slice(6)).toEqual(['resume', 'pause']), { timeout: 8_000 })
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 20_000)

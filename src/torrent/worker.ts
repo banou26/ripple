@@ -294,7 +294,7 @@ const ephemeralHandles = new Set<number>()
 // Stopped because nobody is watching, which is NOT the user's pause: it stays out of `userPaused`
 // and out of the persisted `paused` flag, so it never looks like a decision the user made.
 const cacheIdle = new Set<number>()
-// Started by the person, kept as the list's `resumed`: the idle park leaves a temporary one running, and their pause stops it.
+// Started by the person, kept as the list's `resumed`: the idle park leaves a temporary one running until their pause, which ends it.
 const userStarted = new Set<number>()
 // When a torrent last served a read made without a viewer. The library's save to disk and zip and
 // the auto-save folder mirror read that way, so a viewer check alone would call them idle and delete
@@ -2652,13 +2652,13 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'pause') {
       userPaused.add(m.handle)
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
-      cacheIdle.delete(m.handle)
+      cacheIdle.delete(m.handle); userStarted.delete(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, TORRENT_PAUSED)
       void persistResume(m.handle)
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: true })
+      if (ih) await patchList(ih, { paused: true, resumed: false })
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
       userStarted.add(m.handle)

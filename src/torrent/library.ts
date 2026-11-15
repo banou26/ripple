@@ -10,7 +10,7 @@ import type { TorrentFormat } from './make-torrent'
 
 // started === false is a torrent synced from another device and NOT added to the session; both flags are device-local and deliberately left out of the cloud backup
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
-// resumed === true is a start the user asked for, after which the idle park leaves a temporary torrent running; a pause still outranks it
+// resumed === true is a start the user asked for, after which the idle park leaves a temporary torrent running until their pause clears it
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
 // lastUsedAt orders that cache; rootEntry is the one name the torrent occupies inside its save path, which is what lets the orphan sweep account for it
 // wantedFiles is the file selection, absent meaning all of them, and firstLast is qBittorrent's "download first and last pieces first"; both live here rather than only in the engine because clearStreamWindow rewrites the whole priority map on every restore
