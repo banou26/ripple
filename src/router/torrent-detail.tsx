@@ -233,6 +233,9 @@ const Files = ({
   onWanted: ((wanted: number[] | undefined) => void) | null
 }) => {
   const intl = useIntl()
+  // the selection last sent, read until the torrent reports it, so a tick made before then builds on it
+  const [sent, setSent] = useState<{ wanted: number[] | undefined }>()
+  if (sent && String(sent.wanted) === String(t.wantedFiles)) setSent(undefined)
   const files = contentFiles(t.files)
   const { bitfield } = t
   const shares = useMemo(
@@ -240,11 +243,14 @@ const Files = ({
     [t.files, bitfield],
   )
   if (!files.length) return <p className="none">{intl.formatMessage({ id: 'No file list yet.', defaultMessage: 'No file list yet.' })}</p>
-  const ticked = (f: TorrentFile) => !t.wantedFiles || t.wantedFiles.includes(f.index)
+  const wanted = sent ? sent.wanted : t.wantedFiles
+  const ticked = (f: TorrentFile) => !wanted || wanted.includes(f.index)
   const tickedCount = files.filter(ticked).length
   const toggle = (index: number) => {
     const next = files.filter((f) => (f.index === index ? !ticked(f) : ticked(f))).map((f) => f.index)
-    onWanted?.(next.length === files.length ? undefined : next)
+    const plan = { wanted: next.length === files.length ? undefined : next }
+    setSent(plan)
+    onWanted?.(plan.wanted)
   }
   return (
     <div className="rows">
@@ -912,6 +918,7 @@ export const TorrentDetailDock = ({
             never heard of and open a browser download that can only sit at zero and abort */}
         {tab === 'files' && (
           <Files
+            key={t.id}
             t={t}
             saving={saving}
             onSave={handle == null ? null : onSave}

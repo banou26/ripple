@@ -777,10 +777,35 @@ describe('the docked torrent details', () => {
       await expect.poll(() => screen.container.querySelectorAll('.row.file').length).toBe(3)
       const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
       return {
+        screen,
         boxes: rows.map((row) => row.querySelector<HTMLInputElement>('input[type=checkbox]')),
         left: rows.map((row) => row.classList.contains('off')),
       }
     }
+    const ticks = (screen: Screen) => [...screen.container.querySelectorAll<HTMLInputElement>('.row.file input')].map((box) => box.checked)
+    const reported = (screen: Screen, t: Torrent) => screen.rerender(<TorrentDetailDock t={t} handle={Number(t.id)} saving={{}} onSave={() => {}} onClose={onClose}/>)
+
+    // the torrent reports a selection only once the worker has stored it, behind whatever its lane already holds
+    it('builds a tick on the one before it, until the torrent reports what was sent', async () => {
+      const { screen, boxes } = await content(pack())
+      boxes[0]!.click()
+      boxes[2]!.click()
+      expect(planned).toEqual([[7, { wanted: [1, 2], firstLast: true }], [7, { wanted: [1], firstLast: true }]])
+      expect(ticks(screen)).toEqual([false, true, false])
+      await reported(screen, pack({ wantedFiles: [1, 2] }))
+      expect(ticks(screen)).toEqual([false, true, false])
+      await reported(screen, pack({ wantedFiles: [1] }))
+      // and from then on, a selection made elsewhere
+      await reported(screen, pack({ wantedFiles: [0, 1] }))
+      expect(ticks(screen)).toEqual([true, true, false])
+    })
+
+    it('leaves a tick sent for one torrent behind when the panel moves to another', async () => {
+      const { screen, boxes } = await content(pack())
+      boxes[0]!.click()
+      await reported(screen, pack({ id: '8' }))
+      expect(ticks(screen)).toEqual([true, true, true])
+    })
 
     it('leaves out a file that is unticked, keeping first and last first as it was', async () => {
       const { boxes, left } = await content(pack())
