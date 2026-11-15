@@ -2661,14 +2661,16 @@ const handleMessage = async (session: Session, m: any) => {
       if (ih) await patchList(ih, { paused: true, resumed: false })
     } else if (m.type === 'resume') {
       userPaused.delete(m.handle)
-      userStarted.add(m.handle)
+      // a temporary one's only: a Start given while it was the person's own says nothing once it is made temporary
+      const sticks = ephemeralHandles.has(m.handle)
+      if (sticks) userStarted.add(m.handle)
       cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
       wantStart(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
       recovery.hold(m.handle, Date.now())
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: false, resumed: true })
+      if (ih) await patchList(ih, { paused: false, resumed: sticks })
     } else if (m.type === 'recheck') {
       // the engine forgets every piece before it starts hashing, so the saved blob now describes a have-set that no longer exists
       const ih = infoHashByHandle.get(m.handle)

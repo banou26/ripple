@@ -80,12 +80,12 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   createHybridStorage: () => ({ usageOf: async () => 0, refusedFile: () => undefined }),
 }))
 vi.mock('idb-keyval', () => {
-  // what a reload finds: two films watched earlier and kept as cache
-  const entry = (c: string): Persisted => ({
-    infoHash: c.repeat(40), magnet: `magnet:?xt=urn:btih:${c.repeat(40)}`, savePath: `/cache/${c.repeat(40)}`,
-    addedAt: 1, lastUsedAt: 1, started: true, paused: false, ephemeral: true,
+  // what a reload finds: two films watched earlier and kept as cache, and one of the person's own
+  const entry = (c: string, ephemeral = true): Persisted => ({
+    infoHash: c.repeat(40), magnet: `magnet:?xt=urn:btih:${c.repeat(40)}`, savePath: `/${ephemeral ? 'cache' : 'dl'}/${c.repeat(40)}`,
+    addedAt: 1, lastUsedAt: 1, started: true, paused: false, ephemeral,
   })
-  store.set('ripple:torrents', [entry('e'), entry('g')])
+  store.set('ripple:torrents', [entry('e'), entry('g'), entry('1', false)])
   return {
     get: async (key: string) => store.get(key),
     set: async (key: string, value: unknown) => { store.set(key, value) },
@@ -166,3 +166,15 @@ it('ends the Start with the person\'s Stop, so once a check has cleared the Stop
   await vi.waitFor(() => expect(of('g').slice(6)).toEqual(['resume', 'pause']), { timeout: 8_000 })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)
+
+it('parks a library torrent the person started once they make it temporary', async () => {
+  // held and then started, as the add dialog's Start does
+  rig.send({ type: 'pause', handle: handleOf('1') })
+  rig.send({ type: 'resume', handle: handleOf('1') })
+  await vi.waitFor(() => expect(of('1')).toEqual(['pause', 'resume']))
+  rig.send({ type: 'set-temporary', infoHash: '1'.repeat(40), temporary: true })
+  await vi.waitFor(() => expect(entryOf('1')).toMatchObject({ ephemeral: true, resumed: false }))
+  comeAndGo('1', 'player:3')
+  await vi.waitFor(() => expect(of('1')).toEqual(['pause', 'resume', 'pause']), { timeout: 2_000 })
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+})
