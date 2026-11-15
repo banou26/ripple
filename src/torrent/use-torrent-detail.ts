@@ -29,7 +29,7 @@ const EMPTY: TorrentDetailView = { peers: [], trackers: [], loaded: false }
  */
 export const useTorrentDetail = (handle: number | null): TorrentDetailView => {
   const client = getTorrentClient()
-  const [view, setView] = useState<TorrentDetailView>(EMPTY)
+  const [view, setView] = useState<TorrentDetailView & { handle?: number }>(EMPTY)
 
   useEffect(() => {
     if (handle == null) {
@@ -42,7 +42,7 @@ export const useTorrentDetail = (handle: number | null): TorrentDetailView => {
     client.inspect(handle)
     const off = client.onDetail((detail) => {
       if (!detail || detail.handle !== handle) return
-      setView({ peers: detail.peers, trackers: detail.trackers, storageBytes: detail.storageBytes, loaded: true })
+      setView({ handle, peers: detail.peers, trackers: detail.trackers, storageBytes: detail.storageBytes, loaded: true })
     })
     return () => {
       off()
@@ -50,5 +50,6 @@ export const useTorrentDetail = (handle: number | null): TorrentDetailView => {
     }
   }, [client, handle])
 
-  return view
+  // the reset above lands a render late, and that render must not show the last torrent's answer
+  return view.handle === handle ? view : EMPTY
 }

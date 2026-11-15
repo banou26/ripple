@@ -32,6 +32,7 @@ vi.mock('../../src/torrent/client', () => {
 })
 
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')
+const { useTorrentDetail } = await import('../../src/torrent/use-torrent-detail')
 const { Modal } = await import('../../src/components/modal')
 const { IntlRoot, startLanguage } = await import('../../src/i18n')
 const { showEnglish, showIn } = await import('../i18n/show-in')
@@ -549,6 +550,21 @@ describe('the docked torrent details', () => {
     expect(screen.container.textContent).not.toContain('198.51.100.1')
     // and it still reads as not-yet-loaded rather than as an empty swarm
     await expect.element(screen.getByText('Asking the engine…')).toBeInTheDocument()
+  })
+
+  it('gives the next torrent nothing of the last one\'s answer, not even in the render before it resets', async () => {
+    const seen: [number, ReturnType<typeof useTorrentDetail>][] = []
+    const Probe = ({ handle }: { handle: number }) => {
+      seen.push([handle, useTorrentDetail(handle)])
+      return null
+    }
+    const screen = await render(<Probe handle={7}/>)
+    send({ peers: [peer()], trackers: [tracker()], storageBytes: 320_000 })
+    await expect.poll(() => seen.at(-1)?.[1].storageBytes).toBe(320_000)
+    await screen.rerender(<Probe handle={8}/>)
+    const next = seen.filter(([handle]) => handle === 8).map(([, view]) => view)
+    expect(next.length).toBeGreaterThan(0)
+    expect(next).toEqual(next.map(() => ({ peers: [], trackers: [], loaded: false })))
   })
 
   it('lists peers busiest first, with their transport and where they came from', async () => {
