@@ -3538,10 +3538,12 @@ const Home = () => {
                * back, because a control the person set two seconds ago is still the least obvious
                * thing on the page once the list it emptied is gone.
                *
-               * Not while a row is still starting: its state is not known yet, so a state filter
-               * remembered from the last visit would read empty for the second after every reload.
+               * Not while a row is still starting before the engine's first report: its state is not
+               * known yet, so a filter remembered from the last visit would read empty for the second
+               * after every reload. The engine restores the library before that report, so a row still
+               * starting after it may never start, and must not blank the list for the session.
                */
-              !torrents.some((t) => t.state === 'starting') && <div className="empty">
+              (reachable || !torrents.some((t) => t.state === 'starting')) && <div className="empty">
                 {intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
                   <button type="button" className="link" onClick={() => { chooseFilter('all'); setInput('') }}>

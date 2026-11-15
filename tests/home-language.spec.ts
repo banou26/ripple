@@ -1346,14 +1346,16 @@ test('the Show menu shows the rows of the state picked, counts each, offers none
   await expect(show.locator('option')).toHaveText(['All (2)', 'Downloading (1)', 'Seeding (1)'])
 })
 
-test('a state filter says nothing matches only once no row is still starting', async ({ page }) => {
+test('a state filter says nothing matches from the engine\'s first report on, and not before', async ({ page }) => {
   await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'seeding'])
   await page.goto(origin)
-  await library(page, [entry('e', 'On.Its.Way')], [])
+  await page.waitForFunction(() => (window as unknown as { engineListens: () => boolean }).engineListens())
+  await post(page, { type: 'ready' }, { type: 'list', list: [entry('e', 'On.Its.Way')] })
   // the starting row is in the library, so the toolbar counts it
   await expect(page.getByRole('combobox', { name: 'Show' }).locator('option').first()).toHaveText('All (1)')
   await expect(page.locator('.empty')).toHaveCount(0)
-  await post(page, { type: 'state', torrents: [snapshot(9, 'e', 'On.Its.Way', {})] })
+  // a report without the row, as after a restore that could not add it, so the row stays starting
+  await post(page, { type: 'state', torrents: [], ...READOUTS[0]! })
   await expect(page.locator('.empty')).toContainText('Nothing matches this filter.')
 })
 
