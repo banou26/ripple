@@ -769,7 +769,7 @@ describe('the word keeps its room', () => {
           if (new Set(spots).size !== 1) moved.push(`${language}, ${font}: what follows the switch moved to ${spots.join(' ')}`)
         }
       }
-    } finally { sheet.remove() }
+    } finally { sheet.remove(); localStorage.removeItem('ripple:vpn') }
     // each state drew a word of its own in each language, or none, so no state was measured as another
     expect(words.size).toBe(13 * 6)
     expect(moved).toEqual([])

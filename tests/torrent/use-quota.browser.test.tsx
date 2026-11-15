@@ -1,7 +1,7 @@
 // The FKN quota is what the relay meters, so with the VPN off there is none to show and none is asked for.
 import type { EngineTransport } from '../../src/torrent/vpn-config'
 
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
 
 import { useQuota } from '../../src/torrent/use-quota'
@@ -31,6 +31,8 @@ const engine = (transport: EngineTransport) => {
   for (const cb of page.listeners) cb(transport)
 }
 
+// the browser tests share one storage, and another file can leave the VPN stored off
+beforeEach(() => { localStorage.clear() })
 afterEach(() => { page.transport = 'relay'; page.asked = 0; localStorage.clear() })
 
 it('reads the quota while the engine is behind the relay, and before an engine has said', async () => {
