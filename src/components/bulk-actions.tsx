@@ -151,8 +151,14 @@ const barStyle = css`
     &.icon { padding: 0; }
   }
 
+  /* a phone keeps one row: Remove shows its icon like the others, and the gaps narrow */
   @media (max-width: 700px) {
+    gap: 4px;
+    padding-left: 8px;
+
     button { min-width: 40px; height: 40px; }
+    button.danger { padding: 0; }
+    button.danger span { display: none; }
   }
 `
 
@@ -179,6 +185,7 @@ export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onD
   const pause = finished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
   const resume = finished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
   const clear = intl.formatMessage({ id: 'Clear selection', defaultMessage: 'Clear selection' })
+  const remove = intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })
   return (
     <div css={barStyle} className="bulk-bar">
       <span className="count" role="status">
@@ -195,8 +202,8 @@ export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onD
       <button type="button" className="icon" disabled={!canResume} onClick={onResume} aria-label={resume} {...hint(resume)}>
         <Play aria-hidden="true"/>
       </button>
-      <button type="button" className="danger" onClick={onRemove}>
-        <Trash2 aria-hidden="true"/>{intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })}
+      <button type="button" className="danger" onClick={onRemove} aria-label={remove}>
+        <Trash2 aria-hidden="true"/><span>{remove}</span>
       </button>
       <button type="button" className="icon" onClick={onClear} aria-label={clear} {...hint(clear)}>
         <X aria-hidden="true"/>

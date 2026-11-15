@@ -1244,6 +1244,21 @@ test.describe('on a phone', () => {
     })
   }
 
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: the bar for ticked rows keeps to one row with Download showing`, async ({ page }) => {
+      await opened(page, language)
+      for (const name of ['Some.Release.Name.S01.1080p', 'Elsewhere']) {
+        await page.locator('.torrent').filter({ hasText: name }).locator('.row-check input').check()
+      }
+      const bar = page.locator('.bulk-bar')
+      await expect(bar.locator('button svg.lucide-download'), 'the control: Download shows').toBeVisible()
+      await drawn(page)
+      const { rows, kids, height } = await rowsOf(page, '.bulk-bar')
+      expect(kids, 'the control: the count and five buttons were read').toBe(6)
+      expect(rows, `${height} px tall`).toBe(1)
+    })
+  }
+
   for (const language of ['en', 'ru', 'fr']) {
     test(`${language}: the list keeps room for a whole row`, async ({ page }) => {
       await opened(page, language)

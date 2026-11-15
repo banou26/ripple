@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { page } from '@vitest/browser/context'
 
 import { BulkBar } from '../../src/components/bulk-actions'
 import { IntlRoot } from '../../src/i18n'
@@ -55,6 +56,19 @@ describe('the bulk bar', () => {
     expect(button(c, 'Download').querySelector('svg')!.classList).toContain('lucide-download')
     button(c, 'Download').click()
     expect(props.onDownload).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows Remove as its icon on a phone, still named for a screen reader', async () => {
+    const remove = (c: HTMLElement) => c.querySelector<HTMLButtonElement>('button.danger')!
+    expect(remove((await mount().screen).container).innerText.trim(), 'the control: the word shows on a wide window').toBe('Remove')
+    await page.viewport(390, 844)
+    try {
+      const shown = remove((await mount().screen).container)
+      expect(shown.innerText.trim()).toBe('')
+      expect(shown).toHaveAccessibleName('Remove')
+    } finally {
+      await page.viewport(1280, 720)
+    }
   })
 
   it('says Stop and Start when every ticked torrent is finished, for the same two actions', async () => {
