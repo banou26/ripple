@@ -18,6 +18,7 @@ import { render } from 'vitest-browser-react'
  */
 
 const inspected: (number | null)[] = []
+const planned: [number, { wanted?: number[], firstLast?: boolean }][] = []
 let detailCb: ((detail: any) => void) | null = null
 
 // one client, as the page has: a new one per render would subscribe again on every render, and empty the panel each time
@@ -25,6 +26,7 @@ vi.mock('../../src/torrent/client', () => {
   const client = {
     inspect: (handle: number | null) => { inspected.push(handle) },
     onDetail: (cb: (d: any) => void) => { detailCb = cb; return () => { detailCb = null } },
+    setPlan: (handle: number, plan: { wanted?: number[], firstLast?: boolean }) => { planned.push([handle, plan]) },
   }
   return { getTorrentClient: () => client }
 })
@@ -137,6 +139,7 @@ const mount = async (
   extra: { saving?: Record<number, number>, onSave?: (index: number) => void } = {},
 ) => {
   inspected.length = 0
+  planned.length = 0
   detailCb = null
   onClose.mockClear()
   return render(
@@ -709,5 +712,61 @@ describe('the docked torrent details', () => {
     tabButton(screen, 'Content').click()
     await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
     expect(screen.container.querySelectorAll('.row.file button').length).toBe(1)
+  })
+
+  describe('which files it downloads', () => {
+    const pack = (over: Partial<Torrent> = {}) => torrent({
+      firstLast: true,
+      files: [
+        { name: 'Pack/E01.mkv', size: 1e9, index: 0 },
+        { name: 'Pack/E02.mkv', size: 1e9, index: 1 },
+        { name: 'Pack/E03.mkv', size: 1e9, index: 2 },
+      ],
+      ...over,
+    })
+    const content = async (t: Torrent, handle: number | null = 7) => {
+      const screen = await mount(t, handle)
+      tabButton(screen, 'Content').click()
+      await expect.poll(() => screen.container.querySelectorAll('.row.file').length).toBe(3)
+      const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
+      return {
+        boxes: rows.map((row) => row.querySelector<HTMLInputElement>('input[type=checkbox]')),
+        left: rows.map((row) => row.classList.contains('off')),
+      }
+    }
+
+    it('leaves out a file that is unticked, keeping first and last first as it was', async () => {
+      const { boxes, left } = await content(pack())
+      expect(boxes.map((box) => box!.checked)).toEqual([true, true, true])
+      expect(left).toEqual([false, false, false])
+      boxes[1]!.click()
+      expect(planned).toEqual([[7, { wanted: [0, 2], firstLast: true }]])
+    })
+
+    it('strikes through a file left out, and sends no list once every file is ticked again', async () => {
+      const { boxes, left } = await content(pack({ wantedFiles: [0, 2] }))
+      expect(boxes.map((box) => box!.checked)).toEqual([true, false, true])
+      expect(left).toEqual([false, true, false])
+      boxes[1]!.click()
+      expect(planned).toEqual([[7, { wanted: undefined, firstLast: true }]])
+    })
+
+    it('keeps the last ticked file ticked', async () => {
+      const { boxes } = await content(pack({ wantedFiles: [1] }))
+      expect(boxes.map((box) => box!.disabled)).toEqual([false, true, false])
+      boxes[1]!.click()
+      expect(planned).toEqual([])
+      boxes[0]!.click()
+      expect(planned).toEqual([[7, { wanted: [0, 1], firstLast: true }]])
+    })
+
+    // a temporary torrent's files follow its player, and a torrent not here has no engine to tell
+    it('offers no tick box on a temporary torrent or one not on this device, and still shows what was left out', async () => {
+      for (const [t, handle] of [[pack({ ephemeral: true, wantedFiles: [0] }), 7], [pack({ wantedFiles: [0] }), null]] as const) {
+        const { boxes, left } = await content(t, handle)
+        expect(boxes).toEqual([null, null, null])
+        expect(left).toEqual([false, true, true])
+      }
+    })
   })
 })

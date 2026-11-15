@@ -1,4 +1,4 @@
-import type { Torrent, TorrentStats } from '../torrent/types'
+import type { Torrent, TorrentFile, TorrentStats } from '../torrent/types'
 import type { PeerInfo, TrackerInfo } from '../torrent/worker'
 import type { PieceBitfield } from 'libtorrent-wasm'
 
@@ -15,6 +15,7 @@ import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
 
 import { isInbound, peerTransport } from '../torrent/inbound'
 
+import { getTorrentClient } from '../torrent/client'
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { unitLocale } from '../i18n/languages'
 import { getHumanReadableByteString, numberFormat, writePercent } from '../utils/bytes'
@@ -219,12 +220,17 @@ const General = ({ t }: { t: Torrent }) => {
  * one list that had forgotten to use it.
  */
 const Files = ({
-  t, saving, onSave,
+  t, saving, onSave, onWanted,
 }: {
   t: Torrent
   saving: Record<number, number>
   /** Null for a torrent that is not in the session: the list is synced, the bytes are not here. */
   onSave: ((index: number) => void) | null
+  /**
+   * Takes the files to download, undefined for every one. Null where they are not chosen here: a torrent not in the
+   * session, and a temporary one, whose files follow its player.
+   */
+  onWanted: ((wanted: number[] | undefined) => void) | null
 }) => {
   const intl = useIntl()
   const files = contentFiles(t.files)
@@ -234,17 +240,25 @@ const Files = ({
     [t.files, bitfield],
   )
   if (!files.length) return <p className="none">{intl.formatMessage({ id: 'No file list yet.', defaultMessage: 'No file list yet.' })}</p>
+  const ticked = (f: TorrentFile) => !t.wantedFiles || t.wantedFiles.includes(f.index)
+  const tickedCount = files.filter(ticked).length
+  const toggle = (index: number) => {
+    const next = files.filter((f) => (f.index === index ? !ticked(f) : ticked(f))).map((f) => f.index)
+    onWanted?.(next.length === files.length ? undefined : next)
+  }
   return (
     <div className="rows">
       {files.map((f) => {
         const [dir, name] = splitPath(f.name)
         const s = saving[f.index]
         const share = shares.get(f.index)
+        const on = ticked(f)
         return (
-          <div className="row file" key={f.index}>
-            <span className="name">
+          <div className={on ? 'row file' : 'row file off'} key={f.index}>
+            <label className="name">
+              {onWanted && <input type="checkbox" checked={on} disabled={on && tickedCount === 1} onChange={() => toggle(f.index)}/>}
               {dir && <span className="dim">{dir}</span>}{name}
-            </span>
+            </label>
             {share != null && (
               <>
                 <span className="bar"><span className="fill" style={{ width: `${share * 100}%` }}/></span>
@@ -677,6 +691,18 @@ export const dockStyle = css`
       .dim {
         color: ${TEXT_MUTED};
       }
+
+      /* or a native box takes the platform's accent, usually blue */
+      input {
+        flex: none;
+        margin: 0;
+        accent-color: ${EMPHASIS};
+      }
+    }
+
+    &.off .name {
+      color: ${TEXT_MUTED};
+      text-decoration: line-through;
     }
 
     .client {
@@ -797,6 +823,7 @@ export const TorrentDetailDock = ({
   const [height, setHeight] = useState(readHeight)
   const dragging = useRef(false)
   const detail = useTorrentDetail(handle)
+  const client = getTorrentClient()
 
   /**
    * Resizing by pointer, on the window rather than on the grip.
@@ -877,7 +904,14 @@ export const TorrentDetailDock = ({
         {tab === 'general' && <General t={t}/>}
         {/* no handle means no bytes on this device, so Save would name a torrent the engine has
             never heard of and open a browser download that can only sit at zero and abort */}
-        {tab === 'files' && <Files t={t} saving={saving} onSave={handle == null ? null : onSave}/>}
+        {tab === 'files' && (
+          <Files
+            t={t}
+            saving={saving}
+            onSave={handle == null ? null : onSave}
+            onWanted={handle == null || t.ephemeral ? null : (wanted) => client.setPlan(handle, { wanted, firstLast: t.firstLast })}
+          />
+        )}
         {tab === 'peers' && <Peers peers={detail.peers} loaded={detail.loaded}/>}
         {tab === 'trackers' && <Trackers trackers={detail.trackers} loaded={detail.loaded}/>}
       </div>
