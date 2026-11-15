@@ -342,10 +342,19 @@ const PEER_POLL_MS = 2_000
 let peersPolledAt = 0
 let inboundNow = NO_INBOUND
 
+// a pack of many thousand files takes longer to measure than the poll, so a torrent is never measured twice at once
+const measuring = new Set<number>()
+
 const measureInspected = async (handle: number) => {
-  const id = session?.files(handle)?.storageIndex
-  const bytes = id === undefined || !storage ? null : await storage.usageOfStorage(id)
-  if (handle === inspecting) inspectedBytes = { handle, bytes }
+  if (measuring.has(handle)) return
+  measuring.add(handle)
+  try {
+    const id = session?.files(handle)?.storageIndex
+    const bytes = id === undefined || !storage ? null : await storage.usageOfStorage(id)
+    if (handle === inspecting) inspectedBytes = { handle, bytes }
+  } finally {
+    measuring.delete(handle)
+  }
 }
 
 /**
