@@ -151,10 +151,14 @@ const barStyle = css`
     &.icon { padding: 0; }
   }
 
-  /* a phone keeps one row: Remove shows its icon like the others, and the gaps narrow */
+  /* a phone keeps one row: Remove shows its icon like the others, the gaps narrow, and the count gives way first,
+     since its width depends on the language and the font */
   @media (max-width: 700px) {
+    flex-wrap: nowrap;
     gap: 4px;
     padding-left: 8px;
+
+    .count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     button { min-width: 40px; height: 40px; }
     button.danger { padding: 0; }

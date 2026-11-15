@@ -1252,10 +1252,13 @@ test.describe('on a phone', () => {
       }
       const bar = page.locator('.bulk-bar')
       await expect(bar.locator('button svg.lucide-download'), 'the control: Download shows').toBeVisible()
-      await drawn(page)
-      const { rows, kids, height } = await rowsOf(page, '.bulk-bar')
-      expect(kids, 'the control: the count and five buttons were read').toBe(6)
-      expect(rows, `${height} px tall`).toBe(1)
+      for (const width of [390, 360]) {
+        await page.setViewportSize({ width, height: 844 })
+        await drawn(page)
+        const { rows, kids, height } = await rowsOf(page, '.bulk-bar')
+        expect(kids, 'the control: the count and five buttons were read').toBe(6)
+        expect(rows, `${width} px, ${height} px tall`).toBe(1)
+      }
     })
   }
 
