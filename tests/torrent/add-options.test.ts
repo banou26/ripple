@@ -147,6 +147,11 @@ describe('the size actually being downloaded', () => {
   it('ignores an index with no file behind it', () => {
     expect(selectedBytes({ ...base, files: [0, 42] }, files)).toBe(100)
   })
+
+  // a .torrent read in the page lists no pad, so a file after one sits at another place than its index
+  it('finds each file by its index, not its place in the list', () => {
+    expect(selectedBytes({ ...base, files: [2] }, [{ size: 100, index: 0 }, { size: 300, index: 2 }])).toBe(300)
+  })
 })
 
 describe('the refusal of an empty selection, in the page\'s language', () => {

@@ -6,7 +6,7 @@ import type { Frame, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
 import { expect, test } from './offline'
-import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { extname, join, relative } from 'node:path'
@@ -1371,8 +1371,9 @@ const sending = async (page: Page, types: string[]) => {
     const proto = Worker.prototype as { postMessage: (...args: unknown[]) => void }
     const post = proto.postMessage
     proto.postMessage = function (...args) {
-      const message = args[0] as { type?: string }
-      if (types.includes(message?.type ?? '')) sent.push(message)
+      const message = args[0] as Record<string, unknown>
+      // a .torrent's bytes by their length
+      if (types.includes(message?.type as string)) sent.push(Object.fromEntries(Object.entries(message).map(([key, value]) => [key, value instanceof Uint8Array ? value.byteLength : value])))
       post.apply(this, args)
     }
     Object.assign(window, { sent: () => sent })
@@ -1425,6 +1426,45 @@ test('with Ask on, several magnets are asked about one after another, and Do not
   await expect(dialog).toHaveCount(0)
   expect((await sent()).map(({ magnet, hold }) => [/dn=(\w+)/u.exec(magnet as string)?.[1], hold])).toEqual([
     ['Seven', true], ['Eight', true], ['One', false], ['Eight', false],
+  ])
+})
+
+test('with Ask on, a picked .torrent is asked about from its own file list, and reaches the engine only on Add, with the answers', async ({ page }) => {
+  const torrent = (name: string, buffer: Buffer) => ({ name, mimeType: 'application/x-bittorrent', buffer })
+  const sintel = torrent('sintel.torrent', readFileSync(join(ROOT, 'src', 'assets', 'sintel.torrent')))
+  // one file of five bytes, so two different torrents can be picked at once
+  const other = torrent('other.torrent', Buffer.concat([Buffer.from('d4:infod6:lengthi5e4:name5:Other12:piece lengthi16384e6:pieces20:'), Buffer.alloc(20), Buffer.from('ee')]))
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-torrent-file', 'add-magnet'])
+  const pick = page.locator('label.file-button input[type=file]').first()
+  const dialog = page.getByRole('dialog')
+
+  await pick.setInputFiles(sintel)
+  await expect(dialog.locator('h2')).toHaveText('Sintel')
+  await expect(dialog.locator('.file')).toHaveCount(11)
+  await expect(dialog.locator('.count')).toContainText('11 of 11 files')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(await sent()).toEqual([])
+
+  await pick.setInputFiles([sintel, other])
+  await expect(dialog.locator('h2')).toHaveText('Sintel')
+  await dialog.getByRole('button', { name: 'Select none' }).click()
+  await dialog.getByRole('checkbox', { name: /Sintel\.mp4/u }).check()
+  await dialog.getByRole('checkbox', { name: 'Start downloading' }).uncheck()
+  await dialog.getByRole('checkbox', { name: 'Download in sequential order' }).check()
+  await dialog.getByRole('checkbox', { name: 'Put it first' }).check()
+  await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
+  expect(await sent()).toEqual([])
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.toast')).toHaveText('Sintel added, paused')
+  const answers = ({ type, bytes, wanted, firstLast, sequential, paused, top }: Record<string, unknown>) => ({ type, bytes, wanted, firstLast, sequential, paused, top })
+  expect((await sent()).map(answers)).toEqual([
+    { type: 'add-torrent-file', bytes: other.buffer.byteLength, wanted: undefined, firstLast: false, sequential: false, paused: false, top: false },
+    { type: 'add-torrent-file', bytes: sintel.buffer.byteLength, wanted: [5], firstLast: false, sequential: true, paused: true, top: true },
   ])
 })
 

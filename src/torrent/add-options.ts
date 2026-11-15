@@ -87,8 +87,8 @@ export const choicesProblem = (choices: AddChoices): string | null =>
   choices.files.length === 0 ? intl.formatMessage({ id: 'Choose at least one file.', defaultMessage: 'Choose at least one file.' }) : null
 
 /** Bytes that will actually be downloaded, which is what the dialog shows against the total. */
-export const selectedBytes = (choices: AddChoices, files: { size: number }[]): number =>
-  choices.files.reduce((total, index) => total + (files[index]?.size ?? 0), 0)
+export const selectedBytes = (choices: AddChoices, files: { index: number, size: number }[]): number =>
+  files.reduce((total, file) => total + (choices.files.includes(file.index) ? file.size : 0), 0)
 
 export const toggleFile = (choices: AddChoices, index: number): AddChoices => ({
   ...choices,

@@ -30,7 +30,7 @@ export type TorrentFile = {
 }
 
 /** The person's own files: this list without the padding a v2 or hybrid torrent carries. */
-export const contentFiles = (files: TorrentFile[] | undefined): TorrentFile[] =>
+export const contentFiles = <F extends { pad?: boolean }>(files: F[] | undefined): F[] =>
   (files ?? []).filter((file) => !file.pad)
 
 export type TorrentStats = {

@@ -308,7 +308,7 @@ export type UseTorrents = {
   /** The library as stored, which carries entries no engine row exists for. */
   list: Persisted[]
   addMagnet: (magnet: string) => void
-  addTorrentFile: (bytes: Uint8Array) => void
+  addTorrentFile: TorrentClient['addTorrentFile']
   pause: (handle: number) => void
   resume: (handle: number) => void
   retry: (handle: number) => void
@@ -441,7 +441,7 @@ export const useTorrents = (): UseTorrents => {
   }, [snaps, list, words])
 
   const addMagnet = useCallback((magnet: string) => { holdWhileStored(); return client.addMagnet(magnet) }, [client])
-  const addTorrentFile = useCallback((bytes: Uint8Array) => { holdWhileStored(); return client.addTorrentFile(bytes) }, [client])
+  const addTorrentFile = useCallback<TorrentClient['addTorrentFile']>((bytes, options) => { holdWhileStored(); return client.addTorrentFile(bytes, options) }, [client])
   const pause = useCallback((handle: number) => client.pause(handle), [client])
   const resume = useCallback((handle: number) => client.resume(handle), [client])
   const retry = useCallback((handle: number) => client.retry(handle), [client])

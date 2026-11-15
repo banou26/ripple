@@ -2240,6 +2240,13 @@ const handleMessage = async (session: Session, m: any) => {
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may
       // reclaim rather than in the library for good
       track(h, '', null, savePath, m.ephemeral === true)
+      // the add dialog's answers, as a restore applies an entry's: nothing could be sent for this handle before it existed
+      const wanted = Array.isArray(m.wanted) ? m.wanted.map((n: unknown) => Number(n) | 0) : undefined
+      const firstLast = m.firstLast === true
+      if (wanted || firstLast) { planByHandle.set(h, { wanted, firstLast }); needsPriorityReset.add(h) }
+      if (m.sequential === true) session.setFlags(h, TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload)
+      if (m.paused === true) { userPaused.add(h); wantPause(h) }
+      if (m.top === true) session.moveInQueue(h, 'top')
       recovery.hold(h, Date.now())
       // the infohash lands with the add alert, popped by the 500ms loop
       let ih: string | null = null
@@ -2279,7 +2286,7 @@ const handleMessage = async (session: Session, m: any) => {
       // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
       // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: false, ...saveTo, ...(m.created === true ? { created: true } : {}) })
+      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) })
       /*
        * Released HERE and not by the page, because the gap is between the two.
        *

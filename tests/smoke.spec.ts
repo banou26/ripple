@@ -251,6 +251,19 @@ test('a .torrent for a torrent listed by its base32 hash is said to be there', a
   await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
 })
 
+test('with Ask on, a .torrent added unstarted from the dialog is listed paused', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto('/')
+  await page.locator('label.file-button input[type=file]').first().setInputFiles(join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent'))
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Sintel')
+  await dialog.getByRole('checkbox', { name: 'Start downloading' }).uncheck()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  const row = page.locator('.torrent').first()
+  await expect(row.locator('.title strong')).toHaveText('Sintel', { timeout: 30_000 })
+  await expect(row.locator('.badge')).toHaveText('Paused')
+})
+
 // Cloudflare Pages serves the app for any path, so what an unknown one shows is the router's choice
 test('an address the app does not know ends on the library', async ({ page }) => {
   // first, while no service worker is installed, so the server answers the expired save address like any other

@@ -143,6 +143,15 @@ export type TorrentClient = {
       saveTo?: SaveLocation
       /** Made on this device from the person's own files. See `Persisted.created`. */
       created?: boolean
+      /**
+       * The add dialog's answers, carried with the add for the reason `saveTo` is: the files to download (all when
+       * absent), their first and last pieces first, in order, held paused, first in the queue.
+       */
+      wanted?: number[]
+      firstLast?: boolean
+      sequential?: boolean
+      paused?: boolean
+      top?: boolean
     },
   ) => void
   /**
@@ -702,7 +711,10 @@ export const createTorrentClient = (): EngineClient => {
     importList: (list, removed = []) => send({ type: 'import-list', list, removed }),
     clearList: () => send({ type: 'clear-list' }),
     addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
-    addTorrentFile: (bytes, options) => send({ type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, saveTo: options?.saveTo, created: options?.created === true }, [bytes.buffer]),
+    addTorrentFile: (bytes, options) => send({
+      type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, saveTo: options?.saveTo, created: options?.created === true,
+      wanted: options?.wanted, firstLast: options?.firstLast === true, sequential: options?.sequential === true, paused: options?.paused === true, top: options?.top === true,
+    }, [bytes.buffer]),
     // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
     // offer the .torrent as a download afterwards, and a transferred buffer would be detached.
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),

@@ -121,6 +121,17 @@ const droppable = (data: DataTransfer | null): boolean => {
   return [...types].some((t) => t === 'Files' || t === 'text/uri-list')
 }
 
+/** What the add dialog asks about: a magnet, whose files the engine fetches, or a .torrent the page read, with its bytes. */
+type PendingAdd = {
+  magnet: string
+  infoHash: string
+  name: string
+  external: boolean
+  from: string | null
+  bytes?: Uint8Array
+  files?: { name: string, size: number, index: number }[]
+}
+
 
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   const intl = useIntl()
@@ -2200,7 +2211,9 @@ const Home = () => {
     try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
   }
 
-  const [pendingAdd, setPendingAdd] = useState<{ magnet: string, infoHash: string, name: string, external: boolean, from: string | null } | null>(null)
+  const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
+  const pendingRef = useRef(pendingAdd)
+  pendingRef.current = pendingAdd
   const [choices, setChoices] = useState<AddChoices | null>(null)
   const heldRef = useRef<number | null>(null)
 
@@ -2216,10 +2229,13 @@ const Home = () => {
     return true
   }, [client, showToast, intl])
 
-  // the magnets of a paste still to ask about, after the one the dialog shows
-  const addQueue = useRef<string[]>([])
+  // the magnets of a paste and the .torrent files still to ask about, after the one the dialog shows
+  const addQueue = useRef<(string | PendingAdd)[]>([])
   const askNext = useCallback(() => {
-    for (let next = addQueue.current.shift(); next; next = addQueue.current.shift()) if (beginAdd(next, false)) return
+    for (let next = addQueue.current.shift(); next; next = addQueue.current.shift()) {
+      if (typeof next !== 'string') { setPendingAdd(next); setChoices(null); return }
+      if (beginAdd(next, false)) return
+    }
   }, [beginAdd])
 
   const commitMagnet = useCallback((raw: string): boolean => {
@@ -2233,7 +2249,7 @@ const Home = () => {
     }
     if (addDialog) {
       addQueue.current.push(...fresh)
-      if (!pendingAdd) askNext()
+      if (!pendingRef.current) askNext()
       return true
     }
     for (const magnet of fresh) addMagnet(magnet)
@@ -2241,7 +2257,7 @@ const Home = () => {
       ? intl.formatMessage({ id: 'Magnet added', defaultMessage: 'Magnet added' })
       : intl.formatMessage({ id: '{count, plural, one {{count} magnet added} other {{count} magnets added}}', defaultMessage: '{count, plural, one {{count} magnet added} other {{count} magnets added}}' }, { count: fresh.length }))
     return true
-  }, [addMagnet, showToast, addDialog, pendingAdd, askNext, intl])
+  }, [addMagnet, showToast, addDialog, askNext, intl])
 
   const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
     const all = [...files]
@@ -2264,10 +2280,15 @@ const Home = () => {
         showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
         continue
       }
+      if (addDialog && read?.files && ih) {
+        addQueue.current.push({ magnet: read.magnet, infoHash: ih, name: read.name, external: false, from: null, bytes, files: read.files })
+        continue
+      }
       addTorrentFile(bytes)
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: file.name }))
     }
-  }, [addTorrentFile, showToast, intl])
+    if (!pendingRef.current) askNext()
+  }, [addTorrentFile, showToast, addDialog, askNext, intl])
 
   /**
    * The share dialog's two inputs. Neither adds anything to the library.
@@ -2914,20 +2935,23 @@ const Home = () => {
    * what keeps that from being a decision: those bytes are a cache the engine may reclaim and the row
    * is not part of the library, so cancelling can drop it and changing nothing is genuinely nothing.
    */
-  const pendingTorrent = pendingAdd
+  const pendingTorrent = pendingAdd && !pendingAdd.bytes
     ? torrents.find((t) => t.infoHash === pendingAdd.infoHash && t.state !== 'missing')
     : undefined
-  const pendingFiles = pendingTorrent?.files ?? []
+  const pendingFiles = pendingAdd?.files ?? pendingTorrent?.files ?? []
 
   // The file list decides the default selection, so the choices cannot exist until it arrives. This
   // is also where the torrent is HELD: metadata is in by now, so from here on it would be fetching
   // pieces nobody has agreed to yet.
   useEffect(() => {
-    if (!pendingAdd || choices || pendingFiles.length === 0 || !pendingTorrent) return
-    setChoices(defaultChoices({ files: pendingTorrent.files ?? [], location: defaultLocation }))
+    const files = pendingAdd?.files ?? pendingTorrent?.files
+    if (!pendingAdd || choices || !files?.length) return
+    setChoices(defaultChoices({ files, location: defaultLocation }))
+    // a .torrent's list was read in the page, and nothing of it is in the engine to hold
+    if (!pendingTorrent) return
     heldRef.current = Number(pendingTorrent.id)
     pause(Number(pendingTorrent.id))
-  }, [pendingAdd, choices, pendingFiles.length, pendingTorrent, defaultLocation, pause])
+  }, [pendingAdd, choices, pendingTorrent, defaultLocation, pause])
 
   const closeAdd = useCallback(() => {
     setPendingAdd(null)
@@ -2945,21 +2969,30 @@ const Home = () => {
   }, [pendingTorrent, remove, closeAdd])
 
   const confirmAdd = useCallback(() => {
-    if (!pendingAdd || !choices || !pendingTorrent) return
-    const handle = Number(pendingTorrent.id)
-    // the same magnet without `ephemeral`, which is the gesture that promotes it into the library
-    addMagnet(pendingAdd.magnet)
-    client.setPlan(handle, planFor(choices, pendingTorrent.files ?? []))
-    client.setFlags(handle, ...flagsFor(choices))
-    if (pendingAdd.infoHash) client.setLocation(pendingAdd.infoHash, choices.location)
-    if (choices.topOfQueue) client.moveInQueue(handle, 'top')
-    // held since the file list arrived, so starting is an explicit step rather than the absence of one
-    if (choices.start) resume(handle)
+    if (!pendingAdd || !choices) return
+    if (pendingAdd.bytes) {
+      // the engine has nothing of it yet, so the answers go with the add
+      addTorrentFile(pendingAdd.bytes, {
+        saveTo: choices.location, ...planFor(choices, pendingAdd.files ?? []),
+        sequential: choices.sequential, paused: !choices.start, top: choices.topOfQueue,
+      })
+    } else {
+      if (!pendingTorrent) return
+      const handle = Number(pendingTorrent.id)
+      // the same magnet without `ephemeral`, which is the gesture that promotes it into the library
+      addMagnet(pendingAdd.magnet)
+      client.setPlan(handle, planFor(choices, pendingTorrent.files ?? []))
+      client.setFlags(handle, ...flagsFor(choices))
+      if (pendingAdd.infoHash) client.setLocation(pendingAdd.infoHash, choices.location)
+      if (choices.topOfQueue) client.moveInQueue(handle, 'top')
+      // held since the file list arrived, so starting is an explicit step rather than the absence of one
+      if (choices.start) resume(handle)
+    }
     showToast(choices.start
       ? intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: pendingAdd.name })
       : intl.formatMessage({ id: '{name} added, paused', defaultMessage: '{name} added, paused' }, { name: pendingAdd.name }))
     closeAdd()
-  }, [pendingAdd, choices, pendingTorrent, addMagnet, client, resume, showToast, closeAdd, intl])
+  }, [pendingAdd, choices, pendingTorrent, addMagnet, addTorrentFile, client, resume, showToast, closeAdd, intl])
 
   /**
    * A torrent handed over by another site, through `/add`.
@@ -3596,7 +3629,10 @@ const Home = () => {
           // the consent step for links from anywhere is not one worth having
           onNeverAsk={pendingAdd.external ? undefined : () => {
             chooseAddDialog(false)
-            for (const magnet of addQueue.current.splice(0)) addMagnet(magnet)
+            for (const next of addQueue.current.splice(0)) {
+              if (typeof next === 'string') addMagnet(next)
+              else if (next.bytes) addTorrentFile(next.bytes)
+            }
           }}
         />
       )}

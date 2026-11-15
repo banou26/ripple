@@ -13,7 +13,6 @@ import { PersistOffer } from './persist-offer'
 
 import type { AddChoices } from '../torrent/add-options'
 import type { PersistState } from '../torrent/storage-permission'
-import type { TorrentFile } from '../torrent/types'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 
 import {
@@ -274,10 +273,10 @@ export const AddTorrentDialog = ({
   /** the origin that linked here, for a torrent arriving from another site */
   from?: string | null
   /**
-   * The engine's list, pads included, so each file sits at its own index. Empty until the metadata
-   * arrives, which is the only place a magnet's file list comes from.
+   * The files, each at its engine index: the engine's list with its pads, or a .torrent's as the page read it. Empty
+   * until the metadata arrives, which is the only place a magnet's file list comes from.
    */
-  files: TorrentFile[]
+  files: { name: string, size: number, index: number, pad?: boolean }[]
   choices: AddChoices
   onChoices: (choices: AddChoices) => void
   folderName?: string
