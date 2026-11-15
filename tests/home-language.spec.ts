@@ -1674,6 +1674,35 @@ test('the next torrent asked about starts with Do not ask again unticked', async
   await expect(dialog.getByRole('checkbox', { name: 'Do not ask again' })).not.toBeChecked()
 })
 
+const askedFor = (sent: Record<string, unknown>[]) => sent.map(({ magnet, hold }) => [/dn=(\w+)/u.exec(magnet as string)?.[1], hold])
+
+test('with Ask on, a link arriving while the dialog asks is asked about next, even after Do not ask again', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-magnet'])
+  const dialog = page.getByRole('dialog')
+  await paste(page, magnetOf('7', 'Seven'))
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+
+  // another site's link, with the dialog on screen
+  await page.evaluate((magnet) => {
+    history.pushState(null, '', '/?add=' + encodeURIComponent(magnet))
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, magnetOf('8', 'Eight'))
+  await drawn(page)
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+  expect(askedFor(await sent())).toEqual([['Seven', true]])
+
+  // Seven's file list, from the swarm
+  await post(page, { type: 'state', torrents: [...TORRENTS, snapshot(21, '7', 'Seven', {})], ...READOUTS[0] })
+  await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await expect(dialog.locator('h2')).toHaveText('Eight')
+  await expect(dialog.getByText('Opened from a link')).toBeVisible()
+  expect(askedFor(await sent())).toEqual([['Seven', true], ['Seven', false], ['Eight', true]])
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)

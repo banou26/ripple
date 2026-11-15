@@ -132,6 +132,9 @@ type PendingAdd = {
   files?: { name: string, size: number, index: number }[]
 }
 
+/** A magnet waiting for the add dialog, which reads its name and info hash when its turn comes. */
+type QueuedMagnet = Pick<PendingAdd, 'magnet' | 'external' | 'from'>
+
 
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
   const intl = useIntl()
@@ -2229,12 +2232,12 @@ const Home = () => {
     return true
   }, [client, showToast, intl])
 
-  // the magnets of a paste and the .torrent files still to ask about, after the one the dialog shows
-  const addQueue = useRef<(string | PendingAdd)[]>([])
+  // the magnets of a paste or a link and the .torrent files still to ask about, after the one the dialog shows
+  const addQueue = useRef<(QueuedMagnet | PendingAdd)[]>([])
   const askNext = useCallback(() => {
     for (let next = addQueue.current.shift(); next; next = addQueue.current.shift()) {
-      if (typeof next !== 'string') { setPendingAdd(next); setChoices(null); return }
-      if (beginAdd(next, false)) return
+      if ('infoHash' in next) { setPendingAdd(next); setChoices(null); return }
+      if (beginAdd(next.magnet, next.external, next.from)) return
     }
   }, [beginAdd])
 
@@ -2248,7 +2251,7 @@ const Home = () => {
       return true
     }
     if (addDialog) {
-      addQueue.current.push(...fresh)
+      addQueue.current.push(...fresh.map((magnet) => ({ magnet, external: false, from: null })))
       if (!pendingRef.current) askNext()
       return true
     }
@@ -3029,7 +3032,8 @@ const Home = () => {
     let from: string | null = null
     try { from = document.referrer ? new URL(document.referrer).origin : null } catch { from = null }
     if (from === window.location.origin) from = null
-    beginAdd(magnet, true, from)
+    addQueue.current.push({ magnet, external: true, from })
+    if (!pendingRef.current) askNext()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.get('add')])
 
@@ -3651,8 +3655,10 @@ const Home = () => {
           // the consent step for links from anywhere is not one worth having
           onNeverAsk={pendingAdd.external ? undefined : () => {
             chooseAddDialog(false)
+            // the setting is for their own adds, so a link's still waits its turn
             for (const next of addQueue.current.splice(0)) {
-              if (typeof next === 'string') addMagnet(next)
+              if (next.external) addQueue.current.push(next)
+              else if (!('infoHash' in next)) addMagnet(next.magnet)
               else if (next.bytes) addTorrentFile(next.bytes)
             }
           }}
