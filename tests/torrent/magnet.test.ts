@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { TORRENT_ID_PATTERN } from '../../src/torrent/opfs-sweep'
-import { magnetInfoHash, magnetParam, readableMagnet } from '../../src/torrent/magnet'
+import { magnetInfoHash, magnetParam, readableMagnet, sameInfoHash } from '../../src/torrent/magnet'
 
 const V1 = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const V2 = 'caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e'
@@ -149,6 +149,21 @@ describe('whether the engine can add a magnet', () => {
     ['two torrents', `magnet:?xt=urn:btih:${'1a'.repeat(20)}&xt.1=urn:btih:${'2b'.repeat(20)}`],
   ])('refuses %s', (_name, magnet) => {
     expect(readableMagnet(magnet)).toBe(false)
+  })
+})
+
+describe('whether two infohashes name one torrent', () => {
+  it('matches one hash in hex and in base32, in either case', () => {
+    expect(sameInfoHash(V1, 'bcw2lj5gda5k4hqj3ay56z2i2vtaswqq')).toBe(true)
+    expect(sameInfoHash('BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ', V1.toUpperCase())).toBe(true)
+    expect(sameInfoHash(V2, V2)).toBe(true)
+  })
+
+  it('tells two torrents apart, and matches nothing to a missing hash', () => {
+    expect(sameInfoHash(V1, '7'.repeat(32))).toBe(false)
+    expect(sameInfoHash(V1, V2)).toBe(false)
+    expect(sameInfoHash(undefined, V1)).toBe(false)
+    expect(sameInfoHash(null, null)).toBe(false)
   })
 })
 

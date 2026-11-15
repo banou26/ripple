@@ -68,6 +68,10 @@ export const hexInfoHash = (infoHash: string): string => {
   return hex
 }
 
+/** Whether two infohashes name one torrent, each written in hex or base32. */
+export const sameInfoHash = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  !!a && !!b && hexInfoHash(a) === hexInfoHash(b)
+
 /**
  * EVERY value of a repeated magnet key, decoded and in order.
  *

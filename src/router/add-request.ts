@@ -1,5 +1,5 @@
 import { intl } from '../i18n'
-import { magnetInfoHash, magnetParam } from '../torrent/magnet'
+import { hexInfoHash, magnetInfoHash, magnetParam } from '../torrent/magnet'
 
 /**
  * Reading what another site is asking Ripple to add.
@@ -25,9 +25,9 @@ export type AddRequest =
     sizeBytes?: number
   }
 
-// A magnet's infohash is 40 hex characters for v1, or 64 for v2. Anything else is not one, and
-// accepting it would mean handing the engine a string that can only fail later, somewhere less
-// obvious than here.
+// A magnet's infohash is 40 hex characters for v1 (or 32 base32, read as hex), or 64 for v2. Anything
+// else is not one, and accepting it would mean handing the engine a string that can only fail later,
+// somewhere less obvious than here.
 const V1 = /^[0-9a-f]{40}$/
 const V2 = /^[0-9a-f]{64}$/
 
@@ -71,7 +71,7 @@ export const describeAddRequest = (
   if (!infoHash) {
     return { ok: false, problem: intl.formatMessage({ id: 'This magnet link has no info hash.', defaultMessage: 'This magnet link has no info hash.' }) }
   }
-  if (!V1.test(infoHash) && !V2.test(infoHash)) {
+  if (!V1.test(hexInfoHash(infoHash)) && !V2.test(infoHash)) {
     return { ok: false, problem: intl.formatMessage({ id: 'This magnet link\'s info hash is malformed.', defaultMessage: 'This magnet link\'s info hash is malformed.' }) }
   }
   return {

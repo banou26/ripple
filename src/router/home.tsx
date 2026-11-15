@@ -15,7 +15,7 @@ import type { SyncState } from '../torrent/use-cloud-backup'
 
 import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Square, Upload, X } from 'lucide-react'
 
-import { magnetInfoHash } from '../torrent/magnet'
+import { magnetInfoHash, sameInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
@@ -2208,7 +2208,7 @@ const Home = () => {
   const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null) => {
     const request = describeAddRequest({ magnet })
     if (!request.ok) { showToast(request.problem); return }
-    const existing = torrentsRef.current.find((t) => t.infoHash === request.infoHash && !t.ephemeral && t.state !== 'missing')
+    const existing = torrentsRef.current.find((t) => sameInfoHash(t.infoHash, request.infoHash) && !t.ephemeral && t.state !== 'missing')
     if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return }
     client.addMagnet(request.magnet, { ephemeral: true, hold: true })
     setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
@@ -2220,7 +2220,7 @@ const Home = () => {
     if (!isMagnet(text)) return false
     const ih = magnetInfoHash(text)
     // Re-adding would join the swarm and start downloading; a synced "Files missing" torrent must only start from its explicit Download button
-    if (ih && torrentsRef.current.some((t) => t.magnet && magnetInfoHash(t.magnet) === ih)) {
+    if (torrentsRef.current.some((t) => t.magnet && sameInfoHash(magnetInfoHash(t.magnet), ih))) {
       showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
       return true
     }

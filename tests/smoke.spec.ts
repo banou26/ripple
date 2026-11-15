@@ -165,6 +165,31 @@ test('a magnet that names two torrents is refused rather than listed as one of t
   await expect(page.locator('.torrent')).toHaveCount(0)
 })
 
+test('a torrent in the list is known by its hash in base32 too, typed or sent by a link', async ({ page }) => {
+  await page.goto('/')
+  const field = page.getByPlaceholder('Add a magnet link')
+  await field.fill(NOBODY)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.torrent .title strong')).toHaveText('Own', { timeout: 30_000 })
+
+  // NOBODY's hash, in base32
+  const again = `magnet:?xt=urn:btih:${'VK'.repeat(16)}&dn=Again`
+  const known = page.getByRole('status').filter({ hasText: 'Already in your list' }).first()
+  await field.fill(again)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(known).toBeVisible()
+  await expect(known).toHaveCount(0)
+
+  // the same link from another site, with the list already on screen
+  await page.evaluate((magnet) => {
+    history.pushState(null, '', '/?add=' + encodeURIComponent(magnet))
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, again)
+  await expect(known).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.torrent')).toHaveCount(1)
+})
+
 // Cloudflare Pages serves the app for any path, so what an unknown one shows is the router's choice
 test('an address the app does not know ends on the library', async ({ page }) => {
   // first, while no service worker is installed, so the server answers the expired save address like any other
