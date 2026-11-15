@@ -8,15 +8,27 @@
  * socket opens. Measured 2026-11-15 on Chrome 156: fetch, WebSocket and WebTransport to a name, an IPv4 or an IPv6
  * literal all fail as net::ERR_NAME_NOT_RESOLVED. WebRTC sends to an address without asking the resolver, so a STUN
  * server named by its address is still reached; ripple names its STUN host, which the resolver refuses. With no
- * relay to reach, each engine start waits out its 8 s port reservation.
+ * relay to reach, an engine with the VPN on starts only once its 8 s port reservation has given up, so every page
+ * starts with the VPN off, whose engine reserves no port, except in the specs VPN_ON names.
  */
 import { test as base, expect } from '@playwright/test'
+import { basename } from 'node:path'
 
 export { expect }
 
 const OFFLINE = '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
 // a run against a deployed origin (RIPPLE_TEST_BASE_URL in playwright.config.ts) is meant to reach it
 const DEPLOYED = !!process.env.RIPPLE_TEST_BASE_URL
+
+/**
+ * The specs that keep the VPN on: those that test the VPN, the relay, inbound peers, the transport or FKN's quota,
+ * handover-rows.spec.ts, which samples a promoted tab's rows for the seconds its engine takes to start, and
+ * smoke.spec.ts, two of whose adds fail once the engine starts as fast as it does with the VPN off.
+ */
+const VPN_ON = [
+  'create-torrent.spec.ts', 'handover-rows.spec.ts', 'home-language.spec.ts', 'name-lookups.spec.ts',
+  'smoke.spec.ts', 'vpn-off.spec.ts', 'vpn-surfaces.spec.ts',
+]
 
 const isLocal = (url: string) => {
   const { protocol, hostname } = new URL(url)
@@ -28,12 +40,16 @@ const reached: string[] = []
 export const test = base.extend<{ onlyLocal: void }>({
   // under whatever launchOptions a spec sets, and first, so a spec that names rules of its own replaces these
   browser: [async ({ playwright, browserName, launchOptions }, use) => {
-    const browser = await playwright[browserName].launch(browserName === 'chromium' && !DEPLOYED ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
+    const offline = browserName === 'chromium' && !DEPLOYED
+    const browser = await playwright[browserName].launch(offline ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
     // every context a spec opens, and the default one, which Playwright opens through this too
     const newContext = browser.newContext.bind(browser)
     browser.newContext = async (options) => {
       const context = await newContext(options)
       context.on('response', (response) => { if (!isLocal(response.url())) reached.push(response.url()) })
+      if (offline && !VPN_ON.includes(basename(base.info().file))) {
+        await context.addInitScript(() => { try { localStorage.setItem('ripple:vpn', 'off') } catch { /* a frame with no storage */ } })
+      }
       return context
     }
     await use(browser)

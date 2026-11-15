@@ -64,6 +64,17 @@ describe('the e2e lanes', () => {
     expect(lane('e2e:local').filter((path) => !offline(path)), 'an e2e:local spec takes its test from ./offline').toEqual([])
   })
 
+  it('keeps the VPN on only for local specs, and for every local spec that reads or sets the choice itself', () => {
+    const offline = Object.values(import.meta.glob('./offline.ts', { query: '?raw', import: 'default', eager: true }))[0] as string
+    const kept = [.../VPN_ON = \[([^\]]*)\]/.exec(offline)?.[1]?.matchAll(/'([\w.-]+)'/g) ?? []].map((m) => `tests/${m[1]}`)
+    expect(kept, 'no VPN_ON was read from tests/offline.ts, so the checks below are vacuous').not.toEqual([])
+    // a name that is no local spec leaves the spec it meant with the VPN off
+    expect(kept.filter((path) => !lane('e2e:local').includes(path)), 'VPN_ON names a spec the local lane does not run').toEqual([])
+    // the switch writes the choice into every page, over whatever a spec wrote or expects to read
+    const own = lane('e2e:local').filter((path) => /ripple:vpn\b/.test(sources[path.replace('tests/', './')] ?? ''))
+    expect(own.filter((path) => !kept.includes(path)), 'a spec that reads or sets ripple:vpn runs with the VPN off').toEqual([])
+  })
+
   it('builds before each lane, and neither tolerates a committed .only', () => {
     // `--forbid-only` is what stops one committed `test.only` silencing a whole file in CI
     for (const name of LANES) {
