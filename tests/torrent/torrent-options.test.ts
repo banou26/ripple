@@ -745,13 +745,13 @@ describe('in the language of the page', () => {
   const SHAPES: [Partial<Torrent>, TorrentOptionContext][] = [
     [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
     [{ state: 'paused' }, { savedToUserStorage: false, folderReady: true, intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
-    [{ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged }, { savedToUserStorage: false }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }, { name: 'b.mkv', size: 1e9, index: 1 }] }, { savedToUserStorage: false }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }] }, { savedToUserStorage: false }],
     [{ state: 'missing', files: [] }, { savedToUserStorage: false }],
     [{ state: 'starting', files: undefined }, { savedToUserStorage: false }],
     [{ state: 'retrying' }, { savedToUserStorage: false }],
     [{ state: 'checking', infoHash: undefined }, { savedToUserStorage: false }],
+    [{ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged }, { savedToUserStorage: false }],
   ]
   const words = () => SHAPES.flatMap(([over, context]) => buildTorrentOptions(torrent(over), actions(), context)
     .flatMap(group => [group.label, ...group.items.flatMap(item => [item.label, item.hint, item.disabled])]))
@@ -759,9 +759,10 @@ describe('in the language of the page', () => {
 
   it('writes every one of its words in German', async () => {
     const english = words()
-    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash', 'Force start']) {
+    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash']) {
       expect(english).toContain(text)
     }
+    expect(english).toContain('Force start')
     await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })
     const german = words()
     expect(german).toHaveLength(english.length)
