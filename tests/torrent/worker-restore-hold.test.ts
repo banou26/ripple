@@ -18,6 +18,8 @@ const FROM_FILE = '3'.repeat(40)
 const FOLDER = '4'.repeat(40)
 const OWNED = '5'.repeat(40)
 const LEGACY = '6'.repeat(40)
+const STARTED = '7'.repeat(40)
+const STARTED_SAVED = '8'.repeat(40)
 const SAMPLE = DEMO_SAVE_PATH.slice(-40)
 const UPLOAD = 1
 const MiB = 1024 * 1024
@@ -39,7 +41,7 @@ const engine = vi.hoisted(() => ({
 // the saved state's directory, or the restore reads the origin as cleared and drops the blob
 const rig = installWorkerGlobals({
   estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }),
-  root: fakeDir('', [fakeDir('cache', [fakeDir(SAVED)])]),
+  root: fakeDir('', [fakeDir('cache', [fakeDir(SAVED), fakeDir(STARTED_SAVED)])]),
 })
 
 vi.mock('@fkn/lib/net', () => ({}))
@@ -132,10 +134,13 @@ vi.mock('idb-keyval', async () => {
       entry(sample, true, DEMO_SAVE_PATH),
       // a temporary one from before /cache
       entry('6'.repeat(40), true, `/dl/${'6'.repeat(40)}`),
+      // two the person started, the second with a state saved while it ran
+      ...['7', '8'].map((c) => ({ ...entry(c.repeat(40), true), resumed: true })),
     ]],
     // saved while it ran: a film whose tab closed, or a change of the VPN switch, mid film
     [`ripple:resume:${'2'.repeat(40)}`, new Uint8Array([1])],
     [`ripple:torrent:${'3'.repeat(40)}`, new Uint8Array([1])],
+    [`ripple:resume:${'8'.repeat(40)}`, new Uint8Array([1])],
     // a folder's carries the upload mode a move there set, and one kept and the sample are no cache to park
     ...['4'.repeat(40), '5'.repeat(40), sample].map((hash) => [`ripple:resume:${hash}`, new Uint8Array([1])] as const),
   ])
@@ -214,6 +219,23 @@ it('takes one the person paused and resumed out of upload mode at its layout, an
   await vi.waitFor(() => expect(of(PAUSED)).toContain('upload off'), { timeout: 2_000 })
   await pumps(2)
   expect(of(PAUSED)).toEqual(['upload on', 'pause', 'resume', 'upload off'])
+})
+
+// nothing parks one the person started, so the pump at its layout is what lets it go
+it('brings one the person started back running and out of upload mode, with or without a saved state', async () => {
+  expect(of(STARTED_SAVED)).toEqual(['upload on', 'upload off'])
+  expect(of(STARTED)).toEqual(['upload on'])
+  engine.withMeta.add(STARTED)
+  await vi.waitFor(() => expect(of(STARTED)).toContain('upload off'), { timeout: 2_000 })
+  for (const hash of [STARTED, STARTED_SAVED]) {
+    rig.send({ type: 'watch', viewer: `player:${hash}`, handle: handleOf(hash), fileIndex: 1, fromOffset: 0 })
+    rig.send({ type: 'unwatch', viewer: `player:${hash}` })
+  }
+  await pumps(2)
+  for (const hash of [STARTED, STARTED_SAVED]) {
+    expect(of(hash), hash).toEqual(['upload on', 'upload off'])
+    expect(engine.paused.has(handleOf(hash)) || engine.upload.has(handleOf(hash)), hash).toBe(false)
+  }
 })
 
 it('forgets the hold of one removed, so the same hash added again saves its resume data', async () => {
