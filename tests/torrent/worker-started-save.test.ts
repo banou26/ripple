@@ -178,3 +178,15 @@ it('parks a library torrent the person started once they make it temporary', asy
   await vi.waitFor(() => expect(of('1')).toEqual(['pause', 'resume', 'pause']), { timeout: 2_000 })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 })
+
+it('keeps the person\'s Start through a Force recheck', async () => {
+  rig.send({ type: 'resume', handle: handleOf('g') })
+  await vi.waitFor(() => expect(entryOf('g')).toMatchObject({ paused: false, resumed: true }))
+  rig.send({ type: 'recheck', handle: handleOf('g') })
+  await vi.waitFor(() => expect(of('g').slice(8)).toEqual(['resume', 'recheck']))
+  comeAndGo('g', 'player:4')
+  await pumps(2)
+  expect(of('g').slice(8)).toEqual(['resume', 'recheck'])
+  expect(entryOf('g')).toMatchObject({ paused: false, resumed: true })
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+})
