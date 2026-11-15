@@ -96,7 +96,9 @@ jobs:
   # these are deterministic, so they can gate a push.
   e2e-local:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # 45, not 30: its browser reaches no relay (tests/offline.ts), so each engine start waits out the 8 s port
+    # reservation, about 8 minutes a run over the 27 the job took with the network (2026-11-15)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
