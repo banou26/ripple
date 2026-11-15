@@ -112,8 +112,6 @@ for (const { where, framed } of TOPOLOGIES) {
 
     // no service worker, so the CSP below lands on the responses the page actually uses
     const context = await browser.newContext({ serviceWorkers: 'block' })
-    // nothing leaves this machine: the fkn.app frame the app mounts is not what is under test
-    await context.route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
     const page = await context.newPage()
     await page.addInitScript(instrument)
     const served: string[] = []

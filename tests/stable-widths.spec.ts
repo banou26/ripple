@@ -57,8 +57,6 @@ const WIDTHS = [1280, 375]
 
 test('live figures keep their room whatever the font, the language and the width', async ({ page }) => {
   test.setTimeout(120_000)
-  // the page needs nothing from outside for this, so nothing leaves the machine
-  await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
   await page.goto('/')
   await addSample(page, { pause: true })
 
@@ -139,7 +137,6 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
   test.setTimeout(240_000)
-  await page.context().route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.goto('/')
   // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does
