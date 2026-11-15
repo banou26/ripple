@@ -1296,7 +1296,10 @@ test('the bar for ticked rows downloads every ticked torrent not on this device 
   await expect(bar).toContainText('1 selected')
   await expect(bar.getByRole('button', { name: 'Download' })).toHaveCount(0)
   // Made.Here is a created source, whose own row offers no download either
-  for (const name of ['Elsewhere', 'Elsewhere.Too', 'Made.Here']) await tick(name)
+  await tick('Made.Here')
+  await expect(bar).toContainText('2 selected')
+  await expect(bar.getByRole('button', { name: 'Download' })).toHaveCount(0)
+  for (const name of ['Elsewhere', 'Elsewhere.Too']) await tick(name)
   await expect(bar).toContainText('4 selected')
   await bar.getByRole('button', { name: 'Download' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
