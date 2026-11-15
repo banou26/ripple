@@ -676,6 +676,18 @@ describe('copying what names a torrent', () => {
     }
   })
 
+  it('waits for the name of a magnet that carries none until its metadata names it', () => {
+    const bare = 'magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd'
+    for (const files of [[], undefined]) {
+      expect(find(torrent({ magnet: bare, files }), 'copy-name')?.disabled).toBe('Waiting for metadata')
+    }
+    // named by its magnet, by its metadata, or, for a ghost, by what was stored with it
+    for (const t of [torrent({ magnet: bare + '&dn=Sintel', files: [] }), torrent({ magnet: bare }), torrent({ magnet: bare, state: 'missing', flags: 0, files: [] })]) {
+      expect(find(t, 'copy-name'), t.state).toBeDefined()
+      expect(find(t, 'copy-name')?.disabled, t.state).toBeUndefined()
+    }
+  })
+
   it('runs the action each one names', () => {
     const a = actions()
     for (const [id, fn] of [['copy-name', a.copyName], ['copy-info-hash', a.copyInfoHash]] as const) {

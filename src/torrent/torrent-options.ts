@@ -4,6 +4,7 @@ import type { SaveLocation } from './library'
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { intl } from '../i18n'
+import { magnetParam } from './magnet'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
 import { limitLabel } from './rate-limits'
@@ -246,6 +247,10 @@ export const buildTorrentOptions = (
     kind: 'action',
     id: 'copy-name',
     label: intl.formatMessage({ id: 'Copy name', defaultMessage: 'Copy name' }),
+    // a live row with neither metadata nor a `dn` shows a placeholder where its name goes
+    disabled: !ghost && !t.files?.length && !magnetParam(t.magnet ?? '', 'dn')
+      ? intl.formatMessage({ id: 'Waiting for metadata', defaultMessage: 'Waiting for metadata' })
+      : undefined,
     run: a.copyName,
   })
   if (t.infoHash) {
