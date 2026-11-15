@@ -2243,7 +2243,14 @@ const handleMessage = async (session: Session, m: any) => {
       // the add dialog's answers, as a restore applies an entry's: nothing could be sent for this handle before it existed
       const wanted = Array.isArray(m.wanted) ? m.wanted.map((n: unknown) => Number(n) | 0) : undefined
       const firstLast = m.firstLast === true
-      if (wanted || firstLast) { planByHandle.set(h, { wanted, firstLast }); needsPriorityReset.add(h) }
+      // held in upload mode until the pump writes the plan, as a page's magnet is: a .torrent has its layout from the
+      // add, so libtorrent would ask for pieces before that pump, which is also where the pause lands
+      if (wanted || firstLast || m.paused === true) {
+        planByHandle.set(h, { wanted, firstLast })
+        needsPriorityReset.add(h)
+        holdingUpload.add(h)
+        session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
+      }
       if (m.sequential === true) session.setFlags(h, TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload)
       if (m.paused === true) { userPaused.add(h); wantPause(h) }
       if (m.top === true) session.moveInQueue(h, 'top')

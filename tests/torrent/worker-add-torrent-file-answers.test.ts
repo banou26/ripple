@@ -1,6 +1,6 @@
-// A .torrent added from the add dialog starts as it was asked to: its left-out files skipped, in order, paused, first in
-// the queue, and all of it stored with its entry. The handle exists only once this add runs, so nothing sent after it
-// could do this, and an add with no answers is left as it always was.
+// A .torrent added from the add dialog starts as it was asked to, held until then: its left-out files skipped, in order,
+// paused, first in the queue, and all of it stored with its entry. The handle exists only once this add runs, so nothing
+// sent after it could do this, and an add with no answers is left as it always was.
 import type { Persisted } from '../../src/torrent/library'
 
 import { expect, it, vi } from 'vitest'
@@ -10,6 +10,7 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 const MiB = 1024 * 1024
 const ASKED = 'a'.repeat(40)
 const PLAIN = 'b'.repeat(40)
+const STOPPED = 'c'.repeat(40)
 const SEQUENTIAL = 4
 
 // what the engine was told, by handle
@@ -30,7 +31,7 @@ vi.mock('libtorrent-wasm', async () => {
   return {
     createSession: async () => fakeSession({
       // handles count from 1, so each add answers with its own hash on the first poll
-      infohash: (handle: number) => [ASKED, PLAIN][handle - 1] ?? null,
+      infohash: (handle: number) => [ASKED, PLAIN, STOPPED][handle - 1] ?? null,
       infohashV2: () => null,
       status: () => DOWNLOADING,
       files: () => layout,
@@ -61,10 +62,21 @@ it('skips the files left out, in order, paused and first in the queue, as stored
 
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([1]), wanted: [0], firstLast: false, sequential: true, paused: true, top: true })
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([2]) })
-  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(2))
+  // every file wanted, only not started
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([3]), firstLast: false, sequential: false, paused: true, top: false })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(3))
   await vi.waitFor(() => expect(told(1)).toContain(`pieces ${'4'.repeat(10)}${'0'.repeat(10)}`))
   await vi.waitFor(() => expect(told(1)).toContain('pause'))
+  await vi.waitFor(() => expect(told(3)).toContain('pause'))
 
+  // held in upload mode from the add until the pump has written the plan, then let go
+  expect(told(1)[0]).toBe('flags 1 1')
+  await vi.waitFor(() => expect(told(1)).toContain('flags 0 1'))
+  expect(told(1).indexOf('flags 0 1')).toBeGreaterThan(told(1).findIndex((line) => line.startsWith('pieces')))
+  expect(told(3).slice(0, 3)).toEqual(['flags 1 1', 'flags 0 1', 'pause'])
+  expect(entry(STOPPED)).toMatchObject({ paused: true })
+  expect(entry(STOPPED)?.wantedFiles).toBeUndefined()
+  expect(told(2)).not.toContain('flags 1 1')
   expect(told(1)).toContain(`flags ${SEQUENTIAL} ${SEQUENTIAL}`)
   expect(told(1)).toContain('queue top')
   expect(entry(ASKED)).toMatchObject({ wantedFiles: [0], paused: true })
