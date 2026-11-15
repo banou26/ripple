@@ -241,6 +241,16 @@ test('a .torrent already in the list is said to be there', async ({ page }) => {
   await expect(page.locator('.torrent')).toHaveCount(1)
 })
 
+test('a .torrent for a torrent listed by its base32 hash is said to be there', async ({ page }) => {
+  await page.goto('/')
+  await page.getByPlaceholder('Add a magnet link').fill('magnet:?xt=urn:btih:BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ&dn=Sintel')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.torrent .title strong')).toHaveText('Sintel', { timeout: 30_000 })
+
+  await page.locator('label.file-button input[type=file]').first().setInputFiles(join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent'))
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
+})
+
 // Cloudflare Pages serves the app for any path, so what an unknown one shows is the router's choice
 test('an address the app does not know ends on the library', async ({ page }) => {
   // first, while no service worker is installed, so the server answers the expired save address like any other
