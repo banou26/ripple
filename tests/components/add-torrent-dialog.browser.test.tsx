@@ -124,10 +124,10 @@ describe('the add dialog when the selection is bigger than the room left', () =>
 
 describe('the add dialog for a v2 or hybrid torrent', () => {
   // the engine's list, with the pad libtorrent puts after the film to start the subtitles on a piece
-  const PADDED: TorrentFile[] = [
-    { name: 'Film/Film.mkv', size: 300_000, progress: 0, index: 0 },
-    { name: 'Film/.pad/748576', size: 748_576, progress: 0, index: 1, pad: true },
-    { name: 'Film/Film.srt', size: 2_000, progress: 0, index: 2 },
+  const PADDED = [
+    { name: 'Film/Film.mkv', size: 300_000, index: 0 },
+    { name: 'Film/.pad/748576', size: 748_576, index: 1, pad: true },
+    { name: 'Film/Film.srt', size: 2_000, index: 2 },
   ]
 
   const Picking = () => {
