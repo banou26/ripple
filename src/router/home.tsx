@@ -3614,7 +3614,7 @@ const Home = () => {
           from={pendingAdd.from}
           external={pendingAdd.external}
           files={pendingFiles}
-          choices={choices ?? defaultChoices({ files: [], location: defaultLocation })}
+          choices={choices ?? defaultChoices({ files: pendingFiles, location: defaultLocation })}
           onChoices={setChoices}
           folderName={folder?.name}
           folderReady={!!folder && permitted}

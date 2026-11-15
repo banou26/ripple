@@ -1469,6 +1469,28 @@ test('with Ask on, a picked .torrent is asked about from its own file list, and 
   ])
 })
 
+test('with Ask on, a picked .torrent\'s dialog is drawn with every file ticked from its first frame', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  // read in the observer, after the dialog's first commit and before the page's effects run
+  await page.evaluate(() => {
+    const first: string[] = []
+    Object.assign(window, { first })
+    new MutationObserver((_, observer) => {
+      const count = document.querySelector('[role=dialog] .count')
+      if (!count) return
+      first.push(count.textContent, document.querySelector('[role=dialog] .problem')?.textContent ?? '')
+      observer.disconnect()
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await page.locator('label.file-button input[type=file]').first().setInputFiles(join(ROOT, 'src', 'assets', 'sintel.torrent'))
+  await expect(page.getByRole('dialog').locator('.count')).toContainText('11 of 11 files')
+  const [count, problem] = await page.evaluate(() => (window as unknown as { first: string[] }).first)
+  expect(count).toContain('11 of 11 files')
+  expect(problem).toBe('')
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
