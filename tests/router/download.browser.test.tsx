@@ -690,14 +690,6 @@ describe('the download route', () => {
   })
 })
 
-/**
- * The way OUT of the download page, for a link whose torrent turns out to be watchable.
- *
- * Somebody handed a download link may not know Ripple can play it in the same tab, and the page had
- * no way of telling them. Offered only once the ENGINE has said there is something to play, because
- * the link itself says nothing about the files: a link that claimed a video would be a link choosing
- * what the page offers.
- */
 describe('the offer to switch the VPN off once the FKN quota is used up', () => {
   afterEach(() => {
     quota.current = null
@@ -723,6 +715,14 @@ describe('the offer to switch the VPN off once the FKN quota is used up', () => 
   })
 })
 
+/**
+ * The way OUT of the download page, for a link whose torrent turns out to be watchable.
+ *
+ * Somebody handed a download link may not know Ripple can play it in the same tab, and the page had
+ * no way of telling them. Offered only once the ENGINE has said there is something to play, because
+ * the link itself says nothing about the files: a link that claimed a video would be a link choosing
+ * what the page offers.
+ */
 describe('offering to watch instead', () => {
   beforeEach(() => { state.current = torrent() })
 
