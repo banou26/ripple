@@ -16,6 +16,8 @@ import { test as base, expect } from '@playwright/test'
 export { expect }
 
 const OFFLINE = '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
+// a run against a deployed origin (RIPPLE_TEST_BASE_URL in playwright.config.ts) is meant to reach it
+const DEPLOYED = !!process.env.RIPPLE_TEST_BASE_URL
 
 const isLocal = (url: string) => {
   const { protocol, hostname } = new URL(url)
@@ -25,7 +27,7 @@ const isLocal = (url: string) => {
 export const test = base.extend<{ onlyLocal: void }>({
   // under whatever launchOptions a spec sets, and first, so a spec that names rules of its own replaces these
   browser: [async ({ playwright, browserName, launchOptions }, use) => {
-    const browser = await playwright[browserName].launch(browserName === 'chromium' ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
+    const browser = await playwright[browserName].launch(browserName === 'chromium' && !DEPLOYED ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
     await use(browser)
     await browser.close()
   }, { scope: 'worker', timeout: 0 }],
@@ -34,6 +36,6 @@ export const test = base.extend<{ onlyLocal: void }>({
     const reached: string[] = []
     context.on('response', (response) => { if (!isLocal(response.url())) reached.push(response.url()) })
     await use()
-    expect(reached, 'a request reached past this machine').toEqual([])
+    if (!DEPLOYED) expect(reached, 'a request reached past this machine').toEqual([])
   }, { auto: true }],
 })
