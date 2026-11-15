@@ -72,6 +72,7 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
     usageOf: async (savePath: string) => savePath.endsWith(FILM_HASH)
       ? filmOnDisk()
       : cached.find((c) => savePath.endsWith(c.hash))?.bytes ?? 0,
+    usageOfStorage: async () => filmOnDisk(),
     refusedFile: () => undefined,
   }),
 }))

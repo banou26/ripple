@@ -70,7 +70,7 @@ vi.mock('libtorrent-wasm', async () => {
 vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   // nothing of the film on disk yet, so it owes its whole size
-  createHybridStorage: () => ({ usageOf: async () => 0, refusedFile: () => undefined }),
+  createHybridStorage: () => ({ usageOf: async () => 0, usageOfStorage: async () => 0, refusedFile: () => undefined }),
 }))
 vi.mock('idb-keyval', () => ({
   // an empty library, so every hash-named directory down there is an orphan unless something claims it

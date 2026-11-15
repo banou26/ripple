@@ -53,26 +53,26 @@ describe('a write the browser refuses for want of room', () => {
     const storage = createResilientStorage()
     const files = [{ path: 'extras.mkv', size: 4_000 }, { path: 'film.mkv', size: 10_624_058_159 }]
     await storage.onNewStorage(1, SAVE_PATH, files)
-    expect(storage.refusedFile(SAVE_PATH)).toBeUndefined()
+    expect(storage.refusedFile(1)).toBeUndefined()
 
     const started = Date.now()
     await expect(Promise.resolve().then(() => storage.write(1, 1, 10_624_058_159 - PIECE, new Uint8Array(PIECE))))
       .rejects.toMatchObject({ name: 'QuotaExceededError' })
     // the retries wait 3 s in all, for a lock a full origin is not holding
     expect(Date.now() - started).toBeLessThan(1_000)
-    expect(storage.refusedFile(SAVE_PATH)).toBe(1)
+    expect(storage.refusedFile(1)).toBe(1)
 
     // the head of a file too big to fit still lands, and must not hide that its tail never will
     room.bytes = Infinity
     await storage.write(1, 1, 0, new Uint8Array(16))
-    expect(storage.refusedFile(SAVE_PATH)).toBe(1)
+    expect(storage.refusedFile(1)).toBe(1)
 
     await storage.onNewStorage(1, SAVE_PATH, files)
-    expect(storage.refusedFile(SAVE_PATH)).toBeUndefined()
+    expect(storage.refusedFile(1)).toBeUndefined()
   })
 })
 
-describe('usageOf', () => {
+describe('usageOfStorage', () => {
   it('measures one file of a torrent when asked for one', async () => {
     const room = { bytes: Infinity }
     mount([file('e01.mkv', syncHandle(room)), file('e02.mkv', syncHandle(room))])
@@ -82,7 +82,7 @@ describe('usageOf', () => {
     await storage.write(2, 1, 5_999, new Uint8Array(1))
 
     expect(await storage.usageOf(SAVE_PATH)).toBe(10_000)
-    expect(await storage.usageOf(SAVE_PATH, 1)).toBe(6_000)
+    expect(await storage.usageOfStorage(2, 1)).toBe(6_000)
   })
 })
 

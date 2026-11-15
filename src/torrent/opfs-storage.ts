@@ -66,21 +66,19 @@ type StorageInternals = {
 
 /** Adds the queries the engine needs that a plain StorageBackend does not carry. */
 export type MeasurableStorage = StorageBackend & {
+  /** Bytes the origin is charged for the torrent last mounted at `savePath`, or null when none is. */
+  usageOf: (savePath: string) => Promise<number | null>
   /**
-   * Bytes the origin is charged for everything under `savePath`, or for its file `fileIndex` alone,
-   * or null when it is not mounted.
+   * Bytes the origin is charged for libtorrent's storage `id` (`TorrentFiles.storageIndex`), or for its file
+   * `fileIndex` alone, or null when its bytes are not in browser storage. By id because every torrent added from a
+   * .torrent shares one save path.
    */
-  usageOf: (savePath: string, fileIndex?: number) => Promise<number | null>
+  usageOfStorage: (id: number, fileIndex?: number) => Promise<number | null>
   /**
-   * Bytes the origin is charged for libtorrent's storage `id` (`TorrentFiles.storageIndex`), or null when its bytes
-   * are not in browser storage. By id because every torrent added from a .torrent shares one save path.
+   * The file of storage `id` whose write the browser last refused for want of room, held until the torrent is
+   * mounted again, or undefined when none was.
    */
-  usageOfStorage: (id: number) => Promise<number | null>
-  /**
-   * The file under `savePath` whose write the browser last refused for want of room, held until the
-   * torrent is mounted again, or undefined when none was.
-   */
-  refusedFile: (savePath: string) => number | undefined
+  refusedFile: (id: number) => number | undefined
 }
 
 export const createResilientStorage = (): MeasurableStorage => {
@@ -136,9 +134,9 @@ export const createResilientStorage = (): MeasurableStorage => {
     return total
   }
 
-  const usageOf = async (savePath: string, only?: number): Promise<number | null> => {
+  const usageOf = async (savePath: string): Promise<number | null> => {
     const id = idBySavePath.get(savePath)
-    return id === undefined ? null : usageOfStorage(id, only)
+    return id === undefined ? null : usageOfStorage(id)
   }
 
   const retry = retrying(dying)
@@ -160,11 +158,8 @@ export const createResilientStorage = (): MeasurableStorage => {
 
   return {
     usageOf,
-    usageOfStorage: (id) => usageOfStorage(id),
-    refusedFile: (savePath) => {
-      const id = idBySavePath.get(savePath)
-      return id === undefined ? undefined : refused.get(id)
-    },
+    usageOfStorage,
+    refusedFile: (id) => refused.get(id),
     onNewStorage: (id, savePath, files) => {
       dying.delete(id)
       refused.delete(id)

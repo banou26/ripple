@@ -1137,7 +1137,7 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
       return {
         h,
         size: bandsOnly ? bandsCharge(size, files.pieceLength, isCacheSavePath(savePath) ? chunkBytes : undefined) : size,
-        held: (await live.usageOf(savePath, fileIndex)) ?? 0,
+        held: (await live.usageOfStorage(files.storageIndex, fileIndex)) ?? 0,
       }
     }
     const player = activeViewers(h).find((v) => !v.prepare)
@@ -1145,7 +1145,7 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
     for (const fileIndex of new Set([...watching.values()].map((v) => v.fileIndex))) {
       watched.push({ ...await measure(fileIndex), cache: windowable && fileIndex === player?.fileIndex, chunkBytes })
     }
-    const refusal = live.refusedFile(savePath)
+    const refusal = live.refusedFile(files.storageIndex)
     if (refusal !== undefined) refused.push(await measure(refusal))
   }
   const othersOwe = watched.filter((f) => !f.cache).reduce((sum, f) => sum + owes(f), 0)

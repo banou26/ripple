@@ -47,7 +47,8 @@ vi.mock('libtorrent-wasm', async () => {
 vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({
-    usageOf: async (...args: unknown[]) => { state.usageOf.push(args); return 16 * MiB },
+    usageOf: async () => 16 * MiB,
+    usageOfStorage: async (...args: unknown[]) => { state.usageOf.push(args); return 16 * MiB },
     // the tail write, when it is refused, is refused before the pass can run
     refusedFile: () => state.refused,
   }),
@@ -75,7 +76,7 @@ it('reports a refused write the cache cannot make room for as full, and the same
   state.refused = undefined
   state.floating = true
   rig.send({ type: 'watch', viewer: 'player', handle: 1, fileIndex: 0, fromOffset: 0 })
-  await vi.waitFor(() => expect(state.usageOf, 'no pass ever asked what the file owes').toContainEqual(['/cache/' + HASH, 0]))
+  await vi.waitFor(() => expect(state.usageOf, 'no pass ever asked what the file owes').toContainEqual([0, 0]))
   await new Promise((resolve) => setTimeout(resolve, 200))
   expect(rig.of('storage-full')).toEqual([])
 
@@ -84,7 +85,7 @@ it('reports a refused write the cache cannot make room for as full, and the same
   state.floating = false
   state.usageOf.length = 0
   rig.send({ type: 'watch', viewer: 'player', handle: 1, fileIndex: 0, fromOffset: 0 })
-  await vi.waitFor(() => expect(state.usageOf, 'no pass ever asked what the file owes').toContainEqual(['/cache/' + HASH, 0]))
+  await vi.waitFor(() => expect(state.usageOf, 'no pass ever asked what the file owes').toContainEqual([0, 0]))
   await vi.waitFor(() => expect(rig.of('storage-full')).toEqual([
     { type: 'storage-full', full: true, usedBytes: USED, limitBytes: LIMIT },
   ]))

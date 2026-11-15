@@ -50,7 +50,7 @@ describe('the chunked storage', () => {
   it('is charged per chunk, not for the file up to the furthest write', async () => {
     const { storage } = await mounted()
     await storage.write(1, 0, 30 * C - 8, bytes(8))
-    expect(await storage.usageOf(SAVE_PATH, 0)).toBe(C)
+    expect(await storage.usageOfStorage(1, 0)).toBe(C)
     expect(storage.chunksOf(SAVE_PATH, 0)).toEqual([29])
     await storage.write(1, 1, 0, bytes(100))
     expect(await storage.usageOf(SAVE_PATH)).toBe(C + 100)
@@ -93,7 +93,7 @@ describe('the chunked storage', () => {
     expect(await empty.storage.check!(1)).toBe(STORAGE_NO_ERROR)
 
     const { storage } = await mounted([memoryFile('0-3', bytes(C)), memoryFile('0-7', bytes(40)), memoryFile('stray.tmp', bytes(9))])
-    expect(await storage.usageOf(SAVE_PATH, 0)).toBe(C + 40)
+    expect(await storage.usageOfStorage(1, 0)).toBe(C + 40)
     expect(storage.chunksOf(SAVE_PATH, 0)).toEqual([3, 7])
     expect(await storage.check!(1)).toBe(STORAGE_NEED_FULL_CHECK)
     expect(await storage.read(1, 0, 3 * C, 8)).toEqual(bytes(C).subarray(0, 8))
@@ -133,7 +133,7 @@ describe('the chunked storage', () => {
     const { storage } = await mounted([], room)
     await expect(Promise.resolve().then(() => storage.write(1, 0, 0, bytes(300)))).rejects.toMatchObject({ name: 'QuotaExceededError' })
     expect(storage.footprint()).toBe(100)
-    expect(await storage.usageOf(SAVE_PATH, 0)).toBe(100)
+    expect(await storage.usageOfStorage(1, 0)).toBe(100)
   })
 
   it('deletes the torrent directory, open chunks and all', async () => {
@@ -150,7 +150,7 @@ describe('the chunked storage', () => {
     const started = Date.now()
     await expect(Promise.resolve().then(() => storage.write(1, 1, 0, bytes(64)))).rejects.toMatchObject({ name: 'QuotaExceededError' })
     expect(Date.now() - started).toBeLessThan(1_000)
-    expect(storage.refusedFile(SAVE_PATH)).toBe(1)
+    expect(storage.refusedFile(1)).toBe(1)
   })
 })
 

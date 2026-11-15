@@ -196,14 +196,11 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
       return total
     },
 
-    usageOf: (savePath, fileIndex) => usageAt(idBySavePath.get(savePath), fileIndex),
+    usageOf: (savePath) => usageAt(idBySavePath.get(savePath)),
 
-    usageOfStorage: (id) => usageAt(id),
+    usageOfStorage: usageAt,
 
-    refusedFile: (savePath) => {
-      const id = idBySavePath.get(savePath)
-      return id === undefined ? undefined : refused.get(id)
-    },
+    refusedFile: (id) => refused.get(id),
 
     drop: (savePath, fileIndex, chunk) => {
       const m = mountOf(savePath)

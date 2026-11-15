@@ -42,8 +42,8 @@ const state = vi.hoisted(() => ({
 const usage = () => [...state.chunks.values()].reduce((sum, held) => sum + held.length * C, MiB)
 const rig = installWorkerGlobals({ estimate: async () => ({ usage: usage(), quota: 10 * GiB }) })
 
-const one = (path: string, size: number) =>
-  ({ storageIndex: 0, pieceLength: PIECE, numPieces: Math.ceil(size / PIECE), totalSize: size, contentSize: size, files: [{ path, offset: 0, size, pad: false }] })
+const one = (h: number, path: string, size: number) =>
+  ({ storageIndex: h, pieceLength: PIECE, numPieces: Math.ceil(size / PIECE), totalSize: size, contentSize: size, files: [{ path, offset: 0, size, pad: false }] })
 
 vi.mock('@fkn/lib/net', () => ({}))
 vi.mock('@fkn/lib/dgram', () => ({}))
@@ -56,9 +56,9 @@ vi.mock('libtorrent-wasm', async () => {
       // a pack of a film and a short extra, a library download, and films; the rest have no layout
       files: (h: number) => {
         const hash = state.hashes.get(h)
-        if (hash === 'a'.repeat(40)) return { storageIndex: 0, pieceLength: PIECE, numPieces: (FILM + 4 * PIECE) / PIECE, totalSize: FILM + 4 * PIECE, contentSize: FILM + 4 * PIECE, files: [{ path: 'p/film.mkv', offset: 0, size: FILM, pad: false }, { path: 'p/extra.mkv', offset: FILM, size: 4 * PIECE, pad: false }] }
-        if (hash === 'c'.repeat(40)) return one('library.mkv', 3 * GiB)
-        return hash === 'b'.repeat(40) || hash === 'd'.repeat(40) ? one('film.mkv', FILM) : null
+        if (hash === 'a'.repeat(40)) return { storageIndex: h, pieceLength: PIECE, numPieces: (FILM + 4 * PIECE) / PIECE, totalSize: FILM + 4 * PIECE, contentSize: FILM + 4 * PIECE, files: [{ path: 'p/film.mkv', offset: 0, size: FILM, pad: false }, { path: 'p/extra.mkv', offset: FILM, size: 4 * PIECE, pad: false }] }
+        if (hash === 'c'.repeat(40)) return one(h, 'library.mkv', 3 * GiB)
+        return hash === 'b'.repeat(40) || hash === 'd'.repeat(40) ? one(h, 'film.mkv', FILM) : null
       },
       bitfield: (h: number) => state.packHeld && state.hashes.get(h) === 'a'.repeat(40) ? { pieces: new Uint8Array(256).fill(255) } : null,
       setStreamWindow: (h: number, claims: unknown, opts: { keep?: unknown }) => {
@@ -91,6 +91,8 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({
     usageOf: async (savePath: string) => (state.chunks.get(savePath.slice(-40))?.length ?? 0) * C,
+    // the engine's storage id here is the handle
+    usageOfStorage: async (id: number) => (state.chunks.get(state.hashes.get(id) ?? '')?.length ?? 0) * C,
     refusedFile: () => undefined,
   }),
 }))

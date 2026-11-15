@@ -68,8 +68,9 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
       state.usageOf.push(args)
       return String(args[0]).endsWith(EARLIER_HASH) ? EARLIER : 16 * MiB
     },
+    usageOfStorage: async () => 16 * MiB,
     // the film's tail
-    refusedFile: (savePath: string) => savePath.endsWith(FILM_HASH) ? 0 : undefined,
+    refusedFile: () => 0,
   }),
 }))
 vi.mock('idb-keyval', () => {

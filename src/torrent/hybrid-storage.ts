@@ -175,16 +175,16 @@ export const createHybridStorage = (
   }
 
   return {
-    usageOf: async (savePath, fileIndex) => {
+    usageOf: async (savePath) => {
       // the origin is not charged for the user's own files, and reporting their size as OPFS usage
       // would have the budget pass trying to reclaim space that was never taken
       if (isGrantedSavePath(savePath)) return 0
-      return browserAt(savePath).usageOf(savePath, fileIndex)
+      return browserAt(savePath).usageOf(savePath)
     },
 
-    usageOfStorage: async (id) => (native.has(id) || source.has(id) ? null : browser(id).usageOfStorage(id)),
+    usageOfStorage: async (id, fileIndex) => (native.has(id) || source.has(id) ? null : browser(id).usageOfStorage(id, fileIndex)),
 
-    refusedFile: (savePath) => browserAt(savePath).refusedFile(savePath),
+    refusedFile: (id) => browser(id).refusedFile(id),
 
     onNewStorage: (id, savePath, files) => {
       if (isSourceSavePath(savePath)) {

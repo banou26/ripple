@@ -42,7 +42,8 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({
     // the first file is all on disk, the second not at all
-    usageOf: async (_savePath: string, fileIndex?: number) => fileIndex === 0 ? GB : 0,
+    usageOf: async () => 0,
+    usageOfStorage: async (_id: number, fileIndex?: number) => fileIndex === 0 ? GB : 0,
     refusedFile: () => 1,
   }),
 }))

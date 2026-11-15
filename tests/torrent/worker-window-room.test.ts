@@ -58,7 +58,8 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({
     usageOf: async (savePath: string) => (savePath.endsWith(FILM_HASH) ? state.held : savePath.endsWith(EARLIER_HASH) || savePath.endsWith(OLDER_HASH) ? EARLIER : 0),
-    refusedFile: (savePath: string) => (state.refused && savePath.endsWith(FILM_HASH) ? 0 : undefined),
+    usageOfStorage: async (id: number) => (id === 0 ? state.held : 0),
+    refusedFile: (id: number) => (state.refused && id === 0 ? 0 : undefined),
   }),
 }))
 vi.mock('../../src/torrent/chunked-storage', () => ({
