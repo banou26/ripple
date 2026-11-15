@@ -1,3 +1,4 @@
+import { useId, useRef } from 'react'
 import { css } from '@emotion/react'
 import { useIntl } from 'react-intl'
 import { Tooltip } from 'react-tooltip'
@@ -92,11 +93,19 @@ const playerStyle = css`
 
 /**
  * What the VPN's switch offers once the FKN quota is used up: to switch the VPN off, which nothing meters. Drawn under
- * the element whose id is `anchor`, with an arrow to it, and open until answered. `onAnswer(true)` is Turn off VPN.
- * `inPlayer` draws it in the player's top row, at its end and in its unit.
+ * the element whose id is `anchor`, with an arrow to it, and open until answered; an answer given with the focus in it
+ * hands the focus to that element. `onAnswer(true)` is Turn off VPN. `inPlayer` draws it in the player's top row, at
+ * its end and in its unit.
  */
 export const QuotaOffer = ({ anchor, onAnswer, inPlayer }: { anchor: string, onAnswer: (off: boolean) => void, inPlayer?: boolean }) => {
   const intl = useIntl()
+  const line = useId()
+  const box = useRef<HTMLDivElement>(null)
+  const answer = (off: boolean) => {
+    // the box goes with the answer, and the focus in it would drop to the start of the page
+    if (box.current?.contains(document.activeElement)) document.getElementById(anchor)?.focus()
+    onAnswer(off)
+  }
   return (
     <Tooltip
       css={[style, inPlayer && playerStyle]}
@@ -112,22 +121,23 @@ export const QuotaOffer = ({ anchor, onAnswer, inPlayer }: { anchor: string, onA
       border={`1px solid ${BORDER_STRONG}`}
     >
       <div
+        ref={box}
         className="offer"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.stopPropagation()
-            onAnswer(false)
+            answer(false)
           }
           // a button is pressed with Space, which must not also reach the player, which pauses on it
           if (event.key === ' ') event.stopPropagation()
         }}
       >
-        <p>{intl.formatMessage({ id: 'Your daily FKN quota is used up.', defaultMessage: 'Your daily FKN quota is used up.' })}</p>
+        <p id={line}>{intl.formatMessage({ id: 'Your daily FKN quota is used up.', defaultMessage: 'Your daily FKN quota is used up.' })}</p>
         <div className="actions">
-          <button type="button" onClick={() => onAnswer(true)}>
+          <button type="button" aria-describedby={line} onClick={() => answer(true)}>
             {intl.formatMessage({ id: 'Turn off VPN', defaultMessage: 'Turn off VPN' })}
           </button>
-          <button type="button" onClick={() => onAnswer(false)}>
+          <button type="button" aria-describedby={line} onClick={() => answer(false)}>
             {intl.formatMessage({ id: 'No thanks', defaultMessage: 'No thanks' })}
           </button>
         </div>

@@ -580,7 +580,6 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    */
   const reachable = useReachability()
   const transport = useEngineTransport()
-  // read only where the switch can offer to go off once it is used up
   const quota = useQuota(vpnOffAvailable())
 
   const [job, setJob] = useState<Job>(null)

@@ -1035,7 +1035,7 @@ describe('the quota offer on /watch', () => {
     return mount(size, WITH_LINKS)
   }
   const control = (screen: Screen) => screen.container.querySelector('.media-information [role="switch"]') as HTMLElement
-  const offer = (screen: Screen) => screen.container.querySelector('.react-tooltip[role="status"]') as HTMLElement | null
+  const offer = (screen: Screen) => screen.container.querySelector<HTMLElement>('.react-tooltip[role="status"]')
   const shown = (screen: Screen) => offer(screen)?.classList.contains('react-tooltip__show') ?? false
   const action = (screen: Screen, name: string) => [...offer(screen)!.querySelectorAll('button')].find((button) => button.textContent === name)!
   const playerBox = (screen: Screen) => screen.container.firstElementChild!.getBoundingClientRect()
@@ -1125,7 +1125,7 @@ describe('the quota offer on /watch', () => {
     const screen = await alone(DESKTOP)
     await expect.poll(() => shown(screen)).toBe(true)
     await userEvent.click(action(screen, 'Turn off VPN'))
-    const warning = () => screen.container.querySelector('[role="dialog"]') as HTMLElement | null
+    const warning = () => screen.container.querySelector<HTMLElement>('[role="dialog"]')
     await expect.poll(warning).not.toBeNull()
     expect(offer(screen)).toBeNull()
     expect(setVpn).not.toHaveBeenCalled()

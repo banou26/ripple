@@ -462,7 +462,7 @@ describe('the offer to switch off once the FKN quota is used up', () => {
   })
   const THROTTLED = quota({ overQuota: true, throttled: true, usedBytes: 5e9, remainingBytes: 0, bytesPerSecond: 1_048_576, bitsPerSecond: 8_388_608 })
 
-  const offer = () => document.querySelector('.react-tooltip[role="status"]') as HTMLElement | null
+  const offer = () => document.querySelector<HTMLElement>('.react-tooltip[role="status"]')
   const shown = () => offer()?.classList.contains('react-tooltip__show') ?? false
   const action = (name: string) => [...offer()!.querySelectorAll('button')].find((button) => button.textContent === name)!
   const settled = () => new Promise((resolve) => setTimeout(resolve, 100))
@@ -491,6 +491,10 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     await expect.poll(shown).toBe(true)
     expect(offer()!.textContent).toBe(`${LINE}Turn off VPNNo thanks`)
     expect([...offer()!.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Turn off VPN', 'No thanks'])
+    // tabbed to, an action is read with the line that gives it its sense
+    for (const button of offer()!.querySelectorAll('button')) {
+      expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent, button.textContent ?? '').toBe(LINE)
+    }
     await expect.poll(() => getComputedStyle(offer()!).opacity).toBe('1')
 
     const { box, at, arrowX, arrowTop } = placed(screen.getByRole('switch').element())
@@ -595,6 +599,7 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     expect(page.setVpn).not.toHaveBeenCalled()
     expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('true')
     expect(Object.keys(localStorage)).toEqual(['ripple:quota-offer'])
+    expect(document.activeElement, 'the focus fell to the start of the page').toBe(screen.getByRole('switch').element())
   })
 
   it('switches off at once by Turn off VPN where Remember this decision was ticked', async () => {
@@ -606,6 +611,7 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     expect(dialog()).toBeNull()
     await expect.poll(offer).toBeNull()
     expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('false')
+    expect(document.activeElement, 'the focus fell to the start of the page').toBe(screen.getByRole('switch').element())
   })
 
   it('steps aside while the switch\'s own warning shows', async () => {
@@ -628,6 +634,20 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     expect(localStorage.getItem('ripple:quota-offer')).toMatch(/^\d+$/)
     expect(page.setVpn).not.toHaveBeenCalled()
     expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement, 'the focus fell to the start of the page').toBe(screen.getByRole('switch').element())
+  })
+
+  it('gives the focus back to the switch when No thanks is pressed from the keyboard', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    const control = screen.getByRole('switch').element()
+    control.focus()
+    await userEvent.keyboard('{Tab}{Tab}')
+    expect(document.activeElement?.textContent).toBe('No thanks')
+    await userEvent.keyboard('{Enter}')
+    await expect.poll(offer).toBeNull()
+    expect(document.activeElement, 'the focus fell to the start of the page').toBe(control)
+    expect(page.setVpn).not.toHaveBeenCalled()
   })
 
   // below a header, as the strip is: with room on every side floating-ui moves a box running past the window to the side
