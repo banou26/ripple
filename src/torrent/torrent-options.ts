@@ -139,6 +139,10 @@ export interface TorrentOptionActions {
   embed: () => void
   /** Put this torrent's magnet on the clipboard. */
   copyMagnet: () => void
+  /** Put this torrent's name, as its row shows it, on the clipboard. */
+  copyName: () => void
+  /** Put this torrent's info hash on the clipboard. Only offered when it has one. */
+  copyInfoHash: () => void
   /** Write this torrent's .torrent out, rebuilt from the metadata the engine has. */
   saveTorrentFile: () => void
   /** Stop waiting out the recovery backoff and try again now. */
@@ -237,6 +241,22 @@ export const buildTorrentOptions = (
       label: intl.formatMessage({ id: 'Get a share link', defaultMessage: 'Get a share link' }),
       run: a.embed,
     })
+  }
+  actions.push({
+    kind: 'action',
+    id: 'copy-name',
+    label: intl.formatMessage({ id: 'Copy name', defaultMessage: 'Copy name' }),
+    run: a.copyName,
+  })
+  if (t.infoHash) {
+    actions.push({
+      kind: 'action',
+      id: 'copy-info-hash',
+      label: intl.formatMessage({ id: 'Copy info hash', defaultMessage: 'Copy info hash' }),
+      run: a.copyInfoHash,
+    })
+  }
+  if (t.magnet) {
     actions.push({
       kind: 'action',
       id: 'copy-magnet',

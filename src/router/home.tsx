@@ -2560,6 +2560,10 @@ const Home = () => {
     else { setMenu(null); setOptionsId(t.id) }
   }, [])
 
+  const copy = (text: string, copied: string, failed: string) => {
+    navigator.clipboard.writeText(text).then(() => showToast(copied)).catch(() => showToast(failed))
+  }
+
   const optionActions = (t: Torrent, magnet: string | undefined): TorrentOptionActions => ({
     setFlags: (flags, mask) => client.setFlags(Number(t.id), flags, mask),
     reannounce: () => {
@@ -2570,9 +2574,24 @@ const Home = () => {
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
     copyMagnet: () => {
       if (!magnet) return
-      navigator.clipboard.writeText(magnet)
-        .then(() => showToast(intl.formatMessage({ id: 'Copied {name}\'s magnet', defaultMessage: 'Copied {name}\'s magnet' }, { name: t.name })))
-        .catch(() => showToast(intl.formatMessage({ id: 'Could not copy the magnet', defaultMessage: 'Could not copy the magnet' })))
+      copy(
+        magnet,
+        intl.formatMessage({ id: 'Copied {name}\'s magnet', defaultMessage: 'Copied {name}\'s magnet' }, { name: t.name }),
+        intl.formatMessage({ id: 'Could not copy the magnet', defaultMessage: 'Could not copy the magnet' }),
+      )
+    },
+    copyName: () => copy(
+      t.name,
+      intl.formatMessage({ id: 'Copied {name}', defaultMessage: 'Copied {name}' }, { name: t.name }),
+      intl.formatMessage({ id: 'Could not copy', defaultMessage: 'Could not copy' }),
+    ),
+    copyInfoHash: () => {
+      if (!t.infoHash) return
+      copy(
+        t.infoHash,
+        intl.formatMessage({ id: 'Copied {name}\'s info hash', defaultMessage: 'Copied {name}\'s info hash' }, { name: t.name }),
+        intl.formatMessage({ id: 'Could not copy', defaultMessage: 'Could not copy' }),
+      )
     },
     saveTorrentFile: () => {
       if (!t.magnet || !t.infoHash) return

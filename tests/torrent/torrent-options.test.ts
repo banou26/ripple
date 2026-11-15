@@ -87,6 +87,8 @@ const actions = () => ({
   save: vi.fn(),
   embed: vi.fn(),
   copyMagnet: vi.fn(),
+  copyName: vi.fn(),
+  copyInfoHash: vi.fn(),
   saveTorrentFile: vi.fn(),
   retryNow: vi.fn(),
   start: vi.fn(),
@@ -651,6 +653,41 @@ describe('taking the torrent itself away', () => {
   })
 })
 
+describe('copying what names a torrent', () => {
+  const ids = (t: Torrent) => flat(t).map((i) => i.id)
+
+  it('offers its name and its info hash just before its magnet', () => {
+    expect(ids(torrent()).filter((id) => id.startsWith('copy-'))).toEqual(['copy-name', 'copy-info-hash', 'copy-magnet'])
+    expect(find(torrent(), 'copy-name')?.label).toBe('Copy name')
+    expect(find(torrent(), 'copy-info-hash')?.label).toBe('Copy info hash')
+  })
+
+  it('offers no info hash to copy before there is one, and still the name', () => {
+    expect(ids(torrent({ infoHash: undefined }))).not.toContain('copy-info-hash')
+    expect(ids(torrent({ infoHash: undefined }))).toContain('copy-name')
+  })
+
+  it('offers both on a torrent this device is not running, and on one with no magnet', () => {
+    for (const t of [torrent({ state: 'missing', flags: 0, files: [] }), torrent({ magnet: '' })]) {
+      for (const id of ['copy-name', 'copy-info-hash']) {
+        expect(find(t, id), id).toBeDefined()
+        expect(find(t, id)?.disabled, id).toBeUndefined()
+      }
+    }
+  })
+
+  it('runs the action each one names', () => {
+    const a = actions()
+    for (const [id, fn] of [['copy-name', a.copyName], ['copy-info-hash', a.copyInfoHash]] as const) {
+      const item = find(torrent(), id, a)!
+      if (item.kind !== 'action') throw new Error(`${id} is not an action`)
+      item.run()
+      expect(fn, id).toHaveBeenCalledTimes(1)
+    }
+    expect(a.copyMagnet).not.toHaveBeenCalled()
+  })
+})
+
 describe('in the language of the page', () => {
   afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
 
@@ -671,7 +708,7 @@ describe('in the language of the page', () => {
 
   it('writes every one of its words in German', async () => {
     const english = words()
-    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash']) {
+    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash']) {
       expect(english).toContain(text)
     }
     await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })

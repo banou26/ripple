@@ -1,5 +1,5 @@
 /*
- * The same share actions, from the row rather than from a download page.
+ * The same share and copy actions, from the row rather than from a download page.
  *
  * Both surfaces are built from ONE `buildTorrentOptions` list, so the right-click menu and the
  * torrent's settings offer the same items by construction. What this adds over the unit tests is that
@@ -11,7 +11,7 @@ import { addSample } from './sample-offer'
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 import { magnetParam, magnetParams } from '../src/torrent/magnet'
 
-test('a torrent offers its magnet and its .torrent from the right-click menu', async ({ page, context }) => {
+test('a torrent offers its magnet, name, info hash and .torrent from the right-click menu', async ({ page, context }) => {
   test.setTimeout(180_000)
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
@@ -29,6 +29,13 @@ test('a torrent offers its magnet and its .torrent from the right-click menu', a
   // the sample is added from the bundled sintel.torrent, whose identity is stored as `xt` alone
   expect(magnetParam(clipboard, 'dn'), 'the copied magnet has no name').toBe('Sintel')
   expect(magnetParams(clipboard, 'tr').length, 'the copied magnet has no trackers').toBeGreaterThanOrEqual(2)
+
+  await row.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy info hash' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(clipboard.match(/btih:([0-9a-f]{40})/)![1])
+  await row.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy name' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Sintel')
 
   await row.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Get a share link' }).click()
