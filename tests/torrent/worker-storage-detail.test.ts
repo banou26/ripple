@@ -109,3 +109,22 @@ it('measures the open torrent again as its bytes grow', async () => {
   small.children.set('s.mkv', fakeFile('s.mkv', 3_500))
   await vi.waitFor(() => expect(figuresSince(1, since).at(-1)).toBe(3_500), { timeout: 10_000 })
 }, 30_000)
+
+it('drops a measure that lands after the panel moved on, keeping the next torrent\'s figure', async () => {
+  await ready()
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let reads = 0
+  large.children.set('l.mkv', { ...fakeFile('l.mkv', 70_000), getFile: async () => { reads++; await held; return { size: 70_000 } } })
+  rig.send({ type: 'inspect', handle: 2 })
+  await vi.waitFor(() => expect(reads).toBe(1), { timeout: 10_000 })
+
+  const since = rig.posted.length
+  rig.send({ type: 'inspect', handle: 1 })
+  await vi.waitFor(() => expect(figuresSince(1, since).at(-1)).toBeTypeOf('number'), { timeout: 10_000 })
+  const figure = figuresSince(1, since).at(-1)
+  release()
+  const landed = rig.posted.length
+  await vi.waitFor(() => expect(figuresSince(1, landed).length).toBeGreaterThanOrEqual(3), { timeout: 10_000 })
+  expect(figuresSince(1, landed).slice(0, 3)).toEqual([figure, figure, figure])
+}, 30_000)
