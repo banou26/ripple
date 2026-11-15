@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, other {{count}개 연결됨}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {파일 {count}개}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {{count}개 제외됨}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, other {마그넷 링크 {count}개를 추가했어요}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {피어 {count}개가 포트 {port}에 연결됨: {detail}.}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {피어 {count}개}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {{count}개 선택됨}}",

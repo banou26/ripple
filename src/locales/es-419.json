@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, one {{count} conectada} other {{count} conectadas}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, one {{count} archivo} other {{count} archivos}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, one {{count} omitido} other {{count} omitidos}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, one {{count} enlace magnet agregado} other {{count} enlaces magnet agregados}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, one {{count} par conectado por el puerto {port}: {detail}.} other {{count} pares conectados por el puerto {port}: {detail}.}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, one {{count} par} other {{count} pares}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, one {{count} seleccionado} other {{count} seleccionados}}",

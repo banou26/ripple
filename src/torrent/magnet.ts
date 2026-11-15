@@ -73,6 +73,26 @@ export const sameInfoHash = (a: string | null | undefined, b: string | null | un
   !!a && !!b && hexInfoHash(a) === hexInfoHash(b)
 
 /**
+ * Every torrent a pasted, typed or dropped text names, each once, as a magnet: words starting `magnet:?`, and a bare info
+ * hash (40 hex or 32 base32 characters for v1, 64 hex for v2) as the magnet naming it, as qBittorrent reads one. A
+ * magnet also ends where the next starts, since a single-line field joins pasted lines with nothing between them. Any
+ * other word is left out.
+ */
+export const readMagnets = (text: string): string[] => {
+  const byTorrent = new Map<string, string>()
+  for (const word of text.split(/\s+|(?=magnet:\?)/i)) {
+    const magnet = /^magnet:\?/i.test(word) ? word
+      : /^([0-9a-f]{40}|[a-z2-7]{32})$/i.test(word) ? `magnet:?xt=urn:btih:${word}`
+      : /^[0-9a-f]{64}$/i.test(word) ? `magnet:?xt=urn:btmh:1220${word}`
+      : null
+    if (!magnet) continue
+    const id = hexInfoHash(magnetInfoHash(magnet) ?? magnet)
+    if (!byTorrent.has(id)) byTorrent.set(id, magnet)
+  }
+  return [...byTorrent.values()]
+}
+
+/**
  * EVERY value of a repeated magnet key, decoded and in order.
  *
  * `tr` and `ws` are lists by design, so the single-value reader below answers with the first one and

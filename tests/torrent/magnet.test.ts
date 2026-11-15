@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { TORRENT_ID_PATTERN } from '../../src/torrent/opfs-sweep'
-import { magnetInfoHash, magnetParam, readableMagnet, sameInfoHash } from '../../src/torrent/magnet'
+import { magnetInfoHash, magnetParam, readMagnets, readableMagnet, sameInfoHash } from '../../src/torrent/magnet'
 
 const V1 = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const V2 = 'caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e'
@@ -164,6 +164,32 @@ describe('whether two infohashes name one torrent', () => {
     expect(sameInfoHash(V1, V2)).toBe(false)
     expect(sameInfoHash(undefined, V1)).toBe(false)
     expect(sameInfoHash(null, null)).toBe(false)
+  })
+})
+
+describe('every torrent a paste names', () => {
+  const ONE = `magnet:?xt=urn:btih:${V1}&dn=Sintel`
+  const TWO = `magnet:?xt=urn:btmh:1220${V2}&dn=V2.Release`
+
+  it('reads two magnets a single-line field joined with nothing between them, and two on their own lines', () => {
+    expect(readMagnets(ONE + TWO)).toEqual([ONE, TWO])
+    expect(readMagnets(`${ONE}\r\n${TWO}\n`)).toEqual([ONE, TWO])
+  })
+
+  it('reads a bare info hash as the magnet naming it, in hex, base32 or v2 hex', () => {
+    expect(readMagnets(` ${V1.toUpperCase()} `)).toEqual([`magnet:?xt=urn:btih:${V1.toUpperCase()}`])
+    expect(readMagnets('BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ')).toEqual(['magnet:?xt=urn:btih:BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ'])
+    expect(readMagnets(V2)).toEqual([`magnet:?xt=urn:btmh:1220${V2}`])
+    expect(magnetInfoHash(readMagnets(V2)[0]!)).toBe(V2)
+  })
+
+  it('leaves out the words between them, and a hash one character short', () => {
+    expect(readMagnets(`Episode 1: ${ONE}\nEpisode 2 (v2): ${TWO} ${V1.slice(1)}`)).toEqual([ONE, TWO])
+    expect(readMagnets('Sintel, 2010')).toEqual([])
+  })
+
+  it('names each torrent once, however it is written', () => {
+    expect(readMagnets(`${ONE} ${V1} BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ`)).toEqual([ONE])
   })
 })
 

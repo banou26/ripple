@@ -1359,6 +1359,70 @@ test('the peak download is the highest since the page opened, past the graph\'s 
   await expect(peak).toHaveText(highest)
 })
 
+/** Each message of one of `types` the page sends the engine from here on, in order. */
+const sending = async (page: Page, types: string[]) => {
+  await page.evaluate((types) => {
+    const sent: object[] = []
+    const proto = Worker.prototype as { postMessage: (...args: unknown[]) => void }
+    const post = proto.postMessage
+    proto.postMessage = function (...args) {
+      const message = args[0] as { type?: string }
+      if (types.includes(message?.type ?? '')) sent.push(message)
+      post.apply(this, args)
+    }
+    Object.assign(window, { sent: () => sent })
+  }, types)
+  return () => page.evaluate(() => (window as unknown as { sent: () => Record<string, unknown>[] }).sent())
+}
+
+const paste = (page: Page, text: string) => page.evaluate((text) => {
+  const data = new DataTransfer()
+  data.setData('text/plain', text)
+  document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+}, text)
+
+test('a paste of several magnets or bare hashes adds each torrent not listed yet, with one word for all', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-magnet'])
+  const toast = page.locator('.toast')
+
+  await paste(page, '7'.repeat(40))
+  await expect(toast).toHaveText('Magnet added')
+  // two magnets the field joined with nothing between, a bare hash, and the hash of Watched.Film, which is listed
+  const field = page.locator('header form input:not([type=file])')
+  await field.fill(`${magnetOf('8', 'Eight')}${magnetOf('1', 'One')} ${'3'.repeat(40)} ${'9'.repeat(40)}`)
+  await field.press('Enter')
+  await expect(toast).toHaveText('3 magnets added')
+  await expect(field).toHaveValue('')
+  expect((await sent()).map(({ magnet }) => magnet)).toEqual([
+    `magnet:?xt=urn:btih:${'7'.repeat(40)}`, magnetOf('8', 'Eight'), magnetOf('1', 'One'), `magnet:?xt=urn:btih:${'3'.repeat(40)}`,
+  ])
+})
+
+test('with Ask on, several magnets are asked about one after another, and Do not ask again adds the rest', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-magnet'])
+  const field = page.locator('header form input:not([type=file])')
+  await field.fill([magnetOf('7', 'Seven'), magnetOf('8', 'Eight'), magnetOf('1', 'One')].join(' '))
+  await field.press('Enter')
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog.locator('h2')).toHaveText('Eight')
+  // Eight's file list, from the swarm
+  await post(page, { type: 'state', torrents: [...TORRENTS, snapshot(21, '8', 'Eight', {})], ...READOUTS[0] })
+  await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect((await sent()).map(({ magnet, hold }) => [/dn=(\w+)/u.exec(magnet as string)?.[1], hold])).toEqual([
+    ['Seven', true], ['Eight', true], ['One', false], ['Eight', false],
+  ])
+})
+
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)

@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, one {{count} подключён} few {{count} подключены} many {{count} подключено} other {{count} подключено}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, one {{count} файл} few {{count} файла} many {{count} файлов} other {{count} файла}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, one {Пропущен {count}} few {Пропущено {count}} many {Пропущено {count}} other {Пропущено {count}}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, one {Добавлена {count} магнит-ссылка} few {Добавлены {count} магнит-ссылки} many {Добавлено {count} магнит-ссылок} other {Добавлено {count} магнит-ссылки}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, one {{count} пир подключился через порт {port}: {detail}.} few {{count} пира подключились через порт {port}: {detail}.} many {{count} пиров подключились через порт {port}: {detail}.} other {{count} пира подключились через порт {port}: {detail}.}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, one {{count} пир} few {{count} пира} many {{count} пиров} other {{count} пира}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, one {Выбран {count}} few {Выбрано {count}} many {Выбрано {count}} other {Выбрано {count}}}",

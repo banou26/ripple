@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, one {{count} bağlı} other {{count} bağlı}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, one {{count} dosya} other {{count} dosya}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, one {{count} öğe dışarıda kaldı} other {{count} öğe dışarıda kaldı}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, one {{count} magnet bağlantısı eklendi} other {{count} magnet bağlantısı eklendi}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, one {{port} numaralı bağlantı noktasına {count} kişi bağlandı: {detail}.} other {{port} numaralı bağlantı noktasına {count} kişi bağlandı: {detail}.}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, one {{count} kişi} other {{count} kişi}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, one {{count} seçildi} other {{count} seçildi}}",

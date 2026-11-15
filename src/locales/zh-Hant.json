@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, other {已連線{count}個}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {{count}個檔案}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {已排除{count}項}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, other {已新增{count}個磁力連結}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {{count}個用戶透過連接埠{port}連入：{detail}。}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {{count}個用戶}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {已選擇{count}個}}",

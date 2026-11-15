@@ -482,6 +482,7 @@
   "{count, plural, one {{count} connected} other {{count} connected}}#seeds": "{count, plural, other {{count}件接続中}}",
   "{count, plural, one {{count} file} other {{count} files}}": "{count, plural, other {{count}個のファイル}}",
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {{count}件を除外}}",
+  "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, other {マグネットリンクを{count}件追加しました}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {{count}ピアがポート{port}に接続しています：{detail}。}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {{count}ピア}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {{count}件を選択中}}",

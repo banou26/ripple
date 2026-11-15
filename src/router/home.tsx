@@ -15,7 +15,7 @@ import type { SyncState } from '../torrent/use-cloud-backup'
 
 import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Square, Upload, X } from 'lucide-react'
 
-import { magnetInfoHash, sameInfoHash } from '../torrent/magnet'
+import { magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
@@ -102,8 +102,6 @@ import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torr
 // a brand and a build, the same in every language
 const WORDMARK = 'Ripple'
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
-
-const isMagnet = (s: string): boolean => /^magnet:\?/i.test(s.trim())
 
 /**
  * Whether a drag carries something this page could actually add.
@@ -2205,30 +2203,44 @@ const Home = () => {
   const [choices, setChoices] = useState<AddChoices | null>(null)
   const heldRef = useRef<number | null>(null)
 
-  const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null) => {
+  /** Whether the dialog now asks about this magnet. */
+  const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null): boolean => {
     const request = describeAddRequest({ magnet })
-    if (!request.ok) { showToast(request.problem); return }
+    if (!request.ok) { showToast(request.problem); return false }
     const existing = torrentsRef.current.find((t) => sameInfoHash(t.infoHash, request.infoHash) && !t.ephemeral && t.state !== 'missing')
-    if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return }
+    if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return false }
     client.addMagnet(request.magnet, { ephemeral: true, hold: true })
     setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
     setChoices(null)
+    return true
   }, [client, showToast, intl])
 
+  // the magnets of a paste still to ask about, after the one the dialog shows
+  const addQueue = useRef<string[]>([])
+  const askNext = useCallback(() => {
+    for (let next = addQueue.current.shift(); next; next = addQueue.current.shift()) if (beginAdd(next, false)) return
+  }, [beginAdd])
+
   const commitMagnet = useCallback((raw: string): boolean => {
-    const text = raw.trim()
-    if (!isMagnet(text)) return false
-    const ih = magnetInfoHash(text)
+    const magnets = readMagnets(raw)
+    if (!magnets.length) return false
     // Re-adding would join the swarm and start downloading; a synced "Files missing" torrent must only start from its explicit Download button
-    if (torrentsRef.current.some((t) => t.magnet && sameInfoHash(magnetInfoHash(t.magnet), ih))) {
+    const fresh = magnets.filter((m) => !torrentsRef.current.some((t) => t.magnet && sameInfoHash(magnetInfoHash(t.magnet), magnetInfoHash(m))))
+    if (!fresh.length) {
       showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
       return true
     }
-    if (addDialog) { beginAdd(text, false); return true }
-    addMagnet(text)
-    showToast(intl.formatMessage({ id: 'Magnet added', defaultMessage: 'Magnet added' }))
+    if (addDialog) {
+      addQueue.current.push(...fresh)
+      if (!pendingAdd) askNext()
+      return true
+    }
+    for (const magnet of fresh) addMagnet(magnet)
+    showToast(fresh.length === 1
+      ? intl.formatMessage({ id: 'Magnet added', defaultMessage: 'Magnet added' })
+      : intl.formatMessage({ id: '{count, plural, one {{count} magnet added} other {{count} magnets added}}', defaultMessage: '{count, plural, one {{count} magnet added} other {{count} magnets added}}' }, { count: fresh.length }))
     return true
-  }, [addMagnet, showToast, addDialog, beginAdd, intl])
+  }, [addMagnet, showToast, addDialog, pendingAdd, askNext, intl])
 
   const addTorrentFiles = useCallback(async (files: Iterable<File>) => {
     const all = [...files]
@@ -2342,7 +2354,7 @@ const Home = () => {
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
-      if (isMagnet(text)) { e.preventDefault(); commitMagnet(text) }
+      if (readMagnets(text).length) { e.preventDefault(); commitMagnet(text) }
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
@@ -2922,7 +2934,8 @@ const Home = () => {
     heldRef.current = null
     // the link is spent once it has been answered, so a reload does not ask again
     if (params.get('add')) setParams(new URLSearchParams(), { replace: true })
-  }, [params, setParams])
+    askNext()
+  }, [params, setParams, askNext])
 
   const cancelAdd = useCallback(() => {
     // only the cache entry this flow created. Anything already theirs was never ours to remove.
@@ -3576,7 +3589,10 @@ const Home = () => {
           onCancel={cancelAdd}
           // switching the step off is offered only for their OWN adds: a setting that could silence
           // the consent step for links from anywhere is not one worth having
-          onNeverAsk={pendingAdd.external ? undefined : () => chooseAddDialog(false)}
+          onNeverAsk={pendingAdd.external ? undefined : () => {
+            chooseAddDialog(false)
+            for (const magnet of addQueue.current.splice(0)) addMagnet(magnet)
+          }}
         />
       )}
 
