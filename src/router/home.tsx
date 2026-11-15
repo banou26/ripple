@@ -2977,6 +2977,10 @@ const Home = () => {
   }, [pendingAdd, choices, pendingTorrent, defaultLocation, pause])
 
   const closeAdd = useCallback(() => {
+    // this answer is for its copies still waiting too: an Add has not reached the list yet, so asking one would hold
+    // the torrent just added
+    const answered = pendingRef.current?.infoHash
+    addQueue.current = addQueue.current.filter((next) => !sameInfoHash('infoHash' in next ? next.infoHash : magnetInfoHash(next.magnet), answered))
     setPendingAdd(null)
     setChoices(null)
     heldRef.current = null
@@ -3655,7 +3659,7 @@ const Home = () => {
           // the consent step for links from anywhere is not one worth having
           onNeverAsk={pendingAdd.external ? undefined : () => {
             chooseAddDialog(false)
-            // the setting is for their own adds, so a link's still waits its turn
+            // the setting is for their own adds, so a waiting link is still asked about
             for (const next of addQueue.current.splice(0)) {
               if (next.external) addQueue.current.push(next)
               else if (!('infoHash' in next)) addMagnet(next.magnet)

@@ -1734,6 +1734,27 @@ test('with Ask on, a magnet or a .torrent the system opens Ripple with waits whi
   await expect(dialog.locator('h2')).toHaveText('Other')
 })
 
+test('with Ask on, a link for the torrent the dialog asks about is answered with it', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-magnet', 'pause'])
+  const dialog = page.getByRole('dialog')
+  await paste(page, magnetOf('7', 'Seven'))
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+
+  await page.evaluate((magnet) => {
+    history.pushState(null, '', '/?add=' + encodeURIComponent(magnet))
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, magnetOf('7', 'Again'))
+  // temporary until the engine hears the Add
+  await post(page, { type: 'list', list: [...LIST, entry('7', 'Seven', { ephemeral: true })] }, { type: 'state', torrents: [...TORRENTS, snapshot(21, '7', 'Seven', {})], ...READOUTS[0] })
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await drawn(page)
+  expect((await sent()).map(({ type, handle, ...add }) => type === 'pause' ? handle : askedFor([add])[0])).toEqual([['Seven', true], 21, ['Seven', false]])
+  await expect(dialog).toHaveCount(0)
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
