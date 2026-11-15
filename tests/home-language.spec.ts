@@ -1368,6 +1368,44 @@ test('the auto-save folder takes a completed torrent as well as a seeding one, a
   await expect.poll(readFrom).toEqual([2, 11])
 })
 
+test('a torrent libtorrent\'s queue holds offers Force start in its menu, which reads ticked once forced', async ({ page }) => {
+  await page.goto(origin)
+  // paused and still auto-managed (TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged) is the queue holding it
+  await library(page, [...LIST, entry('7', 'Held.Back'), entry('8', 'Run.Anyway', { forced: true })], [
+    ...TORRENTS,
+    snapshot(12, '7', 'Held.Back', { paused: true, flags: 16 | 32 }),
+    snapshot(13, '8', 'Run.Anyway', { flags: 0 }),
+  ])
+  const menu = page.getByRole('menu')
+  const force = menu.getByRole('menuitemcheckbox', { name: 'Force start' })
+  const openMenu = async (name: string) => {
+    const row = page.locator('.torrent', { hasText: name })
+    await row.scrollIntoViewIfNeeded()
+    await drawn(page)
+    await row.click({ button: 'right' })
+    await expect(menu).toBeVisible()
+  }
+  await openMenu('Some.Release.Name.S01.1080p')
+  await expect(menu.getByRole('menuitem', { name: 'Pause' })).toBeVisible()
+  await expect(force).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await openMenu('Run.Anyway')
+  await expect(force).toHaveAttribute('aria-checked', 'true')
+  await page.keyboard.press('Escape')
+  await openMenu('Held.Back')
+  await expect(force).toHaveAttribute('aria-checked', 'false')
+  // each Force start the page sends the engine
+  await page.evaluate(() => {
+    const sent: number[] = []
+    const proto = Worker.prototype as { postMessage: (message: { type?: string, handle?: number }) => void }
+    const post = proto.postMessage
+    proto.postMessage = function (message) { if (message?.type === 'force-start') sent.push(message.handle!); post.call(this, message) }
+    Object.assign(window, { forceStarted: () => [...sent] })
+  })
+  await force.click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { forceStarted: () => number[] }).forceStarted())).toEqual([12])
+})
+
 /**
  * Any row prop the page makes anew on each of its renders (an inline arrow, a handler without useCallback) silently
  * redraws every row on every tick. A redraw shows here even when nothing in the row changed: React 19 sets a checkbox's

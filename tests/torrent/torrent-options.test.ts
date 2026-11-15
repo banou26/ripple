@@ -76,6 +76,7 @@ const actions = () => ({
   recheck: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
+  forceStart: vi.fn(),
   remove: vi.fn(),
   removeWithFiles: vi.fn(),
   release: vi.fn(),
@@ -249,6 +250,43 @@ describe('the torrent option list', () => {
 
     it('does not offer a second check while one is running', () => {
       expect(find(torrent({ state: 'checking' }), 'recheck')!.disabled).toBeTruthy()
+    })
+  })
+
+  /** libtorrent's queue holds a torrent paused with auto-management on, and Resume hands it straight back. */
+  describe('Force start', () => {
+    const held = TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged
+
+    it('is offered, unticked, while the queue holds the torrent, finished or not, and ticking it force starts it', () => {
+      for (const over of [{ state: 'queued' }, { state: 'completed', progress: 1 }] as const) {
+        const a = actions()
+        const item = find(torrent({ ...over, flags: held }), 'force-start', a)!
+        expect(item.label).toBe('Force start')
+        if (item.kind !== 'toggle') throw new Error('not a toggle')
+        expect(item.checked).toBe(false)
+        item.apply(true)
+        expect(a.forceStart).toHaveBeenCalledOnce()
+        expect(a.resume).not.toHaveBeenCalled()
+      }
+    })
+
+    it('reads ticked on a force started torrent, and unticking it hands the torrent back to the queue', () => {
+      const a = actions()
+      const item = find(torrent({ forced: true, flags: 0 }), 'force-start', a)!
+      if (item.kind !== 'toggle') throw new Error('not a toggle')
+      expect(item.checked).toBe(true)
+      item.apply(false)
+      expect(a.resume).toHaveBeenCalledOnce()
+      expect(a.forceStart).not.toHaveBeenCalled()
+    })
+
+    it('is not offered where the queue holds nothing: running, paused by the person, an error, a ghost', () => {
+      for (const t of [
+        torrent({ flags: TORRENT_FLAG.autoManaged }),
+        torrent({ state: 'paused', flags: TORRENT_FLAG.paused }),
+        torrent({ state: 'retrying', flags: held }),
+        torrent({ state: 'missing', flags: 0 }),
+      ]) expect(find(t, 'force-start'), t.state).toBeUndefined()
     })
   })
 
@@ -707,6 +745,7 @@ describe('in the language of the page', () => {
   const SHAPES: [Partial<Torrent>, TorrentOptionContext][] = [
     [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
     [{ state: 'paused' }, { savedToUserStorage: false, folderReady: true, intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
+    [{ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged }, { savedToUserStorage: false }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }, { name: 'b.mkv', size: 1e9, index: 1 }] }, { savedToUserStorage: false }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }] }, { savedToUserStorage: false }],
     [{ state: 'missing', files: [] }, { savedToUserStorage: false }],
@@ -720,7 +759,7 @@ describe('in the language of the page', () => {
 
   it('writes every one of its words in German', async () => {
     const english = words()
-    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash']) {
+    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash', 'Force start']) {
       expect(english).toContain(text)
     }
     await startLanguage({ language: 'de', languages: ['de-DE'], catalogues: { '../locales/de.json': async () => de } })

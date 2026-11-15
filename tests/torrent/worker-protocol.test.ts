@@ -93,7 +93,10 @@ describe('the commands that only mean something inside one session', () => {
     const parts = workerSource.split(/m\.type === '([a-z-]+)'/)
     const out: string[] = []
     for (let i = 1; i < parts.length; i += 2) {
-      if (/m\.handle\b/.test(parts[i + 1]!.slice(0, 1_200))) out.push(parts[i]!)
+      // `m.type === 'a' || m.type === 'b'` is one branch for both
+      let body = i + 1
+      while (/^\s*\|\|\s*$/.test(parts[body]!)) body += 2
+      if (/m\.handle\b/.test(parts[body]!.slice(0, 1_200))) out.push(parts[i]!)
     }
     return [...new Set(out)]
   }

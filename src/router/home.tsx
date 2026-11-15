@@ -2610,6 +2610,7 @@ const Home = () => {
     recheck: () => onRecheck(t),
     pause: () => pause(Number(t.id)),
     resume: () => resume(Number(t.id)),
+    forceStart: () => client.forceStart(Number(t.id)),
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
     setLocation: (location) => { void onSetLocation(t, location) },

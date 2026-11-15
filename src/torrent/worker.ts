@@ -46,7 +46,7 @@ import { relaySockets } from './relay-sockets'
 import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -298,6 +298,16 @@ const ephemeralHandles = new Set<number>()
 const cacheIdle = new Set<number>()
 // Started by the person, kept as the list's `resumed`: the idle park leaves a temporary one running until their pause, which ends it.
 const userStarted = new Set<number>()
+// Run outside libtorrent's queue, which parks what is past 3 busy downloads or 5 busy seeds: the person's Force start,
+// kept as the list's `forced`, and a torrent somebody is watching, until its last viewer leaves.
+const forced = new Set<number>()
+const watchedPastQueue = new Set<number>()
+const skipsQueue = (h: number) => forced.has(h) || watchedPastQueue.has(h)
+// `resumeTorrent` turns auto-management back on, which hands the torrent straight back to the queue
+const run = (h: number) => {
+  if (skipsQueue(h)) session?.setFlags(h, 0, TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged)
+  else session?.resumeTorrent(h)
+}
 // When a torrent last served a read made without a viewer. The library's save to disk and zip and
 // the auto-save folder mirror read that way, so a viewer check alone would call them idle and delete
 // the file out from under them mid-copy. A read under a viewer is held by that viewer's claim, and a
@@ -421,6 +431,7 @@ const untrack = (h: number) => {
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); userStarted.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
+  forced.delete(h); watchedPastQueue.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h); noPeersSince.delete(h)
 }
@@ -894,6 +905,8 @@ const applyViewing = (h: number) => {
   if (!handles.includes(h)) { viewers.delete(h); pendingViewing.delete(h); return }
   const active = activeViewers(h)
   if (!active.length) {
+    // before the park below, which would otherwise be undone: the queue starts a paused torrent it manages
+    if (watchedPastQueue.delete(h) && !forced.has(h) && !userPaused.has(h)) session.setFlags(h, TORRENT_FLAG.autoManaged, TORRENT_FLAG.autoManaged)
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
     // This is also what takes the skip mask off before it can be written into resume data.
     /*
@@ -949,6 +962,7 @@ const applyViewing = (h: number) => {
     return
   }
   wake(h)
+  if (!userPaused.has(h) && !watchedPastQueue.has(h)) { watchedPastQueue.add(h); run(h) }
   // Watched, so nothing is left to hold back, and not at the layout: in upload mode libtorrent drops every
   // seed the moment the metadata lands (`upload_upload_connection`). With the VPN off the one WebRTC peer
   // came back at the tracker's next announce, and the player's read gave up first (swarm rig, 2026-11-14).
@@ -1338,6 +1352,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // eviction candidate, which is a torrent that looks kept and is deleted anyway.
   const wasEphemeral = ephemeralHandles.has(h)
   const wasStarted = userStarted.has(h)
+  const wasForced = forced.has(h)
 
   failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
@@ -1357,6 +1372,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
   if (wasStarted) userStarted.add(next)
+  if (wasForced) { forced.add(next); run(next) }
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
   // handle, so every tab learns about the move through the two channels it already watches
@@ -1767,6 +1783,7 @@ const init = async () => {
        */
       if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
       if (e.resumed) userStarted.add(h)
+      if (e.forced && !e.paused) { forced.add(h); run(h) }
       recovery.hold(h, Date.now())
       // Held like a page's add until the pump at its layout, which parks it or, for one the person started,
       // only releases it: it comes back running, with no saved state or one saved while it ran, and asked a
@@ -1942,7 +1959,7 @@ const init = async () => {
     }
     for (const { handle, reason } of recovery.due(now)) {
       if (reason === 'stalled') session.pauseTorrent(handle)
-      session.resumeTorrent(handle)
+      run(handle)
     }
 
     // the limits ride the existing broadcast rather than getting a channel of their own, so every
@@ -2668,7 +2685,7 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
         postState()
-        await upsertList({ ...e, started: true, paused: false, resumed: false, ephemeral: false, lastUsedAt: Date.now() })
+        await upsertList({ ...e, started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now() })
       }
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
@@ -2696,25 +2713,27 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'pause') {
       userPaused.add(m.handle)
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
-      cacheIdle.delete(m.handle); userStarted.delete(m.handle)
+      cacheIdle.delete(m.handle); userStarted.delete(m.handle); forced.delete(m.handle)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, TORRENT_PAUSED)
       void persistResume(m.handle)
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: true, resumed: false })
-    } else if (m.type === 'resume') {
+      if (ih) await patchList(ih, { paused: true, resumed: false, forced: false })
+    } else if (m.type === 'resume' || m.type === 'force-start') {
       userPaused.delete(m.handle)
       // a temporary one's only: a Start given while it was the person's own says nothing once it is made temporary
       const sticks = ephemeralHandles.has(m.handle)
       if (sticks) userStarted.add(m.handle)
       cacheIdle.delete(m.handle)
+      const force = m.type === 'force-start'
+      if (force) forced.add(m.handle); else forced.delete(m.handle)
       wantStart(m.handle)
       recovery.forget(m.handle)
-      session.resumeTorrent(m.handle)
+      run(m.handle)
       recovery.hold(m.handle, Date.now())
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: false, resumed: sticks })
+      if (ih) await patchList(ih, { paused: false, resumed: sticks, forced: force })
     } else if (m.type === 'recheck') {
       // the engine forgets every piece before it starts hashing, so the saved blob now describes a have-set that no longer exists
       const ih = infoHashByHandle.get(m.handle)
@@ -2731,6 +2750,8 @@ const handleMessage = async (session: Session, m: any) => {
       cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
       recovery.forget(m.handle)
       session.forceRecheck(m.handle)
+      // forceRecheck turns auto-management on, as a resume does
+      if (skipsQueue(m.handle)) session.setFlags(m.handle, 0, TORRENT_FLAG.autoManaged)
       recovery.hold(m.handle, Date.now())
       if (ih) await patchList(ih, { paused: false })
     } else if (m.type === 'retry-now') {

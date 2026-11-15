@@ -63,13 +63,15 @@ vi.mock('libtorrent-wasm', async () => {
       cancelPieceRequests: () => {},
       pauseTorrent: () => {},
       resumeTorrent: (h: number) => { state.resumed.push(h) },
+      // a watched torrent is started outside libtorrent's queue, by clearing its paused flag
+      setFlags: (h: number, flags: number, mask: number) => { if (mask & 16 && !(flags & 16)) state.resumed.push(h) },
       setDownloadLimit: () => {},
       read: async () => new Uint8Array(16),
       saveResumeData: async () => new Uint8Array([1]),
       forgetPieces: () => ({ forgotten: 0, busy: 0 }),
     }),
     PRIORITY: { skip: 0 },
-    TORRENT_FLAG: { uploadMode: 1 },
+    TORRENT_FLAG: { uploadMode: 1, paused: 16, autoManaged: 32 },
   }
 })
 vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
@@ -110,6 +112,9 @@ it('gives up the film a player has let go of for a film bigger than the room, pl
   await new Promise((resolve) => setTimeout(resolve, 400))
   expect(sessions[0]!.removed, 'the earlier film went inside its grace').toEqual([])
   expect(rig.of('storage-full').filter((m) => m.full), 'a film that gets a window once the grace ends was called too big').toEqual([])
+  // each film's player starts it past libtorrent's queue
+  expect(state.resumed).toEqual([1, 2])
+  state.resumed.length = 0
 
   // past the add's hold, so recovery has the stopped film on its backoff, and past the earlier film's last use,
   // well inside a minute of its last read

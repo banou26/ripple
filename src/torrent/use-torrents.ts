@@ -433,6 +433,7 @@ export const useTorrents = (): UseTorrents => {
           addedAt: entry.addedAt ?? t.addedAt,
           wantedFiles: entry.wantedFiles,
           firstLast: entry.firstLast === true,
+          forced: entry.forced === true,
           downloadLimit: entry.downloadLimit,
           uploadLimit: entry.uploadLimit,
         }

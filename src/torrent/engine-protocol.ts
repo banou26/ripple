@@ -87,7 +87,7 @@ export const LEADER_SILENCE_MS = 5_000
  * `add-magnet` it issues during its own election and waits forever on metadata.
  */
 export const SESSION_SCOPED = new Set([
-  'cancel-read', 'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'remove', 'resume',
+  'cancel-read', 'force-start', 'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'remove', 'resume',
   'retry', 'set-flags', 'set-folder', 'set-limits', 'set-plan', 'watch',
 ])
 

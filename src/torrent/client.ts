@@ -227,7 +227,10 @@ export type TorrentClient = {
   prepare: (viewer: string, handle: number, fileIndex: number) => void
   unwatch: (viewer: string) => void
   pause: (handle: number) => void
+  /** Hands the torrent back to libtorrent's queue, which starts it when a slot is free. */
   resume: (handle: number) => void
+  /** Runs the torrent outside libtorrent's queue, across reloads, until a pause or resume. */
+  forceStart: (handle: number) => void
   retry: (handle: number) => void
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
@@ -742,6 +745,7 @@ export const createTorrentClient = (): EngineClient => {
     },
     pause: (handle) => send({ type: 'pause', handle }),
     resume: (handle) => send({ type: 'resume', handle }),
+    forceStart: (handle) => send({ type: 'force-start', handle }),
     retry: (handle) => send({ type: 'retry', handle }),
     recheck: (handle) => send({ type: 'recheck', handle }),
     remove: (handle, deleteFiles = false) => send({ type: 'remove', handle, deleteFiles }),

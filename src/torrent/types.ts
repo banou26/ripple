@@ -146,6 +146,8 @@ export type Torrent = {
   wantedFiles?: number[]
   /** qBittorrent's "Download first and last pieces first". */
   firstLast?: boolean
+  /** The person's Force start: it runs outside libtorrent's queue. See `Persisted.forced`. */
+  forced?: boolean
   /**
    * This torrent's own speed ceilings in bytes per second, absent where it has never been given one.
    *

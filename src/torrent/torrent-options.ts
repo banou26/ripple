@@ -114,6 +114,8 @@ export interface TorrentOptionActions {
   recheck: () => void
   pause: () => void
   resume: () => void
+  /** Run it outside libtorrent's queue. `resume` hands it back. */
+  forceStart: () => void
   remove: () => void
   removeWithFiles: () => void
   /** Choose where this torrent's files belong. The move itself follows when it can. */
@@ -183,6 +185,9 @@ export const buildTorrentOptions = (
     : isGhost(t) ? intl.formatMessage({ id: 'Not on this device', defaultMessage: 'Not on this device' }) : intl.formatMessage({ id: 'Still starting', defaultMessage: 'Still starting' })
   const complete = t.progress >= 1
   const sequential = has(t, TORRENT_FLAG.sequentialDownload)
+  // paused and still auto-managed is libtorrent's queue holding it, which its Resume hands it straight back to; an
+  // error keeps auto-management on as well, and a resume does not clear one
+  const queueHolds = has(t, TORRENT_FLAG.paused) && has(t, TORRENT_FLAG.autoManaged) && t.state !== 'retrying'
 
   const multi = contentFiles(t.files).length > 1
   const sessionLimits = context.sessionLimits ?? { down: 0, up: 0 }
@@ -304,6 +309,15 @@ export const buildTorrentOptions = (
       disabled: ghost,
       run: () => (stopped(t) ? a.resume() : a.pause()),
     },
+    ...(queueHolds || t.forced
+      ? [{
+        kind: 'toggle' as const,
+        id: 'force-start',
+        label: intl.formatMessage({ id: 'Force start', defaultMessage: 'Force start' }),
+        checked: t.forced === true,
+        apply: (on: boolean) => (on ? a.forceStart() : a.resume()),
+      }]
+      : []),
     {
       kind: 'action',
       id: 'recheck',
