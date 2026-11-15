@@ -54,6 +54,8 @@ describe('the chunked storage', () => {
     expect(storage.chunksOf(SAVE_PATH, 0)).toEqual([29])
     await storage.write(1, 1, 0, bytes(100))
     expect(await storage.usageOf(SAVE_PATH)).toBe(C + 100)
+    expect(await storage.usageOfStorage(1)).toBe(C + 100)
+    expect(await storage.usageOfStorage(2)).toBeNull()
     expect(storage.footprint()).toBe(C + 100)
   })
 

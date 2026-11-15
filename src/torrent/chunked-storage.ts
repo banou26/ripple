@@ -151,6 +151,12 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
     return total
   }
 
+  const usageAt = async (id: number | undefined, fileIndex?: number) => {
+    if (id === undefined) return null
+    const m = mounts.get(id) ?? await mounting.get(id)?.catch(() => undefined)
+    return m ? usage(m, fileIndex) : null
+  }
+
   const mount = async (savePath: string): Promise<Mount> => {
     const segs = savePath.split('/').filter(Boolean)
     const name = segs.pop() ?? ''
@@ -190,12 +196,9 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
       return total
     },
 
-    usageOf: async (savePath, fileIndex) => {
-      const id = idBySavePath.get(savePath)
-      if (id === undefined) return null
-      const m = mounts.get(id) ?? await mounting.get(id)?.catch(() => undefined)
-      return m ? usage(m, fileIndex) : null
-    },
+    usageOf: (savePath, fileIndex) => usageAt(idBySavePath.get(savePath), fileIndex),
+
+    usageOfStorage: (id) => usageAt(id),
 
     refusedFile: (savePath) => {
       const id = idBySavePath.get(savePath)

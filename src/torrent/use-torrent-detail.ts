@@ -7,6 +7,8 @@ import { getTorrentClient } from './client'
 export interface TorrentDetailView {
   peers: PeerInfo[]
   trackers: TrackerInfo[]
+  /** Bytes it takes in browser storage, absent until measured and for a torrent in a folder. */
+  storageBytes?: number
   /** False until the first broadcast for this handle lands, so a panel can say "loading" honestly. */
   loaded: boolean
 }
@@ -40,7 +42,7 @@ export const useTorrentDetail = (handle: number | null): TorrentDetailView => {
     client.inspect(handle)
     const off = client.onDetail((detail) => {
       if (!detail || detail.handle !== handle) return
-      setView({ peers: detail.peers, trackers: detail.trackers, loaded: true })
+      setView({ peers: detail.peers, trackers: detail.trackers, storageBytes: detail.storageBytes, loaded: true })
     })
     return () => {
       off()

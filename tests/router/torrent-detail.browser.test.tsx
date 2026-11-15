@@ -452,6 +452,13 @@ describe('the docked torrent details', () => {
       })
     })
 
+    it('says how much browser storage it takes in German, with a German number', async () => {
+      await showIn('de', de, 'de-DE')
+      const screen = await mount()
+      send({ storageBytes: 3_100_000_000 })
+      await expect.poll(() => overview(screen).find((fact) => fact.startsWith('Browserspeicher:'))).toBe('Browserspeicher: 3,1 GB')
+    })
+
     it('agrees connected with a seed or a peer, and with how many', async () => {
       await showIn('fr', fr, 'fr-FR')
       expect(overview(await mount()).filter((fact) => /^(Sources complètes|Pairs):/u.test(fact))).toEqual([
@@ -498,6 +505,17 @@ describe('the docked torrent details', () => {
         expect(await noRoom(screen)).toEqual([])
       })
     }
+  })
+
+  it('says how much browser storage it takes once the engine has measured it, and nothing for a torrent in a folder', async () => {
+    const screen = await mount()
+    const storage = () => overview(screen).filter((fact) => fact.startsWith('Browser storage:'))
+    expect(storage()).toEqual([])
+    send({ storageBytes: 3_100_000_000 })
+    await expect.poll(storage).toEqual(['Browser storage: 3.1 GB'])
+    expect(overview(screen).indexOf('Browser storage: 3.1 GB')).toBe(overview(screen).indexOf('Total size: 2 GB') + 1)
+    send({})
+    await expect.poll(storage).toEqual([])
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {

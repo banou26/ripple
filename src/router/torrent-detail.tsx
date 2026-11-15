@@ -126,7 +126,7 @@ const PiecesBar = ({ bitfield }: { bitfield: PieceBitfield }) => {
   return <canvas ref={ref} aria-hidden="true"/>
 }
 
-const General = ({ t }: { t: Torrent }) => {
+const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => {
   const intl = useIntl()
   const s = t.stats
   const withSession = (total: string, session: string) =>
@@ -180,6 +180,7 @@ const General = ({ t }: { t: Torrent }) => {
         <h3>{intl.formatMessage({ id: 'Information', defaultMessage: 'Information' })}</h3>
         <div className="facts">
           <Fact label={intl.formatMessage({ id: 'Total size', defaultMessage: 'Total size' })} value={bytes(t.size)}/>
+          {storageBytes !== undefined && <Fact label={intl.formatMessage({ id: 'Browser storage', defaultMessage: 'Browser storage' })} value={bytes(storageBytes)}/>}
           <Fact
             label={intl.formatMessage({ id: 'Pieces', defaultMessage: 'Pieces' })}
             value={s && s.numPieces
@@ -913,7 +914,7 @@ export const TorrentDetailDock = ({
         ))}
       </div>
       <div className="pane">
-        {tab === 'general' && <General t={t}/>}
+        {tab === 'general' && <General t={t} storageBytes={detail.storageBytes}/>}
         {/* no handle means no bytes on this device, so Save would name a torrent the engine has
             never heard of and open a browser download that can only sit at zero and abort */}
         {tab === 'files' && (

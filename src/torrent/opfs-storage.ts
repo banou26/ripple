@@ -72,6 +72,11 @@ export type MeasurableStorage = StorageBackend & {
    */
   usageOf: (savePath: string, fileIndex?: number) => Promise<number | null>
   /**
+   * Bytes the origin is charged for libtorrent's storage `id` (`TorrentFiles.storageIndex`), or null when its bytes
+   * are not in browser storage. By id because every torrent added from a .torrent shares one save path.
+   */
+  usageOfStorage: (id: number) => Promise<number | null>
+  /**
    * The file under `savePath` whose write the browser last refused for want of room, held until the
    * torrent is mounted again, or undefined when none was.
    */
@@ -109,9 +114,7 @@ export const createResilientStorage = (): MeasurableStorage => {
    * a live SyncAccessHandle holds exclusively, which is why the library's own `check()` releases
    * first. Only files with no open handle fall back to it.
    */
-  const usageOf = async (savePath: string, only?: number): Promise<number | null> => {
-    const id = idBySavePath.get(savePath)
-    if (id === undefined) return null
+  const usageOfStorage = async (id: number, only?: number): Promise<number | null> => {
     const entry = internals.storages?.get(id)
     if (!entry?.fileMeta || !entry.rootDir) return null
     let total = 0
@@ -133,6 +136,11 @@ export const createResilientStorage = (): MeasurableStorage => {
     return total
   }
 
+  const usageOf = async (savePath: string, only?: number): Promise<number | null> => {
+    const id = idBySavePath.get(savePath)
+    return id === undefined ? null : usageOfStorage(id, only)
+  }
+
   const retry = retrying(dying)
   const guard = <T>(id: number, fileIndex: number, op: () => T | Promise<T>): T | Promise<T> =>
     retry(id, () => evictHandle(id, fileIndex), op)
@@ -152,6 +160,7 @@ export const createResilientStorage = (): MeasurableStorage => {
 
   return {
     usageOf,
+    usageOfStorage: (id) => usageOfStorage(id),
     refusedFile: (savePath) => {
       const id = idBySavePath.get(savePath)
       return id === undefined ? undefined : refused.get(id)

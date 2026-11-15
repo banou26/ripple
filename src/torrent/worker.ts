@@ -89,6 +89,8 @@ export type TorrentDetail = {
   handle: number
   peers: PeerInfo[]
   trackers: TrackerInfo[]
+  /** Bytes it takes in browser storage, absent before the first measure and for a torrent in a folder. */
+  storageBytes?: number
 }
 
 /**
@@ -318,6 +320,8 @@ let trackersPolledAt = 0
 // Trackers move on the announce interval, which is minutes, so re-asking twice a second would be
 // pure waste. Peers ride the ordinary 500ms broadcast because they genuinely change that fast.
 const TRACKER_POLL_MS = 5_000
+// what the inspected torrent takes in browser storage, measured on that poll: a measure reads every file with no handle open
+let inspectedBytes: { handle: number, bytes: number | null } | null = null
 // The same for every WATCHED torrent, for the player's download count. Not through `inspect`, which
 // has one subject per engine and belongs to the library's detail panel, possibly in another tab.
 let swarmPolledAt = 0
@@ -338,6 +342,12 @@ const PEER_POLL_MS = 2_000
 let peersPolledAt = 0
 let inboundNow = NO_INBOUND
 
+const measureInspected = async (handle: number) => {
+  const id = session?.files(handle)?.storageIndex
+  const bytes = id === undefined || !storage ? null : await storage.usageOfStorage(id)
+  if (handle === inspecting) inspectedBytes = { handle, bytes }
+}
+
 /**
  * The detail for the inspected torrent, or null.
  *
@@ -354,10 +364,16 @@ const inspectDetail = (now: number): TorrentDetail | null => {
   if (now - trackersPolledAt >= TRACKER_POLL_MS) {
     trackersPolledAt = now
     void session!.trackers(handle)
+    void measureInspected(handle).catch(() => {})
   }
   const own = session!.lastTrackers(handle)
-  // the WebSocket trackers WebRTC peers are found through are no trackers of libtorrent's, so its list lacks them
-  return { handle, peers: session!.lastPeers(handle), trackers: [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(handle) ?? []] }
+  return {
+    handle,
+    peers: session!.lastPeers(handle),
+    // the WebSocket trackers WebRTC peers are found through are no trackers of libtorrent's, so its list lacks them
+    trackers: [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(handle) ?? []],
+    storageBytes: inspectedBytes?.handle === handle ? inspectedBytes.bytes ?? undefined : undefined,
+  }
 }
 
 // With no relay nothing reaches libtorrent's own trackers: each ask fails at once on the offline host, which says

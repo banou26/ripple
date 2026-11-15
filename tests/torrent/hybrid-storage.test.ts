@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createHybridStorage, isNativeSavePath, nativeSavePathFor, NATIVE_ROOT } from '../../src/torrent/hybrid-storage'
+import { createHybridStorage, isNativeSavePath, nativeSavePathFor, NATIVE_ROOT, sourceSavePathFor } from '../../src/torrent/hybrid-storage'
 import type { MeasurableStorage } from '../../src/torrent/opfs-storage'
 
 /**
@@ -44,6 +44,7 @@ const fakeFolder = (files: Record<string, Uint8Array>) => {
 
 const fakeOpfs = () => ({
   usageOf: vi.fn(async () => 1234),
+  usageOfStorage: vi.fn(async () => 4321),
   refusedFile: vi.fn(() => 2),
   onNewStorage: vi.fn(),
   onRemoveStorage: vi.fn(),
@@ -180,6 +181,21 @@ describe('the quota the origin is charged', () => {
     expect(opfs.usageOf).toHaveBeenCalledWith('/dl/abc', 1)
     expect(storage.refusedFile('/dl/abc')).toBe(2)
     expect(opfs.refusedFile).toHaveBeenCalledWith('/dl/abc')
+  })
+
+  it('measures a storage by its id, in the browser storage holding it, and none in a folder', async () => {
+    const opfs = fakeOpfs()
+    const cache = fakeOpfs()
+    const storage = createHybridStorage(opfs, () => null, () => null, cache)
+    await storage.onNewStorage(1, nativeSavePathFor('abc'), [])
+    await storage.onNewStorage(2, sourceSavePathFor('def'), [])
+    await storage.onNewStorage(3, '/dl', [])
+    await storage.onNewStorage(4, '/cache/' + 'a'.repeat(40), [])
+    expect(await Promise.all([1, 2, 3, 4].map((id) => storage.usageOfStorage(id)))).toEqual([null, null, 4321, 4321])
+    expect(opfs.usageOfStorage).toHaveBeenCalledTimes(1)
+    expect(opfs.usageOfStorage).toHaveBeenCalledWith(3)
+    expect(cache.usageOfStorage).toHaveBeenCalledTimes(1)
+    expect(cache.usageOfStorage).toHaveBeenCalledWith(4)
   })
 })
 

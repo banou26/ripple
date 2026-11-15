@@ -182,6 +182,8 @@ export const createHybridStorage = (
       return browserAt(savePath).usageOf(savePath, fileIndex)
     },
 
+    usageOfStorage: async (id) => (native.has(id) || source.has(id) ? null : browser(id).usageOfStorage(id)),
+
     refusedFile: (savePath) => browserAt(savePath).refusedFile(savePath),
 
     onNewStorage: (id, savePath, files) => {
