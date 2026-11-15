@@ -142,6 +142,7 @@ describe('the add dialog for a v2 or hybrid torrent', () => {
     render(<Picking/>, { wrapper: IntlRoot })
     await expect.poll(count).toBe('302 kB of 302 kB, 2 of 2 files')
     expect([...document.querySelectorAll('.file .path')].map((path) => path.textContent)).toEqual(['Film/Film.mkv', 'Film/Film.srt'])
+    expect(boxes().map((box) => box.checked)).toEqual([true, true])
 
     for (const [at, box] of boxes().entries()) {
       box.click()
