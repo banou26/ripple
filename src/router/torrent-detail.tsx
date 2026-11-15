@@ -1,5 +1,6 @@
-import type { Torrent, TorrentFile, TorrentStats } from '../torrent/types'
+import type { Torrent, TorrentStats } from '../torrent/types'
 import type { PeerInfo, TrackerInfo } from '../torrent/worker'
+import type { PieceBitfield } from 'libtorrent-wasm'
 
 import { css } from '@emotion/react'
 
@@ -7,7 +8,7 @@ import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG,
   EMPHASIS, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
@@ -20,6 +21,7 @@ import { getHumanReadableByteString, numberFormat, writePercent } from '../utils
 import { writeDuration } from '../torrent/uptime'
 import { speed } from './torrent-format'
 import { contentFiles } from '../torrent/types'
+import { hasPiece, heldShare } from '../torrent/downloaded-ranges'
 import { hint } from '../components/hint'
 
 /**
@@ -92,17 +94,40 @@ const ratio = (s: TorrentStats): string => {
   return twoPlaces(s.allTimeUpload / s.allTimeDownload)
 }
 
-const Fact = ({ label, value, mono }: { label: string, value: React.ReactNode, mono?: boolean }) => (
-  <div className="fact">
+const Fact = ({ label, value, mono, children }: { label: string, value: React.ReactNode, mono?: boolean, children?: React.ReactNode }) => (
+  <div className={children ? 'fact has-bar' : 'fact'}>
     <label>{label}</label>
     <span className={mono ? 'mono' : undefined}>{value}</span>
+    {children}
   </div>
 )
+
+/** The pieces on disk, one column per device pixel, each as bright as the share of its pieces held. */
+const PiecesBar = ({ bitfield }: { bitfield: PieceBitfield }) => {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = ref.current
+    const context = canvas?.getContext('2d')
+    if (!canvas || !context) return
+    const { numPieces } = bitfield
+    const width = canvas.width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio))
+    canvas.height = 1
+    context.fillStyle = EMPHASIS
+    for (let x = 0; x < width; x++) {
+      const from = Math.floor(x * numPieces / width)
+      const to = Math.max(from + 1, Math.floor((x + 1) * numPieces / width))
+      let held = 0
+      for (let p = from; p < to; p++) if (hasPiece(bitfield, p)) held++
+      context.globalAlpha = held / (to - from)
+      context.fillRect(x, 0, 1, 1)
+    }
+  }, [bitfield])
+  return <canvas ref={ref} aria-hidden="true"/>
+}
 
 const General = ({ t }: { t: Torrent }) => {
   const intl = useIntl()
   const s = t.stats
-  const remaining = Math.max(0, t.size - t.downloaded)
   const withSession = (total: string, session: string) =>
     intl.formatMessage({ id: '{total} ({session} this session)', defaultMessage: '{total} ({session} this session)' }, { total, session })
   // a seed and a peer are each their own message, as a word for connected agrees with either in some languages
@@ -135,7 +160,10 @@ const General = ({ t }: { t: Torrent }) => {
           <Fact label={intl.formatMessage({ id: 'Share ratio', defaultMessage: 'Share ratio' })} value={s ? ratio(s) : UNKNOWN}/>
           {/* hash failures plus bytes that arrived after we already had them */}
           <Fact label={intl.formatMessage({ id: 'Wasted', defaultMessage: 'Wasted' })} value={s ? bytes(s.wasted) : UNKNOWN}/>
-          <Fact label={intl.formatMessage({ id: 'Remaining', defaultMessage: 'Remaining' })} value={remaining === 0 ? intl.formatMessage({ id: 'Nothing', defaultMessage: 'Nothing' }) : bytes(remaining)}/>
+          <Fact
+            label={intl.formatMessage({ id: 'Remaining', defaultMessage: 'Remaining' })}
+            value={!s ? UNKNOWN : s.remaining === 0 ? intl.formatMessage({ id: 'Nothing', defaultMessage: 'Nothing' }) : bytes(s.remaining)}
+          />
           <Fact label={intl.formatMessage({ id: 'Seeding for', defaultMessage: 'Seeding for' })} value={s ? withSession(seconds(s.seedingSeconds), seconds(s.sessionSeedingSeconds)) : UNKNOWN}/>
           {/* Below 1 means no combination of the peers we can see holds a whole copy. Negative is
               libtorrent's "not known yet", which happens before metadata or before any peer has
@@ -156,7 +184,9 @@ const General = ({ t }: { t: Torrent }) => {
             value={s && s.numPieces
               ? intl.formatMessage({ id: '{count} x {size} (have {have})', defaultMessage: '{count} x {size} (have {have})' }, { count: s.numPieces, size: bytes(s.pieceLength), have: s.numPiecesHave })
               : UNKNOWN}
-          />
+          >
+            {!!t.bitfield?.numPieces && <PiecesBar bitfield={t.bitfield}/>}
+          </Fact>
           <Fact label={intl.formatMessage({ id: 'Progress', defaultMessage: 'Progress' })} value={pct(t.progress)}/>
           <Fact label={intl.formatMessage({ id: 'Added on', defaultMessage: 'Added on' })} value={s ? when(s.addedAt, intl) : UNKNOWN}/>
           <Fact label={intl.formatMessage({ id: 'Completed on', defaultMessage: 'Completed on' })} value={s ? when(s.completedAt, intl) : UNKNOWN}/>
@@ -189,27 +219,39 @@ const General = ({ t }: { t: Torrent }) => {
  * one list that had forgotten to use it.
  */
 const Files = ({
-  files, saving, onSave,
+  t, saving, onSave,
 }: {
-  files: TorrentFile[]
+  t: Torrent
   saving: Record<number, number>
   /** Null for a torrent that is not in the session: the list is synced, the bytes are not here. */
   onSave: ((index: number) => void) | null
 }) => {
   const intl = useIntl()
+  const files = contentFiles(t.files)
+  const { bitfield } = t
+  const shares = useMemo(
+    () => new Map(contentFiles(t.files).map((f) => [f.index, bitfield && f.offset != null ? heldShare(bitfield, { offset: f.offset, size: f.size }) : null])),
+    [t.files, bitfield],
+  )
   if (!files.length) return <p className="none">{intl.formatMessage({ id: 'No file list yet.', defaultMessage: 'No file list yet.' })}</p>
   return (
     <div className="rows">
-      {/* No per-file progress bar on purpose: TorrentFile.progress is the torrent's overall
-          progress copied onto every file, so a bar here would claim a precision that is not real. */}
       {files.map((f) => {
         const [dir, name] = splitPath(f.name)
         const s = saving[f.index]
+        const share = shares.get(f.index)
         return (
           <div className="row file" key={f.index}>
             <span className="name">
               {dir && <span className="dim">{dir}</span>}{name}
             </span>
+            {share != null && (
+              <>
+                <span className="bar"><span className="fill" style={{ width: `${share * 100}%` }}/></span>
+                {/* floored, so 100% says every byte of the file is here */}
+                <span className="num">{writePercent(Math.floor(share * 100) / 100)}</span>
+              </>
+            )}
             <span className="num">{bytes(f.size)}</span>
             {onSave && (
               <button type="button" onClick={() => onSave(f.index)} disabled={s != null}>
@@ -530,6 +572,21 @@ export const dockStyle = css`
     }
   }
 
+  /* a grid rather than a wrapping row, which would drop a long value under its label instead of the bar */
+  .fact.has-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 4px;
+
+    canvas {
+      grid-column: 1 / -1;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: ${SUNKEN_BG};
+    }
+  }
+
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.95em;
@@ -650,6 +707,21 @@ export const dockStyle = css`
       font-variant-numeric: tabular-nums;
     }
 
+    .bar {
+      flex: none;
+      width: 64px;
+      height: 4px;
+      border-radius: 2px;
+      background: ${SUNKEN_BG};
+      overflow: hidden;
+
+      .fill {
+        display: block;
+        height: 100%;
+        background: ${EMPHASIS};
+      }
+    }
+
     .tags {
       display: flex;
       gap: 4px;
@@ -695,10 +767,11 @@ export const dockStyle = css`
       grid-template-columns: 1fr;
     }
 
-    /* a peer's totals and a tracker's tier too, or a phone has no room for an address or a URL: a peer's five numbers
-       take 420 px of a 358 px pane */
+    /* a peer's totals, a tracker's tier and a file's bar too, or a phone has no room for an address, a URL or a name: a
+       peer's five numbers take 420 px of a 358 px pane */
     .row .client,
-    .row .wide {
+    .row .wide,
+    .row .bar {
       display: none;
     }
 
@@ -804,7 +877,7 @@ export const TorrentDetailDock = ({
         {tab === 'general' && <General t={t}/>}
         {/* no handle means no bytes on this device, so Save would name a torrent the engine has
             never heard of and open a browser download that can only sit at zero and abort */}
-        {tab === 'files' && <Files files={contentFiles(t.files)} saving={saving} onSave={handle == null ? null : onSave}/>}
+        {tab === 'files' && <Files t={t} saving={saving} onSave={handle == null ? null : onSave}/>}
         {tab === 'peers' && <Peers peers={detail.peers} loaded={detail.loaded}/>}
         {tab === 'trackers' && <Trackers trackers={detail.trackers} loaded={detail.loaded}/>}
       </div>

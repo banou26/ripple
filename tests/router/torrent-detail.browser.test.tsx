@@ -79,8 +79,10 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     pieceLength: 262_144,
     numPieces: 7630,
     numPiecesHave: 3815,
+    // under size minus downloaded, as a pack with files left out has
+    remaining: 600_000_000,
   },
-  files: [{ name: 'Pack/E01.mkv', size: 1e9, progress: 0.5, index: 0 }],
+  files: [{ name: 'Pack/E01.mkv', size: 1e9, index: 0 }],
   ...over,
 })
 
@@ -196,6 +198,7 @@ const quiet = () => torrent({
     hadIncoming: false,
     numPieces: 0,
     availability: 0.285,
+    remaining: 0,
   },
 })
 
@@ -335,7 +338,7 @@ describe('the docked torrent details', () => {
       expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
         'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6 of 200', 'Downloaded: 1 GB (500 MB this session)',
         'Uploaded: 250 MB (100 MB this session)', 'Seeds: 12 connected of 40 known', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
-        'Peers: 82 connected of 12 known', 'Share ratio: 0.25', 'Wasted: 4.1 kB', 'Remaining: 1 GB', 'Seeding for: 2m (1m this session)',
+        'Peers: 82 connected of 12 known', 'Share ratio: 0.25', 'Wasted: 4.1 kB', 'Remaining: 600 MB', 'Seeding for: 2m (1m this session)',
         'Availability: 2.40', 'Inbound peers: Yes', 'Total size: 2 GB', 'Pieces: 7630 x 262.1 kB (have 3815)', 'Progress: 50%',
         `Added on: ${date(addedAt, 'en-US')}`, `Completed on: ${date(completedAt, 'en-US')}`, `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 3, file too short',
@@ -352,7 +355,7 @@ describe('the docked torrent details', () => {
       // under one percent, two places
       expect(overview(await mount(torrent({ stats: null, progress: 0.005 }), null))).toEqual([
         'Time active: -', 'Time left: 4m', 'Connections: -', 'Downloaded: 1 GB', 'Uploaded: -', 'Seeds: 12', 'Download speed: 4 MB/s',
-        'Upload speed: 250 kB/s', 'Peers: 82', 'Share ratio: -', 'Wasted: -', 'Remaining: 1 GB', 'Seeding for: -', 'Availability: -',
+        'Upload speed: 250 kB/s', 'Peers: 82', 'Share ratio: -', 'Wasted: -', 'Remaining: -', 'Seeding for: -', 'Availability: -',
         'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 0.50%', 'Added on: -', 'Completed on: -', 'Last seen complete: -',
         'Files: 1', 'Save path: -', 'Info hash: aabbccddeeff00112233445566778899aabbccdd',
       ])
@@ -406,7 +409,7 @@ describe('the docked torrent details', () => {
       expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
         `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 12 verbunden von 40 bekannten', 'Download-Geschwindigkeit: 4 MB/s',
-        'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 1 GB',
+        'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 600 MB',
         'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB',
         'Teile: 7630 × 262,1 kB (vorhanden: 3815)', 'Fortschritt: 50 %', `Hinzugefügt am: ${date(addedAt, 'de-DE')}`,
         `Abgeschlossen am: ${date(completedAt, 'de-DE')}`, `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`, 'Dateien: 1',
@@ -583,21 +586,44 @@ describe('the docked torrent details', () => {
     await expect.element(screen.getByText('No trackers.')).toBeInTheDocument()
   })
 
-  /**
-   * TorrentFile.progress is the torrent's overall progress copied onto every file
-   * (use-torrents.ts), so a per-file bar drawn from it would be a fabrication. The guard is a test
-   * because the field is right there and looks usable.
-   */
-  it('draws no per-file progress, because there is none to draw', async () => {
+  // four pieces of 4 bytes, the first two held: all of the first file and none of the second
+  const halfHeld = () => torrent({
+    bitfield: { pieces: new Uint8Array([0b1100_0000]), numPieces: 4, pieceLength: 4, length: 16 },
+    files: [
+      { name: 'Pack/E01.mkv', size: 8, offset: 0, index: 0 },
+      { name: 'Pack/E02.mkv', size: 8, offset: 8, index: 1 },
+    ],
+  })
+
+  it('says how much of each file is here, from the pieces held', async () => {
+    const screen = await mount(halfHeld())
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
+    expect(rowsOf(screen)).toEqual(['Pack/ | E01.mkv | 100% | 8 B | Save', 'Pack/ | E02.mkv | 0% | 8 B | Save'])
+    expect([...screen.container.querySelectorAll<HTMLElement>('.row.file .fill')].map((fill) => fill.style.width)).toEqual(['100%', '0%'])
+  })
+
+  it('says 100% only when the file is whole', async () => {
+    // 1000 pieces of a byte, all held but the last
+    const pieces = new Uint8Array(125).fill(0xff)
+    pieces[124] = 0xfe
     const screen = await mount(torrent({
-      files: [
-        { name: 'Pack/E01.mkv', size: 1e9, progress: 0.5, index: 0 },
-        { name: 'Pack/E02.mkv', size: 1e9, progress: 0.5, index: 1 },
-      ],
+      bitfield: { pieces, numPieces: 1000, pieceLength: 1, length: 1000 },
+      files: [{ name: 'Film.mkv', size: 1000, offset: 0, index: 0 }],
     }))
     tabButton(screen, 'Content').click()
-    await expect.element(screen.getByText('E01.mkv')).toBeInTheDocument()
-    expect(screen.container.querySelector('.bar')).toBeNull()
+    await expect.element(screen.getByText('Film.mkv')).toBeInTheDocument()
+    expect(rowsOf(screen)).toEqual(['Film.mkv | 99% | 1 kB | Save'])
+  })
+
+  it('draws the pieces held under Pieces, and nothing before the engine has said', async () => {
+    const screen = await mount(halfHeld())
+    const canvas = screen.container.querySelector<HTMLCanvasElement>('.fact.has-bar canvas')!
+    expect(canvas.closest('.fact')!.querySelector('label')!.textContent).toBe('Pieces')
+    const alphaAt = (x: number) => canvas.getContext('2d')!.getImageData(x, 0, 1, 1).data[3]
+    await expect.poll(() => alphaAt(0)).toBe(255)
+    expect(alphaAt(canvas.width - 1)).toBe(0)
+    expect((await mount()).container.querySelector('canvas')).toBeNull()
   })
 
   /*
@@ -615,9 +641,9 @@ describe('the docked torrent details', () => {
    */
   const padded = () => torrent({
     files: [
-      { name: 'Pack/E01.mkv', size: 1e9, progress: 0, index: 0 },
-      { name: 'Pack/.pad/262144', size: 262_144, progress: 0, index: 1, pad: true },
-      { name: 'Pack/E02.mkv', size: 1e9, progress: 0, index: 2 },
+      { name: 'Pack/E01.mkv', size: 1e9, index: 0 },
+      { name: 'Pack/.pad/262144', size: 262_144, index: 1, pad: true },
+      { name: 'Pack/E02.mkv', size: 1e9, index: 2 },
     ],
   })
 

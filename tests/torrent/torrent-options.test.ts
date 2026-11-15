@@ -63,8 +63,9 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     pieceLength: 262_144,
     numPieces: 7630,
     numPiecesHave: 3815,
+    remaining: 1_000_000_000,
   },
-  files: [{ name: 'a.mkv', size: 1e9, progress: 0.5, index: 0 }],
+  files: [{ name: 'a.mkv', size: 1e9, index: 0 }],
   ...over,
 })
 
@@ -306,12 +307,12 @@ describe('the torrent option list', () => {
      * have worked, which is worse.
      */
     it('does not offer Watch, however playable its synced file list looks', () => {
-      const playable = torrent({ state: 'missing', files: [{ name: 'Sintel.mp4', size: 1, progress: 0, index: 0 }] })
+      const playable = torrent({ state: 'missing', files: [{ name: 'Sintel.mp4', size: 1, index: 0 }] })
       expect(flat(playable).map((i) => i.id)).not.toContain('watch')
     })
 
     it('still offers Watch for the same file list once the torrent is actually here', () => {
-      const here = torrent({ state: 'downloading', files: [{ name: 'Sintel.mp4', size: 1, progress: 0, index: 0 }] })
+      const here = torrent({ state: 'downloading', files: [{ name: 'Sintel.mp4', size: 1, index: 0 }] })
       expect(flat(here).map((i) => i.id)).toContain('watch')
     })
   })
@@ -606,7 +607,7 @@ describe('keeping a download', () => {
  */
 describe('taking the torrent itself away', () => {
   it('offers both wherever there is a magnet', () => {
-    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] })
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, index: 0 }] })
     expect(find(t, 'copy-magnet')?.label).toBe('Copy magnet')
     expect(find(t, 'save-torrent-file')?.label).toBe('Save .torrent')
   })
@@ -619,7 +620,7 @@ describe('taking the torrent itself away', () => {
 
   it('runs the action it was given', () => {
     const a = actions()
-    const t = torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] })
+    const t = torrent({ files: [{ name: 'a.mkv', size: 10, index: 0 }] })
     const copy = find(t, 'copy-magnet', a)!
     const save = find(t, 'save-torrent-file', a)!
     if (copy.kind === 'action') copy.run()
@@ -645,7 +646,7 @@ describe('taking the torrent itself away', () => {
     const ghost = find(torrent({ state: 'missing', flags: 0, files: [] }), 'save-torrent-file')
     expect(ghost?.disabled, 'a ghost cannot be asked to write a resume blob').toMatch(/Not on this device/)
 
-    const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, progress: 1, index: 0 }] }), 'save-torrent-file')
+    const ready = find(torrent({ files: [{ name: 'a.mkv', size: 10, index: 0 }] }), 'save-torrent-file')
     expect(ready?.disabled, 'this is the case the whole feature is for').toBeUndefined()
   })
 })
@@ -657,8 +658,8 @@ describe('in the language of the page', () => {
   const SHAPES: [Partial<Torrent>, TorrentOptionContext][] = [
     [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
     [{ state: 'paused' }, { savedToUserStorage: false, folderReady: true, intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
-    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, progress: 1, index: 0 }, { name: 'b.mkv', size: 1e9, progress: 1, index: 1 }] }, { savedToUserStorage: false }],
-    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, progress: 1, index: 0 }] }, { savedToUserStorage: false }],
+    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }, { name: 'b.mkv', size: 1e9, index: 1 }] }, { savedToUserStorage: false }],
+    [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }] }, { savedToUserStorage: false }],
     [{ state: 'missing', files: [] }, { savedToUserStorage: false }],
     [{ state: 'starting', files: undefined }, { savedToUserStorage: false }],
     [{ state: 'retrying' }, { savedToUserStorage: false }],

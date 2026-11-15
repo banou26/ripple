@@ -182,11 +182,13 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
         pieceLength: s.files?.pieceLength ?? s.bitfield?.pieceLength ?? 0,
         numPieces: st.numPiecesTotal,
         numPiecesHave: st.numPiecesHave,
+        remaining: Math.max(0, leftOf(st)),
       }
       : null,
+    bitfield: s.bitfield ?? undefined,
     // pads stay in the array so `files[i]` is still the engine's file i, and carry a flag so nothing
     // a person sees, saves or archives includes them; see `contentFiles`
-    files: s.files?.files.map((f, index) => ({ name: f.path, size: f.size, progress, index, pad: f.pad })),
+    files: s.files?.files.map((f, index) => ({ name: f.path, size: f.size, offset: f.offset, index, pad: f.pad })),
     noPeers: noPeersFound(s, now),
     retry: s.recovery && !s.userPaused
       ? {
@@ -283,10 +285,9 @@ export const ghostToTorrent = (e: Persisted): Torrent => ({
   stats: null,
   saveTo: e.saveTo,
   created: e.created === true,
-  // progress 0 for every one: nothing here is downloaded, which is what the row is saying
   // a ghost's list came from `Persisted`, which the writer already stripped of pads, so every entry
   // here is content and its position is its index
-  files: e.files?.map((f, index) => ({ name: f.name, size: f.size, progress: 0, index })),
+  files: e.files?.map((f, index) => ({ name: f.name, size: f.size, index })),
 })
 
 /**

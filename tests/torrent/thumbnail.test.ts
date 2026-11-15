@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { downloadedFraction, glyphFor, pickThumbnailSource, rangeIsDownloaded, readableKeyframes } from '../../src/torrent/thumbnail'
 
 let nextIndex = 0
-const file = (name: string, size: number) => ({ name, size, progress: 0, index: nextIndex++ })
+const file = (name: string, size: number) => ({ name, size, index: nextIndex++ })
 
 /*
  * The narrowing the download page needs, and the trap in doing it the obvious way.

@@ -63,11 +63,12 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     pieceLength: 262_144,
     numPieces: 7630,
     numPiecesHave: 3815,
+    remaining: 2_250_000_000,
   },
   files: [
-    { name: 'Pack/E01.mkv', size: 1_400_000_000, progress: 1, index: 0 },
-    { name: 'Pack/E02.mkv', size: 1_500_000_000, progress: 0.5, index: 1 },
-    { name: 'Pack/E03.mkv', size: 1_600_000_000, progress: 0, index: 2 },
+    { name: 'Pack/E01.mkv', size: 1_400_000_000, index: 0 },
+    { name: 'Pack/E02.mkv', size: 1_500_000_000, index: 1 },
+    { name: 'Pack/E03.mkv', size: 1_600_000_000, index: 2 },
   ],
   ...over,
 })
@@ -133,7 +134,7 @@ describe('a library row', () => {
     const RELEASE = 'Some.Show.S09E09.1080p.WEB.h264-GROUP[example.org].mkv'
     const ghost = (over: Partial<Torrent> = {}) => torrent({
       state: 'missing', name: RELEASE, progress: 0, downloaded: 0,
-      files: [{ name: RELEASE, size: 1_000_000_000, progress: 0, index: 0 }], ...over,
+      files: [{ name: RELEASE, size: 1_000_000_000, index: 0 }], ...over,
     })
 
     it('a single .mkv is a video file with MKV under its icon', async () => {
@@ -161,7 +162,7 @@ describe('a library row', () => {
 
     it('a single file of another kind is a file with its extension', async () => {
       thumbnail.current = null
-      const screen = await mount(ghost({ name: 'ubuntu.iso', files: [{ name: 'ubuntu.iso', size: 6_000_000_000, progress: 0, index: 0 }] }))
+      const screen = await mount(ghost({ name: 'ubuntu.iso', files: [{ name: 'ubuntu.iso', size: 6_000_000_000, index: 0 }] }))
       expect(screen.container.querySelector('.poster.placeholder .lucide-file')).not.toBeNull()
       expect(screen.container.querySelector('.poster.placeholder .ext')?.textContent).toBe('ISO')
     })

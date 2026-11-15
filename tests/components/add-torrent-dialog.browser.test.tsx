@@ -32,7 +32,7 @@ import de from '../../src/locales/de.json'
 const GB = 1_000_000_000
 
 const files = (...sizes: number[]): TorrentFile[] =>
-  sizes.map((size, index) => ({ name: `file-${index}.mkv`, size, progress: 0, index }))
+  sizes.map((size, index) => ({ name: `file-${index}.mkv`, size, index }))
 
 const asking = (over: Partial<PersistState> = {}): PersistState => ({
   persisted: false,
@@ -158,7 +158,7 @@ describe('the add dialog for a v2 or hybrid torrent', () => {
 
 afterEach(showEnglish)
 
-const TWO = [{ name: 'Big.Buck.Bunny.mkv', size: 4.5 * GB, progress: 0, index: 0 }, { name: 'Extras/Commentary.srt', size: 1_000, progress: 0, index: 1 }]
+const TWO = [{ name: 'Big.Buck.Bunny.mkv', size: 4.5 * GB, index: 0 }, { name: 'Extras/Commentary.srt', size: 1_000, index: 1 }]
 
 // every branch of the dialog's text across three shapes
 const SHAPES: Record<string, Partial<Props>> = {

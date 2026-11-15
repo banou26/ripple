@@ -1,3 +1,4 @@
+import type { PieceBitfield } from 'libtorrent-wasm'
 import type { SaveLocation } from './library'
 
 // `starting` is a library row the ENGINE has not reported yet, which on a reload is its state for
@@ -10,7 +11,8 @@ export type TorrentState = 'downloading' | 'seeding' | 'paused' | 'queued' | 'co
 export type TorrentFile = {
   name: string
   size: number
-  progress: number
+  /** Where the file starts in the torrent's pieces, in bytes. Absent for a list synced from another device. */
+  offset?: number
   /**
    * This file's index in the ENGINE's file list, which is what every read is addressed by.
    *
@@ -69,6 +71,8 @@ export type TorrentStats = {
   pieceLength: number
   numPieces: number
   numPiecesHave: number
+  /** Bytes of the chosen files still to come, which is what the time left is counted from. */
+  remaining: number
 }
 
 export type Torrent = {
@@ -117,6 +121,8 @@ export type Torrent = {
    * library ghost, which has no engine state to report.
    */
   stats: TorrentStats | null
+  /** The pieces on disk, as the engine last reported them. Absent for a row the engine has not reported. */
+  bitfield?: PieceBitfield
   /**
    * Where this torrent's files are meant to live, when it has said something of its own.
    *
