@@ -142,6 +142,9 @@ it('keeps a force started torrent out of the queue until a pause or resume, and 
   rig.send({ type: 'unwatch', viewer: 'player' })
   await pumps()
   expect(flagsOf(queued)).toEqual(HELD)
+  rig.send({ type: 'recheck', handle: queued })
+  await pumps()
+  expect(flagsOf(queued), 'a player that left still keeps it out of the queue').toEqual(HELD)
   // and leaves a forced one forced
   rig.send({ type: 'watch', viewer: 'player', handle: forced, fileIndex: 0, fromOffset: 0 })
   rig.send({ type: 'unwatch', viewer: 'player' })
@@ -166,6 +169,40 @@ it('keeps a force started torrent out of the queue until a pause or resume, and 
   }
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 30_000)
+
+it('leaves the person\'s pause to them around a player, and a removed torrent takes its Force start with it', async () => {
+  const queued = engine.ids.get('magnet:?xt=urn:btih:' + QUEUED)!
+  const STOPPED = { paused: true, managed: false }
+
+  rig.send({ type: 'watch', viewer: 'player', handle: queued, fileIndex: 0, fromOffset: 0 })
+  await pumps()
+  rig.send({ type: 'pause', handle: queued })
+  rig.send({ type: 'unwatch', viewer: 'player' })
+  await pumps()
+  expect(flagsOf(queued), 'closing the player handed a paused torrent to the queue').toEqual(STOPPED)
+  rig.send({ type: 'watch', viewer: 'player', handle: queued, fileIndex: 0, fromOffset: 0 })
+  await pumps()
+  expect(flagsOf(queued), 'a player started a torrent the person paused').toEqual(STOPPED)
+  rig.send({ type: 'unwatch', viewer: 'player' })
+
+  // a recheck is the queue's to start once a Pause has ended the Force start
+  rig.send({ type: 'force-start', handle: queued })
+  rig.send({ type: 'pause', handle: queued })
+  rig.send({ type: 'recheck', handle: queued })
+  await pumps()
+  expect(flagsOf(queued), 'a Pause left the Force start in place').toEqual(HELD)
+
+  // removed and added again, it gets its old handle back from the engine, and none of its Force start
+  rig.send({ type: 'force-start', handle: queued })
+  rig.send({ type: 'remove', handle: queued })
+  await vi.waitFor(() => expect(entryOf(QUEUED)).toBeUndefined())
+  rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + QUEUED })
+  rig.send({ type: 'recheck', handle: queued })
+  await pumps()
+  expect(entryOf(QUEUED)).toBeDefined()
+  expect(flagsOf(queued), 'the torrent added again kept the removed one\'s Force start').toEqual(HELD)
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 15_000)
 
 it('lets a force started torrent made temporary run on once its player leaves', async () => {
   const queued = engine.ids.get('magnet:?xt=urn:btih:' + QUEUED)!
