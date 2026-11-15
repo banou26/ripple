@@ -524,6 +524,11 @@ describe('the docked torrent details', () => {
     await expect.element(screen.getByText('/downloads')).toBeInTheDocument()
   })
 
+  it('writes an info hash a magnet gave in base32 as the 40 hex characters other clients show', async () => {
+    const screen = await mount(torrent({ infoHash: 'vk54zxpo74abcirtirkwm54itgvlxtg5' }))
+    expect(overview(screen)).toContain('Info hash: aabbccddeeff00112233445566778899aabbccdd')
+  })
+
   it('says nobody is connected rather than showing an empty table', async () => {
     const screen = await mount()
     tabButton(screen, 'Peers').click()

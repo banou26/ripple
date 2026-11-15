@@ -23,6 +23,7 @@ import { writeDuration } from '../torrent/uptime'
 import { speed } from './torrent-format'
 import { contentFiles } from '../torrent/types'
 import { hasPiece, heldShare } from '../torrent/downloaded-ranges'
+import { hexInfoHash } from '../torrent/magnet'
 import { hint } from '../components/hint'
 
 /**
@@ -195,7 +196,7 @@ const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => 
           <Fact label={intl.formatMessage({ id: 'Last seen complete', defaultMessage: 'Last seen complete' })} value={s ? when(s.lastSeenComplete, intl) : UNKNOWN}/>
           <Fact label={intl.formatMessage({ id: 'Files', defaultMessage: 'Files' })} value={String(contentFiles(t.files).length)}/>
           <Fact label={intl.formatMessage({ id: 'Save path', defaultMessage: 'Save path' })} value={s?.savePath || UNKNOWN} mono/>
-          {t.infoHash && <Fact label={intl.formatMessage({ id: 'Info hash', defaultMessage: 'Info hash' })} value={t.infoHash} mono/>}
+          {t.infoHash && <Fact label={intl.formatMessage({ id: 'Info hash', defaultMessage: 'Info hash' })} value={hexInfoHash(t.infoHash)} mono/>}
           {t.retry && (
             <Fact
               label={intl.formatMessage({ id: 'Retrying', defaultMessage: 'Retrying' })}

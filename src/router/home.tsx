@@ -15,7 +15,7 @@ import type { SyncState } from '../torrent/use-cloud-backup'
 
 import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Square, Upload, X } from 'lucide-react'
 
-import { magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
+import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
@@ -2588,7 +2588,7 @@ const Home = () => {
     copyInfoHash: () => {
       if (!t.infoHash) return
       copy(
-        t.infoHash,
+        hexInfoHash(t.infoHash),
         intl.formatMessage({ id: 'Copied {name}\'s info hash', defaultMessage: 'Copied {name}\'s info hash' }, { name: t.name }),
         intl.formatMessage({ id: 'Could not copy', defaultMessage: 'Could not copy' }),
       )
