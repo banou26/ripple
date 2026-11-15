@@ -11,7 +11,7 @@ import type { EvictionCandidate, Verdict } from './storage-budget'
 import type { Ceiling, FileGeometry, Range, WindowPlan } from './window-plan'
 import type { Persisted, Removal, SaveLocation } from './library'
 
-import { magnetInfoHash } from './magnet'
+import { magnetInfoHash, sameInfoHash } from './magnet'
 import { READ_SIZE, deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
 import { createResilientStorage, createSyncAccessHandle } from './opfs-storage'
 import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
@@ -2091,10 +2091,11 @@ const init = async () => {
 const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
-      const ih = magnetInfoHash(m.magnet)
-      const existing = ih ? handles.find((h) => infoHashByHandle.get(h) === ih) : undefined
-      if (existing !== undefined) {
-        if (ih && !m.ephemeral) {
+      const asked = magnetInfoHash(m.magnet)
+      const running = asked ? [...infoHashByHandle].find(([, hash]) => sameInfoHash(hash, asked)) : undefined
+      if (running) {
+        const [existing, ih] = running
+        if (!m.ephemeral) {
           // a deliberate re-add promotes a cache entry to a library one, which is the only gesture
           // there is for keeping something the budget pass would otherwise be free to reclaim
           ephemeralHandles.delete(existing)
@@ -2117,16 +2118,20 @@ const handleMessage = async (session: Session, m: any) => {
       } else {
         // bytes already on disk stay where they were written, so a re-add never moves a torrent to
         // a fresh directory and orphans the old one
-        const known = ih ? (await loadList()).find((e) => e.infoHash === ih) : undefined
+        const known = asked ? (await loadList()).find((e) => sameInfoHash(e.infoHash, asked)) : undefined
+        // the entry keeps its own spelling of the hash, and its magnet with it: the page joins a running torrent to its
+        // entry by the hash the running torrent's magnet names
+        const ih = known?.infoHash ?? asked
+        const magnet = known && known.infoHash !== asked ? known.magnet : m.magnet
         // `known`, not the incoming flag alone: a torrent already in the library is not cache,
         // whatever opened it. The list has always applied this rule through mergeEntry; the engine
         // did not, so a watch link on a torrent the user owns used to hand its handle to
         // ephemeralHandles and get it idle-parked the moment the player closed.
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
         const savePath = m.savePath || known?.savePath || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
-        const h = addMagnet(session, m.magnet, savePath)
+        const h = addMagnet(session, magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
-        track(h, m.magnet, ih, savePath, ephemeral)
+        track(h, magnet, ih, savePath, ephemeral)
         // before needsPriorityReset, so the pass that clears the window has the plan to write back.
         // A re-add used to lose the file selection this device already had: the restore path reads
         // it back but nothing did on an add, so returning to a torrent through a link downloaded
@@ -2161,8 +2166,8 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
-        if (ih) await upsertList({ infoHash: ih, magnet: m.magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
-        post({ type: 'added', handle: h, magnet: m.magnet })
+        if (ih) await upsertList({ infoHash: ih, magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
+        post({ type: 'added', handle: h, magnet })
         void runStorageBudget()
       }
     } else if (m.type === 'create-source') {

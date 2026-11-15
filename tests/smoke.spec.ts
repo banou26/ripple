@@ -235,6 +235,17 @@ test('a torrent in the list is known by its hash in base32 too, typed or sent by
   await expect(page.locator('.torrent.selected')).toHaveCount(1)
 })
 
+test('a link naming the sample by its base32 hash asks about the sample, with its files', async ({ page }) => {
+  await page.goto('/')
+  await addSample(page, { pause: true })
+  await page.evaluate((magnet) => {
+    history.pushState(null, '', '/?add=' + encodeURIComponent(magnet))
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, 'magnet:?xt=urn:btih:BCW2LJ5GDA5K4HQJ3AY56Z2I2VTASWQQ&dn=Sintel')
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Add torrent' })).toBeEnabled({ timeout: 30_000 })
+  await expect(page.locator('.torrent')).toHaveCount(1)
+})
+
 test('a .torrent already in the list is said to be there', async ({ page }) => {
   await page.goto('/')
   const open = page.locator('label.file-button input[type=file]').first()
