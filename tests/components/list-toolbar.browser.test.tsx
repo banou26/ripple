@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { page } from '@vitest/browser/context'
 
 import { ListToolbar } from '../../src/components/list-toolbar'
 import { IntlRoot } from '../../src/i18n'
@@ -122,6 +123,21 @@ describe('the list toolbar', () => {
   it('names the direction control for a screen reader, since it is only an arrow', async () => {
     const { screen } = mount({ sortDir: 'asc' })
     expect((await screen).container.querySelector('.dir')?.getAttribute('aria-label')).toMatch(/ascending/)
+  })
+
+  it('shows Cards and Table as icons on a phone, each still named for a screen reader', async () => {
+    const words = (c: HTMLElement) => [...c.querySelectorAll<HTMLButtonElement>('.views button')].map((b) => b.innerText.trim())
+    expect(words((await mount().screen).container), 'the control: the words show on a wide window').toEqual(['Cards', 'Table'])
+    await page.viewport(390, 844)
+    try {
+      const c = (await mount().screen).container
+      expect(words(c)).toEqual(['', ''])
+      const [cards, table] = c.querySelectorAll('.views button')
+      expect(cards).toHaveAccessibleName('Cards')
+      expect(table).toHaveAccessibleName('Table')
+    } finally {
+      await page.viewport(1280, 720)
+    }
   })
 
   describe('in the language of the page', () => {

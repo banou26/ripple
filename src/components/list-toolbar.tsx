@@ -122,6 +122,26 @@ const style = css`
 
   /* pushed to the far end: it changes the shape of the page rather than its contents */
   .views { margin-left: auto; }
+
+  /*
+   * A phone keeps two rows in every language: the box, Show and the views (as icons) on the first, Sort and its
+   * direction on the second. A select longer than its row narrows to the room left rather than wrapping a third row.
+   * Above 560 px the wrapping row keeps to two in every language (German's Sort row is the widest, at 555 px).
+   */
+  @media (max-width: 560px) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'pick show views' 'sort sort dir';
+
+    .pick-all { grid-area: pick; }
+    label.show { grid-area: show; }
+    label.sort { grid-area: sort; }
+    label.show, label.sort { justify-self: start; min-width: 0; max-width: 100%; }
+    select { min-width: 0; }
+    .dir { grid-area: dir; justify-self: end; }
+    .views { grid-area: views; margin-left: 0; }
+    .views span { display: none; }
+  }
 `
 
 export type ListToolbarProps = {
@@ -150,6 +170,8 @@ export const ListToolbar = (
   useEffect(() => { if (pickAll.current) pickAll.current.indeterminate = picked === 'some' }, [picked])
   const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
   const show = intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })
+  const cards = intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })
+  const table = intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })
   return <div css={style} className="list-toolbar">
     <label css={checkStyle} className="pick-all" {...hint(selectAll)}>
       <input
@@ -212,12 +234,12 @@ export const ListToolbar = (
     <div className="seg views" role="group" aria-label={intl.formatMessage({ id: 'View', defaultMessage: 'View' })}>
       <button
         type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
-        onClick={() => onView('cards')}
-      ><LayoutGrid/>{intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })}</button>
+        aria-label={cards} onClick={() => onView('cards')}
+      ><LayoutGrid/><span>{cards}</span></button>
       <button
         type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
-        onClick={() => onView('table')}
-      ><ListIcon/>{intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })}</button>
+        aria-label={table} onClick={() => onView('table')}
+      ><ListIcon/><span>{table}</span></button>
     </div>
   </div>
 }

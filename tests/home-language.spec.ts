@@ -1197,12 +1197,51 @@ test.describe('the Inbound tooltip joins its two sentences as the language does'
 })
 
 test.describe('on a phone', () => {
-  const opened = async (page: Page, language: string) => {
+  const opened = async (page: Page, language: string, list: object[] = LIST) => {
     await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(origin)
-    await library(page, LIST, TORRENTS)
+    await library(page, list, TORRENTS)
     await expect(page.locator('.torrent, .torrent-table').first()).toBeVisible()
+  }
+
+  /**
+   * How many rows the shown children of `selector` sit on, by their boxes: a child starts a row when it begins below
+   * every child before it. 2 px of slack, since the Select all box's hit area overhangs its row.
+   */
+  const rowsOf = (page: Page, selector: string) => page.locator(selector).evaluate((box) => {
+    const kids = [...box.children].map(kid => kid.getBoundingClientRect()).filter(kid => kid.width > 0).sort((a, b) => a.top - b.top)
+    let rows = 0
+    let bottom = -Infinity
+    for (const kid of kids) {
+      if (kid.top >= bottom - 2) {
+        rows++
+        bottom = kid.bottom
+      } else bottom = Math.max(bottom, kid.bottom)
+    }
+    return { rows, kids: kids.length, height: Math.round(box.getBoundingClientRect().height) }
+  })
+
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: the toolbar keeps to two rows from 390 to 320 px, the longest filter chosen`, async ({ page }) => {
+      await opened(page, language, LIST.map(item => ({ ...item, ephemeral: false })))
+      const show = page.locator('.list-toolbar label.show select')
+      await expect(show.locator('option[value=temporary]'), 'the control: nothing is temporary').toHaveCount(0)
+      const longest = await show.evaluate((select: HTMLSelectElement) => {
+        const pen = document.createElement('canvas').getContext('2d')!
+        pen.font = getComputedStyle(select).font
+        return [...select.options].reduce((widest, option) => pen.measureText(option.text).width > pen.measureText(widest.text).width ? option : widest).value
+      })
+      await show.selectOption(longest)
+      await expect(show).toHaveValue(longest)
+      for (const width of [390, 360, 320]) {
+        await page.setViewportSize({ width, height: 844 })
+        await drawn(page)
+        const { rows, kids, height } = await rowsOf(page, '.list-toolbar')
+        expect(kids, 'the control: the box, Show, Sort, the direction and the views were read').toBe(5)
+        expect(rows, `${width} px, ${height} px tall, ${longest} chosen`).toBeLessThanOrEqual(2)
+      }
+    })
   }
 
   for (const language of ['en', 'ru', 'fr']) {
