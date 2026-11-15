@@ -21,12 +21,11 @@ const LAYOUTS = [
 // libtorrent's storage ids are its own, never the handles
 const storageOf = (handle: number) => 10 + handle
 
+const small = fakeDir('Small', [fakeFile('s.mkv', 3_000)])
+const large = fakeDir('Large', [fakeFile('l.mkv', 70_000), fakeFile('l.srt', 500)])
 const rig = installWorkerGlobals({
   estimate: async () => ({ usage: 0, quota: 10_000_000_000 }),
-  root: fakeDir('', [fakeDir('dl', [
-    fakeDir('Small', [fakeFile('s.mkv', 3_000)]),
-    fakeDir('Large', [fakeFile('l.mkv', 70_000), fakeFile('l.srt', 500)]),
-  ])]),
+  root: fakeDir('', [fakeDir('dl', [small, large])]),
 })
 
 vi.mock('@fkn/lib/net', () => ({}))
@@ -67,25 +66,32 @@ vi.mock('idb-keyval', () => {
   }
 })
 
+/** What the state messages about `handle` posted since message `since` say it takes in browser storage. */
+const figuresSince = (handle: number, since: number) => rig.posted.slice(since)
+  .map((m) => m.detail as { handle: number, storageBytes?: number } | null | undefined)
+  .filter((detail) => detail?.handle === handle)
+  .map((detail) => detail!.storageBytes)
+
 /** What each of the first `count` state messages about `handle` after it is opened says it takes in browser storage. */
 const figuresOf = async (handle: number, count = 3) => {
   const since = rig.posted.length
   rig.send({ type: 'inspect', handle })
-  const about = () => rig.posted.slice(since)
-    .map((m) => m.detail as { handle: number, storageBytes?: number } | null | undefined)
-    .filter((detail) => detail?.handle === handle)
-  await vi.waitFor(() => expect(about().length).toBeGreaterThanOrEqual(count), { timeout: 10_000 })
-  return about().slice(0, count).map((detail) => detail!.storageBytes)
+  await vi.waitFor(() => expect(figuresSince(handle, since).length).toBeGreaterThanOrEqual(count), { timeout: 10_000 })
+  return figuresSince(handle, since).slice(0, count)
 }
 
-it('gives each torrent in the shared root its own browser storage, and one in a folder none', async () => {
+let added: Promise<void> | undefined
+const ready = () => added ??= (async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([1]) })
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([2]) })
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([3]), savePath: `/native/${HASHES[2]}` })
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(3), { timeout: 10_000 })
+})()
 
+it('gives each torrent in the shared root its own browser storage, and one in a folder none', async () => {
+  await ready()
   // the folder's is read over as many messages as the two others needed to carry theirs
   for (const [handle, bytes] of [[1, 3_000], [2, 70_500], [3, undefined], [1, 3_000]] as const) {
     const figures = await figuresOf(handle)
@@ -94,3 +100,12 @@ it('gives each torrent in the shared root its own browser storage, and one in a 
   }
   expect(rig.of('worker-error')).toEqual([])
 }, 60_000)
+
+it('measures the open torrent again as its bytes grow', async () => {
+  await ready()
+  const since = rig.posted.length
+  rig.send({ type: 'inspect', handle: 1 })
+  await vi.waitFor(() => expect(figuresSince(1, since).at(-1)).toBe(3_000), { timeout: 10_000 })
+  small.children.set('s.mkv', fakeFile('s.mkv', 3_500))
+  await vi.waitFor(() => expect(figuresSince(1, since).at(-1)).toBe(3_500), { timeout: 10_000 })
+}, 30_000)
