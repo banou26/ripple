@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { cloud } from '@fkn/lib'
 
 import { useEngineTransport } from './use-reachability'
+import { vpnOn } from './vpn-setting'
 
 export type QuotaStatus = Awaited<ReturnType<typeof cloud.quota>>
 
@@ -13,7 +14,8 @@ export type QuotaStatus = Awaited<ReturnType<typeof cloud.quota>>
 // the broker caches the result for 5s so a 15s interval is effectively free
 export const useQuota = (active: boolean): QuotaStatus | null => {
   const [quota, setQuota] = useState<QuotaStatus | null>(null)
-  const metered = useEngineTransport() !== 'direct'
+  // the stored choice until an engine has said: its latched 'direct' lands only after this first render's poll has asked
+  const metered = (useEngineTransport() ?? (vpnOn() ? 'relay' : 'direct')) !== 'direct'
   useEffect(() => {
     if (!active || !metered) return
     let cancelled = false
