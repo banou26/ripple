@@ -1557,6 +1557,16 @@ test('the add field narrows the list to the names and info hashes it holds the s
   await expect(page.locator('.hidden-note')).toHaveCount(0)
 })
 
+test('the table narrows to what the add field holds too, and Select all ticks only the rows shown', async ({ page }) => {
+  await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, 'table'])
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await page.locator('header form input:not([type=file])').fill('season')
+  await expect(page.locator('.torrent-table tbody tr')).toHaveCount(1)
+  await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
+  await expect(page.locator('.bulk-bar')).toContainText('1 selected')
+})
+
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
   test.setTimeout(120_000)
   const { words } = await everySurface(page, 1280)
