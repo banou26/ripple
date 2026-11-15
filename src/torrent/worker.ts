@@ -2430,7 +2430,8 @@ const handleMessage = async (session: Session, m: any) => {
       const wanted = Array.isArray(m.wanted) ? m.wanted.map((n: unknown) => Number(n) | 0) : undefined
       const firstLast = m.firstLast === true
       planByHandle.set(m.handle, { wanted, firstLast })
-      applyPiecePlan(m.handle)
+      // a watched torrent's window owns its priorities, and applyViewing writes the plan once nobody reads
+      if (!activeViewers(m.handle).length) applyPiecePlan(m.handle)
       const ih = infoHashByHandle.get(m.handle)
       if (ih) await patchList(ih, { wantedFiles: wanted, firstLast })
     } else if (m.type === 'set-folder') {
