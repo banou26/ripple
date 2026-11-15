@@ -1678,7 +1678,7 @@ const askedFor = (sent: Record<string, unknown>[]) => sent.map(({ magnet, hold }
 
 test('with Ask on, a link arriving while the dialog asks is asked about next, even after Do not ask again', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
-  await page.goto(origin)
+  await page.goto(origin, { referer: 'https://example.org/list' })
   await library(page, LIST, TORRENTS)
   const sent = await sending(page, ['add-magnet'])
   const dialog = page.getByRole('dialog')
@@ -1699,7 +1699,7 @@ test('with Ask on, a link arriving while the dialog asks is asked about next, ev
   await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
   await dialog.getByRole('button', { name: 'Add torrent' }).click()
   await expect(dialog.locator('h2')).toHaveText('Eight')
-  await expect(dialog.getByText('Opened from a link')).toBeVisible()
+  await expect(dialog.getByText('Sent here by https://example.org')).toBeVisible()
   expect(askedFor(await sent())).toEqual([['Seven', true], ['Seven', false], ['Eight', true]])
 })
 
