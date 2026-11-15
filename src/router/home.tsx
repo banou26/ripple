@@ -2244,7 +2244,14 @@ const Home = () => {
       return
     }
     for (const file of torrents) {
-      addTorrentFile(new Uint8Array(await file.arrayBuffer()))
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const read = await readTorrentFile(bytes)
+      const ih = read && magnetInfoHash(read.magnet)
+      if (torrentsRef.current.some((t) => sameInfoHash(t.infoHash, ih))) {
+        showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
+        continue
+      }
+      addTorrentFile(bytes)
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: file.name }))
     }
   }, [addTorrentFile, showToast, intl])

@@ -2,6 +2,8 @@
 
 import type { Locator, Page } from '@playwright/test'
 
+import { join } from 'node:path'
+
 import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
@@ -224,6 +226,23 @@ test('a torrent in the list is known by its hash in base32 too, typed or sent by
   }, again)
   await expect(known).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.torrent')).toHaveCount(1)
+})
+
+test('a .torrent already in the list is said to be there, and the paused torrent stays paused', async ({ page }) => {
+  await page.goto('/')
+  const open = page.locator('label.file-button input[type=file]').first()
+  const sintel = join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent')
+  await open.setInputFiles(sintel)
+  const row = page.locator('.torrent').first()
+  await expect(row.locator('.title strong')).toHaveText('Sintel', { timeout: 30_000 })
+  await row.getByRole('button', { name: 'Pause' }).click()
+  await expect(row.locator('.badge')).toHaveText('Paused')
+
+  await open.setInputFiles(sintel)
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
+  await page.waitForTimeout(2_000)
+  await expect(row.locator('.badge')).toHaveText('Paused')
   await expect(page.locator('.torrent')).toHaveCount(1)
 })
 
