@@ -2266,6 +2266,7 @@ const handleMessage = async (session: Session, m: any) => {
         paused: entry?.paused === true,
       })
       if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
+      if (entry?.forced && !entry.paused) { forced.add(h); run(h) }
       uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
       totalsStored.set(h, storedTotals(entry))
       await patchList(ih, { started: true, lastUsedAt: Date.now() })

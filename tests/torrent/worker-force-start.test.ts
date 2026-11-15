@@ -9,6 +9,7 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 const FORCED = 'a'.repeat(40)
 const QUEUED = 'b'.repeat(40)
 const GONE = 'c'.repeat(40)
+const SOURCE = 'd'.repeat(40)
 const PAUSED = 16
 const MANAGED = 32
 
@@ -28,9 +29,9 @@ vi.mock('@fkn/lib/dgram', () => ({}))
 vi.mock('libtorrent-wasm', async () => {
   const { fakeSession } = await import('../utils/worker-rig')
   // an add starts paused and auto-managed, libtorrent's default
-  const add = (magnet: string) => {
-    const h = engine.ids.get(magnet) ?? ++engine.added
-    engine.ids.set(magnet, h)
+  const add = (key: string) => {
+    const h = engine.ids.get(key) ?? ++engine.added
+    engine.ids.set(key, h)
     engine.paused.set(h, true)
     engine.managed.set(h, true)
     return h
@@ -38,6 +39,7 @@ vi.mock('libtorrent-wasm', async () => {
   return {
     createSession: async () => fakeSession({
       addMagnet: add,
+      addTorrentFile: (_: Uint8Array, savePath: string) => add(savePath),
       popAlerts: () => { for (const [h, managed] of engine.managed) if (managed) engine.paused.set(h, true); return [] },
       status: (h: number) => (!engine.paused.has(h) ? null : {
         state: 3, paused: engine.paused.get(h), autoManaged: engine.managed.get(h), errorCode: 0, totalDone: 0, downloadRate: 0, numPeers: 0,
@@ -64,8 +66,13 @@ vi.mock('idb-keyval', () => {
   const entry = (infoHash: string, over: Partial<Persisted> = {}): Persisted => ({
     infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt: 1, lastUsedAt: 1, started: true, ...over,
   })
-  // forced in an earlier session; one in the queue; one forced whose files went, now a row to download again
-  store.set('ripple:torrents', [entry(FORCED, { forced: true }), entry(QUEUED), entry(GONE, { forced: true, started: false })])
+  // forced in an earlier session; one in the queue; one forced whose files went, now a row to download again;
+  // one forced and created here, which the page starts once it can read the files again
+  store.set('ripple:torrents', [
+    entry(FORCED, { forced: true }), entry(QUEUED), entry(GONE, { forced: true, started: false }),
+    entry(SOURCE, { forced: true, saveTo: 'source', savePath: '/source/' + SOURCE }),
+  ])
+  store.set('ripple:torrent:' + SOURCE, new Uint8Array([1]))
   return {
     get: async (key: string) => store.get(key),
     set: async (key: string, value: unknown) => { store.set(key, value) },
@@ -90,6 +97,10 @@ it('keeps a force started torrent out of the queue until a pause or resume, and 
   // THE CONTROL: the queue holds what it manages
   expect(flagsOf(queued)).toEqual(HELD)
   expect(flagsOf(forced), 'a reload lost the Force start').toEqual(RUNNING)
+  rig.send({ type: 'start-source', infoHash: SOURCE, handles: [{ name: 'a.mkv' }] })
+  await vi.waitFor(() => expect(engine.ids.get('/source/' + SOURCE)).toBeDefined())
+  await pumps()
+  expect(flagsOf(engine.ids.get('/source/' + SOURCE)!), 'a reload lost a created torrent\'s Force start').toEqual(RUNNING)
 
   rig.send({ type: 'force-start', handle: queued })
   await vi.waitFor(() => expect(entryOf(QUEUED)).toMatchObject({ forced: true }))
