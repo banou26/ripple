@@ -590,11 +590,11 @@ describe('the docked torrent details', () => {
   })
 
   // four pieces of 4 bytes, the first two held: all of the first file and none of the second
-  const halfHeld = () => torrent({
+  const halfHeld = (dir = 'Pack') => torrent({
     bitfield: { pieces: new Uint8Array([0b1100_0000]), numPieces: 4, pieceLength: 4, length: 16 },
     files: [
-      { name: 'Pack/E01.mkv', size: 8, offset: 0, index: 0 },
-      { name: 'Pack/E02.mkv', size: 8, offset: 8, index: 1 },
+      { name: `${dir}/E01.mkv`, size: 8, offset: 0, index: 0 },
+      { name: `${dir}/E02.mkv`, size: 8, offset: 8, index: 1 },
     ],
   })
 
@@ -619,6 +619,19 @@ describe('the docked torrent details', () => {
     expect(rowsOf(screen)).toEqual(['Film.mkv | 99% | 1 kB | Save'])
   })
 
+  it('leaves the file bars out on a phone, and keeps the list inside its width', async () => {
+    onTestFinished(() => page.viewport(1280, 720))
+    await page.viewport(390, 844)
+    const screen = await mount(halfHeld('Some.Show.S01.1080p.WEB-DL.DDP5.1.H.264-GROUP'))
+    screen.container.style.width = '390px'
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
+    const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
+    expect(rows.map((row) => getComputedStyle(row.querySelector('.bar')!).display)).toEqual(['none', 'none'])
+    const pane = screen.container.querySelector<HTMLElement>('.pane')!
+    expect(pane.scrollWidth).toBeLessThanOrEqual(pane.clientWidth)
+  })
+
   it('draws the pieces held under Pieces, and nothing before the engine has said', async () => {
     const screen = await mount(halfHeld())
     const canvas = screen.container.querySelector<HTMLCanvasElement>('.fact.has-bar canvas')!
@@ -627,6 +640,17 @@ describe('the docked torrent details', () => {
     await expect.poll(() => alphaAt(0)).toBe(255)
     expect(alphaAt(canvas.width - 1)).toBe(0)
     expect((await mount()).container.querySelector('canvas')).toBeNull()
+  })
+
+  it('shades each column of the pieces bar by the share of the pieces under it', async () => {
+    // every other piece held, a few hundred to a column
+    const screen = await mount(torrent({ bitfield: { pieces: new Uint8Array(12_500).fill(0b1010_1010), numPieces: 100_000, pieceLength: 1, length: 100_000 } }))
+    const canvas = screen.container.querySelector<HTMLCanvasElement>('.fact.has-bar canvas')!
+    const shades = () => canvas.getContext('2d')!.getImageData(0, 0, canvas.width, 1).data.filter((_, i) => i % 4 === 3)
+    await expect.poll(() => shades()[0]).toBeGreaterThan(0)
+    expect(canvas.width).toBeLessThan(1000)
+    expect(Math.min(...shades())).toBeGreaterThanOrEqual(120)
+    expect(Math.max(...shades())).toBeLessThanOrEqual(136)
   })
 
   /*
