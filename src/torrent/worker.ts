@@ -952,7 +952,7 @@ const applyViewing = (h: number) => {
     //
     // Never the sample either, though it is temporary: the person pressed Add for all of it, so it
     // downloads like their own.
-    if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !userStarted.has(h) && !cacheIdle.has(h)) {
+    if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !userStarted.has(h) && !forced.has(h) && !cacheIdle.has(h)) {
       cacheIdle.add(h)
       wantPause(h)
       session.pauseTorrent(h)

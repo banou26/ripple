@@ -10,6 +10,7 @@ const FORCED = 'a'.repeat(40)
 const QUEUED = 'b'.repeat(40)
 const GONE = 'c'.repeat(40)
 const SOURCE = 'd'.repeat(40)
+const TEMPORARY = 'e'.repeat(40)
 const PAUSED = 16
 const MANAGED = 32
 
@@ -53,6 +54,14 @@ vi.mock('libtorrent-wasm', async () => {
         if (mask & MANAGED) engine.managed.set(h, (flags & MANAGED) !== 0)
       },
       saveResumeData: async () => new Uint8Array([1]),
+      // the pass a viewer leaving sets off waits for a layout
+      files: () => ({
+        storageIndex: 0, pieceLength: 16_384, numPieces: 62, totalSize: 1_000_000, contentSize: 1_000_000,
+        files: [{ path: 'a.mkv', offset: 0, size: 1_000_000, pad: false }],
+      }),
+      setStreamWindow: () => true,
+      clearStreamWindow: () => {},
+      cancelPieceRequests: () => {},
     }),
     PRIORITY: { skip: 0 },
     TORRENT_FLAG: { uploadMode: 1, paused: PAUSED, autoManaged: MANAGED },
@@ -67,10 +76,10 @@ vi.mock('idb-keyval', () => {
     infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt: 1, lastUsedAt: 1, started: true, ...over,
   })
   // forced in an earlier session; one in the queue; one forced whose files went, now a row to download again;
-  // one forced and created here, which the page starts once it can read the files again
+  // one forced and created here, which the page starts once it can read the files again; one forced and temporary
   store.set('ripple:torrents', [
     entry(FORCED, { forced: true }), entry(QUEUED), entry(GONE, { forced: true, started: false }),
-    entry(SOURCE, { forced: true, saveTo: 'source', savePath: '/source/' + SOURCE }),
+    entry(SOURCE, { forced: true, saveTo: 'source', savePath: '/source/' + SOURCE }), entry(TEMPORARY, { forced: true, ephemeral: true }),
   ])
   store.set('ripple:torrent:' + SOURCE, new Uint8Array([1]))
   return {
@@ -97,6 +106,7 @@ it('keeps a force started torrent out of the queue until a pause or resume, and 
   // THE CONTROL: the queue holds what it manages
   expect(flagsOf(queued)).toEqual(HELD)
   expect(flagsOf(forced), 'a reload lost the Force start').toEqual(RUNNING)
+  expect(flagsOf(engine.ids.get('magnet:?xt=urn:btih:' + TEMPORARY)!), 'the idle park stopped a force started torrent').toEqual(RUNNING)
   rig.send({ type: 'start-source', infoHash: SOURCE, handles: [{ name: 'a.mkv' }] })
   await vi.waitFor(() => expect(engine.ids.get('/source/' + SOURCE)).toBeDefined())
   await pumps()
@@ -156,3 +166,16 @@ it('keeps a force started torrent out of the queue until a pause or resume, and 
   }
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 30_000)
+
+it('lets a force started torrent made temporary run on once its player leaves', async () => {
+  const queued = engine.ids.get('magnet:?xt=urn:btih:' + QUEUED)!
+  rig.send({ type: 'force-start', handle: queued })
+  rig.send({ type: 'set-temporary', infoHash: QUEUED, temporary: true })
+  await vi.waitFor(() => expect(entryOf(QUEUED)).toMatchObject({ forced: true, ephemeral: true }))
+  rig.send({ type: 'watch', viewer: 'player', handle: queued, fileIndex: 0, fromOffset: 0 })
+  await pumps()
+  rig.send({ type: 'unwatch', viewer: 'player' })
+  await pumps()
+  expect(flagsOf(queued), 'the idle park stopped a force started torrent').toEqual(RUNNING)
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 10_000)
