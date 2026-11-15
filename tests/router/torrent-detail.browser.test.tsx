@@ -632,7 +632,7 @@ describe('the docked torrent details', () => {
     expect(rowsOf(screen)).toEqual(['Film.mkv | 29% | 100 B | Save'])
   })
 
-  it('leaves the file bars out on a phone, and keeps the list inside its width', async () => {
+  it('leaves the file bars out on a phone, keeps each box beside its name, and the list inside its width', async () => {
     onTestFinished(() => page.viewport(1280, 720))
     await page.viewport(390, 844)
     const screen = await mount(halfHeld('Some.Show.S01.1080p.WEB-DL.DDP5.1.H.264-GROUP'))
@@ -641,6 +641,16 @@ describe('the docked torrent details', () => {
     await expect.element(screen.getByText('E02.mkv')).toBeInTheDocument()
     const rows = [...screen.container.querySelectorAll<HTMLElement>('.row.file')]
     expect(rows.map((row) => getComputedStyle(row.querySelector('.bar')!).display)).toEqual(['none', 'none'])
+    // beside the text and within its height, not on a line of its own above it
+    const besideItsName = (row: HTMLElement) => {
+      const box = row.querySelector('input')!
+      const text = document.createRange()
+      text.setStartAfter(box)
+      text.setEndAfter(row.querySelector('.name')!.lastChild!)
+      const [at, of] = [box.getBoundingClientRect(), text.getBoundingClientRect()]
+      return at.right <= of.left && at.top >= of.top && at.bottom <= of.bottom
+    }
+    expect(rows.map(besideItsName)).toEqual([true, true])
     const pane = screen.container.querySelector<HTMLElement>('.pane')!
     expect(pane.scrollWidth).toBeLessThanOrEqual(pane.clientWidth)
   })

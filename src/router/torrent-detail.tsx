@@ -257,7 +257,7 @@ const Files = ({
           <div className={on ? 'row file' : 'row file off'} key={f.index}>
             <label className="name">
               {onWanted && <input type="checkbox" checked={on} disabled={on && tickedCount === 1} onChange={() => toggle(f.index)}/>}
-              {dir && <span className="dim">{dir}</span>}{name}
+              <span className="path">{dir && <span className="dim">{dir}</span>}{name}</span>
             </label>
             {share != null && (
               <>
@@ -697,6 +697,12 @@ export const dockStyle = css`
         flex: none;
         margin: 0;
         accent-color: ${EMPHASIS};
+      }
+
+      /* a basis of 0, or a path longer than the line wraps under the file's box instead of beside it */
+      .path {
+        flex: 1;
+        min-width: 0;
       }
     }
 
