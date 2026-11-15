@@ -2665,7 +2665,7 @@ const handleMessage = async (session: Session, m: any) => {
       // a temporary one's only: a Start given while it was the person's own says nothing once it is made temporary
       const sticks = ephemeralHandles.has(m.handle)
       if (sticks) userStarted.add(m.handle)
-      cacheIdle.delete(m.handle); wokenByRead.delete(m.handle)
+      cacheIdle.delete(m.handle)
       wantStart(m.handle)
       recovery.forget(m.handle)
       session.resumeTorrent(m.handle)
