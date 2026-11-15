@@ -2,6 +2,8 @@ import type { Torrent } from './types'
 
 import { defineMessage, defineMessages } from 'react-intl'
 
+import { hexInfoHash } from './magnet'
+
 /**
  * How the library list is filtered, sorted and arranged, as arithmetic with no React in it.
  *
@@ -214,3 +216,12 @@ export const readSort = (read: (key: string) => string | null): { key: SortKey, 
 }
 
 export const writeSort = (key: SortKey, dir: SortDir): string => `${key}:${dir}`
+
+// -------------------------------------------------------------------------------------- the search
+
+/** Whether a row answers what is typed in the add field: part of its name in any case, or the start of its info hash. */
+export const matchesSearch = (t: Torrent, text: string): boolean => {
+  const typed = text.trim().toLowerCase()
+  return t.name.toLowerCase().includes(typed)
+    || (!!t.infoHash && [t.infoHash.toLowerCase(), hexInfoHash(t.infoHash)].some((hash) => hash.startsWith(typed)))
+}

@@ -338,7 +338,12 @@ const everySurface = async (page: Page, width: number) => {
   const field = page.locator('header form input:not([type=file])')
   await field.fill('not a magnet')
   await read('clearable field')
-  await field.press('Enter')
+  await field.fill('')
+  await page.evaluate(() => {
+    const data = new DataTransfer()
+    data.setData('text/plain', 'not a magnet')
+    document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+  })
   await expect(page.locator('.toast')).toBeVisible()
   await read('toast refused')
   await field.fill(magnetOf('3', 'Fresh'))
@@ -1421,6 +1426,47 @@ test('with Ask on, several magnets are asked about one after another, and Do not
   expect((await sent()).map(({ magnet, hold }) => [/dn=(\w+)/u.exec(magnet as string)?.[1], hold])).toEqual([
     ['Seven', true], ['Eight', true], ['One', false], ['Eight', false],
   ])
+})
+
+test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const rows = page.locator('.torrent .title')
+  const all = await rows.count()
+  const field = page.locator('header form input:not([type=file])')
+  const add = page.getByRole('button', { name: 'Add', exact: true })
+
+  await field.fill('season')
+  await expect(rows).toHaveText(['A.Season.Pack'])
+  await expect(add).toBeDisabled()
+  // the start of Kept.Paused's info hash
+  await field.fill('CCCC')
+  await expect(rows).toHaveText(['Kept.Paused'])
+  await field.press('Escape')
+  await expect(field).toHaveValue('')
+  await expect(rows).toHaveCount(all)
+
+  await field.fill('no such name')
+  await expect(rows).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show everything' }).click()
+  await expect(field).toHaveValue('')
+  await expect(rows).toHaveCount(all)
+
+  const sent = await sending(page, ['add-magnet'])
+  await field.fill(magnetOf('7', 'Seven'))
+  await expect(rows).toHaveCount(all)
+  await field.press('Enter')
+  await expect(field).toHaveValue('')
+  expect((await sent()).map(({ magnet }) => magnet)).toEqual([magnetOf('7', 'Seven')])
+
+  // with the Show menu hiding the temporary rows too, the empty list is the one thing that says so
+  await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'library'])
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.hidden-note')).toBeVisible()
+  await field.fill('no such name')
+  await expect(page.locator('.empty')).toBeVisible()
+  await expect(page.locator('.hidden-note')).toHaveCount(0)
 })
 
 test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {

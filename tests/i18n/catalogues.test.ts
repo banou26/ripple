@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import { catalogues, english } from '../languages'
 
-const PLACEHOLDER = 'Add a magnet link, or drop a .torrent'
+const PLACEHOLDER = 'Add a magnet link, or search'
 
 // stub's own words for labels the two apps share, so they read alike
 const STUB_WORDS: Record<string, Record<string, string>> = {

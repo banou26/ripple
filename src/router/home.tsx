@@ -92,6 +92,7 @@ import {
   isTemporary, readFilter, readSort, readView, writeSort,
 } from '../torrent/list-view'
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
+import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
@@ -3038,8 +3039,12 @@ const Home = () => {
    */
   const temporaryCount = torrents.filter(isTemporary).length
   const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
+  // the add field, when what it holds adds nothing, narrows the list instead
+  const adds = readMagnets(input).length > 0
+  const search = adds ? '' : input.trim()
+  const shown = search ? visibleRows.filter((t) => matchesSearch(t, search)) : visibleRows
 
-  const bulk = useBulkSelection(visibleRows)
+  const bulk = useBulkSelection(shown)
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
@@ -3193,7 +3198,6 @@ const Home = () => {
           onSubmit={(e) => {
             e.preventDefault()
             if (commitMagnet(input)) setInput('')
-            else if (input.trim()) showToast(intl.formatMessage({ id: 'Not a magnet link', defaultMessage: 'Not a magnet link' }))
           }}
         >
           {/**
@@ -3222,8 +3226,9 @@ const Home = () => {
               ref={fieldRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={intl.formatMessage({ id: 'Add a magnet link, or drop a .torrent', defaultMessage: 'Add a magnet link, or drop a .torrent' })}
-              aria-label={intl.formatMessage({ id: 'Magnet link', defaultMessage: 'Magnet link' })}
+              onKeyDown={(e) => { if (e.key === 'Escape') setInput('') }}
+              placeholder={intl.formatMessage({ id: 'Add a magnet link, or search', defaultMessage: 'Add a magnet link, or search' })}
+              aria-label={intl.formatMessage({ id: 'Add a magnet link, or search', defaultMessage: 'Add a magnet link, or search' })}
               spellCheck={false}
               disabled={storageUnavailable}
             />
@@ -3278,7 +3283,7 @@ const Home = () => {
               type="submit"
               {...hint(intl.formatMessage({ id: 'Add this magnet link', defaultMessage: 'Add this magnet link' }))}
               aria-label={intl.formatMessage({ id: 'Add', defaultMessage: 'Add' })}
-              disabled={storageUnavailable || !input.trim()}
+              disabled={storageUnavailable || !adds}
             >
               <Plus/>
             </button>
@@ -3474,7 +3479,7 @@ const Home = () => {
               </div>
             </div>
           )
-          : visibleRows.length === 0
+          : shown.length === 0
             ? (
               /**
                * A filter matched nothing. Emphatically NOT the hero above, which says "Ripple is a
@@ -3488,7 +3493,7 @@ const Home = () => {
                   ? intl.formatMessage({ id: 'No temporary downloads.', defaultMessage: 'No temporary downloads.' })
                   : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
-                  <button type="button" className="link" onClick={() => chooseFilter('all')}>
+                  <button type="button" className="link" onClick={() => { chooseFilter('all'); setInput('') }}>
                     {intl.formatMessage({ id: 'Show everything', defaultMessage: 'Show everything' })}
                   </button>
                 </div>
@@ -3497,7 +3502,7 @@ const Home = () => {
           : listView === 'table'
             ? (
               <TorrentTable
-                torrents={visibleRows}
+                torrents={shown}
                 transport={transport}
                 sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
                 selectedId={selectedId}
@@ -3507,7 +3512,7 @@ const Home = () => {
                 onPick={bulk.toggle}
               />
             )
-            : visibleRows.map((t) => (
+            : shown.map((t) => (
             // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
             <TorrentRow
               key={t.id}
@@ -3534,7 +3539,7 @@ const Home = () => {
           */}
         {/* not while the list is empty: the empty state above already explains it and offers the
             same way back, and two Show buttons is one too many */}
-        {hiddenByFilter > 0 && visibleRows.length > 0 && (
+        {hiddenByFilter > 0 && shown.length > 0 && (
           <div className="hidden-note" role="status">
             {hiddenBytes > 0
               ? intl.formatMessage({ id: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}', defaultMessage: '{count, plural, one {{count} temporary download hidden · {size}} other {{count} temporary downloads hidden · {size}}}' }, { count: hiddenByFilter, size: getHumanReadableByteString(hiddenBytes, true) })
