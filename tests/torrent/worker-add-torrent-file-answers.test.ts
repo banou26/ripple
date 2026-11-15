@@ -60,12 +60,12 @@ it('skips the files left out, in order, paused and first in the queue, as stored
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
-  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([1]), wanted: [0], firstLast: false, sequential: true, paused: true, top: true })
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([1]), wanted: [0], firstLast: true, sequential: true, paused: true, top: true })
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([2]) })
   // every file wanted, only not started
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([3]), firstLast: false, sequential: false, paused: true, top: false })
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(3))
-  await vi.waitFor(() => expect(told(1)).toContain(`pieces ${'4'.repeat(10)}${'0'.repeat(10)}`))
+  await vi.waitFor(() => expect(told(1)).toContainEqual(expect.stringMatching(/^pieces 7+4+7+0{10}$/u)))
   await vi.waitFor(() => expect(told(1)).toContain('pause'))
   await vi.waitFor(() => expect(told(3)).toContain('pause'))
 
@@ -79,7 +79,7 @@ it('skips the files left out, in order, paused and first in the queue, as stored
   expect(told(2)).not.toContain('flags 1 1')
   expect(told(1)).toContain(`flags ${SEQUENTIAL} ${SEQUENTIAL}`)
   expect(told(1)).toContain('queue top')
-  expect(entry(ASKED)).toMatchObject({ wantedFiles: [0], paused: true })
+  expect(entry(ASKED)).toMatchObject({ wantedFiles: [0], firstLast: true, paused: true })
   // the control: an add with no answers is written nothing of them, and runs
   expect(told(2).filter((line) => !line.startsWith('flags 0 1'))).toEqual([])
   expect(entry(PLAIN)).toMatchObject({ paused: false })

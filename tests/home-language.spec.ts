@@ -1456,15 +1456,16 @@ test('with Ask on, a picked .torrent is asked about from its own file list, and 
   await dialog.getByRole('checkbox', { name: 'Start downloading' }).uncheck()
   await dialog.getByRole('checkbox', { name: 'Download in sequential order' }).check()
   await dialog.getByRole('checkbox', { name: 'Put it first' }).check()
+  await dialog.getByRole('checkbox', { name: 'Download first and last pieces first' }).check()
   await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
   expect(await sent()).toEqual([])
   await dialog.getByRole('button', { name: 'Add torrent' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.toast')).toHaveText('Sintel added, paused')
-  const answers = ({ type, bytes, wanted, firstLast, sequential, paused, top }: Record<string, unknown>) => ({ type, bytes, wanted, firstLast, sequential, paused, top })
+  const answers = ({ type, bytes, saveTo, wanted, firstLast, sequential, paused, top }: Record<string, unknown>) => ({ type, bytes, saveTo, wanted, firstLast, sequential, paused, top })
   expect((await sent()).map(answers)).toEqual([
-    { type: 'add-torrent-file', bytes: other.buffer.byteLength, wanted: undefined, firstLast: false, sequential: false, paused: false, top: false },
-    { type: 'add-torrent-file', bytes: sintel.buffer.byteLength, wanted: [5], firstLast: false, sequential: true, paused: true, top: true },
+    { type: 'add-torrent-file', bytes: other.buffer.byteLength, saveTo: undefined, wanted: undefined, firstLast: false, sequential: false, paused: false, top: false },
+    { type: 'add-torrent-file', bytes: sintel.buffer.byteLength, saveTo: 'browser', wanted: [5], firstLast: true, sequential: true, paused: true, top: true },
   ])
 })
 
