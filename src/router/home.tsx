@@ -2329,8 +2329,9 @@ const Home = () => {
       // A modal makes the page inert to pointers but not to window-level listeners, so without this
       // a paste behind an open confirmation would add a torrent the user cannot see. The rate limit
       // editor counts for the same reason, and doubly so: it holds a text field, so a stray paste
-      // there is a gesture aimed at THIS dialog rather than at the page behind it.
-      if (confirmOpen || rateEdit) return
+      // there is a gesture aimed at THIS dialog rather than at the page behind it. And the add dialog,
+      // whose torrent a paste behind it would replace.
+      if (confirmOpen || rateEdit || pendingAdd) return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
@@ -2338,7 +2339,7 @@ const Home = () => {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [commitMagnet, confirmOpen, rateEdit])
+  }, [commitMagnet, confirmOpen, rateEdit, pendingAdd])
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
@@ -2354,8 +2355,9 @@ const Home = () => {
   const [fieldDrag, setFieldDrag] = useState(false)
   const endDrag = useCallback(() => { dragDepth.current = 0; setDragging(false); setFieldDrag(false) }, [])
   useEffect(() => {
+    // a drop waits while the add dialog asks, as a paste does
     const onDragEnter = (e: DragEvent) => {
-      if (!droppable(e.dataTransfer)) return
+      if (pendingAdd || !droppable(e.dataTransfer)) return
       if (++dragDepth.current === 1) setDragging(true)
     }
     const onDragLeave = (e: DragEvent) => {
@@ -2366,7 +2368,7 @@ const Home = () => {
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
       endDrag()
-      acceptDrop(e.dataTransfer)
+      if (!pendingAdd) acceptDrop(e.dataTransfer)
     }
     window.addEventListener('dragenter', onDragEnter)
     window.addEventListener('dragleave', onDragLeave)
@@ -2390,7 +2392,7 @@ const Home = () => {
       window.removeEventListener('blur', endDrag)
       window.removeEventListener('drop', onDrop)
     }
-  }, [acceptDrop, endDrag])
+  }, [acceptDrop, endDrag, pendingAdd])
 
   useEffect(() => {
     const addFromLaunchUrl = (rawUrl: string | undefined) => {

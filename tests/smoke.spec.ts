@@ -154,6 +154,43 @@ test('a link turned down leaves the offer standing', async ({ page }) => {
   expect(await seeded(page)).toBeNull()
 })
 
+/** A paste, or a drag carrying `magnet` and then its drop, handed to the page the way the browser hands them over. */
+const handOver = (page: Page, gesture: 'paste' | 'drag' | 'drop', magnet: string) => page.evaluate(([gesture, magnet]) => {
+  const data = new DataTransfer()
+  data.setData('text/plain', magnet)
+  data.setData('text/uri-list', magnet)
+  document.body.dispatchEvent(gesture === 'paste'
+    ? new ClipboardEvent('paste', { clipboardData: data, bubbles: true })
+    : new DragEvent(gesture === 'drag' ? 'dragenter' : 'drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+}, [gesture, magnet] as const)
+
+test('a paste or a drop while the add dialog asks leaves the torrent it asks about', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto('/')
+  const dialog = page.getByRole('dialog')
+  const OTHER = `magnet:?xt=urn:btih:${'b'.repeat(40)}&dn=Other`
+
+  await handOver(page, 'paste', NOBODY)
+  await expect(dialog.locator('h2')).toHaveText('Own')
+  await expect(page.locator('.torrent')).toHaveCount(1, { timeout: 30_000 })
+
+  await handOver(page, 'paste', OTHER)
+  await handOver(page, 'drag', OTHER)
+  await expect(page.locator('[data-drag]')).toHaveCount(0)
+  await handOver(page, 'drop', OTHER)
+  await page.waitForTimeout(2_000)
+  await expect(dialog.locator('h2')).toHaveText('Own')
+  await expect(page.locator('.torrent')).toHaveCount(1)
+
+  // the control: the same drag and drop with no dialog open is an add
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.locator('.torrent')).toHaveCount(0)
+  await handOver(page, 'drag', OTHER)
+  await expect(page.locator('[data-drag]')).toHaveCount(1)
+  await handOver(page, 'drop', OTHER)
+  await expect(dialog.locator('h2')).toHaveText('Other')
+})
+
 test('a magnet that names two torrents is refused rather than listed as one of them', async ({ page }) => {
   await page.addInitScript(probeEngine)
   await page.goto('/')
