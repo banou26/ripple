@@ -16,6 +16,7 @@ import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
 import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { getTorrentClient } from '../torrent/client'
+import { isGrantedSavePath } from '../torrent/hybrid-storage'
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { unitLocale } from '../i18n/languages'
 import { getHumanReadableByteString, numberFormat, writePercent } from '../utils/bytes'
@@ -181,7 +182,10 @@ const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => 
         <h3>{intl.formatMessage({ id: 'Information', defaultMessage: 'Information' })}</h3>
         <div className="facts">
           <Fact label={intl.formatMessage({ id: 'Total size', defaultMessage: 'Total size' })} value={bytes(t.size)}/>
-          {storageBytes !== undefined && <Fact label={intl.formatMessage({ id: 'Browser storage', defaultMessage: 'Browser storage' })} value={bytes(storageBytes)}/>}
+          {/* held with a dash until the first measure lands, so the facts after it do not move */}
+          {s && !isGrantedSavePath(s.savePath) && (
+            <Fact label={intl.formatMessage({ id: 'Browser storage', defaultMessage: 'Browser storage' })} value={storageBytes === undefined ? UNKNOWN : bytes(storageBytes)}/>
+          )}
           <Fact
             label={intl.formatMessage({ id: 'Pieces', defaultMessage: 'Pieces' })}
             value={s && s.numPieces

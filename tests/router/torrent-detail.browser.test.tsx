@@ -343,7 +343,7 @@ describe('the docked torrent details', () => {
         'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6 of 200', 'Downloaded: 1 GB (500 MB this session)',
         'Uploaded: 250 MB (100 MB this session)', 'Seeds: 12 connected of 40 known', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
         'Peers: 82 connected of 12 known', 'Share ratio: 0.25', 'Wasted: 4.1 kB', 'Remaining: 600 MB', 'Seeding for: 2m (1m this session)',
-        'Availability: 2.40', 'Inbound peers: Yes', 'Total size: 2 GB', 'Pieces: 7630 x 262.1 kB (have 3815)', 'Progress: 50%',
+        'Availability: 2.40', 'Inbound peers: Yes', 'Total size: 2 GB', 'Browser storage: -', 'Pieces: 7630 x 262.1 kB (have 3815)', 'Progress: 50%',
         `Added on: ${date(addedAt, 'en-US')}`, `Completed on: ${date(completedAt, 'en-US')}`, `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 3, file too short',
       ])
@@ -352,7 +352,7 @@ describe('the docked torrent details', () => {
         'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6', 'Downloaded: 0 B (500 MB this session)',
         'Uploaded: 250 MB (100 MB this session)', 'Seeds: 1 connected', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
         'Peers: 1 connected', 'Share ratio: ∞', 'Wasted: 4.1 kB', 'Remaining: Nothing', 'Seeding for: 2m (1m this session)',
-        'Availability: 0.28', 'Inbound peers: None yet', 'Total size: 2 GB', 'Pieces: -', 'Progress: 28%',
+        'Availability: 0.28', 'Inbound peers: None yet', 'Total size: 2 GB', 'Browser storage: -', 'Pieces: -', 'Progress: 28%',
         `Added on: ${date(addedAt, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 2',
       ])
@@ -414,7 +414,7 @@ describe('the docked torrent details', () => {
         `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 12 verbunden von 40 bekannten', 'Download-Geschwindigkeit: 4 MB/s',
         'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 600 MB',
-        'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB',
+        'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB', 'Browserspeicher: -',
         'Teile: 7630 × 262,1 kB (vorhanden: 3815)', 'Fortschritt: 50 %', `Hinzugefügt am: ${date(addedAt, 'de-DE')}`,
         `Abgeschlossen am: ${date(completedAt, 'de-DE')}`, `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`, 'Dateien: 1',
         'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 3, file too short',
@@ -423,7 +423,7 @@ describe('the docked torrent details', () => {
         `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6', 'Heruntergeladen: 0 Byte (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 1 verbunden', 'Download-Geschwindigkeit: 4 MB/s', 'Upload-Geschwindigkeit: 250 kB/s',
         'Peers: 1 verbunden', 'Verhältnis: ∞', 'Verworfen: 4,1 kB', 'Verbleibend: Nichts', 'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)',
-        'Verfügbarkeit: 0,28', 'Eingehende Peers: Noch keine', 'Gesamtgröße: 2 GB', 'Teile: -', 'Fortschritt: 28 %',
+        'Verfügbarkeit: 0,28', 'Eingehende Peers: Noch keine', 'Gesamtgröße: 2 GB', 'Browserspeicher: -', 'Teile: -', 'Fortschritt: 28 %',
         `Hinzugefügt am: ${date(addedAt, 'de-DE')}`, 'Abgeschlossen am: Noch nicht', `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`,
         'Dateien: 1', 'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 2',
       ])
@@ -508,15 +508,21 @@ describe('the docked torrent details', () => {
     }
   })
 
-  it('says how much browser storage it takes once the engine has measured it, and nothing for a torrent in a folder', async () => {
+  it('says how much browser storage it takes, holding its place until the engine has measured it, and nothing outside it', async () => {
     const screen = await mount()
-    const storage = () => overview(screen).filter((fact) => fact.startsWith('Browser storage:'))
-    expect(storage()).toEqual([])
+    const afterTotal = () => overview(screen)[overview(screen).indexOf('Total size: 2 GB') + 1]
+    expect(afterTotal()).toBe('Browser storage: -')
     send({ storageBytes: 3_100_000_000 })
-    await expect.poll(storage).toEqual(['Browser storage: 3.1 GB'])
-    expect(overview(screen).indexOf('Browser storage: 3.1 GB')).toBe(overview(screen).indexOf('Total size: 2 GB') + 1)
+    await expect.poll(afterTotal).toBe('Browser storage: 3.1 GB')
     send({})
-    await expect.poll(storage).toEqual([])
+    await expect.poll(afterTotal).toBe('Browser storage: -')
+    // a folder, a created torrent's own files, and a torrent not on this device
+    for (const stats of [{ ...torrent().stats!, savePath: `/native/${'a'.repeat(40)}` }, { ...torrent().stats!, savePath: `/source/${'a'.repeat(40)}` }, null]) {
+      const other = await mount(torrent({ stats }))
+      send({ storageBytes: 3_100_000_000 })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(overview(other).filter((fact) => fact.startsWith('Browser storage:')), stats?.savePath).toEqual([])
+    }
   })
 
   it('opens on the overview, which needs no engine round trip', async () => {
