@@ -3610,6 +3610,7 @@ const Home = () => {
 
       {pendingAdd && (
         <AddTorrentDialog
+          key={pendingAdd.infoHash}
           name={pendingAdd.name}
           from={pendingAdd.from}
           external={pendingAdd.external}

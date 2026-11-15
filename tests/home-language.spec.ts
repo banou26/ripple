@@ -1501,6 +1501,21 @@ test('with Ask on, a magnet the dialog refuses is passed over for the next one',
   await expect(page.getByRole('dialog').locator('h2')).toHaveText('Seven')
 })
 
+test('the next torrent asked about starts with Do not ask again unticked', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const field = page.locator('header form input:not([type=file])')
+  await field.fill(`${magnetOf('7', 'Seven')} ${magnetOf('8', 'Eight')}`)
+  await field.press('Enter')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+  await dialog.getByRole('checkbox', { name: 'Do not ask again' }).check()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog.locator('h2')).toHaveText('Eight')
+  await expect(dialog.getByRole('checkbox', { name: 'Do not ask again' })).not.toBeChecked()
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
