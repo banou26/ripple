@@ -46,7 +46,13 @@ test('a torrent offers its magnet, name, info hash and .torrent from the right-c
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('3f'.repeat(20))
 
   // the newest row is listed first
-  await page.locator('.torrent', { hasText: 'Sintel' }).click({ button: 'right' })
+  const sintel = page.locator('.torrent', { hasText: 'Sintel' })
+  await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('refused')) })
+  await sintel.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy name' }).click()
+  await expect(page.locator('.toast')).toHaveText('Could not copy')
+
+  await sintel.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Get a share link' }).click()
   const link = await page.getByTestId('embed-url').textContent({ timeout: 15_000 })
   const shared = decodeMagnetParam(new URL(link ?? '').searchParams) ?? ''
