@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import type { Frame, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'

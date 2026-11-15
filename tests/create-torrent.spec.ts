@@ -18,7 +18,7 @@
  *
  * No network and no transfer: the torrent is complete from the moment it exists, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 
@@ -35,6 +35,8 @@ const REAL_FILES = PACK.filter((f) => f.path[0] !== '.DS_Store')
 const TOTAL = REAL_FILES.reduce((sum, f) => sum + f.bytes, 0)
 
 const install = (pack: typeof PACK) => {
+  // ripple's page only: the frames FKN's lib adds load nothing in this lane, and an error page has no storage
+  if (window !== window.top) return
   const w = window as any
   w.__states = []
   const Original = window.Worker

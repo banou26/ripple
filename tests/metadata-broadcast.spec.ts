@@ -13,7 +13,7 @@
 // Headless on purpose. Nothing here waits on a swarm: the sample is added from the bundled
 // sintel.torrent, and a .torrent carries its own layout, so the metadata is known at once.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 

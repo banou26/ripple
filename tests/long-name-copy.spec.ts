@@ -23,7 +23,7 @@
  * Driving it needs Playwright's `filechooser` event rather than a locator, because the input is
  * created on the click and removed again after. No network and no transfer, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 /** `MAX_PATH_ELEMENT_BYTES` is 240, measured by creating torrents at 100 through 250 characters. */
 const named = (bytes: number) => 'x'.repeat(bytes - 4) + '.mkv'

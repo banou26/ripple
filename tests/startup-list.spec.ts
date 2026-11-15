@@ -15,7 +15,7 @@
 //
 // Headless: this reads the DOM and worker messages, it never observes a transfer.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 

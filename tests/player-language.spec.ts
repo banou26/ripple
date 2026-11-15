@@ -1,7 +1,7 @@
 // The player on built bytes in the language a link or the browser names: the labels read here come from its real
 // catalogues, so one the build dropped, or a language lost on the way to the player, shows. Nothing needs bytes to
 // arrive, so it runs headless, on torrents nobody seeds.
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const magnetOf = (hash: string) => `magnet:?xt=urn:btih:${hash.repeat(40)}&dn=Nothing`
 const FIRST = magnetOf('a')

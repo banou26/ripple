@@ -10,7 +10,7 @@
  */
 import type { Frame, Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { PARTITIONED } from './partitioned'
 

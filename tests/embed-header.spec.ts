@@ -3,7 +3,7 @@
  * for it: no route to the rest of the torrent's files, to the download page, or to Ripple. The header
  * carries the way out, and it has to keep working from inside a frame.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 

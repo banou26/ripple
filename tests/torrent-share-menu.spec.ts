@@ -5,7 +5,7 @@
  * torrent's settings offer the same items by construction. What this adds over the unit tests is that
  * the list is actually reachable: a right-click opens it and the item runs.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 import { decodeMagnetParam } from '../src/router/magnet-codec'

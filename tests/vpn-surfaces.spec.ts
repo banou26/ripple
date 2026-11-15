@@ -8,7 +8,7 @@
  */
 import type { Frame, Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 import { PARTITIONED } from './partitioned'
@@ -19,7 +19,7 @@ test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
 test.use({
   launchOptions: {
     executablePath: process.env.RIPPLE_CHROME || undefined,
-    args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1', ...PARTITIONED.args],
+    args: ['--mute-audio', ...PARTITIONED.args],
     ignoreDefaultArgs: PARTITIONED.ignoreDefaultArgs,
   },
 })

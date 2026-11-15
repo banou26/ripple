@@ -14,7 +14,7 @@
  * Driven rather than observed: waiting for real values to vary tests whatever the swarm happened to
  * do in the window, where writing the range in tests the rule.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 import { readFileSync } from 'node:fs'
 
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'

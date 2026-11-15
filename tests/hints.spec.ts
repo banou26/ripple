@@ -11,7 +11,7 @@
  *
  * Headless: this is a layout and timing measurement, not a transfer.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 

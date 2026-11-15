@@ -2,7 +2,7 @@
 
 import type { Locator, Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 

@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test'
 
 import { createHash } from 'node:crypto'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const MiB = 1024 * 1024
 const GiB = 1024 * MiB

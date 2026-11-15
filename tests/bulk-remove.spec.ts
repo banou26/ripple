@@ -12,7 +12,7 @@
  */
 import type { Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const NAMES = ['Bulk.One.bin', 'Bulk.Two.bin', 'Bulk.Three.bin']
 

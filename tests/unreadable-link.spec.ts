@@ -6,7 +6,7 @@
  */
 import type { Frame, Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -34,10 +34,6 @@ const FONTS: Record<string, string> = {
   'monospace fallback': 'body * { font-family: monospace !important }',
   'reader text spacing': 'body * { letter-spacing: 0.12em !important; word-spacing: 0.16em !important }',
 }
-
-test.beforeEach(async ({ context }) => {
-  await context.route((url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost', (route) => route.abort())
-})
 
 test('the download page says a link it cannot read is not a valid one, and waits on one it can', async ({ page }) => {
   const card = page.locator('.card')

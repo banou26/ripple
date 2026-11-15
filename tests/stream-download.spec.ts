@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 
 import type { Page } from '@playwright/test'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const TOTAL = 3 * 1024 * 1024
 const CHUNK = 512 * 1024

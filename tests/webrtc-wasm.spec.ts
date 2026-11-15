@@ -4,7 +4,7 @@
  * site, so nothing but compiling it tells: on ripple's own site, and under the fkn.app tenant's policy
  * (fkn-client `sandbox/src/shared/tenant.ts`), the strictest host ripple runs on.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 

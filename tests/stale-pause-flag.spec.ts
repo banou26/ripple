@@ -24,7 +24,7 @@
  *
  * No network and no transfer: the bundled .torrent gives metadata locally, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 type Row = {
   handle: number

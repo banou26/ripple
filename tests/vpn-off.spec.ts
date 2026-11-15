@@ -10,7 +10,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 import { startTracker } from './vpn-off/tracker.mjs'

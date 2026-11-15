@@ -13,7 +13,7 @@
  * A created torrent also seeds from the instant it exists, so the clock starts without a swarm, a
  * transfer or a network. Headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const PACK = [
   { path: ['E01.mkv'], bytes: 120_000, fill: 0x11 },
@@ -24,6 +24,8 @@ const PACK = [
 const SEEDED_FOR = 35
 
 const install = (pack: typeof PACK) => {
+  // ripple's page only: the frames FKN's lib adds load nothing in this lane, and an error page has no storage
+  if (window !== window.top) return
   const w = window as any
   w.__states = []
   const Original = window.Worker

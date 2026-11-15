@@ -13,7 +13,7 @@
 // shows up as a wrong button label, because the label is rendered from the broadcast and never from
 // local state.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const downButton = 'footer .controls button:has-text("down")'
 const upButton = 'footer .controls button:has-text("up")'

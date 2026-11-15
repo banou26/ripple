@@ -2,7 +2,7 @@
 // no step in the tab's history. The control replaces the frame's address the way the plugin did before, which each of
 // those checks has to see. Nothing here needs bytes to arrive, so it runs headless. The embedder is a page of this
 // origin that runs no engine (/legal): Chrome refuses a page Playwright fulfils a frame of a loopback address.
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 const FIRST = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
 const NEXT = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny'

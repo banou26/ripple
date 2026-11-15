@@ -16,7 +16,7 @@
  *
  * No network and no transfer: the torrent is complete from the moment it exists, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 type Row = {
   progress: number
@@ -34,6 +34,8 @@ const ONLY = { name: 'only.mkv', bytes: 100_000, fill: 0x55 }
 const WANTED_FILES = { v1: 1, hybrid: 1, v2: 2 } as const
 
 const install = (only: typeof ONLY) => {
+  // ripple's page only: the frames FKN's lib adds load nothing in this lane, and an error page has no storage
+  if (window !== window.top) return
   const w = window as any
   w.__states = []
   const Original = window.Worker

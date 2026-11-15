@@ -11,7 +11,7 @@
  */
 import type { Browser } from '@playwright/test'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { TRACKERS, WEBRTC_PEERS } from '../src/torrent/vpn-config'
 import { startProxy } from './name-lookups/proxy.mjs'

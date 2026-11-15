@@ -13,7 +13,7 @@
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 import { NORMALIZE_VOLUME_KEY } from '../src/router/normalize-volume'
 

@@ -21,7 +21,7 @@
 // has NOT arrived, and headless reaching no peers is exactly that state, deterministically, in a
 // couple of seconds. A headful run would race the fix by fetching metadata before the assertion.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 // same probe multi-tab.spec.ts uses: the engine is a Worker, so counting constructions is the
 // cheapest proof that one actually started

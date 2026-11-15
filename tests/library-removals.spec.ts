@@ -11,7 +11,7 @@
  *
  * No network and no transfer: every entry is a row with nothing running, so this is headless.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './offline'
 
 type Entry = { infoHash: string }
 
