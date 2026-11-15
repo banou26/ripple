@@ -88,6 +88,10 @@ const torrent = (over: Partial<DownloadTorrent> = {}): DownloadTorrent => ({
 const state = { current: torrent() }
 vi.mock('../../src/torrent/use-download-torrent', () => ({ useDownloadTorrent: () => state.current }))
 
+/** The FKN quota as fkn.app's broker would read it, which no test here asks. */
+const quota = { current: null as unknown }
+vi.mock('../../src/torrent/use-quota', () => ({ useQuota: () => quota.current }))
+
 /** The picture this device holds for the torrent, or null for none, which is what the page sees by default. */
 const thumb = { current: null as string | null }
 vi.mock('../../src/torrent/use-thumbnails', async (importOriginal) => ({
@@ -694,6 +698,31 @@ describe('the download route', () => {
  * the link itself says nothing about the files: a link that claimed a video would be a link choosing
  * what the page offers.
  */
+describe('the offer to switch the VPN off once the FKN quota is used up', () => {
+  afterEach(() => {
+    quota.current = null
+    localStorage.removeItem('ripple:quota-offer')
+  })
+
+  it('hangs under the header\'s switch, pointing at it', async () => {
+    state.current = torrent()
+    quota.current = {
+      premium: false, overQuota: true, throttled: true, usedBytes: 5e9, limitBytes: 5e9, remainingBytes: 0,
+      bytesPerSecond: 1_048_576, bitsPerSecond: 8_388_608,
+    }
+    const screen = await mount()
+    const offer = () => document.querySelector<HTMLElement>('.react-tooltip[role="status"]')
+    await expect.poll(() => offer()?.classList.contains('react-tooltip__show')).toBe(true)
+    expect(offer()!.textContent).toBe('Your daily FKN quota is used up.Turn off VPNNo thanks')
+    const at = screen.getByRole('switch', { name: /^VPN/ }).element().getBoundingClientRect()
+    const box = offer()!.getBoundingClientRect()
+    const arrow = offer()!.querySelector('.react-tooltip-arrow')!.getBoundingClientRect()
+    expect(box.top).toBeGreaterThanOrEqual(at.bottom)
+    expect(arrow.left + arrow.width / 2).toBeGreaterThan(at.left)
+    expect(arrow.left + arrow.width / 2).toBeLessThan(at.right)
+  })
+})
+
 describe('offering to watch instead', () => {
   beforeEach(() => { state.current = torrent() })
 

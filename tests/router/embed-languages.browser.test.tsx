@@ -26,6 +26,9 @@ vi.mock('../../src/router/embedder', () => ({
   tellPicked: (picked: TrackLanguages) => { embedder.told.push(picked) },
 }))
 
+// the FKN quota is read from fkn.app's broker, which no test here asks
+vi.mock('../../src/torrent/use-quota', () => ({ useQuota: () => null }))
+
 const FILE = { path: 'Show.S01E04.mkv', size: 1_400_000_000, offset: 0 }
 const playing: (number | undefined)[] = []
 vi.mock('../../src/torrent/use-player-torrent', () => ({

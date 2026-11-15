@@ -2,7 +2,7 @@ import type { MediaPlayerSource } from '@banou/media-player'
 import type { LinkLanguages } from './embed-link'
 import type { EmbedMode } from './file-selection'
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -21,8 +21,11 @@ import { usePlayerTorrent } from '../torrent/use-player-torrent'
 import { noPeersFound, noPeersLine } from '../torrent/no-peers'
 import { usePrepare } from '../torrent/use-prepare'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
+import { useQuota } from '../torrent/use-quota'
+import { vpnOffAvailable } from '../torrent/vpn-setting'
 import { useGiveToRipple } from '../torrent/use-handover'
 import { vpnLabels } from '../torrent/vpn-status'
+import { QuotaOffer } from '../components/quota-offer'
 import { TooltipDisplay } from '../components/tooltip-display'
 import { VpnWarning, useVpnSwitch, wordRoom } from '../components/vpn-switch'
 import DownloadPage from './download'
@@ -495,7 +498,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * not, and until this readout existed the picture was identical.
    */
   const transport = useEngineTransport()
-  const vpn = useVpnSwitch(useReachability(), transport)
+  const vpn = useVpnSwitch(useReachability(), transport, useQuota(vpnOffAvailable()))
+  const vpnAnchor = useId()
 
   // Track menus, thumbnails and the playback controller all live in the player now, so none of the
   // state that used to mirror them is here any more.
@@ -754,11 +758,14 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
                  150 to 220px away from the item they belong to. Naming the placement it would flip to
                  anyway keeps every chip under its own item. */
               tooltipPlace="bottom-end"
+              // the offer hangs where this chip would
+              disabled={!!vpn.offer}
               text={vpn.available
                 ? (
                   <button
                     type="button"
                     role="switch"
+                    id={vpnAnchor}
                     aria-checked={vpn.on}
                     /* the word is folded on a narrow player, and a glyph alone names nothing */
                     aria-label={vpnChip}
@@ -775,6 +782,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
               toolTipText={<span>{vpnChip}</span>}
             />
           )}
+          {vpn.offer && <QuotaOffer inPlayer anchor={vpnAnchor} onAnswer={vpn.offer}/>}
           <TooltipDisplay
             id="peers"
             tooltipPlace="bottom-end"

@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { useIntl } from 'react-intl'
 
 import type { Reachability } from '../torrent/client'
+import type { QuotaStatus } from '../torrent/use-quota'
 import type { EngineTransport } from '../torrent/vpn-config'
 import type { VpnStatus } from '../torrent/vpn-status'
 
 import { setVpn } from '../torrent/client'
 import { COUNTRY_LINE, inListedCountry } from '../torrent/country-line'
-import { onVpnStored, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered } from '../torrent/vpn-setting'
+import {
+  answerQuotaOffer, onVpnStored, quotaDay, quotaOfferAnswered, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered,
+} from '../torrent/vpn-setting'
 import { vpnLabels, vpnStatus } from '../torrent/vpn-status'
 import { BORDER_INTERACTIVE, EMPHASIS, FOCUS_RING, HOVER_WASH, OK, SUNKEN_BG, TEXT, TEXT_MUTED, TEXT_ON_LIGHT, WARN } from '../theme'
 import { confirmStyle } from './confirm-dialog'
 import { hint } from './hint'
 import { Modal } from './modal'
+import { QuotaOffer } from './quota-offer'
 
 export type VpnSwitching = {
   /** False where the VPN cannot be switched off: its state is all there is to draw. */
@@ -29,16 +33,27 @@ export type VpnSwitching = {
   press: () => void
   /** Answers the warning while it shows, and is null otherwise. */
   answer: ((off: boolean, remember: boolean) => void) | null
+  /**
+   * Answers the offer to switch the VPN off, made while it is on and the FKN quota is used up, and is null while there
+   * is none to make: not before the relay's next day once answered. True presses the switch, warning and all.
+   */
+  offer: ((off: boolean) => void) | null
 }
 
 /**
  * The VPN's switch, for every torrent of this browser storage, as one answer each surface draws its own way: the
  * library and the download page as a labelled switch (`VpnSwitch`), the player as an icon in its top row.
  */
-export const useVpnSwitch = (reachable: Reachability | null, transport?: EngineTransport | null): VpnSwitching => {
+export const useVpnSwitch = (
+  reachable: Reachability | null,
+  transport: EngineTransport | null | undefined,
+  quota: QuotaStatus | null,
+): VpnSwitching => {
   const available = vpnOffAvailable()
   const [chosen, setChosen] = useState(vpnOn)
   const [warning, setWarning] = useState(false)
+  // the day this page answered the offer, which holds where the browser refuses to store it
+  const [answered, setAnswered] = useState<number | null>(null)
   useEffect(() => onVpnStored(() => setChosen(vpnOn())), [])
 
   const choose = (next: boolean) => {
@@ -47,22 +62,31 @@ export const useVpnSwitch = (reachable: Reachability | null, transport?: EngineT
     setChosen(vpnOn())
   }
   const status = vpnStatus(reachable, transport, available ? chosen : undefined)
+  const press = () => {
+    if (!chosen) choose(true)
+    else if (vpnWarningRemembered()) choose(false)
+    else setWarning(true)
+  }
+  const offered = available && chosen && !warning && !!quota?.throttled && answered !== quotaDay() && !quotaOfferAnswered()
 
   return {
     available,
     on: chosen && status?.state !== 'waiting',
     status,
-    press: () => {
-      if (!chosen) choose(true)
-      else if (vpnWarningRemembered()) choose(false)
-      else setWarning(true)
-    },
+    press,
     answer: warning
       ? (off, remember) => {
         setWarning(false)
         if (!off) return
         if (remember) rememberVpnWarning()
         choose(false)
+      }
+      : null,
+    offer: offered
+      ? (off) => {
+        answerQuotaOffer()
+        setAnswered(quotaDay())
+        if (off) press()
       }
       : null,
   }
@@ -267,10 +291,18 @@ const style = css`
   }
 `
 
-/** The VPN's switch with its state, or its state alone where the VPN cannot be switched off. */
-export const VpnSwitch = ({ reachable, transport }: { reachable: Reachability | null, transport?: EngineTransport | null }) => {
+/**
+ * The VPN's switch with its state, or its state alone where the VPN cannot be switched off. `quota` is the page's own
+ * reading of the FKN quota, null where it has none: the offer to switch off once it is used up hangs under the switch.
+ */
+export const VpnSwitch = ({ reachable, transport, quota }: {
+  reachable: Reachability | null
+  transport?: EngineTransport | null
+  quota: QuotaStatus | null
+}) => {
   const intl = useIntl()
-  const vpn = useVpnSwitch(reachable, transport)
+  const vpn = useVpnSwitch(reachable, transport, quota)
+  const anchor = useId()
   const { status } = vpn
   // with no switch to draw, nothing known yet is not the same as off, and claiming off would invent a fault out of a gap
   if (!vpn.available && !status) return null
@@ -290,7 +322,8 @@ export const VpnSwitch = ({ reachable, transport }: { reachable: Reachability | 
   if (!vpn.available) return <div {...shared}>{body}</div>
   return (
     <>
-      <button type="button" role="switch" aria-checked={vpn.on} onClick={vpn.press} {...shared}>{body}</button>
+      <button type="button" role="switch" id={anchor} aria-checked={vpn.on} onClick={vpn.press} {...shared}>{body}</button>
+      {vpn.offer && <QuotaOffer anchor={anchor} onAnswer={vpn.offer}/>}
       {vpn.answer && <VpnWarning onAnswer={vpn.answer}/>}
     </>
   )

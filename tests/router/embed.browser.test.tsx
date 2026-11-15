@@ -42,7 +42,7 @@ const torrent = (over: Partial<PlayerTorrent> = {}): PlayerTorrent => ({
   ...over,
 } as PlayerTorrent)
 
-const state = { current: torrent(), named: [] as (number | undefined)[], framed: true, reachable: null as unknown, transport: null as unknown }
+const state = { current: torrent(), named: [] as (number | undefined)[], framed: true, reachable: null as unknown, transport: null as unknown, quota: null as unknown }
 vi.mock('../../src/torrent/use-player-torrent', () => ({
   usePlayerTorrent: (_: string | undefined, fileIndex: number | undefined) => {
     state.named.push(fileIndex)
@@ -51,6 +51,8 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
 }))
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => state.framed }))
 vi.mock('../../src/torrent/use-reachability', () => ({ useReachability: () => state.reachable, useEngineTransport: () => state.transport }))
+// the FKN quota as fkn.app's broker would read it, which no test here asks
+vi.mock('../../src/torrent/use-quota', () => ({ useQuota: () => state.quota }))
 // whatever the constant is set to in the source, the row here has the VPN's switch
 vi.mock('../../src/torrent/vpn-config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/vpn-config')>()),
@@ -996,6 +998,187 @@ describe('the VPN switch on /watch', () => {
     expect(words.size).toBe(13 * 5)
     expect(moved).toEqual([])
   }, 60_000)
+})
+
+/*
+ * The player is where somebody notices the relay slowing down once the day's FKN quota is used up, framed in stub as
+ * on its own tab, so the offer to switch the VPN off hangs under its item in the top row, inside the player.
+ */
+describe('the quota offer on /watch', () => {
+  const LINE = 'Your daily FKN quota is used up.'
+  const THROTTLED = {
+    premium: false, overQuota: true, throttled: true, usedBytes: 5e9, limitBytes: 5e9, remainingBytes: 0,
+    bytesPerSecond: 1_048_576, bitsPerSecond: 8_388_608,
+  }
+  beforeEach(() => {
+    state.current = torrent()
+    state.reachable = VPN_ON
+    state.transport = 'relay'
+    state.quota = THROTTLED
+    localStorage.removeItem('ripple:quota-offer')
+  })
+  afterEach(async () => {
+    state.reachable = null
+    state.transport = null
+    state.quota = null
+    localStorage.removeItem('ripple:quota-offer')
+    await page.viewport(DESKTOP.width, DESKTOP.height)
+  })
+
+  type Screen = Awaited<ReturnType<typeof mount>>
+  /*
+   * Alone in the window, at its top, as a player is. Every mount here leaves its box in the document, so a player
+   * drawn under the earlier ones is out of the window, where floating-ui flips the offer above the row.
+   */
+  const alone = async (size: { width: number, height: number }) => {
+    for (const earlier of document.body.querySelectorAll(':scope > div')) earlier.remove()
+    return mount(size, WITH_LINKS)
+  }
+  const control = (screen: Screen) => screen.container.querySelector('.media-information [role="switch"]') as HTMLElement
+  const offer = (screen: Screen) => screen.container.querySelector('.react-tooltip[role="status"]') as HTMLElement | null
+  const shown = (screen: Screen) => offer(screen)?.classList.contains('react-tooltip__show') ?? false
+  const action = (screen: Screen, name: string) => [...offer(screen)!.querySelectorAll('button')].find((button) => button.textContent === name)!
+  const playerBox = (screen: Screen) => screen.container.firstElementChild!.getBoundingClientRect()
+  /** Whether the offer is whole inside the player and under the VPN's item, its arrow pointing at it. */
+  const misplaced = (screen: Screen) => {
+    const box = offer(screen)!.getBoundingClientRect()
+    const player = playerBox(screen)
+    const item = control(screen).getBoundingClientRect()
+    const arrow = offer(screen)!.querySelector('.react-tooltip-arrow')!.getBoundingClientRect()
+    const arrowX = arrow.left + arrow.width / 2
+    return [
+      box.left < player.left && `left ${box.left} of the player's ${player.left}`,
+      box.right > player.right && `right ${box.right} past the player's ${player.right}`,
+      box.bottom > player.bottom && `bottom ${box.bottom} under the player's ${player.bottom}`,
+      box.top < item.bottom && `top ${box.top} over the item's bottom ${item.bottom}`,
+      (arrowX <= item.left || arrowX >= item.right) && `arrow at ${arrowX}, the item from ${item.left} to ${item.right}`,
+    ].filter(Boolean)
+  }
+
+  it('hangs under the VPN\'s item inside the player, at a desktop\'s and at a phone\'s size', async () => {
+    for (const size of [DESKTOP, SMALL_PHONE, { width: 360, height: 203 }]) {
+      const screen = await alone(size)
+      await expect.poll(() => shown(screen)).toBe(true)
+      expect(offer(screen)!.textContent).toBe(`${LINE}Turn off VPNNo thanks`)
+      expect(misplaced(screen), `${size.width}x${size.height}`).toEqual([])
+      // in the layer the player fades with its controls, which in fullscreen is all there is
+      expect(offer(screen)!.closest('.ripple-overlay-content')).not.toBeNull()
+      const [off, no] = [action(screen, 'Turn off VPN'), action(screen, 'No thanks')].map((button) => button.getBoundingClientRect())
+      expect(off!.top, 'the two actions side by side').toBe(no!.top)
+      await screen.unmount()
+    }
+  })
+
+  // at its narrowest the row has little room under it, and the words run longest in some of the languages
+  it('fits a phone\'s player whole, in every language', async () => {
+    const { showEnglish, showIn } = await import('../i18n/show-in')
+    const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
+    const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
+    const out: string[] = []
+    try {
+      for (const [language, catalogue] of languages) {
+        await (catalogue ? showIn(language, catalogue) : showEnglish())
+        for (const size of [SMALL_PHONE, { width: 360, height: 203 }]) {
+          const screen = await alone(size)
+          await expect.poll(() => shown(screen)).toBe(true)
+          // each language measured in its own words, not in the English left in place
+          expect(offer(screen)!.querySelector('p')!.textContent === LINE, language).toBe(language === 'en')
+          for (const problem of misplaced(screen)) out.push(`${language} at ${size.width}x${size.height}: ${problem}`)
+          await screen.unmount()
+        }
+      }
+    } finally { await showEnglish() }
+    expect(languages).toHaveLength(13)
+    expect(out).toEqual([])
+  }, 60_000)
+
+  it('fades with the controls, and comes back with them', async () => {
+    const screen = await alone(DESKTOP)
+    await expect.poll(() => shown(screen)).toBe(true)
+    const video = screen.container.querySelector('video')!
+    // the pointer rests on the picture, which the controls hide over after three seconds
+    await userEvent.hover(video)
+    await expect.poll(() => getComputedStyle(offer(screen)!).visibility, { timeout: 6_000 }).toBe('hidden')
+    const { left, top, width, height } = action(screen, 'No thanks').getBoundingClientRect()
+    expect(offer(screen)!.contains(document.elementFromPoint(left + width / 2, top + height / 2)), 'pressable while hidden').toBe(false)
+    // hidden, the row takes no pointer, so the pointer moves on the picture
+    await userEvent.hover(video, { position: { x: 20, y: 300 } })
+    await expect.poll(() => getComputedStyle(offer(screen)!).visibility).toBe('visible')
+  })
+
+  it('takes the place of the VPN item\'s chip until it is answered', async () => {
+    const screen = await alone(DESKTOP)
+    await expect.poll(() => shown(screen)).toBe(true)
+    await userEvent.hover(control(screen))
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(screen.container.querySelector('[role="tooltip"]'), 'the chip opened under the offer').toBeNull()
+    await userEvent.click(action(screen, 'No thanks'))
+    await expect.poll(() => offer(screen)).toBeNull()
+    expect(localStorage.getItem('ripple:quota-offer')).toMatch(/^\d+$/)
+    // THE CONTROL: the chip opens on the same hover once the offer is gone
+    await userEvent.hover(screen.container.querySelector('video')!)
+    await userEvent.hover(control(screen))
+    await expect.poll(() => screen.container.querySelector<HTMLElement>('[role="tooltip"]')?.innerText).toBe('VPN: On')
+  })
+
+  it('asks inside the player by Turn off VPN, as the switch does', async () => {
+    const screen = await alone(DESKTOP)
+    await expect.poll(() => shown(screen)).toBe(true)
+    await userEvent.click(action(screen, 'Turn off VPN'))
+    const warning = () => screen.container.querySelector('[role="dialog"]') as HTMLElement | null
+    await expect.poll(warning).not.toBeNull()
+    expect(offer(screen)).toBeNull()
+    expect(setVpn).not.toHaveBeenCalled()
+    const player = screen.container.querySelector('.control-bar')!.parentElement!
+    expect(player.contains(warning())).toBe(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off', exact: true }).element())
+    await expect.poll(warning).toBeNull()
+    expect(setVpn.mock.calls).toEqual([[false]])
+    expect(control(screen).getAttribute('aria-checked')).toBe('false')
+  })
+
+  // the player pauses on Space from any key that reaches the window
+  it('keeps Space on its actions from the player', async () => {
+    const heard: string[] = []
+    const hear = (event: KeyboardEvent) => { heard.push(event.key) }
+    window.addEventListener('keydown', hear)
+    try {
+      const screen = await alone(DESKTOP)
+      await expect.poll(() => shown(screen)).toBe(true)
+      // THE CONTROL: a key on one of the row's links is heard. Not Space, whose play() the next unmount aborts.
+      screen.getByTestId('open-in-ripple').element().focus()
+      await userEvent.keyboard('m')
+      expect(heard).toEqual(['m'])
+      heard.length = 0
+
+      action(screen, 'No thanks').focus()
+      await userEvent.keyboard(' ')
+      await expect.poll(() => offer(screen)).toBeNull()
+      expect(heard).toEqual([])
+    } finally { window.removeEventListener('keydown', hear) }
+  })
+
+  it('is not made while quota is left, or with the VPN off', async () => {
+    state.quota = { ...THROTTLED, overQuota: false, throttled: false, remainingBytes: 1e9 }
+    const screen = await alone(DESKTOP)
+    await expect.poll(() => control(screen)).not.toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(offer(screen), 'made while quota is left').toBeNull()
+
+    state.quota = THROTTLED
+    state.transport = 'direct'
+    storeVpnChoice(false)
+    await screen.rerender(await watching(WITH_LINKS))
+    await expect.poll(() => control(screen).getAttribute('aria-checked')).toBe('false')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(offer(screen), 'made with the VPN off').toBeNull()
+
+    // THE CONTROL: the same player makes it once the VPN is back on
+    state.transport = 'relay'
+    storeVpnChoice(true)
+    await screen.rerender(await watching(WITH_LINKS))
+    await expect.poll(() => shown(screen)).toBe(true)
+  })
 })
 
 describe('a download nobody serves, on /watch', () => {

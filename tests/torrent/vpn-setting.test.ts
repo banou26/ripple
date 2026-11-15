@@ -105,3 +105,39 @@ describe('Remember this decision', () => {
     expect(vpnWarningRemembered()).toBe(false)
   })
 })
+
+// The relay counts the FKN quota per UTC day, so an answer to the offer made once it is used up holds until the next.
+describe('the quota offer', () => {
+  const at = (iso: string) => Date.parse(iso)
+  const tz = process.env.TZ
+  afterEach(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz })
+
+  it('is unanswered until answered, then answered for the rest of the UTC day and no longer', async () => {
+    // eight hours behind UTC, so both moments below are the 16th there: a day read in local time holds the answer over
+    process.env.TZ = 'America/Los_Angeles'
+    expect(new Date(at('2026-11-17T00:01:00Z')).getDate()).toBe(16)
+    const { answerQuotaOffer, quotaOfferAnswered } = await setting()
+    expect(quotaOfferAnswered(at('2026-11-16T23:59:00Z'))).toBe(false)
+    answerQuotaOffer(at('2026-11-16T23:59:00Z'))
+    expect(quotaOfferAnswered(at('2026-11-16T23:59:00Z'))).toBe(true)
+    expect(quotaOfferAnswered(at('2026-11-16T00:00:00Z'))).toBe(true)
+    expect(quotaOfferAnswered(at('2026-11-17T00:01:00Z'))).toBe(false)
+    expect(quotaOfferAnswered(at('2026-11-15T23:59:00Z'))).toBe(false)
+  })
+
+  it('keeps the day alone, the same for everyone that day, beside the choice and not in it', async () => {
+    const { answerQuotaOffer, quotaDay, vpnOn } = await setting()
+    answerQuotaOffer(at('2026-11-16T12:00:00Z'))
+    expect([...store]).toEqual([['ripple:quota-offer', String(quotaDay(at('2026-11-16T12:00:00Z')))]])
+    expect(store.get('ripple:quota-offer')).toMatch(/^\d+$/)
+    expect(quotaDay(at('2026-11-16T00:00:00Z'))).toBe(20_773)
+    expect(vpnOn()).toBe(true)
+  })
+
+  it('reads as unanswered where the browser refuses storage, and answering it throws nothing', async () => {
+    refuse.storage = true
+    const { answerQuotaOffer, quotaOfferAnswered } = await setting()
+    expect(() => answerQuotaOffer()).not.toThrow()
+    expect(quotaOfferAnswered()).toBe(false)
+  })
+})

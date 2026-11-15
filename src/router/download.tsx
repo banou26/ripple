@@ -37,6 +37,8 @@ import {
 import { useDownloadTorrent } from '../torrent/use-download-torrent'
 import { noPeersFound, noPeersLine } from '../torrent/no-peers'
 import { useEngineTransport, useReachability } from '../torrent/use-reachability'
+import { useQuota } from '../torrent/use-quota'
+import { vpnOffAvailable } from '../torrent/vpn-setting'
 import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
 import { VpnSwitch } from '../components/vpn-switch'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
@@ -578,6 +580,8 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    */
   const reachable = useReachability()
   const transport = useEngineTransport()
+  // read only where the switch can offer to go off once it is used up
+  const quota = useQuota(vpnOffAvailable())
 
   const [job, setJob] = useState<Job>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -1062,7 +1066,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             />
           )}
         </span>
-        <VpnSwitch reachable={reachable} transport={transport}/>
+        <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
       </header>
 
       <main>

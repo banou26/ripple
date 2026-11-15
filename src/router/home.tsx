@@ -3499,7 +3499,7 @@ const Home = () => {
               </>
             )}
             {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
-            <VpnSwitch reachable={reachable} transport={transport}/>
+            <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
             {torrents.length > 0 && <SyncStat state={syncState}/>}
           </div>
           {torrents.length > 0 && <SpeedGraph history={history}/>}

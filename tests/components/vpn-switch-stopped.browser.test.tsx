@@ -22,9 +22,15 @@ const ON = {
   port: 41337, listeners: [{ transport: 'tcp', port: 41337, up: true, healing: false, attempts: 0 }], portOpen: true,
 } as Reachability
 
+// the FKN quota used up, which offers nothing where there is no switch to press
+const THROTTLED = {
+  premium: false, overQuota: true, throttled: true, usedBytes: 5e9, limitBytes: 5e9, remainingBytes: 0,
+  bytesPerSecond: 1_048_576, bitsPerSecond: 8_388_608,
+}
+
 const mount = async (reachable: Reachability | null) => {
   const { VpnSwitch } = await import('../../src/components/vpn-switch')
-  return render(<IntlRoot><VpnSwitch reachable={reachable} transport="relay"/></IntlRoot>)
+  return render(<IntlRoot><VpnSwitch reachable={reachable} transport="relay" quota={THROTTLED}/></IntlRoot>)
 }
 
 it('draws the state with nothing to press, and reads a stored Off as On', async () => {
@@ -39,6 +45,8 @@ it('draws the state with nothing to press, and reads a stored Off as On', async 
   stat.click()
   expect(page.setVpn).not.toHaveBeenCalled()
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  expect(document.querySelector('.react-tooltip[role="status"]'), 'an offer to switch off a VPN that cannot be').toBeNull()
   expect(localStorage.getItem('ripple:vpn'), 'the choice is kept for when the switch is back').toBe('off')
 })
 

@@ -1,9 +1,10 @@
 import type { Reachability } from '../../src/torrent/client'
+import type { QuotaStatus } from '../../src/torrent/use-quota'
 import type { EngineTransport } from '../../src/torrent/vpn-config'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { userEvent } from '@vitest/browser/context'
+import { page as browser, userEvent } from '@vitest/browser/context'
 
 import { IntlRoot } from '../../src/i18n'
 import de from '../../src/locales/de.json'
@@ -64,7 +65,7 @@ const HEALING = reach({ port: null, listeners: [{ transport: 'tcp', port: null, 
 
 const switchOf = async (reachable: Reachability | null, transport?: EngineTransport) => {
   const { VpnSwitch } = await import('../../src/components/vpn-switch')
-  return <IntlRoot><VpnSwitch reachable={reachable} transport={transport}/></IntlRoot>
+  return <IntlRoot><VpnSwitch reachable={reachable} transport={transport} quota={null}/></IntlRoot>
 }
 const mount = async (reachable: Reachability | null, transport: EngineTransport = 'relay') => render(await switchOf(reachable, transport))
 /** With the VPN switched off in this storage, and the engine running with it off unless `transport` says otherwise. */
@@ -269,7 +270,7 @@ describe('the switch is drawn from the stored choice, and never on before the en
     const drawn = async (dir: 'ltr' | 'rtl', off: boolean) => {
       if (off) localStorage.setItem('ripple:vpn', 'off'); else localStorage.removeItem('ripple:vpn')
       const { VpnSwitch } = await import('../../src/components/vpn-switch')
-      const screen = await render(<IntlRoot><div dir={dir} style={{ width: 400 }}><VpnSwitch reachable={reach()} transport={off ? 'direct' : 'relay'}/></div></IntlRoot>)
+      const screen = await render(<IntlRoot><div dir={dir} style={{ width: 400 }}><VpnSwitch reachable={reach()} transport={off ? 'direct' : 'relay'} quota={null}/></div></IntlRoot>)
       const track = screen.container.querySelector('.track')!
       const thumb = getComputedStyle(track, '::after')
       const out = {
@@ -450,6 +451,218 @@ describe('switching the VPN off asks first', () => {
 })
 
 /*
+ * Once the day's FKN quota is used up the relay slows every transfer, and with the VPN off nothing is metered: the
+ * switch offers that, under itself, once a relay day. Its answer is the switch's own press, warning and all.
+ */
+describe('the offer to switch off once the FKN quota is used up', () => {
+  const LINE = 'Your daily FKN quota is used up.'
+  const quota = (over: Partial<QuotaStatus> = {}): QuotaStatus => ({
+    premium: false, overQuota: false, throttled: false, usedBytes: 1e9, limitBytes: 5e9, remainingBytes: 4e9,
+    bytesPerSecond: 10_485_760, bitsPerSecond: 83_886_080, ...over,
+  })
+  const THROTTLED = quota({ overQuota: true, throttled: true, usedBytes: 5e9, remainingBytes: 0, bytesPerSecond: 1_048_576, bitsPerSecond: 8_388_608 })
+
+  const offer = () => document.querySelector('.react-tooltip[role="status"]') as HTMLElement | null
+  const shown = () => offer()?.classList.contains('react-tooltip__show') ?? false
+  const action = (name: string) => [...offer()!.querySelectorAll('button')].find((button) => button.textContent === name)!
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 100))
+  /** The switch as the library's strip draws it, its margin and padding away from the window's edge. */
+  const offerOf = async (reading: QuotaStatus | null, transport: EngineTransport = 'relay') => {
+    const { VpnSwitch } = await import('../../src/components/vpn-switch')
+    return <IntlRoot><div style={{ padding: '28px 34px' }}><VpnSwitch reachable={reach()} transport={transport} quota={reading}/></div></IntlRoot>
+  }
+  const mountOffer = async (reading: QuotaStatus | null, transport: EngineTransport = 'relay') => render(await offerOf(reading, transport))
+  /** Where the offer is drawn against the switch, and where its arrow points. */
+  const placed = (control: Element) => {
+    const box = offer()!.getBoundingClientRect()
+    const arrow = offer()!.querySelector('.react-tooltip-arrow')!.getBoundingClientRect()
+    return { box, at: control.getBoundingClientRect(), arrowX: arrow.left + arrow.width / 2, arrowTop: arrow.top }
+  }
+
+  afterEach(async () => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    await browser.viewport(1280, 720)
+    await showEnglish()
+  })
+
+  it('hangs under the switch with one line and two actions, pointing at it, and moves no focus', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    expect(offer()!.textContent).toBe(`${LINE}Turn off VPNNo thanks`)
+    expect([...offer()!.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Turn off VPN', 'No thanks'])
+    await expect.poll(() => getComputedStyle(offer()!).opacity).toBe('1')
+
+    const { box, at, arrowX, arrowTop } = placed(screen.getByRole('switch').element())
+    expect(box.top).toBeGreaterThanOrEqual(at.bottom)
+    expect(arrowX).toBeGreaterThan(at.left)
+    expect(arrowX).toBeLessThan(at.right)
+    expect(arrowTop, 'the arrow is between the switch and the box').toBeLessThan(box.top)
+    expect(document.activeElement).toBe(document.body)
+    expect(localStorage.length, 'something was stored for showing it').toBe(0)
+
+    // Tab goes from the switch to its two actions
+    screen.getByRole('switch').element().focus()
+    await userEvent.keyboard('{Tab}')
+    expect(document.activeElement?.textContent).toBe('Turn off VPN')
+    await userEvent.keyboard('{Tab}')
+    expect(document.activeElement?.textContent).toBe('No thanks')
+  })
+
+  it('is not made while quota is left, to premium, with no reading, or with the VPN off', async () => {
+    const cases: [string, QuotaStatus | null, boolean][] = [
+      ['quota left', quota(), false],
+      ['premium', quota({ premium: true, overQuota: true, remainingBytes: 0 }), false],
+      ['no reading', null, false],
+      ['the VPN off', THROTTLED, true],
+      // THE CONTROL: this rig can draw it
+      ['used up', THROTTLED, false],
+    ]
+    const made: string[] = []
+    for (const [why, reading, off] of cases) {
+      if (off) localStorage.setItem('ripple:vpn', 'off'); else localStorage.removeItem('ripple:vpn')
+      const screen = await mountOffer(reading, off ? 'direct' : 'relay')
+      await settled()
+      if (offer()) made.push(why)
+      await screen.unmount()
+    }
+    expect(made).toEqual(['used up'])
+  })
+
+  it('is closed by No thanks for the rest of the relay\'s day, and made again the next', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-16T23:59:00Z'))
+    const first = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.click(action('No thanks'))
+    await expect.poll(offer).toBeNull()
+    expect(page.setVpn).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+    expect(Object.entries(localStorage)).toEqual([['ripple:quota-offer', '20773']])
+    await first.unmount()
+
+    const again = await mountOffer(THROTTLED)
+    await settled()
+    expect(offer(), 'made again the same day').toBeNull()
+    await again.unmount()
+
+    vi.setSystemTime(new Date('2026-11-17T00:01:00Z'))
+    await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+  })
+
+  it('goes away once another page answered it, at the next reading of the quota', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    const { quotaDay } = await import('../../src/torrent/vpn-setting')
+    localStorage.setItem('ripple:quota-offer', String(quotaDay()))
+    await screen.rerender(await offerOf({ ...THROTTLED }))
+    await expect.poll(offer).toBeNull()
+  })
+
+  it('closes on an answer where the browser refuses to store it', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('refused', 'SecurityError') })
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.click(action('No thanks'))
+    await screen.rerender(await offerOf({ ...THROTTLED }))
+    await expect.poll(offer).toBeNull()
+  })
+
+  it('switches off through the warning by Turn off VPN, as the switch does', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.click(action('Turn off VPN'))
+    await expect.poll(dialog).not.toBeNull()
+    expect(offer()).toBeNull()
+    expect(page.setVpn, 'switched off before the warning was answered').not.toHaveBeenCalled()
+    expect(dialog()!.textContent).toBe(`${SENTENCE}Remember this decisionCancelTurn off`)
+    await screen.getByRole('button', { name: 'Turn off', exact: true }).click()
+    await expect.poll(dialog).toBeNull()
+    expect(page.setVpn.mock.calls).toEqual([[false]])
+    expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('is not made again that day once the warning it led to was cancelled', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.click(action('Turn off VPN'))
+    await expect.poll(dialog).not.toBeNull()
+    await screen.getByRole('button', { name: 'Cancel' }).click()
+    await expect.poll(dialog).toBeNull()
+    await settled()
+    expect(offer()).toBeNull()
+    expect(page.setVpn).not.toHaveBeenCalled()
+    expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('true')
+    expect(Object.keys(localStorage)).toEqual(['ripple:quota-offer'])
+  })
+
+  it('switches off at once by Turn off VPN where Remember this decision was ticked', async () => {
+    localStorage.setItem('ripple:vpn-off-remembered', '1')
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.click(action('Turn off VPN'))
+    expect(page.setVpn.mock.calls).toEqual([[false]])
+    expect(dialog()).toBeNull()
+    await expect.poll(offer).toBeNull()
+    expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('steps aside while the switch\'s own warning shows', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await screen.getByRole('switch').click()
+    await expect.poll(dialog).not.toBeNull()
+    expect(offer()).toBeNull()
+  })
+
+  it('takes Escape inside it as No thanks, and Escape elsewhere as nothing', async () => {
+    const screen = await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    await userEvent.keyboard('{Escape}')
+    await settled()
+    expect(shown()).toBe(true)
+    action('No thanks').focus()
+    await userEvent.keyboard('{Escape}')
+    await expect.poll(offer).toBeNull()
+    expect(localStorage.getItem('ripple:quota-offer')).toMatch(/^\d+$/)
+    expect(page.setVpn).not.toHaveBeenCalled()
+    expect(screen.getByRole('switch').element().getAttribute('aria-checked')).toBe('true')
+  })
+
+  // below a header, as the strip is: with room on every side floating-ui moves a box running past the window to the side
+  it('stays inside a phone\'s window, still under a switch at either edge', async () => {
+    await browser.viewport(390, 780)
+    const { VpnSwitch } = await import('../../src/components/vpn-switch')
+    for (const justify of ['flex-start', 'flex-end']) {
+      const screen = await render(
+        <IntlRoot>
+          <div style={{ display: 'flex', justifyContent: justify, width: 390, padding: '120px 16px 0', boxSizing: 'border-box' }}>
+            <VpnSwitch reachable={reach()} transport="relay" quota={THROTTLED}/>
+          </div>
+        </IntlRoot>,
+      )
+      await expect.poll(shown).toBe(true)
+      const { box, at, arrowX } = placed(screen.getByRole('switch').element())
+      expect(box.left, justify).toBeGreaterThanOrEqual(0)
+      expect(box.right, justify).toBeLessThanOrEqual(390)
+      expect(box.top, justify).toBeGreaterThanOrEqual(at.bottom)
+      expect(arrowX, justify).toBeGreaterThan(at.left)
+      expect(arrowX, justify).toBeLessThan(at.right)
+      expect(document.documentElement.scrollWidth, justify).toBeLessThanOrEqual(390)
+      await screen.unmount()
+    }
+  })
+
+  it('in the language of the page', async () => {
+    await showIn('de', de)
+    await mountOffer(THROTTLED)
+    await expect.poll(shown).toBe(true)
+    expect(offer()!.textContent).toBe('Dein tägliches FKN-Kontingent ist aufgebraucht.VPN ausschaltenNein danke')
+  })
+})
+
+/*
  * The word changes while somebody is looking at the header, and a word that grows shoves whatever sits beside
  * the switch. Each case runs in each font below, because a room sized for one font holds in that font only
  * (tests/stable-widths.spec.ts has the measurements that taught it).
@@ -490,7 +703,7 @@ describe('the word keeps its room', () => {
             if (off) localStorage.setItem('ripple:vpn', 'off'); else localStorage.removeItem('ripple:vpn')
             const screen = await render(
               <IntlRoot>
-                <div style={{ display: 'flex', width: 600 }}><VpnSwitch reachable={reachable} transport={transport}/><span data-testid="beside">beside</span></div>
+                <div style={{ display: 'flex', width: 600 }}><VpnSwitch reachable={reachable} transport={transport} quota={null}/><span data-testid="beside">beside</span></div>
                 <div data-testid="under">under</div>
               </IntlRoot>,
             )
