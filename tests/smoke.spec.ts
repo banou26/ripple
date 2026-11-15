@@ -180,7 +180,6 @@ test('a paste or a drop while the add dialog asks leaves the torrent it asks abo
   await handOver(page, 'drag', OTHER)
   await expect(page.locator('[data-drag]')).toHaveCount(0)
   await handOver(page, 'drop', OTHER)
-  await page.waitForTimeout(2_000)
   await expect(dialog.locator('h2')).toHaveText('Own')
   await expect(page.locator('.torrent')).toHaveCount(1)
 
