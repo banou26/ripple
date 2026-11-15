@@ -35,7 +35,8 @@ export type VpnSwitching = {
   answer: ((off: boolean, remember: boolean) => void) | null
   /**
    * Answers the offer to switch the VPN off, made while it is on and the FKN quota is used up, and is null while there
-   * is none to make: not before the relay's next day once answered. True presses the switch, warning and all.
+   * is none to make: not before the relay's next day once answered, which switching off by the switch itself also
+   * does. True presses the switch, warning and all.
    */
   offer: ((off: boolean) => void) | null
 }
@@ -56,7 +57,14 @@ export const useVpnSwitch = (
   const [answered, setAnswered] = useState<number | null>(null)
   useEffect(() => onVpnStored(() => setChosen(vpnOn())), [])
 
+  const due = available && chosen && !!quota?.throttled && answered !== quotaDay() && !quotaOfferAnswered()
+  const answerOffer = () => {
+    answerQuotaOffer()
+    setAnswered(quotaDay())
+  }
   const choose = (next: boolean) => {
+    // switching off by the switch itself takes the offer too, or it comes straight back when the VPN is switched on again
+    if (!next && due) answerOffer()
     void setVpn(next)
     // read back: a browser that refused to store it keeps the choice it had
     setChosen(vpnOn())
@@ -67,7 +75,7 @@ export const useVpnSwitch = (
     else if (vpnWarningRemembered()) choose(false)
     else setWarning(true)
   }
-  const offered = available && chosen && !warning && !!quota?.throttled && answered !== quotaDay() && !quotaOfferAnswered()
+  const offered = due && !warning
 
   return {
     available,
@@ -84,8 +92,7 @@ export const useVpnSwitch = (
       : null,
     offer: offered
       ? (off) => {
-        answerQuotaOffer()
-        setAnswered(quotaDay())
+        answerOffer()
         if (off) press()
       }
       : null,

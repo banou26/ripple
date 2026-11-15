@@ -622,6 +622,39 @@ describe('the offer to switch off once the FKN quota is used up', () => {
     expect(offer()).toBeNull()
   })
 
+  // somebody who went off by the switch, found no peer to reach without the relay and came back that day
+  it('is not made again that day once the switch itself turned the VPN off while it stood', async () => {
+    const { quotaDay } = await import('../../src/torrent/vpn-setting')
+    const cases: [string, QuotaStatus, boolean][] = [
+      ['through the warning', THROTTLED, false],
+      ['with the warning remembered', THROTTLED, true],
+      // with no offer standing, switching off answers none
+      ['quota left', quota(), false],
+    ]
+    const stored: Record<string, string | null> = {}
+    for (const [why, reading, remembered] of cases) {
+      localStorage.clear()
+      if (remembered) localStorage.setItem('ripple:vpn-off-remembered', '1')
+      const screen = await mountOffer(reading)
+      const control = screen.getByRole('switch').element()
+      if (reading.throttled) await expect.poll(shown, { message: why }).toBe(true)
+      await screen.getByRole('switch').click()
+      if (!remembered) await screen.getByRole('button', { name: 'Turn off', exact: true }).click()
+      await expect.poll(() => control.getAttribute('aria-checked'), { message: why }).toBe('false')
+      await screen.getByRole('switch').click()
+      await expect.poll(() => control.getAttribute('aria-checked'), { message: why }).toBe('true')
+      await settled()
+      expect(offer(), why).toBeNull()
+      stored[why] = localStorage.getItem('ripple:quota-offer')
+      await screen.unmount()
+    }
+    expect(stored).toEqual({
+      'through the warning': String(quotaDay()),
+      'with the warning remembered': String(quotaDay()),
+      'quota left': null,
+    })
+  })
+
   it('takes Escape inside it as No thanks, and Escape elsewhere as nothing', async () => {
     const screen = await mountOffer(THROTTLED)
     await expect.poll(shown).toBe(true)
