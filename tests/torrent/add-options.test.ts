@@ -27,8 +27,8 @@ import de from '../../src/locales/de.json'
  * accepts it happily and the result looks like a stalled download rather than like a mistake.
  */
 
-const files = [{ size: 100 }, { size: 200 }, { size: 300 }]
-const base = defaultChoices({ fileCount: 3, location: 'browser' })
+const files = [{ size: 100, index: 0 }, { size: 200, index: 1 }, { size: 300, index: 2 }]
+const base = defaultChoices({ files, location: 'browser' })
 
 describe('what a torrent starts with', () => {
   it('wants every file, started, in the usual order', () => {
@@ -38,11 +38,11 @@ describe('what a torrent starts with', () => {
   })
 
   it('takes the save location it was given rather than assuming one', () => {
-    expect(defaultChoices({ fileCount: 1, location: 'folder' }).location).toBe('folder')
+    expect(defaultChoices({ files: files.slice(0, 1), location: 'folder' }).location).toBe('folder')
   })
 
   it('copes with a torrent whose file list has not arrived', () => {
-    expect(defaultChoices({ fileCount: 0, location: 'browser' }).files).toEqual([])
+    expect(defaultChoices({ files: [], location: 'browser' }).files).toEqual([])
   })
 })
 
@@ -68,20 +68,35 @@ describe('turning choices into a download plan', () => {
    * list would freeze the answer to the files known at the moment somebody clicked.
    */
   it('leaves the selection out entirely when every file is wanted', () => {
-    expect(planFor(base, 3).wanted).toBeUndefined()
+    expect(planFor(base, files).wanted).toBeUndefined()
   })
 
   it('lists the selection when it is a real one, in order', () => {
-    expect(planFor({ ...base, files: [2, 0] }, 3).wanted).toEqual([0, 2])
+    expect(planFor({ ...base, files: [2, 0] }, files).wanted).toEqual([0, 2])
   })
 
   it('carries an empty selection through as empty, not as absent', () => {
-    expect(planFor({ ...base, files: [] }, 3).wanted).toEqual([])
+    expect(planFor({ ...base, files: [] }, files).wanted).toEqual([])
   })
 
   it('carries first and last pieces first', () => {
-    expect(planFor(base, 3).firstLast).toBe(false)
-    expect(planFor({ ...base, firstLast: true }, 3).firstLast).toBe(true)
+    expect(planFor(base, files).firstLast).toBe(false)
+    expect(planFor({ ...base, firstLast: true }, files).firstLast).toBe(true)
+  })
+})
+
+describe('a v2 or hybrid torrent, whose pads are nobody\'s files', () => {
+  // the engine's list, with the pad that pushes the last file onto a piece boundary
+  const padded = [{ size: 100, index: 0 }, { size: 924, index: 1, pad: true }, { size: 300, index: 2 }]
+
+  it('picks every file but the pad', () => {
+    expect(defaultChoices({ files: padded, location: 'browser' }).files).toEqual([0, 2])
+    expect(selectAll(selectNone(base), padded).files).toEqual([0, 2])
+  })
+
+  it('leaves the selection out when every file but the pad is wanted', () => {
+    expect(planFor({ ...base, files: [0, 2] }, padded).wanted).toBeUndefined()
+    expect(planFor({ ...base, files: [2] }, padded).wanted).toEqual([2])
   })
 })
 
@@ -112,7 +127,7 @@ describe('editing the selection', () => {
 
   it('selects all and none', () => {
     expect(selectNone(base).files).toEqual([])
-    expect(selectAll(selectNone(base), 3).files).toEqual([0, 1, 2])
+    expect(selectAll(selectNone(base), files).files).toEqual([0, 1, 2])
   })
 
   it('leaves every other choice alone while the selection changes', () => {
@@ -136,7 +151,7 @@ describe('the size actually being downloaded', () => {
 
 describe('the refusal of an empty selection, in the page\'s language', () => {
   afterEach(showEnglish)
-  const none = selectNone(defaultChoices({ fileCount: 2, location: 'browser' }))
+  const none = selectNone(defaultChoices({ files: files.slice(0, 2), location: 'browser' }))
 
   it('reads in English as it did before it was translated', () => {
     expect(choicesProblem(none)).toBe('Choose at least one file.')

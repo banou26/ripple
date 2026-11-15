@@ -36,10 +36,16 @@ export type AddChoices = {
   topOfQueue: boolean
 }
 
+/** A file as the engine lists it, the pads of a v2 or hybrid torrent among them. */
+type Listed = { index: number, pad?: boolean }
+
+/** The engine indices a person can pick: every file but the pads. */
+const pickable = (files: Listed[]): number[] => files.filter((file) => !file.pad).map((file) => file.index)
+
 export const defaultChoices = (
-  { fileCount, location }: { fileCount: number, location: SaveLocation },
+  { files, location }: { files: Listed[], location: SaveLocation },
 ): AddChoices => ({
-  files: Array.from({ length: fileCount }, (_, i) => i),
+  files: pickable(files),
   location,
   start: true,
   sequential: false,
@@ -59,8 +65,8 @@ export const dialogEnabled = (read: (key: string) => string | null): boolean => 
  * absent form is what says "no selection", and it is the one that survives a torrent gaining files
  * it did not have when this was decided.
  */
-export const planFor = (choices: AddChoices, fileCount: number): { wanted?: number[], firstLast?: boolean } => ({
-  wanted: choices.files.length === fileCount ? undefined : [...choices.files].sort((a, b) => a - b),
+export const planFor = (choices: AddChoices, files: Listed[]): { wanted?: number[], firstLast?: boolean } => ({
+  wanted: choices.files.length === pickable(files).length ? undefined : [...choices.files].sort((a, b) => a - b),
   firstLast: choices.firstLast,
 })
 
@@ -91,7 +97,7 @@ export const toggleFile = (choices: AddChoices, index: number): AddChoices => ({
     : [...choices.files, index].sort((a, b) => a - b),
 })
 
-export const selectAll = (choices: AddChoices, fileCount: number): AddChoices =>
-  ({ ...choices, files: Array.from({ length: fileCount }, (_, i) => i) })
+export const selectAll = (choices: AddChoices, files: Listed[]): AddChoices =>
+  ({ ...choices, files: pickable(files) })
 
 export const selectNone = (choices: AddChoices): AddChoices => ({ ...choices, files: [] })

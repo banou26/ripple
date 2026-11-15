@@ -1,6 +1,7 @@
 import type { PersistState } from '../../src/torrent/storage-permission'
 import type { TorrentFile } from '../../src/torrent/types'
 
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
@@ -51,7 +52,7 @@ const mount = (over: Partial<Props> = {}) => {
     <AddTorrentDialog
       name="Big Buck Bunny"
       files={list}
-      choices={defaultChoices({ fileCount: list.length, location: 'browser' })}
+      choices={defaultChoices({ files: list, location: 'browser' })}
       onChoices={() => {}}
       onConfirm={onConfirm}
       onCancel={() => {}}
@@ -121,6 +122,39 @@ describe('the add dialog when the selection is bigger than the room left', () =>
   })
 })
 
+describe('the add dialog for a v2 or hybrid torrent', () => {
+  // the engine's list, with the pad libtorrent puts after the film to start the subtitles on a piece
+  const PADDED: TorrentFile[] = [
+    { name: 'Film/Film.mkv', size: 300_000, progress: 0, index: 0 },
+    { name: 'Film/.pad/748576', size: 748_576, progress: 0, index: 1, pad: true },
+    { name: 'Film/Film.srt', size: 2_000, progress: 0, index: 2 },
+  ]
+
+  const Picking = () => {
+    const [choices, setChoices] = useState(() => defaultChoices({ files: PADDED, location: 'browser' }))
+    return <AddTorrentDialog name="Film" files={PADDED} choices={choices} onChoices={setChoices} onConfirm={() => {}} onCancel={() => {}}/>
+  }
+
+  const count = () => document.querySelector('.count')?.textContent
+  const boxes = () => [...document.querySelectorAll<HTMLInputElement>('.file input')]
+
+  it('lists, counts and adds up the files without the pad, and offers no add once each is unticked', async () => {
+    render(<Picking/>, { wrapper: IntlRoot })
+    await expect.poll(count).toBe('302 kB of 302 kB, 2 of 2 files')
+    expect([...document.querySelectorAll('.file .path')].map((path) => path.textContent)).toEqual(['Film/Film.mkv', 'Film/Film.srt'])
+
+    for (const [at, box] of boxes().entries()) {
+      box.click()
+      await expect.poll(() => boxes()[at]?.checked).toBe(false)
+    }
+    expect(count()).toBe('0 B of 302 kB, 0 of 2 files')
+    expect(named('Add torrent')?.disabled).toBe(true)
+
+    named('Select all')!.click()
+    await expect.poll(count).toBe('302 kB of 302 kB, 2 of 2 files')
+  })
+})
+
 afterEach(showEnglish)
 
 const TWO = [{ name: 'Big.Buck.Bunny.mkv', size: 4.5 * GB, progress: 0, index: 0 }, { name: 'Extras/Commentary.srt', size: 1_000, progress: 0, index: 1 }]
@@ -129,12 +163,12 @@ const TWO = [{ name: 'Big.Buck.Bunny.mkv', size: 4.5 * GB, progress: 0, index: 0
 const SHAPES: Record<string, Partial<Props>> = {
   // from another site, nothing picked, a folder to choose and no storage reading
   'sent by a site': {
-    external: true, from: 'https://example.org', files: TWO, choices: selectNone(defaultChoices({ fileCount: 2, location: 'browser' })),
+    external: true, from: 'https://example.org', files: TWO, choices: selectNone(defaultChoices({ files: TWO, location: 'browser' })),
     folderReady: true, storage: null,
   },
   'opened from a link': { external: true, files: [], folderReady: true, folderName: 'Downloads', storage: null },
   // their own add, bigger than the room left, with the step on offer to switch off
-  'their own': { files: TWO, choices: defaultChoices({ fileCount: 2, location: 'browser' }), onNeverAsk: () => {} },
+  'their own': { files: TWO, choices: defaultChoices({ files: TWO, location: 'browser' }), onNeverAsk: () => {} },
 }
 
 /** What the dialog shows in each shape, by name. */
@@ -145,7 +179,7 @@ const everyShape = async () => {
       <AddTorrentDialog
         name="Big Buck Bunny"
         files={[]}
-        choices={defaultChoices({ fileCount: 0, location: 'browser' })}
+        choices={defaultChoices({ files: [], location: 'browser' })}
         onChoices={() => {}}
         onConfirm={() => {}}
         onCancel={() => {}}

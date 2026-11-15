@@ -19,6 +19,7 @@ import type { StorageUsage } from '../torrent/use-storage-usage'
 import {
   choicesProblem, selectAll, selectedBytes, selectNone, toggleFile,
 } from '../torrent/add-options'
+import { contentFiles } from '../torrent/types'
 import { getHumanReadableByteString } from '../utils/bytes'
 
 /**
@@ -272,7 +273,10 @@ export const AddTorrentDialog = ({
   name: string
   /** the origin that linked here, for a torrent arriving from another site */
   from?: string | null
-  /** empty until the metadata arrives, which is the only place a magnet's file list comes from */
+  /**
+   * The engine's list, pads included, so each file sits at its own index. Empty until the metadata
+   * arrives, which is the only place a magnet's file list comes from.
+   */
   files: TorrentFile[]
   choices: AddChoices
   onChoices: (choices: AddChoices) => void
@@ -302,7 +306,8 @@ export const AddTorrentDialog = ({
 
   const ready = files.length > 0
   const problem = ready ? choicesProblem(choices) : null
-  const total = files.reduce((n, f) => n + f.size, 0)
+  const shown = contentFiles(files)
+  const total = shown.reduce((n, f) => n + f.size, 0)
   const selected = selectedBytes(choices, files)
 
   /**
@@ -350,7 +355,7 @@ export const AddTorrentDialog = ({
               ? (
                 <>
                   <div className="bulk">
-                    <button className="small" onClick={() => onChoices(selectAll(choices, files.length))}>{intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })}</button>
+                    <button className="small" onClick={() => onChoices(selectAll(choices, files))}>{intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })}</button>
                     <button className="small" onClick={() => onChoices(selectNone(choices))}>{intl.formatMessage({ id: 'Select none', defaultMessage: 'Select none' })}</button>
                     <span className="count">
                       {intl.formatMessage({
@@ -360,16 +365,16 @@ export const AddTorrentDialog = ({
                         selected: getHumanReadableByteString(selected, true),
                         total: getHumanReadableByteString(total, true),
                         picked: choices.files.length,
-                        count: files.length,
+                        count: shown.length,
                       })}
                     </span>
                   </div>
                   <div className="files">
-                    {files.map((file, index) => {
-                      const on = choices.files.includes(index)
+                    {shown.map((file) => {
+                      const on = choices.files.includes(file.index)
                       return (
-                        <label className={on ? 'file' : 'file off'} key={file.name}>
-                          <input type="checkbox" checked={on} onChange={() => onChoices(toggleFile(choices, index))}/>
+                        <label className={on ? 'file' : 'file off'} key={file.index}>
+                          <input type="checkbox" checked={on} onChange={() => onChoices(toggleFile(choices, file.index))}/>
                           <span className="path"><FilePath path={file.name}/></span>
                           <span className="size">{getHumanReadableByteString(file.size, true)}</span>
                         </label>

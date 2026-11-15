@@ -2902,7 +2902,7 @@ const Home = () => {
   // pieces nobody has agreed to yet.
   useEffect(() => {
     if (!pendingAdd || choices || pendingFiles.length === 0 || !pendingTorrent) return
-    setChoices(defaultChoices({ fileCount: pendingFiles.length, location: defaultLocation }))
+    setChoices(defaultChoices({ files: pendingTorrent.files ?? [], location: defaultLocation }))
     heldRef.current = Number(pendingTorrent.id)
     pause(Number(pendingTorrent.id))
   }, [pendingAdd, choices, pendingFiles.length, pendingTorrent, defaultLocation, pause])
@@ -2926,7 +2926,7 @@ const Home = () => {
     const handle = Number(pendingTorrent.id)
     // the same magnet without `ephemeral`, which is the gesture that promotes it into the library
     addMagnet(pendingAdd.magnet)
-    client.setPlan(handle, planFor(choices, pendingFiles.length))
+    client.setPlan(handle, planFor(choices, pendingTorrent.files ?? []))
     client.setFlags(handle, ...flagsFor(choices))
     if (pendingAdd.infoHash) client.setLocation(pendingAdd.infoHash, choices.location)
     if (choices.topOfQueue) client.moveInQueue(handle, 'top')
@@ -2936,7 +2936,7 @@ const Home = () => {
       ? intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: pendingAdd.name })
       : intl.formatMessage({ id: '{name} added, paused', defaultMessage: '{name} added, paused' }, { name: pendingAdd.name }))
     closeAdd()
-  }, [pendingAdd, choices, pendingTorrent, pendingFiles.length, addMagnet, client, resume, showToast, closeAdd, intl])
+  }, [pendingAdd, choices, pendingTorrent, addMagnet, client, resume, showToast, closeAdd, intl])
 
   /**
    * A torrent handed over by another site, through `/add`.
@@ -3554,7 +3554,7 @@ const Home = () => {
           from={pendingAdd.from}
           external={pendingAdd.external}
           files={pendingFiles}
-          choices={choices ?? defaultChoices({ fileCount: 0, location: defaultLocation })}
+          choices={choices ?? defaultChoices({ files: [], location: defaultLocation })}
           onChoices={setChoices}
           folderName={folder?.name}
           folderReady={!!folder && permitted}
