@@ -619,6 +619,19 @@ describe('the docked torrent details', () => {
     expect(rowsOf(screen)).toEqual(['Film.mkv | 99% | 1 kB | Save'])
   })
 
+  // 0.29 * 100 is 28.999... in floating point
+  it('says 29% for a file 29% here', async () => {
+    const pieces = new Uint8Array(13)
+    pieces.set([0xff, 0xff, 0xff, 0b1111_1000])
+    const screen = await mount(torrent({
+      bitfield: { pieces, numPieces: 100, pieceLength: 1, length: 100 },
+      files: [{ name: 'Film.mkv', size: 100, offset: 0, index: 0 }],
+    }))
+    tabButton(screen, 'Content').click()
+    await expect.element(screen.getByText('Film.mkv')).toBeInTheDocument()
+    expect(rowsOf(screen)).toEqual(['Film.mkv | 29% | 100 B | Save'])
+  })
+
   it('leaves the file bars out on a phone, and keeps the list inside its width', async () => {
     onTestFinished(() => page.viewport(1280, 720))
     await page.viewport(390, 844)

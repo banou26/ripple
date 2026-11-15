@@ -262,8 +262,8 @@ const Files = ({
             {share != null && (
               <>
                 <span className="bar"><span className="fill" style={{ width: `${share * 100}%` }}/></span>
-                {/* floored, so 100% says every byte of the file is here */}
-                <span className="num">{writePercent(Math.floor(share * 100) / 100)}</span>
+                {/* floored, so 100% says every byte of the file is here, past floating point's 0.29 * 100 = 28.999... */}
+                <span className="num">{writePercent(Math.floor(share * 100 + 1e-9) / 100)}</span>
               </>
             )}
             <span className="num">{bytes(f.size)}</span>
