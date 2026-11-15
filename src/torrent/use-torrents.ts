@@ -182,7 +182,8 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
         pieceLength: s.files?.pieceLength ?? s.bitfield?.pieceLength ?? 0,
         numPieces: st.numPiecesTotal,
         numPiecesHave: st.numPiecesHave,
-        remaining: Math.max(0, leftOf(st)),
+        // a padded torrent with files left out stays short of its totalWanted by the pads inside its chosen pieces
+        remaining: COMPLETE.has(st.state) ? 0 : Math.max(0, leftOf(st)),
       }
       : null,
     bitfield: s.bitfield ?? undefined,

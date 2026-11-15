@@ -24,12 +24,20 @@ const pack = (status: object): TorrentSnapshot => ({
 describe('a row built from the engine', () => {
   it('counts as remaining only what the chosen files still need', () => {
     expect(snapshotToTorrent(pack({})).stats!.remaining).toBe(0)
-    expect(snapshotToTorrent(pack({ totalWantedDone: 1.5 * GB })).stats!.remaining).toBe(0.5 * GB)
+    expect(snapshotToTorrent(pack({ state: 3, totalWantedDone: 1.5 * GB })).stats!.remaining).toBe(0.5 * GB)
   })
 
   // an engine from before totalWantedDone, which a tab can borrow during a rollout
   it('falls back to what is held when the engine does not say what of it was chosen', () => {
-    expect(snapshotToTorrent(pack({ totalWantedDone: undefined, totalDone: 1.5 * GB })).stats!.remaining).toBe(0.5 * GB)
+    expect(snapshotToTorrent(pack({ state: 3, totalWantedDone: undefined, totalDone: 1.5 * GB })).stats!.remaining).toBe(0.5 * GB)
+  })
+
+  // measured on a hybrid torrent of 16 KiB pieces with one file left out: the engine counts the pads inside the chosen
+  // pieces as wanted and never as done, so the 43 064 bytes of them are still there once it says finished
+  it('counts nothing as remaining once the engine says the chosen files are all here', () => {
+    for (const state of [4, 5]) {
+      expect(snapshotToTorrent(pack({ state, totalDone: 301_000, totalWanted: 344_064, totalWantedDone: 301_000 })).stats!.remaining).toBe(0)
+    }
   })
 
   it('carries the pieces held and where each file starts, for the details to share out', () => {
