@@ -75,8 +75,8 @@ export const sameInfoHash = (a: string | null | undefined, b: string | null | un
 /**
  * Every torrent a pasted, typed or dropped text names, each once, as a magnet: words starting `magnet:?`, and a bare info
  * hash (40 hex or 32 base32 characters for v1, 64 hex for v2) as the magnet naming it, as qBittorrent reads one. A
- * magnet also ends where the next starts, since a single-line field joins pasted lines with nothing between them. Any
- * other word is left out.
+ * magnet also ends where the next starts, since a single-line field can join pasted lines with nothing between
+ * them. Any other word is left out.
  */
 export const readMagnets = (text: string): string[] => {
   const byTorrent = new Map<string, string>()
