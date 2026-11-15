@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { getTorrentClient } from './client'
-import { magnetInfoHash } from './magnet'
+import { magnetInfoHash, sameInfoHash } from './magnet'
 import { pickVideoFile } from './watch'
 
 export type Prepared = { magnet: string, fileIndex?: number }
@@ -27,7 +27,7 @@ export const usePrepare = () => {
     const off = client.onState((snaps) => {
       if (claimed) return
       const snap = snaps.find((s) => s.magnet === magnet)
-        ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
+        ?? (infoHash ? snaps.find((s) => sameInfoHash(magnetInfoHash(s.magnet), infoHash)) : undefined)
       if (!snap?.files) return
       claimed = true
       client.prepare(viewer, snap.handle, fileIndex ?? pickVideoFile(snap.files.files.map((f) => ({ name: f.path, size: f.size, pad: f.pad }))))

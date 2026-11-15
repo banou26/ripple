@@ -53,3 +53,17 @@ it('adds the torrent held and claims the file once its layout lands, until the n
   await screen.unmount()
   expect(calls.unwatch).toHaveBeenCalledTimes(2)
 })
+
+it('claims the torrent a link names in base32 when the engine lists it in hex', async () => {
+  calls.prepare.mockClear()
+  const screen = await render(<Harness />)
+  // PACK's hash, in base32
+  ask({ magnet: `magnet:?xt=urn:btih:${'VK'.repeat(16)}`, fileIndex: 2 })
+  await vi.waitFor(() => expect(calls.addMagnet).toHaveBeenLastCalledWith(`magnet:?xt=urn:btih:${'VK'.repeat(16)}`, { ephemeral: true, hold: true }))
+  calls.state([
+    { handle: 5, magnet: FILM, files: layout([1, 900]) } as unknown as TorrentSnapshot,
+    { handle: 4, magnet: PACK, files: layout([10, 20, 30]) } as unknown as TorrentSnapshot,
+  ])
+  expect(calls.prepare).toHaveBeenCalledExactlyOnceWith('next', 4, 2)
+  await screen.unmount()
+})

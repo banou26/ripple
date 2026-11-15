@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TorrentClient, TorrentSnapshot } from './client'
 import { intl } from '../i18n'
 import { getTorrentClient } from './client'
-import { magnetInfoHash, readableMagnet } from './magnet'
+import { magnetInfoHash, readableMagnet, sameInfoHash } from './magnet'
 
 export type DownloadTorrent = {
   client: TorrentClient
@@ -93,7 +93,7 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     const off = client.onState((snaps) => {
       // match on the infoHash, never on the magnet string, and never on "the first one"
       const snap = snaps.find((s) => s.magnet === magnet)
-        ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
+        ?? (infoHash ? snaps.find((s) => sameInfoHash(magnetInfoHash(s.magnet), infoHash)) : undefined)
         ?? null
       if (snap) handleRef.current = snap.handle
       /**

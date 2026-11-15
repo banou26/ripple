@@ -562,6 +562,15 @@ describe('the download route', () => {
     expect(planned[0]).toEqual({ wanted: [0, 2, 3], firstLast: false })
   })
 
+  it('plans its own torrent when the link spells the hash in base32 and the library in hex', async () => {
+    listed.current = [{ infoHash: 'a'.repeat(40), magnet: `magnet:?xt=urn:btih:${'a'.repeat(40)}`, ephemeral: true, firstLast: false }]
+    const screen = await mount('', btoa(`magnet:?xt=urn:btih:${'VK'.repeat(16)}&dn=Pack.Name`))
+    await screen.getByRole('checkbox', { name: 'E02.mkv' }).click()
+    await screen.getByRole('button', { name: /Download 3 files as \.zip/ }).click()
+
+    expect(planned[0]).toEqual({ wanted: [0, 2, 3], firstLast: false })
+  })
+
   it('says "all of it" by leaving the list out, rather than by naming every index', async () => {
     const screen = await mount()
     await screen.getByRole('button', { name: /Download 4 files/ }).click()

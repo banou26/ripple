@@ -8,7 +8,7 @@ import { isFramed } from '../utils/framed'
 import { getTorrentClient } from './client'
 import { ACK, CHUNK, CREDIT, DONE, GIVE, STOP, TAKE, createPieceCheck, fits, layoutOf, resumeWith } from './handover'
 import { LIST_KEY, cacheSavePathFor } from './library'
-import { hexInfoHash } from './magnet'
+import { hexInfoHash, sameInfoHash } from './magnet'
 import { infoHashOf } from './make-torrent'
 import { infoFromResume } from './torrent-export'
 
@@ -180,7 +180,7 @@ export const useTakeFromPlayer = (infoHash: string | null, fallback: () => void)
     tried.current = true
     void (async () => {
       const list = await get<Persisted[]>(LIST_KEY).then((stored) => stored ?? [], () => null)
-      if (!list || list.some((e) => e.infoHash === infoHash)) return
+      if (!list || list.some((e) => sameInfoHash(e.infoHash, infoHash))) return
       const player = window.opener as Window | null
       const took = !!player && !player.closed && await navigator.storage.getDirectory()
         .then((root) => takeFromPlayer({ client: getTorrentClient(), infoHash, player, origin: location.origin, root }))

@@ -62,6 +62,19 @@ it('claims before metadata, claims once per engine, and releases on file changes
   expect(listeners.unwatch).toHaveBeenCalledTimes(2)
 })
 
+it('claims the torrent a link names in base32 when the engine lists it in hex', async () => {
+  listeners.watch.mockClear()
+  // MAGNET's hash, in base32
+  const Spelled = () => { usePlayerTorrent(`magnet:?xt=urn:btih:${'VK'.repeat(16)}`, 1); return <div /> }
+  const screen = await render(<Spelled />)
+  listeners.state([
+    { handle: 3, magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}`, files: null } as TorrentSnapshot,
+    { handle: 9, magnet: MAGNET, files: null } as TorrentSnapshot,
+  ])
+  expect(listeners.watch).toHaveBeenCalledExactlyOnceWith('player', 9, 1)
+  await screen.unmount()
+})
+
 // the engine tells every tab it refused a link, and an open library shows that
 it('sends the engine no link it cannot add, and says that link cannot be read', async () => {
   listeners.add.mockClear()

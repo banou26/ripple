@@ -2729,7 +2729,7 @@ const Home = () => {
   const wanted = params.get('torrent')
   useEffect(() => {
     if (!wanted) return
-    const row = torrents.find((t) => t.infoHash === wanted)
+    const row = torrents.find((t) => sameInfoHash(t.infoHash, wanted))
     if (!row || applied.current === row.id) return
     // they have moved the selection since, so it is theirs now
     if (applied.current !== null && selectedId !== applied.current) return
@@ -2959,7 +2959,7 @@ const Home = () => {
    * is not part of the library, so cancelling can drop it and changing nothing is genuinely nothing.
    */
   const pendingTorrent = pendingAdd && !pendingAdd.bytes
-    ? torrents.find((t) => t.infoHash === pendingAdd.infoHash && t.state !== 'missing')
+    ? torrents.find((t) => sameInfoHash(t.infoHash, pendingAdd.infoHash) && t.state !== 'missing')
     : undefined
   const pendingFiles = pendingAdd?.files ?? pendingTorrent?.files ?? []
 

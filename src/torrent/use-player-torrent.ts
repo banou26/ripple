@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
 import { intl } from '../i18n'
-import { magnetInfoHash, readableMagnet } from './magnet'
+import { magnetInfoHash, readableMagnet, sameInfoHash } from './magnet'
 import { makeReadWindowStore } from './read-window-store'
 import { pickVideoFile } from './watch'
 
@@ -92,7 +92,7 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     })
     const off = client.onState((snaps) => {
       const listed = snaps.find((s) => s.magnet === magnet)
-        ?? (infoHash ? snaps.find((s) => magnetInfoHash(s.magnet) === infoHash) : undefined)
+        ?? (infoHash ? snaps.find((s) => sameInfoHash(magnetInfoHash(s.magnet), infoHash)) : undefined)
         ?? null
       if (listed?.files) {
         layout = listed.files

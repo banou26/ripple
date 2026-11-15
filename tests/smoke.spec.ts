@@ -226,6 +226,13 @@ test('a torrent in the list is known by its hash in base32 too, typed or sent by
   await expect(known).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('.torrent')).toHaveCount(1)
+
+  // and a player's link back to it, which names the hash as the player's own link spells it
+  await page.evaluate((hash) => {
+    history.pushState(null, '', '/?torrent=' + hash)
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, 'vk'.repeat(16))
+  await expect(page.locator('.torrent.selected')).toHaveCount(1)
 })
 
 test('a .torrent already in the list is said to be there', async ({ page }) => {

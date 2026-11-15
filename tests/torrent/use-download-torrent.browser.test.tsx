@@ -137,6 +137,16 @@ describe('the download page hook', () => {
     await screen.unmount()
   })
 
+  it('holds the torrent a link names in base32 when the engine lists it in hex', async () => {
+    // MAGNET's hash, in base32
+    const Spelled = () => { api.useDownloadTorrent(`magnet:?xt=urn:btih:${'VK'.repeat(16)}`); return <div/> }
+    const screen = await render(<Spelled/>)
+    await expect.poll(() => typeof emit).toBe('function')
+    emit!([{ ...snapshot(), handle: 3, magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}` }, snapshot()])
+    await expect.poll(() => watched).toEqual([['viewer-1', 7, 0, 0, undefined, true]])
+    await screen.unmount()
+  })
+
   /** An index the torrent does not have plans NOTHING in the engine, so it is clamped rather than sent. */
   it('clamps a claim to a file the torrent actually has', async () => {
     const page = await mounted()

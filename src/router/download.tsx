@@ -42,7 +42,7 @@ import { vpnOffAvailable } from '../torrent/vpn-setting'
 import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../utils/bytes'
 import { VpnSwitch } from '../components/vpn-switch'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
-import { magnetInfoHash, magnetParam } from '../torrent/magnet'
+import { magnetInfoHash, magnetParam, sameInfoHash } from '../torrent/magnet'
 import { saveTorrentFile } from '../torrent/torrent-export'
 import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
@@ -729,7 +729,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   useEffect(() => {
     if (!infoHash) return
     return client.onList((list) => {
-      const found = list.find((persisted) => persisted.infoHash === infoHash)
+      const found = list.find((persisted) => sameInfoHash(persisted.infoHash, infoHash))
       const next = found ? { ephemeral: found.ephemeral === true, firstLast: found.firstLast === true } : null
       // compared rather than replaced, so a list broadcast that says nothing new renders nothing new
       setKnown((was) => (

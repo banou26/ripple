@@ -343,6 +343,17 @@ describe('the Ripple tab opened from the player', () => {
     expect(offered).toBe(1)
   })
 
+  it('asks the player nothing for a torrent the library lists in hex and the link names in base32', async () => {
+    const hash = 'b'.repeat(40)
+    page.store.set(LIST_KEY, [{ infoHash: hash }])
+    const listed = player()
+    let offered = 0
+    renderHook(() => useTakeFromPlayer(base32Of(hash), () => { offered++ }))
+    await sleep(300)
+    expect(listed.asked, 'a torrent already listed was copied again').toEqual([])
+    expect(offered).toBe(0)
+  })
+
   it('offers the add dialog when this origin\'s storage cannot be opened', async () => {
     player()
     const refused = vi.spyOn(navigator.storage, 'getDirectory').mockRejectedValue(new DOMException('refused', 'SecurityError'))
