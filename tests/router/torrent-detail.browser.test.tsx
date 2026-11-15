@@ -816,11 +816,23 @@ describe('the docked torrent details', () => {
     })
 
     it('strikes through a file left out, and sends no list once every file is ticked again', async () => {
-      const { boxes, left } = await content(pack({ wantedFiles: [0, 2] }))
+      const { screen, boxes, left } = await content(pack({ wantedFiles: [0, 2] }))
       expect(boxes.map((box) => box!.checked)).toEqual([true, false, true])
       expect(left).toEqual([false, true, false])
+      expect([...screen.container.querySelectorAll('.row.file .name')].map((name) => getComputedStyle(name).textDecorationLine))
+        .toEqual(['none', 'line-through', 'none'])
       boxes[1]!.click()
       expect(planned).toEqual([[7, { wanted: undefined, firstLast: true }]])
+    })
+
+    it('counts the files of a padded torrent without its pads', async () => {
+      const screen = await mount(padded())
+      tabButton(screen, 'Content').click()
+      await expect.poll(() => screen.container.querySelectorAll('.row.file input').length).toBe(2)
+      const e02 = screen.container.querySelectorAll<HTMLInputElement>('.row.file input')[1]!
+      e02.click()
+      e02.click()
+      expect(planned.map(([, plan]) => plan.wanted)).toEqual([[0], undefined])
     })
 
     it('keeps the last ticked file ticked', async () => {
