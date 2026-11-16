@@ -21,7 +21,8 @@ const OUT = process.env.SHOT_DIR ?? '/tmp/claude-1000/-home-banou-dev-ripple'
 // add anything. 210px was the old floor the input carried explicitly; the pill has to beat it.
 const READABLE_PX = 210
 
-const WIDTHS = [1440, 1100, 900, 800, 700, 620, 520, 420]
+// a wide window's: a phone's field is folded until it is used, which tests/home-language.spec.ts measures
+const WIDTHS = [1440, 1100, 900, 800, 720]
 
 const serve = () => spawn('npx', ['serve', '-s', '-C', '-p', String(PORT), 'build'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 const stop = (p) => { try { process.kill(-p.pid, 'SIGTERM') } catch { try { p.kill() } catch {} } }
@@ -58,23 +59,25 @@ const measure = () => {
   }
 }
 
-// FKN's mark beside the wordmark (HOR-1066): on its baseline, as tall as its capitals, and clear of what follows
+// FKN's mark beside the wordmark (HOR-1066), or beside the library's logo: on the word's baseline, as tall as its
+// capitals, and clear of what follows
 const measureMark = () => {
   const brand = document.querySelector('header .brand')
   const svg = brand?.querySelector('.powered svg')
   if (!svg) return null
+  const word = brand.querySelector('.wordmark')
   // an empty inline block sits on the baseline, so its bottom is the wordmark's baseline and its height the cap height
   const probe = document.createElement('span')
   probe.style.cssText = 'display: inline-block; width: 0; height: 1cap'
-  brand.querySelector('.wordmark').append(probe)
+  word?.append(probe)
   const line = probe.getBoundingClientRect()
   probe.remove()
   const mark = svg.getBoundingClientRect()
   const own = brand.getBoundingClientRect()
   const next = brand.nextElementSibling?.getBoundingClientRect()
   return {
-    offBaseline: Math.round((mark.bottom - line.bottom) * 10) / 10,
-    offCap: Math.round((mark.height - line.height) * 10) / 10,
+    offBaseline: word ? Math.round((mark.bottom - line.bottom) * 10) / 10 : 0,
+    offCap: word ? Math.round((mark.height - line.height) * 10) / 10 : 0,
     overlaps: !!next && own.right > next.left && next.right > own.left && own.bottom > next.top && next.bottom > own.top,
     docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   }
@@ -158,8 +161,9 @@ try {
   console.log(`cleared      value=${JSON.stringify(cleared.value)} icons=${cleared.icons} focused=${cleared.focused}  ${badClear.length ? 'FAIL: ' + badClear.join('; ') : 'PASS'}`)
   if (badClear.length) code = 1
 
-  for (const [name, path] of [['home', '/'], ['download', `/download?magnet=${Buffer.from(NO_PEERS).toString('base64')}`]]) {
-    for (const width of [1440, 1024, 390]) {
+  // a phone's library header leaves the mark to its footer
+  for (const [name, path, widths] of [['home', '/', [1440, 1024]], ['download', `/download?magnet=${Buffer.from(NO_PEERS).toString('base64')}`, [1440, 1024, 390]]]) {
+    for (const width of widths) {
       await page.setViewportSize({ width, height: 800 })
       await page.goto(ORIGIN + path, { waitUntil: 'domcontentloaded' })
       await page.waitForSelector('header .powered button', { timeout: 30_000 })
