@@ -1256,7 +1256,7 @@ test.describe('on a phone', () => {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const { rows, kids, height } = await rowsOf(page, '.bulk-bar')
-        expect(kids, 'the control: the count and five buttons were read').toBe(6)
+        expect(kids, 'the control: the count and six buttons were read').toBe(7)
         expect(rows, `${width} px, ${height} px tall`).toBe(1)
       }
     })
