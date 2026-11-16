@@ -158,11 +158,12 @@ export type MoveReadiness =
  * reload until the user acts. Nothing is wrong, the move just waits.
  */
 export const moveReadiness = (
-  { current, intended, complete, folderReady }: {
+  { current, intended, complete, folderReady, leavesFilesOut }: {
     current: SaveLocation
     intended: SaveLocation
     complete: boolean
     folderReady: boolean
+    leavesFilesOut: boolean
   },
 ): MoveReadiness => {
   /*
@@ -176,6 +177,12 @@ export const moveReadiness = (
    */
   if (current === 'source' || intended === 'source') return { move: false, reason: 'settled' }
   if (current === intended) return { move: false, reason: 'settled' }
+  /*
+   * A torrent with files left out stays in browser storage, and the mirror copies its chosen files to the folder. The
+   * move re-adds it and checks every piece against the folder: a missing file stops that check with an error, and a
+   * piece a chosen file shares with a left-out one can never verify there (libtorrent-wasm, 2026-11-16).
+   */
+  if (intended === 'folder' && leavesFilesOut) return { move: false, reason: 'settled' }
   // needed in BOTH directions: moving out of a folder has to read from it, and moving into one has
   // to write to it, so neither can happen while the grant is missing
   if (!folderReady) return { move: false, reason: 'no-folder' }

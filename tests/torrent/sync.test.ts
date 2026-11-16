@@ -25,28 +25,34 @@ const fakeFile = (data: Uint8Array) => ({
 
 const fakeRoot = (files: Map<string, Uint8Array>) => {
   const writes: { name: string, closed: boolean, aborted: boolean, bytes: number }[] = []
+  // `create: true` makes an empty file in the person's folder, so opening one is already a write there
+  const opened: string[] = []
   const root = {
     writes,
+    opened,
     getDirectoryHandle: async () => root,
-    getFileHandle: async (name: string) => ({
-      getFile: async () => fakeFile(files.get(name) ?? new Uint8Array(0)),
-      createWritable: async () => {
-        const record = { name, closed: false, aborted: false, bytes: 0 }
-        writes.push(record)
-        const chunks: Uint8Array[] = []
-        return {
-          write: async (chunk: Uint8Array) => { chunks.push(chunk); record.bytes += chunk.length },
-          close: async () => {
-            record.closed = true
-            const merged = new Uint8Array(record.bytes)
-            let at = 0
-            for (const chunk of chunks) { merged.set(chunk, at); at += chunk.length }
-            files.set(name, merged)
-          },
-          abort: async () => { record.aborted = true },
-        }
-      },
-    }),
+    getFileHandle: async (name: string) => {
+      opened.push(name)
+      return {
+        getFile: async () => fakeFile(files.get(name) ?? new Uint8Array(0)),
+        createWritable: async () => {
+          const record = { name, closed: false, aborted: false, bytes: 0 }
+          writes.push(record)
+          const chunks: Uint8Array[] = []
+          return {
+            write: async (chunk: Uint8Array) => { chunks.push(chunk); record.bytes += chunk.length },
+            close: async () => {
+              record.closed = true
+              const merged = new Uint8Array(record.bytes)
+              let at = 0
+              for (const chunk of chunks) { merged.set(chunk, at); at += chunk.length }
+              files.set(name, merged)
+            },
+            abort: async () => { record.aborted = true },
+          }
+        },
+      }
+    },
   }
   return root
 }
@@ -55,17 +61,20 @@ const fakeRoot = (files: Map<string, Uint8Array>) => {
 const torrentOf = (files: { name: string, size: number, pad?: boolean }[]): Torrent =>
   ({ id: 1, name: 'a torrent', files: files.map((f, index) => ({ ...f, index })) } as unknown as Torrent)
 
-/** an engine holding `truth` for file 0, counting how many bytes the mirror asked it for */
+/** an engine holding `truth[i]` for file i, counting how many bytes the mirror asked it for and of which files */
 const fakeClient = (truth: Uint8Array[]) => {
   let read = 0
+  const asked = new Set<number>()
   const client = {
     read: async (_h: number, index: number, offset: number, len: number) => {
       read += len
+      asked.add(index)
       return truth[index]!.slice(offset, offset + len)
     },
     readBytes: () => read,
+    asked,
   }
-  return client as unknown as TorrentClient & { readBytes: () => number }
+  return client as unknown as TorrentClient & { readBytes: () => number, asked: Set<number> }
 }
 
 describe('deciding a file is already in the folder', () => {
@@ -159,6 +168,26 @@ describe('deciding a file is already in the folder', () => {
     const client = { read: async () => { throw new Error('engine gone') } } as unknown as TorrentClient
     await expect(syncTorrentToDirectory(client, torrentOf([{ name: 'a.bin', size: 300_000 }]), root as never)).rejects.toThrow('engine gone')
     expect(root.writes[0]).toMatchObject({ closed: false, aborted: true })
+  })
+})
+
+/**
+ * A read asks the engine for the bytes, so reading a file the person left out would have it fetched first. And such a
+ * torrent never moves into the folder (save-location.ts), so this copy is all the folder gets of it.
+ */
+describe('a torrent with files left out', () => {
+  it('copies only the chosen files, and asks the engine for nothing of the others', async () => {
+    const files = new Map<string, Uint8Array>()
+    const root = fakeRoot(files)
+    const client = fakeClient([bytes(300_000, 7), bytes(300_000, 9), bytes(300_000, 5)])
+    const torrent = {
+      ...torrentOf([{ name: 'a.bin', size: 300_000 }, { name: 'b.bin', size: 300_000 }, { name: 'c.bin', size: 300_000 }]),
+      wantedFiles: [0, 2],
+    }
+    expect(await syncTorrentToDirectory(client, torrent, root as never)).toBe(2)
+    expect([...files.keys()].sort()).toEqual(['a.bin', 'c.bin'])
+    expect(root.opened).not.toContain('b.bin')
+    expect([...client.asked].sort()).toEqual([0, 2])
   })
 })
 

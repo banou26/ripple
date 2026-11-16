@@ -83,7 +83,7 @@ describe('where the bytes actually are', () => {
 })
 
 describe('deciding whether files should move', () => {
-  const base = { current: 'browser', intended: 'browser', complete: true, folderReady: true } as const
+  const base = { current: 'browser', intended: 'browser', complete: true, folderReady: true, leavesFilesOut: false } as const
 
   it('does nothing when it is already where it belongs', () => {
     expect(moveReadiness(base)).toEqual({ move: false, reason: 'settled' })
@@ -123,6 +123,21 @@ describe('deciding whether files should move', () => {
 
   it('says nothing about a settled torrent even with no folder', () => {
     expect(moveReadiness({ ...base, folderReady: false })).toEqual({ move: false, reason: 'settled' })
+  })
+
+  /**
+   * The move re-adds the torrent and checks every piece against the folder, where the files left out are not. So it
+   * keeps such a torrent in browser storage, finished or not, and the copy puts its chosen files in the folder.
+   */
+  it('keeps a torrent with files left out in browser storage', () => {
+    expect(moveReadiness({ ...base, intended: 'folder', leavesFilesOut: true })).toEqual({ move: false, reason: 'settled' })
+    expect(moveReadiness({ ...base, intended: 'folder', complete: false, leavesFilesOut: true }))
+      .toEqual({ move: false, reason: 'settled' })
+  })
+
+  it('still moves a torrent with files left out back out of the folder', () => {
+    expect(moveReadiness({ ...base, current: 'folder', intended: 'browser', leavesFilesOut: true }))
+      .toEqual({ move: true, to: 'browser' })
   })
 })
 
@@ -178,7 +193,7 @@ describe('a torrent backed by the user\'s own files', () => {
   })
 
   it('never moves, in either direction, even when the two locations disagree', () => {
-    const ready = { complete: true, folderReady: true }
+    const ready = { complete: true, folderReady: true, leavesFilesOut: false }
     // the exact combination an entry written before this rule produces
     expect(moveReadiness({ current: 'source', intended: 'browser', ...ready }).move).toBe(false)
     expect(moveReadiness({ current: 'source', intended: 'folder', ...ready }).move).toBe(false)
@@ -188,13 +203,13 @@ describe('a torrent backed by the user\'s own files', () => {
 
   /** The control: an ordinary torrent in the same shape DOES move, so the negatives above mean the rule. */
   it('leaves an ordinary torrent free to move', () => {
-    const ready = { complete: true, folderReady: true }
+    const ready = { complete: true, folderReady: true, leavesFilesOut: false }
     expect(moveReadiness({ current: 'browser', intended: 'folder', ...ready })).toEqual({ move: true, to: 'folder' })
     expect(moveReadiness({ current: 'folder', intended: 'browser', ...ready })).toEqual({ move: true, to: 'browser' })
   })
 
   it('says nothing is pending, since there is nothing to wait for', () => {
-    expect(pendingLabel(moveReadiness({ current: 'source', intended: 'browser', complete: true, folderReady: false }), 'Downloads', intl)).toBeNull()
+    expect(pendingLabel(moveReadiness({ current: 'source', intended: 'browser', complete: true, folderReady: false, leavesFilesOut: false }), 'Downloads', intl)).toBeNull()
   })
 
   it('cannot be the global default, however the setting got written', () => {

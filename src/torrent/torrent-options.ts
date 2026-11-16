@@ -8,7 +8,7 @@ import { magnetParam } from './magnet'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
 import { limitLabel } from './rate-limits'
-import { contentFiles, finished, stopped } from './types'
+import { contentFiles, finished, leavesFilesOut, stopped } from './types'
 
 /**
  * What a user may change about one torrent, defined once and rendered twice.
@@ -391,7 +391,7 @@ export const buildTorrentOptions = (
   if (context.folderReady && !hasNoHandle(t)) {
     const intended = context.intended ?? 'browser'
     const current = context.current ?? 'browser'
-    const readiness = moveReadiness({ current, intended, complete, folderReady: true })
+    const readiness = moveReadiness({ current, intended, complete, folderReady: true, leavesFilesOut: leavesFilesOut(t) })
     const pending = pendingLabel(readiness, context.folderName, intl)
     groups.push({
       id: 'location',

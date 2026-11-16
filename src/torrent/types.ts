@@ -35,6 +35,13 @@ export type TorrentFile = {
 export const contentFiles = <F extends { pad?: boolean }>(files: F[] | undefined): F[] =>
   (files ?? []).filter((file) => !file.pad)
 
+/** The content files this torrent downloads: every one, unless the person left some out. */
+export const chosenFiles = (t: { files?: TorrentFile[], wantedFiles?: number[] }): TorrentFile[] =>
+  contentFiles(t.files).filter((file) => !t.wantedFiles || t.wantedFiles.includes(file.index))
+
+export const leavesFilesOut = (t: { files?: TorrentFile[], wantedFiles?: number[] }): boolean =>
+  chosenFiles(t).length < contentFiles(t.files).length
+
 export type TorrentStats = {
   /** Bytes moved across every session. What a share ratio must be computed from. */
   allTimeDownload: number

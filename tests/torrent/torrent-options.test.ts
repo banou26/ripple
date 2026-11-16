@@ -484,6 +484,14 @@ describe('the torrent option list', () => {
       expect(settled.hint).toBeUndefined()
     })
 
+    // it stays in browser storage and only its chosen files are copied to the folder, so there is no move to promise
+    it('promises no move for a torrent with files left out', () => {
+      const files = [{ name: 'a.mkv', size: 10, index: 0 }, { name: 'b.mkv', size: 10, index: 1 }]
+      const chosen = item(torrent({ progress: 0.4, files, wantedFiles: [0] }), 'location-folder', withFolder({ intended: 'folder' }))!
+      expect(chosen.hint).toBeUndefined()
+      expect(chosen.kind === 'radio' && chosen.selected).toBe(true)
+    })
+
     it('applies the choice through setLocation, in both directions', () => {
       const a = actions()
       const folder = item(torrent(), 'location-folder', withFolder(), a)!

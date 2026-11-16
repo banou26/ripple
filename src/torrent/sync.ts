@@ -1,7 +1,7 @@
 import type { TorrentClient } from './client'
 import type { Torrent } from './types'
 
-import { contentFiles } from './types'
+import { chosenFiles } from './types'
 
 const CHUNK = 8 * 1024 * 1024
 
@@ -71,9 +71,10 @@ const alreadyThere = async (
 }
 
 /**
- * Copy every file of a finished torrent into the folder the user granted.
+ * Copy every chosen file of a finished torrent into the folder the user granted. A file left out is not read, since
+ * a read would have the engine fetch it.
  *
- * Resolving means every file is present AND its content was checked, which is what the caller turns
+ * Resolving means every chosen file is present AND its content was checked, which is what the caller turns
  * into "saved to your folder". Returns how many files it had to write, so a copy that found
  * everything already in place can stay quiet.
  */
@@ -83,7 +84,7 @@ export const syncTorrentToDirectory = async (
   root: FileSystemDirectoryHandle,
 ): Promise<number> => {
   let written = 0
-  for (const file of contentFiles(torrent.files)) {
+  for (const file of chosenFiles(torrent)) {
     /*
      * PADS ARE SKIPPED, and not only because they are zeroes nobody asked for.
      *

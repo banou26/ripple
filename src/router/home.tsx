@@ -70,7 +70,7 @@ import { hint } from '../components/hint'
 import { PersistControl } from '../components/persist-control'
 import { LanguageSelect } from '../components/language-select'
 import { SampleOffer } from '../components/sample-offer'
-import { contentFiles, finished, stopped } from '../torrent/types'
+import { contentFiles, finished, leavesFilesOut, stopped } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
 import { VpnSwitch } from '../components/vpn-switch'
 import { vpnOffAvailable } from '../torrent/vpn-setting'
@@ -2813,6 +2813,7 @@ const Home = () => {
       intended: location,
       complete: t.progress >= 1,
       folderReady: !!folder && permitted,
+      leavesFilesOut: leavesFilesOut(t),
     })
     if (!readiness.move) {
       const waiting = pendingLabel(readiness, folder?.name, intl)
@@ -2882,7 +2883,7 @@ const Home = () => {
     for (const t of torrents) {
       if (t.state === 'missing') continue
       const { intended, current } = locationOf(t)
-      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1, folderReady: true })
+      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1, folderReady: true, leavesFilesOut: leavesFilesOut(t) })
       if (readiness.move) void runMove(t, readiness.to)
     }
   })
