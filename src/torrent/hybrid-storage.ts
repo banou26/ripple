@@ -129,6 +129,40 @@ const fileAt = async (root: FileSystemDirectoryHandle, path: string): Promise<Fi
   return (await dir.getFileHandle(name)).getFile()
 }
 
+// only a file that is not there reads as null: any other refusal says nothing about the file
+const foundAt = (root: FileSystemDirectoryHandle, path: string): Promise<File | null> =>
+  fileAt(root, path).catch((error: unknown) => {
+    if ((error as Error | undefined)?.name === 'NotFoundError') return null
+    throw error
+  })
+
+// a folder that is itself gone answers NotFoundError for each file in it too (Chromium 156), and only listing the
+// folder tells that apart from files deleted from it
+const listable = (root: FileSystemDirectoryHandle) => (root as unknown as { keys: () => AsyncIterator<string> }).keys().next()
+
+/**
+ * Whether the folder was read and lacks one of a torrent's files: not there, or shorter than its size. Pads and empty
+ * files are not looked for. False when the folder refuses a read for any other reason, which says nothing about the
+ * files.
+ */
+export const folderLacks = async (
+  root: FileSystemDirectoryHandle,
+  files: Array<{ path: string, size: number, pad?: boolean }>,
+): Promise<boolean> => {
+  try {
+    for (const { path, size, pad } of files) {
+      if (pad || size <= 0) continue
+      const file = await foundAt(root, path)
+      if (file && file.size >= size) continue
+      await listable(root)
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 /** `cache` holds the save paths under `/cache`, and `opfs` every other one in browser storage. */
 export const createHybridStorage = (
   opfs: MeasurableStorage,
@@ -292,17 +326,10 @@ export const createHybridStorage = (
       try {
         const root = rootOr('check')
         for (const meta of entry.files) {
-          // only a file that is not there counts as empty: any other refusal says nothing about the file, and
-          // `no_error` is what has the worker give a torrent up as files missing
-          const file = await fileAt(root, meta.path).catch((error: unknown) => {
-            if ((error as Error | undefined)?.name === 'NotFoundError') return null
-            throw error
-          })
+          const file = await foundAt(root, meta.path)
           if (file && file.size > 0) return STORAGE_NEED_FULL_CHECK
         }
-        // a folder that is itself gone answers NotFoundError for each file in it too (Chromium 156), and only listing
-        // the folder tells that apart from files deleted from it
-        await (root as unknown as { keys: () => AsyncIterator<string> }).keys().next()
+        await listable(root)
         return STORAGE_NO_ERROR
       } catch {
         return STORAGE_NEED_FULL_CHECK

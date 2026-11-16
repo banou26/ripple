@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createHybridStorage, isNativeSavePath, nativeSavePathFor, NATIVE_ROOT, sourceSavePathFor } from '../../src/torrent/hybrid-storage'
+import { createHybridStorage, folderLacks, isNativeSavePath, nativeSavePathFor, NATIVE_ROOT, sourceSavePathFor } from '../../src/torrent/hybrid-storage'
 import type { MeasurableStorage } from '../../src/torrent/opfs-storage'
 
 /**
@@ -236,7 +236,7 @@ describe('the check on startup', () => {
     expect(await storage.check!(1)).toBe(2)
   })
 
-  // the worker gives a folder torrent up as files missing on `no_error`, so only a file not found may lead there
+  // a refused read says nothing about the file, and `no_error` would have the torrent believe it holds nothing
   it('asks for a full check when the folder refuses a read, rather than claiming emptiness', async () => {
     const refusing = { getFileHandle: async () => { throw new DOMException('refused', 'NotAllowedError') } }
     const storage = createHybridStorage(fakeOpfs(), () => refusing as unknown as FileSystemDirectoryHandle)
@@ -260,6 +260,36 @@ describe('the check on startup', () => {
     storage.onNewStorage(2, '/dl/abc', [])
     await storage.check!(2)
     expect(opfs.check).toHaveBeenCalledWith(2)
+  })
+})
+
+/**
+ * The look a restored folder torrent gets once its folder is allowed: any file gone or cut short is Files missing,
+ * since a folder takes no writes and the rest could never come back there. Only a folder that was read may say so.
+ */
+describe('a folder lacking some of a torrent', () => {
+  const layout = [
+    { path: 'Pack/a.bin', size: 1000 },
+    { path: 'Pack/.pad/24', size: 24, pad: true },
+    { path: 'Pack/b.bin', size: 20 },
+    { path: 'Pack/empty', size: 0 },
+  ]
+
+  it('lacks nothing with every file there at its size, looking for no pad and no empty file', async () => {
+    expect(await folderLacks(fakeFolder({ 'Pack/a.bin': bytes(1000, 5), 'Pack/b.bin': bytes(20, 5) }), layout)).toBe(false)
+  })
+
+  it('lacks a file that is gone, or shorter than its size', async () => {
+    expect(await folderLacks(fakeFolder({ 'Pack/a.bin': bytes(1000, 5) }), layout)).toBe(true)
+    expect(await folderLacks(fakeFolder({ 'Pack/a.bin': bytes(999, 5), 'Pack/b.bin': bytes(20, 5) }), layout)).toBe(true)
+  })
+
+  it('says nothing of a folder that refuses the read, or is itself gone', async () => {
+    const refusing = { getDirectoryHandle: async () => { throw new DOMException('refused', 'NotAllowedError') } }
+    expect(await folderLacks(refusing as unknown as FileSystemDirectoryHandle, layout)).toBe(false)
+    const gone = (): never => { throw new DOMException('gone', 'NotFoundError') }
+    const folder = { getDirectoryHandle: async () => gone(), getFileHandle: async () => gone(), keys: () => ({ next: async () => gone() }) }
+    expect(await folderLacks(folder as unknown as FileSystemDirectoryHandle, layout)).toBe(false)
   })
 })
 

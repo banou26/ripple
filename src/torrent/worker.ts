@@ -3,7 +3,6 @@ import './node-shims'
 import { lookup } from '@fkn/lib/dns'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
-import { STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
@@ -30,7 +29,7 @@ import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { ASKS } from './engine-protocol'
 import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
-import { createHybridStorage, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
+import { createHybridStorage, folderLacks, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
@@ -1333,12 +1332,12 @@ const evict = (live: Session, h: number, ih: string) =>
   releaseStorage(live, h, ih, forPage.formatMessage({ id: 'torrent removed to make room', defaultMessage: 'torrent removed to make room' }))
 
 /**
- * Files missing for a folder torrent whose folder holds none of its files. `check` answers no_error only when the
- * folder was read and every file was not found or empty, so a refused read keeps it. Its Download fetches into
- * browser storage, as a folder takes no writes, and the move into the folder follows when it finishes.
+ * Files missing for a folder torrent whose folder lacks any of its files, and never for one whose folder refuses the
+ * read. Its Download fetches into browser storage, as a folder takes no writes, and the move into the folder follows
+ * when it finishes.
  */
-const releaseIfGone = async (live: Session, h: number, storageIndex: number) => {
-  if (await storage?.check?.(storageIndex) !== STORAGE_NO_ERROR) return
+const releaseIfGone = async (live: Session, h: number, folder: FileSystemDirectoryHandle, files: TorrentFiles) => {
+  if (!(await folderLacks(folder, files.files))) return
   const ih = infoHashByHandle.get(h)
   if (!ih || !isNativeSavePath(savePathByHandle.get(h))) return
   await releaseStorage(live, h, ih, forPage.formatMessage({ id: 'Files missing', defaultMessage: 'Files missing' }), { savePath: savePathFor(ih) })
@@ -1860,7 +1859,7 @@ const init = async () => {
         const files = session.files(h)
         if (!files) continue
         folderUnchecked.delete(h)
-        void releaseIfGone(session, h, files.storageIndex)
+        void releaseIfGone(session, h, folderHandle, files)
       }
     }
     for (const h of [...pendingViewing]) applyViewing(h)
