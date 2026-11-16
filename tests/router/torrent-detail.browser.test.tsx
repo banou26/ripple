@@ -359,6 +359,7 @@ describe('the docked torrent details', () => {
         `Added on: ${date(LISTED, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 2',
       ])
+      expect(overview(await mount(torrent({ addedAt: undefined }))).find((fact) => fact.startsWith('Added on'))).toBe('Added on: -')
       // under one percent, two places
       expect(overview(await mount(torrent({ stats: null, progress: 0.005 }), null))).toEqual([
         'Time active: -', 'Time left: 4m', 'Connections: -', 'Downloaded: 1 GB', 'Uploaded: -', 'Seeds: 12', 'Download speed: 4 MB/s',
