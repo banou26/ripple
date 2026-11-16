@@ -197,12 +197,16 @@ const fromFileTree = (
  */
 export const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
 
-const saysPrivate = (info: Map<string, Bencode>): boolean => info.get('private') === 1
+const saysPrivate = (info: Map<string, Bencode>): boolean => {
+  const flag = info.get('private')
+  return typeof flag === 'number' && flag !== 0
+}
 
 /**
- * Whether a `.torrent` says it is private, BEP 27's `private` set to 1 in its info dict. Only a file
- * can say so: a magnet carries no info dict, so a torrent added by magnet is never known to be
- * private. False for anything that is not a torrent.
+ * Whether a `.torrent` says it is private, BEP 27's `private` in its info dict. BEP 27 writes 1, but
+ * the engine runs any integer but 0 as private, so that is what counts here. Only a file can say so:
+ * a magnet carries no info dict, so a torrent added by magnet is never known to be private. False for
+ * anything that is not a torrent.
  */
 export const isPrivateTorrent = (bytes: Uint8Array): boolean => {
   try {

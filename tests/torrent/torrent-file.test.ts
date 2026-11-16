@@ -118,13 +118,15 @@ describe('reading a share subject without the engine', () => {
 describe('whether a torrent is known to be private', () => {
   const file = (info: string) => bencode(`d8:announce25:https://t.invalid/key/ann4:infod6:lengthi5e4:name1:x${info}ee`)
 
-  it('reads the flag off the info dict, set to 1', async () => {
-    expect(isPrivateTorrent(file('7:privatei1e'))).toBe(true)
-    expect((await readTorrentFile(file('7:privatei1e')))!.private).toBe(true)
+  it('reads the flag off the info dict as the engine does, any integer but 0', async () => {
+    for (const info of ['7:privatei1e', '7:privatei2e', '7:privatei-1e']) {
+      expect(isPrivateTorrent(file(info)), info).toBe(true)
+      expect((await readTorrentFile(file(info)))!.private, info).toBe(true)
+    }
   })
 
-  it('is not private without the flag, or with it at 0', async () => {
-    for (const info of ['', '7:privatei0e']) {
+  it('is not private without the flag, with it at 0, or with it not an integer', async () => {
+    for (const info of ['', '7:privatei0e', '7:private1:1']) {
       expect(isPrivateTorrent(file(info)), info).toBe(false)
       expect((await readTorrentFile(file(info)))!.private, info).toBe(false)
     }
