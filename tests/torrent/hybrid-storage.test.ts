@@ -25,12 +25,12 @@ const fakeFolder = (files: Record<string, Uint8Array>) => {
   const make = (prefix: string): FileSystemDirectoryHandle => ({
     getDirectoryHandle: async (name: string) => {
       const under = prefix + name + '/'
-      if (!Object.keys(files).some((p) => p.startsWith(under))) throw new Error('NotFoundError: ' + under)
+      if (!Object.keys(files).some((p) => p.startsWith(under))) throw new DOMException('NotFoundError: ' + under, 'NotFoundError')
       return make(under)
     },
     getFileHandle: async (name: string) => {
       const data = files[prefix + name]
-      if (!data) throw new Error('NotFoundError: ' + prefix + name)
+      if (!data) throw new DOMException('NotFoundError: ' + prefix + name, 'NotFoundError')
       return {
         getFile: async () => ({
           size: data.length,
@@ -231,6 +231,14 @@ describe('the check on startup', () => {
   it('asks for a full check when the grant is missing, rather than claiming emptiness', async () => {
     const opfs = fakeOpfs()
     const storage = createHybridStorage(opfs, () => null)
+    storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'a.bin', size: 4 }])
+    expect(await storage.check!(1)).toBe(2)
+  })
+
+  // the worker gives a folder torrent up as files missing on `no_error`, so only a file not found may lead there
+  it('asks for a full check when the folder refuses a read, rather than claiming emptiness', async () => {
+    const refusing = { getFileHandle: async () => { throw new DOMException('refused', 'NotAllowedError') } }
+    const storage = createHybridStorage(fakeOpfs(), () => refusing as unknown as FileSystemDirectoryHandle)
     storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'a.bin', size: 4 }])
     expect(await storage.check!(1)).toBe(2)
   })

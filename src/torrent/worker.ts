@@ -3,6 +3,7 @@ import './node-shims'
 import { lookup } from '@fkn/lib/dns'
 import { get, set, del, update } from 'idb-keyval'
 import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-wasm'
+import { STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
@@ -29,7 +30,7 @@ import { sweepProbes, sweepSaveRoot } from './opfs-sweep'
 import { ASKS } from './engine-protocol'
 import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
-import { createHybridStorage, isGrantedSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
+import { createHybridStorage, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
@@ -433,7 +434,7 @@ const untrack = (h: number) => {
   ephemeralHandles.delete(h); cacheIdle.delete(h); userStarted.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
   forced.delete(h); watchedPastQueue.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
-  exporting.delete(h); noPeersSince.delete(h)
+  exporting.delete(h); noPeersSince.delete(h); folderUnchecked.delete(h)
 }
 
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
@@ -458,6 +459,13 @@ const holdingUpload = new Set<number>()
 const releaseHold = (h: number) => {
   if (holdingUpload.delete(h)) session?.setFlags(h, 0, TORRENT_FLAG.uploadMode)
 }
+/*
+ * Folder torrents restored from a saved state, whose files nothing has looked for yet. The engine trusts a saved
+ * state without asking the storage (`no_verify_files`), so one whose files were deleted outside Ripple came back
+ * seeding at progress 1 (libtorrent-wasm 0.3.28, node, 2026-11-16). Looked for once, on the first pump with a
+ * folder offered: before that a file that is gone and a folder not allowed yet read the same.
+ */
+const folderUnchecked = new Set<number>()
 
 /**
  * What each torrent's piece priorities should be when nobody is watching it.
@@ -1325,6 +1333,18 @@ const evict = (live: Session, h: number, ih: string) =>
   releaseStorage(live, h, ih, forPage.formatMessage({ id: 'torrent removed to make room', defaultMessage: 'torrent removed to make room' }))
 
 /**
+ * Files missing for a folder torrent whose folder holds none of its files. `check` answers no_error only when the
+ * folder was read and every file was not found or empty, so a refused read keeps it. Its Download fetches into
+ * browser storage, as a folder takes no writes, and the move into the folder follows when it finishes.
+ */
+const releaseIfGone = async (live: Session, h: number, storageIndex: number) => {
+  if (await storage?.check?.(storageIndex) !== STORAGE_NO_ERROR) return
+  const ih = infoHashByHandle.get(h)
+  if (!ih || !isNativeSavePath(savePathByHandle.get(h))) return
+  await releaseStorage(live, h, ih, forPage.formatMessage({ id: 'Files missing', defaultMessage: 'Files missing' }), { savePath: savePathFor(ih) })
+}
+
+/**
  * Point a torrent at the other storage, with its files already there.
  *
  * The COPY is not done here. A page does it, because the mirror that writes into the user's folder
@@ -1760,6 +1780,7 @@ const init = async () => {
           : addMagnet(session, e.magnet, savePath)
       if (addFailed(h)) continue
       track(h, e.magnet, e.infoHash, savePath, e.ephemeral === true)
+      if (resume?.byteLength && isNativeSavePath(savePath)) folderUnchecked.add(h)
       // before needsPriorityReset, so the pass that clears the window has the plan to write back
       planByHandle.set(h, { wanted: e.wantedFiles, firstLast: e.firstLast })
       needsPriorityReset.add(h)
@@ -1832,6 +1853,14 @@ const init = async () => {
       // hold was asked for.
       if (!activeViewers(h).length) applyViewing(h)
       releaseHold(h)
+    }
+    if (folderHandle) {
+      for (const h of [...folderUnchecked]) {
+        const files = session.files(h)
+        if (!files) continue
+        folderUnchecked.delete(h)
+        void releaseIfGone(session, h, files.storageIndex)
+      }
     }
     for (const h of [...pendingViewing]) applyViewing(h)
     for (const h of [...wokenByRead]) {

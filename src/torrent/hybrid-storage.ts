@@ -292,7 +292,12 @@ export const createHybridStorage = (
       try {
         const root = rootOr('check')
         for (const meta of entry.files) {
-          const file = await fileAt(root, meta.path).catch(() => null)
+          // only a file that is not there counts as empty: any other refusal says nothing about the file, and
+          // `no_error` is what has the worker give a torrent up as files missing
+          const file = await fileAt(root, meta.path).catch((error: unknown) => {
+            if ((error as Error | undefined)?.name === 'NotFoundError') return null
+            throw error
+          })
           if (file && file.size > 0) return STORAGE_NEED_FULL_CHECK
         }
         return STORAGE_NO_ERROR
