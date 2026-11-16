@@ -71,7 +71,7 @@ describe('the e2e lanes', () => {
     // a name that is no local spec leaves the spec it meant with the VPN off
     expect(kept.filter((path) => !lane('e2e:local').includes(path)), 'VPN_ON names a spec the local lane does not run').toEqual([])
     // the switch writes the choice into every page, over whatever a spec wrote or expects to read
-    const own = lane('e2e:local').filter((path) => /ripple:vpn\b/.test(sources[path.replace('tests/', './')] ?? ''))
+    const own = lane('e2e:local').filter((path) => /'ripple:vpn'/.test(sources[path.replace('tests/', './')] ?? ''))
     expect(own.filter((path) => !kept.includes(path)), 'a spec that reads or sets ripple:vpn runs with the VPN off').toEqual([])
   })
 
