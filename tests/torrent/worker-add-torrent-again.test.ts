@@ -58,10 +58,12 @@ it('leaves a paused torrent paused, with its magnet and save path, when its .tor
   const { magnet, savePath, started, paused } = entry()!
 
   rig.send({ type: 'add-torrent-file', bytes: new Uint8Array(SINTEL) })
-  await vi.waitFor(() => expect(rig.of('added').length + rig.of('add-failed').length).toBe(2), { timeout: 15_000 })
+  await vi.waitFor(() => expect(rig.of('added').length + rig.of('add-failed').length).toBe(3), { timeout: 15_000 })
 
   // the same handle is the control: it is the engine saying these bytes are the torrent already listed
   expect(rig.of('added')[1]).toEqual({ type: 'added', handle, magnet: MAGNET })
+  // and the page is told, since it cannot tell while a .torrent's hash is still unknown to it
+  expect(rig.of('add-failed')).toEqual([{ type: 'add-failed', message: { message: 'Already in your list' } }])
   expect(entry()).toMatchObject({ magnet, savePath, started, paused })
   expect(magnet).toBe(MAGNET)
 }, 60_000)

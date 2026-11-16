@@ -2,6 +2,7 @@
 
 import type { Locator, Page } from '@playwright/test'
 
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { expect, test } from './offline'
@@ -264,7 +265,9 @@ test('a link naming the sample by its base32 hash asks about the sample, with it
 })
 
 test('a .torrent already in the list is said to be there', async ({ page }) => {
+  await page.addInitScript(probeEngine)
   await page.goto('/')
+  await engineReady(page)
   const open = page.locator('label.file-button input[type=file]').first()
   const sintel = join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent')
   await open.setInputFiles(sintel)
@@ -273,6 +276,21 @@ test('a .torrent already in the list is said to be there', async ({ page }) => {
 
   await open.setInputFiles(sintel)
   await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
+  await expect(page.locator('.torrent')).toHaveCount(1)
+})
+
+test('the same .torrent picked twice at once is listed once and said to be there', async ({ page }) => {
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  const buffer = await readFile(join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent'))
+  // the page sends the copy before the engine has named the first, so only the engine can say they are one torrent
+  await page.locator('label.file-button input[type=file]').first().setInputFiles([
+    { name: 'sintel.torrent', mimeType: 'application/x-bittorrent', buffer },
+    { name: 'sintel (1).torrent', mimeType: 'application/x-bittorrent', buffer },
+  ])
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
+  await expect(page.locator('.torrent .title strong').first()).toHaveText('Sintel', { timeout: 30_000 })
   await expect(page.locator('.torrent')).toHaveCount(1)
 })
 

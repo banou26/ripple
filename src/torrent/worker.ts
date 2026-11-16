@@ -2284,8 +2284,13 @@ const handleMessage = async (session: Session, m: any) => {
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
-      // the engine answers a torrent it already holds with that torrent's handle, whose entry stays as it is
-      if (handles.includes(h)) { post({ type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' }); return }
+      // The engine answers a torrent it already holds with that torrent's handle, whose entry stays as it is. The page is
+      // told, since its own check cannot see a torrent whose hash the poll below has not found yet.
+      if (handles.includes(h)) {
+        post({ type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' })
+        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
+        return
+      }
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may
       // reclaim rather than in the library for good
       track(h, '', null, savePath, m.ephemeral === true)
