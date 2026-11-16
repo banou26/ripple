@@ -59,6 +59,15 @@ describe('a menu hanging under a control', () => {
     expect(at.x).toBeGreaterThanOrEqual(8)
   })
 
+  // a control on the left of its row, narrower than the menu, which end-aligned would land on the screen's edge
+  it('start-aligns with the control when asked, and still slides back inside', () => {
+    const a = { right: 224, bottom: 60, top: 22, left: 111 }
+    expect(place({ kind: 'under', of: anchor(a), align: 'start' }, BOX)!.x).toBe(111)
+    expect(place({ kind: 'under', of: anchor(a) }, BOX)!.x).toBe(8)
+    const near = place({ kind: 'under', of: anchor({ right: vw() - 4, bottom: 60, top: 22, left: vw() - 60 }), align: 'start' }, BOX)!
+    expect(near.x).toBe(vw() - BOX.width - 8)
+  })
+
   it('never goes off the left edge for a control near it', () => {
     const at = place({ kind: 'under', of: anchor({ right: 60, bottom: 60, top: 22, left: 10 }) }, BOX)!
     expect(at.x).toBe(8)

@@ -137,6 +137,23 @@ describe('the torrent options dialog', () => {
       .click()
     expect(onClose).toHaveBeenCalled()
   })
+
+  // a button takes the browser's own font unless told otherwise, which drew every row apart from the menus
+  it('draws its rows and Done in the app\'s font', async () => {
+    await mount()
+    const font = getComputedStyle(document.querySelector('[role="dialog"] h2')!).fontFamily
+    expect(font).toContain('system-ui')
+    for (const button of document.querySelectorAll('[role="dialog"] button')) expect(getComputedStyle(button).fontFamily).toBe(font)
+  })
+
+  it('draws a radio\'s icon after its label', async () => {
+    const g = groups()
+    g[0]!.items[0] = { kind: 'radio', id: 'rarest', group: 'order', label: 'Rarest first', selected: true, apply: vi.fn(), icon: <svg data-testid="dir"/> }
+    await mount(g)
+    const row = byLabel('Rarest first')
+    expect(row.querySelector('.label [data-testid="dir"]')).not.toBeNull()
+    expect(row.getAttribute('role')).toBe('radio')
+  })
 })
 
 describe('in the language of the page', () => {

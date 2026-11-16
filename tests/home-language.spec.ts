@@ -664,8 +664,12 @@ const dialogSurfaces = async (page: Page, width: number) => {
 
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
-  await header.locator('button.share').first().click()
-  await expect(dialog).toBeVisible()
+  // a share starts from a torrent's options, Watch then Get a share link, and the dialog's first button asks for another
+  await page.locator('.torrent', { hasText: 'Some.Release.Name.S01.1080p' }).locator('button.more').click()
+  await dialog.getByRole('group').first().getByRole('button').nth(1).click()
+  await expect(dialog.locator('.subject')).toBeVisible()
+  await dialog.locator('footer button').first().click()
+  await expect(dialog.locator('form input')).toBeVisible()
   await read('share, asking')
   await dialog.locator('form input').fill(magnetOf('8', 'Pasted'))
   await dialog.locator('form button').click()
@@ -693,7 +697,7 @@ const dialogSurfaces = async (page: Page, width: number) => {
   await expect(dialog).toHaveCount(0)
 
   await folderToShare(page, true)
-  await header.locator('button.share').nth(1).click()
+  await header.locator('button.create').click()
   await expect(dialog).toBeVisible()
   await read('create')
   await dialog.locator('button.go').click()
@@ -1288,6 +1292,15 @@ test.describe('on a phone', () => {
       expect(bar.bottom).toBeLessThanOrEqual(height)
     })
   }
+
+  /** Sharing is in a torrent's options, and a table row's options have a button, since an iPhone sends no right-click. */
+  test('en: a table row\'s button opens its options, with Get a share link', async ({ page }) => {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, 'table'])
+    await opened(page, 'en')
+    await page.locator('.torrent-table tbody tr').first().getByRole('button', { name: /^Options for / }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Get a share link' })).toBeVisible()
+    await expect(page.locator('main + section'), 'the details stay closed').toHaveCount(0)
+  })
 
   /** A state takes a second line only when one would leave the name too little, so pausing a row keeps its height. */
   test('fr: a state keeps to one line wherever the name has room beside it', async ({ page }) => {

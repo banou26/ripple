@@ -132,6 +132,15 @@ describe('the torrent table', () => {
     expect(props.onSelect).toHaveBeenCalledWith(rows[0])
   })
 
+  /** A right-click is the only other way to a row's options, and Safari on an iPhone sends none on a long press. */
+  it('opens a row\'s options from its own button, without opening the details', async () => {
+    const rows = [t({ name: 'share me' })]
+    const { props, screen } = mount({ torrents: rows })
+    await (await screen).getByRole('button', { name: 'Options for share me' }).click()
+    expect(props.onOptions).toHaveBeenCalledWith(rows[0], null)
+    expect(props.onSelect).not.toHaveBeenCalled()
+  })
+
   it('shows which row the dock is about', async () => {
     const rows = [t(), t()]
     const { screen } = mount({ torrents: rows, selectedId: rows[1]!.id })

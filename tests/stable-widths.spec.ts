@@ -132,8 +132,9 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
 /*
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
  * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
- * the strip under it, which is there before the first torrent too. Under 1440 px a header button gives up its words
- * to stay on one row; at 1440 and on a phone every one still shows them.
+ * the strip under it, which is there before the first torrent too. Settings is a square icon button. Create keeps its
+ * words on a wide window and is a square beside the field on a phone; any other header button with words keeps them at
+ * 1440 px and on a phone.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
   test.setTimeout(240_000)
@@ -169,15 +170,16 @@ test('the library\'s header is one row at the widths most laptops have, in every
           for (const button of await page.locator('header > button').all()) {
             await expect(button, `${language}: a header button without a name`).toHaveAccessibleName(/\S/)
           }
-          // square, and as tall as Share, whose line a CJK fallback font makes up to 5 px taller
-          const setup = (await page.locator('header .setup').boundingBox())!
-          const share = (await page.locator('header .share').first().boundingBox())!
-          if (setup.width !== setup.height || share.height - setup.height > 5) {
-            wrong.push(`${language} in ${font} at ${width} px, the icon button: ${setup.width}x${setup.height} beside Share's ${share.height}`)
+          for (const tool of await page.locator('header .tool:not(.create)').all()) {
+            const box = (await tool.boundingBox())!
+            if (box.width !== box.height) wrong.push(`${language} in ${font} at ${width} px, an icon button: ${box.width}x${box.height}`)
           }
         }
+        for (const create of await page.locator('header .create').all()) {
+          if (width > 700 && !(await create.innerText()).trim()) wrong.push(`${language} in ${font} at ${width} px, Create without its words`)
+        }
         if (width === 1366 || width === 1280) continue
-        const wordless = await page.locator('header > button').evaluateAll((buttons) => buttons
+        const wordless = await page.locator('header > button:not(.tool)').evaluateAll((buttons) => buttons
           .filter((button) => !(button as HTMLElement).innerText.trim())
           .map((button) => button.getAttribute('aria-label')))
         if (wordless.length) wrong.push(`${language} in ${font} at ${width} px, without its words: ${wordless.join(', ')}`)
