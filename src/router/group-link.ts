@@ -40,7 +40,10 @@ const V1 = 1, V2 = 2
 export type LinkTorrent = { magnet: string, private?: boolean }
 
 export type BuiltGroupLink = {
-  /** Null when no torrent can be carried, when there are more than MAX_LINK_TORRENTS, or for an empty name. */
+  /**
+   * Null whenever the link would not read back: no torrent carried, more than MAX_LINK_TORRENTS, an empty name, or a
+   * body past 4 MiB.
+   */
   link: string | null
   /** The torrents the link carries, each once, or would carry past the cap. */
   count: number

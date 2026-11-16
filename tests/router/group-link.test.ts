@@ -338,10 +338,12 @@ describe('building a link', () => {
       .toEqual([{ infoHash: SINTEL, magnet: `magnet:?xt=urn:btih:${SINTEL}&tr=a` }])
   })
 
-  it('hides a part with no = and the part after it, as libtorrent and the library both do', () => {
+  it('hides a part with no = and the part after it, two in a row included, as libtorrent and the library both do', () => {
     const magnet = `magnet:?xt=urn:btih:${SINTEL}&junk&xt=urn:btih:${BUNNY}&tr=a`
     expect(magnetInfoHash(magnet)).toBe(SINTEL)
     expect(roundTrip('Hidden', [magnet])?.torrents).toEqual([{ infoHash: SINTEL, magnet: `magnet:?xt=urn:btih:${SINTEL}&tr=a` }])
+    expect(roundTrip('Hidden', [`magnet:?xt=urn:btih:${SINTEL}&a&b&xt=urn:btmh:1220${V2_A}&tr=a`])?.torrents)
+      .toEqual([{ infoHash: SINTEL, magnet: `magnet:?xt=urn:btih:${SINTEL}&tr=a` }])
   })
 
   it('leaves out a magnet libtorrent refuses, and drops an xt of a kind it ignores', () => {
@@ -373,8 +375,14 @@ describe('building a link', () => {
     expect(build('Over', magnets)).toEqual({ link: null, count: MAX_LINK_TORRENTS + 1, privateLeftOut: 0 })
   })
 
-  it('builds no link for a group name empty once trimmed', () => {
+  it('builds no link for a group name empty once trimmed, or a body past 4 MiB', () => {
     expect(build(' \n\t ', [`magnet:?xt=urn:btih:${SINTEL}`])).toEqual({ link: null, count: 1, privateLeftOut: 0 })
+    expect(build('Long', [`magnet:?xt=urn:btih:${SINTEL}&tr=${'a'.repeat(4 * 1024 * 1024)}`])).toEqual({ link: null, count: 1, privateLeftOut: 0 })
+  })
+
+  it('writes each run of line breaks in the name as one space', () => {
+    expect(roundTrip('a\rb', [`magnet:?xt=urn:btih:${SINTEL}`])?.name).toBe('a b')
+    expect(roundTrip('a\r\n\nb', [`magnet:?xt=urn:btih:${SINTEL}`])?.name).toBe('a b')
   })
 
   it('builds the same link for the same torrents in any order', () => {
@@ -384,13 +392,13 @@ describe('building a link', () => {
     expect(build('Order', [...magnets.slice(13), ...magnets.slice(0, 13)]).link).toBe(link)
   })
 
-  it('gives each torrent of a generated group back as it was sent, from 1 to 1,000 torrents', () => {
+  it('gives each torrent of a generated group back as it was sent, from 1 to 1,000 torrents, 127 in one byte', () => {
     let seed = 7
     const random = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32
     const pick = <T,>(list: T[]) => list[Math.floor(random() * list.length)]!
     const trackers = [[OPENTRACKR, STEALTH], [STEALTH], ['wss%3A%2F%2Ftracker.btorrent.xyz', 'udp%3A%2F%2Fexplodie.org%3A6969'], [PASSKEY], []]
     let next = 0
-    for (const size of [1, 2, 10, 100, 250, 1000]) {
+    for (const size of [1, 2, 10, 100, 127, 250, 1000]) {
       const torrents = Array.from({ length: size }, () => {
         const i = next++
         const kind = random()
