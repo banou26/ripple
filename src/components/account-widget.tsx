@@ -112,6 +112,17 @@ const triggerStyle = css`
 
   &[aria-expanded='true'] .chevron { transform: rotate(180deg); }
 
+  /* a phone's header is one row, so the name gives way first, to an ellipsis */
+  @media (max-width: 700px) {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 6px;
+    padding: 4px 6px 4px 8px;
+
+    .who { overflow: hidden; }
+    .name { max-width: 100%; }
+  }
+
   /* An OUTER ring, where a menu row takes an inset one: this button belongs to the header row with
      Share a torrent, not to the list it opens. That split used to be carried by hue as well, orange
      out here against amber in the menu, and monochrome leaves the geometry to say it alone.

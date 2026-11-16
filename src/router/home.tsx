@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, matchPath, useNavigate, useSearchParams } from 'react-router-dom'
@@ -13,10 +13,10 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
-import { isActive, useTorrents } from '../torrent/use-torrents'
+import { useTorrents } from '../torrent/use-torrents'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
@@ -106,6 +106,12 @@ import type { ShareableMagnets } from '../torrent/use-shareable-magnet'
 
 // a brand and a build, the same in every language
 const WORDMARK = 'Ripple'
+const LOGO = new URL('../assets/logo.svg', import.meta.url).href
+
+/** Up to this width the header is a phone's: one row, the add field folded until it is used, Create an icon. */
+const PHONE_MAX = 700
+/** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
+const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
 
 /**
@@ -385,10 +391,10 @@ export const style = css`
 
   header {
     flex: none;
+    position: relative;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 10px 16px;
+    gap: 12px;
     padding: 12px 18px;
     /* opaque rather than frosted: the bar has to hide the list scrolling under it, and a flat fill
        does that at any contrast setting where a blur only softened it */
@@ -396,24 +402,37 @@ export const style = css`
     border-bottom: 1px solid ${BORDER};
 
     .brand {
+      flex: none;
       display: flex;
-      align-items: baseline;
-      gap: 8px;
+      align-items: center;
+      gap: 10px;
     }
 
-    /* FKN's mark is 1cap of its own font size, so it takes the wordmark's to stand as tall as its capitals */
-    .wordmark, .powered {
+    /* FKN's mark is 1cap of its own font size */
+    .powered {
       font-size: 1.35rem;
+      line-height: 1;
     }
 
-    .wordmark {
-      font-weight: 900;
-      letter-spacing: 0.06em;
-      color: ${TEXT};
+    .logo {
+      display: flex;
       transition: opacity 120ms ease;
 
-      /* it is a link now, and a link that answers nothing under the cursor reads as dead text */
+      /* The file's own slate blues measure 1.8:1 on this bar, so they are drawn inverted with the hue kept, which is
+         the light blue they become in a dark reader. */
+      img {
+        height: 30px;
+        width: auto;
+        filter: invert(1) hue-rotate(180deg);
+      }
+
       &:hover { opacity: 0.75; }
+
+      &:focus-visible {
+        outline: none;
+        border-radius: 4px;
+        box-shadow: 0 0 0 2px ${FOCUS_RING};
+      }
     }
 
     /**
@@ -429,18 +448,11 @@ export const style = css`
      * from a browser's address bar. The pill is the only item in the row now, nothing beside it can
      * squeeze it, and the two buttons that used to carry words carry a tooltip instead.
      */
+    /* the field's floor on a wide window: its icons and the start of its hint, which ends in an ellipsis below this */
     form {
       flex: 1;
       display: flex;
-      /*
-       * The floor is on the FORM and has to cover the icons, not just the text.
-       *
-       * Set to 260 it read as "the field may shrink to 260", which it did, leaving 160px of actual
-       * text once the two icon buttons and the padding took their ~110px out of it. The number that
-       * matters is the readable width of the placeholder, so it is written as that plus what the
-       * chrome costs, and the header wraps the form to its own line rather than go under it.
-       */
-      min-width: 330px;
+      min-width: 240px;
     }
 
     .field {
@@ -469,6 +481,10 @@ export const style = css`
         border-style: dashed;
         background: ${HOVER_WASH};
         box-shadow: 0 0 0 3px ${EMPHASIS};
+      }
+
+      .glyph {
+        display: none;
       }
 
       /* the text itself: no chrome of its own, since the pill around it is the control */
@@ -596,14 +612,21 @@ export const style = css`
       }
     }
 
-    /* Create keeps its words on a wide window; a phone draws it as a square beside the field */
-    .tool.create {
-      width: auto;
-      gap: 7px;
-      padding: 0 14px;
-      font: inherit;
-      font-size: 0.85rem;
-      font-weight: 700;
+    .tool.create span {
+      display: none;
+    }
+
+    @media (width >= ${CREATE_WORDS_MIN}px) {
+      .tool.create {
+        width: auto;
+        gap: 7px;
+        padding: 0 14px;
+        font: inherit;
+        font-size: 0.85rem;
+        font-weight: 700;
+
+        span { display: inline; }
+      }
     }
   }
 
@@ -675,6 +698,10 @@ export const style = css`
       align-items: center;
       flex-wrap: wrap;
       gap: 14px 26px;
+    }
+
+    .line {
+      display: contents;
     }
 
     .stat {
@@ -1549,30 +1576,95 @@ export const style = css`
           color: ${TEXT};
           border-color: ${BORDER_STRONG};
         }
-      }
     }
   }
 
-  /* a phone: the brand with the header's buttons on one row, then the add field with Create beside it */
-  @media (max-width: 700px) {
-    header .brand {
-      flex: 1;
-    }
+  /*
+   * A phone: one row, of which fkn.app's 140 px Connect FKN frame takes nearly half at 320 px. So the add field folds
+   * to its search glyph, its file and its + until it is pressed, and unfolds over the controls after it while it is
+   * used or holds a search. They stay in the tab order under it: reaching one hands the row back to them.
+   */
+  @media (max-width: ${PHONE_MAX}px) {
+    header {
+      gap: 4px;
+      padding: 8px;
 
-    header form, header .create {
-      order: 1;
-    }
+      .powered {
+        display: none;
+      }
 
-    header .tool.create {
-      width: 38px;
-      padding: 0;
+      .logo img {
+        height: 24px;
+      }
 
-      span { display: none; }
-    }
+      form {
+        flex: none;
+        min-width: 0;
+        margin-right: auto;
+      }
 
-    header form {
-      flex: 1 1 calc(100% - 54px);
-      min-width: 0;
+      .field {
+        position: relative;
+        padding: 2px 2px 2px 3px;
+
+        .glyph {
+          display: block;
+          position: absolute;
+          left: 7px;
+          top: calc(50% - 8px);
+          width: 16px;
+          height: 16px;
+          color: ${TEXT_MUTED};
+          pointer-events: none;
+        }
+
+        /* folded to the glyph over its start, with no room for its hint */
+        input:not([type='file']) {
+          flex: 0 0 22px;
+          box-sizing: border-box;
+          width: 22px;
+          padding: 6px 0 6px 22px;
+
+          &::placeholder { color: transparent; }
+        }
+
+        .sep {
+          margin: 0 1px;
+        }
+      }
+
+      .icon, .tool {
+        width: 30px;
+        height: 30px;
+      }
+
+      /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 348 px it is drawn smaller */
+      @media (width < 348px) {
+        iframe {
+          transform: scale(0.78);
+          margin: 0 -15px;
+        }
+      }
+
+      &[data-searching] {
+        form, .field input:not([type='file']) {
+          flex: 1 1 auto;
+        }
+
+        .field input:not([type='file']) {
+          padding-left: 26px;
+
+          &::placeholder { color: ${TEXT_MUTED}; }
+        }
+
+        > :not(.brand, form) {
+          position: absolute;
+          top: 0;
+          left: 0;
+          opacity: 0;
+          pointer-events: none;
+        }
+      }
     }
 
     /* the panels around it can take a whole phone, so the list keeps room for a row and the page scrolls; with the
@@ -1584,19 +1676,50 @@ export const style = css`
 
     .stats {
       flex-direction: column;
-      gap: 12px;
-      padding: 12px 14px;
+      margin: 10px 10px 0;
+      padding: 10px 12px;
 
+      /* one flex line, which a line of readouts stretches across: a wrapping column would size it to its words */
       .readouts {
-        gap: 18px;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 6px;
+      }
+
+      /* Padded so the VPN switch's target, which overhangs its box, and a focus ring are not cut by the scroll. */
+      .line {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin: -4px -8px;
+        padding: 4px 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        --fade-start: 0px;
+        --fade-end: 0px;
+        mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+
+        &::-webkit-scrollbar { display: none; }
+        &[data-more-start] { --fade-start: 28px; }
+        &[data-more-end] { --fade-end: 28px; }
+
+        > * { flex: none; }
+      }
+
+      /* the VPN's switch where Active was, first after the speeds */
+      .vpn { order: -1; }
+
+      .stat label, .stat .name {
+        font-size: 0.6rem;
       }
 
       .stat strong {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
 
       .stat.big strong {
-        font-size: 1.25rem;
+        font-size: 1.15rem;
       }
 
       .graph, .inbound {
@@ -2146,17 +2269,46 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   )
 }, same)
 
-/** The header's phone layout, where the add field shares its row with Create. */
-const PHONE = '(max-width: 700px)'
-const onPhoneChange = (changed: () => void) => {
-  const query = matchMedia(PHONE)
+/**
+ * A line of the stats strip. A wide window flows every readout of both lines as one; a phone gives each line a row of
+ * its own, which scrolls sideways where its words do not fit and fades at an end with more past it.
+ */
+const ReadoutLine = ({ children }: { children: ReactNode }) => {
+  const ref = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState({ start: false, end: false })
+  const read = useCallback(() => {
+    const box = ref.current
+    if (!box) return
+    const start = box.scrollLeft > 1
+    const end = box.scrollLeft + box.clientWidth < box.scrollWidth - 1
+    setMore((was) => (was.start === start && was.end === end ? was : { start, end }))
+  }, [])
+  // a readout's words change with every engine tick, and a resize moves the end, so each render reads it again
+  useLayoutEffect(read)
+  useEffect(() => {
+    addEventListener('resize', read)
+    return () => removeEventListener('resize', read)
+  }, [read])
+  return (
+    <div ref={ref} className="line" data-more-start={more.start || undefined} data-more-end={more.end || undefined} onScroll={read}>
+      {children}
+    </div>
+  )
+}
+
+const WORDLESS = `(width < ${CREATE_WORDS_MIN}px)`
+const onWordlessChange = (changed: () => void) => {
+  const query = matchMedia(WORDLESS)
   query.addEventListener('change', changed)
   return () => query.removeEventListener('change', changed)
 }
 
+/** Keeps the focus where it is through a press, so the add field neither folds nor unfolds under a button in it. */
+const keepFocus = (e: ReactMouseEvent) => e.preventDefault()
+
 const Home = () => {
   const intl = useIntl()
-  const phone = useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches)
+  const wordless = useSyncExternalStore(onWordlessChange, () => matchMedia(WORDLESS).matches)
   const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -2167,6 +2319,11 @@ const Home = () => {
   const navigate = useNavigate()
 
   const fieldRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  // where the focus is in the header: in the add field, on another of its controls, or outside it
+  const [headerFocus, setHeaderFocus] = useState<'field' | 'other' | null>(null)
+  // a phone's add field unfolds over the header's other controls while it is used or holds a search
+  const searching = headerFocus === 'field' || (!!input && headerFocus !== 'other')
   const [embedOpen, setEmbedOpen] = useState(false)
   /**
    * What the share dialog is building a link FOR.
@@ -3140,7 +3297,6 @@ const Home = () => {
   const totalDown = torrents.reduce((n, t) => n + t.down, 0)
   const totalUp = torrents.reduce((n, t) => n + t.up, 0)
   const speedRoom = room(speed, WIDEST_SPEEDS)
-  const active = torrents.filter((t) => isActive(t.state)).length
 
   /**
    * What the list actually shows, filtered and arranged, with the ORDER held still for a moment at a
@@ -3314,11 +3470,15 @@ const Home = () => {
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
-      <header>
+      <header
+        data-searching={searching || undefined}
+        onFocus={(e) => setHeaderFocus(formRef.current?.contains(e.target) ? 'field' : 'other')}
+        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setHeaderFocus(null) }}
+      >
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
-          <Link className="wordmark" to="/">{WORDMARK}</Link>
+          <Link className="logo" to="/"><img src={LOGO} alt={WORDMARK} width={553} height={561}/></Link>
           <PoweredByFkn
             className="powered"
             label={intl.formatMessage({ id: 'Powered by FKN', defaultMessage: 'Powered by FKN' })}
@@ -3327,6 +3487,7 @@ const Home = () => {
           />
         </span>
         <form
+          ref={formRef}
           onSubmit={(e) => {
             e.preventDefault()
             if (commitMagnet(input)) setInput('')
@@ -3354,6 +3515,8 @@ const Home = () => {
               if (!storageUnavailable) acceptDrop(e.dataTransfer)
             }}
           >
+            {/* drawn over the start of the text, which is all a phone shows of it while it is folded */}
+            <Search className="glyph" aria-hidden="true"/>
             <input
               ref={fieldRef}
               value={input}
@@ -3370,6 +3533,7 @@ const Home = () => {
               <button
                 className="icon"
                 type="button"
+                onMouseDown={keepFocus}
                 {...hint(intl.formatMessage({ id: 'Clear', defaultMessage: 'Clear' }))}
                 aria-label={intl.formatMessage({ id: 'Clear', defaultMessage: 'Clear' })}
                 onClick={() => { setInput(''); fieldRef.current?.focus() }}
@@ -3390,6 +3554,7 @@ const Home = () => {
               */}
             <label
               className="icon file-button"
+              onMouseDown={keepFocus}
               {...hint(intl.formatMessage({ id: 'Open a .torrent file', defaultMessage: 'Open a .torrent file' }))}
               aria-label={intl.formatMessage({ id: 'Open a .torrent file', defaultMessage: 'Open a .torrent file' })}
               aria-disabled={storageUnavailable || undefined}
@@ -3413,6 +3578,7 @@ const Home = () => {
             <button
               className="icon go"
               type="submit"
+              onMouseDown={keepFocus}
               {...hint(intl.formatMessage({ id: 'Add this magnet link', defaultMessage: 'Add this magnet link' }))}
               aria-label={intl.formatMessage({ id: 'Add', defaultMessage: 'Add' })}
               disabled={storageUnavailable || !adds}
@@ -3427,14 +3593,14 @@ const Home = () => {
             type="button"
             aria-label={createLabel}
             aria-expanded={createOpen}
-            {...hint(phone ? createLabel : null)}
+            {...hint(wordless ? createLabel : null)}
             onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
           >
             <SquarePen/>
             <span>{createLabel}</span>
           </button>
         )}
-        <Link className="tool" to={getRoutePath(Route.SETTINGS)} aria-label={settingsLabel} {...hint(settingsLabel)}><Gear/></Link>
+        <Link className="tool settings" to={getRoutePath(Route.SETTINGS)} aria-label={settingsLabel} {...hint(settingsLabel)}><Gear/></Link>
         <AccountWidget onToast={showToast}/>
       </header>
 
@@ -3528,7 +3694,7 @@ const Home = () => {
         <section className="stats surface">
           <div className="readouts">
             {torrents.length > 0 && (
-              <>
+              <ReadoutLine>
                 <div className="stat big rate">
                   <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
                   <strong data-room={speedRoom}>{speed(totalDown)}</strong>
@@ -3537,27 +3703,27 @@ const Home = () => {
                   <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
                   <strong data-room={speedRoom}>{speed(totalUp)}</strong>
                 </div>
-                {/* Which direction this is has to be said. `history` samples download alone, so a
-                    library that is purely seeding shows a flat 0 here, and beside DOWNLOAD 0 B/s and an
-                    ACTIVE that used to ignore seeding, the strip read as idle while it was uploading to
-                    forty peers. */}
+                {/* Which direction this is has to be said: `history` samples download alone, so a library that is
+                    purely seeding shows a flat 0 here. */}
                 <div className="stat rate">
                   <label>{intl.formatMessage({ id: 'Peak down', defaultMessage: 'Peak down' })}</label>
                   <strong data-room={speedRoom}>{speed(peak)}</strong>
                 </div>
-                <div className="stat">
-                  <label>{intl.formatMessage({ id: 'Active', defaultMessage: 'Active' })}</label>
-                  <strong>{intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: active, total: torrents.length })}</strong>
-                </div>
-                {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
-                {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
-                {storage && <StorageStat storage={storage} low={lowStorage}/>}
-                {quota && <QuotaStat quota={quota}/>}
-              </>
+              </ReadoutLine>
             )}
-            {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
-            <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
-            {torrents.length > 0 && <SyncStat state={syncState}/>}
+            <ReadoutLine>
+              {torrents.length > 0 && (
+                <>
+                  {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
+                  {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
+                  {storage && <StorageStat storage={storage} low={lowStorage}/>}
+                  {quota && <QuotaStat quota={quota}/>}
+                </>
+              )}
+              {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
+              <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
+              {torrents.length > 0 && <SyncStat state={syncState}/>}
+            </ReadoutLine>
           </div>
           {torrents.length > 0 && <SpeedGraph history={history}/>}
         </section>
