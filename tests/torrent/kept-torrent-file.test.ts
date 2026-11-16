@@ -64,6 +64,7 @@ describe('a torrent added from a .torrent file', () => {
     await vi.waitFor(() => expect(rig.of('ready'), 'the engine never started').toHaveLength(1))
     rig.send({ type: 'add-torrent-file', bytes: TORRENT, savePath: '/dl', ephemeral: false, paused: false })
     await vi.waitFor(() => expect(rig.of('added'), 'the add never landed').toHaveLength(1))
+    expect(rig.of('add-failed'), 'a first add was said to be in the list already').toEqual([])
 
     const identity = rig.of('added')[0]!.magnet as string
     expect(identity, 'the stored identity changed, and every existing library entry is compared against it')
