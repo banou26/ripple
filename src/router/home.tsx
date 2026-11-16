@@ -2990,10 +2990,12 @@ const Home = () => {
   }, [params, setParams, askNext])
 
   const cancelAdd = useCallback(() => {
-    // only the cache entry this flow created. Anything already theirs was never ours to remove.
-    if (pendingTorrent?.ephemeral) remove(Number(pendingTorrent.id), true)
+    // Only the cache entry this flow created: anything already theirs was never ours to remove. Read off the list and
+    // removed by hash, because the list has the add up to one engine state (500 ms) before a row with its handle does.
+    const entry = pendingAdd && !pendingAdd.bytes ? list.find((e) => e.infoHash === pendingAdd.infoHash) : undefined
+    if (entry?.ephemeral) removeMissing(entry.infoHash)
     closeAdd()
-  }, [pendingTorrent, remove, closeAdd])
+  }, [pendingAdd, list, removeMissing, closeAdd])
 
   const confirmAdd = useCallback(() => {
     if (!pendingAdd || !choices) return

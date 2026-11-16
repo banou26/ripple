@@ -168,7 +168,9 @@ const handOver = (page: Page, gesture: 'paste' | 'drag' | 'drop', magnet: string
 
 test('a paste or a drop while the add dialog asks leaves the torrent it asks about', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.addInitScript(probeEngine)
   await page.goto('/')
+  await engineReady(page)
   const dialog = page.getByRole('dialog')
   const OTHER = `magnet:?xt=urn:btih:${'b'.repeat(40)}&dn=Other`
 
@@ -190,6 +192,21 @@ test('a paste or a drop while the add dialog asks leaves the torrent it asks abo
   await expect(page.locator('[data-drag]')).toHaveCount(1)
   await handOver(page, 'drop', OTHER)
   await expect(dialog.locator('h2')).toHaveText('Other')
+})
+
+test('Cancel takes back the torrent the add dialog asked about from the moment it is listed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+
+  await handOver(page, 'paste', NOBODY)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Own')
+  // at once: the library lists an add up to one engine state (500 ms) before the engine's state carries it
+  await page.waitForFunction(() => document.querySelectorAll('.torrent').length === 1, null, { polling: 'raf' })
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.locator('.torrent')).toHaveCount(0)
 })
 
 test('a magnet that names two torrents is refused rather than listed as one of them', async ({ page }) => {
