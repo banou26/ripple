@@ -120,6 +120,56 @@ describe('the count of downloads finished while the tab is hidden', () => {
     expect(icon.getAttribute('href')).toBe(ordinaryIcon)
   })
 
+  it('takes a badge the browser refuses in its stride', async () => {
+    const refused = (event: PromiseRejectionEvent) => { unhandled.push(event.reason) }
+    const unhandled: unknown[] = []
+    window.addEventListener('unhandledrejection', refused)
+    // plain functions: a vi.fn handles the promises it returns, to record how they settled
+    const asked: string[] = []
+    const refuse = (what: string) => () => { asked.push(what); return Promise.reject(new DOMException('refused', 'NotAllowedError')) }
+    Object.defineProperty(navigator, 'setAppBadge', { configurable: true, value: refuse('set') })
+    Object.defineProperty(navigator, 'clearAppBadge', { configurable: true, value: refuse('clear') })
+    try {
+      show('hidden')
+      const screen = await render(<Probe torrents={[row('a', 'downloading')]}/>)
+      await screen.rerender(<Probe torrents={[row('a', 'seeding')]}/>)
+      await expect.poll(() => document.title).toBe(`(1) ${TITLE}`)
+      show('visible')
+      await expect.poll(() => document.title).toBe(TITLE)
+      expect(asked).toEqual(['set', 'clear'])
+      // a rejection nobody handled is reported a task after it settles
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(unhandled).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', refused)
+    }
+  })
+
+  it('leaves the icon as it was when the tab is seen before the dotted copy could be drawn', async () => {
+    const images: HTMLImageElement[] = []
+    let decoded = () => {}
+    const Real = window.Image
+    vi.stubGlobal('Image', function () {
+      const image = new Real()
+      images.push(image)
+      Object.defineProperty(image, 'onload', { set: (draw: () => void) => { decoded = () => draw.call(image) } })
+      return image
+    })
+    try {
+      show('hidden')
+      const screen = await render(<Probe torrents={[row('a', 'downloading')]}/>)
+      await screen.rerender(<Probe torrents={[row('a', 'seeding')]}/>)
+      await expect.poll(() => document.title).toBe(`(1) ${TITLE}`)
+      show('visible')
+      await expect.poll(() => document.title).toBe(TITLE)
+      await images[0]!.decode()
+      decoded()
+      expect(icon.getAttribute('href')).toBe(ordinaryIcon)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('still counts where the browser has no badge', async () => {
     delete (navigator as { setAppBadge?: unknown }).setAppBadge
     const own = Object.getOwnPropertyDescriptor(Navigator.prototype, 'setAppBadge')
