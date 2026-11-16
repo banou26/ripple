@@ -1403,6 +1403,38 @@ test.describe('the header', () => {
     expect(await field(page).evaluate(input => input.getBoundingClientRect().width)).toBeLessThanOrEqual(22)
   })
 
+  test('on a phone a search in the add field stays folded while the Connect FKN frame has the focus, reached either way', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(origin)
+    await signIn(page, null, null, 'out')
+    await library(page, LIST, TORRENTS)
+    const frame = page.locator('header iframe')
+    // fkn.app's button in the frame, which the offline browser cannot load and which would leave it nothing to focus
+    await frame.evaluate((element: HTMLIFrameElement) => { element.srcdoc = '<!doctype html><button>Connect FKN</button>' })
+    await expect(page.frameLocator('header iframe').getByRole('button', { name: 'Connect FKN' }), 'the control: the frame takes a focus').toBeVisible()
+    const width = () => field(page).evaluate(input => input.getBoundingClientRect().width)
+    const focused = () => page.evaluate(() => document.activeElement?.tagName)
+    await field(page).fill('Release')
+    await page.locator('header a.settings').focus()
+    expect(await width(), 'folded beside the gear').toBeLessThanOrEqual(22)
+
+    await page.keyboard.press('Tab')
+    await expect.poll(focused).toBe('IFRAME')
+    await expect(frame).toHaveCSS('opacity', '1')
+    expect(await width(), 'folded beside the frame').toBeLessThanOrEqual(22)
+
+    // past the frame the focus leaves the header, and the search shows again
+    await page.keyboard.press('Tab')
+    await expect.poll(focused).not.toBe('IFRAME')
+    expect(await page.evaluate(() => !!document.activeElement?.closest('header')), 'the control: the focus is past the header').toBe(false)
+    await expect.poll(width).toBeGreaterThanOrEqual(120)
+
+    await page.keyboard.press('Shift+Tab')
+    await expect.poll(focused).toBe('IFRAME')
+    await expect(frame).toHaveCSS('opacity', '1')
+    await expect.poll(width).toBeLessThanOrEqual(22)
+  })
+
   test('the logo is the way home, named Ripple', async ({ page }) => {
     await page.goto(origin)
     await library(page, LIST, TORRENTS)

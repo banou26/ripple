@@ -2299,8 +2299,28 @@ const Home = () => {
 
   const fieldRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
   // where the focus is in the header: in the add field, on another of its controls, or outside it
   const [headerFocus, setHeaderFocus] = useState<'field' | 'other' | null>(null)
+  /*
+   * Read from the document whenever the focus moves, not from the header's own focus events: a move into fkn.app's
+   * Connect FKN frame names no element the header could see, and only the window's blur follows it, with the frame
+   * then the active element.
+   */
+  useEffect(() => {
+    const read = () => {
+      const at = document.activeElement
+      setHeaderFocus(formRef.current?.contains(at) ? 'field' : headerRef.current?.contains(at) ? 'other' : null)
+    }
+    document.addEventListener('focusin', read)
+    document.addEventListener('focusout', read)
+    addEventListener('blur', read)
+    return () => {
+      document.removeEventListener('focusin', read)
+      document.removeEventListener('focusout', read)
+      removeEventListener('blur', read)
+    }
+  }, [])
   // a phone's add field unfolds over the header's other controls while it is used or holds a search
   const searching = headerFocus === 'field' || (!!input && headerFocus !== 'other')
   const [embedOpen, setEmbedOpen] = useState(false)
@@ -3449,11 +3469,7 @@ const Home = () => {
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
-      <header
-        data-searching={searching || undefined}
-        onFocus={(e) => setHeaderFocus(formRef.current?.contains(e.target) ? 'field' : 'other')}
-        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setHeaderFocus(null) }}
-      >
+      <header ref={headerRef} data-searching={searching || undefined}>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
