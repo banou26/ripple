@@ -57,6 +57,7 @@ import { useFinishNotice } from './finish-notice'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
+import { useLeavePrompt } from './leave-prompt'
 import { useConfirm } from '../components/confirm-dialog'
 import { MODAL_Z_INDEX } from '../components/modal'
 import { ShareLinkDialog } from '../components/share-link-dialog'
@@ -2194,6 +2195,7 @@ const Home = () => {
   }, [])
 
   useEffect(() => client.onAddFailed(showToast), [client, showToast])
+  useLeavePrompt(torrents, client.owns())
 
   // Mounted once, here, because it drives the WHOLE library rather than a row: every job opens a
   // libav worker, so one owner with a queue is the difference between one at a time and one per row.

@@ -161,6 +161,27 @@ test('a torrent of one\'s own answers the offer too, and removing it does not br
   await expect(offer).toHaveCount(0)
 })
 
+test('closing the tab asks first while a torrent of one\'s own downloads, and not once it is paused', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.goto('/')
+  await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const row = page.locator('.torrent').first()
+  await expect(row.locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+
+  const asked: string[] = []
+  page.on('dialog', (dialog) => { asked.push(dialog.type()); void dialog.dismiss() })
+  await page.close({ runBeforeUnload: true })
+  await expect.poll(() => asked).toEqual(['beforeunload'])
+  expect(page.isClosed(), 'the prompt was turned down, so the tab stays').toBe(false)
+
+  await row.getByRole('button', { name: 'Pause Own', exact: true }).click()
+  await expect(row.locator('.badge')).toHaveText('Paused')
+  await page.close({ runBeforeUnload: true })
+  await expect.poll(() => page.isClosed()).toBe(true)
+  expect(asked).toEqual(['beforeunload'])
+})
+
 test('a link turned down leaves the offer standing', async ({ page }) => {
   await page.goto(`/add?magnet=${encodeURIComponent(NOBODY)}`)
   // listed as temporary while its dialog asks, which is not an answer to the offer
