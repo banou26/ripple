@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "Файл {path} изменился во время чтения. Попробуйте снова.",
   "{selected} selected, {free} free": "Выбрано: {selected}, свободно: {free}",
   "{sentence} {count} accepted this session.": "{sentence} Принято за сессию: {count}.",
+  "{size} ({whole})": "{size} ({whole})",
   "{size} KiB": "{size} КБ",
   "{size} MiB": "{size} МБ",
   "{size} left": "Осталось {size}",

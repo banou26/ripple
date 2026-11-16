@@ -84,7 +84,7 @@ import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
 import { FileGlyph } from './file-glyph'
 import { badgeRules } from './badge-style'
-import { STATE_LABEL, retryLine, speed } from './torrent-format'
+import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
@@ -1873,9 +1873,13 @@ const WIDEST_SIZES = [999.9, 999.9e3, 999.9e6, 999.99e9, 999.99e12]
 /** What `write` makes of each figure, one per line, which is what data-room takes. */
 const room = (write: (figure: number) => string, figures: number[]) => figures.map(write).join('\n')
 
-/** A row's live figures, written by one function each so that the text and the room it keeps agree. */
-const rowFigures = (intl: IntlShape, size: number) => {
-  const total = getHumanReadableByteString(size, true)
+/**
+ * A row's live figures, written by one function each so that the text and the room it keeps agree. `chosen` is the
+ * size of the chosen files where some are left out, whose total then carries the whole `size` in brackets.
+ */
+const rowFigures = (intl: IntlShape, size: number, chosen?: number) => {
+  const whole = getHumanReadableByteString(size, true)
+  const total = chosen === undefined ? whole : withWhole(intl, getHumanReadableByteString(chosen, true), whole)
   const pair = (done: number) => intl.formatMessage({ id: '{done} / {total}', defaultMessage: '{done} / {total}' }, { done: getHumanReadableByteString(done, true), total })
   const down = (bps: number) => intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(bps) })
   const up = (bps: number) => intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(bps) })
@@ -1917,7 +1921,8 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
    * same component, which React treats as a corrupted render rather than a state change.
    */
   const poster = useThumbnail(t.infoHash)
-  const figures = useMemo(() => rowFigures(intl, t.size), [intl, t.size])
+  const chosen = chosenBytes(t)
+  const figures = useMemo(() => rowFigures(intl, t.size, chosen?.size), [intl, t.size, chosen?.size])
   if (t.state === 'starting') return <StartingRow t={t} poster={poster}/>
   if (t.state === 'missing') {
     return (
@@ -2000,7 +2005,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
                   <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
               )}
-              <span className="pair" data-room={figures.rooms.pair}>{figures.pair(t.downloaded)}</span>
+              <span className="pair" data-room={figures.rooms.pair}>{figures.pair(chosen?.done ?? t.downloaded)}</span>
               <span className="rate" data-room={figures.rooms.down}>{figures.down(t.down)}</span>
               <span className="rate" data-room={figures.rooms.up}>{figures.up(t.up)}</span>
               <span className="peers" data-room={figures.rooms.peers}>{figures.peers(t.peers)}</span>

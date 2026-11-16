@@ -426,6 +426,27 @@ describe('a library row', () => {
     expect(stalled.container.querySelector('.meta')?.textContent).not.toContain('queued left')
   })
 
+  it('reads the chosen files with the whole in brackets once files are left out, and as before while none is', async () => {
+    thumbnail.current = null
+    // a hybrid's 16 KiB pieces: a pad pushes b onto piece 2; pieces 0, 1 and 4 are held
+    const pack = {
+      size: 85_536,
+      downloaded: 52_768,
+      files: [
+        { name: 'Pack/a.mkv', size: 20_000, offset: 0, index: 0 },
+        { name: 'Pack/.pad/12768', size: 12_768, offset: 20_000, index: 1, pad: true },
+        { name: 'Pack/b.mkv', size: 32_768, offset: 32_768, index: 2 },
+        { name: 'Pack/c.mkv', size: 32_768, offset: 65_536, index: 3 },
+      ],
+      bitfield: { pieces: new Uint8Array([0b1100_1000]), numPieces: 6, pieceLength: 16_384, length: 98_304 },
+    }
+    const pairOf = async (over: Partial<Torrent>) => (await mount(torrent({ ...pack, ...over }))).container.querySelector<HTMLElement>('.pair')!
+    const pair = await pairOf({ wantedFiles: [0, 3] })
+    expect(pair.textContent).toBe('36.4 kB / 52.8 kB (85.5 kB)')
+    expect(pair.dataset.room!.split('\n').every((line) => line.endsWith(' / 52.8 kB (85.5 kB)')), 'its room is the bracketed text\'s').toBe(true)
+    expect((await pairOf({})).textContent).toBe('52.8 kB / 85.5 kB')
+  })
+
   /**
    * Selection is what fills the docked details panel, so the ordinary click on a card has to be it.
    * The panel lives at the bottom of the page now rather than inside the row, which is why none of

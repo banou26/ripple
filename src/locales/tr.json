@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "{path} okunurken değişti. Yeniden deneyin.",
   "{selected} selected, {free} free": "{selected} seçili, {free} boş",
   "{sentence} {count} accepted this session.": "{sentence} Bu oturumda kabul edilen: {count}.",
+  "{size} ({whole})": "{size} ({whole})",
   "{size} KiB": "{size} KiB",
   "{size} MiB": "{size} MiB",
   "{size} left": "{size} kaldı",

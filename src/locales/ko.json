@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "{path} 파일이 읽는 중에 바뀌었어요. 다시 시도하세요.",
   "{selected} selected, {free} free": "{selected} 선택됨, {free} 남음",
   "{sentence} {count} accepted this session.": "{sentence} 이번 세션에서 수락: {count}.",
+  "{size} ({whole})": "{size} ({whole})",
   "{size} KiB": "{size} KiB",
   "{size} MiB": "{size} MiB",
   "{size} left": "{size} 남음",

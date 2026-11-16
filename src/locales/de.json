@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "{path} wurde beim Lesen geändert. Versuche es erneut.",
   "{selected} selected, {free} free": "{selected} ausgewählt, {free} frei",
   "{sentence} {count} accepted this session.": "{sentence} In dieser Sitzung angenommen: {count}.",
+  "{size} ({whole})": "{size} ({whole})",
   "{size} KiB": "{size} KiB",
   "{size} MiB": "{size} MiB",
   "{size} left": "{size} übrig",

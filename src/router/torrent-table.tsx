@@ -1,4 +1,4 @@
-import type { MessageDescriptor } from 'react-intl'
+import type { IntlShape, MessageDescriptor } from 'react-intl'
 
 import type { Torrent } from '../torrent/types'
 import type { SortDir, SortKey } from '../torrent/list-view'
@@ -13,7 +13,7 @@ import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '..
 import { noPeersLine } from '../torrent/no-peers'
 import { badgeRules } from './badge-style'
 import { pickable } from './bulk-selection'
-import { STATE_LABEL, relativeDay, speed } from './torrent-format'
+import { STATE_LABEL, chosenBytes, relativeDay, speed, withWhole } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
 import { RowCheck, pickedRowStyle } from '../components/bulk-actions'
@@ -210,6 +210,13 @@ const COLUMNS: Column[] = [
 const ARROW = { asc: '↑', desc: '↓' }
 const UNKNOWN = '-'
 
+/** The size column: the chosen files' with the whole torrent's in brackets where files are left out. */
+const sizeOf = (intl: IntlShape, t: Torrent): string => {
+  const chosen = chosenBytes(t)
+  if (chosen) return withWhole(intl, getHumanReadableByteString(chosen.size), getHumanReadableByteString(t.size))
+  return t.size > 0 ? getHumanReadableByteString(t.size) : UNKNOWN
+}
+
 export type TorrentTableProps = {
   torrents: readonly Torrent[]
   sortKey: SortKey
@@ -296,7 +303,7 @@ export const TorrentTable = (
               <span className="title">{t.name}</span>
             </div>
           </td>
-          <td className="c-size num">{t.size > 0 ? getHumanReadableByteString(t.size) : UNKNOWN}</td>
+          <td className="c-size num">{sizeOf(intl, t)}</td>
           <td className="c-progress">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div className="bar"><div className="fill" style={{ width: `${Math.round(t.progress * 100)}%` }}/></div>

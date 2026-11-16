@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "{path} 在讀取時被變更。請重試。",
   "{selected} selected, {free} free": "已選{selected}，可用{free}",
   "{sentence} {count} accepted this session.": "{sentence}本次工作階段已接受：{count}。",
+  "{size} ({whole})": "{size}（{whole}）",
   "{size} KiB": "{size} KiB",
   "{size} MiB": "{size} MiB",
   "{size} left": "剩餘{size}",

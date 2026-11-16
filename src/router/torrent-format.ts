@@ -1,8 +1,12 @@
+import type { IntlShape } from 'react-intl'
+
 import type { Torrent } from '../torrent/types'
 
 import { defineMessages } from 'react-intl'
 
 import { intl } from '../i18n'
+import { heldBytes } from '../torrent/downloaded-ranges'
+import { chosenFiles, leavesFilesOut } from '../torrent/types'
 import { writeDuration } from '../torrent/uptime'
 import { getHumanReadableSpeed } from '../utils/bytes'
 
@@ -27,6 +31,24 @@ export const STATE_LABEL = defineMessages<Torrent['state']>({
 })
 
 export const speed = (bps: number): string => getHumanReadableSpeed(bps, true)
+
+/**
+ * The chosen files' bytes and how many of them are held, counted in whole pieces as the Files tab counts each file, or
+ * undefined when no file is left out.
+ */
+export const chosenBytes = (t: Torrent): { done: number, size: number } | undefined => {
+  if (!leavesFilesOut(t)) return undefined
+  const files = chosenFiles(t)
+  const { bitfield } = t
+  return {
+    size: files.reduce((sum, f) => sum + f.size, 0),
+    done: files.reduce((sum, f) => sum + (bitfield && f.offset !== undefined ? heldBytes(bitfield, { offset: f.offset, size: f.size }) : 0), 0),
+  }
+}
+
+/** A size of the chosen files, with the whole torrent's after it in brackets. */
+export const withWhole = (words: IntlShape, size: string, whole: string): string =>
+  words.formatMessage({ id: '{size} ({whole})', defaultMessage: '{size} ({whole})' }, { size, whole })
 
 /**
  * How long ago, in the shortest form that is still true.

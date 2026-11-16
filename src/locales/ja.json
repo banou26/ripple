@@ -533,6 +533,7 @@
   "{path} changed while it was being read. Try again.": "{path} が読み込み中に変更されました。もう一度お試しください。",
   "{selected} selected, {free} free": "{selected}を選択、空き{free}",
   "{sentence} {count} accepted this session.": "{sentence}このセッションで受け入れた数：{count}。",
+  "{size} ({whole})": "{size}（{whole}）",
   "{size} KiB": "{size} KiB",
   "{size} MiB": "{size} MiB",
   "{size} left": "残り{size}",

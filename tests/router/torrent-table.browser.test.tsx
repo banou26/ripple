@@ -201,6 +201,16 @@ describe('the torrent table', () => {
     expect((await screen).container.querySelectorAll('tbody tr')).toHaveLength(3)
   })
 
+  it('sizes a torrent with files left out by the chosen ones, the whole in brackets', async () => {
+    const files = [
+      { name: 'Pack/a.mkv', size: 20_000, offset: 0, index: 0 },
+      { name: 'Pack/.pad/12768', size: 12_768, offset: 20_000, index: 1, pad: true },
+      { name: 'Pack/b.mkv', size: 32_768, offset: 32_768, index: 2 },
+    ]
+    const { screen } = mount({ torrents: [t({ size: 52_768, files, wantedFiles: [2] }), t({ size: 52_768, files })] })
+    expect([...(await screen).container.querySelectorAll('td.c-size')].map((td) => td.textContent)).toEqual(['32.8 kB (52.8 kB)', '52.8 kB'])
+  })
+
   describe('in the language of the page', () => {
     afterEach(showEnglish)
 

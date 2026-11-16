@@ -2,9 +2,10 @@ import type { Torrent } from '../../src/torrent/types'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { startLanguage } from '../../src/i18n'
+import { intl, startLanguage } from '../../src/i18n'
 import de from '../../src/locales/de.json'
-import { relativeDay, retryLine, speed } from '../../src/router/torrent-format'
+import ja from '../../src/locales/ja.json'
+import { chosenBytes, relativeDay, retryLine, speed, withWhole } from '../../src/router/torrent-format'
 import { showIn } from '../i18n/show-in'
 
 /**
@@ -96,6 +97,38 @@ describe('in the language of the page', () => {
   it('writes a row\'s speed with the language\'s own per second', async () => {
     await startLanguage({ language: 'ja', languages: ['ja-JP'], catalogues: { '../locales/ja.json': async () => ({}) } })
     expect(speed(1_500_000).replace(/\s/gu, ' ')).toBe('1.5 MB/秒')
+  })
+})
+
+describe('the chosen files a row counts', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+
+  // a hybrid's 16 KiB pieces: a pad pushes b onto piece 2; pieces 0, 1 and 4 are held
+  const files = [
+    { name: 'a.mkv', size: 20_000, offset: 0, index: 0 },
+    { name: '.pad/12768', size: 12_768, offset: 20_000, index: 1, pad: true },
+    { name: 'b.mkv', size: 32_768, offset: 32_768, index: 2 },
+    { name: 'c.mkv', size: 32_768, offset: 65_536, index: 3 },
+  ]
+  const bitfield = { pieces: new Uint8Array([0b1100_1000]), numPieces: 6, pieceLength: 16_384, length: 98_304 }
+
+  it('are none to count with no file left out', () => {
+    expect(chosenBytes(t({ files, bitfield }))).toBeUndefined()
+    expect(chosenBytes(t({ files, bitfield, wantedFiles: [0, 2, 3] })), 'every one chosen').toBeUndefined()
+  })
+
+  it('count the chosen files alone, never a pad, and of them the bytes in pieces held', () => {
+    expect(chosenBytes(t({ files, bitfield, wantedFiles: [0, 3] }))).toEqual({ size: 52_768, done: 20_000 + 16_384 })
+  })
+
+  it('hold nothing before the engine reports its pieces', () => {
+    expect(chosenBytes(t({ files, wantedFiles: [0, 3] }))).toEqual({ size: 52_768, done: 0 })
+  })
+
+  it('put the whole in brackets, as the language writes them', async () => {
+    expect(withWhole(intl, '2.1 GB', '12 GB')).toBe('2.1 GB (12 GB)')
+    await showIn('ja', ja)
+    expect(withWhole(intl, '2.1 GB', '12 GB')).toBe('2.1 GB（12 GB）')
   })
 })
 
