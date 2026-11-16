@@ -123,10 +123,9 @@ const triggerStyle = css`
     .name { max-width: 100%; }
   }
 
-  /* An OUTER ring, where a menu row takes an inset one: this button belongs to the header row with
-     Share a torrent, not to the list it opens. That split used to be carried by hue as well, orange
-     out here against amber in the menu, and monochrome leaves the geometry to say it alone.
-     outline: none above means this box-shadow is the only focus indicator the tag has. */
+  /* An OUTER ring, where a menu row takes an inset one: this button belongs to the header row, not
+     to the list it opens. outline: none above means this box-shadow is the only focus indicator the
+     tag has. */
   &:focus-visible {
     outline: none;
     box-shadow: 0 0 0 2px ${FOCUS_RING};

@@ -445,8 +445,8 @@ export const style = css`
      * problem was three things competing for one row to say one thing.
      *
      * So the actions moved INSIDE the field as icons, which is the shape everybody already knows
-     * from a browser's address bar. The pill is the only item in the row now, nothing beside it can
-     * squeeze it, and the two buttons that used to carry words carry a tooltip instead.
+     * from a browser's address bar, and the two buttons that used to carry words carry a tooltip
+     * instead. Create, the gear and the account beside it squeeze it down to the floor below.
      */
     /* the field's floor wherever it is open: its icons and the start of its hint, which ends in an ellipsis below this */
     form {

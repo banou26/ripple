@@ -71,8 +71,8 @@ export const place = (placement: MenuPlacement, box: { width: number, height: nu
   const anchor = placement.of.current?.getBoundingClientRect()
   if (!anchor) return null
   // End-aligned with the trigger, then slid back inside the viewport. Sliding is safe here and is
-  // not safe for a pointer menu: nothing is hovering the place it slides to. The header wraps at
-  // narrow widths, so the trigger is not reliably flush right and the clamp is not decoration.
+  // not safe for a pointer menu: nothing is hovering the place it slides to. A trigger is not
+  // always flush right, so the clamp is not decoration.
   const wanted = placement.align === 'start' ? anchor.left : anchor.right - box.width
   const x = Math.min(Math.max(MARGIN, wanted), Math.max(MARGIN, vw - box.width - MARGIN))
   const below = anchor.bottom + GAP
