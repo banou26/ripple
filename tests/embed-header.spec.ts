@@ -42,7 +42,7 @@ test.describe('the embedded player header', () => {
     await expect(toDownload).toHaveAttribute('target', '_blank')
     await expect(toDownload).toHaveAttribute('rel', /noopener/)
     // the PATH is what makes it a download, so that is what the link has to change
-    await expect(toDownload).toHaveAttribute('href', /\/download\?/)
+    await expect(toDownload).toHaveAttribute('href', /\/download#/)
     await expect(toDownload).not.toHaveAttribute('href', /mode=/)
     // the file being watched travels with it, rather than making somebody find it again
     await expect(toDownload).toHaveAttribute('href', new RegExp(`fileIndex=${SINTEL_VIDEO}`))

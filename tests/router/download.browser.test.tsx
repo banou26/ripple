@@ -742,7 +742,7 @@ describe('offering to watch instead', () => {
     const watch = screen.container.querySelector('a.watch') as HTMLAnchorElement
     expect(watch, 'no Watch link was offered for a pack of mkv files').toBeTruthy()
     // the PATH is what says it plays; there is no mode parameter to look for any more
-    expect(watch.getAttribute('href')!.startsWith('/watch?')).toBe(true)
+    expect(watch.getAttribute('href')!.startsWith('/watch#')).toBe(true)
   })
 
   /**

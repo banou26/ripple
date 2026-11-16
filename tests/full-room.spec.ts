@@ -212,7 +212,7 @@ test.describe('a room Firefox holds fixed', () => {
     test.setTimeout(120_000)
     const { look } = await open(page, { earlier: [{ t: OWN, kind: 'library' }, { t: CACHED, kind: 'cache' }], opened: BIG, fixed: true })
     await expect.poll(async () => (await look()).line ?? '', { timeout: 30_000 }).toMatch(/^Too big for this browser's storage here\. Open it in Ripple to play it\.$/)
-    await expect(page.frameLocator('#ripple').getByRole('link', { name: 'Open it in Ripple' })).toHaveAttribute('href', /\/watch\?/)
+    await expect(page.frameLocator('#ripple').getByRole('link', { name: 'Open it in Ripple' })).toHaveAttribute('href', /\/watch#/)
     await expect.poll(async () => (await look()).spinning, { timeout: 5_000 }).toBe(false)
     // past the cached film's grace, when it would have gone if giving it up could help
     await page.waitForTimeout(20_000)

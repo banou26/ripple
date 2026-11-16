@@ -1,13 +1,18 @@
 // Checks in a real browser what this project cannot typecheck: the module worker loads and the libtorrent session reaches a definite state
 
-import type { Locator, Page } from '@playwright/test'
+import type { Browser, Locator, Page } from '@playwright/test'
+import type { AddressInfo } from 'node:net'
 
 import { readFile } from 'node:fs/promises'
+import { createServer, request } from 'node:http'
 import { join } from 'node:path'
 
 import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
+import { embedPath } from '../src/router/embed-link'
+import { decodeMagnetParam, encodeMagnetParam } from '../src/router/magnet-codec'
+import { linkParams } from '../src/router/path'
 
 const probeEngine = () => {
   const w = window as any
@@ -482,5 +487,80 @@ test('the pages the app knows still render where they are', async ({ page }) => 
     await page.goto(path)
     await expect(marker, path).toBeVisible({ timeout: 30_000 })
     expect(new URL(page.url()).pathname, path).toBe(path.split('?')[0])
+  }
+})
+
+/**
+ * A visit through a server in front of the app that keeps each request's line and Referer: what the host (Cloudflare) is
+ * sent of it. A server and a context of its own for each visit: a cold one, with no service worker to answer for the
+ * server, and no request of another visit arriving late.
+ */
+const recorded = async (browser: Browser, app: string, path: string, shows: (page: Page) => Locator) => {
+  const seen: { url: string, referer?: string }[] = []
+  const upstream = new URL(app)
+  const server = createServer((asked, answer) => {
+    seen.push({ url: asked.url!, referer: asked.headers.referer })
+    const forward = request(new URL(asked.url!, upstream), { method: asked.method, headers: { ...asked.headers, host: upstream.host } }, (served) => {
+      answer.writeHead(served.statusCode!, served.headers)
+      served.pipe(answer)
+    })
+    forward.on('error', () => answer.destroy())
+    asked.pipe(forward)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    await page.goto(origin + path)
+    await expect(shows(page), path).toBeVisible({ timeout: 30_000 })
+  } finally {
+    await context.close()
+    server.closeAllConnections()
+    server.close()
+  }
+  return { origin, seen: [...seen] }
+}
+
+test('a link written now keeps its torrent from the server, and one written before still opens', async ({ browser, baseURL }) => {
+  test.skip(!/^http:/.test(baseURL!), 'a deployed origin is reached as it is, with nothing in front of it')
+  test.setTimeout(120_000)
+  const value = encodeMagnetParam(NOBODY)!.value
+  const named = (page: Page) => page.locator('.card').getByText('Own', { exact: true })
+  const player = (page: Page) => page.getByTestId('open-in-ripple')
+  const written = [
+    [embedPath({ magnet: NOBODY, mode: 'download', indices: [0], fileCount: 2 })!, named],
+    [embedPath({ magnet: NOBODY, mode: 'watch', fileIndex: 0 })!, player],
+  ] as const
+  for (const [path, shows] of written) {
+    const { seen } = await recorded(browser, baseURL!, path, shows)
+    expect(seen[0]?.url, path).toBe(path.split('#')[0])
+    expect(seen.filter(({ url, referer }) => `${url} ${referer}`.includes(value)), path).toEqual([])
+    expect(seen.filter(({ url }) => url.includes('files=') || url.includes('fileIndex=')), path).toEqual([])
+  }
+
+  // THE CONTROL: the server is told the query of a link written before, so it would be told a torrent written there
+  const before = `/download?magnet=${encodeURIComponent(Buffer.from(NOBODY).toString('base64'))}`
+  const { origin, seen } = await recorded(browser, baseURL!, before, named)
+  expect(seen[0]?.url).toBe(before)
+  // and nothing after it repeats it: a Referer names this origin alone
+  expect(seen.slice(1).filter(({ referer }) => referer?.includes('magnet=')), 'a Referer repeats the link').toEqual([])
+  expect(seen.filter(({ referer }) => referer === `${origin}/`), 'no Referer that names the origin alone').not.toEqual([])
+})
+
+test('a framed download page opens itself in Ripple with its torrent after the #, from a link written either way', async ({ page }) => {
+  await page.goto('/legal')
+  const here = new URL(page.url())
+  test.skip(!/^(127\.0\.0\.1|localhost)$/.test(here.hostname), 'needs the loopback pair, so it is local only')
+  // localhost and 127.0.0.1 are two origins on one server, so the page is framed by another site
+  const framed = `http://localhost:${here.port}`
+  const magnet = Buffer.from(NOBODY).toString('base64')
+  for (const link of [`/download#magnet=${encodeURIComponent(magnet)}`, `/download?magnet=${encodeURIComponent(magnet)}`]) {
+    await page.goto('/legal')
+    await page.evaluate((src) => { document.body.append(Object.assign(document.createElement('iframe'), { id: 'ripple', src })) }, framed + link)
+    const open = page.frameLocator('#ripple').getByRole('link', { name: 'Open this page in Ripple' })
+    const href = new URL((await open.getAttribute('href', { timeout: 30_000 }))!)
+    expect(`${href.origin}${href.pathname}${href.search}`, link).toBe(`${framed}/download`)
+    expect(decodeMagnetParam(linkParams(href)), link).toBe(NOBODY)
   }
 })

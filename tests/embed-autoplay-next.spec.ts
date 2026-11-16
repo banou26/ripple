@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { expect, test } from './offline'
+import { linkParams } from '../src/router/path'
 
 const MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
 const SRC = `/watch?${new URLSearchParams({ magnet: Buffer.from(MAGNET).toString('base64') })}`
@@ -60,11 +61,11 @@ test('the page framing /watch shows the player its autoplay switch, hears it fli
 
   // the next file, in a player of its own in the same document
   await page.evaluate((magnet) => (document.getElementById('ripple') as HTMLIFrameElement).contentWindow!.postMessage({ ripple: 'open', magnet, fileIndex: 1 }, '*'), MAGNET)
-  await expect.poll(() => new URL(page.frames().find(f => f.url().includes('/watch?'))!.url()).searchParams.get('fileIndex')).toBe('1')
+  await expect.poll(() => linkParams(new URL(page.frames().find(f => f.url().includes('/watch'))!.url())).get('fileIndex')).toBe('1')
   await openSettings(ripple)
   await expect(autoplaySwitch(ripple)).toHaveAttribute('aria-checked', 'true')
 
-  const kept = await page.frames().find(f => f.url().includes('/watch?'))!.evaluate(() => Object.keys(localStorage).filter(key => /autoplay/i.test(key)))
+  const kept = await page.frames().find(f => f.url().includes('/watch'))!.evaluate(() => Object.keys(localStorage).filter(key => /autoplay/i.test(key)))
   expect(kept, 'ripple keeps nothing of it').toEqual([])
 })
 

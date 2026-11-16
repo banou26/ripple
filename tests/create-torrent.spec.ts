@@ -21,6 +21,7 @@
 import { expect, test } from './offline'
 
 import { decodeMagnetParam } from '../src/router/magnet-codec'
+import { linkParams } from '../src/router/path'
 
 type Row = { name: string, progress: number, state: number | null, savePath: string | undefined, totalDone: number }
 
@@ -282,7 +283,7 @@ test('a torrent just made is copied and shared from the dialog that made it', as
   await dialog.getByRole('button', { name: 'Get a share link' }).click()
   await expect(page.getByRole('heading', { name: 'Share link' })).toBeVisible()
   const link = await page.getByTestId('embed-url').textContent()
-  expect(decodeMagnetParam(new URL(link ?? '').searchParams), 'the share link is not the torrent just made').toContain(infoHash!)
+  expect(decodeMagnetParam(linkParams(new URL(link ?? ''))), 'the share link is not the torrent just made').toContain(infoHash!)
 })
 
 /*

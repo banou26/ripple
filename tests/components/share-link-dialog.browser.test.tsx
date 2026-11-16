@@ -6,6 +6,7 @@ import { userEvent } from '@vitest/browser/context'
 
 import { SYNCED_FILE_CAP } from '../../src/torrent/library'
 import { decodeMagnetParam } from '../../src/router/magnet-codec'
+import { linkParams } from '../../src/router/path'
 import { ShareLinkDialog } from '../../src/components/share-link-dialog'
 import { readMagnet, readTorrentFile } from '../../src/torrent/torrent-file'
 import { IntlRoot } from '../../src/i18n'
@@ -80,9 +81,11 @@ const mount = async (torrent: ShareSubject | null, dragging = false) => {
   )
   await expect.poll(dialog).not.toBeNull()
   const url = () => dialog().querySelector('[data-testid="embed-url"]')?.textContent ?? ''
-  const query = () => new URLSearchParams(url().slice(url().indexOf('?')))
-  // the PATH is what says which page the link opens; `mode` was that until it moved into the URL
-  const path = () => url().slice(url().indexOf('/', url().indexOf('//') + 2), url().indexOf('?'))
+  const link = () => new URL(url() || 'about:blank')
+  const query = () => linkParams(link())
+  // the PATH is what says which page the link opens; `mode` was that until it moved into the URL. With the query, which
+  // a link written now leaves empty: the torrent is after the #
+  const path = () => link().pathname + link().search
   return { onMagnet, onFiles, onClear, onClose, onToast, url, query, path, unmount: () => screen.unmount() }
 }
 

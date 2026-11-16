@@ -5,9 +5,12 @@ import { describe, expect, it } from 'vitest'
 import { compileFileSelection, embedIframe, embedPath, embedUrl, linkLanguages } from '../../src/router/embed-link'
 import { parseFileSelection, resolveSelection } from '../../src/router/file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from '../../src/router/magnet-codec'
+import { linkParams } from '../../src/router/path'
 
-/** What a built path actually names, read back the way /watch reads it. */
-const magnetOf = (path: string) => decodeMagnetParam(new URLSearchParams(path.slice(path.indexOf('?') + 1)))
+/** A built path's parameters, read the way /watch and /download read them. */
+const paramsOf = (path: string) => linkParams(new URL(path, 'https://torrent.fkn.app'))
+/** What a built path actually names. */
+const magnetOf = (path: string) => decodeMagnetParam(paramsOf(path))
 
 const MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
 
@@ -93,7 +96,7 @@ describe('compile then parse round trip', () => {
 describe('embedPath', () => {
   it('carries the magnet and nothing else for a plain watch link', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toBe(`/watch?m=${encodeMagnetParam(MAGNET)!.value}`)
+    expect(path).toBe(`/watch#m=${encodeMagnetParam(MAGNET)!.value}`)
     expect(magnetOf(path)).toBe(MAGNET)
   })
 
@@ -137,8 +140,8 @@ describe('embedPath', () => {
   it('puts the mode in the path and writes no mode parameter at all', () => {
     const watch = embedPath({ magnet: MAGNET, mode: 'watch' })!
     const download = embedPath({ magnet: MAGNET, mode: 'download' })!
-    expect(watch.startsWith('/watch?')).toBe(true)
-    expect(download.startsWith('/download?')).toBe(true)
+    expect(watch.startsWith('/watch#')).toBe(true)
+    expect(download.startsWith('/download#')).toBe(true)
     expect(watch).not.toContain('mode=')
     expect(download).not.toContain('mode=')
   })
@@ -155,14 +158,14 @@ describe('embedPath', () => {
 
   it('puts the set on a download link and leaves fileIndex out of it', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'download', indices: [1, 2], fileCount: 9, fileIndex: 7 })
-    expect(path!.startsWith('/download?')).toBe(true)
+    expect(path!.startsWith('/download#')).toBe(true)
     expect(path).toContain('files=1-2')
     expect(path).not.toContain('fileIndex')
   })
 
   it('omits files when the download names the whole torrent', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'download', indices: [0, 1, 2], fileCount: 3 })
-    expect(path!.startsWith('/download?')).toBe(true)
+    expect(path!.startsWith('/download#')).toBe(true)
     expect(path).not.toContain('files=')
   })
 
@@ -178,7 +181,7 @@ describe('embedPath', () => {
     const b64 = btoa(awkward)
     expect(b64, 'the fixture no longer produces the character this test is about').toContain('+')
     const path = embedPath({ magnet: awkward, mode: 'watch' })!
-    const readBack = new URLSearchParams(path.slice(path.indexOf('?'))).get('magnet')
+    const readBack = paramsOf(path).get('magnet')
     expect(readBack).toBe(b64)
     expect(atob(readBack!)).toBe(awkward)
   })
@@ -190,7 +193,7 @@ describe('embedPath', () => {
    */
   it('writes the packed form with nothing a query string has to escape', () => {
     const path = embedPath({ magnet: MAGNET, mode: 'watch' })!
-    expect(path).toMatch(/^\/watch\?m=[A-Za-z0-9\-_]+$/)
+    expect(path).toMatch(/^\/watch#m=[A-Za-z0-9\-_]+$/)
   })
 })
 
@@ -226,7 +229,7 @@ describe('a magnet that btoa cannot take', () => {
     const path = embedPath({ magnet: UNICODE, mode: 'watch' })!
     // read as a param rather than matched as a substring: `m` leads the query now that no mode
     // precedes it, so a test looking for `&m=` passes only by accident of parameter order
-    expect(new URLSearchParams(path.slice(path.indexOf('?'))).get('m')).toBeTruthy()
+    expect(paramsOf(path).get('m')).toBeTruthy()
   })
 
   /** null rather than a throw, so the caller renders its no-link branch */
@@ -241,9 +244,9 @@ describe('a magnet that btoa cannot take', () => {
 describe('embedUrl and embedIframe', () => {
   it('makes an absolute link against the given origin', () => {
     expect(embedUrl({ magnet: MAGNET, mode: 'watch' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/watch?m=' + encodeMagnetParam(MAGNET)!.value)
+      .toBe('https://torrent.fkn.app/watch#m=' + encodeMagnetParam(MAGNET)!.value)
     expect(embedUrl({ magnet: MAGNET, mode: 'download' }, 'https://torrent.fkn.app'))
-      .toBe('https://torrent.fkn.app/download?m=' + encodeMagnetParam(MAGNET)!.value)
+      .toBe('https://torrent.fkn.app/download#m=' + encodeMagnetParam(MAGNET)!.value)
   })
 
   /**
@@ -303,7 +306,6 @@ describe('a link describes no files, only which ones it wants', () => {
 
 describe('the language on a link', () => {
   const read = (language: string) => linkLanguages(new URLSearchParams({ language }))
-  const queryOf = (path: string) => new URLSearchParams(path.slice(path.indexOf('?')))
 
   it('names no language when the link names none', () => {
     expect(linkLanguages(new URLSearchParams())).toEqual({})
@@ -339,8 +341,8 @@ describe('the language on a link', () => {
   })
 
   it('is written on both routes, ahead of the packed torrent', () => {
-    expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 2, language: 'fr' })).toMatch(/^\/watch\?fileIndex=2&language=fr&m=/)
-    expect(embedPath({ magnet: MAGNET, mode: 'download', indices: [1, 2], fileCount: 9, language: 'fr' })).toMatch(/^\/download\?files=1-2&language=fr&m=/)
+    expect(embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 2, language: 'fr' })).toMatch(/^\/watch#fileIndex=2&language=fr&m=/)
+    expect(embedPath({ magnet: MAGNET, mode: 'download', indices: [1, 2], fileCount: 9, language: 'fr' })).toMatch(/^\/download#files=1-2&language=fr&m=/)
   })
 
   it('is left off a link naming none', () => {
@@ -348,9 +350,9 @@ describe('the language on a link', () => {
   })
 
   it('reads back as written', () => {
-    const written = linkLanguages(queryOf(embedPath({ magnet: MAGNET, mode: 'watch', language: 'zh-TW' })!))
+    const written = linkLanguages(paramsOf(embedPath({ magnet: MAGNET, mode: 'watch', language: 'zh-TW' })!))
     expect(written).toEqual({ language: 'zh-TW' })
-    expect(linkLanguages(queryOf(embedPath({ magnet: MAGNET, mode: 'watch', ...written })!))).toEqual(written)
+    expect(linkLanguages(paramsOf(embedPath({ magnet: MAGNET, mode: 'watch', ...written })!))).toEqual(written)
   })
 })
 
@@ -370,6 +372,39 @@ describe('the languages a link starts the player in', () => {
   it('is carried on by every link the page writes from its own', () => {
     const written = { language: 'fr', audio: 'ja', subtitles: 'off', alwaysSubtitles: '0' } as const
     const path = embedPath({ magnet: MAGNET, mode: 'watch', fileIndex: 2, ...written })!
-    expect(linkLanguages(new URLSearchParams(path.slice(path.indexOf('?'))))).toEqual(written)
+    expect(linkLanguages(paramsOf(path))).toEqual(written)
+  })
+})
+
+// a request for a link carries its path and query, and the browser keeps what follows the `#`
+describe('where a link carries its torrent', () => {
+  const ORIGIN = 'https://torrent.fkn.app'
+
+  it('after the #, so a request for a link written now names neither the torrent nor the files', () => {
+    for (const mode of ['watch', 'download'] as const) {
+      const url = new URL(embedUrl({ magnet: MAGNET, mode, indices: [1, 2], fileCount: 9, fileIndex: 1, language: 'fr' }, ORIGIN)!)
+      expect(url.search, mode).toBe('')
+      expect(`${url.origin}${url.pathname}`, mode).toBe(`${ORIGIN}/${mode}`)
+      expect(magnetOf(url.href), mode).toBe(MAGNET)
+      expect(paramsOf(url.href).get(mode === 'watch' ? 'fileIndex' : 'files'), mode).toBe(mode === 'watch' ? '1' : '1-2')
+    }
+    const frame = /src="([^"]+)"/.exec(embedIframe({ magnet: MAGNET, mode: 'download' }, ORIGIN)!)![1]!
+    expect(new URL(frame).search).toBe('')
+    expect(magnetOf(frame)).toBe(MAGNET)
+  })
+
+  it('in the query of a link written before, which still reads, a # beside it or not', () => {
+    const { key, value } = encodeMagnetParam(MAGNET)!
+    for (const hash of ['', '#', '#top']) {
+      const params = linkParams({ search: `?files=1-2&${key}=${value}`, hash })
+      expect(decodeMagnetParam(params), hash).toBe(MAGNET)
+      expect(params.get('files'), hash).toBe('1-2')
+    }
+    expect(decodeMagnetParam(linkParams({ search: `?magnet=${encodeURIComponent(btoa(MAGNET))}`, hash: '' }))).toBe(MAGNET)
+  })
+
+  it('reads a name both carry from the #', () => {
+    const params = linkParams({ search: '?fileIndex=1&language=fr', hash: '#fileIndex=2&m=x' })
+    expect([params.get('fileIndex'), params.get('language'), params.get('m')]).toEqual(['2', 'fr', 'x'])
   })
 })

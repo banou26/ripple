@@ -12,7 +12,7 @@ about it has changed.
 
 `m=` is the same torrent packed smaller: the infohash as raw bytes rather than 40 hex characters, and
 the rest of the query deflated against a fixed table of the announce URLs that public magnets
-overwhelmingly share. It is base64url, so a query string carries it without escaping anything. Across
+overwhelmingly share. It is base64url, so a link carries it without escaping anything. Across
 a corpus covering every magnet form Ripple accepts, the median link is **69% shorter**; a five-tracker
 release goes from a 549-character URL to 148. A magnet using only private trackers has nothing to
 match against and still comes out around 42% shorter, on the strength of the packed infohash alone.
@@ -29,20 +29,31 @@ that a link said what it did rather than being told apart by an absence. The pat
 and in the part of a URL that is read first.
 
 **`/watch` was `/embed` until 2026-09-09, and the old path is gone rather than redirected.** A link
-written against it 404s to the SPA shell; rewrite it as `/watch` with the query untouched.
+written against it 404s to the SPA shell; rewrite it as `/watch` with the rest untouched.
 
 ## Parameter order
 
 Order never matters when READING a link. When writing one, Ripple puts the plainest parts first:
 
 ```
-/watch?fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
-/download?files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/watch#fileIndex=3&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
+/download#files=2&m=AQAIraWnphg6rh4J2DHfZ0jVZglaEAMWq8GZeSWpORSmTXxFBwA
 ```
 
 The path, then which files, then the packed torrent. The torrent used to lead, from when it was the
 only thing in the link; now that everything around it is base64url or an index, leading with it
 buried the one part a person can read behind forty characters of noise.
+
+## After the `#`, not in the query
+
+Since 2026-11-17 Ripple writes the parameters after `#`. A browser never sends that part, so
+Cloudflare, which serves torrent.fkn.app, is not told which torrent and files a visit is about. In
+the query it got them in the request line, with the visitor's address, and again in the `Referer` of
+the requests that followed. The pages read both forms, the `#` first, so every link written before
+still opens. The pages also set `Referrer-Policy: strict-origin`, so an old link's query is not
+repeated in a `Referer`: every request names the origin alone. `strict-origin` rather than
+`no-referrer` changes only what the same-origin requests carried, and other hosts get the origin as
+they did before.
 
 ## No `f` parameter
 

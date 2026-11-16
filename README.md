@@ -87,7 +87,10 @@ with `fkn-sign`.
 ## Embedding
 
 `/watch` and `/download` are the pages another site puts in an iframe. Both take a magnet and the
-same query; the path chooses which one renders. `/watch` plays a file, `/download` delivers files.
+same parameters; the path chooses which one renders. `/watch` plays a file, `/download` delivers files.
+
+The parameters go after `#`, which a browser never sends, so the server is not told which torrent a
+visit is about. A link with them in the query (`?`) still works.
 
 | param | value | meaning |
 | --- | --- | --- |
@@ -109,12 +112,12 @@ original form and every link written with it keeps working. `m=` is the same tor
 much shorter link.
 
 ```
-/watch?magnet=<base64>&fileIndex=3     plays file 3
-/download?magnet=<base64>              the whole torrent
-/download?magnet=<base64>&files=3      just file 3
-/download?magnet=<base64>&files=0-4    files 0 to 4 inclusive, as a zip
-/download?magnet=<base64>&files=0,2,5  those three, as a zip
-/download?magnet=<base64>&fileIndex=3  same as files=3
+/watch#magnet=<base64>&fileIndex=3     plays file 3
+/download#magnet=<base64>              the whole torrent
+/download#magnet=<base64>&files=3      just file 3
+/download#magnet=<base64>&files=0-4    files 0 to 4 inclusive, as a zip
+/download#magnet=<base64>&files=0,2,5  those three, as a zip
+/download#magnet=<base64>&fileIndex=3  same as files=3
 ```
 
 One file is delivered as that file, and more than one as a single `.zip`. `files` outranks
@@ -125,7 +128,7 @@ nothing says so instead of downloading the whole torrent.
 Leaving out `sandbox` works too.
 
 ```html
-<iframe src="https://torrent.fkn.app/download?magnet=..."
+<iframe src="https://torrent.fkn.app/download#magnet=..."
         sandbox="allow-scripts allow-same-origin allow-downloads"></iframe>
 ```
 

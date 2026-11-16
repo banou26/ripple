@@ -2,6 +2,7 @@
 // catalogues, so one the build dropped, or a language lost on the way to the player, shows. Nothing needs bytes to
 // arrive, so it runs headless, on torrents nobody seeds.
 import { expect, test } from './offline'
+import { linkParams } from '../src/router/path'
 
 const magnetOf = (hash: string) => `magnet:?xt=urn:btih:${hash.repeat(40)}&dn=Nothing`
 const FIRST = magnetOf('a')
@@ -54,9 +55,9 @@ test.describe('in an English browser', () => {
     const opened = page.evaluate(() => new Promise(resolve => { addEventListener('message', event => { if (event.data?.ripple === 'opened') resolve(true) }) }))
     await page.evaluate((magnet) => (document.getElementById('ripple') as HTMLIFrameElement).contentWindow!.postMessage({ ripple: 'open', magnet, fileIndex: 2 }, '*'), NEXT)
     await opened
-    const frame = () => page.frames().find(f => f.url().includes('/watch?'))!
-    await expect.poll(() => new URL(frame().url()).searchParams.get('fileIndex')).toBe('2')
-    expect(new URL(frame().url()).searchParams.get('language')).toBe('fr')
+    const frame = () => page.frames().find(f => f.url().includes('/watch'))!
+    await expect.poll(() => linkParams(new URL(frame().url())).get('fileIndex')).toBe('2')
+    expect(linkParams(new URL(frame().url())).get('language')).toBe('fr')
     await expectLabels(ripple, FRENCH)
   })
 })

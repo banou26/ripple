@@ -50,6 +50,7 @@ import { useControlled } from '../utils/use-controlled'
 import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
 import { FileGlyph } from './file-glyph'
+import { Route, linkParams, linkPath } from './path'
 
 // a brand, the same in every language
 const WORDMARK = 'Ripple'
@@ -913,7 +914,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   const framed = useMemo(framedByAnotherOrigin, [])
   const openHere = typeof window === 'undefined'
     ? null
-    : window.location.origin + window.location.pathname + window.location.search
+    : window.location.origin + linkPath(Route.DOWNLOAD, linkParams(window.location))
 
   const start = useCallback((chosen: SaveEntry[], label: string, streamOnly = false) => {
     // Called straight from the click with nothing awaited before it: the service worker handshake

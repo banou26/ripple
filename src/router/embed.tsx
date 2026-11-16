@@ -5,7 +5,7 @@ import type { EmbedMode } from './file-selection'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { css } from '@emotion/react'
 import { defineMessage, useIntl } from 'react-intl'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Activity, ArrowDown, ArrowUp, Download, ExternalLink, Info, Shield, ShieldOff, Users } from 'lucide-react'
 import { MediaPlayer } from '@banou/media-player'
 import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.js?no-inline&url'
@@ -37,7 +37,7 @@ import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
 import { usePlayingTitle } from './playing-title'
 import { saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
-import { Route, getRoutePath, getRouterRoutePath } from './path'
+import { Route, getRoutePath, linkParams, linkPath } from './path'
 import { STATE_LABEL } from './torrent-format'
 
 const playerStyle = css`
@@ -442,10 +442,15 @@ const WINDOW_NOTE = defineMessage({
   defaultMessage: 'Too big to download ahead here, so it streams as you watch. In Ripple (header link), with more room allowed, it can download in full, without next episode, tracking or watch together.',
 })
 
+const useLinkParams = () => {
+  const { search, hash } = useLocation()
+  return useMemo(() => linkParams({ search, hash }), [search, hash])
+}
+
 const Player = ({ linked }: { linked: LinkLanguages }) => {
   const intl = useIntl()
-  const [searchParams] = useSearchParams()
-  const { fileIndex: _fileIndex } = Object.fromEntries(searchParams.entries())
+  const params = useLinkParams()
+  const { fileIndex: _fileIndex } = Object.fromEntries(params.entries())
   /**
    * Both parameters, because this is the SECOND of two decode sites and they have to agree: the
    * other is in `Embed` below. Reading `m` here and only `magnet` there would render an empty player
@@ -455,7 +460,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    * exception during render on the default route, taking the whole page down rather than showing an
    * empty player.
    */
-  const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
+  const magnet = useMemo(() => decodeMagnetParam(params), [params])
   // parsed as /download parses it, so the two routes agree on what a link names. With no file
   // named, the hook plays the torrent's video file.
   const named = useMemo(() => {
@@ -558,10 +563,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // This page's own URL, opened as a tab of its own: first party, so it gets Ripple's storage rather
   // than the separate 10 GiB Firefox gives a frame inside another site's page.
   const watchHref = useMemo(() => {
-    const query = new URLSearchParams(searchParams)
-    if (selectedFile) query.set('fileIndex', String(fileIndex))
-    return new URL(`${getRouterRoutePath(Route.WATCH)}?${query.toString()}`, origin).toString()
-  }, [searchParams, origin, selectedFile, fileIndex])
+    const link = new URLSearchParams(params)
+    if (selectedFile) link.set('fileIndex', String(fileIndex))
+    return new URL(linkPath(Route.WATCH, link), origin).toString()
+  }, [params, origin, selectedFile, fileIndex])
 
   // Why there is nothing to watch yet, or null once there is. Kept apart from the byte counter
   // because only the counter is dropped when the row runs out of room.
@@ -648,7 +653,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   /*
    * This page's own URL under the other PATH, rather than a link built from scratch.
    *
-   * That conversion is the one `EmbedOptions` describes: /watch and /download take the same query,
+   * That conversion is the one `EmbedOptions` describes: /watch and /download take the same parameters,
    * so swapping the path downloads what this URL was playing. Doing it this way carries the file
    * being watched across for free, keeps whichever magnet encoding the embedder used rather than
    * re-packing it, and needs no metadata, so the link is right from the first paint instead of
@@ -659,10 +664,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
    */
   const downloadHref = useMemo(() => {
     if (!magnet || unreadable) return null
-    const query = new URLSearchParams(searchParams)
-    if (selectedFile) query.set('fileIndex', String(fileIndex))
-    return new URL(`${getRouterRoutePath(Route.DOWNLOAD)}?${query.toString()}`, origin).toString()
-  }, [magnet, unreadable, searchParams, origin, selectedFile, fileIndex])
+    const link = new URLSearchParams(params)
+    if (selectedFile) link.set('fileIndex', String(fileIndex))
+    return new URL(linkPath(Route.DOWNLOAD, link), origin).toString()
+  }, [magnet, unreadable, params, origin, selectedFile, fileIndex])
 
   const openInRipple = intl.formatMessage({ id: 'Open this torrent in Ripple', defaultMessage: 'Open this torrent in Ripple' })
   const downloadLabel = fileName
@@ -885,8 +890,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
 /**
  * The two things this component can be, chosen by the ROUTE that mounted it.
  *
- * /watch is the player and /download is the download page, and both take the same query, so an
- * embedder holding one URL for a release gets the other by swapping the path. Nothing in the query
+ * /watch is the player and /download is the download page, and both take the same parameters, so an
+ * embedder holding one URL for a release gets the other by swapping the path. Nothing in them
  * can change that: a `mode` parameter used to, and is now neither written nor read.
  *
  * The two are separate COMPONENTS, not two branches inside one, so neither mounts the other's hooks:
@@ -894,12 +899,12 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
  * that never plays anything.
  */
 const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
-  const [searchParams] = useSearchParams()
-  const magnet = useMemo(() => decodeMagnetParam(searchParams), [searchParams])
-  const linked = useMemo(() => linkLanguages(searchParams), [searchParams])
+  const params = useLinkParams()
+  const magnet = useMemo(() => decodeMagnetParam(params), [params])
+  const linked = useMemo(() => linkLanguages(params), [params])
   const selection = useMemo(
-    () => parseFileSelection(searchParams.get('files'), searchParams.get('fileIndex')),
-    [searchParams],
+    () => parseFileSelection(params.get('files'), params.get('fileIndex')),
+    [params],
   )
 
   if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} linked={linked} />

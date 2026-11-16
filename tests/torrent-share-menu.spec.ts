@@ -9,6 +9,7 @@ import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
 import { decodeMagnetParam } from '../src/router/magnet-codec'
+import { linkParams } from '../src/router/path'
 import { magnetParam, magnetParams } from '../src/torrent/magnet'
 
 test('a torrent offers its magnet, name, info hash and .torrent from the right-click menu', async ({ page, context }) => {
@@ -55,7 +56,9 @@ test('a torrent offers its magnet, name, info hash and .torrent from the right-c
   await sintel.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Get a share link' }).click()
   const link = await page.getByTestId('embed-url').textContent({ timeout: 15_000 })
-  const shared = decodeMagnetParam(new URL(link ?? '').searchParams) ?? ''
+  // after the #, so a request for the link names no torrent
+  expect(new URL(link ?? '').search).toBe('')
+  const shared = decodeMagnetParam(linkParams(new URL(link ?? ''))) ?? ''
   expect(magnetParam(shared, 'dn'), 'the share link has no name').toBe('Sintel')
   expect(magnetParams(shared, 'tr').length, 'the share link has no trackers').toBeGreaterThanOrEqual(2)
 })

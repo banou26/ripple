@@ -63,8 +63,8 @@ const Routes = {
     return query.toString() ? `/?${query.toString()}` : '/'
   },
   [Route.ADD]: (options: AddOptions) => `/add?${new URLSearchParams(options).toString()}`,
-  [Route.WATCH]: (options: EmbedOptions) => `/watch?${new URLSearchParams(options).toString()}`,
-  [Route.DOWNLOAD]: (options: EmbedOptions) => `/download?${new URLSearchParams(options).toString()}`,
+  [Route.WATCH]: (options: EmbedOptions) => linkPath(Route.WATCH, new URLSearchParams(options)),
+  [Route.DOWNLOAD]: (options: EmbedOptions) => linkPath(Route.DOWNLOAD, new URLSearchParams(options)),
   [Route.LEGAL]: () => '/legal',
   [Route.PRIVACY]: () => '/privacy',
   [Route.SETTINGS]: () => '/settings'
@@ -79,6 +79,17 @@ const RouterRoutes = {
   [Route.PRIVACY]: '/privacy',
   [Route.SETTINGS]: '/settings'
 } as const
+
+/**
+ * A watch or download link, its parameters after the `#`. A browser never sends that part, so the host (Cloudflare)
+ * is not told which torrent and files a visit is about; in the query it got them in the request line, with the
+ * visitor's address. Links written before carry them in the query, which `linkParams` still reads.
+ */
+export const linkPath = (route: Route.WATCH | Route.DOWNLOAD, params: URLSearchParams) => `${RouterRoutes[route]}#${params}`
+
+/** A watch or download link's parameters, from after the `#` and from the query, where a name in both is the `#`'s. */
+export const linkParams = ({ search, hash }: { search: string, hash: string }) =>
+  new URLSearchParams([...new URLSearchParams(hash.slice(1)), ...new URLSearchParams(search)])
 
 export const getRouterRoutePath = (route: Route) => RouterRoutes[route]
 

@@ -116,14 +116,14 @@ export type EmbedLink = LinkLanguages & {
 }
 
 /**
- * The `/watch?...` or `/download?...` path for a link, relative to the app root.
+ * The `/watch#...` or `/download#...` path for a link, relative to the app root.
  *
  * THE MODE IS THE PATH. A watch link is `/watch`, a download link is `/download`, and the `mode`
  * parameter that used to say which is gone from both halves, written and read.
  *
  * Built through getRoutePath rather than by hand so whichever form the codec picked goes through
  * URLSearchParams. That matters for the legacy fallback, whose base64 can carry `+`, `/` and `=`:
- * written literally into a query string a `+` reads back as a space and the magnet fails to decode.
+ * written literally into the link a `+` reads back as a space and the magnet fails to decode.
  * The packed form is base64url and needs no escaping, which is part of why it is shorter.
  */
 export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, ...linked }: EmbedLink): string | null => {
@@ -133,7 +133,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, ...link
   // checker rather than collapsing into one `string`
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
   /**
-   * The query is ordered by how READABLE each part is, shortest and plainest first.
+   * The parameters are ordered by how READABLE each part is, shortest and plainest first.
    *
    * `options` leads, then the packed torrent, then `f` last. The torrent used to lead, back when it
    * was the only thing in the link; now that everything around it is either base64url or an index,
@@ -160,7 +160,7 @@ export const embedPath = ({ magnet, mode, indices, fileCount, fileIndex, ...link
     options.fileIndex = String(fileIndex)
   }
 
-  // spread order IS the query order: object keys keep insertion order and URLSearchParams preserves it
+  // spread order IS the parameters' order: object keys keep insertion order and URLSearchParams preserves it
   return getRoutePath(mode === 'download' ? Route.DOWNLOAD : Route.WATCH, { ...options, ...linked, ...source })
 }
 

@@ -3,6 +3,7 @@ import type { PlayerTorrent } from '../../src/torrent/use-player-torrent'
 import { NORMALIZE_VOLUME_KEY } from '../../src/router/normalize-volume'
 import { PLAYER_VOLUME_KEY } from '../../src/router/player-volume'
 import { decodeMagnetParam } from '../../src/router/magnet-codec'
+import { linkParams } from '../../src/router/path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -486,15 +487,19 @@ describe('the watch route', () => {
   it('opens Ripple with this player as its opener, naming the torrent and carrying its magnet', async () => {
     const hash = '0123456789abcdef0123456789abcdef01234567'
     const magnet = `magnet:?xt=urn:btih:${hash}&dn=Film`
-    const screen = await mount(DESKTOP, `?magnet=${btoa(magnet)}`)
-    const link = screen.getByTestId('open-in-ripple')
-    await expect.element(link).toBeInTheDocument()
-    expect(link.element().getAttribute('rel')).toBe('opener')
-    expect(link.element().getAttribute('target')).toBe('_blank')
-    const href = new URL(link.element().getAttribute('href')!)
-    expect(`${href.origin}${href.pathname}`).toBe(`${location.origin}/`)
-    expect(href.searchParams.get('torrent')).toBe(hash)
-    expect(decodeMagnetParam(href.searchParams)).toBe(magnet)
+    // the torrent after the #, as links are written now, and in the query, as they were
+    for (const link of ['#', '?'].map((mark) => `${mark}magnet=${btoa(magnet)}`)) {
+      const screen = await mount(DESKTOP, link)
+      const open = screen.getByTestId('open-in-ripple')
+      await expect.element(open).toBeInTheDocument()
+      expect(open.element().getAttribute('rel')).toBe('opener')
+      expect(open.element().getAttribute('target')).toBe('_blank')
+      const href = new URL(open.element().getAttribute('href')!)
+      expect(`${href.origin}${href.pathname}`).toBe(`${location.origin}/`)
+      expect(href.searchParams.get('torrent'), link).toBe(hash)
+      expect(decodeMagnetParam(href.searchParams), link).toBe(magnet)
+      await screen.unmount()
+    }
   })
 
   /**
@@ -511,9 +516,9 @@ describe('the watch route', () => {
     expect(screen.container.querySelector('.loading-information')?.textContent)
       .toBe("Too big for this browser's storage here. Open it in Ripple to play it.")
     const href = new URL(link.element().getAttribute('href')!)
-    expect(`${href.origin}${href.pathname}`).toBe(`${location.origin}/watch`)
-    expect(href.searchParams.get('magnet')).toBe('bWFnbmV0Og==')
-    expect(href.searchParams.get('fileIndex')).toBe('0')
+    expect(`${href.origin}${href.pathname}${href.search}`).toBe(`${location.origin}/watch`)
+    expect(linkParams(href).get('magnet')).toBe('bWFnbmV0Og==')
+    expect(linkParams(href).get('fileIndex')).toBe('0')
     expect(link.element().getAttribute('target')).toBe('_blank')
     // the row takes no pointer events, so a link in it has to ask for them back
     expect(getComputedStyle(link.element()).pointerEvents).toBe('auto')
@@ -686,7 +691,9 @@ describe('the watch route', () => {
       const link = screen.getByTestId('open-download-page')
       await expect.element(link).toBeInTheDocument()
       const label = link.element().getAttribute('aria-label')
-      const fileIndex = new URL(link.element().getAttribute('href')!).searchParams.get('fileIndex')
+      const href = new URL(link.element().getAttribute('href')!)
+      expect(href.search, 'the torrent of a link written now is after the #').toBe('')
+      const fileIndex = linkParams(href).get('fileIndex')
       await screen.unmount()
       return { label, fileIndex }
     }
