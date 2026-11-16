@@ -22,12 +22,11 @@ const DEPLOYED = !!process.env.RIPPLE_TEST_BASE_URL
 
 /**
  * The specs that keep the VPN on: those that test the VPN, the relay, inbound peers, the transport or FKN's quota,
- * handover-rows.spec.ts, which samples a promoted tab's rows for the seconds its engine takes to start, and
- * smoke.spec.ts, two of whose adds fail once the engine starts as fast as it does with the VPN off.
+ * and handover-rows.spec.ts, which samples a promoted tab's rows for the seconds its engine takes to start.
  */
 const VPN_ON = [
   'create-torrent.spec.ts', 'handover-rows.spec.ts', 'home-language.spec.ts', 'name-lookups.spec.ts',
-  'smoke.spec.ts', 'vpn-off.spec.ts', 'vpn-surfaces.spec.ts',
+  'vpn-off.spec.ts', 'vpn-surfaces.spec.ts',
 ]
 
 const isLocal = (url: string) => {
