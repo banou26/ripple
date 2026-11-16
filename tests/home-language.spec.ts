@@ -1448,19 +1448,21 @@ test.describe('the header', () => {
 
 test.describe('the stats strip', () => {
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: two rows at most from 412 to 320 px, signed in with the quota and the sync, and signed out`, async ({ page }) => {
+    test(`${language}: two rows at most from 320 to 1440 px, signed in with the quota and the sync, and signed out`, async ({ page }) => {
+      test.setTimeout(90_000)
       await opening(page, language)
       await page.goto(origin)
       for (const [quota, sync, readouts] of [[THROTTLED, SYNCING, 7], [QUOTA_LEFT, SYNC_FAILED, 7], [null, null, 5]] as const) {
         if (quota) await signIn(page, quota, sync)
         else await signOut(page)
         await library(page, LIST, TORRENTS)
-        for (const width of [412, 390, 360, 320]) {
+        for (const width of [320, 360, 390, 412, 701, 760, 820, 900, 1000, 1100, 1280, 1440]) {
           await page.setViewportSize({ width, height: 844 })
           await drawn(page)
           const strip = await stripRows(page)
           const at = `${width} px, ${quota ? `signed in, ${sync.status}` : 'signed out'}`
-          expect(strip.readouts, `${at}: the control, the speeds, the VPN, storage${quota ? ', the quota and the sync' : ''} were read`).toBe(readouts)
+          // Inbound shows from 701 px
+          expect(strip.readouts, `${at}: the control, the speeds, the VPN, storage${quota ? ', the quota and the sync' : ''} were read`).toBe(readouts + (width > 700 ? 1 : 0))
           expect(strip.rows, at).toBeLessThanOrEqual(2)
           expect(strip.sideways, at).toBe(0)
         }
@@ -1468,13 +1470,18 @@ test.describe('the stats strip', () => {
     })
   }
 
-  test('en: no Active readout, and on a phone the VPN switch starts the row after the speeds', async ({ page }) => {
+  test('en: no Active readout, and the VPN switch in its place after the speeds, starting the second row on a phone', async ({ page }) => {
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 })
       await expect(page.locator('.stats label').first(), `${width} px: the control, the labels are read`).toHaveText('Download')
       await expect(page.locator('.stats label', { hasText: /^Active$/u }), `${width} px`).toHaveCount(0)
+      if (width === 1280) {
+        const order = await page.locator('.stats .stat').evaluateAll(stats => stats.map(stat => [stat.classList[1], Math.round(stat.getBoundingClientRect().left)] as const)
+          .sort(([, a], [, b]) => a - b).map(([name]) => name))
+        expect(order.slice(0, 5), 'one row, the switch after Peak down').toEqual(['big', 'rate', 'rate', 'vpn', 'inbound'])
+      }
     }
     const vpn = (await page.locator('.stats .stat.vpn').boundingBox())!
     const download = (await page.locator('.stats .stat.big').boundingBox())!

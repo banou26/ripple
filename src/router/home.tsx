@@ -691,15 +691,39 @@ export const style = css`
     padding: 14px 18px;
     border-radius: 8px;
 
+    /* The speeds and the rest are two lines, side by side where they fit and one above the other where they do not, so
+       the strip is never more than two rows. A line too long for its row scrolls sideways, faded at an end with more past
+       it; a mask only while there is, since it would also cut the quota offer the VPN switch raises under it. */
     .readouts {
+      flex: 0 1 auto;
+      min-width: 0;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
       gap: 14px 26px;
     }
 
+    /* padded so the VPN switch's target, which overhangs its box, and a focus ring are not cut by the scroll */
     .line {
-      display: contents;
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      margin: -4px -8px;
+      padding: 4px 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      --fade-start: 0px;
+      --fade-end: 0px;
+
+      &::-webkit-scrollbar { display: none; }
+      &[data-more-start] { --fade-start: 28px; }
+      &[data-more-end] { --fade-end: 28px; }
+
+      &[data-more-start], &[data-more-end] {
+        mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+      }
+
+      > * { flex: none; }
     }
 
     .stat {
@@ -1657,40 +1681,16 @@ export const style = css`
     }
 
     .stats {
-      flex-direction: column;
       margin: 10px 10px 0;
       padding: 10px 12px;
 
-      /* one flex line, which a line of readouts stretches across: a wrapping column would size it to its words */
       .readouts {
-        flex-direction: column;
-        flex-wrap: nowrap;
-        align-items: stretch;
-        gap: 6px;
+        gap: 6px 16px;
       }
 
-      /* Padded so the VPN switch's target, which overhangs its box, and a focus ring are not cut by the scroll. */
       .line {
-        display: flex;
-        align-items: center;
         gap: 16px;
-        margin: -4px -8px;
-        padding: 4px 8px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        --fade-start: 0px;
-        --fade-end: 0px;
-        mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
-
-        &::-webkit-scrollbar { display: none; }
-        &[data-more-start] { --fade-start: 28px; }
-        &[data-more-end] { --fade-end: 28px; }
-
-        > * { flex: none; }
       }
-
-      /* the VPN's switch where Active was, first after the speeds */
-      .vpn { order: -1; }
 
       .stat label, .stat .name {
         font-size: 0.6rem;
@@ -2251,10 +2251,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   )
 }, same)
 
-/**
- * A line of the stats strip. A wide window flows every readout of both lines as one; a phone gives each line a row of
- * its own, which scrolls sideways where its words do not fit and fades at an end with more past it.
- */
+/** A line of the stats strip, which marks the ends it scrolls past for their fades. */
 const ReadoutLine = ({ children }: { children: ReactNode }) => {
   const ref = useRef<HTMLDivElement>(null)
   const [more, setMore] = useState({ start: false, end: false })
@@ -3693,18 +3690,18 @@ const Home = () => {
                 </div>
               </ReadoutLine>
             )}
+            {/* the VPN's switch first, where Active was, so it is never past the end of a line that scrolls */}
             <ReadoutLine>
+              <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
               {torrents.length > 0 && (
                 <>
                   {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
                   {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
                   {storage && <StorageStat storage={storage} low={lowStorage}/>}
                   {quota && <QuotaStat quota={quota}/>}
+                  <SyncStat state={syncState}/>
                 </>
               )}
-              {/* beside the quota, because both answer "is FKN doing anything for me right now" */}
-              <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
-              {torrents.length > 0 && <SyncStat state={syncState}/>}
             </ReadoutLine>
           </div>
           {torrents.length > 0 && <SpeedGraph history={history}/>}
