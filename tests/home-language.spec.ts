@@ -1417,8 +1417,22 @@ test('a state filter says nothing matches from the engine\'s first report on, an
 })
 
 test('the auto-save folder takes a completed torrent as well as a seeding one, and no download', async ({ page }) => {
+  // as the engine reports a finished torrent: its files placed in the pieces and every piece held, which is what the
+  // copy reads before it takes one
+  const held = (snap: typeof TORRENTS[0]) => {
+    if (snap.status.state !== 5 || !snap.files) return snap
+    let length = 0
+    const files = snap.files.files.map((file) => {
+      const offset = length
+      length += file.size
+      return { ...file, offset }
+    })
+    const numPieces = Math.ceil(length / snap.files.pieceLength)
+    const pieces = Array.from({ length: Math.ceil(numPieces / 8) }, () => 0xff)
+    return { ...snap, files: { ...snap.files, files }, bitfield: { pieces, numPieces, pieceLength: snap.files.pieceLength, length } }
+  }
   await page.goto(origin)
-  await library(page, LIST, TORRENTS)
+  await library(page, LIST, TORRENTS.map(held))
   await page.locator('footer .folder').last().getByRole('button').first().click()
   const readFrom = () => page.evaluate(() => (window as unknown as { readFrom: () => number[] }).readFrom().sort((a, b) => a - b))
   // A.Season.Pack seeding and Watched.Film completed, each read through the engine to be copied
