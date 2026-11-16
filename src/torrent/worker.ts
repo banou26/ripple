@@ -1747,7 +1747,8 @@ const init = async () => {
 
   try {
     const list = await loadList()
-    const cleared = !(await opfsHasData(list.map((e) => e.savePath || SHARED_ROOT)))
+    // only the entries the restore adds count: a Files missing row has no directory at all
+    const cleared = !(await opfsHasData(list.filter((e) => e.started !== false).map((e) => e.savePath || SHARED_ROOT)))
     let changed = false
     for (const e of list) {
       if (e.started === false) continue
