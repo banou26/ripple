@@ -100,8 +100,9 @@ import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
 import { knownPrivate, saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
-import { useShareableMagnet } from '../torrent/use-shareable-magnet'
+import { useShareableMagnet, useShareableMagnets } from '../torrent/use-shareable-magnet'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
+import type { ShareableMagnets } from '../torrent/use-shareable-magnet'
 
 // a brand and a build, the same in every language
 const WORDMARK = 'Ripple'
@@ -3148,6 +3149,14 @@ const Home = () => {
   const pausePicked = () => { for (const t of toPause(pickedNow())) pause(Number(t.id)) }
   const resumePicked = () => { for (const t of toResume(pickedNow())) resume(Number(t.id)) }
   const startPicked = () => { for (const t of toStart(pickedNow())) onStart(t) }
+  const pickedMagnets = useShareableMagnets(bulk.rows)
+  const copyPicked = ({ magnets, left }: ShareableMagnets) => {
+    const copied = left
+      ? intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}' }, { count: magnets.length, left })
+      : intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}' }, { count: magnets.length })
+    if (magnets.length) copy(magnets.join('\n'), copied, intl.formatMessage({ id: 'Could not copy', defaultMessage: 'Could not copy' }))
+    else showToast(copied)
+  }
   const removePicked = async () => {
     const live = bulk.rows.filter((t) => t.state !== 'missing')
     if (live.length) {
@@ -3651,6 +3660,7 @@ const Home = () => {
           finished={bulk.rows.every(finished)}
           canDownload={toStart(bulk.rows).length > 0}
           onDownload={startPicked}
+          onCopyMagnets={pickedMagnets ? () => copyPicked(pickedMagnets) : undefined}
           onPause={pausePicked}
           onResume={resumePicked}
           onRemove={() => { void removePicked() }}

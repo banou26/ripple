@@ -14,6 +14,8 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from './offline'
 
+import { magnetParam } from '../src/torrent/magnet'
+
 const NAMES = ['Bulk.One.bin', 'Bulk.Two.bin', 'Bulk.Three.bin']
 
 /** One key of the raw idb-keyval store, which is where the worker keeps the list and the removals. */
@@ -282,4 +284,43 @@ test('a removal confirmed while the engine moves to another tab leaves its torre
   await bar.getByRole('button', { name: 'Remove' }).click()
   await other.getByRole('dialog').getByRole('button', { name: 'Remove and delete' }).click()
   await expect(other.locator('.torrent')).toHaveCount(0, { timeout: 30_000 })
+})
+
+/*
+ * Copy magnets puts the ticked torrents' magnets on the clipboard, one a line in the order the list draws them, and
+ * leaves out the one whose kept .torrent says it is private, as a share link does. With only that one ticked nothing is
+ * written, and the clipboard keeps what it held.
+ */
+test('Copy magnets copies the ticked torrents\' magnets in list order, and leaves a private one out', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await prepare(page)
+  await page.goto('/')
+  for (const magnet of [`magnet:?xt=urn:btih:${'1a'.repeat(20)}&dn=Copy.One`, `magnet:?xt=urn:btih:${'2b'.repeat(20)}&dn=Copy.Two`]) {
+    await page.getByPlaceholder('Add a magnet link').fill(magnet)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+  }
+  const str = (value: string) => `${Buffer.byteLength(value)}:${value}`
+  const members = Buffer.from(
+    'd' + str('announce') + str('https://members.example/key/announce')
+    + str('info') + 'd' + str('length') + 'i11e' + str('name') + str('Members') + str('piece length') + 'i16384e' + str('pieces') + str('p'.repeat(20))
+    + str('private') + 'i1e' + 'ee',
+  )
+  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: 'Members.torrent', mimeType: 'application/x-bittorrent', buffer: members })
+  // a box once the engine has reported each row, which Select all takes
+  await expect(page.locator('.torrent .row-check')).toHaveCount(3, { timeout: 30_000 })
+
+  await page.getByRole('checkbox', { name: 'Select all' }).check()
+  const bar = page.locator('.bulk-bar')
+  await expect(bar).toContainText('3 selected')
+  await bar.getByRole('button', { name: 'Copy magnets' }).click()
+  await expect(page.locator('.toast')).toHaveText('2 magnets copied, 1 private torrent left out')
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  const drawn = (await page.locator('.torrent .title strong').allTextContents()).filter((name) => name !== 'Members')
+  expect(copied.split('\n').map((magnet) => magnetParam(magnet, 'dn'))).toEqual(drawn)
+
+  for (const name of drawn) await tickOf(page)(name).uncheck()
+  await expect(bar).toContainText('1 selected')
+  await bar.getByRole('button', { name: 'Copy magnets' }).click()
+  await expect(page.locator('.toast')).toHaveText('0 magnets copied, 1 private torrent left out')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(copied)
 })

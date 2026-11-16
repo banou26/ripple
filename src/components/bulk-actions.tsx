@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Check, Download, Pause, Play, Square, Trash2, X } from 'lucide-react'
+import { Check, Download, Magnet, Pause, Play, Square, Trash2, X } from 'lucide-react'
 import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
@@ -176,6 +176,8 @@ export type BulkBarProps = {
   /** Whether a ticked torrent is not on this device, which is when Download shows. */
   canDownload?: boolean
   onDownload?: () => void
+  /** Copies the ticked torrents' magnets; absent while they are being read, which disables it. */
+  onCopyMagnets?: () => void
   onPause: () => void
   onResume: () => void
   onRemove: () => void
@@ -183,12 +185,13 @@ export type BulkBarProps = {
 }
 
 /** What can be done to every ticked torrent at once, shown while any is ticked. */
-export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onDownload, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
+export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onDownload, onCopyMagnets, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
   const intl = useIntl()
   const download = intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })
   const pause = finished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
   const resume = finished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
   const clear = intl.formatMessage({ id: 'Clear selection', defaultMessage: 'Clear selection' })
+  const copyMagnets = intl.formatMessage({ id: 'Copy magnets', defaultMessage: 'Copy magnets' })
   const remove = intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })
   return (
     <div css={barStyle} className="bulk-bar">
@@ -205,6 +208,9 @@ export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onD
       </button>
       <button type="button" className="icon" disabled={!canResume} onClick={onResume} aria-label={resume} {...hint(resume)}>
         <Play aria-hidden="true"/>
+      </button>
+      <button type="button" className="icon" disabled={!onCopyMagnets} onClick={onCopyMagnets} aria-label={copyMagnets} {...hint(copyMagnets)}>
+        <Magnet aria-hidden="true"/>
       </button>
       <button type="button" className="danger" onClick={onRemove} aria-label={remove}>
         <Trash2 aria-hidden="true"/><span>{remove}</span>

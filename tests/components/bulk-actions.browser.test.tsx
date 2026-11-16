@@ -58,6 +58,19 @@ describe('the bulk bar', () => {
     expect(props.onDownload).toHaveBeenCalledTimes(1)
   })
 
+  it('offers Copy magnets, sends the press to it, and holds it while the magnets are read', async () => {
+    const reading = (await mount().screen).container
+    expect(button(reading, 'Copy magnets').disabled).toBe(true)
+    const { props, screen } = mount({ onCopyMagnets: vi.fn() })
+    const c = (await screen).container
+    const copy = button(c, 'Copy magnets')
+    expect(copy.disabled).toBe(false)
+    expect(copy.querySelector('svg')!.classList).toContain('lucide-magnet')
+    expect(copy.getAttribute('data-tooltip-content')).toBe('Copy magnets')
+    copy.click()
+    expect(props.onCopyMagnets).toHaveBeenCalledTimes(1)
+  })
+
   it('shows Remove as its icon on a phone, still named for a screen reader', async () => {
     const remove = (c: HTMLElement) => c.querySelector<HTMLButtonElement>('button.danger')!
     expect(remove((await mount().screen).container).innerText.trim(), 'the control: the word shows on a wide window').toBe('Remove')

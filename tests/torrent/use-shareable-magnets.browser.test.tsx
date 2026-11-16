@@ -1,0 +1,63 @@
+import type { Torrent } from '../../src/torrent/types'
+import type { ShareableMagnets } from '../../src/torrent/use-shareable-magnet'
+
+import { describe, expect, it, vi } from 'vitest'
+import { render } from 'vitest-browser-react'
+
+import { torrentKey } from '../../src/torrent/library'
+import { magnetParam, magnetParams } from '../../src/torrent/magnet'
+import { useShareableMagnets } from '../../src/torrent/use-shareable-magnet'
+
+/** The `.torrent` files this device kept, by key, as idb-keyval holds them. */
+const kept = new Map<string, Uint8Array>()
+vi.mock('idb-keyval', () => ({ get: async (key: string) => kept.get(key) }))
+
+const encoder = new TextEncoder()
+const str = (value: string) => `${encoder.encode(value).length}:${value}`
+const torrentFile = (name: string, { tracker, flag }: { tracker: string, flag?: number }) => encoder.encode(
+  'd' + str('announce') + str(tracker)
+  + str('info') + 'd' + str('length') + 'i11e' + str('name') + str(name) + str('piece length') + 'i16384e' + str('pieces') + str('p'.repeat(20))
+  + (flag === undefined ? '' : str('private') + `i${flag}e`)
+  + 'ee',
+)
+
+const row = (hash: string, name: string): Torrent => ({
+  id: hash, magnet: `magnet:?xt=urn:btih:${hash.repeat(40)}`, infoHash: hash.repeat(40), name, size: 11, downloaded: 0,
+  progress: 0, state: 'downloading', down: 0, up: 0, peers: 0, seeds: 0, eta: '-', flags: 0, queuePosition: -1, stats: null,
+})
+
+// a, its file kept with a tracker; b, a magnet add with no file; p, private; z, whose private flag is 0 and so is not
+kept.set(torrentKey('a'.repeat(40)), torrentFile('Kept', { tracker: 'https://tracker.example/announce' }))
+kept.set(torrentKey('c'.repeat(40)), torrentFile('Members', { tracker: 'https://members.example/key/announce', flag: 2 }))
+kept.set(torrentKey('d'.repeat(40)), torrentFile('Open', { tracker: 'https://open.example/announce', flag: 0 }))
+
+const ROWS = { a: row('a', 'Kept'), b: row('b', 'Magnet'), p: row('c', 'Members'), z: row('d', 'Open') }
+
+const reads: (ShareableMagnets | null)[] = []
+const Probe = ({ rows }: { rows: Torrent[] }) => { reads.push(useShareableMagnets(rows)); return null }
+
+describe('the magnets of the ticked rows', () => {
+  it('are read before any copy, in the rows\' order, each as it is shared, and a private one left out', async () => {
+    reads.length = 0
+    const screen = await render(<Probe rows={[ROWS.z, ROWS.p, ROWS.b, ROWS.a]}/>)
+    expect(reads[0], 'nothing to copy while they are read').toBeNull()
+    await expect.poll(() => reads.at(-1)).not.toBeNull()
+    const { magnets, left } = reads.at(-1)!
+    expect(left).toBe(1)
+    expect(magnets.map((magnet) => magnetParam(magnet, 'dn') ?? magnet)).toEqual(['Open', ROWS.b.magnet, 'Kept'])
+    expect(magnetParams(magnets[2]!, 'tr'), 'from the file this device kept').toEqual(['https://tracker.example/announce'])
+
+    const before = reads.length
+    await screen.rerender(<Probe rows={[ROWS.a]}/>)
+    expect(reads[before], 'another set of rows has nothing to copy until it is read').toBeNull()
+    await expect.poll(() => reads.at(-1)?.magnets.length).toBe(1)
+    expect(reads.at(-1)!.left).toBe(0)
+  })
+
+  it('leave nothing to copy when every one is private', async () => {
+    reads.length = 0
+    await render(<Probe rows={[ROWS.p]}/>)
+    await expect.poll(() => reads.at(-1)?.left).toBe(1)
+    expect(reads.at(-1)!.magnets).toEqual([])
+  })
+})

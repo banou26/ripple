@@ -2,7 +2,7 @@ import type { Torrent } from './types'
 
 import { useEffect, useState } from 'react'
 
-import { shareableMagnet } from './torrent-export'
+import { knownPrivate, shareableMagnet } from './torrent-export'
 
 /**
  * `t`'s shareable magnet, or null while it is still being read.
@@ -24,4 +24,26 @@ export const useShareableMagnet = (t: Torrent | undefined): { magnet: string | u
     return () => { live = false }
   }, [id, infoHash, from])
   return t && read?.id === t.id && read.from === t.magnet ? read : null
+}
+
+export type ShareableMagnets = { magnets: string[], left: number }
+
+/**
+ * The shareable magnets of `rows`, in their order, less those of torrents known to be private, which `left` counts as a
+ * share link leaves them out; null while they are being read. Read before the click that copies them, for the reason
+ * `useShareableMagnet` gives.
+ */
+export const useShareableMagnets = (rows: readonly Torrent[]): ShareableMagnets | null => {
+  const key = JSON.stringify(rows.map((t) => [t.infoHash ?? null, t.magnet ?? null]))
+  const [read, setRead] = useState<ShareableMagnets & { key: string } | null>(null)
+  useEffect(() => {
+    let live = true
+    const subjects = (JSON.parse(key) as [string | null, string | null][]).map(([infoHash, magnet]) => ({ infoHash: infoHash ?? undefined, magnet: magnet ?? undefined }))
+    void Promise.all(subjects.map(async (t) => (await knownPrivate(t.infoHash) ? null : await shareableMagnet(t))))
+      .then((found) => {
+        if (live) setRead({ key, magnets: found.filter((magnet): magnet is string => !!magnet), left: found.filter((magnet) => magnet === null).length })
+      })
+    return () => { live = false }
+  }, [key])
+  return read?.key === key ? read : null
 }
