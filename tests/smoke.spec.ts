@@ -182,6 +182,23 @@ test('closing the tab asks first while a torrent of one\'s own downloads, and no
   expect(asked).toEqual(['beforeunload'])
 })
 
+test('closing the tab asks from another of its pages too, which the engine goes on downloading behind', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.goto('/')
+  await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.torrent .badge')).toHaveText('Downloading', { timeout: 30_000 })
+  await page.getByRole('link', { name: 'Privacy', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Privacy' })).toBeVisible()
+  // a frame or two for the library page's effects to end, as they do once it is gone
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+
+  const asked: string[] = []
+  page.on('dialog', (dialog) => { asked.push(dialog.type()); void dialog.dismiss() })
+  await page.close({ runBeforeUnload: true })
+  await expect.poll(() => asked).toEqual(['beforeunload'])
+})
+
 test('a link turned down leaves the offer standing', async ({ page }) => {
   await page.goto(`/add?magnet=${encodeURIComponent(NOBODY)}`)
   // listed as temporary while its dialog asks, which is not an answer to the offer

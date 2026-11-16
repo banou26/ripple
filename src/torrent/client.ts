@@ -793,6 +793,9 @@ let stopFollowingVpn: (() => void) | null = null
 
 let shared: TorrentClient | null = null
 
+/** This page's client once a page has asked for it, or null; unlike {@link getTorrentClient}, never makes one. */
+export const runningTorrentClient = (): TorrentClient | null => shared
+
 /**
  * Turns the VPN on or off for every torrent of this browser storage, and stores the choice there.
  *

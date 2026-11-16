@@ -1,5 +1,7 @@
+import type { RouteObject } from 'react-router-dom'
+
 import { RouterProvider } from 'react-router'
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 
 import Add from './add'
 import Embed from './embed'
@@ -8,9 +10,10 @@ import Legal from './legal'
 import Privacy from './privacy'
 import { Hints } from '../components/hint'
 import { shownLanguage, startLanguage, uiLanguage } from '../i18n'
+import { useLeavePrompt } from './leave-prompt'
 import { getRoutePath, getRouterRoutePath, Route } from './path'
 
-const router = createBrowserRouter([
+const routes: RouteObject[] = [
   {
     path: getRouterRoutePath(Route.HOME),
     element: <Home/>
@@ -42,7 +45,15 @@ const router = createBrowserRouter([
     path: '*',
     element: <Navigate to={getRoutePath(Route.HOME)} replace/>
   }
-])
+]
+
+/** Around every page, for what holds in the tab whichever one shows. */
+const Pages = () => {
+  useLeavePrompt()
+  return <Outlet/>
+}
+
+const router = createBrowserRouter([{ element: <Pages/>, children: routes }])
 
 // a link's language holds on /watch and /download alone, so a page reached from one in place shows the viewer's own
 router.subscribe(() => { if (uiLanguage() !== shownLanguage()) void startLanguage() })
