@@ -53,6 +53,7 @@ import {
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
+import { useFinishNotice } from './finish-notice'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { isAppInstalled, setupHandlers } from '../utils/pwa'
@@ -2197,6 +2198,7 @@ const Home = () => {
   // Mounted once, here, because it drives the WHOLE library rather than a row: every job opens a
   // libav worker, so one owner with a queue is the difference between one at a time and one per row.
   useThumbnailGeneration(client)
+  useFinishNotice(torrents)
 
   const [showSetup] = useState(() => !isAppInstalled())
   const setupLabel = intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })
