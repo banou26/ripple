@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
 import { del, get, set } from 'idb-keyval'
 
@@ -275,6 +275,22 @@ describe('the group store and the account', () => {
     await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Before sign-in'])
     await here.putInGroup('before-sign-in-g', [A])
     expect(await stored()).toMatchObject({ account: await accountTag('someone'), groups: [{ id: 'before-sign-in-g' }] })
+  })
+
+  it('shows and edits this browser\'s copy when local storage is blocked', async () => {
+    const tag = await accountTag('someone')
+    await set(GROUPS_KEY, { account: tag, groups: [group('blocked-storage0', 'Mine')] } satisfies StoredGroups)
+    const blocked = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError') })
+    try {
+      const here = await newTab()
+      const { result } = await renderHook(() => here.useGroups())
+      await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Mine'])
+      await here.putInGroup('blocked-storage0', [A])
+      expect(held(await storedGroup('blocked-storage0'))).toEqual([A])
+      expect((await stored())?.account).toBe(tag)
+    } finally {
+      blocked.mockRestore()
+    }
   })
 
   it('takes in the account\'s groups, adopting a copy made before any sign-in', async () => {
