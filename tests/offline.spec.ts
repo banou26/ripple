@@ -8,27 +8,31 @@ import { expect, test } from './offline'
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 
 const OUTSIDE = 'http://outside.test/'
+const DEPLOYED = !!process.env.RIPPLE_TEST_BASE_URL
 
-test.skip(!!process.env.RIPPLE_TEST_BASE_URL, 'the guard is off in a run against a deployed origin')
-
-test('a page starts with the VPN off, in the default context and in one the test opens', async ({ page, browser }) => {
+// nothing writes the choice in a run against a deployed origin, so its pages start on the default a visitor gets
+test('a page starts with the VPN off, or on against a deployed origin, in the default context and in one the test opens', async ({ page, browser }) => {
   test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build, and the VPN with them can be nothing but on')
   const opened = await (await browser.newContext()).newPage()
   for (const each of [page, opened]) {
     await each.goto('/')
-    await expect(each.getByRole('switch', { name: /^VPN/ })).toHaveAttribute('aria-checked', 'false')
+    await expect(each.getByRole('switch', { name: /^VPN/ })).toHaveAttribute('aria-checked', DEPLOYED ? 'true' : 'false')
   }
   await opened.context().close()
 })
 
-test.fail('an answer from off the machine fails the test', async ({ page }) => {
-  await page.route(OUTSIDE, (route) => route.fulfill({ body: 'outside' }))
-  await page.goto(OUTSIDE).catch(() => {})
-})
+test.describe('the guard', () => {
+  test.skip(DEPLOYED, 'the guard is off in a run against a deployed origin')
 
-test.fail('so does one in a context the test opens itself', async ({ browser }) => {
-  const context = await browser.newContext()
-  await context.route(OUTSIDE, (route) => route.fulfill({ body: 'outside' }))
-  await (await context.newPage()).goto(OUTSIDE).catch(() => {})
-  await context.close()
+  test.fail('an answer from off the machine fails the test', async ({ page }) => {
+    await page.route(OUTSIDE, (route) => route.fulfill({ body: 'outside' }))
+    await page.goto(OUTSIDE).catch(() => {})
+  })
+
+  test.fail('so does one in a context the test opens itself', async ({ browser }) => {
+    const context = await browser.newContext()
+    await context.route(OUTSIDE, (route) => route.fulfill({ body: 'outside' }))
+    await (await context.newPage()).goto(OUTSIDE).catch(() => {})
+    await context.close()
+  })
 })
