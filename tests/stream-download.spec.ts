@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 import type { Frame, Page } from '@playwright/test'
 import { expect, test } from './offline'
+import { hideController } from './worker-control'
 
 const TOTAL = 3 * 1024 * 1024
 const CHUNK = 512 * 1024
@@ -302,16 +303,7 @@ test('a download link opened as its own page starts saving by itself', async ({ 
   // as on a first visit, where the worker takes control once it has installed
   await test.step('with no worker in control yet, it waits for one', async () => {
     const own = await context.newPage()
-    await own.addInitScript(() => {
-      const w = window as any
-      w.__hidden = true
-      // oxlint-disable-next-line typescript/unbound-method
-      const controller = Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype, 'controller')!.get!
-      Object.defineProperty(ServiceWorkerContainer.prototype, 'controller', {
-        configurable: true,
-        get () { return w.__hidden ? null : controller.call(this) },
-      })
-    })
+    await own.addInitScript(hideController)
     let downloads = 0
     own.on('download', () => downloads++)
     await own.goto(link)

@@ -14,6 +14,8 @@ import { join } from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
+import { hideController, showController } from './worker-control'
+
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 
@@ -103,13 +105,6 @@ const payloadReport = (page: import('@playwright/test').Page) =>
  * than a convenient stand-in for it.
  */
 const forceStreamSink = `delete window.showSaveFilePicker`
-
-/**
- * A link opened as its own page starts its save 2 s after the files are in when the service worker controls it, so a
- * test of the page before the press hides the controller, which is the case where the page waits for the button.
- * The tests that press it do so at once.
- */
-const waitForPress = `Object.defineProperty(ServiceWorkerContainer.prototype, 'controller', { configurable: true, get: () => null })`
 
 // headful by project rule: a run that has to watch a torrent actually move bytes stalls at a flat
 // 0 B/s headless, in every topology, which makes the thing under test unmeasurable. It has to sit at
@@ -254,7 +249,7 @@ print(json.dumps({
   })
 
   /**
-   * Opening the page must cost nothing until the button is pressed, on a page that waits for it (waitForPress).
+   * Opening the page must cost nothing until the button is pressed, on a page that waits for it (hideController).
    *
    * It used to claim a viewer the moment the file list landed, so a link somebody followed out of
    * curiosity started filling their storage at full speed with no download in progress anywhere on
@@ -267,7 +262,7 @@ print(json.dumps({
    */
   test('writes nothing until Download is pressed, then writes', async ({ page }) => {
     await page.addInitScript(forceStreamSink)
-    await page.addInitScript(waitForPress)
+    await page.addInitScript(hideController)
     await page.goto(downloadUrl(`files=${SUBTITLE}`))
 
     const button = page.getByRole('button', { name: 'Download', exact: true })
@@ -283,10 +278,12 @@ print(json.dumps({
     await page.waitForTimeout(15_000)
     expect(await payloadFiles(page), 'the engine wrote while the page was only holding metadata').toBe(0)
 
+    await showController(page)
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 120_000 }),
       button.click(),
     ])
+    expect(download.url(), 'the press took an arm other than the worker\'s').toContain('/__ripple-stream/')
     await download.cancel().catch(() => {})
 
     // the positive control: the same measurement, after the only thing that changed was the click
@@ -444,7 +441,7 @@ print(json.dumps({
   test('rebuilds a .torrent that names the same torrent', async ({ page }) => {
     test.setTimeout(180_000)
     // or the page starts saving all eleven files by itself
-    await page.addInitScript(waitForPress)
+    await page.addInitScript(hideController)
     await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}`)
 
     /*
