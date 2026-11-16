@@ -74,7 +74,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Firefox for the files vite.config.ts runs there too
+      - run: npx playwright install --with-deps chromium firefox
       # ubuntu-24 restricts unprivileged user namespaces, which Chrome's sandbox needs. Lift the
       # restriction rather than passing --no-sandbox: the sandbox is the thing under the tests.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

@@ -323,7 +323,20 @@ export default defineConfig((env) => ({
             // en-US because ripple's text, dates and numbers follow the browser's language
             provider: playwright({ launchOptions: { executablePath: findChrome(), args: ['--mute-audio'] }, contextOptions: { locale: 'en-US' } }),
             // explicit: the default is a 414px phone, and the player chrome branches on 768px
-            instances: [{ browser: 'chromium', viewport: { width: 1280, height: 720 } }],
+            instances: [
+              { browser: 'chromium', viewport: { width: 1280, height: 720 } },
+              // the files whose behaviour differs in Firefox, run there too. RIPPLE_FIREFOX names the store's Firefox
+              // where Playwright's own download does not work, as RIPPLE_CHROME does in playwright.config.ts
+              {
+                browser: 'firefox',
+                viewport: { width: 1280, height: 720 },
+                include: ['tests/router/bulk-selection.browser.test.tsx'],
+                provider: playwright({
+                  launchOptions: { executablePath: process.env.RIPPLE_FIREFOX || undefined, firefoxUserPrefs: { 'media.volume_scale': '0.0' } },
+                  contextOptions: { locale: 'en-US' },
+                }),
+              },
+            ],
           },
         },
       },
