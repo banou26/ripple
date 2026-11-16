@@ -160,6 +160,22 @@ describe('a command caught by an engine handover', () => {
     await Promise.resolve()
     expect(handedOver.posted).toContainEqual({ type: 'set-folder', folder })
   })
+
+  // every page offers null on its first render, before it has read its stored folder, and the newest offer wins
+  it('offers no folder from a page that never had one, so a tab opening cannot take the folder away', async () => {
+    const rig = makeRig()
+    running(rig)
+    rig.client.setFolder(null)
+    await Promise.resolve()
+    expect(types(rig)).not.toContain('set-folder')
+
+    const folder = { kind: 'directory', name: 'Downloads' } as FileSystemDirectoryHandle
+    rig.client.setFolder(folder)
+    rig.client.setFolder(null)
+    await Promise.resolve()
+    expect(rig.posted.filter((m) => m.type === 'set-folder'), 'a grant that goes must still reach the engine')
+      .toEqual([{ type: 'set-folder', folder }, { type: 'set-folder', folder: null }])
+  })
 })
 
 /**

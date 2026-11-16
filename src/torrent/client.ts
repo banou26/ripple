@@ -495,6 +495,10 @@ export const createTorrentClient = (): EngineClient => {
    */
   const reserved = new Set<string>()
 
+  // A page that never offered a folder has none to take back. Every page offers null on its first render, before it
+  // has read its stored folder, and the newest offer wins, so that null would take a folder from the tab that gave it.
+  let offeredFolder = false
+
   const resetEngineState = (reason: string) => {
     failReads(new Error(reason))
     // Bumped before anything else, so a command parked in the gate can tell that the engine it was
@@ -759,7 +763,11 @@ export const createTorrentClient = (): EngineClient => {
     },
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
-    setFolder: (folder) => send({ type: 'set-folder', folder }),
+    setFolder: (folder) => {
+      if (!folder && !offeredFolder) return
+      offeredFolder = folder !== null
+      send({ type: 'set-folder', folder })
+    },
     exportStart: (infoHash) => ask({ type: 'export-start', infoHash }) as Promise<Offer | null>,
     exportChunk: (infoHash, { fileIndex, chunk }) => ask({ type: 'export-chunk', infoHash, fileIndex, chunk }) as Promise<Uint8Array>,
     exportEnd: (infoHash) => send({ type: 'export-end', infoHash }),
