@@ -2895,7 +2895,8 @@ const Home = () => {
   const syncingRef = useRef(new Set<string>())
   const folderGenerationRef = useRef(0)
   /**
-   * Which torrents have actually landed in the user's folder, as STATE rather than a ref.
+   * Which torrents have actually landed in the user's folder, by `copyKey`, so a file chosen since is not counted
+   * as there. STATE rather than a ref.
    *
    * The backoff map above is a ref because nothing renders from it. This does render: it decides
    * whether "Remove from the library" is offered at all, since keeping the files is only a real
@@ -2948,7 +2949,7 @@ const Home = () => {
           syncAtRef.current.set(key, DONE)
           // `written` is false for a copy that was already there, which is still "it is in the
           // folder" and still the thing the removal options need to know
-          setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
+          setSavedToFolder((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
           if (written) showToast(intl.formatMessage({ id: '{name} saved to {folder}', defaultMessage: '{name} saved to {folder}' }, { name: t.name, folder: folder.name }))
         })
         .catch(() => {
@@ -3068,7 +3069,7 @@ const Home = () => {
   const optionContext = (t: Torrent): TorrentOptionContext => {
     const { intended, current } = locationOf(t)
     return {
-      savedToUserStorage: !!folder && permitted && savedToFolder.has(t.id),
+      savedToUserStorage: !!folder && permitted && savedToFolder.has(copyKey(t)),
       intended,
       current,
       folderName: folder?.name,
@@ -3613,7 +3614,7 @@ const Home = () => {
               onSelect={onSelect}
               checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
               onPick={bulk.toggle}
-              savedToUserStorage={!!folder && permitted && savedToFolder.has(t.id)}
+              savedToUserStorage={!!folder && permitted && savedToFolder.has(copyKey(t))}
               rates={rowRates[t.id]}
               transport={transport}
             />

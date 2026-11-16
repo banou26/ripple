@@ -159,4 +159,10 @@ test('a file ticked after the copy reaches the folder only once its bytes are he
   const after = await folder()
   expect(Object.keys(after).filter((path) => /^(Gap|Bound)\/b\.bin/.test(path)), 'a file with no bytes was opened in the folder').toEqual([])
   expect((await rowOf(torrents.find((t) => t.name === 'Bound')!.infoHash))?.savePath, 'a torrent with a file to fetch moved into the folder').toBe('/dl')
+
+  // deleting Ripple's copy would now delete the only copy of b.bin's download
+  const gap = await options('Gap')
+  expect(gap, 'the copy is offered as whole with a chosen file missing from it').not.toContain('Remove and delete Ripple\'s copy')
+  expect(gap).toContain('Remove and delete the files')
+  expect(await options('Held')).toContain('Remove and delete Ripple\'s copy')
 })
