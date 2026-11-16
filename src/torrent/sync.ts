@@ -70,6 +70,9 @@ const alreadyThere = async (
   return true
 }
 
+/** What the mirror remembers a copy by: the torrent and its chosen files, so a file chosen after the copy goes too. */
+export const copyKey = (torrent: Torrent): string => `${torrent.id}:${chosenFiles(torrent).map((file) => file.index).join(',')}`
+
 /**
  * Copy every chosen file of a finished torrent into the folder the user granted. A file left out is not read, since
  * a read would have the engine fetch it.

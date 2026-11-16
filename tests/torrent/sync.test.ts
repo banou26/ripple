@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { probeRanges, syncTorrentToDirectory } from '../../src/torrent/sync'
+import { copyKey, probeRanges, syncTorrentToDirectory } from '../../src/torrent/sync'
 import type { TorrentClient } from '../../src/torrent/client'
 import type { Torrent } from '../../src/torrent/types'
 
@@ -187,7 +187,15 @@ describe('a torrent with files left out', () => {
     expect(await syncTorrentToDirectory(client, torrent, root as never)).toBe(2)
     expect([...files.keys()].sort()).toEqual(['a.bin', 'c.bin'])
     expect(root.opened).not.toContain('b.bin')
-    expect([...client.asked].sort()).toEqual([0, 2])
+    expect([...client.asked].sort((a, b) => a - b)).toEqual([0, 2])
+  })
+
+  // home.tsx parks a finished copy on this key, so a file chosen after the copy has to change it or never be copied
+  it('remembers a copy by the files it chose', () => {
+    const t = torrentOf([{ name: 'a.bin', size: 300_000 }, { name: 'b.bin', size: 300_000 }])
+    expect(copyKey({ ...t, wantedFiles: [0] })).not.toBe(copyKey({ ...t, wantedFiles: [0, 1] }))
+    expect(copyKey({ ...t, wantedFiles: [0, 1] })).toBe(copyKey(t))
+    expect(copyKey({ ...t, id: '2' })).not.toBe(copyKey(t))
   })
 })
 

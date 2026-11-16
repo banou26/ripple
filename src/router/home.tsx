@@ -25,7 +25,7 @@ import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import { StorageWarning } from '../components/storage-warning'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
-import { syncTorrentToDirectory } from '../torrent/sync'
+import { copyKey, syncTorrentToDirectory } from '../torrent/sync'
 import { moveTorrentFiles } from '../torrent/move-files'
 import { describeAddRequest, namedMagnet } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
@@ -2936,7 +2936,8 @@ const Home = () => {
        */
       if (isOwnContent(t)) continue
       if (!t.files?.length || syncingRef.current.has(t.id)) continue
-      const attempt = syncAtRef.current.get(t.id)
+      const key = copyKey(t)
+      const attempt = syncAtRef.current.get(key)
       if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
       syncingRef.current.add(t.id)
       const generation = folderGenerationRef.current
@@ -2944,7 +2945,7 @@ const Home = () => {
         .then((written) => {
           if (generation !== folderGenerationRef.current) return
           if (written === null) return
-          syncAtRef.current.set(t.id, DONE)
+          syncAtRef.current.set(key, DONE)
           // `written` is false for a copy that was already there, which is still "it is in the
           // folder" and still the thing the removal options need to know
           setSavedToFolder((prev) => (prev.has(t.id) ? prev : new Set(prev).add(t.id)))
@@ -2952,7 +2953,7 @@ const Home = () => {
         })
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
-          syncAtRef.current.set(t.id, Date.now() + SYNC_RETRY)
+          syncAtRef.current.set(key, Date.now() + SYNC_RETRY)
           showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
         })
         .finally(() => syncingRef.current.delete(t.id))
