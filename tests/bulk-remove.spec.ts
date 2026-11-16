@@ -50,6 +50,12 @@ const prepare = (page: Page) => page.context().addInitScript(() => {
   delete (window as any).showOpenFilePicker
 })
 
+/** Picks the row named `row` from the menu of the toolbar's chip named `chip`. */
+const fromChip = async (page: Page, chip: RegExp, row: RegExp | string) => {
+  await page.getByRole('button', { name: chip }).click()
+  await page.getByRole('menu').getByRole('menuitemradio', { name: row, exact: true }).click()
+}
+
 /** Makes a torrent of each file on this device, and returns their info hashes. */
 const make = async (page: Page, files: readonly string[]) => {
   const hashes: string[] = []
@@ -123,11 +129,11 @@ test('two of three torrents removed in one action stay removed after a reload, a
   await page.getByRole('switch', { name: 'Keep this download' }).click()
   await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
   await page.getByRole('button', { name: 'Done' }).click()
-  await page.getByRole('combobox', { name: 'Show' }).selectOption('library')
+  await fromChip(page, /^Show: /u, /^Kept /u)
   await expect(page.locator('.torrent', { hasText: three })).toHaveCount(0)
   await page.getByRole('checkbox', { name: 'Select all' }).check()
   await expect(bar).toContainText('2 selected')
-  await page.getByRole('combobox', { name: 'Show' }).selectOption('all')
+  await fromChip(page, /^Show: /u, /^All /u)
   await expect(tick(three)).not.toBeChecked()
   await expect(tick(one)).toBeChecked()
   await expect(tick(two)).toBeChecked()
@@ -172,7 +178,7 @@ test('a shift+click ticks the run of rows between two boxes, in the order each v
 
   const tick = tickOf(page)
   for (const name of names) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
-  await page.getByRole('combobox', { name: 'Sort by' }).selectOption('name')
+  await fromChip(page, /^Sort by /u, 'Name')
   const bar = page.locator('.bulk-bar')
   // the boxes from the top of the list down
   const ticked = () => page.locator('.row-check input').evaluateAll((boxes) => boxes.map((box) => (box as HTMLInputElement).checked))
@@ -185,7 +191,8 @@ test('a shift+click ticks the run of rows between two boxes, in the order each v
 
   await bar.getByRole('button', { name: 'Clear selection' }).click()
   await page.getByRole('button', { name: 'Table' }).click()
-  await page.getByRole('button', { name: 'Sorted ascending, click for descending' }).click()
+  // the key already sorted by, chosen again, flips the direction
+  await fromChip(page, /^Sort by /u, 'Name')
   // Date, Cherry, Banana, Apple
   await tick('Run.Date.bin').click()
   await tick('Run.Banana.bin').click({ modifiers: ['Shift'] })

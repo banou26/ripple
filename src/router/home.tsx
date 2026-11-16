@@ -84,8 +84,6 @@ import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
-import { CompactToolbar } from '../components/compact-toolbar'
-import { TOOLBAR } from './prototype'
 import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
@@ -3779,9 +3777,7 @@ const Home = () => {
         </section>
       )}
 
-      {torrents.length > 0 && (TOOLBAR === 'layout2'
-        ? <ListToolbar {...toolbar}/>
-        : <CompactToolbar design={TOOLBAR} {...toolbar}/>)}
+      {torrents.length > 0 && <ListToolbar {...toolbar}/>}
 
       <main {...interaction}>
         {sampleOffered && torrents.length === 0 && <SampleOffer onAnswer={answerSample}/>}

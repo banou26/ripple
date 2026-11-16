@@ -310,11 +310,11 @@ const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       // a line of the stats strip scrolls sideways on a phone, so a readout past the window's edge is reachable
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) && !element.closest('.stats .line') ? [`past the edge: ${named(element)}`]
-        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
-        // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
-        // link's, cuts nothing off
+        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language, as the sort chip's
+        // word does, which gives way first on a phone; a hint wraps, and only its arrow hangs past its box, on the side
+        // away from where it is placed; a box that scrolls, the share link's, cuts nothing off
         : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
-          && !element.matches('.torrent-table .title, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
+          && !element.matches('.torrent-table .title, .list-toolbar .chip.sort .value, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
         : element instanceof SVGSVGElement && box.height > 0 && box.width < box.height - 0.5
           ? [`an icon squeezed to ${Math.round(box.width)} of ${Math.round(box.height)} px: ${named(element.parentElement!)}`]
@@ -1715,23 +1715,52 @@ test.describe('on a phone', () => {
   })
 
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: the toolbar keeps to two rows from 390 to 320 px, the longest filter chosen`, async ({ page }) => {
+    test(`${language}: the toolbar keeps to one row from 390 to 320 px with the longest filter and sort, chevrons whole, the sort cut first`, async ({ page }) => {
       await opened(page, language, LIST.map(item => ({ ...item, ephemeral: false })))
-      const show = page.locator('.list-toolbar label.show select')
-      await expect(show.locator('option[value=temporary]'), 'the control: nothing is temporary').toHaveCount(0)
-      const longest = await show.evaluate((select: HTMLSelectElement) => {
-        const pen = document.createElement('canvas').getContext('2d')!
-        pen.font = getComputedStyle(select).font
-        return [...select.options].reduce((widest, option) => pen.measureText(option.text).width > pen.measureText(widest.text).width ? option : widest).value
-      })
-      await show.selectOption(longest)
-      await expect(show).toHaveValue(longest)
+      const menu = page.getByRole('menu')
+      // the widest word of the chip's menu, as the chip draws it, chosen
+      const chooseLongest = async (chip: string) => {
+        const word = page.locator(`.list-toolbar .chip.${chip} .value`)
+        await page.locator(`.list-toolbar .chip.${chip}`).click()
+        const font = await word.evaluate(shown => getComputedStyle(shown).font)
+        const words = await menu.locator('[role=menuitemradio] .text').allTextContents()
+        const widest = await page.evaluate(([words, font]) => {
+          const pen = document.createElement('canvas').getContext('2d')!
+          pen.font = font
+          const widths = words.map(shown => pen.measureText(shown).width)
+          return widths.indexOf(Math.max(...widths))
+        }, [words, font] as const)
+        await menu.locator('[role=menuitemradio]').nth(widest).click()
+        await expect(word).toHaveText(words[widest]!)
+        return words[widest]!
+      }
+      await page.locator('.list-toolbar .chip.show').click()
+      await expect(menu.getByRole('menuitemradio'), 'the control: every filter but Kept and Temporary, as nothing is temporary').toHaveCount(7)
+      await page.locator('.list-toolbar .chip.show').click()
+      const chosen = [await chooseLongest('show'), await chooseLongest('sort')].join(', ')
       for (const width of [390, 360, 320]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
+        const at = `${width} px, ${chosen} chosen`
         const { rows, kids, height } = await rowsOf(page, '.list-toolbar')
-        expect(kids, 'the control: the box, Show, Sort, the direction and the views were read').toBe(5)
-        expect(rows, `${width} px, ${height} px tall, ${longest} chosen`).toBeLessThanOrEqual(2)
+        expect(kids, 'the control: the box, Show, Sort and the views were read').toBe(4)
+        expect(rows, `${at}, ${height} px tall`).toBe(1)
+        const fit = await page.locator('.list-toolbar').evaluate((bar) => {
+          const box = (shown: Element) => shown.getBoundingClientRect()
+          const show = bar.querySelector('.chip.show')!
+          const sort = bar.querySelector('.chip.sort')!
+          const cut = (chip: Element) => { const word = chip.querySelector('.value')!; return word.scrollWidth > word.clientWidth }
+          return {
+            past: Math.max(...[...bar.children].map(kid => box(kid).right)) - box(bar).right,
+            chevrons: [show, sort].map((chip) => { const chevron = box(chip.querySelector('.chev')!); return chevron.width > 13.5 && chevron.right <= box(chip).right }),
+            showCut: cut(show),
+            sortWidth: box(sort).width,
+          }
+        })
+        expect(fit.past, `${at}: the views end inside the toolbar`).toBeLessThanOrEqual(0.5)
+        expect(fit.chevrons, `${at}: each chevron whole inside its chip`).toEqual([true, true])
+        // the filter says which rows are listed, so its word is cut only once the sort has given all its word's room
+        if (fit.showCut) expect(fit.sortWidth, `${at}: the filter is cut while the sort has room to give`).toBeLessThanOrEqual(60.5)
       }
     })
   }
@@ -1882,28 +1911,41 @@ test('the bar for ticked rows says Stop and Start only while every ticked torren
 test('the Show menu shows the rows of the state picked, counts each, offers none with no rows, and is remembered', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
-  const show = page.getByRole('combobox', { name: 'Show' })
-  await show.selectOption('seeding')
+  const show = page.getByRole('button', { name: /^Show: /u })
+  const rows = page.getByRole('menu').getByRole('menuitemradio')
+  const offered = async () => {
+    await show.click()
+    const names = await rows.evaluateAll(all => all.map(row => row.getAttribute('aria-label')!))
+    await show.click()
+    await expect(rows).toHaveCount(0)
+    return names
+  }
+  const choose = async (name: string | RegExp) => {
+    await show.click()
+    await page.getByRole('menu').getByRole('menuitemradio', { name, exact: true }).click()
+    await expect(rows).toHaveCount(0)
+  }
+  await choose(/^Seeding /u)
   await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
-  await expect(show.locator('option:checked')).toHaveText('Seeding (1)')
-  const offered = await show.locator('option').evaluateAll(all => all.map(option => (option as HTMLOptionElement).value))
-  expect(offered).toEqual(['all', 'library', 'temporary', 'downloading', 'seeding', 'completed', 'paused', 'missing', 'retrying'])
-  for (const value of offered) {
-    await show.selectOption(value)
-    const count = Number(/\((\d+)\)$/u.exec(await show.locator('option:checked').textContent() ?? '')?.[1])
-    await expect(page.locator('.torrent'), value).toHaveCount(count)
+  await expect(show).toHaveAccessibleName('Show: Seeding (1)')
+  const all = await offered()
+  expect(all.map(name => name.replace(/ \(\d+\)$/u, ''))).toEqual(['All', 'Kept', 'Temporary', 'Downloading', 'Seeding', 'Completed', 'Paused', 'Not on this device', 'Retrying'])
+  for (const name of all) {
+    await choose(name)
+    await expect(show, name).toHaveAccessibleName(`Show: ${name}`)
+    await expect(page.locator('.torrent'), name).toHaveCount(Number(/\((\d+)\)$/u.exec(name)?.[1]))
   }
 
-  await show.selectOption('paused')
+  await choose(/^Paused /u)
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
-  await expect(show).toHaveValue('paused')
+  await expect(show).toHaveAccessibleName(/^Show: Paused /u)
   await expect(page.locator('.torrent .title')).toHaveText(['Kept.Paused'])
 
-  await show.selectOption('all')
+  await choose(/^All /u)
   await page.goto(origin)
   await library(page, LIST.slice(0, 2), TORRENTS.slice(0, 2))
-  await expect(show.locator('option')).toHaveText(['All (2)', 'Downloading (1)', 'Seeding (1)'])
+  expect(await offered()).toEqual(['All (2)', 'Downloading (1)', 'Seeding (1)'])
 })
 
 test('a state filter says nothing matches from the engine\'s first report on, and not before', async ({ page }) => {
@@ -1912,7 +1954,10 @@ test('a state filter says nothing matches from the engine\'s first report on, an
   await page.waitForFunction(() => (window as unknown as { engineListens: () => boolean }).engineListens())
   await post(page, { type: 'ready' }, { type: 'list', list: [entry('e', 'On.Its.Way')] })
   // the starting row is in the library, so the toolbar counts it
-  await expect(page.getByRole('combobox', { name: 'Show' }).locator('option').first()).toHaveText('All (1)')
+  await page.getByRole('button', { name: /^Show: /u }).click()
+  await expect(page.getByRole('menu').getByRole('menuitemradio').first()).toHaveAccessibleName('All (1)')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(page.locator('.empty')).toHaveCount(0)
   // a report without the row, as after a restore that could not add it, so the row stays starting
   await post(page, { type: 'state', torrents: [], ...READOUTS[0]! })

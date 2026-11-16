@@ -38,9 +38,17 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
 const pressed = (c: HTMLElement, name: string) =>
   [...c.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(name))?.getAttribute('aria-pressed')
 
-const shown = (c: HTMLElement) => c.querySelector<HTMLSelectElement>('label.show select')!
-const sorted = (c: HTMLElement) => c.querySelector<HTMLSelectElement>('label.sort select')!
-const options = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent)
+const chip = (c: HTMLElement, which: 'show' | 'sort') => c.querySelector<HTMLButtonElement>(`.chip.${which}`)!
+
+/** Opens the chip's menu and returns its rows. */
+const opened = async (c: HTMLElement, which: 'show' | 'sort') => {
+  chip(c, which).click()
+  await expect.poll(() => c.querySelector('[role="menu"]')).not.toBeNull()
+  return [...c.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitemradio"]')]
+}
+
+const names = (rows: HTMLElement[]) => rows.map((row) => row.getAttribute('aria-label') ?? row.textContent)
+const checked = (rows: HTMLElement[]) => names(rows.filter((row) => row.getAttribute('aria-checked') === 'true'))
 
 describe('the list toolbar', () => {
   /** One box for every row shown, ticked when all are, mixed when some are. */
@@ -61,18 +69,25 @@ describe('the list toolbar', () => {
     expect((await box({ canPick: false })).input.disabled).toBe(true)
   })
 
-  it('says which filter, sort direction and view are live', async () => {
-    const { screen } = mount({ filter: 'library', view: 'table' })
+  it('names the filter with its count, the sort key with its direction, and the view, on the controls themselves', async () => {
+    const { screen } = mount({ filter: 'library', sortKey: 'size', sortDir: 'asc', view: 'table' })
     const c = (await screen).container
-    expect(shown(c)).toHaveValue('library')
+    expect(chip(c, 'show').innerText.replace(/\s+/g, ' ').trim()).toBe('Kept 4')
+    expect(chip(c, 'show')).toHaveAccessibleName('Show: Kept (4)')
+    expect(chip(c, 'sort').innerText.trim()).toBe('Size')
+    expect(chip(c, 'sort')).toHaveAccessibleName('Sort by Size')
+    expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Smallest first')
     expect(pressed(c, 'Table')).toBe('true')
-    expect(sorted(c)).toHaveValue('added')
+    expect([chip(c, 'show'), chip(c, 'sort')].map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false'])
   })
 
-  it('offers each filter that shows a row, with how many it shows', async () => {
-    const { screen } = mount()
-    const select = (await screen).getByRole('combobox', { name: 'Show' }).element() as HTMLSelectElement
-    expect(options(select)).toEqual(['All (6)', 'Kept (4)', 'Temporary (2)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
+  it('offers each filter that shows a row, with how many it shows, the one chosen checked', async () => {
+    const { screen } = mount({ filter: 'seeding' })
+    const c = (await screen).container
+    const rows = await opened(c, 'show')
+    expect(chip(c, 'show').getAttribute('aria-expanded')).toBe('true')
+    expect(names(rows)).toEqual(['All (6)', 'Kept (4)', 'Temporary (2)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
+    expect(checked(rows)).toEqual(['Seeding (2)'])
   })
 
   /**
@@ -81,20 +96,23 @@ describe('the list toolbar', () => {
    */
   it('offers neither Kept nor Temporary when nothing is temporary', async () => {
     const { screen } = mount({ counts: { ...COUNTS, all: 4, temporary: 0 } })
-    expect(options(shown((await screen).container))).toEqual(['All (4)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
+    expect(names(await opened((await screen).container, 'show'))).toEqual(['All (4)', 'Downloading (2)', 'Seeding (2)', 'Completed (1)', 'Not on this device (1)'])
   })
 
   it('still names the chosen filter once it shows nothing', async () => {
     const { screen } = mount({ filter: 'paused' })
-    const select = shown((await screen).container)
-    expect(select).toHaveValue('paused')
-    expect(select.selectedOptions[0]?.textContent).toBe('Paused (0)')
+    const c = (await screen).container
+    expect(chip(c, 'show')).toHaveAccessibleName('Show: Paused (0)')
+    expect(names(await opened(c, 'show'))).toContain('Paused (0)')
   })
 
-  it('reports each filter when chosen', async () => {
+  it('reports each filter when chosen, and puts its menu away', async () => {
     const { props, screen } = mount()
-    await (await screen).getByRole('combobox', { name: 'Show' }).selectOptions('seeding')
+    const c = (await screen).container
+    const rows = await opened(c, 'show')
+    rows.find((row) => row.getAttribute('aria-label') === 'Seeding (2)')!.click()
     expect(props.onFilter).toHaveBeenCalledWith('seeding')
+    await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
   })
 
   /**
@@ -103,26 +121,23 @@ describe('the list toolbar', () => {
    */
   it('starts a newly chosen key in the direction that answers it', async () => {
     const { props, screen } = mount({ sortKey: 'name', sortDir: 'asc' })
-    const select = sorted((await screen).container)
-    select.value = 'size'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    const rows = await opened((await screen).container, 'sort')
+    rows.find((row) => row.textContent === 'Size')!.click()
     expect(props.onSort).toHaveBeenCalledWith('size', 'desc')
   })
 
-  it('flips the direction without changing the key', async () => {
+  it('flips the direction when the key already chosen is chosen again, and says so on that row', async () => {
     const { props, screen } = mount({ sortKey: 'size', sortDir: 'desc' })
-    await (await screen).getByRole('button', { name: /Sorted descending/ }).click()
+    const row = (await opened((await screen).container, 'sort')).find((row) => row.getAttribute('aria-checked') === 'true')!
+    expect(row).toHaveAccessibleName('Size')
+    expect(row).toHaveAccessibleDescription('Sorted descending, click for ascending')
+    row.click()
     expect(props.onSort).toHaveBeenCalledWith('size', 'asc')
   })
 
   it('offers every sort key the rules define', async () => {
     const { screen } = mount()
-    expect([...sorted((await screen).container).options].map((o) => o.value)).toEqual(['added', 'name', 'size', 'progress', 'down', 'up', 'peers', 'eta'])
-  })
-
-  it('names the direction control for a screen reader, since it is only an arrow', async () => {
-    const { screen } = mount({ sortDir: 'asc' })
-    expect((await screen).container.querySelector('.dir')?.getAttribute('aria-label')).toMatch(/ascending/)
+    expect(names(await opened((await screen).container, 'sort'))).toEqual(['Date added', 'Name', 'Size', 'Progress', 'Download speed', 'Upload speed', 'Peers', 'Time left'])
   })
 
   it('shows Cards and Table as icons on a phone, each still named for a screen reader', async () => {
@@ -147,27 +162,31 @@ describe('the list toolbar', () => {
       await showIn('de', de)
       const { screen } = mount({ sortDir: 'asc' })
       const c = (await screen).container
-      expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['', 'Karten', 'Tabelle'])
+      expect([...c.querySelectorAll('.views button')].map((b) => b.textContent)).toEqual(['Karten', 'Tabelle'])
       expect([...c.querySelectorAll('[role=group]')].map((g) => g.getAttribute('aria-label'))).toEqual(['Ansicht'])
-      expect(c.querySelector('label.show')?.firstChild?.textContent).toBe('Anzeigen')
-      expect(shown(c).getAttribute('aria-label')).toBe('Anzeigen')
-      expect(options(shown(c))).toEqual([
+      expect(chip(c, 'show')).toHaveAccessibleName('Anzeigen: Alle (6)')
+      expect(chip(c, 'sort')).toHaveAccessibleName('Sortieren nach: Hinzugefügt am')
+      expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Kleinste zuerst')
+      const filters = await opened(c, 'show')
+      expect(c.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Anzeigen')
+      expect(names(filters)).toEqual([
         'Alle (6)', 'Behalten (4)', 'Temporär (2)', 'Lädt herunter (2)', 'Seeden (2)', 'Abgeschlossen (1)', 'Nicht auf diesem Gerät (1)',
       ])
-      expect(c.querySelector('label.sort')?.firstChild?.textContent).toBe('Sortieren')
-      expect(sorted(c).getAttribute('aria-label')).toBe('Sortieren nach')
-      expect(options(sorted(c))).toEqual([
+      chip(c, 'show').click()
+      await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
+      const sorts = await opened(c, 'sort')
+      expect(c.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Sortieren')
+      expect(names(sorts)).toEqual([
         'Hinzugefügt am', 'Name', 'Größe', 'Fortschritt', 'Download-Geschwindigkeit', 'Upload-Geschwindigkeit', 'Peers', 'Restzeit',
       ])
-      expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Aufsteigend sortiert, klicken für absteigend')
-      expect(c.querySelector('.dir')?.getAttribute('data-tooltip-content')).toBe('Kleinste zuerst')
+      expect(sorts[0]).toHaveAccessibleDescription('Aufsteigend sortiert, klicken für absteigend')
     })
 
     // a row's chip is one temporary download, the filter is all of them
     it('names the filters in the plural, as a group', async () => {
       await showIn('fr', fr)
       const { screen } = mount()
-      expect(options(shown((await screen).container))).toEqual([
+      expect(names(await opened((await screen).container, 'show'))).toEqual([
         'Tous (6)', 'Conservés (4)', 'Temporaires (2)', 'Téléchargement (2)', 'Partage (2)', 'Terminés (1)', 'Pas sur cet appareil (1)',
       ])
     })
@@ -176,8 +195,8 @@ describe('the list toolbar', () => {
       await showIn('de', de)
       const { screen } = mount({ sortDir: 'desc' })
       const c = (await screen).container
-      expect(c.querySelector('.dir')?.getAttribute('aria-label')).toBe('Absteigend sortiert, klicken für aufsteigend')
-      expect(c.querySelector('.dir')?.getAttribute('data-tooltip-content')).toBe('Größte zuerst')
+      expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Größte zuerst')
+      expect((await opened(c, 'sort'))[0]).toHaveAccessibleDescription('Absteigend sortiert, klicken für aufsteigend')
     })
   })
 })

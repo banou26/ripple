@@ -1,13 +1,14 @@
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 
 import { css } from '@emotion/react'
-import { ArrowDown, ArrowUp, LayoutGrid, List as ListIcon } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, LayoutGrid, List as ListIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 
 import { FILTER_LABEL, NATURAL_DIR, SORT_LABEL, offeredFilters } from '../torrent/list-view'
 import { checkStyle } from './bulk-actions'
 import { hint } from './hint'
+import { MenuSurface } from './menu'
 import {
   BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
   FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
@@ -21,7 +22,7 @@ const pickAllStyle = css`
 `
 
 /** The box that ticks every row shown, or none: mixed while only some are. */
-export const PickAll = ({ picked, canPick, onPickAll }: Pick<ListToolbarProps, 'picked' | 'canPick' | 'onPickAll'>) => {
+const PickAll = ({ picked, canPick, onPickAll }: Pick<ListToolbarProps, 'picked' | 'canPick' | 'onPickAll'>) => {
   const intl = useIntl()
   const box = useRef<HTMLInputElement>(null)
   // a property with no attribute, so React cannot set it
@@ -81,7 +82,7 @@ const segStyle = css`
 `
 
 /** Cards or Table. Each button keeps its word in a span, which a narrow toolbar hides, and its name either way. */
-export const ViewSwitch = ({ view, onView }: Pick<ListToolbarProps, 'view' | 'onView'>) => {
+const ViewSwitch = ({ view, onView }: Pick<ListToolbarProps, 'view' | 'onView'>) => {
   const intl = useIntl()
   const cards = intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })
   const table = intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })
@@ -100,89 +101,122 @@ export const ViewSwitch = ({ view, onView }: Pick<ListToolbarProps, 'view' | 'on
 }
 
 /**
- * What is shown, in what order, and in which shape.
+ * What is shown, in what order, and in which shape: the box, a chip for the filter and one for the sort, each opening
+ * its list, and the views at the far end. One row at every width.
  *
  * Self contained, because it is mounted by home and tested on its own. Everything here reports state
- * upward and holds none: the three preferences are persisted by the page, and a control that
- * remembered its own answer would eventually disagree with the list it claims to describe, which is
- * the rule torrent-options.ts already states for itself.
+ * upward and holds none but which menu is open: the three preferences are persisted by the page, and a
+ * control that remembered its own answer would eventually disagree with the list it claims to describe,
+ * which is the rule torrent-options.ts already states for itself.
  */
 const style = css`
   flex: none;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 14px;
+  gap: 8px;
   margin: 14px 16px 0;
 
-  label.show, label.sort {
+  .views { margin-left: auto; flex: none; }
+
+  /* a chip narrows before the row would wrap, its word ending in an ellipsis */
+  .chip {
+    flex: 0 1 auto;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: ${TEXT_MUTED};
-  }
-
-  select {
+    gap: 6px;
+    height: 30px;
+    padding: 0 8px 0 10px;
+    border: 1px solid ${BORDER};
+    border-radius: 999px;
+    background: ${CONTROL_BG};
+    color: ${TEXT};
     font: inherit;
     font-size: 0.8rem;
-    color: ${TEXT};
-    background: ${CONTROL_BG};
-    border: 1px solid ${BORDER};
-    border-radius: 4px;
-    padding: 5px 8px;
+    font-weight: 700;
     cursor: pointer;
 
-    &:hover { border-color: ${BORDER_STRONG}; background: ${CONTROL_HOVER_BG}; }
+    svg { flex: none; width: 14px; height: 14px; }
+
+    &:hover, &[aria-expanded='true'] { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
 
     &:focus-visible { outline: none; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+
+    .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .count { flex: none; color: ${TEXT_MUTED}; font-variant-numeric: tabular-nums; }
+    .chev { color: ${TEXT_MUTED}; }
   }
 
-  .dir {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 4px;
-    border: 1px solid ${BORDER};
-    background: ${CONTROL_BG};
-    color: ${TEXT};
-    cursor: pointer;
-
-    svg { width: 14px; height: 14px; }
-
-    &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
-
-    &:focus-visible { outline: none; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+  /* the sort key gives way first, down to its icon and its chevron, so the filter (which rows are listed) is the last
+     word cut. flex-shrink is weighted by size and the filter still takes its share, which has to stay under a layout
+     unit (1/64 px) or its ellipsis is drawn: at 1000 French's longest filter lost 0.13 px of it at 390 px */
+  .chip.sort {
+    flex-shrink: 100000;
+    min-width: 60px;
   }
 
-  /* pushed to the far end: it changes the shape of the page rather than its contents */
-  .views { margin-left: auto; }
-
-  /*
-   * A phone keeps two rows in every language: the box, Show and the views (as icons) on the first, Sort and its
-   * direction on the second. A select longer than its row narrows to the room left rather than wrapping a third row.
-   * Above 560 px the wrapping row keeps to two in every language (German's Sort row is the widest, at 555 px).
-   */
   @media (max-width: 560px) {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: 'pick show views' 'sort sort dir';
-
-    .pick-all { grid-area: pick; }
-    label.show { grid-area: show; }
-    label.sort { grid-area: sort; }
-    label.show, label.sort { justify-self: start; min-width: 0; max-width: 100%; }
-    select { min-width: 0; }
-    .dir { grid-area: dir; justify-self: end; }
-    .views { grid-area: views; margin-left: 0; }
     .views span { display: none; }
+    .views button { padding: 5px 9px; }
   }
 `
+
+const choicesStyle = css`
+  button .count {
+    margin-left: 16px;
+    color: ${TEXT_MUTED};
+    font-variant-numeric: tabular-nums;
+  }
+
+  button .tick svg {
+    width: 14px;
+    height: 14px;
+    vertical-align: -2px;
+  }
+`
+
+/** the chosen row's mark, the one menu.tsx draws for a radio */
+const DOT = '●'
+
+const DirIcon = ({ dir }: { dir: SortDir }) => (dir === 'asc' ? <ArrowUpNarrowWide aria-hidden="true"/> : <ArrowDownWideNarrow aria-hidden="true"/>)
+
+/** `name` is the row's accessible name when its words and its count would otherwise be read run together. */
+type Choice = { id: string, label: string, name?: string, count?: number, on: boolean, title?: string, arrow?: SortDir, pick: () => void }
+
+const Choices = ({ label, choices, onChose }: { label: string, choices: Choice[], onChose: () => void }) => (
+  <div css={choicesStyle} className="group" role="group" aria-label={label}>
+    <label>{label}</label>
+    {choices.map((choice) => (
+      <button
+        key={choice.id}
+        type="button"
+        role="menuitemradio"
+        aria-checked={choice.on}
+        aria-label={choice.name}
+        // the menu moves focus itself, so only the row it lands on is in the tab order
+        tabIndex={-1}
+        title={choice.title}
+        onClick={() => { choice.pick(); onChose() }}
+      >
+        <span className="tick" aria-hidden="true">{choice.on && (choice.arrow ? <DirIcon dir={choice.arrow}/> : DOT)}</span>
+        <span className="text">{choice.label}</span>
+        {choice.count !== undefined && <span className="count">{choice.count}</span>}
+      </button>
+    ))}
+  </div>
+)
+
+/** A chip's menu: open or not, and the chip it hangs from. */
+const useMenu = () => {
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null)
+  return {
+    open,
+    anchor,
+    close: () => setOpen(false),
+    trigger: { ref: anchor, 'aria-haspopup': 'menu' as const, 'aria-expanded': open, onClick: () => setOpen((was) => !was) },
+  }
+}
 
 export type ListToolbarProps = {
   filter: ListFilter
@@ -205,57 +239,66 @@ export const ListToolbar = (
   { filter, onFilter, sortKey, sortDir, onSort, view, onView, counts, picked, canPick, onPickAll }: ListToolbarProps,
 ) => {
   const intl = useIntl()
+  const showMenu = useMenu()
+  const sortMenu = useMenu()
   const show = intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })
-  return <div css={style} className="list-toolbar">
-    <PickAll picked={picked} canPick={canPick} onPickAll={onPickAll}/>
-
-    {/*
-      * Native selects rather than the app's own menu. Each is one of a few mutually exclusive values
-      * with no icons and no per-item state, which is what a select is for, and it brings keyboard
-      * handling, type-ahead and a touch picker that none of this code has to own.
-      */}
-    <label className="show">
-      {show}
-      <select aria-label={show} value={filter} onChange={(e) => onFilter(e.target.value as ListFilter)}>
-        {offeredFilters(counts, filter).map((f) => (
-          <option key={f} value={f}>
-            {intl.formatMessage({ id: '{filter} ({count})', defaultMessage: '{filter} ({count})' }, { filter: intl.formatMessage(FILTER_LABEL[f]), count: counts[f] })}
-          </option>
-        ))}
-      </select>
-    </label>
-
-    <label className="sort">
-      {intl.formatMessage({ id: 'Sort', defaultMessage: 'Sort' })}
-      <select
-        aria-label={intl.formatMessage({ id: 'Sort by', defaultMessage: 'Sort by' })}
-        value={sortKey}
-        onChange={(e) => {
-          const key = e.target.value as SortKey
-          // the direction that answers the question somebody had when they picked the key: newest,
-          // biggest, fastest, soonest. Flipping it stays available right beside this.
-          onSort(key, NATURAL_DIR[key])
-        }}
+  const sort = intl.formatMessage({ id: 'Sort', defaultMessage: 'Sort' })
+  const shown = (f: ListFilter) =>
+    intl.formatMessage({ id: '{filter} ({count})', defaultMessage: '{filter} ({count})' }, { filter: intl.formatMessage(FILTER_LABEL[f]), count: counts[f] })
+  const filters: Choice[] = offeredFilters(counts, filter).map((f) => ({
+    id: f,
+    label: intl.formatMessage(FILTER_LABEL[f]),
+    name: shown(f),
+    count: counts[f],
+    on: f === filter,
+    pick: () => onFilter(f),
+  }))
+  const flip = sortDir === 'asc'
+    ? intl.formatMessage({ id: 'Sorted ascending, click for descending', defaultMessage: 'Sorted ascending, click for descending' })
+    : intl.formatMessage({ id: 'Sorted descending, click for ascending', defaultMessage: 'Sorted descending, click for ascending' })
+  // the key already sorted by flips its direction; another starts in the direction that answers the question somebody
+  // had when they picked it: newest, biggest, fastest, soonest
+  const sorts: Choice[] = (Object.keys(SORT_LABEL) as SortKey[]).map((key) => ({
+    id: key,
+    label: intl.formatMessage(SORT_LABEL[key]),
+    on: key === sortKey,
+    arrow: sortDir,
+    title: key === sortKey ? flip : undefined,
+    pick: () => onSort(key, key !== sortKey ? NATURAL_DIR[key] : sortDir === 'asc' ? 'desc' : 'asc'),
+  }))
+  return (
+    <div css={style} className="list-toolbar">
+      <PickAll picked={picked} canPick={canPick} onPickAll={onPickAll}/>
+      <button
+        type="button" className="chip show" {...showMenu.trigger}
+        aria-label={intl.formatMessage({ id: 'Show: {filter}', defaultMessage: 'Show: {filter}' }, { filter: shown(filter) })}
       >
-        {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-          <option key={k} value={k}>{intl.formatMessage(SORT_LABEL[k])}</option>
-        ))}
-      </select>
-    </label>
-
-    <button
-      type="button" className="dir"
-      aria-label={sortDir === 'asc'
-        ? intl.formatMessage({ id: 'Sorted ascending, click for descending', defaultMessage: 'Sorted ascending, click for descending' })
-        : intl.formatMessage({ id: 'Sorted descending, click for ascending', defaultMessage: 'Sorted descending, click for ascending' })}
-      {...hint(sortDir === 'asc'
-        ? intl.formatMessage({ id: 'Smallest first', defaultMessage: 'Smallest first' })
-        : intl.formatMessage({ id: 'Largest first', defaultMessage: 'Largest first' }))}
-      onClick={() => onSort(sortKey, sortDir === 'asc' ? 'desc' : 'asc')}
-    >
-      {sortDir === 'asc' ? <ArrowUp/> : <ArrowDown/>}
-    </button>
-
-    <ViewSwitch view={view} onView={onView}/>
-  </div>
+        <span className="value">{intl.formatMessage(FILTER_LABEL[filter])}</span>
+        <span className="count">{counts[filter]}</span>
+        <ChevronDown className="chev" aria-hidden="true"/>
+      </button>
+      <button
+        type="button" className="chip sort" {...sortMenu.trigger}
+        aria-label={intl.formatMessage({ id: 'Sort by {label}', defaultMessage: 'Sort by {label}' }, { label: intl.formatMessage(SORT_LABEL[sortKey]) })}
+        {...hint(sortDir === 'asc'
+          ? intl.formatMessage({ id: 'Smallest first', defaultMessage: 'Smallest first' })
+          : intl.formatMessage({ id: 'Largest first', defaultMessage: 'Largest first' }))}
+      >
+        <DirIcon dir={sortDir}/>
+        <span className="value">{intl.formatMessage(SORT_LABEL[sortKey])}</span>
+        <ChevronDown className="chev" aria-hidden="true"/>
+      </button>
+      <ViewSwitch view={view} onView={onView}/>
+      {showMenu.open && (
+        <MenuSurface placement={{ kind: 'under', of: showMenu.anchor, align: 'start' }} label={show} onClose={showMenu.close}>
+          <Choices label={show} choices={filters} onChose={showMenu.close}/>
+        </MenuSurface>
+      )}
+      {sortMenu.open && (
+        <MenuSurface placement={{ kind: 'under', of: sortMenu.anchor, align: 'start' }} label={sort} onClose={sortMenu.close}>
+          <Choices label={sort} choices={sorts} onChose={sortMenu.close}/>
+        </MenuSurface>
+      )}
+    </div>
+  )
 }
