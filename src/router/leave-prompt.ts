@@ -1,4 +1,4 @@
-import type { TorrentClient, TorrentSnapshot } from '../torrent/client'
+import type { TorrentSnapshot } from '../torrent/client'
 import type { TorrentState } from '../torrent/types'
 
 import { useEffect, useState } from 'react'
@@ -21,12 +21,10 @@ const DOWNLOADING = new Set<TorrentState>(['downloading', 'retrying'])
  */
 export const useLeavePrompt = () => {
   const { key } = useLocation()
-  const [client, setClient] = useState<TorrentClient | null>(null)
-  // a page makes the client as it renders, so it is looked for once each page has
-  useEffect(() => { setClient(runningTorrentClient()) }, [key])
-
   const [ask, setAsk] = useState(false)
   useEffect(() => {
+    // a page makes the client as it renders, so it is looked for once each page has
+    const client = runningTorrentClient()
     if (!client || isFramed()) return
     let rows: TorrentSnapshot[] = []
     let temporary = new Set<string>()
@@ -40,7 +38,7 @@ export const useLeavePrompt = () => {
       client.onWorkerError(({ fatal }) => { if (fatal) { rows = []; look() } }),
     ]
     return () => { for (const off of offs) off() }
-  }, [client])
+  }, [key])
 
   useEffect(() => {
     if (!ask) return

@@ -2,6 +2,7 @@ import type { NavigateFunction } from 'react-router-dom'
 
 import type { Persisted, TorrentClient, TorrentSnapshot } from '../../src/torrent/client'
 
+import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
@@ -59,7 +60,8 @@ const entry = (name: string, over: Partial<Persisted> = {}): Persisted => ({ inf
 const go = { to: null as NavigateFunction | null }
 const Probe = () => {
   useLeavePrompt()
-  go.to = useNavigate()
+  const navigate = useNavigate()
+  useEffect(() => { go.to = navigate }, [navigate])
   return null
 }
 const page = () => render(<MemoryRouter><Probe/></MemoryRouter>)
