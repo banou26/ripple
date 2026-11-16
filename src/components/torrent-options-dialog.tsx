@@ -127,13 +127,6 @@ const style = css`
     .label {
       display: block;
       font-size: 0.88rem;
-
-      svg {
-        width: 14px;
-        height: 14px;
-        margin-left: 8px;
-        vertical-align: -2px;
-      }
     }
 
     .hint {
@@ -322,7 +315,7 @@ export const TorrentOptionsDialog = ({
                     >
                       <span className="dot" data-on={item.selected || undefined} aria-hidden="true"/>
                       <span className="text">
-                        <span className="label">{item.label}{item.icon}</span>
+                        <span className="label">{item.label}</span>
                         {hint && <span className="hint">{hint}</span>}
                       </span>
                     </button>

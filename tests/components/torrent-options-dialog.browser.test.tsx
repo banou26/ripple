@@ -145,15 +145,6 @@ describe('the torrent options dialog', () => {
     expect(font).toContain('system-ui')
     for (const button of document.querySelectorAll('[role="dialog"] button')) expect(getComputedStyle(button).fontFamily).toBe(font)
   })
-
-  it('draws a radio\'s icon after its label', async () => {
-    const g = groups()
-    g[0]!.items[0] = { kind: 'radio', id: 'rarest', group: 'order', label: 'Rarest first', selected: true, apply: vi.fn(), icon: <svg data-testid="dir"/> }
-    await mount(g)
-    const row = byLabel('Rarest first')
-    expect(row.querySelector('.label [data-testid="dir"]')).not.toBeNull()
-    expect(row.getAttribute('role')).toBe('radio')
-  })
 })
 
 describe('in the language of the page', () => {
