@@ -2715,7 +2715,9 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       if (e) {
-        const savePath = e.savePath || SHARED_ROOT
+        // A synced row carries the other device's save path, and neither a folder nor picked files take writes, so the
+        // fetch goes to browser storage; one meant for the folder moves there once it finishes.
+        const savePath = isGrantedSavePath(e.savePath) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
         const bytes = (await get(torrentKey(e.infoHash)))
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
@@ -2732,7 +2734,11 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         // post state before flipping the entry so the live row dedups the ghost in the same render
         postState()
-        await upsertList({ ...e, started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now() })
+        // a patch, as an upsert keeps the save path the entry had
+        await patchList(e.infoHash, {
+          savePath, saveTo: isNativeSavePath(e.savePath) ? e.saveTo ?? 'folder' : e.saveTo,
+          started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now(),
+        })
       }
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
