@@ -10,14 +10,17 @@ import { expect, test } from './offline'
 import { addSample } from './sample-offer'
 
 const probeEngine = () => {
-  ;(window as any).__engine = new Promise<string>((resolve) => {
+  const w = window as any
+  w.__engine = new Promise<string>((resolve) => {
     const OriginalWorker = window.Worker
     class Probe extends OriginalWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options)
         this.addEventListener('message', (event: MessageEvent) => {
-          const type = (event.data as { type?: string } | null)?.type
-          if (type === 'ready' || type === 'storage-unavailable') resolve(type)
+          const data = event.data as { type?: string, list?: unknown } | null
+          if (data?.type === 'ready' || data?.type === 'storage-unavailable') resolve(data.type)
+          if (data?.type === 'ready') w.__worker = this
+          if (data?.type === 'list') w.__list = data.list
         })
       }
     }
@@ -27,6 +30,18 @@ const probeEngine = () => {
 
 const engineReady = async (page: Page) =>
   expect(await page.evaluate(() => (window as any).__engine as Promise<string>)).toBe('ready')
+
+/** A message to the engine worker, as the page's client sends it. Needs `probeEngine` and `engineReady`. */
+const tell = (page: Page, message: object) => page.evaluate((m) => (window as any).__worker.postMessage(m), message)
+
+/**
+ * The hashes in the engine's list once it names `hash`. The worker runs commands one at a time, so that list comes
+ * after every command sent before the one that added `hash`.
+ */
+const listedWith = async (page: Page, hash: string) => (await page.waitForFunction((h) => {
+  const hashes = ((window as any).__list ?? []).map((e: { infoHash: string }) => e.infoHash) as string[]
+  return hashes.includes(h) && hashes
+}, hash, { timeout: 30_000 })).jsonValue()
 
 // past DEMO_GRACE (8 s), the longest the offer waits on a cloud restore before it is decided
 const DECIDED = 10_000
@@ -208,6 +223,45 @@ test('Cancel takes back the torrent the add dialog asked about from the moment i
   await page.waitForFunction(() => document.querySelectorAll('.torrent').length === 1, null, { polling: 'raf' })
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.locator('.torrent')).toHaveCount(0)
+})
+
+test('Cancel leaves a torrent of their own that a link asked about', async ({ page }) => {
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  // their own torrent with its files on another device, the one kind of theirs a link still asks about
+  const mine = 'e'.repeat(40)
+  const magnet = `magnet:?xt=urn:btih:${mine}&dn=Mine`
+  await tell(page, { type: 'import-list', list: [{ infoHash: mine, magnet, savePath: `/dl/${mine}`, addedAt: 1_000 }], removed: [] })
+  await expect(page.locator('.torrent')).toHaveCount(1)
+  await page.evaluate((magnet) => {
+    history.pushState(null, '', '/?add=' + encodeURIComponent(magnet))
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, magnet)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Mine')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  await tell(page, { type: 'add-magnet', magnet: NOBODY })
+  expect(await listedWith(page, 'a'.repeat(40))).toContain(mine)
+})
+
+test('Cancel on a .torrent leaves that torrent when something else opened it meanwhile', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  await page.locator('label.file-button input[type=file]').first().setInputFiles(join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent'))
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Sintel')
+  // a stream, say: Temporary, and not the dialog's, which sends a .torrent to the engine only on Add
+  const sintel = '08ada5a7a6183aae1e09d831df6748d566095a10'
+  await tell(page, { type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${sintel}`, ephemeral: true })
+  await expect(page.locator('.torrent .temp')).toHaveCount(1)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  await tell(page, { type: 'add-magnet', magnet: NOBODY })
+  expect(await listedWith(page, 'a'.repeat(40))).toContain(sintel)
 })
 
 test('a magnet that names two torrents is refused rather than listed as one of them', async ({ page }) => {
