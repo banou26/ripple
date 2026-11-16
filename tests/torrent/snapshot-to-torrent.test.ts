@@ -64,7 +64,7 @@ describe('a row built from the engine', () => {
     const missing = [...E02_PIECES, E03_LAST_PIECE]
     const all = snapshotToTorrent(paddedPack({ state: 3, progress: 0.5, totalWanted: 451_000, totalWantedDone: 225_500 }, missing))
     expect([all.progress, all.stats!.remaining]).toEqual([0.5, 225_500])
-    expect(snapshotToTorrent(paddedPack({ state: 1, progress: 0.3, totalWanted: 344_064, totalWantedDone: 0 }, missing), undefined, undefined, CHOSEN).progress).toBe(0.3)
+    for (const state of [1, 7]) expect(snapshotToTorrent(paddedPack({ state, progress: 0.3, totalWanted: 344_064, totalWantedDone: 0 }, missing), undefined, undefined, CHOSEN).progress).toBe(0.3)
     expect(snapshotToTorrent(pack({ state: 3, progress: 0.75, totalWantedDone: 1.5 * GB }), undefined, undefined, [0, 1]).stats!.remaining).toBe(0.5 * GB)
   })
 
