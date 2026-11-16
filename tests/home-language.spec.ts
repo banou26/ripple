@@ -1523,6 +1523,23 @@ test.describe('the stats strip', () => {
     expect(Math.abs(vpn.x - download.x), 'under Download').toBeLessThan(12)
   })
 
+  test('en: on a phone the offer to switch the VPN off is drawn whole under a line that scrolls', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(origin)
+    await signIn(page, THROTTLED, SYNCED)
+    await page.evaluate(() => localStorage.removeItem('ripple:quota-offer'))
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('.stats .fades').last(), 'the control: the line runs past its end').toHaveAttribute('data-more-end')
+    const words = page.getByText('Your daily FKN quota is used up.')
+    await expect(words).toBeVisible()
+    // its pixels, and the same box with its words hidden: a box cut away by the line shows what is under it both times
+    const box = (await words.boundingBox())!
+    const drawnWords = await page.screenshot({ clip: box, animations: 'disabled' })
+    await words.evaluate((line) => { line.style.visibility = 'hidden' })
+    expect(drawnWords.equals(await page.screenshot({ clip: box, animations: 'disabled' })), 'the words reach the screen').toBe(false)
+  })
+
   test('en: on a phone neither the strip nor a card draws its speed graph', async ({ page }) => {
     await page.goto(origin)
     await library(page, LIST, TORRENTS)

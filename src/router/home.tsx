@@ -693,7 +693,8 @@ export const style = css`
 
     /* The speeds and the rest are two lines, side by side where they fit and one above the other where they do not, so
        the strip is never more than two rows. A line too long for its row scrolls sideways, faded at an end with more past
-       it; a mask only while there is, since it would also cut the quota offer the VPN switch raises under it. */
+       it. The fades are drawn over the line rather than masking it: a mask also cut away the quota offer the VPN switch
+       raises under it. */
     .readouts {
       flex: 0 1 auto;
       min-width: 0;
@@ -703,25 +704,36 @@ export const style = css`
       gap: 14px 26px;
     }
 
+    .fades {
+      position: relative;
+      min-width: 0;
+      margin: -4px -8px;
+
+      &::before, &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 28px;
+        pointer-events: none;
+        visibility: hidden;
+      }
+
+      &::before { left: 0; background: linear-gradient(to right, ${SURFACE_BG}, transparent); }
+      &::after { right: 0; background: linear-gradient(to left, ${SURFACE_BG}, transparent); }
+      &[data-more-start]::before, &[data-more-end]::after { visibility: visible; }
+    }
+
     /* padded so the VPN switch's target, which overhangs its box, and a focus ring are not cut by the scroll */
     .line {
       display: flex;
       align-items: center;
       gap: 26px;
-      margin: -4px -8px;
       padding: 4px 8px;
       overflow-x: auto;
       scrollbar-width: none;
-      --fade-start: 0px;
-      --fade-end: 0px;
 
       &::-webkit-scrollbar { display: none; }
-      &[data-more-start] { --fade-start: 28px; }
-      &[data-more-end] { --fade-end: 28px; }
-
-      &[data-more-start], &[data-more-end] {
-        mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
-      }
 
       > * { flex: none; }
     }
@@ -2269,8 +2281,8 @@ const ReadoutLine = ({ children }: { children: ReactNode }) => {
     return () => removeEventListener('resize', read)
   }, [read])
   return (
-    <div ref={ref} className="line" data-more-start={more.start || undefined} data-more-end={more.end || undefined} onScroll={read}>
-      {children}
+    <div className="fades" data-more-start={more.start || undefined} data-more-end={more.end || undefined}>
+      <div ref={ref} className="line" onScroll={read}>{children}</div>
     </div>
   )
 }
