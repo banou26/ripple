@@ -519,7 +519,7 @@ const smallParts = async (page: Page, width: number) => {
   await room.getByRole('button').first().click()
   await expect(room.getByRole('button')).toHaveCount(1)
   await read('room, the ask refused')
-  // the library opens again on the way back from Settings, which asks for room again beside the move
+  // the library opens again on the way back from Settings, and offers the move to the folder chosen there
   await chooseFolder(page)
   const move = room.getByRole('button', { name: FOLDER })
   await expect(move).toBeVisible()
@@ -1522,6 +1522,20 @@ test.describe('the stats strip', () => {
     expect(vpn.x, 'first on its row').toBeLessThan(storage.x)
     expect(Math.abs(vpn.x - download.x), 'under Download').toBeLessThan(12)
   })
+
+  test('en: on a phone neither the strip nor a card draws its speed graph', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await post(page, { type: 'state', torrents: TORRENTS, ...READOUTS[0] })
+    for (const [width, shown] of [[1280, true], [390, false]] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await drawn(page)
+      for (const graph of ['.stats svg.graph', '.torrent svg.spark']) {
+        await expect(page.locator(graph), `${width} px: the control, ${graph} is drawn`).not.toHaveCount(0)
+        await expect(page.locator(graph).first(), `${graph} at ${width} px`).toBeVisible({ visible: shown })
+      }
+    }
+  })
 })
 
 test.describe('Settings', () => {
@@ -1532,6 +1546,23 @@ test.describe('Settings', () => {
     await toSettings(page)
     await expect(page.locator('main .folder > span')).toHaveText(['Language', 'On add', 'Storage', 'Auto-save'])
     await expect(page.locator('main .folder', { hasText: 'Storage' }).getByRole('button')).toHaveText('Ask for more room')
+  })
+
+  test('an ask for more room refused in the library is not offered again on the way back from Settings', async ({ page }) => {
+    await page.goto(origin)
+    await answer(page, { low: true })
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const room = page.locator('.storage-warning:not(.offline)')
+    const ask = room.getByRole('button', { name: 'Ask for more room' })
+    await ask.click()
+    await expect(ask).toHaveCount(0)
+    await expect(room.getByRole('button'), 'the control: the notice still offers its other way').toHaveCount(1)
+    await toSettings(page)
+    await expect(page.locator('main .folder', { hasText: 'Storage' })).toContainText('Not granted')
+    await toLibrary(page)
+    await expect(room.getByRole('button')).toHaveCount(1)
+    await expect(ask).toHaveCount(0)
   })
 
   test('On add set there asks what to download in the library', async ({ page }) => {
@@ -1574,20 +1605,6 @@ test.describe('Settings', () => {
     await expect(autoSave).toHaveText([FOLDER, 'Stop', `Files go to ${FOLDER}`])
     await autoSave.nth(1).click()
     await expect(autoSave).toHaveText(['Choose folder'])
-  })
-
-  test('en: on a phone neither the strip nor a card draws its speed graph', async ({ page }) => {
-    await page.goto(origin)
-    await library(page, LIST, TORRENTS)
-    await post(page, { type: 'state', torrents: TORRENTS, ...READOUTS[0] })
-    for (const [width, shown] of [[1280, true], [390, false]] as const) {
-      await page.setViewportSize({ width, height: 844 })
-      await drawn(page)
-      for (const graph of ['.stats svg.graph', '.torrent svg.spark']) {
-        await expect(page.locator(graph), `${width} px: the control, ${graph} is drawn`).not.toHaveCount(0)
-        await expect(page.locator(graph).first(), `${graph} at ${width} px`).toBeVisible({ visible: shown })
-      }
-    }
   })
 })
 

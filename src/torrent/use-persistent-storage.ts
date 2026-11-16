@@ -180,8 +180,11 @@ const INITIAL: Omit<PersistentStorage, 'request'> = {
   refreshKey: 0,
 }
 
+// the last ask's measurement outlives the page that made it, so a refusal is not offered again on the way back from Settings
+let lastAsk: PersistMeasurement | null = null
+
 export const usePersistentStorage = (): PersistentStorage => {
-  const [state, setState] = useState(INITIAL)
+  const [state, setState] = useState(() => ({ ...INITIAL, ...lastAsk }))
 
   useEffect(() => {
     let cancelled = false
@@ -200,6 +203,7 @@ export const usePersistentStorage = (): PersistentStorage => {
 
   const request = useCallback(async () => {
     const measurement = await requestPersistence()
+    lastAsk = measurement
     setState((prev) => {
       // MEASURED, not assumed: a quota that moved is reason enough to re-read even where the grant
       // itself could not be confirmed, and a refusal that moved nothing is reason to leave the poll
