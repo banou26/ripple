@@ -60,10 +60,13 @@ npm ci
 npm run dev            # http://localhost:4560
 npm run build          # the site and the npm package, into build/
 npm test               # unit tests (vitest, node)
-npm run test:browser   # component tests in Chrome
+npm run test:browser   # component tests in Chrome, a few in Firefox and WebKit
 npm run typecheck
 npm run lint           # vp lint
 ```
+
+Off CI, WebKit runs only where `RIPPLE_WEBKIT_WS` names a Playwright server: `scripts/webkit-server.sh start` starts
+one in Docker and prints the address.
 
 The Playwright suites build first, then drive the built site in Chrome:
 
