@@ -15,6 +15,7 @@ const FOLDER = 'a'.repeat(40)
 const PICKED = 'b'.repeat(40)
 const MADE = 'c'.repeat(40)
 const FILE = 'd'.repeat(40)
+const COPIED = 'e'.repeat(40)
 const LAYOUT = [{ path: 'Show/ep1.mkv', size: 65_536 }]
 
 const engine = vi.hoisted(() => ({
@@ -42,8 +43,8 @@ vi.mock('libtorrent-wasm', async () => {
       }
       return fakeSession({
         addMagnet: (_magnet: string, savePath: string) => add(savePath),
-        // the .torrent of the synced row FILE
-        addTorrentFile: (_bytes: Uint8Array, savePath: string) => add(savePath, FILE),
+        // the .torrent of the synced row FILE, or of COPIED when its first byte is 2
+        addTorrentFile: (bytes: Uint8Array, savePath: string) => add(savePath, bytes[0] === 2 ? COPIED : FILE),
         infohash: (h: number) => engine.hashes.get(h) ?? null,
         infohashV2: () => null,
         clearStreamWindow: () => {},
@@ -74,7 +75,7 @@ vi.mock('idb-keyval', () => {
   })
   // and a torrent made here from picked files, waiting for the person to allow them again
   const made: Persisted = { ...synced(MADE, '/source/'), started: true, saveTo: 'source' }
-  store.set('ripple:torrents', [synced(FOLDER, '/native/'), synced(PICKED, '/source/'), made, synced(FILE, '/native/')])
+  store.set('ripple:torrents', [synced(FOLDER, '/native/'), synced(PICKED, '/source/'), made, synced(FILE, '/native/'), synced(COPIED, '/native/')])
   return {
     get: async (key: string) => store.get(key),
     set: async (key: string, value: unknown) => { store.set(key, value) },
@@ -129,5 +130,15 @@ it('writes where a .torrent of a synced folder torrent fetches to, for the next 
   await vi.waitFor(() => expect(entryOf(FILE)?.started).toBe(true))
   expect(engine.adds.at(-1)).toBe('/dl')
   expect(entryOf(FILE)).toMatchObject({ savePath: '/dl', saveTo: 'folder' })
+  expect([...rig.of('add-failed'), ...rig.of('worker-error')]).toEqual([])
+}, 20_000)
+
+// a torrent made here and copied into browser storage, which a synced folder row already names: its own files must
+// never be moved into the save folder
+it('keeps the browser choice of a torrent made here over the folder choice of the synced row it matches', async () => {
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([2]), savePath: '/dl/' + COPIED, saveTo: 'browser', created: true })
+  await vi.waitFor(() => expect(entryOf(COPIED)?.started).toBe(true))
+  expect(engine.adds.at(-1)).toBe('/dl/' + COPIED)
+  expect(entryOf(COPIED)).toMatchObject({ savePath: '/dl/' + COPIED, saveTo: 'browser', created: true })
   expect([...rig.of('add-failed'), ...rig.of('worker-error')]).toEqual([])
 }, 20_000)
