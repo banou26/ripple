@@ -84,6 +84,7 @@ vi.mock('idb-keyval', () => {
 /** The person's folder: each file's size by its path, and the directories it refuses to open. */
 const folder = (files: Record<string, number>, refused: string[] = []) => {
   const at = (prefix: string): FileSystemDirectoryHandle => ({
+    keys: () => ({ next: async () => ({ done: true, value: undefined }) }),
     getDirectoryHandle: async (name: string) => {
       const under = prefix + name + '/'
       if (refused.includes(under)) throw new DOMException(under, 'NotAllowedError')

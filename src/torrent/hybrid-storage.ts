@@ -300,6 +300,9 @@ export const createHybridStorage = (
           })
           if (file && file.size > 0) return STORAGE_NEED_FULL_CHECK
         }
+        // a folder that is itself gone answers NotFoundError for each file in it too (Chromium 156), and only listing
+        // the folder tells that apart from files deleted from it
+        await (root as unknown as { keys: () => AsyncIterator<string> }).keys().next()
         return STORAGE_NO_ERROR
       } catch {
         return STORAGE_NEED_FULL_CHECK

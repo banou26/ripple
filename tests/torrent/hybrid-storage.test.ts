@@ -20,9 +20,10 @@ import type { MeasurableStorage } from '../../src/torrent/opfs-storage'
 
 const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
 
-/** the two methods this backend uses on a directory: walk into it, and open a file for reading */
+/** the three methods this backend uses on a directory: walk into it, open a file for reading, and list it */
 const fakeFolder = (files: Record<string, Uint8Array>) => {
   const make = (prefix: string): FileSystemDirectoryHandle => ({
+    keys: () => ({ next: async () => ({ done: true, value: undefined }) }),
     getDirectoryHandle: async (name: string) => {
       const under = prefix + name + '/'
       if (!Object.keys(files).some((p) => p.startsWith(under))) throw new DOMException('NotFoundError: ' + under, 'NotFoundError')
@@ -240,6 +241,16 @@ describe('the check on startup', () => {
     const refusing = { getFileHandle: async () => { throw new DOMException('refused', 'NotAllowedError') } }
     const storage = createHybridStorage(fakeOpfs(), () => refusing as unknown as FileSystemDirectoryHandle)
     storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'a.bin', size: 4 }])
+    expect(await storage.check!(1)).toBe(2)
+  })
+
+  // a handle whose own directory was removed answers NotFoundError to every call, listing included, and listing an
+  // empty one resolves (Chromium 156, OPFS, 2026-11-16)
+  it('asks for a full check when the folder itself is gone, as an unplugged drive leaves it', async () => {
+    const gone = (): never => { throw new DOMException('gone', 'NotFoundError') }
+    const folder = { getDirectoryHandle: async () => gone(), getFileHandle: async () => gone(), keys: () => ({ next: async () => gone() }) }
+    const storage = createHybridStorage(fakeOpfs(), () => folder as unknown as FileSystemDirectoryHandle)
+    storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'a.bin', size: 4 }, { path: 'sub/b.bin', size: 4 }])
     expect(await storage.check!(1)).toBe(2)
   })
 
