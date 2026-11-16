@@ -245,13 +245,13 @@ const sessionUptimeOf = (h: number) => {
 const loadList = async (): Promise<Persisted[]> => (await get(LIST_KEY)) ?? []
 
 // the rule itself is in library.ts, where it can be tested: every field of it decides something the
-// user can lose
-const upsertList = async (entry: Persisted) => {
+// user can lose. `over` lands after it, for a save path the merge would keep.
+const upsertList = async (entry: Persisted, over?: Partial<Persisted>) => {
   let list: Persisted[] = []
   await update<Persisted[]>(LIST_KEY, (prev) => {
     list = prev ?? []
     const i = list.findIndex((e) => e.infoHash === entry.infoHash)
-    const merged = mergeEntry(i >= 0 ? list[i] : null, entry)
+    const merged = { ...mergeEntry(i >= 0 ? list[i] : null, entry), ...over }
     if (i >= 0) list[i] = merged; else list.push(merged)
     return list
   })
@@ -2121,6 +2121,14 @@ const init = async () => {
   self.addEventListener('online', () => recovery.retryNow(Date.now()))
 }
 
+/**
+ * Whether a row this device is not running fetches into browser storage rather than at its save path: a folder and picked
+ * files take no writes, and a synced row carries the other device's path. A torrent made here reads its own files.
+ */
+const fetchesToBrowser = (e: Persisted) => isGrantedSavePath(e.savePath) && e.saveTo !== 'source'
+// one meant for the folder keeps that choice, and moves there once it finishes
+const keptSaveTo = (e: Persisted) => (isNativeSavePath(e.savePath) ? e.saveTo ?? 'folder' : e.saveTo)
+
 const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
@@ -2161,7 +2169,8 @@ const handleMessage = async (session: Session, m: any) => {
         // did not, so a watch link on a torrent the user owns used to hand its handle to
         // ephemeralHandles and get it idle-parked the moment the player closed.
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
-        const savePath = m.savePath || known?.savePath || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
+        const elsewhere = !!known && fetchesToBrowser(known)
+        const savePath = m.savePath || (!elsewhere && known?.savePath) || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
         const h = addMagnet(session, magnet, savePath)
         if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
         track(h, magnet, ih, savePath, ephemeral)
@@ -2199,7 +2208,7 @@ const handleMessage = async (session: Session, m: any) => {
         recovery.hold(h, Date.now())
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
-        if (ih) await upsertList({ infoHash: ih, magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false })
+        if (ih) await upsertList({ infoHash: ih, magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false }, elsewhere ? { savePath, saveTo: keptSaveTo(known) } : undefined)
         post({ type: 'added', handle: h, magnet })
         void runStorageBudget()
       }
@@ -2383,7 +2392,11 @@ const handleMessage = async (session: Session, m: any) => {
       // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
       // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
-      await upsertList({ infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) })
+      const known = (await loadList()).find((e) => e.infoHash === ih)
+      await upsertList(
+        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) },
+        known && fetchesToBrowser(known) ? { savePath, saveTo: keptSaveTo(known), ...saveTo } : undefined,
+      )
       /*
        * Released HERE and not by the page, because the gap is between the two.
        *
@@ -2715,9 +2728,7 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       if (e) {
-        // A synced row carries the other device's save path, and neither a folder nor picked files take writes, so the
-        // fetch goes to browser storage; one meant for the folder moves there once it finishes.
-        const savePath = isGrantedSavePath(e.savePath) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
+        const savePath = fetchesToBrowser(e) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
         const bytes = (await get(torrentKey(e.infoHash)))
         const h = bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
@@ -2736,7 +2747,7 @@ const handleMessage = async (session: Session, m: any) => {
         postState()
         // a patch, as an upsert keeps the save path the entry had
         await patchList(e.infoHash, {
-          savePath, saveTo: isNativeSavePath(e.savePath) ? e.saveTo ?? 'folder' : e.saveTo,
+          savePath, saveTo: keptSaveTo(e),
           started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now(),
         })
       }
