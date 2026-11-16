@@ -133,6 +133,9 @@ describe('deciding whether files should move', () => {
     expect(moveReadiness({ ...base, intended: 'folder', leavesFilesOut: true })).toEqual({ move: false, reason: 'settled' })
     expect(moveReadiness({ ...base, intended: 'folder', complete: false, leavesFilesOut: true }))
       .toEqual({ move: false, reason: 'settled' })
+    // with no folder it would read as waiting for access, which a torrent that never moves is not
+    expect(moveReadiness({ ...base, intended: 'folder', folderReady: false, leavesFilesOut: true }))
+      .toEqual({ move: false, reason: 'settled' })
   })
 
   it('still moves a torrent with files left out back out of the folder', () => {
