@@ -3,6 +3,7 @@ import type { Torrent } from './types'
 import { defineMessage, defineMessages } from 'react-intl'
 
 import { hexInfoHash } from './magnet'
+import { chosenFiles, contentFiles } from './types'
 
 /**
  * How the library list is filtered, sorted and arranged, as arithmetic with no React in it.
@@ -125,7 +126,11 @@ const valueOf = (t: Torrent, key: SortKey): number | string | null => {
   switch (key) {
     case 'name': return t.name
     case 'added': return t.addedAt ?? null
-    case 'size': return t.size > 0 ? t.size : null
+    case 'size': {
+      const chosen = chosenFiles(t)
+      const size = chosen.length < contentFiles(t.files).length ? chosen.reduce((sum, f) => sum + f.size, 0) : t.size
+      return size > 0 ? size : null
+    }
     case 'eta': return t.etaSeconds ?? null
     case 'progress': return pending ? null : t.progress
     case 'down': return pending ? null : t.down

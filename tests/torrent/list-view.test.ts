@@ -120,6 +120,14 @@ describe('the sort', () => {
     const small = t({ name: 'small', size: 10 })
     const big = t({ name: 'big', size: 1_000_000 })
     expect(names(sortTorrents([small, big], 'size', 'desc'))).toEqual(['big', 'small'])
+    const pack = t({
+      name: 'pack',
+      size: 1_010_000,
+      files: [{ name: 'one', size: 10_000, index: 0 }, { name: 'rest', size: 1_000_000, index: 1 }],
+      wantedFiles: [0],
+    })
+    const whole = t({ name: 'whole', size: 500_000 })
+    expect(names(sortTorrents([pack, whole], 'size', 'desc'))).toEqual(['whole', 'pack'])
     const old = t({ name: 'old', addedAt: 1 })
     const recent = t({ name: 'recent', addedAt: 9_000 })
     expect(names(sortTorrents([old, recent], 'added', 'desc'))).toEqual(['recent', 'old'])
