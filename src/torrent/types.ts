@@ -36,8 +36,10 @@ export const contentFiles = <F extends { pad?: boolean }>(files: F[] | undefined
   (files ?? []).filter((file) => !file.pad)
 
 /** The content files this torrent downloads: every one, unless the person left some out. */
-export const chosenFiles = (t: { files?: TorrentFile[], wantedFiles?: number[] }): TorrentFile[] =>
-  contentFiles(t.files).filter((file) => !t.wantedFiles || t.wantedFiles.includes(file.index))
+export const chosenFiles = (t: { files?: TorrentFile[], wantedFiles?: number[] }): TorrentFile[] => {
+  const wanted = t.wantedFiles && new Set(t.wantedFiles)
+  return contentFiles(t.files).filter((file) => !wanted || wanted.has(file.index))
+}
 
 export const leavesFilesOut = (t: { files?: TorrentFile[], wantedFiles?: number[] }): boolean =>
   chosenFiles(t).length < contentFiles(t.files).length
