@@ -156,11 +156,16 @@ test('the app refuses to start in a save frame', async ({ browser }) => {
       document.body.append(frame)
     }
   })
+  // through the element, since an app that did start in the frame would move it on to the library
+  const frameOf = async (selector: string) => (await (await page.locator(selector).elementHandle())!.contentFrame())!
   // the control: the same frame anywhere else starts the app
   await expect(page.frameLocator('iframe[src="/no-such-page"]').locator('.mount')).toHaveCount(1, { timeout: 30_000 })
-  const save = page.frames().find((frame) => frame.url().includes('/__ripple-stream/'))!
+  const save = await frameOf('iframe[src^="/__ripple-stream/"]')
   await expect.poll(() => save.evaluate(() => (window as any).__error)).toContain('Ripple does not start under /__ripple-stream/')
   await expect(page.frameLocator('iframe[src^="/__ripple-stream/"]').locator('.mount')).toHaveCount(0)
+  // refused before every app module: the node shims, imported second, never ran
+  expect(await (await frameOf('iframe[src="/no-such-page"]')).evaluate(() => typeof (globalThis as any).process)).toBe('object')
+  expect(await save.evaluate(() => typeof (globalThis as any).process)).toBe('undefined')
   await context.close()
 })
 
