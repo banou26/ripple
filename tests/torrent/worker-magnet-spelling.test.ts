@@ -109,7 +109,7 @@ it('adds a torrent in the library again in the other spelling of its hash as the
 
 it('starts a listed torrent added in the other spelling under its entry, where its bytes are', async () => {
   const h = await add(base32Magnet(SYNCED))
-  expect(entriesOf(SYNCED).map((e) => [e.infoHash, e.savePath, e.wantedFiles])).toEqual([[v1(SYNCED), `/dl/${v1(SYNCED)}`, [0]]])
+  expect(entriesOf(SYNCED).map((e) => [e.infoHash, e.magnet, e.savePath, e.wantedFiles])).toEqual([[v1(SYNCED), hexMagnet(SYNCED), `/dl/${v1(SYNCED)}`, [0]]])
   const states = rig.of('state').length
   await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(states))
   expect(seen(h)).toEqual([v1(SYNCED)])
