@@ -14,6 +14,7 @@ import { NO_INBOUND } from './inbound'
 import { magnetInfoHash, magnetParam } from './magnet'
 import { noPeersFound } from './no-peers'
 import { CHECKING_STATES, pauseLanded } from './recovery'
+import { heldBytes } from './downloaded-ranges'
 import { cloudRestoreSettled } from './use-cloud-backup'
 import { holdWhileStored } from '../utils/page-work'
 import { writeDuration } from './uptime'
@@ -42,13 +43,6 @@ const STATE: Record<number, TorrentState> = {
 const COMPLETE = new Set([4, 5])
 
 /**
- * Seconds remaining, or undefined where there is nothing to estimate.
- *
- * The same arithmetic `fmtEta` formats, kept beside it so the two can never disagree about whether
- * an estimate exists. Undefined rather than 0 or Infinity for "no estimate": a sort has to be able
- * to put those last rather than treat them as arriving instantly or never.
- */
-/**
  * Bytes of the selection still to come. Not `totalWanted - totalDone`: `totalDone` counts a skipped file that is
  * held, so a pack with one such file as large as what is left read as nothing left. An engine from before
  * `totalWantedDone`, which a tab can still borrow during a rollout, gets the old subtraction.
@@ -56,16 +50,38 @@ const COMPLETE = new Set([4, 5])
 const leftOf = (status: NonNullable<TorrentSnapshot['status']>): number =>
   status.totalWanted - (status.totalWantedDone ?? status.totalDone)
 
-const etaSecondsOf = (status: TorrentSnapshot['status']): number | undefined => {
+/**
+ * The chosen files' bytes and how many of them are held, counted over the person's own files from the pieces held, or
+ * undefined to go by the engine's totals.
+ *
+ * Only for a padded torrent with files left out, and not during a check, whose progress is the check's own. There
+ * libtorrent counts the padding inside the chosen pieces in `totalWanted` and never in `totalWantedDone`: a hybrid of
+ * 16 KiB pieces with one file left out reported 344 064 against 301 000 once finished, so it read 87% and its Remaining
+ * never reached nothing.
+ */
+const chosenContent = (s: TorrentSnapshot, wanted: number[] | undefined): { size: number, held: number } | undefined => {
+  const { files, bitfield, status } = s
+  if (!wanted || !files || !bitfield || !status || CHECKING_STATES.has(status.state) || !files.files.some((f) => f.pad)) return undefined
+  const chosen = new Set(wanted)
+  const content = files.files.filter((f, index) => !f.pad && chosen.has(index))
+  return { size: content.reduce((sum, f) => sum + f.size, 0), held: content.reduce((sum, f) => sum + heldBytes(bitfield, f), 0) }
+}
+
+/**
+ * Seconds remaining, or undefined where there is nothing to estimate.
+ *
+ * The same arithmetic `fmtEta` formats, kept beside it so the two can never disagree about whether
+ * an estimate exists. Undefined rather than 0 or Infinity for "no estimate": a sort has to be able
+ * to put those last rather than treat them as arriving instantly or never.
+ */
+const etaSecondsOf = (status: TorrentSnapshot['status'], remain: number): number | undefined => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return undefined
-  const remain = leftOf(status)
   if (remain <= 0 || status.downloadRate <= 0) return undefined
   return Math.round(remain / status.downloadRate)
 }
 
-const fmtEta = (status: TorrentSnapshot['status'], words: IntlShape): string => {
+const fmtEta = (status: TorrentSnapshot['status'], remain: number, words: IntlShape): string => {
   if (!status || status.state === 5 || status.state === 4 || CHECKING_STATES.has(status.state)) return '-'
-  const remain = leftOf(status)
   if (remain <= 0) return '-'
   if (status.downloadRate <= 0) return words.formatMessage({ id: 'queued', defaultMessage: 'queued' })
   const s = Math.round(remain / status.downloadRate)
@@ -118,11 +134,13 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
 export const isActive = (state: TorrentState): boolean =>
   state === 'downloading' || state === 'seeding'
 
-/** `s` as a row, its words written by `words`. */
-export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = intl): Torrent => {
+/** `s` as a row, its words written by `words`, and its figures counted over `wanted`, the files its library entry chose. */
+export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = intl, wanted?: number[]): Torrent => {
   const st = s.status
   const name = magnetParam(s.magnet, 'dn') ?? s.files?.files[0]?.path.split('/')[0] ?? words.formatMessage({ id: 'Fetching metadata…', defaultMessage: 'Fetching metadata…' })
-  const progress = st?.progress ?? 0
+  const content = chosenContent(s, wanted)
+  const progress = content ? (content.size ? content.held / content.size : 1) : (st?.progress ?? 0)
+  const left = content ? content.size - content.held : st ? leftOf(st) : 0
   return {
     id: String(s.handle),
     magnet: s.magnet,
@@ -141,8 +159,8 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
     up: st?.uploadRate ?? 0,
     peers: st?.numPeers ?? 0,
     seeds: st?.numSeeds ?? 0,
-    eta: fmtEta(st, words),
-    etaSeconds: etaSecondsOf(st),
+    eta: fmtEta(st, left, words),
+    etaSeconds: etaSecondsOf(st, left),
     // seconds off the engine, milliseconds everywhere a person sees a date; 0 means never happened
     addedAt: st?.addedAt ? st.addedAt * 1000 : undefined,
     flags: st?.flags ?? 0,
@@ -182,7 +200,7 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
         numPieces: st.numPiecesTotal,
         numPiecesHave: st.numPiecesHave,
         // a padded torrent with files left out stays short of its totalWanted by the pads inside its chosen pieces
-        remaining: COMPLETE.has(st.state) ? 0 : Math.max(0, leftOf(st)),
+        remaining: COMPLETE.has(st.state) ? 0 : Math.max(0, left),
       }
       : null,
     bitfield: s.bitfield ?? undefined,
@@ -415,11 +433,12 @@ export const useTorrents = (): UseTorrents => {
     // one clock for the whole list, so every retry countdown in a render agrees
     const now = Date.now()
     // the intent lives in the library row and the engine knows nothing about it, so it is attached
-    // here rather than in snapshotToTorrent, which only ever sees engine state
+    // here; snapshotToTorrent is given only the chosen files, which its figures are counted over
     const entryByHash = new Map(list.map((e) => [e.infoHash, e]))
     const live = snaps.map((s) => {
-      const t = snapshotToTorrent(s, now, words)
-      const entry = t.infoHash ? entryByHash.get(t.infoHash) : undefined
+      const hash = magnetInfoHash(s.magnet)
+      const entry = hash ? entryByHash.get(hash) : undefined
+      const t = snapshotToTorrent(s, now, words, entry?.wantedFiles)
       return entry
         ? {
           ...t,

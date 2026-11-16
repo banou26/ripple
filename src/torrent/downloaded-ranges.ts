@@ -36,9 +36,13 @@ export const downloadedByteRanges = (
   return heldRanges(bf, file)
 }
 
+/** Bytes of a file on disk, counted in whole pieces. */
+export const heldBytes = (bf: Bitfield, file: Span): number =>
+  heldRanges(bf, file).reduce((sum, [from, to]) => sum + to - from, 0)
+
 /** How much of a file is on disk, from 0 to 1, counted in whole pieces. An empty file has nothing to wait for. */
 export const heldShare = (bf: Bitfield, file: Span): number =>
-  file.size > 0 ? heldRanges(bf, file).reduce((sum, [from, to]) => sum + to - from, 0) / file.size : 1
+  file.size > 0 ? heldBytes(bf, file) / file.size : 1
 
 export const downloadedFractions = (
   snapshot: TorrentSnapshot | null,
