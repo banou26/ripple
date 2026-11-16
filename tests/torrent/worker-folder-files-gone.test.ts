@@ -13,6 +13,8 @@ import { installWorkerGlobals, sessions } from '../utils/worker-rig'
  * libtorrent-wasm 0.3.28 in node, 2026-11-16, a torrent whose files were gone came back seeding at progress 1 with no
  * check asked. And until the page offers the folder, a file that is not there and a folder not allowed yet read the
  * same, so nothing may be given up at restore.
+ *
+ * The three cases run in order on one worker (one import per file, see worker-rig), each from where the last left it.
  */
 
 const GONE = 'a'.repeat(40)
@@ -31,6 +33,8 @@ const SEEDING = {
 
 const store = vi.hoisted(() => new Map<string, unknown>())
 const handleOf = vi.hoisted(() => new Map<string, number>())
+// the engine numbers its storages apart from its handles (handle 1 had storage 2 on libtorrent-wasm 0.3.28)
+const storageOf = (h: number) => h + 100
 
 const rig = installWorkerGlobals({ estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }) })
 
@@ -45,7 +49,7 @@ vi.mock('libtorrent-wasm', async () => {
         const hash = savePath.slice(-40)
         const h = handleOf.size + 1
         handleOf.set(hash, h)
-        void storage.onNewStorage(h, savePath, LAYOUTS[hash]!)
+        void storage.onNewStorage(storageOf(h), savePath, LAYOUTS[hash]!)
         return h
       },
       status: (h: number) => (hashOf(h) ? SEEDING : null),
@@ -54,7 +58,7 @@ vi.mock('libtorrent-wasm', async () => {
         if (!files) return null
         let offset = 0
         const placed = files.map((f) => ({ ...f, offset: (offset += f.size) - f.size, pad: false }))
-        return { storageIndex: h, pieceLength: 16_384, numPieces: 12, totalSize: offset, contentSize: offset, files: placed }
+        return { storageIndex: storageOf(h), pieceLength: 16_384, numPieces: 12, totalSize: offset, contentSize: offset, files: placed }
       },
       saveResumeData: async () => new Uint8Array([9]),
       pauseTorrent: () => {},
