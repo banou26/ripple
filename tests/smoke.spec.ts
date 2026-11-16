@@ -199,6 +199,47 @@ test('closing the tab asks from another of its pages too, which the engine goes 
   await expect.poll(() => asked).toEqual(['beforeunload'])
 })
 
+// the page's worker, whose update another tab takes when the test calls updateTaken; the new one never answers, so the
+// page reloads once its wait for it runs out
+const updateStandIn = () => {
+  const heard = new Set<EventListener>()
+  const registration = { waiting: null as object | null, addEventListener () {}, update: async () => {} }
+  Object.defineProperty(navigator, 'serviceWorker', {
+    value: {
+      controller: {},
+      ready: Promise.resolve(registration),
+      getRegistration: async () => registration,
+      register: async () => registration,
+      addEventListener: (type: string, listener: EventListener) => { if (type === 'controllerchange') heard.add(listener) },
+      removeEventListener: (_: string, listener: EventListener) => { heard.delete(listener) },
+    },
+  })
+  Object.assign(window, {
+    updateTaken: () => {
+      registration.waiting = { postMessage () {} }
+      for (const listener of heard) listener(new Event('controllerchange'))
+    },
+  })
+}
+
+test('Ripple reloads itself onto an update while a torrent downloads, with nothing asked', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(updateStandIn)
+  await page.goto('/')
+  await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.torrent .badge')).toHaveText('Downloading', { timeout: 30_000 })
+
+  const asked: string[] = []
+  page.on('dialog', (dialog) => { asked.push(dialog.type()); void dialog.dismiss() })
+  // the add holds the update for ENGINE_STORE_MS (12 s), and the gate then waits 5 s on the new worker
+  const reloaded = page.waitForEvent('load', { timeout: 45_000 })
+  await page.evaluate(() => (window as unknown as { updateTaken: () => void }).updateTaken())
+  await expect(page.getByRole('status').filter({ hasText: 'Updating Ripple' })).toBeVisible({ timeout: 30_000 })
+  await reloaded
+  expect(asked).toEqual([])
+})
+
 test('a link turned down leaves the offer standing', async ({ page }) => {
   await page.goto(`/add?magnet=${encodeURIComponent(NOBODY)}`)
   // listed as temporary while its dialog asks, which is not an answer to the offer

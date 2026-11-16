@@ -1,3 +1,5 @@
+let reloading = false
+
 /**
  * Reload this page.
  *
@@ -12,5 +14,9 @@
  * whose failure matters.
  */
 export const reloadPage = (): void => {
-  try { location.reload() } catch {}
+  reloading = true
+  try { location.reload() } catch { reloading = false }
 }
+
+/** Whether this page is reloading itself through {@link reloadPage}, which no leave prompt holds up. */
+export const reloadingPage = (): boolean => reloading

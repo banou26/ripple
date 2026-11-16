@@ -14,12 +14,19 @@ vi.mock('../../src/utils/framed', () => ({ isFramed: () => framed.value }))
 const running = { client: null as TorrentClient | null }
 vi.mock('../../src/torrent/client', async (actual) => ({ ...await actual<object>(), runningTorrentClient: () => running.client }))
 
+/** Whether the page is reloading itself, which a real reload would end the test with. */
+const reload = { going: false }
+vi.mock('../../src/utils/reload', () => ({ reloadingPage: () => reload.going }))
+
 const { useLeavePrompt } = await import('../../src/router/leave-prompt')
 
 /** A client that replays what it last said to each new listener, as the real one does. */
 const engine = ({ owns = true }: { owns?: boolean } = {}) => {
-  const heard = { state: new Set<(s: TorrentSnapshot[]) => void>(), list: new Set<(l: Persisted[]) => void>(), owns: new Set<(o: boolean) => void>() }
-  const last = { state: null as TorrentSnapshot[] | null, list: null as Persisted[] | null, owns }
+  const heard = {
+    state: new Set<(s: TorrentSnapshot[]) => void>(), list: new Set<(l: Persisted[]) => void>(), owns: new Set<(o: boolean) => void>(),
+    error: new Set<(e: { message: string, fatal: boolean }) => void>(),
+  }
+  const last = { state: null as TorrentSnapshot[] | null, list: null as Persisted[] | null, owns, error: null as { message: string, fatal: boolean } | null }
   const on = <T, >(set: Set<(value: T) => void>, latest: () => T | null) => (cb: (value: T) => void) => {
     set.add(cb)
     const value = latest()
@@ -30,12 +37,14 @@ const engine = ({ owns = true }: { owns?: boolean } = {}) => {
     onState: on(heard.state, () => last.state),
     onList: on(heard.list, () => last.list),
     onOwnership: on(heard.owns, () => last.owns),
+    onWorkerError: on(heard.error, () => last.error),
   } as unknown as TorrentClient
   return {
     client,
     state: (...rows: TorrentSnapshot[]) => { last.state = rows; for (const cb of heard.state) cb(rows) },
     list: (...entries: Persisted[]) => { last.list = entries; for (const cb of heard.list) cb(entries) },
     owns: (owned: boolean) => { last.owns = owned; for (const cb of heard.owns) cb(owned) },
+    stops: () => { last.error = { message: 'gone', fatal: true }; for (const cb of heard.error) cb(last.error) },
   }
 }
 
@@ -68,6 +77,7 @@ const holding = () => {
 beforeEach(() => {
   framed.value = false
   running.client = null
+  reload.going = false
   add = vi.spyOn(window, 'addEventListener')
   remove = vi.spyOn(window, 'removeEventListener')
 })
@@ -133,6 +143,30 @@ describe('the prompt before the tab closes', () => {
     running.client = tab.client
     go.to!('/watch')
     await expect.poll(holding).toHaveLength(1)
+  })
+
+  it('lets the page reload itself, which stops nothing for good', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.state(snap('a'))
+    await page()
+    await expect.poll(holding).toHaveLength(1)
+    reload.going = true
+    const reloading = new Event('beforeunload', { cancelable: true })
+    holding()[0]!(reloading)
+    expect(reloading.defaultPrevented).toBe(false)
+  })
+
+  it('lets go once the engine stops, until another starts downloading', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.state(snap('a'))
+    await page()
+    await expect.poll(holding).toHaveLength(1)
+    tab.stops()
+    await expect.poll(holding).toHaveLength(0)
+    tab.state(snap('a'))
+    await expect.poll(holding, { message: 'the engine that took over downloads it again' }).toHaveLength(1)
   })
 
   it('does not ask inside a frame', async () => {
