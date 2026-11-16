@@ -62,7 +62,8 @@ const TRACKERS = [
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-const DICTIONARY = encoder.encode(
+/** Also the dictionary of group links (`group-link.ts`), whose version byte names it the same way. */
+export const DICTIONARY = encoder.encode(
   'xt=urn:btih:xt=urn:btmh:1220dn=&tr=&ws=announce'
   + TRACKERS.map((t) => `&tr=${encodeURIComponent(t)}`).join('')
   + TRACKERS.map((t) => `&tr=${t}`).join(''),
@@ -100,22 +101,22 @@ const base32Encode = (bytes: Uint8Array): string => {
   return out
 }
 
-const hexDecode = (text: string): Uint8Array => {
+export const hexDecode = (text: string): Uint8Array => {
   const out = new Uint8Array(text.length / 2)
   for (let i = 0; i < out.length; i++) out[i] = parseInt(text.slice(i * 2, i * 2 + 2), 16)
   return out
 }
 
-const hexEncode = (bytes: Uint8Array): string =>
+export const hexEncode = (bytes: Uint8Array): string =>
   [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
 
-const toBase64Url = (bytes: Uint8Array): string => {
+export const toBase64Url = (bytes: Uint8Array): string => {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-const fromBase64Url = (text: string): Uint8Array => {
+export const fromBase64Url = (text: string): Uint8Array => {
   const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/'))
   const out = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
