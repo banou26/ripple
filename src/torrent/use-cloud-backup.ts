@@ -347,8 +347,10 @@ export const useCloudBackup = (): SyncState => {
     const writeNow = async () => {
       pending = false
       window.clearTimeout(timer)
+      // a switch during the list write nulls `writesFor`, and the groups step must not then go to the new account
+      const forAccount = writesFor
       const published = await publishLibrary(latest)
-      await publishGroups(writesFor)
+      await publishGroups(forAccount, false, () => writesFor === forAccount)
       return published
     }
     const write = async () => {

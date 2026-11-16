@@ -16,6 +16,8 @@ let accountChanged: (() => void) | undefined
 let groupsReadFails = false
 let listReadFails = false
 let holdGroupsRead: Promise<void> | undefined
+let holdListWrite: Promise<void> | undefined
+let listWriteHeld = false
 let groupsReads = 0
 let cleared = 0
 const listeners = new Set<(list: Persisted[]) => void>()
@@ -43,7 +45,16 @@ vi.mock('@fkn/lib', () => ({
           if (hit === undefined) throw Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
           return hit
         },
-        writeFile: async (path: string, data: string) => { written.push(path); cloudText.set(path, data) },
+        writeFile: async (path: string, data: string) => {
+          if (path === 'ripple/torrents.json' && holdListWrite) {
+            const hold = holdListWrite
+            holdListWrite = undefined
+            listWriteHeld = true
+            await hold
+          }
+          written.push(path)
+          cloudText.set(path, data)
+        },
       },
     },
   },
@@ -100,6 +111,8 @@ beforeEach(async () => {
   groupsReadFails = false
   listReadFails = false
   holdGroupsRead = undefined
+  holdListWrite = undefined
+  listWriteHeld = false
   groupsReads = 0
   accountChanged = undefined
   cleared = 0
@@ -229,5 +242,31 @@ describe('groups synced to the account', () => {
     expect(screen.getByTestId('status').element().textContent).toBe('error')
     expect(cloudText.get(GROUPS_PATH)).toBe(first)
     expect(writesOf(GROUPS_PATH)).toBe(0)
+  }, 40_000)
+
+  it('keeps a write\'s groups out of the account signed into while its list was on the way', async () => {
+    accountName = 'first'
+    localStorage.setItem(SYNC_ACCOUNT_KEY, 'first')
+    const firsts = mergeGroups([group('first-account-gp', 'First account', [A])])
+    await set(GROUPS_KEY, { account: await accountTag('first'), groups: firsts } satisfies StoredGroups)
+    cloudText.set(GROUPS_PATH, JSON.stringify(firsts))
+    const screen = await synced()
+    let release = () => {}
+    holdListWrite = new Promise((resolve) => { release = resolve })
+    listChanged()
+    await expect.poll(() => listWriteHeld, { timeout: 15_000 }).toBe(true)
+
+    // from here the Map is the second account's storage
+    const seconds = mergeGroups([group('second-acct-grp0', 'Second account', [B])])
+    cloudText.set(GROUPS_PATH, JSON.stringify(seconds))
+    accountName = 'second'
+    accountChanged!()
+    release()
+    await expect.poll(() => localStorage.getItem(SYNC_ACCOUNT_KEY), { timeout: 15_000 }).toBe('second')
+    await expect.element(screen.getByTestId('status'), { timeout: 15_000 }).toHaveTextContent('synced')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    expect(cloudText.get(GROUPS_PATH)).toBe(JSON.stringify(seconds))
+    expect(await stored()).toEqual({ account: await accountTag('second'), groups: seconds })
   }, 40_000)
 })
