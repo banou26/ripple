@@ -63,6 +63,7 @@ import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { useTakeFromPlayer } from '../torrent/use-handover'
 import { decodeMagnetParam } from './magnet-codec'
+import { getRouterRoutePath, Route } from './path'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
@@ -2446,6 +2447,19 @@ const Home = () => {
         if (magnet) commitMagnet(magnet)
       } catch {}
     }
+    // an /add link, or the address it leads to, asks first as it does in a tab; the launch does not say which site
+    // sent it
+    const askAboutLaunchedLink = (rawUrl: string | undefined): boolean => {
+      if (!rawUrl) return false
+      try {
+        const url = new URL(rawUrl, window.location.origin)
+        const magnet = url.pathname === getRouterRoutePath(Route.ADD) ? url.searchParams.get('magnet') : url.searchParams.get('add')
+        if (!magnet) return false
+        addQueue.current.push({ magnet, external: true, from: null })
+        if (!pendingRef.current) askNext()
+        return true
+      } catch { return false }
+    }
 
     // Protocol-handler launches arrive as /?magnet=... in the address bar.
     addFromLaunchUrl(window.location.href)
@@ -2458,14 +2472,14 @@ const Home = () => {
     if (!queue) return
     try {
       queue.setConsumer(async (params: LaunchParams) => {
-        addFromLaunchUrl(params.targetURL)
+        if (!askAboutLaunchedLink(params.targetURL)) addFromLaunchUrl(params.targetURL)
         if (params.files?.length) {
           const files = await Promise.all(params.files.map((handle) => handle.getFile()))
           await addTorrentFiles(files)
         }
       })
     } catch {}
-  }, [addTorrentFiles, commitMagnet])
+  }, [addTorrentFiles, askNext, commitMagnet])
 
   const onToggle = useCallback((t: Torrent) =>
     t.state === 'retrying'

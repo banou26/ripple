@@ -1755,6 +1755,40 @@ test('with Ask on, a link for the torrent the dialog asks about is answered with
   await expect(dialog).toHaveCount(0)
 })
 
+test('with Ask off, a link the system opens Ripple with asks first, as in a tab, and a magnet it opens Ripple with is added', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, 'launchQueue', {
+    configurable: true,
+    value: { setConsumer: (consumer: unknown) => Object.assign(window, { launch: consumer }) },
+  }))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['add-magnet'])
+  const launch = (address: string) => page.evaluate(async (targetURL) => {
+    const { launch } = window as unknown as { launch: (params: object) => Promise<void> }
+    await launch({ targetURL, files: [] })
+  }, address)
+  const dialog = page.getByRole('dialog')
+
+  await launch(`${origin}/add?magnet=${encodeURIComponent(magnetOf('8', 'Eight'))}`)
+  await expect(dialog.locator('h2')).toHaveText('Eight')
+  await expect(dialog.getByText('Opened from a link')).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: 'Do not ask again' })).toHaveCount(0)
+  // the address an /add link leads to, opened while the dialog asks
+  await launch(`${origin}/?add=${encodeURIComponent(magnetOf('7', 'Seven'))}`)
+  await drawn(page)
+  await expect(dialog.locator('h2')).toHaveText('Eight')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+  await expect(dialog.getByText('Opened from a link')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  await launch(`${origin}/?magnet=${encodeURIComponent(magnetOf('3', 'Three'))}`)
+  await expect(page.locator('.toast')).toHaveText('Magnet added')
+  await expect(dialog).toHaveCount(0)
+  expect(askedFor(await sent())).toEqual([['Eight', true], ['Seven', true], ['Three', false]])
+})
+
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
