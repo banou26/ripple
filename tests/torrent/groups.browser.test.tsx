@@ -116,18 +116,29 @@ describe('the group store', () => {
     expect(await storedGroup(id)).toEqual(tombstone)
   })
 
-  it('lets an edit win over a copy stamped in the future by a clock that runs fast', async () => {
+  it('lets a rename win over a name stamped in the future by a clock that runs fast', async () => {
     const future = Date.now() + 10 * 60_000
     await set(GROUPS_KEY, {
       account: null,
-      groups: [{ id: 'fast-clock-group', name: 'From a fast clock', namedAt: future, members: [{ infoHash: A, at: future }] }],
+      groups: [{ id: 'fast-clock-name0', name: 'From a fast clock', namedAt: future, members: [{ infoHash: A, at: 1 }] }],
     } satisfies StoredGroups)
-    await takeOutOfGroup('fast-clock-group', [A])
-    await renameGroup('fast-clock-group', 'Renamed here')
-    const g = await storedGroup('fast-clock-group')
-    expect(held(g)).toEqual([])
-    expect(g?.name).toBe('Renamed here')
+    // a name that sorts lower, so a tie on the time cannot save it
+    await renameGroup('fast-clock-name0', 'Aaa renamed here')
+    const g = await storedGroup('fast-clock-name0')
+    expect(g?.name).toBe('Aaa renamed here')
     expect(g!.namedAt).toBeGreaterThan(future)
+  })
+
+  it('lets a take-out, then a put back, win over an add stamped in the future by a clock that runs fast', async () => {
+    const future = Date.now() + 10 * 60_000
+    await set(GROUPS_KEY, {
+      account: null,
+      groups: [{ id: 'fast-clock-add00', name: 'Named long ago', namedAt: 1, members: [{ infoHash: A, at: future }] }],
+    } satisfies StoredGroups)
+    await takeOutOfGroup('fast-clock-add00', [A])
+    expect(held(await storedGroup('fast-clock-add00'))).toEqual([])
+    await putInGroup('fast-clock-add00', [A])
+    expect(held(await storedGroup('fast-clock-add00'))).toEqual([A])
   })
 
   it('keeps the account the stored copy belongs to', async () => {
