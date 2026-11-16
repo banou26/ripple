@@ -306,7 +306,7 @@ export type TorrentClient = {
    * runs in, which is not necessarily the tab the user clicked Allow in. Every tab with a permitted
    * handle offers it, and the newest offer wins.
    */
-  setFolder: (handle: FileSystemDirectoryHandle | null) => void
+  setFolder: (folder: FileSystemDirectoryHandle | null) => void
   /**
    * Hand a cache torrent to Ripple's own tab: its resume blob and the chunk files holding bytes, or
    * null when there is none to hand over. From here until `exportEnd` its window drops no chunk.
@@ -759,7 +759,7 @@ export const createTorrentClient = (): EngineClient => {
     },
     setTemporary: (infoHash, temporary) => send({ type: 'set-temporary', infoHash, temporary }),
     setPlan: (handle, plan) => send({ type: 'set-plan', handle, wanted: plan.wanted, firstLast: plan.firstLast === true }),
-    setFolder: (handle) => send({ type: 'set-folder', handle }),
+    setFolder: (folder) => send({ type: 'set-folder', folder }),
     exportStart: (infoHash) => ask({ type: 'export-start', infoHash }) as Promise<Offer | null>,
     exportChunk: (infoHash, { fileIndex, chunk }) => ask({ type: 'export-chunk', infoHash, fileIndex, chunk }) as Promise<Uint8Array>,
     exportEnd: (infoHash) => send({ type: 'export-end', infoHash }),

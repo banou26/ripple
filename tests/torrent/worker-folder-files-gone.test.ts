@@ -120,7 +120,7 @@ it('keeps every folder torrent and its saved state while the folder is not allow
 }, 20_000)
 
 it('gives up one whose files are gone once the folder is allowed, and keeps one there or unreadable', async () => {
-  rig.send({ type: 'set-folder', handle: folder({ 'Kept/film.mkv': 80_000 }, ['Refused/']) })
+  rig.send({ type: 'set-folder', folder: folder({ 'Kept/film.mkv': 80_000 }, ['Refused/']) })
   await vi.waitFor(() => expect(entryOf(GONE)?.started).toBe(false), { timeout: 5_000 })
   // Files missing, with nothing claimed of a disk that has none of it, and a Download that fetches into browser storage
   expect(store.has('ripple:resume:' + GONE)).toBe(false)
@@ -135,8 +135,8 @@ it('gives up one whose files are gone once the folder is allowed, and keeps one 
 }, 20_000)
 
 it('asks once per restore, so a folder offered later that holds none of them gives up nothing', async () => {
-  rig.send({ type: 'set-folder', handle: null })
-  rig.send({ type: 'set-folder', handle: folder({}) })
+  rig.send({ type: 'set-folder', folder: null })
+  rig.send({ type: 'set-folder', folder: folder({}) })
   await pumps(3)
   expect(removed()).toEqual([handleOf.get(GONE)])
   for (const infoHash of [KEPT, REFUSED]) expect(entryOf(infoHash)?.started, infoHash).toBe(true)

@@ -2526,7 +2526,7 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'set-folder') {
       // A page with a permitted handle offers it; a page that lost the grant offers null. Last one
       // wins, deliberately, because the newest offer is the one whose grant was checked most recently.
-      folderHandle = (m.handle as FileSystemDirectoryHandle | null) ?? null
+      folderHandle = (m.folder as FileSystemDirectoryHandle | null) ?? null
     } else if (m.type === 'set-temporary') {
       /**
        * The one place a PERSON changes this, and the only writer that has to move both halves.

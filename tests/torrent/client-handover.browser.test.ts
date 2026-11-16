@@ -142,6 +142,24 @@ describe('a command caught by an engine handover', () => {
 
     expect(types(rig), 'dropping this is the bug gate.ts was written to fix').toContain('add-magnet')
   })
+
+  // a folder already allowed at load is offered on mount, long before the engine has restored the library, and the
+  // page offers it again only when the folder or its permission changes
+  it('hands over a folder offered before the engine listed anything, or across a handover', async () => {
+    const folder = { kind: 'directory', name: 'Downloads' } as FileSystemDirectoryHandle
+    const mounting = makeRig()
+    mounting.client.setFolder(folder)
+    mounting.say({ type: 'ready' })
+    await Promise.resolve()
+    expect(mounting.posted, 'folder torrents could not read their files').toContainEqual({ type: 'set-folder', folder })
+
+    const handedOver = makeRig()
+    handedOver.client.setFolder(folder)
+    handedOver.swap()
+    handedOver.say({ type: 'ready' })
+    await Promise.resolve()
+    expect(handedOver.posted).toContainEqual({ type: 'set-folder', folder })
+  })
 })
 
 /**

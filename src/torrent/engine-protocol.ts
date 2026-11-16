@@ -88,7 +88,7 @@ export const LEADER_SILENCE_MS = 5_000
  */
 export const SESSION_SCOPED = new Set([
   'cancel-read', 'force-start', 'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'remove', 'resume',
-  'retry', 'set-flags', 'set-folder', 'set-limits', 'set-plan', 'watch',
+  'retry', 'set-flags', 'set-limits', 'set-plan', 'watch',
 ])
 
 export const isSessionScoped = (type: unknown): boolean =>
