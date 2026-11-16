@@ -67,8 +67,14 @@ describe('the group store', () => {
     await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Orbital Gardeners', 'Weekend watch list'])
     expect(held(result.current?.find((g) => g.id === weekend))).toEqual([A, B])
     expect(held(result.current?.find((g) => g.id === orbital))).toEqual([C])
-    expect(weekend).toMatch(/^[A-Za-z0-9_-]{16}$/)
     expect((await stored())?.groups).toHaveLength(2)
+  })
+
+  it('mints ids of 16 base64url characters, all different', async () => {
+    // 40, since a plain base64 id holds a + or a / only 40% of the time
+    const ids = await Promise.all(Array.from({ length: 40 }, (_, n) => createGroup(`Group ${n}`, [])))
+    for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/)
+    expect(new Set(ids).size).toBe(40)
   })
 
   it('puts in, takes out, renames and deletes, and a deleted group leaves the view', async () => {
@@ -213,6 +219,9 @@ describe('the group store', () => {
       // this tab's listeners are told directly, since a channel never delivers to its poster
       expect(heard).toBe(2)
       await expect.poll(() => told).toBe(1)
+      // and once only: a second channel object of this tab's own would hear the post and read again
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(heard).toBe(2)
     } finally {
       off()
       other.close()
