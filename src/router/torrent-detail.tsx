@@ -195,7 +195,7 @@ const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => 
             {!!t.bitfield?.numPieces && <PiecesBar bitfield={t.bitfield}/>}
           </Fact>
           <Fact label={intl.formatMessage({ id: 'Progress', defaultMessage: 'Progress' })} value={pct(t.progress)}/>
-          <Fact label={intl.formatMessage({ id: 'Added on', defaultMessage: 'Added on' })} value={s ? when(s.addedAt, intl) : UNKNOWN}/>
+          <Fact label={intl.formatMessage({ id: 'Added on', defaultMessage: 'Added on' })} value={t.addedAt ? when(t.addedAt / 1000, intl) : UNKNOWN}/>
           <Fact label={intl.formatMessage({ id: 'Completed on', defaultMessage: 'Completed on' })} value={s ? when(s.completedAt, intl) : UNKNOWN}/>
           <Fact label={intl.formatMessage({ id: 'Last seen complete', defaultMessage: 'Last seen complete' })} value={s ? when(s.lastSeenComplete, intl) : UNKNOWN}/>
           <Fact label={intl.formatMessage({ id: 'Files', defaultMessage: 'Files' })} value={String(contentFiles(t.files).length)}/>

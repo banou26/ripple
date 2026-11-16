@@ -174,7 +174,6 @@ export const snapshotToTorrent = (s: TorrentSnapshot, now = Date.now(), words = 
         // absent on a snapshot from an older engine, where zero reads as "nothing yet this session"
         sessionActiveSeconds: s.sessionUptime?.activeSeconds ?? 0,
         sessionSeedingSeconds: s.sessionUptime?.seedingSeconds ?? 0,
-        addedAt: st.addedAt,
         completedAt: st.completedAt,
         lastSeenComplete: st.lastSeenComplete,
         hadIncoming: st.hadIncoming,

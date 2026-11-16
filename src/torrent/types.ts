@@ -63,7 +63,6 @@ export type TorrentStats = {
   sessionActiveSeconds: number
   sessionSeedingSeconds: number
   /** Unix seconds, 0 for something that has not happened. */
-  addedAt: number
   completedAt: number
   lastSeenComplete: number
   hadIncoming: boolean
@@ -92,8 +91,9 @@ export type Torrent = {
   /**
    * When this torrent was added, in MILLISECONDS, or absent where nothing recorded it.
    *
-   * Taken from the library entry rather than from `stats.addedAt`, which is unix SECONDS, is 0 for
-   * something that never happened, and is null for a ghost. The entry has it for every row a person
+   * Taken from the library entry rather than from the engine's add time, which is unix SECONDS, is 0
+   * for something that never happened, starts again whenever a reload adds the torrent to a new
+   * session, and does not exist for a ghost. The entry has it for every row a person
    * can see, which is what a sort needs: a key that exists for live rows and not for ghosts would
    * quietly bunch every ghost together at one end for a reason nobody could read off the screen.
    */

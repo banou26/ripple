@@ -41,6 +41,9 @@ const { default: fr } = await import('../../src/locales/fr.json')
 const CATALOGUES = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
 // the dock carries its own css template, so unlike the old per-row panel it needs no page around it
 
+// when the library entry says it was added, in seconds
+const LISTED = 1_754_990_000
+
 const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   id: '7',
   infoHash: 'aabbccddeeff00112233445566778899aabbccdd',
@@ -55,6 +58,7 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
   peers: 82,
   seeds: 12,
   eta: '4m',
+  addedAt: LISTED * 1000,
   flags: 0,
   queuePosition: -1,
   stats: {
@@ -74,7 +78,6 @@ const torrent = (over: Partial<Torrent> = {}): Torrent => ({
     // whichever of the two the panel actually rendered
     sessionActiveSeconds: 900,
     sessionSeedingSeconds: 60,
-    addedAt: 1_755_000_000,
     completedAt: 1_755_003_600,
     lastSeenComplete: 1_755_003_600,
     hadIncoming: true,
@@ -338,13 +341,13 @@ describe('the docked torrent details', () => {
   // English as the panel wrote it before its text was translated, every branch of it
   describe('in English', () => {
     it('writes each fact of the overview, its dates as toLocaleString() and its numbers as toFixed() do', async () => {
-      const { addedAt, completedAt } = torrent().stats!
+      const { completedAt } = torrent().stats!
       expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
         'Time active: 1h 0m (15m this session)', 'Time left: 4m', 'Connections: 6 of 200', 'Downloaded: 1 GB (500 MB this session)',
         'Uploaded: 250 MB (100 MB this session)', 'Seeds: 12 connected of 40 known', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
         'Peers: 82 connected of 12 known', 'Share ratio: 0.25', 'Wasted: 4.1 kB', 'Remaining: 600 MB', 'Seeding for: 2m (1m this session)',
         'Availability: 2.40', 'Inbound peers: Yes', 'Total size: 2 GB', 'Browser storage: -', 'Pieces: 7630 x 262.1 kB (have 3815)', 'Progress: 50%',
-        `Added on: ${date(addedAt, 'en-US')}`, `Completed on: ${date(completedAt, 'en-US')}`, `Last seen complete: ${date(completedAt, 'en-US')}`,
+        `Added on: ${date(LISTED, 'en-US')}`, `Completed on: ${date(completedAt, 'en-US')}`, `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 3, file too short',
       ])
       // 0.285 is 0.28499... as a double, which toFixed() rounds down and Intl, reading it as written, up
@@ -353,14 +356,14 @@ describe('the docked torrent details', () => {
         'Uploaded: 250 MB (100 MB this session)', 'Seeds: 1 connected', 'Download speed: 4 MB/s', 'Upload speed: 250 kB/s',
         'Peers: 1 connected', 'Share ratio: ∞', 'Wasted: 4.1 kB', 'Remaining: Nothing', 'Seeding for: 2m (1m this session)',
         'Availability: 0.28', 'Inbound peers: None yet', 'Total size: 2 GB', 'Browser storage: -', 'Pieces: -', 'Progress: 28%',
-        `Added on: ${date(addedAt, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
+        `Added on: ${date(LISTED, 'en-US')}`, 'Completed on: Not yet', `Last seen complete: ${date(completedAt, 'en-US')}`,
         'Files: 1', 'Save path: /downloads', 'Info hash: aabbccddeeff00112233445566778899aabbccdd', 'Retrying: attempt 2',
       ])
       // under one percent, two places
       expect(overview(await mount(torrent({ stats: null, progress: 0.005 }), null))).toEqual([
         'Time active: -', 'Time left: 4m', 'Connections: -', 'Downloaded: 1 GB', 'Uploaded: -', 'Seeds: 12', 'Download speed: 4 MB/s',
         'Upload speed: 250 kB/s', 'Peers: 82', 'Share ratio: -', 'Wasted: -', 'Remaining: -', 'Seeding for: -', 'Availability: -',
-        'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 0.50%', 'Added on: -', 'Completed on: -', 'Last seen complete: -',
+        'Inbound peers: -', 'Total size: 2 GB', 'Pieces: -', 'Progress: 0.50%', `Added on: ${date(LISTED, 'en-US')}`, 'Completed on: -', 'Last seen complete: -',
         'Files: 1', 'Save path: -', 'Info hash: aabbccddeeff00112233445566778899aabbccdd',
       ])
     })
@@ -401,21 +404,20 @@ describe('the docked torrent details', () => {
     // the browser's own language used to write them, so a French page in an English browser read 8/12/2025, 12:00:00 PM
     it('writes its dates as the page\'s language does, not as the browser\'s does', async () => {
       await showIn('fr', fr, 'fr-FR')
-      const { addedAt } = torrent().stats!
       const added = overview(await mount()).find((fact) => fact.startsWith('Ajouté le: '))
-      expect(date(addedAt, 'fr-FR')).not.toBe(date(addedAt, navigator.language))
-      expect(added).toBe(`Ajouté le: ${date(addedAt, 'fr-FR')}`)
+      expect(date(LISTED, 'fr-FR')).not.toBe(date(LISTED, navigator.language))
+      expect(added).toBe(`Ajouté le: ${date(LISTED, 'fr-FR')}`)
     })
 
     it('words each fact of the overview in German, with German numbers', async () => {
       await showIn('de', de, 'de-DE')
-      const { addedAt, completedAt } = torrent().stats!
+      const { completedAt } = torrent().stats!
       expect(overview(await mount(torrent({ retry: { reason: 'stopped', attempt: 3, retryInSeconds: 5, message: 'file too short' } })))).toEqual([
         `Aktive Zeit: ${hours(1, 'de-DE')} 0 Min. (15 Min. in dieser Sitzung)`, 'Restzeit: 4m', 'Verbindungen: 6 von 200', 'Heruntergeladen: 1 GB (500 MB in dieser Sitzung)',
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 12 verbunden von 40 bekannten', 'Download-Geschwindigkeit: 4 MB/s',
         'Upload-Geschwindigkeit: 250 kB/s', 'Peers: 82 verbunden von 12 bekannten', 'Verhältnis: 0,25', 'Verworfen: 4,1 kB', 'Verbleibend: 600 MB',
         'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)', 'Verfügbarkeit: 2,40', 'Eingehende Peers: Ja', 'Gesamtgröße: 2 GB', 'Browserspeicher: -',
-        'Teile: 7630 × 262,1 kB (vorhanden: 3815)', 'Fortschritt: 50 %', `Hinzugefügt am: ${date(addedAt, 'de-DE')}`,
+        'Teile: 7630 × 262,1 kB (vorhanden: 3815)', 'Fortschritt: 50 %', `Hinzugefügt am: ${date(LISTED, 'de-DE')}`,
         `Abgeschlossen am: ${date(completedAt, 'de-DE')}`, `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`, 'Dateien: 1',
         'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 3, file too short',
       ])
@@ -424,7 +426,7 @@ describe('the docked torrent details', () => {
         'Hochgeladen: 250 MB (100 MB in dieser Sitzung)', 'Seeder: 1 verbunden', 'Download-Geschwindigkeit: 4 MB/s', 'Upload-Geschwindigkeit: 250 kB/s',
         'Peers: 1 verbunden', 'Verhältnis: ∞', 'Verworfen: 4,1 kB', 'Verbleibend: Nichts', 'Seed-Zeit: 2 Min. (1 Min. in dieser Sitzung)',
         'Verfügbarkeit: 0,28', 'Eingehende Peers: Noch keine', 'Gesamtgröße: 2 GB', 'Browserspeicher: -', 'Teile: -', 'Fortschritt: 28 %',
-        `Hinzugefügt am: ${date(addedAt, 'de-DE')}`, 'Abgeschlossen am: Noch nicht', `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`,
+        `Hinzugefügt am: ${date(LISTED, 'de-DE')}`, 'Abgeschlossen am: Noch nicht', `Zuletzt vollständig gesehen: ${date(completedAt, 'de-DE')}`,
         'Dateien: 1', 'Speicherpfad: /downloads', 'Info-Hash: aabbccddeeff00112233445566778899aabbccdd', 'Neuer Versuch: Versuch 2',
       ])
     })
