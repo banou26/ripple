@@ -309,9 +309,9 @@ print(json.dumps({
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(String(error)))
     await page.addInitScript(forceStreamSink)
+    await page.addInitScript(hideController)
 
     await page.goto(downloadUrl(''))
-    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
 
     const all = page.getByRole('button', { name: /Download \d+ files as \.zip/ })
     await expect(all).toBeEnabled({ timeout: 60_000 })
@@ -329,6 +329,7 @@ print(json.dumps({
     await page.getByRole('checkbox', { name: subtitles[0]! }).check()
     const one = page.getByRole('button', { name: 'Download', exact: true })
     await expect(one).toBeEnabled()
+    await showController(page)
 
     const [first] = await Promise.all([
       page.waitForEvent('download', { timeout: 120_000 }),
@@ -414,11 +415,12 @@ print(json.dumps({
       }
     })
 
+    await page.addInitScript(hideController)
     await page.goto(downloadUrl(`files=${SUBTITLE}`))
-    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
 
     const button = page.getByRole('button', { name: 'Download', exact: true })
     await expect(button).toBeEnabled({ timeout: 60_000 })
+    await showController(page)
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 120_000 }),
