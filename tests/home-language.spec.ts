@@ -1528,6 +1528,30 @@ test.describe('the stats strip', () => {
     expect(Math.abs(vpn.x - download.x), 'under Download').toBeLessThan(12)
   })
 
+  test('en: the VPN\'s word takes its own width, with no room kept for a longer one before the next readout', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const word = page.locator('.stats .stat.vpn strong')
+    await expect(word, 'the control: the shortest word, so a room kept for Reconnecting would show').toHaveText('On')
+    const spare = await word.evaluate((strong) => {
+      const text = document.createRange()
+      text.selectNodeContents(strong)
+      return strong.getBoundingClientRect().width - text.getBoundingClientRect().width
+    })
+    expect(spare).toBeLessThan(1)
+  })
+
+  test('en: the strip, the toolbar and the cards share one left edge, on a phone and on a computer', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 844 })
+      await drawn(page)
+      const lefts = await page.evaluate(() => ['.stats', '.list-toolbar', '.torrent'].map(shown => document.querySelector(shown)!.getBoundingClientRect().left))
+      expect(lefts.every(left => Math.abs(left - lefts[0]!) < 1), `${width} px: ${lefts.join(', ')}`).toBe(true)
+    }
+  })
 
   test('en: on a phone the offer to switch the VPN off is drawn whole under a line that scrolls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })

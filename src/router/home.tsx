@@ -740,6 +740,12 @@ export const style = css`
       > * { flex: none; }
     }
 
+    /* The VPN's word at its own width, not the room of its widest: it starts a line, so the room was a gap before the
+       next readout, 73 px in English on a phone. Only the readouts after it move, when its state changes. */
+    .vpn strong::after {
+      content: none;
+    }
+
     .stat {
       display: flex;
       flex-direction: column;
@@ -1728,7 +1734,7 @@ export const style = css`
     }
 
     .stats {
-      margin: 10px 10px 0;
+      margin: 10px 16px 0;
       padding: 10px 12px;
 
       .readouts {
