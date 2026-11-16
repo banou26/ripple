@@ -59,3 +59,53 @@ test('a torrent offers its magnet, name, info hash and .torrent from the right-c
   expect(magnetParam(shared, 'dn'), 'the share link has no name').toBe('Sintel')
   expect(magnetParams(shared, 'tr').length, 'the share link has no trackers').toBeGreaterThanOrEqual(2)
 })
+
+/*
+ * A private tracker's address carries the member's own key, so a torrent added from a .torrent that says it is
+ * private gets no share link from its row, and still none after a reload, since what says so is the file this device
+ * kept. The same file without the flag is the control: its link is made, key and all.
+ */
+test('a private .torrent gets no share link from its row, before a reload and after', async ({ page }) => {
+  test.setTimeout(180_000)
+  const KEY = '0123456789abcdef'
+  const tracker = `https://tracker.invalid/${KEY}/announce`
+  const torrent = (name: string, flag: string) => Buffer.from(
+    `d8:announce${tracker.length}:${tracker}4:infod6:lengthi11e4:name${name.length}:${name}`
+    + `12:piece lengthi16384e6:pieces20:${'p'.repeat(20)}${flag}ee`,
+  )
+  await page.goto('/')
+  await page.locator('label.file-button input[type=file]').first().setInputFiles([
+    { name: 'Private pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Private pack', '7:privatei1e') },
+    { name: 'Public pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Public pack', '') },
+  ])
+
+  const share = async (name: string) => {
+    await page.locator('.torrent', { hasText: name }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Get a share link' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Share link' })).toBeVisible()
+    return dialog
+  }
+
+  for (const reloaded of [false, true]) {
+    if (reloaded) await page.reload()
+    for (const name of ['Private pack', 'Public pack']) {
+      await expect(page.locator('.torrent', { hasText: name }), `${name} is not listed`).toBeVisible({ timeout: 30_000 })
+    }
+    // a row still starting is replaced by the engine's, which closes a menu opened on it
+    await expect(page.locator('.torrent.starting')).toHaveCount(0, { timeout: 40_000 })
+
+    const refused = await share('Private pack')
+    await expect(refused.getByText('No share link for a private torrent.')).toBeVisible({ timeout: 15_000 })
+    await expect(refused.getByTestId('embed-url')).toHaveCount(0)
+    await refused.getByRole('button', { name: 'Close' }).click()
+    await expect(refused).toHaveCount(0)
+
+    const shared = await share('Public pack')
+    const link = await shared.getByTestId('embed-url').textContent({ timeout: 15_000 })
+    expect(decodeMagnetParam(new URL(link ?? '').searchParams), 'the control made no link with its tracker').toContain(KEY)
+    await expect(shared.getByText('No share link for a private torrent.')).toHaveCount(0)
+    await shared.getByRole('button', { name: 'Close' }).click()
+    await expect(shared).toHaveCount(0)
+  }
+})
