@@ -151,6 +151,7 @@ describe('the chunked storage', () => {
     await expect(Promise.resolve().then(() => storage.write(1, 1, 0, bytes(64)))).rejects.toMatchObject({ name: 'QuotaExceededError' })
     expect(Date.now() - started).toBeLessThan(1_000)
     expect(storage.refusedFile(1)).toBe(1)
+    expect(storage.refusedFile(2), 'another torrent read this one\'s refusal').toBeUndefined()
   })
 })
 
