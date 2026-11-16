@@ -1353,6 +1353,7 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   const wasEphemeral = ephemeralHandles.has(h)
   const wasStarted = userStarted.has(h)
   const wasForced = forced.has(h)
+  const plan = planByHandle.get(h)
 
   failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
@@ -1366,6 +1367,8 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
     return
   }
   track(next, magnet, ih, savePath, wasEphemeral)
+  if (plan) planByHandle.set(next, plan)
+  needsPriorityReset.add(next)
   // Upload only, for a folder. There is no way to write there that is safe for the user's own files,
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
