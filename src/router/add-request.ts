@@ -60,9 +60,16 @@ const cleanName = (raw: string | undefined | null): string | undefined => {
   return stripped.length > MAX_NAME ? stripped.slice(0, MAX_NAME) + '…' : stripped
 }
 
-export const describeAddRequest = (
-  { magnet, name }: { magnet: string | null | undefined, name?: string | null },
-): AddRequest => {
+/**
+ * The magnet an /add link asks for, with the name the link gives it as its `dn` when it carries none, so the dialog and
+ * the library's row show that name before the metadata arrives. Anything that is not a magnet is left for the refusal.
+ */
+export const namedMagnet = (magnet: string, name: string | null): string => {
+  const given = magnet.startsWith('magnet:?') && !magnetParam(magnet, 'dn') ? cleanName(name) : undefined
+  return given ? `${magnet}&dn=${encodeURIComponent(given)}` : magnet
+}
+
+export const describeAddRequest = ({ magnet }: { magnet: string | null | undefined }): AddRequest => {
   if (!magnet) return { ok: false, problem: intl.formatMessage({ id: 'This link has no torrent in it.', defaultMessage: 'This link has no torrent in it.' }) }
   if (!magnet.startsWith('magnet:')) {
     return { ok: false, problem: intl.formatMessage({ id: 'This is not a magnet link.', defaultMessage: 'This is not a magnet link.' }) }
@@ -78,9 +85,8 @@ export const describeAddRequest = (
     ok: true,
     magnet,
     infoHash,
-    // the link's own `dn` first, then a `name` the site passed alongside, then the hash. All three
-    // are the linking site talking, which is why the page says who is talking.
-    name: cleanName(magnetParam(magnet, 'dn')) ?? cleanName(name) ?? infoHash,
+    // the link's `dn`, or the hash. Both are the linking site talking, which is why the page says who is talking.
+    name: cleanName(magnetParam(magnet, 'dn')) ?? infoHash,
     trackers: countTrackers(magnet),
     sizeBytes: readLength(magnet),
   }

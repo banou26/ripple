@@ -1,5 +1,6 @@
 import { Navigate, useSearchParams } from 'react-router-dom'
 
+import { namedMagnet } from './add-request'
 import { getRoutePath, Route } from './path'
 
 /**
@@ -18,9 +19,7 @@ import { getRoutePath, Route } from './path'
  */
 const Add = () => {
   const [params] = useSearchParams()
-  const magnet = params.get('magnet') ?? ''
-  const name = params.get('name')
-  const query = new URLSearchParams({ add: magnet, ...(name ? { addName: name } : {}) })
+  const query = new URLSearchParams({ add: namedMagnet(params.get('magnet') ?? '', params.get('name')) })
   return <Navigate to={`${getRoutePath(Route.HOME)}?${query.toString()}`} replace/>
 }
 

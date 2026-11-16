@@ -172,6 +172,15 @@ test('a link turned down leaves the offer standing', async ({ page }) => {
   expect(await seeded(page)).toBeNull()
 })
 
+test('a link\'s name for a magnet with none is what its dialog and its row show', async ({ page }) => {
+  await page.goto(`/add?magnet=${encodeURIComponent(`magnet:?xt=urn:btih:${'c'.repeat(40)}`)}&name=${encodeURIComponent('Given by the link')}`)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Given by the link', { timeout: 30_000 })
+  await expect(page.locator('.torrent .title strong')).toHaveText('Given by the link', { timeout: 30_000 })
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.locator('.torrent')).toHaveCount(0)
+})
+
 /** A paste, or a drag carrying `magnet` and then its drop, handed to the page the way the browser hands them over. */
 const handOver = (page: Page, gesture: 'paste' | 'drag' | 'drop', magnet: string) => page.evaluate(([gesture, magnet]) => {
   const data = new DataTransfer()
