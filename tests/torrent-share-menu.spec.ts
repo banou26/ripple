@@ -108,4 +108,19 @@ test('a private .torrent gets no share link from its row, before a reload and af
     await shared.getByRole('button', { name: 'Close' }).click()
     await expect(shared).toHaveCount(0)
   }
+
+  // the same refusal through Get a share link in a torrent's options, from its card's ... and from its table row's
+  for (const view of ['cards', 'table']) {
+    if (view === 'table') await page.getByRole('button', { name: 'Table', exact: true }).click()
+    const row = page.locator(view === 'cards' ? '.torrent' : '.torrent-table tbody tr', { hasText: 'Private pack' })
+    await expect(row, `${view}: Private pack is not listed`).toBeVisible({ timeout: 30_000 })
+    await row.getByRole('button', { name: 'Options for Private pack' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Get a share link' }).click()
+    const refused = page.getByRole('dialog')
+    await expect(refused.getByRole('heading', { name: 'Share link' }), view).toBeVisible()
+    await expect(refused.getByText('No share link for a private torrent.'), view).toBeVisible({ timeout: 15_000 })
+    await expect(refused.getByTestId('embed-url')).toHaveCount(0)
+    await refused.getByRole('button', { name: 'Close' }).click()
+    await expect(refused).toHaveCount(0)
+  }
 })

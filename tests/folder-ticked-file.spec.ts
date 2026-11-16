@@ -107,11 +107,14 @@ test('a file ticked after the copy reaches the folder only once its bytes are he
     await dock.locator('label', { hasText: 'b.bin' }).locator('input').check({ timeout: 10_000 })
   }
 
+  // the folder and On add are on Settings, reached in the page so the engine runs on
   await page.goto('/')
-  await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 30_000 })
+  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
   await page.getByRole('button', { name: 'picked', exact: true }).waitFor({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Start straight away', exact: true }).click({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Ask what to download', exact: true }).waitFor({ timeout: 10_000 })
+  await page.locator('header a.back').click()
 
   // a .torrent add saves under the shared root, so these are where the engine's first check finds them
   await page.evaluate(async (placed) => {
