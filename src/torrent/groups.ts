@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { get, update } from 'idb-keyval'
 
+import { SYNC_ACCOUNT_KEY } from './constants'
+
 /** A torrent's place in a group: in, or taken out, as of `at` (ms since epoch). The later change wins. */
 export type Member = { infoHash: string, at: number, out?: true }
 
@@ -24,11 +26,32 @@ export type TorrentGroup = {
   deletedAt?: number
 }
 
-/** What this browser keeps: the groups, and the account they belong to (null before any sign-in). */
+/** What this browser keeps: the groups, and the `accountTag` of the account they belong to (null before any sign-in). */
 export type StoredGroups = { account: string | null, groups: TorrentGroup[] }
 
 export const GROUPS_KEY = 'ripple:groups'
 const CHANNEL = 'ripple:groups'
+
+/** An account's tag: a SHA-256 digest of its name, so the copy says which account it is without keeping the name again. */
+export const accountTag = async (name: string | null): Promise<string | null> => {
+  if (!name) return null
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name)))
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+const syncedTag = () => {
+  let name: string | null = null
+  try { name = localStorage.getItem(SYNC_ACCOUNT_KEY) } catch {}
+  return accountTag(name)
+}
+
+/*
+ * A copy tagged with another account holds none of this account's groups. That covers a ripple from before groups
+ * handling an account switch: it clears the list and renames the synced account, and never touches this copy.
+ * While either account is unknown (no sign-in yet, or no local storage) the copy is this browser's.
+ */
+const heldFor = (stored: StoredGroups | undefined, tag: string | null) =>
+  stored?.account && tag && stored.account !== tag ? [] : stored?.groups
 
 // past 2^53 a time + 1 is the same time, so an edit could never win over it
 const isTime = (value: unknown): value is number => Number.isSafeInteger(value)
@@ -105,8 +128,9 @@ const byName = (a: TorrentGroup, b: TorrentGroup) =>
 
 // no read sequence needed: IndexedDB orders a write between two reads after the first and before the second
 const reread = async () => {
+  const tag = await syncedTag()
   const stored = await get<StoredGroups>(GROUPS_KEY).catch(() => undefined)
-  shown = mergeGroups(stored?.groups).filter((g) => g.deletedAt === undefined).sort(byName)
+  shown = mergeGroups(heldFor(stored, tag)).filter((g) => g.deletedAt === undefined).sort(byName)
   listeners.forEach((listener) => listener())
 }
 
@@ -116,6 +140,11 @@ const channelOf = () => {
     channel.onmessage = () => { void reread() }
   }
   return channel
+}
+
+const announce = async () => {
+  channelOf().postMessage(null)
+  await reread()
 }
 
 /**
@@ -138,17 +167,35 @@ export const useGroups = (): TorrentGroup[] | undefined => useSyncExternalStore(
  * tabs editing at once cannot lose each other's change.
  */
 const write = async (change: (groups: TorrentGroup[]) => TorrentGroup | undefined): Promise<void> => {
+  const tag = await syncedTag()
   let changed = false
   await update<StoredGroups | undefined>(GROUPS_KEY, (stored) => {
-    const groups = mergeGroups(stored?.groups)
+    const groups = mergeGroups(heldFor(stored, tag))
     const next = change(groups)
     if (!next) return stored
     changed = true
-    return { account: stored?.account ?? null, groups: mergeGroups(groups, [next]) }
+    return { account: tag ?? stored?.account ?? null, groups: mergeGroups(groups, [next]) }
   })
-  if (!changed) return
-  channelOf().postMessage(null)
-  await reread()
+  if (changed) await announce()
+}
+
+/**
+ * Makes this browser's copy the one of the account `tag` names, with `incoming` (the account's own copy, any
+ * JSON) merged in, and resolves to the result. A copy tagged with another account counts as empty, and so does
+ * any copy when `fresh` (the sync just switched accounts); a copy with no account yet is adopted. Every tab is
+ * told when it changed. Nothing is written for a person with no groups, so no tag of their account is kept.
+ */
+export const takeGroups = async (tag: string | null, incoming: unknown, fresh = false): Promise<TorrentGroup[]> => {
+  let groups: TorrentGroup[] = []
+  let changed = false
+  await update<StoredGroups | undefined>(GROUPS_KEY, (stored) => {
+    groups = mergeGroups(fresh ? [] : heldFor(stored, tag), incoming)
+    const next: StoredGroups = { account: tag ?? stored?.account ?? null, groups }
+    changed = (!!stored || groups.length > 0) && JSON.stringify(next) !== JSON.stringify(stored)
+    return changed ? next : stored
+  })
+  if (changed) await announce()
+  return groups
 }
 
 const latest = (g: TorrentGroup) => g.members.reduce((at, m) => Math.max(at, m.at), g.namedAt)

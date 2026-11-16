@@ -7,7 +7,8 @@ import { get } from 'idb-keyval'
 import { account, cloud } from '@fkn/lib'
 
 import { getTorrentClient } from './client'
-import { DEMO_MAGNET, DEMO_SEEDED_KEY } from './constants'
+import { DEMO_MAGNET, DEMO_SEEDED_KEY, SYNC_ACCOUNT_KEY } from './constants'
+import { accountTag, subscribeGroups, takeGroups } from './groups'
 import { REMOVED_KEY, mergeRemovals, survivesRemovals } from './library'
 import { magnetInfoHash } from './magnet'
 import { forgetSyncedThumbnails, resetThumbnailSync, syncThumbnails } from './thumbnail-sync'
@@ -22,7 +23,11 @@ export const BACKUP_PATH = 'ripple/torrents.json'
  * entries with it.
  */
 export const REMOVALS_PATH = 'ripple/removed.json'
-const ACCOUNT_KEY = 'ripple:sync-account'
+/**
+ * The groups, in a file of their own for the same reason. One file for all of them, under a fixed name, so the
+ * storage shows neither their names nor how many there are.
+ */
+export const GROUPS_PATH = 'ripple/groups.json'
 const WRITE_DEBOUNCE = 3_000
 // Restores retry forever on this (the last delay repeats); never add a give-up. Giving up used to leave writes disarmed for the life of the page, so a library
 // edited after a passing broker glitch never reached the cloud again and nothing re-armed it
@@ -275,6 +280,33 @@ export const publishLibrary = async (local: Persisted[]) => {
   return list
 }
 
+/** The account's groups as written, `'[]'` when there are none yet, and null when they could not be read. */
+const readGroups = async (): Promise<string | null> => {
+  try {
+    return await bounded<string | null>(cloud.fs.promises.readFile(GROUPS_PATH, 'utf8').then(String), null)
+  } catch (err) {
+    return isAbsent(err, (err as { message?: string })?.message ?? String(err)) ? '[]' : null
+  }
+}
+
+const parsed = (text: string): unknown => { try { return JSON.parse(text) } catch { return [] } }
+
+/**
+ * Merges the account's groups into this browser's copy, which becomes that account's, then writes the file
+ * back when this browser knew something it did not. A file that could not be read merges nothing and is never
+ * written over. `fresh`, on an account switch, drops this browser's groups first. `live` is asked once the
+ * file is read, so a restore pass gone stale keeps nothing.
+ */
+export const publishGroups = async (account: string | null, fresh = false, live = () => true) => {
+  const text = await readGroups()
+  const tag = await accountTag(account)
+  if (!live()) return
+  const merged = JSON.stringify(await takeGroups(tag, text === null ? [] : parsed(text), fresh))
+  if (text !== null && merged !== text) {
+    await cloud.fs.promises.writeFile(GROUPS_PATH, merged, { contentType: 'application/json' })
+  }
+}
+
 export const useCloudBackup = (): SyncState => {
   const client = getTorrentClient()
   const [state, setState] = useState<SyncState>({ status: 'off', reason: 'signed-out' })
@@ -309,13 +341,15 @@ export const useCloudBackup = (): SyncState => {
     let promptedUnlock = false
 
     const currentAccount = (): string | null => {
-      try { return localStorage.getItem(ACCOUNT_KEY) } catch { return null }
+      try { return localStorage.getItem(SYNC_ACCOUNT_KEY) } catch { return null }
     }
 
     const writeNow = async () => {
       pending = false
       window.clearTimeout(timer)
-      return publishLibrary(latest)
+      const published = await publishLibrary(latest)
+      await publishGroups(writesFor)
+      return published
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
@@ -362,6 +396,8 @@ export const useCloudBackup = (): SyncState => {
     }
 
     const offList = client.onList((list) => { latest = list; if (connected) schedule() })
+    // a group edit, in this tab or another, arms the same write
+    const offGroups = subscribeGroups(() => { if (connected) schedule() })
 
     const retryLater = (attempt: number) => {
       window.clearTimeout(restoreTimer)
@@ -442,11 +478,16 @@ export const useCloudBackup = (): SyncState => {
         return
       }
       if (switched) { client.clearList(); latest = [] }
-      if (name) { try { localStorage.setItem(ACCOUNT_KEY, name) } catch {} }
+      if (name) { try { localStorage.setItem(SYNC_ACCOUNT_KEY, name) } catch {} }
       writesFor = name
       resetThumbnailSync()
       // this pass's account, read or known empty: the torrent files follow it until the next restore begins
       if (text !== null || missing) followAccount(() => !stale())
+      // after the list, like the removals; a failure waits for the next write, which publishes the groups again
+      const restoreGroups = async () => {
+        try { await publishGroups(name, switched, () => !stale()) } catch {}
+        return !stale()
+      }
 
       if (text !== null) {
         let list: unknown
@@ -460,6 +501,7 @@ export const useCloudBackup = (): SyncState => {
           if (stale()) return
           if (list.length || removed.length) client.importList(list, removed)
         }
+        if (!await restoreGroups()) return
         restored = true
         setStatus('synced')
         // the case this exists for: a device that just adopted a library it has no files for, and
@@ -469,6 +511,7 @@ export const useCloudBackup = (): SyncState => {
         }
         if (latest.length) schedule()
       } else if (missing) {
+        if (!await restoreGroups()) return
         restored = true
         setStatus('synced')
         if (latest.length) schedule()
@@ -496,6 +539,7 @@ export const useCloudBackup = (): SyncState => {
       window.clearTimeout(timer)
       window.clearTimeout(restoreTimer)
       offList()
+      offGroups()
       offAccount?.()
     }
   }, [client, owned])

@@ -14,12 +14,12 @@ const Privacy = () => (
 
     <h2>What Ripple stores on your device</h2>
     <p>
-      Your torrent list, each torrent&rsquo;s resume data, .torrent file and thumbnail, and your settings
-      (such as speed limits, how the list is sorted and whether the VPN is on) live in your
-      browser&rsquo;s storage
+      Your torrent list and its groups, each torrent&rsquo;s resume data, .torrent file and
+      thumbnail, and your settings (such as speed limits, how the list is sorted and whether
+      the VPN is on) live in your browser&rsquo;s storage
       (IndexedDB and local storage). Downloaded files live in your browser&rsquo;s storage
       (OPFS). If you choose a folder on your disk, finished downloads are saved there. Once
-      you sign in, Ripple also remembers which FKN account your list belongs to.
+      you sign in, Ripple also remembers which FKN account your list and groups belong to.
     </p>
     <p>
       Ripple never stores your files on FKN or on any server. Like any BitTorrent app, while a
@@ -32,9 +32,10 @@ const Privacy = () => (
       account&rsquo;s FKN cloud storage, so it follows you across devices. For each torrent
       that is its magnet link, name, size and file list, where it is saved, when you added it,
       and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
-      torrents you removed and when, so other devices remove them too, and one thumbnail
-      picture per torrent. Each torrent&rsquo;s .torrent file syncs too, with its tracker
-      addresses. It never syncs the downloaded files themselves.
+      torrents you removed and when, so other devices remove them too, your groups (each
+      group&rsquo;s name, and which torrents were put in it or taken out and when), and one
+      thumbnail picture per torrent. Each torrent&rsquo;s .torrent file syncs too, with its
+      tracker addresses. It never syncs the downloaded files themselves.
     </p>
     <p>
       All of it is encrypted in your browser before it is uploaded, so FKN stores it without
@@ -84,7 +85,8 @@ const Privacy = () => (
     <p>
       Ripple itself has no account to delete. Disconnecting your FKN account stops the sync.
       Removing a torrent also removes it from the synced list and deletes its synced
-      thumbnail and .torrent file. Deleting your FKN account at{' '}
+      thumbnail and .torrent file; it stays in the groups it was in until you delete them.
+      Deleting your FKN account at{' '}
       <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>{' '}
       deletes everything Ripple stored in it.
     </p>

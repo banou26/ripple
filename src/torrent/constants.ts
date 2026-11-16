@@ -2,6 +2,8 @@ import { savePathFor } from './library'
 import { magnetInfoHash } from './magnet'
 
 export const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
+/** localStorage: the name of the account this browser's list and groups belong to, set once its backup was read. */
+export const SYNC_ACCOUNT_KEY = 'ripple:sync-account'
 /** Whether a torrent that has landed in the user's folder should give up Ripple's own OPFS copy. */
 export const FREE_AFTER_SAVE_KEY = 'ripple:free-after-save'
 

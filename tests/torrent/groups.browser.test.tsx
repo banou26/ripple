@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
 import { del, get, set } from 'idb-keyval'
 
+import { SYNC_ACCOUNT_KEY } from '../../src/torrent/constants'
 import {
-  GROUPS_KEY, createGroup, deleteGroup, mergeGroups, putInGroup, renameGroup, subscribeGroups, takeOutOfGroup, torrentsIn,
-  useGroups,
+  GROUPS_KEY, accountTag, createGroup, deleteGroup, mergeGroups, putInGroup, renameGroup, subscribeGroups, takeGroups,
+  takeOutOfGroup, torrentsIn, useGroups,
 } from '../../src/torrent/groups'
 import type { StoredGroups, TorrentGroup } from '../../src/torrent/groups'
 
@@ -21,7 +22,13 @@ let tabs = 0
 const newTab = (): Promise<typeof import('../../src/torrent/groups')> =>
   import(/* @vite-ignore */ `../../src/torrent/groups.ts?tab=${++tabs}`)
 
+// the files of one browser session share its storage
 beforeEach(async () => {
+  localStorage.removeItem(SYNC_ACCOUNT_KEY)
+  await del(GROUPS_KEY)
+})
+afterAll(async () => {
+  localStorage.removeItem(SYNC_ACCOUNT_KEY)
   await del(GROUPS_KEY)
 })
 
@@ -200,7 +207,7 @@ describe('the group store', () => {
     expect(held(await storedGroup('fast-clock-add00'))).toEqual([A])
   })
 
-  it('keeps the account the stored copy belongs to', async () => {
+  it('keeps the account the stored copy belongs to, and edits it while this browser names no account', async () => {
     await set(GROUPS_KEY, {
       account: 'someone',
       groups: [{ id: 'account-group-01', name: 'Mine', namedAt: 1, members: [] }],
@@ -208,6 +215,7 @@ describe('the group store', () => {
     await putInGroup('account-group-01', [A])
     await createGroup('Another', [B])
     expect((await stored())?.account).toBe('someone')
+    expect(held(await storedGroup('account-group-01'))).toEqual([A])
   })
 
   it('tells this tab and the others about an edit made here', async () => {
@@ -225,6 +233,95 @@ describe('the group store', () => {
       // and once only: a second channel object of this tab's own would hear the post and read again
       await new Promise((resolve) => setTimeout(resolve, 200))
       expect(heard).toBe(2)
+    } finally {
+      off()
+      other.close()
+    }
+  })
+})
+
+const group = (id: string, name: string, hashes: string[] = []): TorrentGroup =>
+  ({ id, name, namedAt: 1, members: hashes.map((infoHash) => ({ infoHash, at: 1 })) })
+
+describe('the group store and the account', () => {
+  it('tags an account with the SHA-256 digest of its name, never the name', async () => {
+    expect(await accountTag('someone')).toBe('2a59d59e3809f827ce709d3815e3950eef4a6a93af5557a93a7fdfba71460843')
+    expect(await accountTag(null)).toBeNull()
+    expect(await accountTag('')).toBeNull()
+  })
+
+  it('shows none of a copy tagged with another account, and an edit there starts this account\'s own', async () => {
+    localStorage.setItem(SYNC_ACCOUNT_KEY, 'someone')
+    const earlier = { account: await accountTag('earlier'), groups: [group('earlier-acct-grp', 'Earlier account', [A])] }
+    await set(GROUPS_KEY, earlier satisfies StoredGroups)
+    const here = await newTab()
+    const { result } = await renderHook(() => here.useGroups())
+    await expect.poll(() => result.current).toEqual([])
+    await here.putInGroup('earlier-acct-grp', [B])
+    expect(await stored()).toEqual(earlier)
+
+    const id = await here.createGroup('Mine', [C])
+    expect(await stored()).toMatchObject({ account: await accountTag('someone'), groups: [{ id, name: 'Mine' }] })
+    expect((await stored())?.groups).toHaveLength(1)
+    // control: a copy is shown once it is this account's
+    await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Mine'])
+  })
+
+  it('shows a copy made before any sign-in, and tags it with this browser\'s account on its next edit', async () => {
+    localStorage.setItem(SYNC_ACCOUNT_KEY, 'someone')
+    await set(GROUPS_KEY, { account: null, groups: [group('before-sign-in-g', 'Before sign-in')] } satisfies StoredGroups)
+    const here = await newTab()
+    const { result } = await renderHook(() => here.useGroups())
+    await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Before sign-in'])
+    await here.putInGroup('before-sign-in-g', [A])
+    expect(await stored()).toMatchObject({ account: await accountTag('someone'), groups: [{ id: 'before-sign-in-g' }] })
+  })
+
+  it('takes in the account\'s groups, adopting a copy made before any sign-in', async () => {
+    const tag = await accountTag('someone')
+    const madeHere = group('made-here-group0', 'Made here', [A])
+    const fromLaptop = group('from-laptop-grp0', 'From the laptop', [B])
+    await set(GROUPS_KEY, { account: null, groups: [madeHere] } satisfies StoredGroups)
+    const both = mergeGroups([madeHere, fromLaptop])
+    expect(await takeGroups(tag, [fromLaptop, { id: '', name: 'malformed' }])).toEqual(both)
+    expect(await stored()).toEqual({ account: tag, groups: both })
+  })
+
+  it('counts a copy of another account as empty, and any copy on an account switch', async () => {
+    const tag = await accountTag('someone')
+    const theirs = group('account-copy-grp', 'In the account')
+    await set(GROUPS_KEY, { account: await accountTag('earlier'), groups: [group('earlier-acct-grp', 'Earlier account')] } satisfies StoredGroups)
+    expect(await takeGroups(tag, [theirs])).toEqual([theirs])
+    expect(await stored()).toEqual({ account: tag, groups: [theirs] })
+
+    await set(GROUPS_KEY, { account: null, groups: [group('made-here-group0', 'Made here')] } satisfies StoredGroups)
+    expect(await takeGroups(tag, [theirs], true)).toEqual([theirs])
+    expect(await stored()).toEqual({ account: tag, groups: [theirs] })
+  })
+
+  it('keeps nothing for a person with no groups, and tells no one when nothing changed', async () => {
+    const tag = await accountTag('someone')
+    let heard = 0
+    let told = 0
+    const off = subscribeGroups(() => { heard++ })
+    const other = new BroadcastChannel('ripple:groups')
+    other.onmessage = () => { told++ }
+    try {
+      await expect.poll(() => heard).toBe(1)
+      expect(await takeGroups(tag, [])).toEqual([])
+      expect(await stored()).toBeUndefined()
+
+      const theirs = group('account-copy-grp', 'In the account')
+      await takeGroups(tag, [theirs])
+      await expect.poll(() => told).toBe(1)
+      const heardBefore = heard
+      await takeGroups(tag, [theirs])
+      await takeGroups(tag, [])
+
+      // control: a real change is heard, and a channel delivers in order, so a notice from the two above came first
+      await takeGroups(tag, [group('second-group-000', 'Second')])
+      await expect.poll(() => told).toBe(2)
+      expect(heard).toBe(heardBefore + 1)
     } finally {
       off()
       other.close()

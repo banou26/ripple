@@ -63,8 +63,22 @@ describe('the privacy page, signed in', () => {
     const screen = await privacy()
     const text = screen.container.textContent
     expect(text).toContain('Each torrent’s .torrent file syncs too, with its tracker addresses.')
-    expect(text).toContain('deletes its synced thumbnail and .torrent file.')
+    expect(text).toContain('deletes its synced thumbnail and .torrent file;')
     expect(text).toContain('each torrent’s resume data, .torrent file and thumbnail')
+  })
+})
+
+describe('the privacy page, on groups', () => {
+  it('says the groups are kept in the browser and synced to the account, and what of them', async () => {
+    const screen = await privacy()
+    const paragraphs = [...screen.container.querySelectorAll('p')].map((paragraph) => paragraph.textContent)
+    const onDevice = paragraphs.find((p) => p.startsWith('Your torrent list'))
+    expect(onDevice).toMatch(/^Your torrent list and its groups, each torrent’s resume data/)
+    expect(onDevice).toContain('Ripple also remembers which FKN account your list and groups belong to.')
+    const synced = paragraphs.find((p) => p.startsWith('If you connect an FKN account'))
+    expect(synced).toContain('your groups (each group’s name, and which torrents were put in it or taken out and when)')
+    const control = paragraphs.find((p) => p.startsWith('Ripple itself has no account to delete'))
+    expect(control).toContain('it stays in the groups it was in until you delete them')
   })
 })
 
