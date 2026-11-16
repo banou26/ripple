@@ -1769,7 +1769,8 @@ test('with Ask off, a link the system opens Ripple with asks first, as in a tab,
   }, address)
   const dialog = page.getByRole('dialog')
 
-  await launch(`${origin}/add?magnet=${encodeURIComponent(magnetOf('8', 'Eight'))}`)
+  // a magnet with no name, named by the link
+  await launch(`${origin}/add?magnet=${encodeURIComponent(`magnet:?xt=urn:btih:${'8'.repeat(40)}`)}&name=Eight`)
   await expect(dialog.locator('h2')).toHaveText('Eight')
   await expect(dialog.getByText('Opened from a link')).toBeVisible()
   await expect(dialog.getByRole('checkbox', { name: 'Do not ask again' })).toHaveCount(0)

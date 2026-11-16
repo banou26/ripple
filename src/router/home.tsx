@@ -27,7 +27,7 @@ import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { syncTorrentToDirectory } from '../torrent/sync'
 import { moveTorrentFiles } from '../torrent/move-files'
-import { describeAddRequest } from './add-request'
+import { describeAddRequest, namedMagnet } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
 import {
   ADD_DIALOG_KEY, defaultChoices, dialogEnabled, flagsFor, planFor,
@@ -2456,7 +2456,9 @@ const Home = () => {
       if (!rawUrl) return false
       try {
         const url = new URL(rawUrl, window.location.origin)
-        const magnet = at(Route.ADD, url) ? url.searchParams.get('magnet') : at(Route.HOME, url) && url.searchParams.get('add')
+        const magnet = at(Route.ADD, url)
+          ? namedMagnet(url.searchParams.get('magnet') ?? '', url.searchParams.get('name'))
+          : at(Route.HOME, url) && url.searchParams.get('add')
         if (!magnet) return false
         addQueue.current.push({ magnet, external: true, from: null })
         if (!pendingRef.current) askNext()
