@@ -13,6 +13,7 @@ import { installWorkerGlobals } from '../utils/worker-rig'
 
 const FOLDER = 'a'.repeat(40)
 const PICKED = 'b'.repeat(40)
+const KEPT = 'c'.repeat(40)
 const LAYOUT = [{ path: 'Show/ep1.mkv', size: 65_536 }]
 
 const engine = vi.hoisted(() => ({ storage: null as StorageBackend | null, adds: [] as string[], written: [] as number[] }))
@@ -59,9 +60,11 @@ vi.mock('../../src/torrent/opfs-storage', async (importOriginal) => ({
 }))
 vi.mock('idb-keyval', () => {
   // as the list import writes a row from another device: its save path, no save location, not started here
-  store.set('ripple:torrents', [[FOLDER, '/native/'], [PICKED, '/source/']].map(([infoHash, root]): Persisted => ({
-    infoHash: infoHash!, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: root + infoHash!, addedAt: 1, started: false, ephemeral: false,
-  })))
+  const synced = (infoHash: string, root: string): Persisted => ({
+    infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: root + infoHash, addedAt: 1, started: false, ephemeral: false,
+  })
+  // and a folder row moved to the browser while the folder was out of reach, which then left the engine
+  store.set('ripple:torrents', [synced(FOLDER, '/native/'), synced(PICKED, '/source/'), { ...synced(KEPT, '/native/'), saveTo: 'browser' }])
   return {
     get: async (key: string) => store.get(key),
     set: async (key: string, value: unknown) => { store.set(key, value) },
@@ -81,11 +84,14 @@ const firstPiece = async (h: number) => {
 it('fetches a synced folder torrent into browser storage, and keeps it meant for the folder', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
+  const lists = rig.of('list').length
   rig.send({ type: 'start', infoHash: FOLDER })
   await vi.waitFor(() => expect(entryOf(FOLDER)?.started).toBe(true))
   expect(await firstPiece(1)).toBe(true)
   expect(engine.adds).toEqual(['/dl/' + FOLDER])
   expect(entryOf(FOLDER)).toMatchObject({ savePath: '/dl/' + FOLDER, saveTo: 'folder' })
+  // counted, as the rig hands over the stored array itself and an earlier list message shows the patch too
+  expect(rig.of('list').slice(lists).at(-1)?.list).toContainEqual(expect.objectContaining({ infoHash: FOLDER, saveTo: 'folder' }))
   expect(rig.of('add-failed')).toEqual([])
 }, 20_000)
 
@@ -97,4 +103,10 @@ it('fetches a torrent made from files picked on another device into browser stor
   expect(entryOf(PICKED)?.savePath).toBe('/dl/' + PICKED)
   expect(entryOf(PICKED)?.saveTo).toBeUndefined()
   expect([...rig.of('add-failed'), ...rig.of('worker-error')]).toEqual([])
+}, 20_000)
+
+it('keeps browser storage for a folder torrent the person moved to the browser', async () => {
+  rig.send({ type: 'start', infoHash: KEPT })
+  await vi.waitFor(() => expect(entryOf(KEPT)?.started).toBe(true))
+  expect(entryOf(KEPT)).toMatchObject({ savePath: '/dl/' + KEPT, saveTo: 'browser' })
 }, 20_000)
