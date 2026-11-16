@@ -528,6 +528,22 @@ const style = css`
   }
 `
 
+/** How long a link opened as its own page waits, once its files are in, before it starts the save itself. */
+const START_BY_ITSELF_MS = 2_000
+
+/** Whether the service worker controls this page, which is what lets a save start with no click. */
+const useControlled = (): boolean => {
+  const workers = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
+  const [controlled, setControlled] = useState(() => Boolean(workers?.controller))
+  useEffect(() => {
+    if (!workers) return
+    const update = () => setControlled(Boolean(workers.controller))
+    workers.addEventListener('controllerchange', update)
+    return () => workers.removeEventListener('controllerchange', update)
+  }, [workers])
+  return controlled
+}
+
 /** Whether this document is framed by another origin, which decides whether to offer a way out. */
 const framedByAnotherOrigin = (): boolean => {
   if (typeof window === 'undefined') return false
@@ -787,8 +803,8 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    * Narrowed to THIS torrent: the page is usually an embed on somebody else's site showing one
    * release, and reading the visitor's whole library to draw one picture is not its business.
    *
-   * It cannot appear before the button is pressed, and that is deliberate rather than a gap. A frame
-   * is made from the file's first bytes, and this page writes NOTHING until somebody asks it to,
+   * It cannot appear before a save starts, and that is deliberate rather than a gap. A frame
+   * is made from the file's first bytes, and this page writes NOTHING until then,
    * which `embed-download.spec.ts` measures with a positive control. So the picture shows when there
    * is one already on the device, and otherwise arrives once a download is under way and the head
    * has landed. `considerThumbnails` only ever reads bytes that already exist, so mounting this
@@ -909,7 +925,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
     ? null
     : window.location.origin + window.location.pathname + window.location.search
 
-  const start = useCallback((chosen: SaveEntry[], label: string) => {
+  const start = useCallback((chosen: SaveEntry[], label: string, streamOnly = false) => {
     // Called straight from the click with nothing awaited before it: the service worker handshake
     // and the save picker both spend the gesture's transient activation, and an await here loses it.
     if (handle == null || !chosen.length || abortRef.current) return
@@ -934,7 +950,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
     setFinished(null)
     setJob({ fraction: 0, label, total: chosen.reduce((n, e) => n + e.size, 0), indices: chosen.map((e) => e.index) })
 
-    const options = { viewer, signal: controller.signal }
+    const options = { viewer, signal: controller.signal, streamOnly }
     const onProgress = (fraction: number) => setJob((j) => (j ? { ...j, fraction } : j))
     const only = chosen.length === 1 ? chosen[0]! : null
 
@@ -1025,6 +1041,29 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
    * turned Select none into a page with nothing on it that does anything.
    */
   const listReady = Boolean(files) && handle != null
+  const downloading = intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' })
+
+  /*
+   * A link opened as its own page starts the save itself, a moment after its files are in, when the service worker
+   * can hand it to the browser's downloads (the picker and the in-memory save need a click). Once a save has
+   * started, by itself or from a button, this page never starts one again. The ticks are read when the wait ends,
+   * through a ref: every engine broadcast rebuilds `entries`, which as a dependency would restart the wait each time.
+   */
+  const ownPage = typeof window !== 'undefined' && window.top === window.self
+  const controlled = useControlled()
+  const startedOnce = useRef(false)
+  const entriesRef = useRef(entries)
+  useEffect(() => { entriesRef.current = entries })
+  useEffect(() => {
+    if (busy) startedOnce.current = true
+    if (startedOnce.current || !ready || !ownPage || !controlled) return
+    const timer = window.setTimeout(() => {
+      startedOnce.current = true
+      start(entriesRef.current, downloading, true)
+    }, START_BY_ITSELF_MS)
+    return () => window.clearTimeout(timer)
+  }, [busy, ready, ownPage, controlled, start, downloading])
+
   const label = unreadable
     ? intl.formatMessage({ id: 'Nothing to download', defaultMessage: 'Nothing to download' })
     : !files
@@ -1099,7 +1138,7 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
             </div>
           </div>
 
-          <button className="cta" onClick={() => start(entries, intl.formatMessage({ id: 'Downloading', defaultMessage: 'Downloading' }))} disabled={!ready || busy}>
+          <button className="cta" onClick={() => start(entries, downloading)} disabled={!ready || busy}>
             {!busy && <Download />}
             {label}
           </button>

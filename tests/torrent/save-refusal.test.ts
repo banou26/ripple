@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { showSaveFilePicker } from '@banou/ponyfill'
 
-import { isSaveCancelled, saveTorrentFileToDisk } from '../../src/torrent/save-file'
+import { isSaveCancelled, saveTorrentEntriesAsZipToDisk, saveTorrentFileToDisk } from '../../src/torrent/save-file'
 import { showEnglish, showIn } from '../i18n/show-in'
 
 import de from '../../src/locales/de.json'
@@ -78,5 +78,18 @@ describe('a file too big to hold in memory, with no picker to stream it to', () 
     await expect(refusal()).rejects.toThrow('This file is too large to save here.')
     await showIn('de', de, 'de-DE')
     await expect(refusal()).rejects.toThrow('Diese Datei ist zu groß, um sie hier zu speichern.')
+  })
+})
+
+// a download link that starts its own save has no click for the picker or the in-memory save to spend
+describe('a save nobody clicked, with no service worker to take it', () => {
+  it('ends as cancelled and reads nothing', async () => {
+    let reads = 0
+    const client = { read: async () => { reads++; return new Uint8Array(16) } } as unknown as TorrentClient
+    const file = await saveTorrentFileToDisk(client, 1, 0, 'Pack/Small.mkv', 16, undefined, { streamOnly: true }).catch((e: unknown) => e)
+    const zip = await saveTorrentEntriesAsZipToDisk(client, 1, 'Pack', [{ index: 0, path: 'Pack/Small.mkv', size: 16 }], undefined, { streamOnly: true })
+      .catch((e: unknown) => e)
+    expect([isSaveCancelled(file), isSaveCancelled(zip)]).toEqual([true, true])
+    expect(reads, 'it fell back to an arm that needs a click').toBe(0)
   })
 })

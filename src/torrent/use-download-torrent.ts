@@ -48,7 +48,7 @@ export type DownloadTorrent = {
  * ephemeral, and `applyViewing` pauses an ephemeral torrent the moment it has no viewers, so until
  * `claim` is called the page sits at 0 B/s with a perfectly healthy engine underneath it. That is
  * the intended resting state: opening a link reads the torrent's file list off the network and then
- * stops, and nothing is transferred until somebody presses Download.
+ * stops, and nothing is transferred until a save starts: a press on Download, or the page's own start.
  *
  * The claim also decides the ORDER bytes arrive in: it puts the selected file at normal priority and
  * everything else at skip, which is what turns a rarest-first swarm into a stream that can be

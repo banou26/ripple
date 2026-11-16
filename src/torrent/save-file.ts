@@ -63,6 +63,7 @@ type SinkRequest = {
   contentLength?: number
   /** What would have to be held in memory on the last-resort arm. */
   totalBytes?: number
+  streamOnly?: boolean
 }
 
 /**
@@ -83,11 +84,12 @@ type SinkRequest = {
  * MUST be called synchronously from the click handler for the same reason: both arms spend that
  * activation, and an await before this loses it.
  */
-const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0 }: SinkRequest = {}): Promise<Sink> => {
+const openSink = async (baseName: string, { contentLength = 0, totalBytes = 0, streamOnly = false }: SinkRequest = {}): Promise<Sink> => {
   if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
     const streamed = await openStreamSink(baseName, contentLength)
     if (streamed) return streamed
   }
+  if (streamOnly) throw new DOMException('The service worker cannot take this save', 'AbortError')
 
   /**
    * The picker, through `@banou/ponyfill` rather than off the window, and the difference is the
@@ -152,6 +154,11 @@ export type SaveOptions = {
    */
   viewer?: string
   signal?: AbortSignal
+  /**
+   * For a save nobody clicked: only the service worker's arm, since the picker and the in-memory save need a click.
+   * When the worker cannot take it, the save ends as cancelled, so nothing is reported.
+   */
+  streamOnly?: boolean
 }
 
 const abortError = (signal?: AbortSignal) =>
@@ -244,7 +251,7 @@ export const saveTorrentFileToDisk = async (
   options: SaveOptions = {},
 ): Promise<void> => pageWork(async () => {
   const baseName = filePath.split('/').pop() || 'download'
-  const sink = await openSink(baseName, { contentLength: fileBytes, totalBytes: fileBytes })
+  const sink = await openSink(baseName, { contentLength: fileBytes, totalBytes: fileBytes, streamOnly: options.streamOnly })
   try {
     for (let offset = 0; offset < fileBytes; offset += CHUNK) {
       const len = Math.min(CHUNK, fileBytes - offset)
@@ -277,7 +284,7 @@ export const saveTorrentEntriesAsZipToDisk = async (
   const baseName = (zipName.replace(/[/\\]/g, '_') || 'torrent') + '.zip'
   const totalBytes = entries.reduce((n, e) => n + e.size, 0)
   // contentLength stays 0: a zip's length is not known until its central directory has been written
-  const sink = await openSink(baseName, { totalBytes })
+  const sink = await openSink(baseName, { totalBytes, streamOnly: options.streamOnly })
   try {
     await writeZip(
       entries.map((entry) => ({

@@ -104,6 +104,13 @@ const payloadReport = (page: import('@playwright/test').Page) =>
  */
 const forceStreamSink = `delete window.showSaveFilePicker`
 
+/**
+ * A link opened as its own page starts its save 2 s after the files are in when the service worker controls it, so a
+ * test of the page before the press hides the controller, which is the case where the page waits for the button.
+ * The tests that press it do so at once.
+ */
+const waitForPress = `Object.defineProperty(ServiceWorkerContainer.prototype, 'controller', { configurable: true, get: () => null })`
+
 // headful by project rule: a run that has to watch a torrent actually move bytes stalls at a flat
 // 0 B/s headless, in every topology, which makes the thing under test unmeasurable. It has to sit at
 // the top level, because inside a describe playwright refuses it ("forces a new worker").
@@ -247,12 +254,12 @@ print(json.dumps({
   })
 
   /**
-   * Opening the page must cost nothing until the button is pressed.
+   * Opening the page must cost nothing until the button is pressed, on a page that waits for it (waitForPress).
    *
    * It used to claim a viewer the moment the file list landed, so a link somebody followed out of
    * curiosity started filling their storage at full speed with no download in progress anywhere on
    * screen. The engine now settles a page-added torrent to all-skip as soon as its layout arrives,
-   * and the press is what lifts it.
+   * and the press, or the save the page starts itself, is what lifts it.
    *
    * The held arm is a NEGATIVE result, so it carries its own positive control in the same run: the
    * click that follows has to move the very bytes the wait proved were not moving. Without it, a
@@ -260,8 +267,8 @@ print(json.dumps({
    */
   test('writes nothing until Download is pressed, then writes', async ({ page }) => {
     await page.addInitScript(forceStreamSink)
+    await page.addInitScript(waitForPress)
     await page.goto(downloadUrl(`files=${SUBTITLE}`))
-    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, { timeout: 30_000 })
 
     const button = page.getByRole('button', { name: 'Download', exact: true })
     // enabled means the file list arrived, so everything after this is the HELD state and not a page still loading
@@ -436,6 +443,8 @@ print(json.dumps({
    */
   test('rebuilds a .torrent that names the same torrent', async ({ page }) => {
     test.setTimeout(180_000)
+    // or the page starts saving all eleven files by itself
+    await page.addInitScript(waitForPress)
     await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}`)
 
     /*

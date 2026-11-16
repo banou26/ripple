@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 
-import type { Page } from '@playwright/test'
+import type { Frame, Page } from '@playwright/test'
 import { expect, test } from './offline'
 
 const TOTAL = 3 * 1024 * 1024
@@ -241,6 +241,136 @@ test('a worker that never registers the stream falls back while the click still 
   expect(readFileSync(await download.path()).equals(Buffer.alloc(FILE.bytes, FILE.fill))).toBe(true)
   // the picker needs the click's activation, which lapses about five seconds after it
   expect(await pickerCalls(), 'the fallback was reached after the click stopped counting').toEqual([true])
+})
+
+/** Counts the saves a page asks the worker for, and drops them when `__dropOpen` is set. */
+const watchSaves = () => {
+  const w = window as any
+  w.__opened = 0
+  // oxlint-disable-next-line typescript/unbound-method
+  ServiceWorker.prototype.postMessage = new Proxy(ServiceWorker.prototype.postMessage, {
+    apply: (post, worker, args) => {
+      if (args[0]?.type === 'stream-open' && ++w.__opened && w.__dropOpen) return
+      return Reflect.apply(post, worker, args)
+    },
+  })
+}
+
+const opened = (target: Page | Frame) => target.evaluate(() => (window as any).__opened as number)
+
+/*
+ * A download link opened as its own page starts the save by itself, 2 s after its files are in, when the service
+ * worker can hand it to the browser's downloads, so with no worker in control it waits for one. Framed, or with a
+ * worker that does not take the save, the page waits for the button as before, and a press before the 2 s is its
+ * only save.
+ */
+test('a download link opened as its own page starts saving by itself', async ({ page, context }) => {
+  test.setTimeout(300_000)
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await context.addInitScript(watchSaves)
+  await libraryFile(page)
+  await page.locator('.torrent', { hasText: FILE.name }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy magnet' }).click()
+  const magnet = await page.evaluate(() => navigator.clipboard.readText())
+  const link = `${new URL(page.url()).origin}/download?magnet=${encodeURIComponent(Buffer.from(magnet).toString('base64'))}`
+  const want = Buffer.alloc(FILE.bytes, FILE.fill)
+  const cta = (target: Page) => target.locator('button.cta')
+
+  await test.step('framed, it waits for the button', async () => {
+    // a page of the same origin, whose storage the frame shares: a frame under another site gets a partition of its own
+    const top = await context.newPage()
+    await top.goto('/assets/logo.png')
+    await top.evaluate((src) => {
+      const frame = document.createElement('iframe')
+      frame.src = src
+      frame.style.cssText = 'width: 900px; height: 700px'
+      document.body.append(frame)
+    }, link)
+    await expect(top.frameLocator('iframe[src*="/download"]').locator('button.cta')).toBeEnabled({ timeout: 60_000 })
+    const frame = top.frames().find((f) => f.url().includes('/download'))!
+    expect(await frame.evaluate(() => navigator.serviceWorker.controller !== null), 'no worker in the frame, so this proves nothing').toBe(true)
+    await top.waitForTimeout(6_000)
+    expect(await opened(frame)).toBe(0)
+    await top.close()
+  })
+
+  // as on a first visit, where the worker takes control once it has installed
+  await test.step('with no worker in control yet, it waits for one', async () => {
+    const own = await context.newPage()
+    await own.addInitScript(() => {
+      const w = window as any
+      w.__hidden = true
+      // oxlint-disable-next-line typescript/unbound-method
+      const controller = Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype, 'controller')!.get!
+      Object.defineProperty(ServiceWorkerContainer.prototype, 'controller', {
+        configurable: true,
+        get () { return w.__hidden ? null : controller.call(this) },
+      })
+    })
+    let downloads = 0
+    own.on('download', () => downloads++)
+    await own.goto(link)
+    await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
+    await own.waitForTimeout(6_000)
+    expect(downloads).toBe(0)
+    expect(await opened(own)).toBe(0)
+
+    const downloading = own.waitForEvent('download', { timeout: 30_000 })
+    await own.evaluate(() => {
+      (window as any).__hidden = false
+      navigator.serviceWorker.dispatchEvent(new Event('controllerchange'))
+    })
+    expect(readFileSync(await (await downloading).path()).equals(want)).toBe(true)
+    await own.close()
+  })
+
+  await test.step('with a worker that does not take the save, it goes back to the button', async () => {
+    const own = await context.newPage()
+    await own.addInitScript(() => {
+      const w = window as any
+      w.__dropOpen = true
+      w.showSaveFilePicker = async () => { throw new DOMException('no picker in this test', 'NotAllowedError') }
+    })
+    let downloads = 0
+    own.on('download', () => downloads++)
+    await own.goto(link)
+    await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
+    await expect.poll(() => opened(own), { timeout: 10_000 }).toBe(1)
+    // the worker's 3 s to answer, then the button again
+    await expect(cta(own)).toHaveText('Download', { timeout: 15_000 })
+    await expect(cta(own)).toBeEnabled()
+    await own.waitForTimeout(3_000)
+    expect(downloads, 'it fell back to an arm that needs a click').toBe(0)
+    await expect(own.getByText(/The download stopped/)).toHaveCount(0)
+    await own.close()
+  })
+
+  await test.step('as its own page with the worker in control, it starts by itself', async () => {
+    const own = await context.newPage()
+    let startedAt = 0
+    own.on('download', () => { startedAt ||= Date.now() })
+    const downloading = own.waitForEvent('download', { timeout: 60_000 })
+    await own.goto(link)
+    await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
+    const readyAt = Date.now()
+    const download = await downloading
+    expect(startedAt - readyAt, 'it started without waiting').toBeGreaterThan(1_000)
+    expect(download.url()).toContain('/__ripple-stream/')
+    expect(readFileSync(await download.path()).equals(want)).toBe(true)
+    await own.close()
+  })
+
+  await test.step('pressed before it starts, the press is the only save', async () => {
+    const own = await context.newPage()
+    await own.goto(link)
+    await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
+    const [download] = await Promise.all([own.waitForEvent('download', { timeout: 60_000 }), cta(own).click()])
+    expect(readFileSync(await download.path()).equals(want)).toBe(true)
+    await expect(cta(own)).toBeEnabled({ timeout: 30_000 })
+    await own.waitForTimeout(4_000)
+    expect(await opened(own)).toBe(1)
+    await own.close()
+  })
 })
 
 /*
