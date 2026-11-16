@@ -63,12 +63,17 @@ describe('mergeGroups', () => {
         { id: 3, name: 'number id', namedAt: 1, members: [] },
         { id: 'bad-time', name: 'x', namedAt: '1', members: [] },
         { id: 'not-finite', name: 'x', namedAt: Infinity, members: [] },
+        { id: 'past-safe', name: 'x', namedAt: 2 ** 53, members: [] },
+        { id: 'fraction', name: 'x', namedAt: 1.5, members: [] },
         { id: 'bad-members', name: 'x', namedAt: 1, members: 'A' },
         { id: 'bad-name', name: 5, namedAt: 1, members: [] },
         { id: 'bad-deletion', name: 'x', namedAt: 1, members: [], deletedAt: 'yesterday' },
         {
           id: 'kept', name: 'Kept', namedAt: 1, extra: 'dropped',
-          members: [null, { infoHash: '', at: 1 }, { infoHash: A, at: NaN }, { infoHash: 5, at: 1 }, { infoHash: B, at: 2, out: 'yes' }, { infoHash: C, at: 3, out: true, extra: 1 }],
+          members: [
+            null, { infoHash: '', at: 1 }, { infoHash: A, at: NaN }, { infoHash: A, at: 2 ** 53 }, { infoHash: 5, at: 1 },
+            { infoHash: B, at: 2, out: 'yes' }, { infoHash: C, at: 3, out: true, extra: 1 },
+          ],
         },
       ],
     )

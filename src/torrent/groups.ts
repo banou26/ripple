@@ -30,7 +30,8 @@ export type StoredGroups = { account: string | null, groups: TorrentGroup[] }
 export const GROUPS_KEY = 'ripple:groups'
 const CHANNEL = 'ripple:groups'
 
-const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+// past 2^53 a time + 1 is the same time, so an edit could never win over it
+const isTime = (value: unknown): value is number => Number.isSafeInteger(value)
 
 // code units rather than a locale, so every device puts the same copies in the same order
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
