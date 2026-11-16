@@ -46,6 +46,7 @@ import { magnetInfoHash, magnetParam, sameInfoHash } from '../torrent/magnet'
 import { saveTorrentFile } from '../torrent/torrent-export'
 import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
+import { useControlled } from '../utils/use-controlled'
 import { embedPath } from './embed-link'
 import { resolveSelection } from './file-selection'
 import { FileGlyph } from './file-glyph'
@@ -532,19 +533,6 @@ const style = css`
 const START_BY_ITSELF_MS = 2_000
 /** Per document, not per mount: going to the library and back mounts the page again, on the same file. */
 let startedOnce = false
-
-/** Whether the service worker controls this page, which is what lets a save start with no click. */
-const useControlled = (): boolean => {
-  const workers = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
-  const [controlled, setControlled] = useState(() => Boolean(workers?.controller))
-  useEffect(() => {
-    if (!workers) return
-    const update = () => setControlled(Boolean(workers.controller))
-    workers.addEventListener('controllerchange', update)
-    return () => workers.removeEventListener('controllerchange', update)
-  }, [workers])
-  return controlled
-}
 
 /** Whether this document is framed by another origin, which decides whether to offer a way out. */
 const framedByAnotherOrigin = (): boolean => {
