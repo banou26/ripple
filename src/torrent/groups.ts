@@ -11,6 +11,9 @@ export type Member = { infoHash: string, at: number, out?: true }
  * second device both survive a merge; the group holds those without `out` (`torrentsIn`). A deleted
  * group keeps only its id and `deletedAt`, so the deletion reaches every copy. Ids are 96 random bits,
  * minted on creation and never reused.
+ *
+ * The shape is fixed for good: `mergeGroups` drops any field it does not know, so every version strips a
+ * field a later one added each time it writes. A change of shape takes a new key and a new file name.
  */
 export type TorrentGroup = {
   id: string
@@ -95,8 +98,9 @@ let shown: TorrentGroup[] | undefined
 const listeners = new Set<() => void>()
 let channel: BroadcastChannel | undefined
 
+// a shared name keeps mergeGroups' id order, since a sort is stable
 const byName = (a: TorrentGroup, b: TorrentGroup) =>
-  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || order(a.id, b.id)
+  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
 
 // no read sequence needed: IndexedDB orders a write between two reads after the first and before the second
 const reread = async () => {
@@ -192,5 +196,5 @@ export const takeOutOfGroup = (id: string, infoHashes: readonly string[]) =>
     return leaving.length ? { ...g, members: [...g.members, ...leaving.map((infoHash): Member => ({ infoHash, at, out: true }))] } : undefined
   })
 
-/** Deletes the group. Its torrents stay in the list. */
+/** Its torrents stay in the list. */
 export const deleteGroup = (id: string) => editGroup(id, (g, at) => tombstone(g.id, at))

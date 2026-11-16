@@ -39,13 +39,14 @@ describe('the group store', () => {
     // so a screen can tell "not read yet" from "no groups"
     expect(rendered[0]).toBeUndefined()
 
-    // ids in the opposite order to the names, so only a sort by name passes
+    // ids in the opposite order to the names, so only a sort by name passes, and a shared name stored out of id order
     await set(GROUPS_KEY, {
       account: null,
       groups: [
         { id: 'other-tab-group1', name: 'Week 10', namedAt: 1, members: [{ infoHash: A, at: 1 }] },
         { id: 'other-tab-group2', name: 'Week 2', namedAt: 1, members: [] },
         { id: 'other-tab-group3', name: 'Apple', namedAt: 1, members: [] },
+        { id: 'other-tab-group0', name: 'Week 2', namedAt: 1, members: [] },
       ],
     } satisfies StoredGroups)
     // control: a write nobody announced is not picked up on its own, so the notice is what delivers
@@ -53,7 +54,9 @@ describe('the group store', () => {
     expect(result.current).toEqual([])
 
     await otherTab.putInGroup('other-tab-group2', [B])
-    await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Apple', 'Week 2', 'Week 10'])
+    // a shared name in id order, so every tab and device lists them alike
+    await expect.poll(() => result.current?.map((g) => g.id))
+      .toEqual(['other-tab-group3', 'other-tab-group0', 'other-tab-group2', 'other-tab-group1'])
   })
 
   it('shows a new group, sorted by name, and refuses a name that is empty once trimmed', async () => {
