@@ -24,6 +24,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 import { addSample } from './sample-offer'
+import { hideController } from './worker-control'
 
 // the bundled sample: instant metadata and a webseed that carries the download with no swarm at all
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
@@ -477,7 +478,10 @@ test.describe('storage eviction', () => {
     const before = await filesUnder(page, savePath)
     expect(before.count).toBeGreaterThan(0)
 
-    // now the DOWNLOAD page for the same torrent, which holds rather than transfers
+    // now the DOWNLOAD page for the same torrent, which holds rather than transfers, so it must not start its save
+    await page.addInitScript(hideController)
+    let saves = 0
+    page.on('download', () => saves++)
     await page.goto(`/download?magnet=${Buffer.from(SINTEL).toString('base64')}&files=${SINTEL_VIDEO}`)
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled({ timeout: 60_000 })
 
@@ -494,6 +498,7 @@ test.describe('storage eviction', () => {
       .toBeGreaterThan(0)
     // and the page is still able to hand it over, which is the part the user would have lost
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
+    expect(saves, 'the page saved the file, so it was transferring rather than holding').toBe(0)
 
     await page.goto('/')
     await expect.poll(
