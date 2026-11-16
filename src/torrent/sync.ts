@@ -2,6 +2,7 @@ import type { TorrentClient } from './client'
 import type { Torrent } from './types'
 
 import { chosenFiles } from './types'
+import { heldShare } from './downloaded-ranges'
 
 const CHUNK = 8 * 1024 * 1024
 
@@ -72,6 +73,17 @@ const alreadyThere = async (
 
 /** What the mirror remembers a copy by: the torrent and its chosen files, so a file chosen after the copy goes too. */
 export const copyKey = (torrent: Torrent): string => `${torrent.id}:${chosenFiles(torrent).map((file) => file.index).join(',')}`
+
+/**
+ * Whether every piece of every chosen file is on disk, by the same engine report as the row's state. A file just
+ * chosen reaches the row from the library before the engine's next report says it is downloading, so until then a
+ * finished row can name a file with no bytes, and copying it would create it empty in the folder and fetch it.
+ */
+export const holdsChosen = (torrent: Pick<Torrent, 'files' | 'wantedFiles' | 'bitfield'>): boolean => {
+  const { bitfield } = torrent
+  return !!bitfield && chosenFiles(torrent).every((file) =>
+    file.offset !== undefined && heldShare(bitfield, { offset: file.offset, size: file.size }) >= 1)
+}
 
 /**
  * Copy every chosen file of a finished torrent into the folder the user granted. A file left out is not read, since

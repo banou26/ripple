@@ -25,7 +25,7 @@ import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import { StorageWarning } from '../components/storage-warning'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
-import { copyKey, syncTorrentToDirectory } from '../torrent/sync'
+import { copyKey, holdsChosen, syncTorrentToDirectory } from '../torrent/sync'
 import { moveTorrentFiles } from '../torrent/move-files'
 import { describeAddRequest, namedMagnet } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
@@ -2811,7 +2811,7 @@ const Home = () => {
     const readiness = moveReadiness({
       current,
       intended: location,
-      complete: t.progress >= 1,
+      complete: t.progress >= 1 && holdsChosen(t),
       folderReady: !!folder && permitted,
       leavesFilesOut: leavesFilesOut(t),
     })
@@ -2883,7 +2883,7 @@ const Home = () => {
     for (const t of torrents) {
       if (t.state === 'missing') continue
       const { intended, current } = locationOf(t)
-      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1, folderReady: true, leavesFilesOut: leavesFilesOut(t) })
+      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1 && holdsChosen(t), folderReady: true, leavesFilesOut: leavesFilesOut(t) })
       if (readiness.move) void runMove(t, readiness.to)
     }
   })
@@ -2919,7 +2919,7 @@ const Home = () => {
     if (!folder || !permitted) return
     const now = Date.now()
     for (const t of torrents) {
-      if (!finished(t)) continue
+      if (!finished(t) || !holdsChosen(t)) continue
       /*
        * A created torrent is never mirrored.
        *

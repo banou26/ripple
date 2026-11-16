@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { copyKey, probeRanges, syncTorrentToDirectory } from '../../src/torrent/sync'
+import { copyKey, holdsChosen, probeRanges, syncTorrentToDirectory } from '../../src/torrent/sync'
 import type { TorrentClient } from '../../src/torrent/client'
 import type { Torrent } from '../../src/torrent/types'
 
@@ -196,6 +196,18 @@ describe('a torrent with files left out', () => {
     expect(copyKey({ ...t, wantedFiles: [0] })).not.toBe(copyKey({ ...t, wantedFiles: [0, 1] }))
     expect(copyKey({ ...t, wantedFiles: [0, 1] })).toBe(copyKey(t))
     expect(copyKey({ ...t, id: '2' })).not.toBe(copyKey(t))
+  })
+
+  // three files of two 4 byte pieces each; the engine's next report is what holds the pieces of a file just chosen
+  it('is copied or moved only once every chosen file is held', () => {
+    const files = ['a.bin', 'b.bin', 'c.bin'].map((name, index) => ({ name, size: 8, offset: index * 8, index }))
+    const held = (...indices: number[]) =>
+      ({ pieces: Uint8Array.of(indices.reduce((byte, p) => byte | (0x80 >> p), 0)), numPieces: 6, pieceLength: 4, length: 24 })
+    expect(holdsChosen({ files, wantedFiles: [0, 2], bitfield: held(0, 1, 4, 5) })).toBe(true)
+    expect(holdsChosen({ files, wantedFiles: [0, 1, 2], bitfield: held(0, 1, 4, 5) }), 'b.bin just chosen').toBe(false)
+    expect(holdsChosen({ files, wantedFiles: [0, 2], bitfield: held(0, 1, 4) })).toBe(false)
+    expect(holdsChosen({ files, bitfield: held(0, 1, 2, 3, 4, 5) })).toBe(true)
+    expect(holdsChosen({ files, wantedFiles: [0, 2] }), 'no report yet').toBe(false)
   })
 })
 
