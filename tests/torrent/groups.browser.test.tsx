@@ -16,23 +16,28 @@ const stored = () => get<StoredGroups>(GROUPS_KEY)
 const storedGroup = async (id: string) => (await stored())?.groups.find((g) => g.id === id)
 const held = (g: TorrentGroup | undefined) => (g ? [...torrentsIn(g)].sort() : undefined)
 
-// what another tab does: write the key, then say so on a channel object of its own
-const editFromAnotherTab = async (value: StoredGroups) => {
-  await set(GROUPS_KEY, value)
-  const other = new BroadcastChannel('ripple:groups')
-  other.postMessage(null)
-  other.close()
-}
+// a query makes the browser load the module again: a store with its own state and channel object, as a tab has
+let tabs = 0
+const newTab = (): Promise<typeof import('../../src/torrent/groups')> =>
+  import(/* @vite-ignore */ `../../src/torrent/groups.ts?tab=${++tabs}`)
 
 beforeEach(async () => {
   await del(GROUPS_KEY)
 })
 
 describe('the group store', () => {
-  // first, because a tab that has never edited must hear the others too, and an edit opens the channel
-  it('shows, sorted by name, an edit made in another tab once that tab says so', async () => {
-    const { result } = await renderHook(() => useGroups())
+  it('shows nothing until read, then, sorted by name, an edit made in another tab once that tab says so', async () => {
+    const [here, otherTab] = [await newTab(), await newTab()]
+    expect(new Set([useGroups, here.useGroups, otherTab.useGroups]).size).toBe(3)
+    const rendered: unknown[] = []
+    const { result } = await renderHook(() => {
+      const groups = here.useGroups()
+      rendered.push(groups)
+      return groups
+    })
     await expect.poll(() => result.current).toEqual([])
+    // so a screen can tell "not read yet" from "no groups"
+    expect(rendered[0]).toBeUndefined()
 
     // ids in the opposite order to the names, so only a sort by name passes
     await set(GROUPS_KEY, {
@@ -47,7 +52,7 @@ describe('the group store', () => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(result.current).toEqual([])
 
-    await editFromAnotherTab((await stored())!)
+    await otherTab.putInGroup('other-tab-group2', [B])
     await expect.poll(() => result.current?.map((g) => g.name)).toEqual(['Apple', 'Week 2', 'Week 10'])
   })
 
