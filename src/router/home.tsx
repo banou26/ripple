@@ -67,8 +67,6 @@ import { getRoutePath, getRouterRoutePath, Route } from './path'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
-import { PersistControl } from '../components/persist-control'
-import { LanguageSelect } from '../components/language-select'
 import { SampleOffer } from '../components/sample-offer'
 import { contentFiles, finished, leavesFilesOut, stopped } from '../torrent/types'
 import { TorrentDetailDock } from './torrent-detail'
@@ -1560,22 +1558,6 @@ export const style = css`
           border-color: ${TEXT};
         }
       }
-
-      select {
-        font: inherit;
-        font-size: 0.75rem;
-        padding: 3px 8px;
-        border-radius: 4px;
-        border: 1px solid ${BORDER};
-        background: ${CONTROL_BG};
-        color: ${TEXT_MUTED};
-        cursor: pointer;
-
-        &:hover {
-          background: ${CONTROL_HOVER_BG};
-          color: ${TEXT};
-          border-color: ${BORDER_STRONG};
-        }
     }
   }
 
@@ -2872,7 +2854,7 @@ const Home = () => {
       .finally(() => setSaving((s) => { const { [key]: _, ...rest } = s; return rest }))
   }, [client, intl, showToast])
 
-  const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
+  const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder } = useFolder()
 
 
   /**
@@ -3933,50 +3915,6 @@ const Home = () => {
               {intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: formatLimit(sessionLimits.up, intl) })}
             </button>
           </div>
-          <div className="folder">
-            <span>{intl.formatMessage({ id: 'On add', defaultMessage: 'On add' })}</span>
-            <button
-              className={addDialog ? 'on' : undefined}
-              onClick={() => chooseAddDialog(!addDialog)}
-            >
-              {addDialog
-                ? intl.formatMessage({ id: 'Ask what to download', defaultMessage: 'Ask what to download' })
-                : intl.formatMessage({ id: 'Start straight away', defaultMessage: 'Start straight away' })}
-            </button>
-          </div>
-          <label className="folder">
-            <span>{intl.formatMessage({ id: 'Language', defaultMessage: 'Language' })}</span>
-            <LanguageSelect/>
-          </label>
-          {/* Beside the other footer controls on purpose: this is the one place somebody can raise the
-              storage prompt deliberately, rather than meeting it when a download is already too big
-              to fit. It reports its state even when there is nothing to press. */}
-          <PersistControl persist={persistence} onAsk={() => void persistence.request()}/>
-          {folderSupported && (
-            <div className="folder">
-              <span>{intl.formatMessage({ id: 'Auto-save', defaultMessage: 'Auto-save' })}</span>
-              {!folder
-                ? <button onClick={pickFolder}>{intl.formatMessage({ id: 'Choose folder', defaultMessage: 'Choose folder' })}</button>
-                : permitted
-                  ? (
-                    <>
-                      <button className="on" onClick={pickFolder}>{folder.name}</button>
-                      <button onClick={clearFolder}>{intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' })}</button>
-                    </>
-                  )
-                  : <button className="on" onClick={allowFolder}>{intl.formatMessage({ id: 'Allow {name}', defaultMessage: 'Allow {name}' }, { name: folder.name })}</button>}
-              {folder && permitted && (
-                <button
-                  className={defaultLocation === 'folder' ? 'on' : undefined}
-                  onClick={() => chooseDefaultLocation(defaultLocation === 'folder' ? 'browser' : 'folder')}
-                >
-                  {defaultLocation === 'folder'
-                    ? intl.formatMessage({ id: 'Files go to {name}', defaultMessage: 'Files go to {name}' }, { name: folder.name })
-                    : intl.formatMessage({ id: 'Files stay in the browser', defaultMessage: 'Files stay in the browser' })}
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </footer>
 
