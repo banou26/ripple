@@ -1543,6 +1543,20 @@ test.describe('Settings', () => {
     await autoSave.nth(1).click()
     await expect(autoSave).toHaveText(['Choose folder'])
   })
+
+  test('en: on a phone neither the strip nor a card draws its speed graph', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await post(page, { type: 'state', torrents: TORRENTS, ...READOUTS[0] })
+    for (const [width, shown] of [[1280, true], [390, false]] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await drawn(page)
+      for (const graph of ['.stats svg.graph', '.torrent svg.spark']) {
+        await expect(page.locator(graph), `${width} px: the control, ${graph} is drawn`).not.toHaveCount(0)
+        await expect(page.locator(graph).first(), `${graph} at ${width} px`).toBeVisible({ visible: shown })
+      }
+    }
+  })
 })
 
 /** A torrent's options lead to its share panel, from a card's ... and from a table row's. */
