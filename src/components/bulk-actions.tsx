@@ -93,8 +93,8 @@ export const RowCheck = ({ name, checked, onChange, overPicture = false }: {
       className="row-check"
       onClick={(e) => {
         e.stopPropagation()
-        // a click beside the box is the label's own: Firefox 146 does not pass one made with shift held on to the box
-        // (2026-11-14). Kept here rather than in @banou/ponyfill, which exports only the platform's own names
+        // a click beside the box is the label's own: Firefox 146 and 157 do not pass one made with shift held on to the
+        // box (2026-11-17). Kept here rather than in @banou/ponyfill, which exports only the platform's own names
         if (e.target !== e.currentTarget) return
         e.preventDefault()
         onChange(e.shiftKey)
