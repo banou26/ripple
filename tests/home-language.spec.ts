@@ -1783,10 +1783,25 @@ test('with Ask off, a link the system opens Ripple with asks first, as in a tab,
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
 
+  // /add as the router reads it, in any case and with a trailing slash
+  await launch(`${origin}/Add?magnet=${encodeURIComponent(magnetOf('0', 'Zero'))}`)
+  await expect(dialog.locator('h2')).toHaveText('Zero')
+  await expect(dialog.getByText('Opened from a link')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await launch(`${origin}/add/?magnet=${encodeURIComponent(magnetOf('1', 'One'))}`)
+  await expect(dialog.locator('h2')).toHaveText('One')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  // another page with a magnet or an add on its address, which a tab there adds nothing for
+  await launch(`${origin}/legal?magnet=${encodeURIComponent(`magnet:?xt=urn:btih:${'01'.repeat(20)}&dn=Legal`)}`)
+  await launch(`${origin}/legal?add=${encodeURIComponent(`magnet:?xt=urn:btih:${'10'.repeat(20)}&dn=LegalAdd`)}`)
+  await drawn(page)
+  await expect(dialog).toHaveCount(0)
+
   await launch(`${origin}/?magnet=${encodeURIComponent(magnetOf('3', 'Three'))}`)
   await expect(page.locator('.toast')).toHaveText('Magnet added')
   await expect(dialog).toHaveCount(0)
-  expect(askedFor(await sent())).toEqual([['Eight', true], ['Seven', true], ['Three', false]])
+  expect(askedFor(await sent())).toEqual([['Eight', true], ['Seven', true], ['Zero', true], ['One', true], ['Three', false]])
 })
 
 test('the add field narrows the list to the names and info hashes it holds the start of, until Escape, and still adds a magnet', async ({ page }) => {

@@ -5,7 +5,7 @@ import { PoweredByFkn } from '@fkn/lib/react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, matchPath, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Reachability } from '../torrent/client'
 import type { EngineTransport } from '../torrent/vpn-config'
@@ -2440,10 +2440,13 @@ const Home = () => {
   }, [acceptDrop, endDrag, pendingAdd])
 
   useEffect(() => {
+    // a launch's address is read as the router reads a path, so /Add and /add/ are /add, as they are in a tab
+    const at = (route: Route, url: URL) => matchPath(getRouterRoutePath(route), url.pathname)
     const addFromLaunchUrl = (rawUrl: string | undefined) => {
       if (!rawUrl) return
       try {
-        const magnet = new URL(rawUrl, window.location.origin).searchParams.get('magnet')
+        const url = new URL(rawUrl, window.location.origin)
+        const magnet = at(Route.HOME, url) && url.searchParams.get('magnet')
         if (magnet) commitMagnet(magnet)
       } catch {}
     }
@@ -2453,7 +2456,7 @@ const Home = () => {
       if (!rawUrl) return false
       try {
         const url = new URL(rawUrl, window.location.origin)
-        const magnet = url.pathname === getRouterRoutePath(Route.ADD) ? url.searchParams.get('magnet') : url.searchParams.get('add')
+        const magnet = at(Route.ADD, url) ? url.searchParams.get('magnet') : at(Route.HOME, url) && url.searchParams.get('add')
         if (!magnet) return false
         addQueue.current.push({ magnet, external: true, from: null })
         if (!pendingRef.current) askNext()
