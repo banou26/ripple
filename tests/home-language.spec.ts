@@ -1254,13 +1254,27 @@ test.describe('the Language setting', () => {
 
   // a Mexican Spanish browser, so Automatic names the longest language each time
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language} at 390 px: Settings and its select fit, the select's text whole, and the footer fits`, async ({ page }) => {
+    test(`${language} at 390 px: Settings and its select fit, the select's text whole, and the footer fits from 320 px with Speed and its two limits on one line`, async ({ page }) => {
       await page.addInitScript(() => Object.defineProperty(navigator, 'languages', { get: () => ['es-MX', 'es'] }))
       await opening(page, language)
-      await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(origin)
       await library(page, LIST, TORRENTS)
-      expect(await cutOff(page, 'footer')).toEqual([])
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 })
+        await drawn(page)
+        expect(await cutOff(page, 'footer'), `${width} px`).toEqual([])
+        // each part's middle, and for a limit whether its text keeps to one line inside it: a second line of text is
+        // over 2em, one is under 1.8em in any of these fonts
+        const parts = await page.locator('footer .folder > *').evaluateAll(shown => shown.map((part) => {
+          const box = part.getBoundingClientRect()
+          const style = getComputedStyle(part)
+          const text = box.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth)
+          return { middle: box.top + box.height / 2, oneLine: text < 1.8 * parseFloat(style.fontSize) }
+        }))
+        expect(parts.length, `${width} px: the control, Speed and both limits were read`).toBe(3)
+        expect(parts.every(part => Math.abs(part.middle - parts[0]!.middle) < 2), `${width} px: Speed and its two limits on one line`).toBe(true)
+        expect(parts.every(part => part.oneLine), `${width} px: each limit's text on one line`).toBe(true)
+      }
       await toSettings(page)
       await expect(page.locator('html')).toHaveAttribute('lang', language)
       await expect(select(page).locator('option').first()).toContainText('Español latinoamericano')

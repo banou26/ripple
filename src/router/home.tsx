@@ -1762,6 +1762,12 @@ export const style = css`
       }
     }
 
+    /* each limit as its arrow, so Speed and both limits keep to one line at 320 px in every language */
+    footer .folder button {
+      > span { display: none; }
+      &::before { content: attr(data-arrow); }
+    }
+
     /* the right-hand group takes its own line rather than squeezing the name out of existence */
     .torrent .main, .sample .main {
       flex-wrap: wrap;
@@ -3482,6 +3488,10 @@ const Home = () => {
    */
   const createLabel = intl.formatMessage({ id: 'Create a torrent', defaultMessage: 'Create a torrent' })
   const settingsLabel = intl.formatMessage({ id: 'Settings', defaultMessage: 'Settings' })
+  const downLimit = formatLimit(sessionLimits.down, intl)
+  const upLimit = formatLimit(sessionLimits.up, intl)
+  const downWords = intl.formatMessage({ id: '{limit} down', defaultMessage: '{limit} down' }, { limit: downLimit })
+  const upWords = intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: upLimit })
 
   const target = dropTarget({
     dragging,
@@ -3962,15 +3972,19 @@ const Home = () => {
             <span>{intl.formatMessage({ id: 'Speed', defaultMessage: 'Speed' })}</span>
             <button
               className={sessionLimits.down > 0 ? 'on' : undefined}
+              aria-label={downWords}
+              data-arrow={intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: downLimit })}
               onClick={() => setRateEdit({ scope: 'session', direction: 'down' })}
             >
-              {intl.formatMessage({ id: '{limit} down', defaultMessage: '{limit} down' }, { limit: formatLimit(sessionLimits.down, intl) })}
+              <span>{downWords}</span>
             </button>
             <button
               className={sessionLimits.up > 0 ? 'on' : undefined}
+              aria-label={upWords}
+              data-arrow={intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: upLimit })}
               onClick={() => setRateEdit({ scope: 'session', direction: 'up' })}
             >
-              {intl.formatMessage({ id: '{limit} up', defaultMessage: '{limit} up' }, { limit: formatLimit(sessionLimits.up, intl) })}
+              <span>{upWords}</span>
             </button>
           </div>
         </div>
