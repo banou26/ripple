@@ -106,8 +106,10 @@ import type { ShareableMagnets } from '../torrent/use-shareable-magnet'
 const WORDMARK = 'Ripple'
 const LOGO = new URL('../assets/logo.svg', import.meta.url).href
 
-/** Up to this width the header is a phone's: one row, the add field folded until it is used, Create an icon. */
+/** Up to this width the header is a phone's: one row, Create an icon. */
 const PHONE_MAX = 700
+/** Up to this width a phone's add field is folded until it is used: wider, it has room for its hint beside the rest. */
+const FOLD_MAX = 519
 /** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
 const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
@@ -446,7 +448,7 @@ export const style = css`
      * from a browser's address bar. The pill is the only item in the row now, nothing beside it can
      * squeeze it, and the two buttons that used to carry words carry a tooltip instead.
      */
-    /* the field's floor on a wide window: its icons and the start of its hint, which ends in an ellipsis below this */
+    /* the field's floor wherever it is open: its icons and the start of its hint, which ends in an ellipsis below this */
     form {
       flex: 1;
       display: flex;
@@ -1597,11 +1599,7 @@ export const style = css`
     }
   }
 
-  /*
-   * A phone: one row, of which fkn.app's 140 px Connect FKN frame takes nearly half at 320 px. So the add field folds
-   * to its search glyph, its file and its + until it is pressed, and unfolds over the controls after it while it is
-   * used or holds a search. They stay in the tab order under it: reaching one hands the row back to them.
-   */
+  /* a phone: one row, of which fkn.app's 140 px Connect FKN frame takes nearly half at 320 px */
   @media (max-width: ${PHONE_MAX}px) {
     header {
       gap: 4px;
@@ -1615,39 +1613,14 @@ export const style = css`
         height: 24px;
       }
 
-      form {
-        flex: none;
-        min-width: 0;
-        margin-right: auto;
-      }
-
+      /* 38 px tall, as Connect FKN and the account are, so the row keeps its height while they give way to it */
       .field {
-        position: relative;
-        padding: 2px 2px 2px 3px;
+        padding-block: 3px;
 
-        .glyph {
-          display: block;
-          position: absolute;
-          left: 7px;
-          top: calc(50% - 8px);
-          width: 16px;
-          height: 16px;
-          color: ${TEXT_MUTED};
-          pointer-events: none;
-        }
-
-        /* folded to the glyph over its start, with no room for its hint */
         input:not([type='file']) {
-          flex: 0 0 22px;
           box-sizing: border-box;
-          width: 22px;
-          padding: 6px 0 6px 22px;
-
-          &::placeholder { color: transparent; }
-        }
-
-        .sep {
-          margin: 0 1px;
+          height: 30px;
+          padding-block: 0;
         }
       }
 
@@ -1656,31 +1629,93 @@ export const style = css`
         height: 30px;
       }
 
-      /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 348 px it is drawn smaller */
-      @media (width < 348px) {
+      /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 360 px it is drawn smaller */
+      @media (width < 360px) {
         iframe {
           transform: scale(0.78);
           margin: 0 -15px;
         }
       }
 
-      &[data-searching] {
-        form, .field input:not([type='file']) {
-          flex: 1 1 auto;
+      /*
+       * Too narrow for the field's hint beside the rest: it folds to its search glyph, its file and its + until it is
+       * pressed, and unfolds over the controls after it while it has the focus. They stay in the tab order under it:
+       * reaching one hands the row back to them. A search it holds while folded is marked on the glyph.
+       */
+      @media (max-width: ${FOLD_MAX}px) {
+        form {
+          flex: none;
+          min-width: 0;
+          margin-right: auto;
         }
 
-        .field input:not([type='file']) {
-          padding-left: 26px;
+        .field {
+          position: relative;
+          padding-inline: 2px;
 
-          &::placeholder { color: ${TEXT_MUTED}; }
+          .glyph {
+            display: block;
+            position: absolute;
+            left: 9px;
+            top: calc(50% - 8px);
+            width: 16px;
+            height: 16px;
+            color: ${TEXT_MUTED};
+            pointer-events: none;
+          }
+
+          /* folded to the glyph, as wide a target as the buttons beside it, with no room for its hint */
+          input:not([type='file']) {
+            flex: 0 0 30px;
+            width: 30px;
+            padding-inline: 30px 0;
+
+            &::placeholder { color: transparent; }
+          }
+
+          .sep {
+            margin: 0 1px;
+          }
         }
 
-        > :not(.brand, form) {
-          position: absolute;
-          top: 0;
-          left: 0;
-          opacity: 0;
-          pointer-events: none;
+        /* folded, the glyph is a button beside the others, with no text to set them apart from */
+        &:not([data-searching]) .field {
+          .clear, .sep { display: none; }
+
+          &[data-held] {
+            .glyph { color: ${TEXT}; }
+
+            &::after {
+              content: '';
+              position: absolute;
+              top: 5px;
+              left: 22px;
+              width: 8px;
+              height: 8px;
+              border-radius: 50%;
+              background: ${EMPHASIS};
+              box-shadow: 0 0 0 2px ${SUNKEN_BG};
+              pointer-events: none;
+            }
+          }
+        }
+
+        &[data-searching] {
+          form, .field input:not([type='file']) {
+            flex: 1 1 auto;
+          }
+
+          .field input:not([type='file'])::placeholder {
+            color: ${TEXT_MUTED};
+          }
+
+          > :not(.brand, form) {
+            position: absolute;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            pointer-events: none;
+          }
         }
       }
     }
@@ -2311,30 +2346,21 @@ const Home = () => {
 
   const fieldRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const headerRef = useRef<HTMLElement>(null)
-  // where the focus is in the header: in the add field, on another of its controls, or outside it
-  const [headerFocus, setHeaderFocus] = useState<'field' | 'other' | null>(null)
   /*
-   * Read from the document whenever the focus moves, not from the header's own focus events: a move into fkn.app's
-   * Connect FKN frame names no element the header could see, and only the window's blur follows it, with the frame
-   * then the active element.
+   * Whether the add field or one of its buttons has the focus, which is when a phone's field unfolds over the header's
+   * other controls. Read from the document rather than from the form's blur: the window losing the focus, as the file
+   * picker opening does, leaves it on the field, where a blur event would fold it.
    */
+  const [searching, setSearching] = useState(false)
   useEffect(() => {
-    const read = () => {
-      const at = document.activeElement
-      setHeaderFocus(formRef.current?.contains(at) ? 'field' : headerRef.current?.contains(at) ? 'other' : null)
-    }
+    const read = () => setSearching(!!formRef.current?.contains(document.activeElement))
     document.addEventListener('focusin', read)
     document.addEventListener('focusout', read)
-    addEventListener('blur', read)
     return () => {
       document.removeEventListener('focusin', read)
       document.removeEventListener('focusout', read)
-      removeEventListener('blur', read)
     }
   }, [])
-  // a phone's add field unfolds over the header's other controls while it is used or holds a search
-  const searching = headerFocus === 'field' || (!!input && headerFocus !== 'other')
   const [embedOpen, setEmbedOpen] = useState(false)
   /**
    * What the share dialog is building a link FOR.
@@ -3481,7 +3507,7 @@ const Home = () => {
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
-      <header ref={headerRef} data-searching={searching || undefined}>
+      <header data-searching={searching || undefined}>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
@@ -3512,6 +3538,7 @@ const Home = () => {
           <div
             className="field"
             data-drop={target === 'field' || undefined}
+            data-held={!!input || undefined}
             onDragEnter={() => { if (!storageUnavailable) setFieldDrag(true) }}
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={() => setFieldDrag(false)}
@@ -3538,7 +3565,7 @@ const Home = () => {
             {/* only while there is something to clear, the way a search field does it */}
             {input && (
               <button
-                className="icon"
+                className="icon clear"
                 type="button"
                 onMouseDown={keepFocus}
                 {...hint(intl.formatMessage({ id: 'Clear', defaultMessage: 'Clear' }))}

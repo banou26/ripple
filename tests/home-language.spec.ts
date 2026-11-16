@@ -1331,7 +1331,7 @@ test.describe('the header', () => {
   const field = (page: Page) => page.locator('header form input:not([type=file])')
 
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: one row from 320 to 390 px and at 1280, signed in or out, the add field folded and unfolded`, async ({ page }) => {
+    test(`${language}: one row from 320 to 700 px and at 1280, signed in or out, the add field folded, unfolded and holding a search`, async ({ page }) => {
       test.setTimeout(120_000)
       await opening(page, language)
       await page.goto(origin)
@@ -1339,16 +1339,19 @@ test.describe('the header', () => {
         await signIn(page, null, null, account)
         await library(page, LIST, TORRENTS)
         await expect(page.locator(account === 'out' ? 'header iframe' : 'header .account-tag'), 'the control: the account is in the header').toBeVisible()
-        for (const width of [320, 360, 390, 1280]) {
+        for (const width of [320, 360, 390, 519, 520, 700, 1280]) {
           const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
+          const room = () => field(page).evaluate(input => input.getBoundingClientRect().width)
+          const open = () => page.locator('header form').evaluate(form => form.getBoundingClientRect().width)
           await page.setViewportSize({ width, height: 844 })
           await drawn(page)
           const folded = await headerRows(page)
           expect(folded.items, `${at}: the control, the logo, the field, Create, the gear and the account were read`).toBe(5)
           expect(folded.rows, `${at}, ${folded.height} px tall`).toBe(1)
           expect(folded.sideways, at).toBe(0)
-          const room = await field(page).evaluate(input => input.getBoundingClientRect().width)
-          if (width <= 700) expect(room, `${at}: the field is folded to its glyph`).toBeLessThanOrEqual(22)
+          // folded to its glyph as wide a target as the buttons beside it; from 520 px open, at its floor or wider
+          if (width < 520) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
+          else expect(await open(), `${at}: the field is open`).toBeGreaterThanOrEqual(240)
           // the file and + buttons beside the field, Create and the gear on its row, whole in the window
           for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings']) {
             const box = (await page.locator(control).boundingBox())!
@@ -1359,9 +1362,19 @@ test.describe('the header', () => {
           await drawn(page)
           const unfolded = await headerRows(page)
           expect(unfolded.rows, `${at}, unfolded`).toBe(1)
+          expect(unfolded.height, `${at}: unfolding moves nothing under the header`).toBe(folded.height)
           expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
-          const typed = await field(page).evaluate(input => input.getBoundingClientRect().width)
-          expect(typed, `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          if (width < 520) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          else expect(await open(), `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
+
+          await field(page).blur()
+          await drawn(page)
+          const held = await headerRows(page)
+          expect(held.items, `${at}, holding a search: the row is back`).toBe(5)
+          expect(held.rows, `${at}, holding a search`).toBe(1)
+          expect(held.height, `${at}, holding a search`).toBe(folded.height)
+          expect(held.sideways, `${at}, holding a search`).toBe(0)
+          if (width < 520) expect(await room(), `${at}: a search held folds with the focus elsewhere`).toBe(30)
           await field(page).fill('')
           await field(page).blur()
         }
@@ -1400,39 +1413,31 @@ test.describe('the header', () => {
     await page.keyboard.press('Tab')
     await expect(page.locator('header button.create')).toBeFocused()
     await expect(page.locator('header button.create')).toHaveCSS('opacity', '1')
-    expect(await field(page).evaluate(input => input.getBoundingClientRect().width)).toBeLessThanOrEqual(22)
+    expect(await field(page).evaluate(input => input.getBoundingClientRect().width)).toBe(30)
   })
 
-  test('on a phone a search in the add field stays folded while the Connect FKN frame has the focus, reached either way', async ({ page }) => {
+  test('on a phone a search folds once a press lands elsewhere, marked on the glyph, and the row can be pressed again', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(origin)
-    await signIn(page, null, null, 'out')
     await library(page, LIST, TORRENTS)
-    const frame = page.locator('header iframe')
-    // fkn.app's button in the frame, which the offline browser cannot load and which would leave it nothing to focus
-    await frame.evaluate((element: HTMLIFrameElement) => { element.srcdoc = '<!doctype html><button>Connect FKN</button>' })
-    await expect(page.frameLocator('header iframe').getByRole('button', { name: 'Connect FKN' }), 'the control: the frame takes a focus').toBeVisible()
-    const width = () => field(page).evaluate(input => input.getBoundingClientRect().width)
-    const focused = () => page.evaluate(() => document.activeElement?.tagName)
-    await field(page).fill('Release')
-    await page.locator('header a.settings').focus()
-    expect(await width(), 'folded beside the gear').toBeLessThanOrEqual(22)
+    const gear = page.locator('header a.settings')
+    const marked = () => page.locator('header .field').evaluate(shown => getComputedStyle(shown, '::after').content !== 'none')
+    await field(page).click()
+    await page.keyboard.type('season')
+    await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
+    await expect(gear, 'the control: the unfolded field covers the gear').toHaveCSS('opacity', '0')
+    expect(await marked(), 'the control: no mark while the field is open').toBe(false)
 
-    await page.keyboard.press('Tab')
-    await expect.poll(focused).toBe('IFRAME')
-    await expect(frame).toHaveCSS('opacity', '1')
-    expect(await width(), 'folded beside the frame').toBeLessThanOrEqual(22)
-
-    // past the frame the focus leaves the header, and the search shows again
-    await page.keyboard.press('Tab')
-    await expect.poll(focused).not.toBe('IFRAME')
-    expect(await page.evaluate(() => !!document.activeElement?.closest('header')), 'the control: the focus is past the header').toBe(false)
-    await expect.poll(width).toBeGreaterThanOrEqual(120)
-
-    await page.keyboard.press('Shift+Tab')
-    await expect.poll(focused).toBe('IFRAME')
-    await expect(frame).toHaveCSS('opacity', '1')
-    await expect.poll(width).toBeLessThanOrEqual(22)
+    // a press on the strip's edge, which takes no focus, as a thumb putting the keyboard away
+    await page.locator('.stats').click({ position: { x: 3, y: 3 } })
+    await expect(field(page)).not.toBeFocused()
+    await expect(gear).toHaveCSS('opacity', '1')
+    expect(await field(page).evaluate(input => input.getBoundingClientRect().width), 'folded').toBe(30)
+    expect(await marked(), 'the search is marked').toBe(true)
+    await expect(page.locator('header .clear')).toBeHidden()
+    await expect(page.locator('.torrent .title'), 'the search still narrows the list').toHaveText(['A.Season.Pack'])
+    await gear.click()
+    await expect(page).toHaveURL(`${origin}/settings`)
   })
 
   test('the logo is the way home, named Ripple', async ({ page }) => {
@@ -1522,6 +1527,7 @@ test.describe('the stats strip', () => {
     expect(vpn.x, 'first on its row').toBeLessThan(storage.x)
     expect(Math.abs(vpn.x - download.x), 'under Download').toBeLessThan(12)
   })
+
 
   test('en: on a phone the offer to switch the VPN off is drawn whole under a line that scrolls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
