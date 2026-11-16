@@ -3,7 +3,8 @@ import { renderHook } from 'vitest-browser-react'
 import { del, get, set } from 'idb-keyval'
 
 import {
-  GROUPS_KEY, createGroup, deleteGroup, putInGroup, renameGroup, subscribeGroups, takeOutOfGroup, torrentsIn, useGroups,
+  GROUPS_KEY, createGroup, deleteGroup, mergeGroups, putInGroup, renameGroup, subscribeGroups, takeOutOfGroup, torrentsIn,
+  useGroups,
 } from '../../src/torrent/groups'
 import type { StoredGroups, TorrentGroup } from '../../src/torrent/groups'
 
@@ -114,6 +115,50 @@ describe('the group store', () => {
     await putInGroup(id, [B])
     await renameGroup(id, 'Back')
     expect(await storedGroup(id)).toEqual(tombstone)
+  })
+
+  it('writes nothing and tells no one on an edit that changes nothing', async () => {
+    let heard = 0
+    let told = 0
+    const off = subscribeGroups(() => { heard++ })
+    const other = new BroadcastChannel('ripple:groups')
+    other.onmessage = () => { told++ }
+    try {
+      const id = (await createGroup('Orbital Gardeners', [A]))!
+      const gone = (await createGroup('Gone', [A]))!
+      await deleteGroup(gone)
+      await expect.poll(() => told).toBe(3)
+      const before = await stored()
+      const heardBefore = heard
+
+      await putInGroup(id, [A])
+      await takeOutOfGroup(id, [B])
+      await renameGroup(id, ' Orbital Gardeners ')
+      await putInGroup(gone, [B])
+      await takeOutOfGroup(gone, [A])
+      await renameGroup(gone, 'Back')
+      await deleteGroup(gone)
+      expect(await stored()).toEqual(before)
+
+      // control: one real edit is heard, and a channel delivers in order, so a notice from the edits above came first
+      await putInGroup(id, [B])
+      await expect.poll(() => told).toBe(4)
+      expect(heard).toBe(heardBefore + 1)
+    } finally {
+      off()
+      other.close()
+    }
+  })
+
+  it('leaves a torrent already in unstamped, so a take-out made earlier on another device stands', async () => {
+    // this device still shows A in; another took A out at 2,000 and has not synced yet
+    await set(GROUPS_KEY, {
+      account: null,
+      groups: [{ id: 'two-devices-grp', name: 'Shared', namedAt: 1_000, members: [{ infoHash: A, at: 1_000 }] }],
+    } satisfies StoredGroups)
+    await putInGroup('two-devices-grp', [A, B])
+    const otherDevice = { id: 'two-devices-grp', name: 'Shared', namedAt: 1_000, members: [{ infoHash: A, at: 2_000, out: true }] }
+    expect(held(mergeGroups((await stored())!.groups, [otherDevice])[0])).toEqual([B])
   })
 
   it('lets a rename win over a name stamped in the future by a clock that runs fast', async () => {
