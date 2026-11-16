@@ -1,5 +1,6 @@
 import type { Torrent } from './types'
 import type { SaveLocation } from './library'
+import type { ReactNode } from 'react'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
@@ -48,6 +49,8 @@ export type OptionItem =
     group: string
     label: string
     hint?: string
+    /** Drawn after the label in the dialog (a sort's direction); the right-click menu does not draw it. */
+    icon?: ReactNode
     selected: boolean
     disabled?: string
     apply: () => void

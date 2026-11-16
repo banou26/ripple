@@ -8,6 +8,7 @@ import Embed from './embed'
 import Home from './home'
 import Legal from './legal'
 import Privacy from './privacy'
+import Settings from './settings'
 import { Hints } from '../components/hint'
 import { shownLanguage, startLanguage, uiLanguage } from '../i18n'
 import { useLeavePrompt } from './leave-prompt'
@@ -39,6 +40,10 @@ const routes: RouteObject[] = [
   {
     path: getRouterRoutePath(Route.PRIVACY),
     element: <Privacy/>
+  },
+  {
+    path: getRouterRoutePath(Route.SETTINGS),
+    element: <Settings/>
   },
   // Cloudflare Pages serves the app for every path, so an address the app does not know lands on the library
   {

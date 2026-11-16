@@ -34,9 +34,9 @@ export type MenuPosition = { x: number, y: number }
  * rather than clamping (clamping slides it under the cursor that is about to be released) and it
  * closes when anything scrolls.
  *
- * A menu UNDER a control is pinned to the control: it end-aligns with it, flips across it rather
- * than over it, slides sideways to stay on screen, and repositions rather than closing, because
- * there is no pointer for it to land under.
+ * A menu UNDER a control is pinned to the control: it end-aligns with it (or start-aligns, for a
+ * control on the left of its row), flips across it rather than over it, slides sideways to stay on
+ * screen, and repositions rather than closing, because there is no pointer for it to land under.
  */
 export type MenuPlacement =
   | { kind: 'pointer', at: MenuPosition }
@@ -47,7 +47,7 @@ export type MenuPlacement =
    * plus a matching --fkn-inset-top, which moves every in-flow box down and emits no event at all.
    * A rect captured at open would leave the menu floating where the trigger used to be.
    */
-  | { kind: 'under', of: RefObject<HTMLElement | null> }
+  | { kind: 'under', of: RefObject<HTMLElement | null>, align?: 'start' | 'end' }
 
 const MARGIN = 8
 /** The gap between a trigger and the menu it opens, so the two read as separate surfaces. */
@@ -73,7 +73,8 @@ export const place = (placement: MenuPlacement, box: { width: number, height: nu
   // End-aligned with the trigger, then slid back inside the viewport. Sliding is safe here and is
   // not safe for a pointer menu: nothing is hovering the place it slides to. The header wraps at
   // narrow widths, so the trigger is not reliably flush right and the clamp is not decoration.
-  const x = Math.min(Math.max(MARGIN, anchor.right - box.width), Math.max(MARGIN, vw - box.width - MARGIN))
+  const wanted = placement.align === 'start' ? anchor.left : anchor.right - box.width
+  const x = Math.min(Math.max(MARGIN, wanted), Math.max(MARGIN, vw - box.width - MARGIN))
   const below = anchor.bottom + GAP
   // ACROSS the trigger, never over it. The pointer branch subtracts the height from a POINT, which
   // for a control lands the menu on top of the thing that opened it.

@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, matchPath, useNavigate, useSearchParams } from 'react-router-dom'
@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Link2, MonitorDown, Pause, Play, Plus, Square, Upload, X } from 'lucide-react'
+import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { isActive, useTorrents } from '../torrent/use-torrents'
@@ -56,7 +56,6 @@ import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { useFinishNotice } from './finish-notice'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
-import { isAppInstalled, setupHandlers } from '../utils/pwa'
 import { useConfirm } from '../components/confirm-dialog'
 import { MODAL_Z_INDEX } from '../components/modal'
 import { ShareLinkDialog } from '../components/share-link-dialog'
@@ -64,7 +63,7 @@ import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
 import { useTakeFromPlayer } from '../torrent/use-handover'
 import { decodeMagnetParam } from './magnet-codec'
-import { getRouterRoutePath, Route } from './path'
+import { getRoutePath, getRouterRoutePath, Route } from './path'
 import { NO_INBOUND, inboundLabel } from '../torrent/inbound'
 import { formatDuration } from '../torrent/uptime'
 import { hint } from '../components/hint'
@@ -87,6 +86,8 @@ import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
+import { CompactToolbar } from '../components/compact-toolbar'
+import { TOOLBAR } from './prototype'
 import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
@@ -291,7 +292,7 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
       ? intl.formatMessage({ id: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}', defaultMessage: '{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}' }, { count: inboundNow.total, port, detail })
       : intl.formatMessage({ id: 'Nobody connected in on port {port}.', defaultMessage: 'Nobody connected in on port {port}.' }, { port }))
   return (
-    <div className={'stat' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
+    <div className={'stat inbound' + (failed || (!!port && !portOpen) ? ' error' : '')} {...hint(title)}>
       <label>{intl.formatMessage({ id: 'Inbound', defaultMessage: 'Inbound' })}</label>
       {/* the port stays visible once peers arrive: it is what a user checks against a router or a
           firewall, and hiding it exactly when the feature starts working is the wrong trade */}
@@ -568,46 +569,41 @@ export const style = css`
       }
     }
 
-    /* header-level actions, outside the add form: the header itself wraps, so these can drop a line */
-    .setup,
-    .share {
+    /* header-level actions, outside the add form, as square icon buttons as tall as the account's button */
+    .tool {
       flex: none;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      padding: 0;
       border-radius: 6px;
-      padding: 8px 16px;
-      font-size: 0.85rem;
-      font-weight: 700;
       border: 1px solid ${BORDER};
       background: ${CONTROL_BG};
       color: ${TEXT};
 
-      svg { width: 15px; height: 15px; }
+      svg { width: 17px; height: 17px; }
 
       &:hover {
         background: ${CONTROL_HOVER_BG};
         border-color: ${BORDER_STRONG};
       }
+
+      &:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px ${FOCUS_RING};
+      }
     }
 
-    .setup svg { display: none; }
-
-    /* With every word the row needs a window of up to 1389 px (Russian in DejaVu Sans, system-ui on many Linux
-       desktops and on GitHub's runner), and it wraps rather than take the magnet field under its floor. Under 1440 px
-       this button gives up its words, which leaves the field at least 120 px above its floor at 1280 px in every
-       language, in Noto, DejaVu and Liberation Sans. */
-    @media (700px < width < 1440px) {
-      .setup {
-        /* square, as tall as the buttons beside it, which a line of their words sets */
-        width: calc(1lh + 18px);
-        height: calc(1lh + 18px);
-        padding: 0;
-        justify-content: center;
-
-        svg { display: block; }
-        span { display: none; }
-      }
+    /* Create keeps its words on a wide window; a phone draws it as a square beside the field */
+    .tool.create {
+      width: auto;
+      gap: 7px;
+      padding: 0 14px;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
     }
   }
 
@@ -1557,9 +1553,26 @@ export const style = css`
     }
   }
 
+  /* a phone: the brand with the header's buttons on one row, then the add field with Create beside it */
   @media (max-width: 700px) {
+    header .brand {
+      flex: 1;
+    }
+
+    header form, header .create {
+      order: 1;
+    }
+
+    header .tool.create {
+      width: 38px;
+      padding: 0;
+
+      span { display: none; }
+    }
+
     header form {
-      flex-basis: 100%;
+      flex: 1 1 calc(100% - 54px);
+      min-width: 0;
     }
 
     /* the panels around it can take a whole phone, so the list keeps room for a row and the page scrolls; with the
@@ -1586,16 +1599,19 @@ export const style = css`
         font-size: 1.25rem;
       }
 
-      svg {
-        height: 44px;
-        flex: none;
-        width: 100%;
+      .graph, .inbound {
+        display: none;
       }
     }
 
     /* the right-hand group takes its own line rather than squeezing the name out of existence */
     .torrent .main, .sample .main {
       flex-wrap: wrap;
+    }
+
+    /* no speed graph on a phone, the row's own included: its 84px column beside the name broke names mid-word */
+    .torrent .spark {
+      display: none;
     }
 
     .torrent .side, .sample .side {
@@ -1739,6 +1755,11 @@ type RowProps = {
   transport?: EngineTransport | null
 }
 
+/** A torrent's name with a break chance after each dot, underscore and dash, so a release name wraps between its parts. */
+const Name = ({ name }: { name: string }) => (
+  <strong>{name.split(/(?<=[._-])/u).flatMap((part, i) => (i ? [<wbr key={i}/>, part] : [part]))}</strong>
+)
+
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
 const Poster = ({ url, t }: { url: string | null, t: Torrent }) =>
   url
@@ -1764,7 +1785,7 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
       <div className="content">
         <div className="main">
           <div className="body">
-            <div className="title"><strong>{t.name}</strong></div>
+            <div className="title"><Name name={t.name}/></div>
             <div className="meta"><span>{intl.formatMessage({ id: 'Connecting', defaultMessage: 'Connecting' })}</span></div>
           </div>
           <div className="side">
@@ -1801,7 +1822,7 @@ const MissingRow = ({
       <div className="content">
         <div className="main">
           <div className="body">
-            <div className="title"><strong>{t.name}</strong></div>
+            <div className="title"><Name name={t.name}/></div>
             <div className="meta">
               {t.ephemeral === true && (
                 <button
@@ -1989,7 +2010,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
         <div className="main">
           <div className="body">
             <div className="title">
-              <strong>{t.name}</strong>
+              <Name name={t.name}/>
             </div>
             <div className="meta">
               {/* First, before the numbers, because it changes what all of them mean: these bytes
@@ -2125,8 +2146,17 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   )
 }, same)
 
+/** The header's phone layout, where the add field shares its row with Create. */
+const PHONE = '(max-width: 700px)'
+const onPhoneChange = (changed: () => void) => {
+  const query = matchMedia(PHONE)
+  query.addEventListener('change', changed)
+  return () => query.removeEventListener('change', changed)
+}
+
 const Home = () => {
   const intl = useIntl()
+  const phone = useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches)
   const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -2205,16 +2235,6 @@ const Home = () => {
   // libav worker, so one owner with a queue is the difference between one at a time and one per row.
   useThumbnailGeneration(client)
   useFinishNotice(torrents)
-
-  const [showSetup] = useState(() => !isAppInstalled())
-  const setupLabel = intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })
-  const onSetupHandlers = useCallback(async () => {
-    const outcome = await setupHandlers()
-    if (outcome === 'installed') showToast(intl.formatMessage({ id: 'Ripple installed', defaultMessage: 'Ripple installed' }))
-    else if (outcome === 'magnet-registered') showToast(intl.formatMessage({ id: 'Confirm the prompt to route magnet links to Ripple.', defaultMessage: 'Confirm the prompt to route magnet links to Ripple.' }))
-    else if (outcome === 'already-installed') showToast(intl.formatMessage({ id: 'Ripple is already installed', defaultMessage: 'Ripple is already installed' }))
-    else showToast(intl.formatMessage({ id: 'Use your browser menu to install Ripple as an app.', defaultMessage: 'Use your browser menu to install Ripple as an app.' }))
-  }, [showToast, intl])
 
   /** Whether an add the person made themselves stops to ask. Off by default: it is friction. */
   const [addDialog, setAddDialog] = useState(() => dialogEnabled((k) => localStorage.getItem(k)))
@@ -3174,6 +3194,15 @@ const Home = () => {
   }
 
   const anyPicked = bulk.rows.length > 0
+  const toolbar = {
+    filter: listFilter, onFilter: chooseFilter,
+    sortKey: listSort.key, sortDir: listSort.dir, onSort: chooseSort,
+    view: listView, onView: chooseView,
+    counts: filterCount,
+    picked: bulk.all ? 'all' as const : anyPicked ? 'some' as const : 'none' as const,
+    canPick: bulk.canPick,
+    onPickAll: bulk.toggleAll,
+  }
   const clearPicked = bulk.clear
   useEffect(() => {
     if (!anyPicked) return
@@ -3252,6 +3281,9 @@ const Home = () => {
    * land on, so the page-wide overlay is the right surface again. Note that the dialog is a modal,
    * so while it is asking it covers the field too, which is why it outranks it.
    */
+  const createLabel = intl.formatMessage({ id: 'Create a torrent', defaultMessage: 'Create a torrent' })
+  const settingsLabel = intl.formatMessage({ id: 'Settings', defaultMessage: 'Settings' })
+
   const target = dropTarget({
     dragging,
     overField: fieldDrag,
@@ -3389,44 +3421,20 @@ const Home = () => {
             </button>
           </div>
         </form>
-        {/**
-          * "Embed" named the artefact, not the job, and named the least common one at that.
-          *
-          * The panel behind it mostly produces a LINK that anyone can open, and offers an iframe as
-          * a disclosure below it. The label now says what pressing it is for, and the title says
-          * what comes out, because the word on its own explained nothing to anybody who had not
-          * already used it.
-          *
-          * Outside the form, where it belongs: it does not add anything, and a third control inside
-          * a row that cannot wrap was taking its width out of the magnet field. The header wraps, so
-          * out here it drops to its own line instead of squeezing the field.
-          */}
-        <button
-          className="share"
-          type="button"
-          aria-expanded={embedOpen}
-          onClick={() => (embedOpen ? closeEmbed() : openEmbed(null))}
-        >
-          <Link2/>
-          {intl.formatMessage({ id: 'Share a torrent', defaultMessage: 'Share a torrent' })}
-        </button>
         {create.supported && (
           <button
-            className="share"
+            className="tool create"
             type="button"
+            aria-label={createLabel}
             aria-expanded={createOpen}
+            {...hint(phone ? createLabel : null)}
             onClick={() => (createOpen ? closeCreate() : setCreateOpen(true))}
           >
-            <Upload/>
-            {intl.formatMessage({ id: 'Create a torrent', defaultMessage: 'Create a torrent' })}
+            <SquarePen/>
+            <span>{createLabel}</span>
           </button>
         )}
-        {showSetup && (
-          <button className="setup" type="button" aria-label={setupLabel} {...hint(setupLabel)} onClick={() => { void onSetupHandlers() }}>
-            <MonitorDown/>
-            <span>{setupLabel}</span>
-          </button>
-        )}
+        <Link className="tool" to={getRoutePath(Route.SETTINGS)} aria-label={settingsLabel} {...hint(settingsLabel)}><Gear/></Link>
         <AccountWidget onToast={showToast}/>
       </header>
 
@@ -3555,17 +3563,9 @@ const Home = () => {
         </section>
       )}
 
-      {torrents.length > 0 && (
-        <ListToolbar
-          filter={listFilter} onFilter={chooseFilter}
-          sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
-          view={listView} onView={chooseView}
-          counts={filterCount}
-          picked={bulk.all ? 'all' : anyPicked ? 'some' : 'none'}
-          canPick={bulk.canPick}
-          onPickAll={bulk.toggleAll}
-        />
-      )}
+      {torrents.length > 0 && (TOOLBAR === 'layout2'
+        ? <ListToolbar {...toolbar}/>
+        : <CompactToolbar design={TOOLBAR} {...toolbar}/>)}
 
       <main {...interaction}>
         {sampleOffered && torrents.length === 0 && <SampleOffer onAnswer={answerSample}/>}

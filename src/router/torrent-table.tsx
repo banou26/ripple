@@ -6,7 +6,7 @@ import type { EngineTransport } from '../torrent/vpn-config'
 import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
-import { Clock } from 'lucide-react'
+import { Clock, Ellipsis } from 'lucide-react'
 import { defineMessage, useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
@@ -18,7 +18,7 @@ import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
 import { RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import {
-  BORDER, CONTROL_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
+  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
 } from '../theme'
 
@@ -31,7 +31,9 @@ import {
  *
  * It deliberately carries FEWER affordances than the card view: no artwork, no spark graph, no
  * inline file list, no per-row action strip. Those are what the cards are for. Every row still opens
- * the same detail dock and the same options menu, which is where every action lives.
+ * the same detail dock and the same options menu, which is where every action lives: a right-click,
+ * or the row's own options button, which is the only way to it from a keyboard or an iPhone (Safari
+ * sends no contextmenu on a long press).
  */
 const style = css`
   width: 100%;
@@ -112,6 +114,29 @@ const style = css`
 
   tbody td.check { position: relative; }
 
+  td.more {
+    width: 30px;
+    padding: 0;
+
+    button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: none;
+      color: ${TEXT_MUTED};
+      cursor: pointer;
+
+      &:hover { color: ${TEXT}; background: ${CONTROL_HOVER_BG}; }
+
+      &:focus-visible { outline: none; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+    }
+  }
+
   td.name {
     width: 100%;
     max-width: 0;
@@ -168,23 +193,24 @@ const style = css`
   @media (max-width: 820px) { .c-peers { display: none; } }
   @media (max-width: 700px) { .c-size { display: none; } }
   /* On a phone a state takes a second line only where one line would leave the name under 84 px: the window less
-     the list's padding (32), the box column (32), that name and the state cell's padding (20), and with Progress
-     showing, its column (100, as wide as Italian's AVANZAMENTO in DejaVu Sans). Without it Brazilian Portuguese's
-     TENTANDO NOVAMENTE left a name 54 px at 320 px, and French 49 px at 401 px; a floor on the column instead
-     wrapped EN PAUSE at 390 px, where nothing has to. One word wider than the room, French TÉLÉCHARGEMENT below
+     the list's padding (32), the box column (32), the options column (30), that name and the state cell's padding
+     (6, the options button's own room standing for the rest), and with Progress showing, its column (100, as wide as
+     Italian's AVANZAMENTO in DejaVu Sans). Without it Brazilian Portuguese's TENTANDO NOVAMENTE left a name 54 px at
+     320 px, and French 49 px at 401 px; a floor on the column instead wrapped EN PAUSE at 390 px, where nothing has to. One word wider than the room, French TÉLÉCHARGEMENT below
      420 px in DejaVu Sans, widens its badge rather than spill out of it, and leaves the name 75 px at 401 px. */
   @media (max-width: 560px) {
     .c-down, .bar { display: none; }
     /* a finger's height, and the name's padding beside the box, for a finger's width without taking the name's room */
     tbody td.check { height: 40px; }
     td.check .row-check::before { right: -8px; }
-    td.c-status .badge { width: max-content; min-width: min-content; max-width: calc(100vw - 268px); white-space: normal; }
+    td.c-status { padding-left: 4px; padding-right: 2px; }
+    td.c-status .badge { width: max-content; min-width: min-content; max-width: calc(100vw - 284px); white-space: normal; }
     td.c-status .badge::before { flex: none; }
   }
   /* with Progress, French left a name 47 px at 360 px and ran past a 320 px window */
   @media (max-width: 400px) {
     .c-progress { display: none; }
-    td.c-status .badge { max-width: calc(100vw - 168px); }
+    td.c-status .badge { max-width: calc(100vw - 184px); }
   }
 `
 
@@ -271,6 +297,7 @@ export const TorrentTable = (
             </th>
           )
         })}
+        <td className="more"/>
       </tr>
     </thead>
     <tbody>
@@ -322,6 +349,18 @@ export const TorrentTable = (
           <td className="c-up num">{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
           <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
           <td className="c-added num">{relativeDay(t.addedAt)}</td>
+          <td className="more">
+            <button
+              type="button"
+              className="more"
+              aria-haspopup="dialog"
+              aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
+              {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
+              onClick={(e) => { e.stopPropagation(); onOptions(t, null) }}
+            >
+              <Ellipsis size={16} aria-hidden="true"/>
+            </button>
+          </td>
         </tr>
       ))}
     </tbody>

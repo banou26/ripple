@@ -26,6 +26,7 @@ import { Modal } from './modal'
 
 const style = css`
   color: ${TEXT};
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   width: 100%;
   max-width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
@@ -90,6 +91,7 @@ const style = css`
     border-radius: 6px;
     background: none;
     color: inherit;
+    font: inherit;
     padding: 9px 10px;
     text-align: left;
 
@@ -125,6 +127,13 @@ const style = css`
     .label {
       display: block;
       font-size: 0.88rem;
+
+      svg {
+        width: 14px;
+        height: 14px;
+        margin-left: 8px;
+        vertical-align: -2px;
+      }
     }
 
     .hint {
@@ -237,6 +246,7 @@ const style = css`
       background: ${CONTROL_BG};
       color: ${TEXT};
       padding: 6px 18px;
+      font: inherit;
       font-size: 0.85rem;
       font-weight: 700;
 
@@ -312,7 +322,7 @@ export const TorrentOptionsDialog = ({
                     >
                       <span className="dot" data-on={item.selected || undefined} aria-hidden="true"/>
                       <span className="text">
-                        <span className="label">{item.label}</span>
+                        <span className="label">{item.label}{item.icon}</span>
                         {hint && <span className="hint">{hint}</span>}
                       </span>
                     </button>

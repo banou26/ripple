@@ -7,7 +7,8 @@ export enum Route {
   WATCH = 'WATCH',
   DOWNLOAD = 'DOWNLOAD',
   LEGAL = 'LEGAL',
-  PRIVACY = 'PRIVACY'
+  PRIVACY = 'PRIVACY',
+  SETTINGS = 'SETTINGS'
 }
 
 /**
@@ -65,7 +66,8 @@ const Routes = {
   [Route.WATCH]: (options: EmbedOptions) => `/watch?${new URLSearchParams(options).toString()}`,
   [Route.DOWNLOAD]: (options: EmbedOptions) => `/download?${new URLSearchParams(options).toString()}`,
   [Route.LEGAL]: () => '/legal',
-  [Route.PRIVACY]: () => '/privacy'
+  [Route.PRIVACY]: () => '/privacy',
+  [Route.SETTINGS]: () => '/settings'
 } as const
 
 const RouterRoutes = {
@@ -74,7 +76,8 @@ const RouterRoutes = {
   [Route.WATCH]: '/watch',
   [Route.DOWNLOAD]: '/download',
   [Route.LEGAL]: '/legal',
-  [Route.PRIVACY]: '/privacy'
+  [Route.PRIVACY]: '/privacy',
+  [Route.SETTINGS]: '/settings'
 } as const
 
 export const getRouterRoutePath = (route: Route) => RouterRoutes[route]

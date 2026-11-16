@@ -13,6 +13,92 @@ import {
   FOCUS_RING, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 
+/* the box's 40 px hit area pulled into the margin, so the row keeps its height */
+const pickAllStyle = css`
+  margin: -5px -10px -5px -8px;
+
+  input:disabled { cursor: default; }
+`
+
+/** The box that ticks every row shown, or none: mixed while only some are. */
+export const PickAll = ({ picked, canPick, onPickAll }: Pick<ListToolbarProps, 'picked' | 'canPick' | 'onPickAll'>) => {
+  const intl = useIntl()
+  const box = useRef<HTMLInputElement>(null)
+  // a property with no attribute, so React cannot set it
+  useEffect(() => { if (box.current) box.current.indeterminate = picked === 'some' }, [picked])
+  const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
+  return (
+    <label css={[checkStyle, pickAllStyle]} className="pick-all" {...hint(selectAll)}>
+      <input
+        ref={box}
+        type="checkbox"
+        checked={picked === 'all'}
+        disabled={!canPick}
+        onChange={onPickAll}
+        aria-label={selectAll}
+      />
+    </label>
+  )
+}
+
+const segStyle = css`
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 6px;
+  background: ${SUNKEN_BG};
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: ${TEXT_MUTED};
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+
+    svg { width: 14px; height: 14px; }
+
+    /* stated before the selected rule so a selected button's fill is not painted over by a hover
+       of equal specificity */
+    &:hover { color: ${TEXT}; }
+
+    &[data-on] {
+      background: ${CONTROL_ACTIVE_BG};
+      color: ${TEXT};
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px ${FOCUS_RING};
+    }
+  }
+`
+
+/** Cards or Table. Each button keeps its word in a span, which a narrow toolbar hides, and its name either way. */
+export const ViewSwitch = ({ view, onView }: Pick<ListToolbarProps, 'view' | 'onView'>) => {
+  const intl = useIntl()
+  const cards = intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })
+  const table = intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })
+  return (
+    <div css={segStyle} className="seg views" role="group" aria-label={intl.formatMessage({ id: 'View', defaultMessage: 'View' })}>
+      <button
+        type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
+        aria-label={cards} onClick={() => onView('cards')}
+      ><LayoutGrid/><span>{cards}</span></button>
+      <button
+        type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
+        aria-label={table} onClick={() => onView('table')}
+      ><ListIcon/><span>{table}</span></button>
+    </div>
+  )
+}
+
 /**
  * What is shown, in what order, and in which shape.
  *
@@ -28,52 +114,6 @@ const style = css`
   flex-wrap: wrap;
   gap: 10px 14px;
   margin: 14px 16px 0;
-
-  /* the box's 40 px hit area pulled into the margin, so the row keeps its height */
-  .pick-all {
-    margin: -5px -10px -5px -8px;
-
-    input:disabled { cursor: default; }
-  }
-
-  .seg {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border-radius: 6px;
-    background: ${SUNKEN_BG};
-
-    button {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: none;
-      border-radius: 4px;
-      background: none;
-      color: ${TEXT_MUTED};
-      padding: 5px 12px;
-      font: inherit;
-      font-size: 0.75rem;
-      font-weight: 700;
-      cursor: pointer;
-
-      svg { width: 14px; height: 14px; }
-
-      /* stated before the selected rule so a selected button's fill is not painted over by a hover
-         of equal specificity */
-      &:hover { color: ${TEXT}; }
-
-      &[data-on] {
-        background: ${CONTROL_ACTIVE_BG};
-        color: ${TEXT};
-      }
-
-      &:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 2px ${FOCUS_RING};
-      }
-    }
-  }
 
   label.show, label.sort {
     display: inline-flex;
@@ -165,24 +205,9 @@ export const ListToolbar = (
   { filter, onFilter, sortKey, sortDir, onSort, view, onView, counts, picked, canPick, onPickAll }: ListToolbarProps,
 ) => {
   const intl = useIntl()
-  const pickAll = useRef<HTMLInputElement>(null)
-  // a property with no attribute, so React cannot set it
-  useEffect(() => { if (pickAll.current) pickAll.current.indeterminate = picked === 'some' }, [picked])
-  const selectAll = intl.formatMessage({ id: 'Select all', defaultMessage: 'Select all' })
   const show = intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })
-  const cards = intl.formatMessage({ id: 'Cards', defaultMessage: 'Cards' })
-  const table = intl.formatMessage({ id: 'Table', defaultMessage: 'Table' })
   return <div css={style} className="list-toolbar">
-    <label css={checkStyle} className="pick-all" {...hint(selectAll)}>
-      <input
-        ref={pickAll}
-        type="checkbox"
-        checked={picked === 'all'}
-        disabled={!canPick}
-        onChange={onPickAll}
-        aria-label={selectAll}
-      />
-    </label>
+    <PickAll picked={picked} canPick={canPick} onPickAll={onPickAll}/>
 
     {/*
       * Native selects rather than the app's own menu. Each is one of a few mutually exclusive values
@@ -231,15 +256,6 @@ export const ListToolbar = (
       {sortDir === 'asc' ? <ArrowUp/> : <ArrowDown/>}
     </button>
 
-    <div className="seg views" role="group" aria-label={intl.formatMessage({ id: 'View', defaultMessage: 'View' })}>
-      <button
-        type="button" data-on={view === 'cards' || undefined} aria-pressed={view === 'cards'}
-        aria-label={cards} onClick={() => onView('cards')}
-      ><LayoutGrid/><span>{cards}</span></button>
-      <button
-        type="button" data-on={view === 'table' || undefined} aria-pressed={view === 'table'}
-        aria-label={table} onClick={() => onView('table')}
-      ><ListIcon/><span>{table}</span></button>
-    </div>
+    <ViewSwitch view={view} onView={onView}/>
   </div>
 }
