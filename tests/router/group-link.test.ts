@@ -231,7 +231,8 @@ describe('refusing a link, each case beside a control that reads', () => {
     expect(readGroupLink(craft({ head: [1, 0x81, 0x00, 20] }))).toBeNull()
     expect(readGroupLink(craft({ head: [1, 1, 0x94, 0x00] }))).toBeNull()
     expect(readGroupLink(craft({ head: [1, 1, 20] }))).toEqual(crafted([v1Only(SINTEL)]))
-    // 8 written in 6 bytes: a reader with no length limit shifts the last byte past 32 bits, where it wraps back to 8
+    // 20 in 5 bytes and 8 in 6: a reader taking more than 4 shifts the last byte past 32 bits, where both wrap back
+    expect(readGroupLink(craft({ head: [1, 1, 0x94, 0x80, 0x80, 0x80, 0x10] }))).toBeNull()
     const eight = many(8)
     expect(readGroupLink(craft({ torrents: eight, head: [1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01, ...varint(160)] }))).toBeNull()
     expect(readGroupLink(craft({ torrents: eight, head: [1, 8, ...varint(160)] }))?.torrents).toHaveLength(8)
@@ -239,6 +240,10 @@ describe('refusing a link, each case beside a control that reads', () => {
 
   it('refuses kinds that are not 1, 2 or 3, or do not name the hashes there are', () => {
     for (const kind of [0, 4, 5, 7, 0x41]) expect(readGroupLink(craft({ kinds: [kind] })), `kind ${kind}`).toBeNull()
+    // beside a real one, a kind naming no hash still adds up to hashBytes, so only the range check refuses it
+    for (const kinds of [[0, 1], [4, 1]]) {
+      expect(readGroupLink(craft({ kinds, lines: ['', ''], head: [1, 2, 20] })), `kinds ${kinds.join()}`).toBeNull()
+    }
     expect(readGroupLink(craft({ kinds: [3] }))).toBeNull()
     expect(readGroupLink(craft({ torrents: [{ v1: BUNNY, v2: V2_A }], kinds: [1] }))).toBeNull()
     expect(readGroupLink(craft({ torrents: [{ v1: BUNNY, v2: V2_A }] }))).toEqual(crafted([
@@ -251,12 +256,13 @@ describe('refusing a link, each case beside a control that reads', () => {
     expect(readGroupLink(toBase64Url(new Uint8Array([1, 1, 20, ...hexDecode(SINTEL)])))).toBeNull()
   })
 
-  it('refuses a body inflating past 4 MiB, and reads one of exactly 4 MiB', () => {
+  it('refuses a body inflating past 4 MiB, even one whose first 4 MiB read, and reads one of exactly 4 MiB', () => {
     // one kind byte, `Big`, a line feed, then the line and its line feed
     const line = (length: number) => 'a=' + 'b'.repeat(length - 2)
     const room = 4 * 1024 * 1024 - 6
     expect(readGroupLink(craft({ name: 'Big', lines: [line(room)] }))?.torrents[0]?.magnet).toHaveLength(`magnet:?xt=urn:btih:${SINTEL}&`.length + room)
     expect(readGroupLink(craft({ name: 'Big', lines: [line(room + 1)] }))).toBeNull()
+    expect(readGroupLink(craft({ body: new TextEncoder().encode('\x01Big\n' + line(room) + '\nx') }))).toBeNull()
   })
 
   it('refuses a hash written twice, in two torrents or as the v2 hash of two', () => {
