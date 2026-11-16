@@ -3,7 +3,7 @@ import { defineConfig, lazyPlugins } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import { playwright } from 'vite-plus/test/browser-playwright'
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import polyfills from './vite-plugin-node-stdlib-browser.mjs'
 import jassubOwnAssets from './vite-plugin-jassub-own-assets.mjs'
@@ -23,6 +23,19 @@ const findChrome = () => {
     } catch {}
   }
   return undefined
+}
+
+/**
+ * The Firefox in PLAYWRIGHT_BROWSERS_PATH whatever its build number: on NixOS that set comes from the store and need
+ * not carry the build the installed playwright asks for (the skew playwright.config.ts describes). Undefined without
+ * one, which leaves Playwright its own download
+ */
+const findFirefox = () => {
+  if (process.env.RIPPLE_FIREFOX) return process.env.RIPPLE_FIREFOX
+  const set = process.env.PLAYWRIGHT_BROWSERS_PATH
+  const build = set && existsSync(set) ? readdirSync(set).find((name) => name.startsWith('firefox-')) : undefined
+  const path = `${set}/${build}/firefox/firefox`
+  return build && existsSync(path) ? path : undefined
 }
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
@@ -325,14 +338,13 @@ export default defineConfig((env) => ({
             // explicit: the default is a 414px phone, and the player chrome branches on 768px
             instances: [
               { browser: 'chromium', viewport: { width: 1280, height: 720 } },
-              // the files whose behaviour differs in Firefox, run there too. RIPPLE_FIREFOX names the store's Firefox
-              // where Playwright's own download does not work, as RIPPLE_CHROME does in playwright.config.ts
+              // the files whose behaviour differs in Firefox, run there too
               {
                 browser: 'firefox',
                 viewport: { width: 1280, height: 720 },
                 include: ['tests/router/bulk-selection.browser.test.tsx'],
                 provider: playwright({
-                  launchOptions: { executablePath: process.env.RIPPLE_FIREFOX || undefined, firefoxUserPrefs: { 'media.volume_scale': '0.0' } },
+                  launchOptions: { executablePath: findFirefox(), firefoxUserPrefs: { 'media.volume_scale': '0.0' } },
                   contextOptions: { locale: 'en-US' },
                 }),
               },
