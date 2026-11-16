@@ -2271,6 +2271,9 @@ const handleMessage = async (session: Session, m: any) => {
         paused: entry?.paused === true,
       })
       if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
+      // as the restore loop does, for the files the person left out after making it
+      planByHandle.set(h, { wanted: entry?.wantedFiles, firstLast: entry?.firstLast })
+      needsPriorityReset.add(h)
       if (entry?.forced && !entry.paused) { forced.add(h); run(h) }
       uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
       totalsStored.set(h, storedTotals(entry))
