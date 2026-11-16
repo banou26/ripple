@@ -499,7 +499,7 @@
   "{count, plural, one {{count} left out} other {{count} left out}}": "{count, plural, other {已排除{count}項}}",
   "{count, plural, one {{count} magnet added} other {{count} magnets added}}": "{count, plural, other {已新增{count}個磁力連結}}",
   "{count, plural, one {{count} magnet copied} other {{count} magnets copied}}": "{count, plural, other {已複製{count}個磁力連結}}",
-  "{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}": "{count, plural, other {已複製{count}個磁力連結}}，{left, plural, other {已略過{left}個私有 torrent}}",
+  "{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}": "{count, plural, other {已複製{count}個磁力連結}}，{left, plural, other {已排除{left}個私有 torrent}}",
   "{count, plural, one {{count} peer connected in on port {port}: {detail}.} other {{count} peers connected in on port {port}: {detail}.}}": "{count, plural, other {{count}個用戶透過連接埠{port}連入：{detail}。}}",
   "{count, plural, one {{count} peer} other {{count} peers}}": "{count, plural, other {{count}個用戶}}",
   "{count, plural, one {{count} selected} other {{count} selected}}": "{count, plural, other {已選擇{count}個}}",
