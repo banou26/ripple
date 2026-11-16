@@ -59,27 +59,34 @@ const measure = () => {
   }
 }
 
-// FKN's mark beside the wordmark (HOR-1066), or beside the library's logo: on the word's baseline, as tall as its
-// capitals, and clear of what follows
+// FKN's mark beside the wordmark (HOR-1066): on its baseline, as tall as its capitals, and clear of what follows. Beside
+// the library's logo, which has no baseline, it is centred on the logo's height instead.
 const measureMark = () => {
   const brand = document.querySelector('header .brand')
   const svg = brand?.querySelector('.powered svg')
   if (!svg) return null
-  const word = brand.querySelector('.wordmark')
-  // an empty inline block sits on the baseline, so its bottom is the wordmark's baseline and its height the cap height
-  const probe = document.createElement('span')
-  probe.style.cssText = 'display: inline-block; width: 0; height: 1cap'
-  word?.append(probe)
-  const line = probe.getBoundingClientRect()
-  probe.remove()
   const mark = svg.getBoundingClientRect()
   const own = brand.getBoundingClientRect()
   const next = brand.nextElementSibling?.getBoundingClientRect()
-  return {
-    offBaseline: word ? Math.round((mark.bottom - line.bottom) * 10) / 10 : 0,
-    offCap: word ? Math.round((mark.height - line.height) * 10) / 10 : 0,
+  const around = {
     overlaps: !!next && own.right > next.left && next.right > own.left && own.bottom > next.top && next.bottom > own.top,
     docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }
+  const word = brand.querySelector('.wordmark')
+  if (!word) {
+    const logo = brand.querySelector('.logo img')?.getBoundingClientRect()
+    return logo ? { offCentre: Math.round((mark.top + mark.bottom - logo.top - logo.bottom) * 5) / 10, ...around } : null
+  }
+  // an empty inline block sits on the baseline, so its bottom is the wordmark's baseline and its height the cap height
+  const probe = document.createElement('span')
+  probe.style.cssText = 'display: inline-block; width: 0; height: 1cap'
+  word.append(probe)
+  const line = probe.getBoundingClientRect()
+  probe.remove()
+  return {
+    offBaseline: Math.round((mark.bottom - line.bottom) * 10) / 10,
+    offCap: Math.round((mark.height - line.height) * 10) / 10,
+    ...around,
   }
 }
 
@@ -169,11 +176,15 @@ try {
       await page.waitForSelector('header .powered button', { timeout: 30_000 })
       const m = await page.evaluate(measureMark)
       const bad = []
-      if (!m) bad.push('no mark')
+      if (!m) bad.push('no mark, or neither a wordmark nor a logo beside it')
       else {
-        if (Math.abs(m.offBaseline) > 1) bad.push(`the mark sits ${m.offBaseline}px off the baseline`)
-        if (Math.abs(m.offCap) > 0.5) bad.push(`the mark is ${m.offCap}px off a capital's height`)
-        if (m.overlaps) bad.push('the wordmark and mark run into what follows them')
+        if ('offCentre' in m) {
+          if (Math.abs(m.offCentre) > 1) bad.push(`the mark sits ${m.offCentre}px off the logo's middle`)
+        } else {
+          if (Math.abs(m.offBaseline) > 1) bad.push(`the mark sits ${m.offBaseline}px off the baseline`)
+          if (Math.abs(m.offCap) > 0.5) bad.push(`the mark is ${m.offCap}px off a capital's height`)
+        }
+        if (m.overlaps) bad.push('the brand and mark run into what follows them')
         if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
       }
       await page.hover('header .powered button')
@@ -182,7 +193,7 @@ try {
       const href = opened ? await card.getByRole('link', { name: 'How it works' }).getAttribute('href') : null
       const box = opened ? await card.boundingBox() : null
       if (!opened) bad.push('the card did not open on hover')
-      else if (href !== 'https://docs.fkn.dev/') bad.push(`the card links to ${href}`)
+      else if (href !== 'https://docs.fkn.dev/user/') bad.push(`the card links to ${href}`)
       else if (box.x < 0 || box.x + box.width > width) bad.push('the card runs out of the viewport')
       if (width === 1440 || width === 390) await page.screenshot({ path: `${OUT}/mark-${name}-${width}.png`, clip: { x: 0, y: 0, width: Math.min(width, 520), height: 200 } })
       await page.mouse.move(width / 2, 600)
