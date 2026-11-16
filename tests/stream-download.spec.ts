@@ -48,7 +48,7 @@ const startStream = (page: Page, name: string) =>
     // MUST be a navigation: an <a download> click runs outside the service worker
     const frame = document.createElement('iframe')
     frame.hidden = true
-    frame.setAttribute('sandbox', 'allow-downloads allow-same-origin')
+    frame.setAttribute('sandbox', 'allow-downloads allow-same-origin allow-scripts')
     frame.src = `/__ripple-stream/${id}/${encodeURIComponent(name)}`
     document.body.appendChild(frame)
 
@@ -136,6 +136,32 @@ test('an unclaimed download URL does not serve the app itself', async ({ page })
     return res.status
   })
   expect(status).toBe(404)
+})
+
+/*
+ * The save frame runs scripts, so a save address the worker does not claim gets the app from the server, and a
+ * second Ripple in that frame would fight the page's for the storage locks. With no worker the server answers, as it
+ * does for such a frame. smoke.spec.ts has the same address opened as a page, which goes on to the library.
+ */
+test('the app refuses to start in a save frame', async ({ browser }) => {
+  const context = await browser.newContext({ serviceWorkers: 'block' })
+  await context.addInitScript(() => window.addEventListener('error', (event) => { (window as any).__error = event.message }))
+  const page = await context.newPage()
+  await page.goto('/assets/logo.png')
+  await page.evaluate(() => {
+    for (const src of ['/__ripple-stream/abc/file.bin', '/no-such-page']) {
+      const frame = document.createElement('iframe')
+      frame.setAttribute('sandbox', 'allow-downloads allow-same-origin allow-scripts')
+      frame.src = src
+      document.body.append(frame)
+    }
+  })
+  // the control: the same frame anywhere else starts the app
+  await expect(page.frameLocator('iframe[src="/no-such-page"]').locator('.mount')).toHaveCount(1, { timeout: 30_000 })
+  const save = page.frames().find((frame) => frame.url().includes('/__ripple-stream/'))!
+  await expect.poll(() => save.evaluate(() => (window as any).__error)).toContain('Ripple does not start under /__ripple-stream/')
+  await expect(page.frameLocator('iframe[src^="/__ripple-stream/"]').locator('.mount')).toHaveCount(0)
+  await context.close()
 })
 
 /*

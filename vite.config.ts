@@ -38,6 +38,17 @@ const findFirefox = () => {
   return build && existsSync(path) ? path : undefined
 }
 
+/**
+ * A Playwright run-server for WebKit (scripts/webkit-server.sh), because the store's WebKit is built for another
+ * Playwright and opens no page here. CI launches Playwright's own. Anywhere else the browser suite runs no WebKit, and
+ * says so.
+ */
+const webkitServer = process.env.RIPPLE_WEBKIT_WS
+const withWebkit = Boolean(webkitServer || process.env.CI)
+if (process.env.VITEST && !withWebkit) console.warn('ripple: no RIPPLE_WEBKIT_WS, so the browser suite runs no WebKit (scripts/webkit-server.sh starts one)')
+
+const ACROSS_ENGINES = ['tests/router/bulk-selection.browser.test.tsx', 'tests/torrent/stream-download.browser.test.ts']
+
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'))
 
 /**
@@ -338,16 +349,27 @@ export default defineConfig((env) => ({
             // explicit: the default is a 414px phone, and the player chrome branches on 768px
             instances: [
               { browser: 'chromium', viewport: { width: 1280, height: 720 } },
-              // the files whose behaviour differs in Firefox, run there too
+              // the files whose behaviour has differed between engines, run in the other two as well
               {
                 browser: 'firefox',
                 viewport: { width: 1280, height: 720 },
-                include: ['tests/router/bulk-selection.browser.test.tsx'],
+                include: ACROSS_ENGINES,
                 provider: playwright({
                   launchOptions: { executablePath: findFirefox(), firefoxUserPrefs: { 'media.volume_scale': '0.0' } },
                   contextOptions: { locale: 'en-US' },
                 }),
               },
+              // WebKit has no mute switch: the server's container has no audio device, and these files play nothing
+              ...(withWebkit ? [{
+                browser: 'webkit' as const,
+                viewport: { width: 1280, height: 720 },
+                include: ACROSS_ENGINES,
+                provider: playwright({
+                  // the test server is reached through this client's loopback, and the container's network reaches nothing
+                  connectOptions: webkitServer ? { wsEndpoint: webkitServer, exposeNetwork: '<loopback>' } : undefined,
+                  contextOptions: { locale: 'en-US' },
+                }),
+              }] : []),
             ],
           },
         },

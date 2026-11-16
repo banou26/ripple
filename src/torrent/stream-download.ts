@@ -1,9 +1,9 @@
 // src/sw.js is the other half. The two files cannot import from each other, so the prefix and the message names are duplicated deliberately.
 
 import { intl } from '../i18n'
+import { STREAM_PREFIX } from '../stream-guard'
 import { pageWork } from '../utils/page-work'
 
-const PREFIX = '/__ripple-stream/'
 // Short enough to stay inside the click's transient activation so the download is not treated as unsolicited.
 const READY_MS = 3_000
 const FIRST_PULL_MS = 15_000
@@ -33,12 +33,12 @@ export type Sink = {
 }
 
 // A hidden iframe navigated at the URL, NOT an <a download> click: Chromium runs a download started by the download attribute outside the service worker entirely.
-// Sandboxed without allow-scripts on purpose: if the worker ever fails to claim the URL the frame loads the app itself, and a second copy of Ripple in the page would fight the first for the OPFS locks. With scripts blocked the worst case is an inert frame.
+// allow-scripts because WebKit sends a sandboxed frame to the service worker only when its sandbox allows scripts and same-origin (DocumentLoader.cpp, bug 239379), so Safari's saves fell back to memory. A URL the worker fails to claim loads the app, which refuses to start there (stream-guard.ts).
 // allow-same-origin is not optional: without it the frame gets an opaque origin, which no service worker controls, so the request would skip the worker.
 const openDownloadFrame = (url: string): HTMLIFrameElement => {
   const frame = document.createElement('iframe')
   frame.hidden = true
-  frame.setAttribute('sandbox', 'allow-downloads allow-same-origin')
+  frame.setAttribute('sandbox', 'allow-downloads allow-same-origin allow-scripts')
   frame.src = url
   document.body.appendChild(frame)
   return frame
@@ -108,7 +108,7 @@ export const openStreamSink = async (name: string, size = 0): Promise<Sink | nul
   // The frame's fetch and this message reach the worker by separate routes, and a fetch that lands first is answered 404 "Unknown download". Bounded by READY_MS so a worker that never answers still leaves the fallback its click.
   if (!await withTimeout(opened, READY_MS)) { port.onmessage = null; port.close(); return null }
 
-  const frame = openDownloadFrame(PREFIX + id + '/' + encodeURIComponent(name))
+  const frame = openDownloadFrame(STREAM_PREFIX + id + '/' + encodeURIComponent(name))
 
   let missed = 0
   // Set once `end` has been posted. Past that the worker has nothing left to do for this download

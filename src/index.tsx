@@ -1,3 +1,4 @@
+import './stream-guard'
 import './torrent/node-shims'
 
 import { css, Global } from '@emotion/react'
