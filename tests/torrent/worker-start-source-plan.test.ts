@@ -49,7 +49,7 @@ vi.mock('idb-keyval', () => {
   })
   store.set('ripple:torrents', [
     entry(PLAIN, { wantedFiles: [1] }),
-    entry(SOURCE, { wantedFiles: [0], saveTo: 'source', savePath: '/source/' + SOURCE }),
+    entry(SOURCE, { wantedFiles: [0], firstLast: true, saveTo: 'source', savePath: '/source/' + SOURCE }),
   ])
   store.set('ripple:torrent:' + SOURCE, new Uint8Array([1]))
   return {
@@ -70,6 +70,6 @@ it('writes a created torrent\'s stored file selection to the engine when the pag
   rig.send({ type: 'start-source', infoHash: SOURCE, handles: [{ name: 'E01.mkv' }, { name: 'E02.mkv' }] })
   await vi.waitFor(() => expect(engine.ids.get('/source/' + SOURCE)).toBeDefined())
   const source = engine.ids.get('/source/' + SOURCE)!
-  await vi.waitFor(() => expect(engine.plans, 'the reload forgot the file left out').toContain(`${source}: 4 0`), { timeout: 3_000 })
+  await vi.waitFor(() => expect(engine.plans, 'the reload forgot the file selection').toContain(`${source}: 7 4 0`), { timeout: 3_000 })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 })
