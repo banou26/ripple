@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 
 import type { CreateOptions } from '../torrent/create-source'
+import type { ShareSubject } from '../torrent/torrent-file'
 import type { UseCreateTorrent } from '../torrent/use-create-torrent'
 
 import {
@@ -30,6 +31,7 @@ import { MAX_PIECE_LENGTH, MIN_PIECE_LENGTH, contentFiles, dropsFolderName } fro
 import { getHumanReadableByteString } from '../utils/bytes'
 import { writeDuration } from '../torrent/uptime'
 import { hashEta } from '../torrent/hash-pieces'
+import { isPrivateTorrent, readMagnet } from '../torrent/torrent-file'
 import { Modal } from './modal'
 
 /**
@@ -226,7 +228,7 @@ type Props = {
   create: UseCreateTorrent
   onClose: () => void
   /** Hands the finished torrent to whatever already knows how to offer a link for one. */
-  onShare: (magnet: string) => void
+  onShare: (subject: ShareSubject | null) => void
   onToast: (message: string) => void
 }
 
@@ -606,7 +608,12 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                 ref={first}
                 className="go"
                 type="button"
-                onClick={() => { onShare(state.built!.magnet); onClose() }}
+                onClick={() => {
+                  if (!state.built) return
+                  const subject = readMagnet(state.built.magnet)
+                  onShare(subject && { ...subject, private: isPrivateTorrent(state.built.bytes) })
+                  onClose()
+                }}
               >
                 {intl.formatMessage({ id: 'Get a share link', defaultMessage: 'Get a share link' })}
               </button>

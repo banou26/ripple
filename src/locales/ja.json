@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "ピアが接続できません。ページを再読み込みしてみてください。",
   "No peers found with the VPN off. Still searching.": "VPN がオフではピアが見つかりません。引き続き検索しています。",
   "No peers found. Still searching.": "ピアが見つかりません。引き続き検索しています。",
+  "No share link for a private torrent.": "プライベート Torrent には共有リンクがありません。",
   "No thanks": "今はしない",
   "No trackers.": "トラッカーはありません。",
   "Nobody connected in on port {port}.": "ポート{port}への着信接続はありません。",

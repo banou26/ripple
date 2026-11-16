@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises'
 import { describe, expect, it } from 'vitest'
-import { readMagnet, readTorrentFile } from '../../src/torrent/torrent-file'
+import { isPrivateTorrent, readMagnet, readTorrentFile } from '../../src/torrent/torrent-file'
 
 const REAL = {
   path: '/home/banou/downloads/single-file.torrent',
@@ -107,6 +107,33 @@ describe('reading a share subject without the engine', () => {
   it('leaves an already-encoded magnet as it found it', () => {
     const raw = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
     expect(readMagnet(raw)!.magnet).toBe(raw)
+  })
+})
+
+/**
+ * A private tracker's torrent says so in its info dict, and its tracker address carries the member's
+ * own key, so a torrent known to be private gets no share link. Only a file can say it: a magnet has
+ * no info dict.
+ */
+describe('whether a torrent is known to be private', () => {
+  const file = (info: string) => bencode(`d8:announce25:https://t.invalid/key/ann4:infod6:lengthi5e4:name1:x${info}ee`)
+
+  it('reads the flag off the info dict, set to 1', async () => {
+    expect(isPrivateTorrent(file('7:privatei1e'))).toBe(true)
+    expect((await readTorrentFile(file('7:privatei1e')))!.private).toBe(true)
+  })
+
+  it('is not private without the flag, or with it at 0', async () => {
+    for (const info of ['', '7:privatei0e']) {
+      expect(isPrivateTorrent(file(info)), info).toBe(false)
+      expect((await readTorrentFile(file(info)))!.private, info).toBe(false)
+    }
+  })
+
+  it('never calls a magnet private, nor a flag outside the info dict, nor what is not a torrent', () => {
+    expect(readMagnet('magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&tr=https%3A%2F%2Ft.invalid%2Fkey%2Fann')!.private).toBe(false)
+    expect(isPrivateTorrent(bencode('d4:infod6:lengthi5e4:name1:xe7:privatei1ee'))).toBe(false)
+    for (const bad of [new Uint8Array(), bencode('<!doctype html>')]) expect(isPrivateTorrent(bad)).toBe(false)
   })
 })
 

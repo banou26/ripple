@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "Пиры не могут подключиться. Попробуйте перезагрузить страницу.",
   "No peers found with the VPN off. Still searching.": "С выключенным VPN пиры не найдены. Поиск продолжается.",
   "No peers found. Still searching.": "Пиры не найдены. Поиск продолжается.",
+  "No share link for a private torrent.": "Для частного торрента нет ссылки для общего доступа.",
   "No thanks": "Нет, спасибо",
   "No trackers.": "Трекеров нет.",
   "Nobody connected in on port {port}.": "Никто не подключился через порт {port}.",

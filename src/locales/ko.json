@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "피어가 연결할 수 없어요. 페이지를 새로고침해 보세요.",
   "No peers found with the VPN off. Still searching.": "VPN이 꺼진 상태에서는 피어를 찾지 못했어요. 계속 찾는 중이에요.",
   "No peers found. Still searching.": "피어를 찾지 못했어요. 계속 찾는 중이에요.",
+  "No share link for a private torrent.": "비공개 토렌트에는 공유 링크가 없어요.",
   "No thanks": "괜찮아요",
   "No trackers.": "트래커가 없어요.",
   "Nobody connected in on port {port}.": "포트 {port}에 들어온 연결이 없어요.",

@@ -1,5 +1,6 @@
 import type { Built } from '../../src/torrent/create-source'
 import type { CreateState, UseCreateTorrent } from '../../src/torrent/use-create-torrent'
+import type { ShareSubject } from '../../src/torrent/torrent-file'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -156,5 +157,22 @@ describe('the create dialog in German', () => {
     expect(shown['hashing, under way']).toEqual(['Torrent erstellen', 'Dateien werden gehasht…', '1 MB von 3 MB · Episode 1.mkv', 'Abbrechen'])
     expect(shown['copying, between files']).toContain('0 Byte von 3 MB')
     expect(shown.done).toEqual(expect.arrayContaining(['Holiday wird geteilt.', `Info-Hash ${'a'.repeat(40)}`, 'Weiteren erstellen', 'Freigabelink erstellen']))
+  })
+})
+
+describe('the create dialog\'s share link', () => {
+  // a private torrent's tracker address carries the member's own key, so the share panel makes no link for it
+  it('hands a torrent made private over as private, and any other as not', async () => {
+    const torrent = (flag: string) => new TextEncoder().encode(`d4:infod6:lengthi5e4:name7:Holiday${flag}ee`)
+    const shared: (ShareSubject | null)[] = []
+    for (const bytes of [torrent('7:privatei1e'), torrent('')]) {
+      const done = create({ ...STATES.done, built: { ...BUILT, bytes } })
+      const screen = await render(<CreateTorrentDialog create={done} onClose={() => {}} onShare={(subject) => shared.push(subject)} onToast={() => {}}/>, { wrapper: IntlRoot })
+      await expect.poll(dialog).not.toBeNull()
+      ;([...dialog().querySelectorAll('button')].find((b) => b.textContent === 'Get a share link') as HTMLElement).click()
+      await screen.unmount()
+    }
+    expect(shared.map((subject) => subject?.private)).toEqual([true, false])
+    expect(shared.map((subject) => subject?.magnet)).toEqual([BUILT.magnet, BUILT.magnet])
   })
 })

@@ -7,6 +7,7 @@ import { userEvent } from '@vitest/browser/context'
 import { SYNCED_FILE_CAP } from '../../src/torrent/library'
 import { decodeMagnetParam } from '../../src/router/magnet-codec'
 import { ShareLinkDialog } from '../../src/components/share-link-dialog'
+import { readMagnet, readTorrentFile } from '../../src/torrent/torrent-file'
 import { IntlRoot } from '../../src/i18n'
 import { showEnglish, showIn } from '../i18n/show-in'
 import { wordsIn } from '../i18n/words-in'
@@ -53,6 +54,7 @@ const SINTEL: ShareSubject = {
     file('Sintel/Sintel.mp4', 129_200_000),
   ]),
   fileCount: 4,
+  private: false,
 }
 
 // the shell portals to the body, so nothing here is reachable through the render container
@@ -338,6 +340,41 @@ describe('the share link dialog, once it has a torrent', () => {
   })
 })
 
+/**
+ * A private tracker's address carries the member's own key, and a key that went out cannot be taken
+ * back, so a torrent known to be private gets no link at all. Each subject here comes through the
+ * reader the page uses, so a reader that drops the flag fails here too.
+ */
+describe('the share link dialog, for a torrent known to be private', () => {
+  const KEY = '0123456789abcdef'
+  const tracker = `https://tracker.private.example/${KEY}/announce`
+  const torrentFile = (flag: string) => new TextEncoder().encode(
+    `d8:announce${tracker.length}:${tracker}4:infod6:lengthi5e4:name7:Private${flag}ee`,
+  )
+
+  it('makes no link from a private .torrent, and says so in one line', async () => {
+    const { url } = await mount(await readTorrentFile(torrentFile('7:privatei1e')))
+    expect(dialog().querySelector('.warn')?.textContent).toBe('No share link for a private torrent.')
+    expect(url()).toBe('')
+    expect(dialog().querySelector('[data-testid="embed-iframe"]')).toBeNull()
+    expect(dialog().querySelector('a')).toBeNull()
+    expect([...dialog().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Use a different torrent', 'Close'])
+  })
+
+  it('makes the link, key and all, from the same .torrent without the flag', async () => {
+    const { url, query } = await mount(await readTorrentFile(torrentFile('')))
+    await expect.poll(url).not.toBe('')
+    expect(decodeMagnetParam(query())).toContain(KEY)
+    expect(dialog().querySelector('.warn')).toBeNull()
+  })
+
+  it('makes the link from a magnet, which cannot say it is private', async () => {
+    const { url, query } = await mount(readMagnet(`magnet:?xt=urn:btih:${'c'.repeat(40)}&tr=${encodeURIComponent(tracker)}`))
+    await expect.poll(url).not.toBe('')
+    expect(decodeMagnetParam(query())).toContain(KEY)
+  })
+})
+
 
 afterEach(showEnglish)
 
@@ -378,7 +415,7 @@ const everyState = async () => {
   read('watch')
   await sintel.unmount()
 
-  for (const [name, subject] of [['no magnet', { ...SINTEL, magnet: '' }], ['no file list', withFiles(null, 0)]] as const) {
+  for (const [name, subject] of [['no magnet', { ...SINTEL, magnet: '' }], ['no file list', withFiles(null, 0)], ['private', { ...SINTEL, private: true }]] as const) {
     const screen = await mount(subject)
     read(name)
     await screen.unmount()
@@ -406,6 +443,7 @@ describe('the share link dialog in English, as it read before its text was trans
         ],
         'no magnet': ['Share link', 'Sintel', '129.3 MB · 4 files', ...mode, 'All 4 files', ...files, 'No magnet link yet.', ...footer],
         'no file list': ['Share link', 'Sintel', '129.3 MB', ...mode, 'Loading the file list...', ...link, ...footer],
+        private: ['Share link', 'Sintel', '129.3 MB · 4 files', 'No share link for a private torrent.', ...footer],
       },
       toasts: ['Link copied', 'Frame copied', 'Could not copy the link. Select it and copy by hand.', 'Could not copy the frame. Select it and copy by hand.'],
     })
@@ -433,6 +471,7 @@ describe('the share link dialog in German', () => {
         ],
         'no magnet': ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', ...mode, 'Alle 4 Dateien', ...files, 'Noch kein Magnet-Link.', ...footer],
         'no file list': ['Freigabelink', 'Sintel', '129,3 MB', ...mode, 'Dateiliste wird geladen...', ...link, ...footer],
+        private: ['Freigabelink', 'Sintel', '129,3 MB · 4 Dateien', 'Kein Freigabelink für einen privaten Torrent.', ...footer],
       },
       toasts: [
         'Link kopiert', 'Einbettungscode kopiert', 'Der Link konnte nicht kopiert werden. Markiere ihn und kopiere ihn von Hand.',

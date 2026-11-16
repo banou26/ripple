@@ -1,6 +1,6 @@
 import { get } from 'idb-keyval'
 
-import { infoRange, readTorrentFile } from './torrent-file'
+import { infoRange, isPrivateTorrent, readTorrentFile } from './torrent-file'
 import { magnetParams } from './magnet'
 import { resumeKey, torrentKey } from './library'
 
@@ -118,6 +118,16 @@ export const shareableMagnet = async (
   if (!magnet || !infoHash) return magnet
   const kept = await keptTorrentFile(infoHash)
   return (kept && (await readTorrentFile(kept))?.magnet) || magnet
+}
+
+/**
+ * Whether a library torrent is known to be private, which gives it no share link: the `.torrent`
+ * this device kept for it says so. A magnet add, or a row synced from another device, keeps no file
+ * here and is not known to be.
+ */
+export const knownPrivate = async (infoHash: string | undefined): Promise<boolean> => {
+  const kept = infoHash ? await keptTorrentFile(infoHash) : null
+  return !!kept && isPrivateTorrent(kept)
 }
 
 /** How long to wait for the worker to write a blob after being asked, and how often to look. */

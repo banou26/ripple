@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "Hiçbir kişi bağlanamıyor. Sayfayı yeniden yüklemeyi deneyin.",
   "No peers found with the VPN off. Still searching.": "VPN kapalıyken kişi bulunamadı. Arama sürüyor.",
   "No peers found. Still searching.": "Kişi bulunamadı. Arama sürüyor.",
+  "No share link for a private torrent.": "Özel bir torrent için paylaşım bağlantısı yok.",
   "No thanks": "Hayır, teşekkürler",
   "No trackers.": "İzleyici yok.",
   "Nobody connected in on port {port}.": "{port} numaralı bağlantı noktasına bağlanan yok.",

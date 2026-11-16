@@ -50,11 +50,22 @@ const TORRENT = encoder.encode(
   + 'e',
 )
 
+// a private tracker's torrent: its address carries the member's own key
+const PRIVATE = encoder.encode(
+  'd'
+  + str('announce') + str('https://tracker.private.example/0123456789abcdef/announce')
+  + str('info') + 'd'
+  + str('length') + 'i11e' + str('name') + str(NAME) + str('piece length') + 'i16384e' + str('pieces') + str('p'.repeat(20))
+  + str('private') + 'i1e'
+  + 'e'
+  + 'e',
+)
+
 describe('a torrent added from a .torrent file', () => {
   it('is copied, shared and saved with its name and trackers, while its identity stays bare', async () => {
     const { readTorrentFile } = await import('../../src/torrent/torrent-file')
     const { magnetInfoHash, magnetParam, magnetParams } = await import('../../src/torrent/magnet')
-    const { shareableMagnet, torrentFileFor } = await import('../../src/torrent/torrent-export')
+    const { knownPrivate, shareableMagnet, torrentFileFor } = await import('../../src/torrent/torrent-export')
 
     const read = await readTorrentFile(TORRENT)
     addedHash = magnetInfoHash(read?.magnet ?? '') ?? ''
@@ -74,6 +85,7 @@ describe('a torrent added from a .torrent file', () => {
     expect(magnetInfoHash(shared ?? '')).toBe(addedHash)
     expect(magnetParam(shared ?? '', 'dn'), 'the copied magnet has no name').toBe(NAME)
     expect(magnetParams(shared ?? '', 'tr'), 'the copied magnet lost its trackers').toEqual(TRACKERS)
+    expect(await knownPrivate(addedHash), 'a public torrent was refused a share link').toBe(false)
 
     // a clock that is already past the flush wait, so a save that ignores the kept file answers null at once
     let clock = 0
@@ -87,8 +99,27 @@ describe('a torrent added from a .torrent file', () => {
   })
 
   it('keeps the stored link for a row synced from another device, which has no file here', async () => {
-    const { shareableMagnet } = await import('../../src/torrent/torrent-export')
+    const { knownPrivate, shareableMagnet } = await import('../../src/torrent/torrent-export')
     const synced = `magnet:?xt=urn:btih:${'d'.repeat(40)}`
     expect(await shareableMagnet({ infoHash: 'd'.repeat(40), magnet: synced })).toBe(synced)
+    expect(await knownPrivate('d'.repeat(40))).toBe(false)
+  })
+
+  it('is known to be private when the file it was added from says so', async () => {
+    const { readTorrentFile } = await import('../../src/torrent/torrent-file')
+    const { magnetInfoHash } = await import('../../src/torrent/magnet')
+    const { knownPrivate } = await import('../../src/torrent/torrent-export')
+
+    addedHash = magnetInfoHash((await readTorrentFile(PRIVATE))?.magnet ?? '') ?? ''
+    expect(addedHash, 'the fixture is not a torrent, so this test proves nothing').toMatch(/^[0-9a-f]{40}$/)
+    expect(await knownPrivate(addedHash), 'known before it was added').toBe(false)
+
+    await import('../../src/torrent/worker')
+    await vi.waitFor(() => expect(rig.of('ready'), 'the engine never started').toHaveLength(1))
+    const before = rig.of('added').length
+    rig.send({ type: 'add-torrent-file', bytes: PRIVATE, savePath: '/dl', ephemeral: false, paused: false })
+    await vi.waitFor(() => expect(rig.of('added'), 'the add never landed').toHaveLength(before + 1))
+
+    expect(await knownPrivate(addedHash), 'a private tracker\'s torrent would be shared with its key').toBe(true)
   })
 })

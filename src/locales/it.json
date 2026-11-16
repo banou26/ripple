@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "Nessun peer può connettersi. Prova a ricaricare la pagina.",
   "No peers found with the VPN off. Still searching.": "Nessun peer trovato con la VPN disattivata. La ricerca continua.",
   "No peers found. Still searching.": "Nessun peer trovato. La ricerca continua.",
+  "No share link for a private torrent.": "Nessun link di condivisione per un torrent privato.",
   "No thanks": "No, grazie",
   "No trackers.": "Nessun tracker.",
   "Nobody connected in on port {port}.": "Nessuno connesso alla porta {port}.",

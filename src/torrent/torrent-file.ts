@@ -39,6 +39,11 @@ export type ShareSubject = {
    * sits past it, narrowing the selection instead of failing.
    */
   fileCount: number
+  /**
+   * The torrent is known to be private (see `isPrivateTorrent`), so it gets no share link: a private
+   * tracker's address carries the member's own key. Always false for a magnet.
+   */
+  private: boolean
 }
 
 const DICT = 0x64
@@ -192,6 +197,23 @@ const fromFileTree = (
  */
 export const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
 
+const saysPrivate = (info: Map<string, Bencode>): boolean => info.get('private') === 1
+
+/**
+ * Whether a `.torrent` says it is private, BEP 27's `private` set to 1 in its info dict. Only a file
+ * can say so: a magnet carries no info dict, so a torrent added by magnet is never known to be
+ * private. False for anything that is not a torrent.
+ */
+export const isPrivateTorrent = (bytes: Uint8Array): boolean => {
+  try {
+    const [root] = decode(bytes, 0)
+    const info = root instanceof Map ? root.get('info') : undefined
+    return info instanceof Map && saysPrivate(info)
+  } catch {
+    return false
+  }
+}
+
 /**
  * The infohash is the SHA-1 of the bencoded `info` value EXACTLY as it appears in the file, so its
  * byte range is found rather than the value re-encoded. Bencode is canonical and any normalisation
@@ -296,7 +318,7 @@ export const readTorrentFile = async (bytes: Uint8Array): Promise<ShareSubject |
     ]
     const magnet = `magnet:?${(urns.length ? urns : [`xt=urn:btih:${infoHash}`]).join('&')}&${params.toString()}`
 
-    return { magnet, name, size, files: files.length ? files : null, fileCount }
+    return { magnet, name, size, files: files.length ? files : null, fileCount, private: saysPrivate(info) }
   } catch {
     return null
   }
@@ -320,5 +342,5 @@ export const readMagnet = (raw: string): ShareSubject | null => {
    */
   let magnet = trimmed
   try { magnet = new URL(trimmed).href } catch { /* not a URL, so leave it as typed */ }
-  return { magnet, name: magnetParam(magnet, 'dn') ?? infoHash, size: 0, files: null, fileCount: 0 }
+  return { magnet, name: magnetParam(magnet, 'dn') ?? infoHash, size: 0, files: null, fileCount: 0, private: false }
 }

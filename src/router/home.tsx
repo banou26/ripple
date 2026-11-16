@@ -97,7 +97,7 @@ import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
-import { saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
+import { knownPrivate, saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
 import { useShareableMagnet } from '../torrent/use-shareable-magnet'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 
@@ -2367,6 +2367,7 @@ const Home = () => {
     // numbering a filtered list 0..n-1 and emitting positions, which pointed at the wrong files.
     files: t.files ? contentFiles(t.files).map((f) => ({ name: f.name, size: f.size, index: f.index })) : null,
     fileCount: t.files?.length ?? 0,
+    private: await knownPrivate(t.infoHash),
   }), [])
 
   useEffect(() => {
@@ -3426,7 +3427,7 @@ const Home = () => {
         <CreateTorrentDialog
           create={create}
           onClose={closeCreate}
-          onShare={(magnet) => { closeCreate(); openEmbed(readMagnet(magnet)) }}
+          onShare={(subject) => { closeCreate(); openEmbed(subject) }}
           onToast={showToast}
         />
       )}

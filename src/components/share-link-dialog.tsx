@@ -616,6 +616,20 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
 
   const back = () => { setHandedOver(false); setInput(''); onClear() }
 
+  const subject = torrent && (
+    <div className="subject">
+      <strong>{torrent.name}</strong>
+      <span className="size">
+        {fileCount > 0
+          ? intl.formatMessage({
+            id: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+            defaultMessage: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
+          }, { size: getHumanReadableByteString(torrent.size), count: fileCount })
+          : getHumanReadableByteString(torrent.size)}
+      </span>
+    </div>
+  )
+
   return (
     <Modal labelledBy="share-link-title" onClose={onClose} initialFocus={fieldRef}>
       <div css={style}>
@@ -662,19 +676,16 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                   {handedOver && <p className="waiting">{intl.formatMessage({ id: 'Reading the torrent...', defaultMessage: 'Reading the torrent...' })}</p>}
                 </>
               )
+              : torrent.private
+              ? (
+                <>
+                  {subject}
+                  <span className="warn">{intl.formatMessage({ id: 'No share link for a private torrent.', defaultMessage: 'No share link for a private torrent.' })}</span>
+                </>
+              )
               : (
                 <>
-                  <div className="subject">
-                    <strong>{torrent.name}</strong>
-                    <span className="size">
-                      {fileCount > 0
-                        ? intl.formatMessage({
-                          id: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
-                          defaultMessage: '{count, plural, one {{size} · {count} file} other {{size} · {count} files}}',
-                        }, { size: getHumanReadableByteString(torrent.size), count: fileCount })
-                        : getHumanReadableByteString(torrent.size)}
-                    </span>
-                  </div>
+                  {subject}
 
                   {/* one option is not a choice, so nothing to press is offered when Watch is out */}
                   {watchable && (

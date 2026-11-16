@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "Keine Peers können sich verbinden. Lade die Seite neu.",
   "No peers found with the VPN off. Still searching.": "Bei ausgeschaltetem VPN keine Peers gefunden. Die Suche läuft weiter.",
   "No peers found. Still searching.": "Keine Peers gefunden. Die Suche läuft weiter.",
+  "No share link for a private torrent.": "Kein Freigabelink für einen privaten Torrent.",
   "No thanks": "Nein danke",
   "No trackers.": "Keine Tracker.",
   "Nobody connected in on port {port}.": "Niemand ist über Port {port} verbunden.",

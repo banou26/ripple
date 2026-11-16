@@ -206,6 +206,7 @@
   "No peers can connect. Try reloading the page.": "没有用户能够连接。请尝试重新加载页面。",
   "No peers found with the VPN off. Still searching.": "VPN 关闭时未找到用户。仍在搜索。",
   "No peers found. Still searching.": "未找到用户。仍在搜索。",
+  "No share link for a private torrent.": "私有 torrent 没有分享链接。",
   "No thanks": "不用了",
   "No trackers.": "没有 Tracker。",
   "Nobody connected in on port {port}.": "没有人通过端口{port}连入。",
