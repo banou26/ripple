@@ -345,18 +345,29 @@ test('a download link opened as its own page starts saving by itself', async ({ 
     await own.close()
   })
 
-  await test.step('as its own page with the worker in control, it starts by itself', async () => {
+  await test.step('as its own page with the worker in control, it starts by itself, once', async () => {
     const own = await context.newPage()
-    let startedAt = 0
-    own.on('download', () => { startedAt ||= Date.now() })
+    const started: number[] = []
+    own.on('download', () => started.push(Date.now()))
     const downloading = own.waitForEvent('download', { timeout: 60_000 })
     await own.goto(link)
     await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
     const readyAt = Date.now()
     const download = await downloading
-    expect(startedAt - readyAt, 'it started without waiting').toBeGreaterThan(1_000)
+    expect(started[0]! - readyAt, 'it started without waiting').toBeGreaterThan(1_000)
     expect(download.url()).toContain('/__ripple-stream/')
     expect(readFileSync(await download.path()).equals(want)).toBe(true)
+
+    // the way back mounts the page afresh in the same document
+    await expect(cta(own)).toBeEnabled({ timeout: 30_000 })
+    await own.locator('.wordmark').click()
+    // the library drawn, so the download page is gone rather than kept while the library loads
+    await expect(own.getByRole('button', { name: 'Create a torrent' })).toBeVisible({ timeout: 30_000 })
+    await own.goBack()
+    await expect(cta(own)).toBeEnabled({ timeout: 60_000 })
+    await own.waitForTimeout(6_000)
+    expect(started, 'back on the page, it saved the same file again').toHaveLength(1)
+    expect(await opened(own)).toBe(1)
     await own.close()
   })
 

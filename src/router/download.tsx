@@ -530,6 +530,8 @@ const style = css`
 
 /** How long a link opened as its own page waits, once its files are in, before it starts the save itself. */
 const START_BY_ITSELF_MS = 2_000
+/** Per document, not per mount: going to the library and back mounts the page again, on the same file. */
+let startedOnce = false
 
 /** Whether the service worker controls this page, which is what lets a save start with no click. */
 const useControlled = (): boolean => {
@@ -1046,19 +1048,19 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   /*
    * A link opened as its own page starts the save itself, a moment after its files are in, when the service worker
    * can hand it to the browser's downloads (the picker and the in-memory save need a click). Once a save has
-   * started, by itself or from a button, this page never starts one again. The ticks are read when the wait ends,
-   * through a ref: every engine broadcast rebuilds `entries`, which as a dependency would restart the wait each time.
+   * started, by itself or from a button, this document never starts one again (`startedOnce`). The ticks are read
+   * when the wait ends, through a ref: every engine broadcast rebuilds `entries`, which as a dependency would restart
+   * the wait each time.
    */
   const ownPage = typeof window !== 'undefined' && window.top === window.self
   const controlled = useControlled()
-  const startedOnce = useRef(false)
   const entriesRef = useRef(entries)
   useEffect(() => { entriesRef.current = entries })
   useEffect(() => {
-    if (busy) startedOnce.current = true
-    if (startedOnce.current || !ready || !ownPage || !controlled) return
+    if (busy) startedOnce = true
+    if (startedOnce || !ready || !ownPage || !controlled) return
     const timer = window.setTimeout(() => {
-      startedOnce.current = true
+      startedOnce = true
       start(entriesRef.current, downloading, true)
     }, START_BY_ITSELF_MS)
     return () => window.clearTimeout(timer)
