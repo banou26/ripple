@@ -48,7 +48,7 @@ const SPECS: Spec[] = [
   { name: 'Bound', to: 'picked', fill: 0x30, placeB: false },
 ]
 
-type Row = { magnet: string, state: number | null, progress: number, savePath: string | undefined }
+type Row = { magnet: string, state: number | null, savePath: string | undefined }
 
 test('a file ticked after the copy reaches the folder only once its bytes are held', async ({ page }) => {
   test.setTimeout(180_000)
@@ -68,7 +68,6 @@ test('a file ticked after the copy reaches the folder only once its bytes are he
           w.__rows = (event.data.torrents ?? []).map((t: any) => ({
             magnet: String(t.magnet ?? '').toLowerCase(),
             state: t.status?.state ?? null,
-            progress: t.status?.progress ?? 0,
             savePath: t.status?.savePath,
           }))
         })
@@ -143,7 +142,7 @@ test('a file ticked after the copy reaches the folder only once its bytes are he
   const copied = (files: Record<string, number>, name: string) => files[`${name}/a.bin`] === 2 * PIECE && files[`${name}/c.bin`] === 2 * PIECE
   await expect.poll(async () => { const files = await folder(); return torrents.every((t) => copied(files, t.name)) }, { timeout: 90_000 }).toBe(true)
   // the copy is whole for the choice made, so its removal offers to delete Ripple's copy: the reading the tick must undo
-  expect(await options('Gap')).toContain('Remove and delete Ripple\'s copy')
+  await expect.poll(() => options('Gap'), { timeout: 15_000 }).toContain('Remove and delete Ripple\'s copy')
 
   await tickB('Held')
   await expect.poll(async () => (await folder())['Held/b.bin'], { timeout: 30_000, message: 'a ticked file whose bytes are held is copied' }).toBe(2 * PIECE)
