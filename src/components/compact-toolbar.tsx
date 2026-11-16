@@ -72,11 +72,11 @@ const style = css`
     .chev { color: ${TEXT_MUTED}; }
   }
 
-  /* the sort key gives way first, down to its icon, so the filter (which rows are listed) is the last word cut;
-     flex-shrink is weighted by size, hence a factor far above any ratio of the two chips' widths */
+  /* the sort key gives way first, down to its icon and its chevron, so the filter (which rows are listed) is the last
+     word cut; flex-shrink is weighted by size, hence a factor far above any ratio of the two chips' widths */
   .chip.sort {
     flex-shrink: 1000;
-    min-width: 32px;
+    min-width: 60px;
   }
 
   .square {
@@ -146,7 +146,6 @@ const style = css`
   @media (max-width: 560px) {
     .views span { display: none; }
     .views button { padding: 5px 9px; }
-    .chip .chev { display: none; }
   }
 `
 
