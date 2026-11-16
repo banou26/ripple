@@ -36,7 +36,7 @@ test('the page framing /watch shows the player its autoplay switch, hears it fli
     Object.assign(frame.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', border: 'none' })
     document.body.append(frame)
     const w = window as unknown as Embedder
-    w.player = window.mediaPlayer(frame, { origin: location.origin }) as Embedder['player']
+    w.player = window.mediaPlayer(frame, { origin: location.origin })
     w.heard = []
     w.player.addEventListener('autoplaynextchange', () => w.heard.push(w.player.autoplayNext))
     await w.player.ready
