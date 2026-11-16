@@ -170,7 +170,8 @@ export const readGroupLink = (fragment: string): LinkedGroup | null => {
     const hashBytes = readVarint(bytes, at)
     if (count < 1 || count > MAX_LINK_TORRENTS) return null
     const hashes = bytes.subarray(at.i, at.i + hashBytes)
-    // fflate fills `out` and stops rather than throwing, so a body that reaches MAX_BODY + 1 was still going
+    // fflate does not stop at a full `out`: it inflates to the end and drops what does not fit (a stored block throws),
+    // so a body that fills MAX_BODY + 1 was longer, and a crafted link costs the time of its whole body
     const body = inflateSync(bytes.subarray(at.i + hashBytes), { dictionary: DICTIONARY, out: new Uint8Array(MAX_BODY + 1) })
     if (body.length > MAX_BODY) return null
     const text = decoder.decode(body)
