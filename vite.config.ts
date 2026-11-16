@@ -45,7 +45,8 @@ const findFirefox = () => {
  */
 const webkitServer = process.env.RIPPLE_WEBKIT_WS
 const withWebkit = Boolean(webkitServer || process.env.CI)
-if (process.env.VITEST && !withWebkit) console.warn('ripple: no RIPPLE_WEBKIT_WS, so the browser suite runs no WebKit (scripts/webkit-server.sh starts one)')
+// not on `npm test`, which runs the unit project only
+if (process.env.VITEST && !withWebkit && !process.argv.includes('unit')) console.warn('ripple: no RIPPLE_WEBKIT_WS, so the browser suite runs no WebKit (scripts/webkit-server.sh starts one)')
 
 const ACROSS_ENGINES = ['tests/router/bulk-selection.browser.test.tsx', 'tests/torrent/stream-download.browser.test.ts']
 
