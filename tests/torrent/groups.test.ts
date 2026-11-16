@@ -40,6 +40,8 @@ describe('mergeGroups', () => {
     expect(mergeGroups([live], [second], [first])).toEqual([tombstone])
     expect(mergeGroups([first], [live], [second])).toEqual([tombstone])
     expect(mergeGroups([second], [first], [live])).toEqual([tombstone])
+    // alone too: a copy from another version may still carry the deleted group's name
+    expect(mergeGroups([{ ...live, deletedAt: 3_000, extra: 1 }])).toEqual([tombstone])
   })
 
   it('breaks a tie the same way whichever copy comes first', () => {
@@ -87,16 +89,18 @@ describe('mergeGroups', () => {
     const shuffled = <T>(list: readonly T[]): T[] =>
       list.map((value) => ({ value, key: random() })).sort((a, b) => a.key - b.key).map(({ value }) => value)
     // few ids, names, hashes and times, so the ties the rules settle actually happen
-    const copy = (): TorrentGroup[] => Array.from({ length: Math.floor(random() * 4) }, () => random() < 0.15
-      ? { id: pick(['g1', 'g2', 'g3']), name: '', namedAt: 0, members: [], deletedAt: pick([1, 2, 3, 4]) }
-      : {
+    const copy = (): TorrentGroup[] => Array.from({ length: Math.floor(random() * 4) }, () => {
+      const live = {
         id: pick(['g1', 'g2', 'g3']),
         name: pick(['Alpha', 'Beta', 'Gamma']),
         namedAt: pick([1, 2, 3]),
         members: Array.from({ length: Math.floor(random() * 5) }, (): Member => random() < 0.4
           ? { infoHash: pick([A, B, C, 'd'.repeat(64)]), at: pick([1, 2, 3]), out: true }
           : { infoHash: pick([A, B, C, 'd'.repeat(64)]), at: pick([1, 2, 3]) }),
-      })
+      }
+      // a deleted record here still carries a name and members, as one from another version may
+      return random() < 0.15 ? { ...live, deletedAt: pick([1, 2, 3, 4]) } : live
+    })
 
     let compared = 0
     for (let n = 0; n < 500; n++) {
