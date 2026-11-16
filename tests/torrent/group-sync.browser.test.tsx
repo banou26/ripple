@@ -14,6 +14,7 @@ const written: string[] = []
 let accountName = 'someone'
 let accountChanged: (() => void) | undefined
 let groupsReadFails = false
+let groupsWriteFails = false
 let listReadFails = false
 let holdGroupsRead: Promise<void> | undefined
 let holdListWrite: Promise<void> | undefined
@@ -52,6 +53,7 @@ vi.mock('@fkn/lib', () => ({
             listWriteHeld = true
             await hold
           }
+          if (path === 'ripple/groups.json' && groupsWriteFails) throw new Error('storage: write failed (500)')
           written.push(path)
           cloudText.set(path, data)
         },
@@ -109,6 +111,7 @@ beforeEach(async () => {
   written.length = 0
   accountName = 'someone'
   groupsReadFails = false
+  groupsWriteFails = false
   listReadFails = false
   holdGroupsRead = undefined
   holdListWrite = undefined
@@ -217,6 +220,46 @@ describe('groups synced to the account', () => {
 
     expect(writesOf(GROUPS_PATH)).toBe(0)
     expect(await stored()).toEqual(mine)
+  }, 40_000)
+
+  it('never writes over a file whose read the broker did not answer', async () => {
+    const mine = { account: await accountTag('someone'), groups: mergeGroups([group('made-here-group0', 'Made here', [A])]) }
+    await set(GROUPS_KEY, mine satisfies StoredGroups)
+    const theirs = JSON.stringify(mergeGroups([group('account-copy-grp', 'In the account', [B])]))
+    cloudText.set(GROUPS_PATH, theirs)
+    // the restore gives up on it after its 10 s bound
+    holdGroupsRead = new Promise(() => {})
+    const screen = await render(<Harness/>)
+    await expect.element(screen.getByTestId('status'), { timeout: 20_000 }).toHaveTextContent('synced')
+
+    expect(writesOf(GROUPS_PATH)).toBe(0)
+    expect(cloudText.get(GROUPS_PATH)).toBe(theirs)
+    expect(await stored()).toEqual(mine)
+  }, 40_000)
+
+  it('replaces a file that does not parse with this browser\'s groups, in the restore and in a write', async () => {
+    const mine = mergeGroups([group('made-here-group0', 'Made here', [A])])
+    await set(GROUPS_KEY, { account: await accountTag('someone'), groups: mine } satisfies StoredGroups)
+    cloudText.set(GROUPS_PATH, '{not json')
+    const screen = await synced()
+    expect(cloudText.get(GROUPS_PATH)).toBe(JSON.stringify(mine))
+
+    cloudText.set(GROUPS_PATH, '{not json')
+    listChanged()
+    await expect.poll(() => cloudText.get(GROUPS_PATH), { timeout: 15_000 }).toBe(JSON.stringify(mine))
+    await expect.element(screen.getByTestId('status')).toHaveTextContent('synced')
+  }, 40_000)
+
+  it('keeps the list synced when the restore cannot write the groups, and the next write sends them', async () => {
+    const mine = mergeGroups([group('made-here-group0', 'Made here', [A])])
+    await set(GROUPS_KEY, { account: await accountTag('someone'), groups: mine } satisfies StoredGroups)
+    groupsWriteFails = true
+    await synced()
+    expect(cloudText.has(GROUPS_PATH)).toBe(false)
+
+    groupsWriteFails = false
+    listChanged()
+    await expect.poll(() => cloudText.get(GROUPS_PATH), { timeout: 15_000 }).toBe(JSON.stringify(mine))
   }, 40_000)
 
   it('keeps and reports nothing from a restore that went stale while it read the groups', async () => {
