@@ -23,7 +23,7 @@ test('a session ceiling is kept across a reload and reported back from the engin
   page.on('pageerror', (error) => pageErrors.push(String(error)))
 
   await page.goto('/')
-  await expect(page.getByText('Ripple', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ripple', exact: true })).toBeVisible()
 
   // nothing set yet, and the control says so rather than showing a 0
   await expect(page.locator(downButton)).toHaveText('Unlimited down')
@@ -66,11 +66,11 @@ test('a session ceiling is kept across a reload and reported back from the engin
 test('a second tab sees a ceiling set in the first, without being told directly', async ({ context }) => {
   const first = await context.newPage()
   await first.goto('/')
-  await expect(first.getByText('Ripple', { exact: true })).toBeVisible()
+  await expect(first.getByRole('link', { name: 'Ripple', exact: true })).toBeVisible()
 
   const second = await context.newPage()
   await second.goto('/')
-  await expect(second.getByText('Ripple', { exact: true })).toBeVisible()
+  await expect(second.getByRole('link', { name: 'Ripple', exact: true })).toBeVisible()
 
   await first.locator(upButton).click()
   const dialog = first.getByRole('dialog')

@@ -23,16 +23,34 @@ const LIST_VIEW_KEY = 'ripple:list-view'
 const FOLDER = 'A folder with quite a long name'
 const ACCOUNT = { name: 'A person', premium: false }
 
-// the account tag and its menu read one hook, so a stand-in for it draws them with nobody signed in
+/**
+ * The account tag and its menu read one hook, so a stand-in for it draws them with nobody signed in: `spec:account`
+ * holds the account, or 'out' for fkn.app's Connect FKN frame, or nothing for no answer yet. The FKN quota and the
+ * library's sync read `spec:quota` and `spec:sync` the same way, the readouts a signed-in person sees.
+ */
 const signedIn = (): Plugin => ({
   name: 'spec-signed-in',
   enforce: 'pre',
   load: id => id === join(ROOT, 'src', 'torrent', 'use-account.ts')
     ? `export const useAccount = () => {
-        const info = JSON.parse(localStorage.getItem('spec:account'))
-        return { info, ready: !!info, logout: async () => {} }
+        const stored = JSON.parse(localStorage.getItem('spec:account'))
+        return { info: stored === 'out' ? null : stored, ready: !!stored, logout: async () => {} }
       }`
-    : undefined,
+    : id === join(ROOT, 'src', 'torrent', 'use-quota.ts')
+      ? 'export const useQuota = () => JSON.parse(localStorage.getItem(\'spec:quota\'))'
+      : undefined,
+  transform: (code, id) => {
+    if (id !== join(ROOT, 'src', 'torrent', 'use-cloud-backup.ts')) return undefined
+    const hook = 'export const useCloudBackup = (): SyncState => {'
+    if (!code.includes(hook)) throw new Error(`use-cloud-backup.ts no longer declares ${hook}`)
+    return `${code.replace(hook, 'const ownCloudBackup = (): SyncState => {')}
+export const useCloudBackup = (): SyncState => {
+  const own = ownCloudBackup()
+  const stored = localStorage.getItem('spec:sync')
+  return stored ? JSON.parse(stored) : own
+}
+`
+  },
 })
 
 let dir: string
@@ -188,6 +206,34 @@ const snapshot = (handle: number, hash: string, name: string, status: object, ov
 const entry = (hash: string, name: string, over: object = {}) => ({ infoHash: hash.repeat(40), magnet: magnetOf(hash, name), name, size: 4.5 * GB, addedAt: 1, started: true, ...over })
 
 const SEEDING = { state: 5, progress: 1, totalDone: 4.5 * GB, totalWanted: 4.5 * GB, downloadRate: 0, numPeers: 1 }
+
+// the FKN quota and the library's sync of a signed-in person, each in the state with the most words
+const QUOTA_LEFT = { premium: false, overQuota: false, throttled: false, usedBytes: 2.1 * GB, limitBytes: 5 * GB, remainingBytes: 2.9 * GB, bytesPerSecond: 0, bitsPerSecond: 0 }
+const THROTTLED = { ...QUOTA_LEFT, overQuota: true, throttled: true, usedBytes: 5 * GB, remainingBytes: 0, bytesPerSecond: 125_000, bitsPerSecond: 1_000_000 }
+const SYNCED = { status: 'synced', reason: null }
+const SYNCING = { status: 'syncing', reason: null }
+const SYNC_FAILED = { status: 'error', reason: 'write-failed' }
+
+/**
+ * Opens the page signed in, as `account` or with the Connect FKN frame for 'out', with these readouts. The offer to
+ * switch the VPN off once the quota is used up counts as answered today, so it covers none of them.
+ */
+const signIn = async (page: Page, quota: object | null, sync: object | null, account: object | 'out' = ACCOUNT) => {
+  await page.evaluate(([account, quota, sync]) => {
+    localStorage.setItem('spec:account', account!)
+    for (const [key, value] of [['spec:quota', quota], ['spec:sync', sync]] as const) {
+      if (value) localStorage.setItem(key, value)
+      else localStorage.removeItem(key)
+    }
+    localStorage.setItem('ripple:quota-offer', String(Math.floor(Date.now() / 86_400_000)))
+  }, [JSON.stringify(account), quota && JSON.stringify(quota), sync && JSON.stringify(sync)])
+  await page.goto(origin)
+}
+
+const signOut = async (page: Page) => {
+  await page.evaluate(() => { for (const key of ['spec:account', 'spec:quota', 'spec:sync', 'ripple:quota-offer']) localStorage.removeItem(key) })
+  await page.goto(origin)
+}
 const TORRENTS = [
   snapshot(1, 'a', 'Some.Release.Name.S01.1080p', {}),
   snapshot(2, 'b', 'A.Season.Pack', SEEDING, {
@@ -262,7 +308,8 @@ const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
     ...[...document.querySelector(root)!.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap((element) => {
       const box = element.getBoundingClientRect()
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
-      return box.width > 0 && (box.left < 0 || box.right > width + 0.5) ? [`past the edge: ${named(element)}`]
+      // a line of the stats strip scrolls sideways on a phone, so a readout past the window's edge is reachable
+      return box.width > 0 && (box.left < 0 || box.right > width + 0.5) && !element.closest('.stats .line') ? [`past the edge: ${named(element)}`]
         // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
         // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
         // link's, cuts nothing off
@@ -297,6 +344,31 @@ const walk = (page: Page, width: number, root = 'body') => {
 const opening = (page: Page, language: string) =>
   page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
 
+/**
+ * Opens Settings from the library's gear, in the page, so the engine runs on. A phone's add field unfolds over the
+ * gear while it has the focus, so the focus leaves it first, as a press anywhere else takes it.
+ */
+const toSettings = async (page: Page) => {
+  await page.locator('header form input:not([type=file])').blur()
+  await page.locator('header a.settings').click()
+  await expect(page).toHaveURL(`${origin}/settings`)
+}
+
+/** Back to the library from Settings, in the page. */
+const toLibrary = async (page: Page) => {
+  await page.locator('header a.back').click()
+  await expect(page.locator('.torrent').first()).toBeVisible()
+}
+
+/** Chooses the auto-save folder on Settings, the stand-in picker's, and comes back to the library. */
+const chooseFolder = async (page: Page) => {
+  await toSettings(page)
+  const autoSave = page.locator('main .folder').last().getByRole('button')
+  await autoSave.first().click()
+  await expect(autoSave).toHaveCount(3)
+  await toLibrary(page)
+}
+
 /** Fails on anything with no room, and on a word `language` left in English. */
 const expectAllTranslated = async (page: Page, language: string, { words, cut }: { words: string[], cut: string[] }) => {
   await expect(page.locator('html')).toHaveAttribute('lang', language)
@@ -323,16 +395,25 @@ const everySurface = async (page: Page, width: number) => {
   await expect(page.locator('.torrent')).toHaveCount(LIST.length)
   await read('library')
 
-  await page.locator('.powered button').click()
-  await expect(page.locator('.powered [popover]')).toBeVisible()
-  await read('FKN mark')
-  await page.locator('.powered button').click()
+  // a phone's header leaves FKN's mark to the footer's Powered by FKN
+  if (width > 700) {
+    await page.locator('.powered button').click()
+    await expect(page.locator('.powered [popover]')).toBeVisible()
+    await read('FKN mark')
+    await page.locator('.powered button').click()
+  }
 
-  // an account brings two more readouts, the quota and the sync state, and this page has no account: two written in
-  const readouts = page.locator('.stats .readouts')
-  await readouts.evaluate((strip) => { for (const stat of [...strip.children].slice(-3, -1)) strip.append(stat.cloneNode(true)) })
+  // an account brings two more readouts, the quota and the sync state
+  await signIn(page, QUOTA_LEFT, SYNCED)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.stats .stat.sync')).toBeVisible()
   await read('readouts of an account')
-  await readouts.evaluate((strip) => { strip.lastElementChild!.remove(); strip.lastElementChild!.remove() })
+  await signIn(page, THROTTLED, SYNC_FAILED)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.stats .stat.quota.throttled')).toBeVisible()
+  await read('readouts of an account, throttled')
+  await signOut(page)
+  await library(page, LIST, TORRENTS)
 
   for (const readout of READOUTS) {
     await post(page, { type: 'state', torrents: TORRENTS, ...readout })
@@ -355,13 +436,16 @@ const everySurface = async (page: Page, width: number) => {
   await expect(field).toHaveValue('')
   await read('toast added')
 
-  const autoSave = page.locator('footer .folder').last().getByRole('button')
+  await toSettings(page)
+  await read('settings')
+  const autoSave = page.locator('main .folder').last().getByRole('button')
   await autoSave.first().click()
   await expect(autoSave).toHaveCount(3)
-  await read('folder')
+  await read('settings, a folder')
   await autoSave.last().click()
   await drawn(page)
-  await read('folder as the default')
+  await read('settings, the folder the default')
+  await toLibrary(page)
 
   await post(page, { type: 'state', torrents: [{ ...TORRENTS[3]!, handle: 5 }, ...TORRENTS.slice(3)] })
   await read('two retrying')
@@ -435,20 +519,26 @@ const smallParts = async (page: Page, width: number) => {
   await room.getByRole('button').first().click()
   await expect(room.getByRole('button')).toHaveCount(1)
   await read('room, the ask refused')
-  const autoSave = page.locator('footer .folder').last().getByRole('button')
-  await autoSave.first().click()
-  await expect(room.getByRole('button')).toContainText(FOLDER)
+  // the library opens again on the way back from Settings, which asks for room again beside the move
+  await chooseFolder(page)
+  const move = room.getByRole('button', { name: FOLDER })
+  await expect(move).toBeVisible()
   await read('room, a folder chosen')
-  await room.getByRole('button').click()
-  await expect(room.getByRole('button')).toHaveCount(0)
+  await move.click()
+  await expect(move).toHaveCount(0)
   await read('room, finished downloads moving out')
 
+  // Storage's control is on Settings
   await answer(page, { persisted: true })
   await open()
   await read('persistent')
+  await toSettings(page)
+  await read('persistent, Settings')
   await answer(page, { denied: true })
   await open()
   await read('blocked')
+  await toSettings(page)
+  await read('blocked, Settings')
   await answer(page, {})
 
   await page.evaluate(value => localStorage.setItem('spec:account', value), JSON.stringify(ACCOUNT))
@@ -478,9 +568,7 @@ const optionSurfaces = async (page: Page, width: number) => {
   await page.goto(origin)
   await library(page, [HELD, ...LIST.slice(1)], [QUEUED, ...TORRENTS.slice(1)])
   // a folder, so the options offer to move a torrent there
-  const autoSave = page.locator('footer .folder').last().getByRole('button')
-  await autoSave.first().click()
-  await expect(autoSave).toHaveCount(3)
+  await chooseFolder(page)
 
   // a menu closes when the list under it scrolls, and a click's own scroll to its row is heard a frame after the menu
   // opens, so the row is brought into view first
@@ -634,9 +722,7 @@ const dialogSurfaces = async (page: Page, width: number) => {
   await answer(page, { low: true })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
-  const autoSave = page.locator('footer .folder').last().getByRole('button')
-  await autoSave.first().click()
-  await expect(autoSave).toHaveCount(3)
+  await chooseFolder(page)
 
   await field.fill(FRESH)
   await field.press('Enter')
@@ -1058,9 +1144,10 @@ test.describe('in each language', () => {
   })
 })
 
+// on Settings since RIPPLE-130, reached from the library's gear in the page, so the engine the library made runs on
 test.describe('the Language setting', () => {
-  const select = (page: Page) => page.locator('footer select')
-  const labels = async (page: Page) => (await page.locator('footer .folder > span').allTextContents()).slice(0, 3)
+  const select = (page: Page) => page.locator('main .folder select')
+  const labels = async (page: Page) => (await page.locator('main .folder > span').allTextContents()).slice(0, 3)
   /** The engine's workers, each with whether it was ended: a thumbnail's libav workers come and go on their own. */
   const engines = (page: Page) => page.evaluate(() => (window as unknown as { workers: () => { url: string, ended: boolean }[] }).workers()
     .filter(({ url }) => !url.includes('libav')))
@@ -1078,8 +1165,9 @@ test.describe('the Language setting', () => {
     const tags = fetched(page)
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
+    await toSettings(page)
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
-    await expect.poll(() => labels(page)).toEqual(['Speed', 'On add', 'Language'])
+    await expect.poll(() => labels(page)).toEqual(['Language', 'On add', 'Storage'])
     await expect(select(page)).toHaveValue('')
     await expect(select(page).locator('option').first()).toHaveText('Automatic (English)')
     expect(tags).toEqual([])
@@ -1093,13 +1181,16 @@ test.describe('the Language setting', () => {
     expect(engine, 'the control: the stand-in sees the engine made').toEqual([{ url: expect.stringContaining('/assets/'), ended: false }])
     await page.evaluate(() => { (window as unknown as { same: boolean }).same = true })
 
+    await toSettings(page)
     await select(page).selectOption('fr')
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
-    await expect.poll(() => labels(page)).toEqual(['Vitesse', 'À l’ajout', 'Langue'])
+    await expect.poll(() => labels(page)).toEqual(['Langue', 'À l’ajout', 'Stockage'])
     expect(await page.evaluate(() => localStorage.getItem('ripple:language'))).toBe('fr')
     const { words, cut, read } = walk(page, 1280)
+    await read('picked French, Settings')
+    await toLibrary(page)
     await read('picked French')
-    expect(englishIn([...new Set(words)], english(), catalogues().fr), 'the header, the list and the footer, all in French').toEqual([])
+    expect(englishIn([...new Set(words)], english(), catalogues().fr), 'Settings, the header, the list and the footer, all in French').toEqual([])
     expect(cut).toEqual([])
 
     expect(await page.evaluate(() => (window as unknown as { same?: boolean }).same), 'the same page, not a reload').toBe(true)
@@ -1112,16 +1203,15 @@ test.describe('the Language setting', () => {
   test('a pick is kept over a reload, and Automatic forgets it', async ({ page }) => {
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
+    await toSettings(page)
     await select(page).selectOption('de')
     await expect(page.locator('html')).toHaveAttribute('lang', 'de')
     await page.reload()
-    await library(page, LIST, TORRENTS)
     await expect(page.locator('html')).toHaveAttribute('lang', 'de')
     await expect(select(page)).toHaveValue('de')
     await select(page).selectOption('')
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await page.reload()
-    await library(page, LIST, TORRENTS)
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(select(page)).toHaveValue('')
   })
@@ -1133,6 +1223,7 @@ test.describe('the Language setting', () => {
       await opening(page, 'xx')
       await page.goto(origin)
       await library(page, LIST, TORRENTS)
+      await toSettings(page)
       await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
       await expect(select(page)).toHaveValue('')
       await expect(select(page).locator('option').first()).toHaveText('Automatique (Français)')
@@ -1151,6 +1242,7 @@ test.describe('the Language setting', () => {
     await page.locator('.wordmark').click()
     await expect(page).toHaveURL(`${origin}/`)
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+    await toSettings(page)
     await expect(select(page)).toHaveValue('fr')
     expect(await engines(page), 'the same engine').toEqual(engine)
 
@@ -1162,15 +1254,17 @@ test.describe('the Language setting', () => {
 
   // a Mexican Spanish browser, so Automatic names the longest language each time
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language} at 390 px: the footer and its select fit, the select's text whole`, async ({ page }) => {
+    test(`${language} at 390 px: Settings and its select fit, the select's text whole, and the footer fits`, async ({ page }) => {
       await page.addInitScript(() => Object.defineProperty(navigator, 'languages', { get: () => ['es-MX', 'es'] }))
       await opening(page, language)
       await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(origin)
       await library(page, LIST, TORRENTS)
+      expect(await cutOff(page, 'footer')).toEqual([])
+      await toSettings(page)
       await expect(page.locator('html')).toHaveAttribute('lang', language)
       await expect(select(page).locator('option').first()).toContainText('Español latinoamericano')
-      expect(await cutOff(page, 'footer')).toEqual([])
+      expect(await cutOff(page)).toEqual([])
       const fit = await select(page).evaluate((shown: HTMLSelectElement) => {
         const style = getComputedStyle(shown)
         const pen = document.createElement('canvas').getContext('2d')!
@@ -1197,6 +1291,269 @@ test.describe('the Inbound tooltip joins its two sentences as the language does'
       await library(page, LIST, TORRENTS)
       await expect(page.locator('.stats [data-tooltip-content*="41337"]')).toHaveAttribute('data-tooltip-content', new RegExp(join))
     })
+  }
+})
+
+const LONG_ACCOUNT = { name: 'Alexandra Konstantinopoulou-Lindqvist', premium: false }
+
+/**
+ * The header's shown items, how many rows they sit on by their middles, its height, and how far the page scrolls
+ * sideways. An item the unfolded field covers is drawn with no opacity, and is not shown.
+ */
+const headerRows = (page: Page) => page.locator('header').evaluate((header) => {
+  const shown = [...header.children].filter(kid => getComputedStyle(kid).opacity !== '0')
+    .map(kid => kid.getBoundingClientRect()).filter(box => box.width > 0)
+  const middles = shown.map(box => box.top + box.height / 2)
+  return {
+    items: shown.length,
+    rows: Math.max(...middles) - Math.min(...middles) > 12 ? 2 : 1,
+    height: Math.round(header.getBoundingClientRect().height),
+    sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }
+})
+
+/** The rows the strip's readouts sit on, by their boxes, and how many it shows. */
+const stripRows = (page: Page) => page.locator('.stats').evaluate((strip) => {
+  const boxes = [...strip.querySelectorAll('.stat')].map(stat => stat.getBoundingClientRect())
+    .filter(box => box.width > 0).sort((a, b) => a.top - b.top)
+  let rows = 0
+  let bottom = -Infinity
+  for (const box of boxes) {
+    if (box.top >= bottom - 2) {
+      rows++
+      bottom = box.bottom
+    } else bottom = Math.max(bottom, box.bottom)
+  }
+  return { rows, readouts: boxes.length, sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+})
+
+test.describe('the header', () => {
+  const field = (page: Page) => page.locator('header form input:not([type=file])')
+
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: one row from 320 to 390 px and at 1280, signed in or out, the add field folded and unfolded`, async ({ page }) => {
+      test.setTimeout(120_000)
+      await opening(page, language)
+      await page.goto(origin)
+      for (const account of ['out', LONG_ACCOUNT] as const) {
+        await signIn(page, null, null, account)
+        await library(page, LIST, TORRENTS)
+        await expect(page.locator(account === 'out' ? 'header iframe' : 'header .account-tag'), 'the control: the account is in the header').toBeVisible()
+        for (const width of [320, 360, 390, 1280]) {
+          const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
+          await page.setViewportSize({ width, height: 844 })
+          await drawn(page)
+          const folded = await headerRows(page)
+          expect(folded.items, `${at}: the control, the logo, the field, Create, the gear and the account were read`).toBe(5)
+          expect(folded.rows, `${at}, ${folded.height} px tall`).toBe(1)
+          expect(folded.sideways, at).toBe(0)
+          const room = await field(page).evaluate(input => input.getBoundingClientRect().width)
+          if (width <= 700) expect(room, `${at}: the field is folded to its glyph`).toBeLessThanOrEqual(22)
+          // the file and + buttons beside the field, Create and the gear on its row, whole in the window
+          for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings']) {
+            const box = (await page.locator(control).boundingBox())!
+            expect(box.x >= 0 && box.x + box.width <= width && box.width > 0, `${at}: ${control} at ${box.x}+${box.width}`).toBe(true)
+          }
+
+          await field(page).fill('Release')
+          await drawn(page)
+          const unfolded = await headerRows(page)
+          expect(unfolded.rows, `${at}, unfolded`).toBe(1)
+          expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
+          const typed = await field(page).evaluate(input => input.getBoundingClientRect().width)
+          expect(typed, `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          await field(page).fill('')
+          await field(page).blur()
+        }
+      }
+    })
+  }
+
+  test('on a phone the folded field opens to a press, takes a paste and the keyboard, narrows the list, and hands the row back', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 844 })
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const gear = page.locator('header a.settings')
+    await expect(gear).toHaveCSS('opacity', '1')
+    await field(page).click()
+    await expect(field(page)).toBeFocused()
+    await expect(gear, 'the unfolded field covers the gear').toHaveCSS('opacity', '0')
+
+    await page.keyboard.type('season')
+    await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
+    await page.keyboard.press('Escape')
+    await expect(field(page)).toHaveValue('')
+    await expect(page.locator('.torrent')).toHaveCount(LIST.length)
+
+    const sent = await sending(page, ['add-magnet'])
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+    await page.evaluate(magnet => navigator.clipboard.writeText(magnet), magnetOf('7', 'Seven'))
+    await page.keyboard.press('ControlOrMeta+V')
+    await expect(field(page)).toHaveValue(magnetOf('7', 'Seven'))
+    await page.locator('header button.go').click()
+    await expect(field(page)).toHaveValue('')
+    expect((await sent()).map(({ magnet }) => magnet)).toEqual([magnetOf('7', 'Seven')])
+
+    // past the file picker, the next stop is Create, and the field folds to give it back its row
+    await field(page).focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(page.locator('header button.create')).toBeFocused()
+    await expect(page.locator('header button.create')).toHaveCSS('opacity', '1')
+    expect(await field(page).evaluate(input => input.getBoundingClientRect().width)).toBeLessThanOrEqual(22)
+  })
+
+  test('the logo is the way home, named Ripple', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const home = page.getByRole('link', { name: 'Ripple', exact: true })
+    await expect(home).toHaveAttribute('href', '/')
+    await expect(home.locator('img')).toHaveJSProperty('complete', true)
+    expect(await home.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth), 'the logo is drawn').toBeGreaterThan(0)
+    await expect(page.locator('header')).not.toContainText('Ripple')
+  })
+
+  test('Open torrents with Ripple is on Settings alone, at every width', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    const install = page.getByRole('button', { name: 'Open torrents with Ripple' })
+    for (const width of [1440, 1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(install, `${width} px`).toHaveCount(0)
+    }
+    await toSettings(page)
+    await expect(install).toBeVisible()
+  })
+
+  test('in the installed app the gear still shows, and Settings still offers Open torrents with Ripple', async ({ page }) => {
+    await page.addInitScript(() => {
+      const own = window.matchMedia.bind(window)
+      window.matchMedia = (query) => {
+        const list = own(query)
+        if (query.includes('display-mode: standalone')) Object.defineProperty(list, 'matches', { value: true })
+        return list
+      }
+    })
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    expect(await page.evaluate(() => matchMedia('(display-mode: standalone)').matches), 'the control: the page runs as the installed app').toBe(true)
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(page.locator('header a.settings'), `${width} px`).toBeVisible()
+    }
+    await toSettings(page)
+    await expect(page.getByRole('button', { name: 'Open torrents with Ripple' })).toBeVisible()
+  })
+})
+
+test.describe('the stats strip', () => {
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: two rows at most from 412 to 320 px, signed in with the quota and the sync, and signed out`, async ({ page }) => {
+      await opening(page, language)
+      await page.goto(origin)
+      for (const [quota, sync, readouts] of [[THROTTLED, SYNCING, 7], [QUOTA_LEFT, SYNC_FAILED, 7], [null, null, 5]] as const) {
+        if (quota) await signIn(page, quota, sync)
+        else await signOut(page)
+        await library(page, LIST, TORRENTS)
+        for (const width of [412, 390, 360, 320]) {
+          await page.setViewportSize({ width, height: 844 })
+          await drawn(page)
+          const strip = await stripRows(page)
+          const at = `${width} px, ${quota ? `signed in, ${sync.status}` : 'signed out'}`
+          expect(strip.readouts, `${at}: the control, the speeds, the VPN, storage${quota ? ', the quota and the sync' : ''} were read`).toBe(readouts)
+          expect(strip.rows, at).toBeLessThanOrEqual(2)
+          expect(strip.sideways, at).toBe(0)
+        }
+      }
+    })
+  }
+
+  test('en: no Active readout, and on a phone the VPN switch starts the row after the speeds', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(page.locator('.stats label').first(), `${width} px: the control, the labels are read`).toHaveText('Download')
+      await expect(page.locator('.stats label', { hasText: /^Active$/u }), `${width} px`).toHaveCount(0)
+    }
+    const vpn = (await page.locator('.stats .stat.vpn').boundingBox())!
+    const download = (await page.locator('.stats .stat.big').boundingBox())!
+    const storage = (await page.locator('.stats .stat.storage').boundingBox())!
+    expect(vpn.y, 'below the speeds').toBeGreaterThan(download.y + download.height - 2)
+    expect(vpn.x, 'first on its row').toBeLessThan(storage.x)
+    expect(Math.abs(vpn.x - download.x), 'under Download').toBeLessThan(12)
+  })
+})
+
+test.describe('Settings', () => {
+  test('the gear opens it with Language, On add, Storage and Auto-save, which the footer no longer has', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await expect(page.locator('footer .folder > span')).toHaveText(['Speed'])
+    await toSettings(page)
+    await expect(page.locator('main .folder > span')).toHaveText(['Language', 'On add', 'Storage', 'Auto-save'])
+    await expect(page.locator('main .folder', { hasText: 'Storage' }).getByRole('button')).toHaveText('Ask for more room')
+  })
+
+  test('On add set there asks what to download in the library', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await toSettings(page)
+    const onAdd = page.locator('main .folder', { hasText: 'On add' }).getByRole('button')
+    await expect(onAdd).toHaveText('Start straight away')
+    await onAdd.click()
+    await expect(onAdd).toHaveText('Ask what to download')
+    await toLibrary(page)
+    const field = page.locator('header form input:not([type=file])')
+    await field.fill(FRESH)
+    await field.press('Enter')
+    await expect(page.getByRole('dialog')).toBeVisible()
+
+    await page.getByRole('dialog').locator('footer button:not(.primary)').click()
+    await toSettings(page)
+    await onAdd.click()
+    await expect(onAdd).toHaveText('Start straight away')
+    await toLibrary(page)
+    const sent = await sending(page, ['add-magnet'])
+    await field.fill(magnetOf('7', 'Seven'))
+    await field.press('Enter')
+    await expect.poll(async () => (await sent()).length).toBe(1)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  })
+
+  test('a folder chosen there is the one the library saves to, and its default stays when it comes back', async ({ page }) => {
+    await page.goto(origin)
+    await library(page, LIST, TORRENTS)
+    await toSettings(page)
+    const autoSave = page.locator('main .folder', { hasText: 'Auto-save' }).getByRole('button')
+    await autoSave.first().click()
+    await expect(autoSave).toHaveText([FOLDER, 'Stop', 'Files stay in the browser'])
+    await autoSave.last().click()
+    await expect(autoSave.last()).toHaveText(`Files go to ${FOLDER}`)
+    await toLibrary(page)
+    await toSettings(page)
+    await expect(autoSave).toHaveText([FOLDER, 'Stop', `Files go to ${FOLDER}`])
+    await autoSave.nth(1).click()
+    await expect(autoSave).toHaveText(['Choose folder'])
+  })
+})
+
+/** A torrent's options lead to its share panel, from a card's ... and from a table row's. */
+test.describe('Get a share link', () => {
+  for (const view of ['cards', 'table']) {
+    for (const width of [1280, 390]) {
+      test(`opens the share panel for a torrent from ${view === 'cards' ? 'its card' : 'its table row'} at ${width} px`, async ({ page }) => {
+        await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, view])
+        await page.setViewportSize({ width, height: 844 })
+        await page.goto(origin)
+        await library(page, LIST, TORRENTS)
+        const row = page.locator(view === 'cards' ? '.torrent' : '.torrent-table tbody tr', { hasText: 'A.Season.Pack' })
+        await row.getByRole('button', { name: 'Options for A.Season.Pack' }).click()
+        await page.getByRole('dialog').getByRole('button', { name: 'Get a share link' }).click()
+        await expect(page.getByRole('dialog').locator('.subject')).toContainText('A.Season.Pack')
+        await expect(page.locator('main + section'), 'the details stay closed').toHaveCount(0)
+      })
+    }
   }
 })
 
@@ -1279,6 +1636,8 @@ test.describe('on a phone', () => {
     test(`en: a tick in the ${view} shows the bulk bar inside the window`, async ({ page }) => {
       await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, view])
       await opened(page, 'en')
+      // short enough for the list to run on below it under the one-row header and the two-row strip
+      await page.setViewportSize({ width: 390, height: 600 })
       await page.getByRole('checkbox', { name: 'Select A.Season.Pack' }).check()
       await page.evaluate(() => window.scrollTo(0, 0))
       await drawn(page)
@@ -1446,7 +1805,7 @@ test('the auto-save folder takes a completed torrent as well as a seeding one, a
   }
   await page.goto(origin)
   await library(page, LIST, TORRENTS.map(held))
-  await page.locator('footer .folder').last().getByRole('button').first().click()
+  await chooseFolder(page)
   const readFrom = () => page.evaluate(() => (window as unknown as { readFrom: () => number[] }).readFrom().sort((a, b) => a - b))
   // A.Season.Pack seeding and Watched.Film completed, each read through the engine to be copied
   await expect.poll(readFrom).toEqual([2, 11])

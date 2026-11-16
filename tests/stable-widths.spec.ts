@@ -72,7 +72,11 @@ test('live figures keep their room whatever the font, the language and the width
       await page.setViewportSize({ width, height: 720 })
       const seen = await page.evaluate(({ fonts, speeds, sizes, peers: counts }) => {
         const [download, upload, peak] = document.querySelectorAll<HTMLElement>('.stats .stat.rate strong')
-        const nextStat = (figure: HTMLElement) => figure.parentElement!.nextElementSibling as HTMLElement
+        // the next readout drawn, which on a phone may start the strip's next line
+        const nextStat = (figure: HTMLElement) => {
+          const shown = [...document.querySelectorAll<HTMLElement>('.stats .stat')].filter(stat => stat.getBoundingClientRect().width > 0)
+          return shown[shown.indexOf(figure.closest<HTMLElement>('.stat')!) + 1]!
+        }
         const meta = document.querySelector('.torrent .meta') as HTMLElement
         const pair = meta.querySelector('.pair') as HTMLElement
         const [down, up] = meta.querySelectorAll<HTMLElement>('.rate')
@@ -133,8 +137,7 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
  * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
  * the strip under it, which is there before the first torrent too. Settings is a square icon button. Create keeps its
- * words on a wide window and is a square beside the field on a phone; any other header button with words keeps them at
- * 1440 px and on a phone.
+ * words from 900 px and is a square under it; any other header button with words keeps them at 1440 px and on a phone.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
   test.setTimeout(240_000)
@@ -156,7 +159,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
     for (const font of ROWS_FONTS) {
       const style = await page.addStyleTag({ content: `body * { font-family: '${font}' !important }` })
-      // 700 px is a phone's layout, which wraps by design and keeps every word
+      // 700 px is a phone's layout, one row too, with the add field folded
       for (const width of [1440, 1366, 1280, 700]) {
         await page.setViewportSize({ width, height: 720 })
         const tops = await page.locator('header').evaluate((header) => [...header.children]
@@ -164,7 +167,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
           .filter((box) => box.width > 0)
           .map((box) => Math.round(box.top + box.height / 2)))
         // one row: every item's middle is within a few pixels of the others'
-        if (width > 700 && Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
+        if (Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
         expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
         if (width === 1280) {
           for (const button of await page.locator('header > button').all()) {

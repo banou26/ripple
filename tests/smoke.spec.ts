@@ -66,7 +66,7 @@ test('the library boots, the engine reports in, and a first run offers the sampl
   await page.goto('/')
 
   await expect(page.getByText('Ripple is open in another tab.')).toHaveCount(0)
-  await expect(page.getByText('Ripple', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ripple', exact: true })).toBeVisible()
   await engineReady(page)
 
   // nothing is added until somebody asks: a first run used to add Sintel by itself, 3 to 6 s in
