@@ -1310,7 +1310,8 @@ test.describe('the Inbound tooltip joins its two sentences as the language does'
   }
 })
 
-const LONG_ACCOUNT = { name: 'Alexandra Konstantinopoulou-Lindqvist', premium: false }
+// wider than a 320 px window in any font
+const LONG_ACCOUNT = { name: 'Alexandra Maximiliane Konstantinopoulou-Lindqvist', premium: false }
 
 /**
  * The header's shown items, how many rows they sit on by their middles, its height, and how far the page scrolls

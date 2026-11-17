@@ -1713,10 +1713,12 @@ export const style = css`
             color: ${TEXT_MUTED};
           }
 
+          /* out of the row an item is as wide as its words, so a long account name's tag would reach past the window */
           > :not(.brand, form) {
             position: absolute;
             top: 0;
             left: 0;
+            max-width: 100%;
             opacity: 0;
             pointer-events: none;
           }
