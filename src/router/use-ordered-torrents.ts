@@ -70,13 +70,13 @@ export const useOrderedTorrents = (
   const order = useRef<string[]>([])
   const at = useRef(0)
   const interacting = useRef(false)
-  const [view, setView] = useState('')
+  const viewKey = `${filter}:${key}:${dir}`
+  const [view, setView] = useState(viewKey)
   const [groupHold, setGroupHold] = useState<GroupHold>({ groups: new Map(), movedAt: null })
 
   const visible = visibleTorrents(all, filter)
   const byId = new Map(visible.map((t) => [t.id, t]))
 
-  const viewKey = `${filter}:${key}:${dir}`
   const viewChanged = view !== viewKey
   if (viewChanged) setView(viewKey)
   // membership, not arrangement: an added or removed torrent makes the held order wrong rather than

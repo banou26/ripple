@@ -22,6 +22,13 @@ const mount = async (torrents: Torrent[]) => {
   return { clock, drawn, rerender: hook.rerender }
 }
 
+// the page mounts before its engine reports a torrent, and a pass more would run the whole page's body twice
+it('mounts an empty list in one pass', async () => {
+  let passes = 0
+  await renderHook(() => { passes++; return useOrderedTorrents([], 'all', 'down', 'desc') })
+  expect(passes).toBe(1)
+})
+
 // a new sort is somebody asking for a new arrangement, so it is drawn at once even while the pointer holds the list
 it('rearranges a held list and its headings at once on a new sort, and keeps them', async () => {
   const { clock, drawn, rerender } = await mount([t('a', 3), t('b', 2), t('c', 1)])
@@ -34,6 +41,15 @@ it('rearranges a held list and its headings at once on a new sort, and keeps the
   clock.now += 500
   await rerender({ torrents: moved.map((x) => ({ ...x })), dir: 'asc' })
   expect(drawn()).toEqual(['a paused', 'c active', 'b active'])
+})
+
+it('holds the list again once a new sort is drawn', async () => {
+  const { clock, drawn, rerender } = await mount([t('a', 3), t('b', 2), t('c', 1)])
+  await rerender({ torrents: [t('a', 3), t('b', 2), t('c', 1)], dir: 'asc' })
+  expect(drawn()).toEqual(['c active', 'b active', 'a active'])
+  clock.now += 500
+  await rerender({ torrents: [t('a', 1), t('b', 2, 'paused'), t('c', 3)], dir: 'asc' })
+  expect(drawn()).toEqual(['c active', 'b active', 'a active'])
 })
 
 it('times a held heading from the row that moved, not from a torrent removed before it', async () => {
