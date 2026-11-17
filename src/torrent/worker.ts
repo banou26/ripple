@@ -1379,7 +1379,10 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   untrack(h)
   await del(resumeKey(ih)).catch(() => {})
 
-  const next = addMagnet(live, magnet, savePath)
+  // from the kept .torrent when there is one, as the restore does: a .torrent add's magnet is its bare hash, which
+  // gives the engine no file list until a peer sends it
+  const bytes = await get(torrentKey(ih)).catch(() => undefined)
+  const next = bytes?.byteLength ? live.addTorrentFile(bytes, savePath) : addMagnet(live, magnet, savePath)
   if (addFailed(next)) {
     post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Moving the files left the torrent unaddable', defaultMessage: 'Moving the files left the torrent unaddable' }) })
     await patchList(ih, { savePath, saveTo: to, started: false })
@@ -2371,10 +2374,9 @@ const handleMessage = async (session: Session, m: any) => {
        * `session.infohash` answers with the v1 hash when there is one and the v2 hash otherwise, so a
        * V2-ONLY torrent comes back as 64 hex characters. Pasting those after `urn:btih:` produces a
        * string libtorrent's own parser rejects (`parse_magnet_uri` takes 40 hex or 32 base32 and
-       * nothing else), which is silent until something feeds the magnet back in: moving the torrent
-       * to a folder, which removes it and re-adds it from this string, and pressing Download on a
-       * second device, which has the list and no `.torrent` bytes. Both answer "could not be read",
-       * permanently, and the move has already deleted the browser copy by then.
+       * nothing else), which is silent until something feeds the magnet back in: pressing Download on
+       * a second device, which has the list and no `.torrent` bytes, answers "could not be read",
+       * permanently.
        *
        * The v1 form is left EXACTLY as it was, because every entry already in somebody's library
        * carries that string and it is compared, not re-derived.
