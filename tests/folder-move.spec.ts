@@ -227,7 +227,13 @@ test('a torrent checking its files at the folder shows no download speed', async
    * desktop, the check at the folder ran at 100 to 350 MB/s, and 512 MiB in 256 KiB pieces checked in 1.5 s.
    */
   const BIG_PIECE = 64 * 1024
-  const file = { path: 'large.bin', size: 1024 * 1024 * 1024, fill: 0x61 }
+  await page.goto('/')
+  // the file sits in browser storage and is copied into the picked folder, which is browser storage here too, so it
+  // needs twice its size; GitHub's runner gives the origin less than the 2 GiB a 1 GiB file takes
+  const { quota = 0, usage = 0 } = await page.evaluate(() => navigator.storage.estimate())
+  const size = Math.min(1024 * 1024 * 1024, Math.floor((quota - usage) / 3 / BIG_PIECE) * BIG_PIECE)
+  test.skip(size < 256 * 1024 * 1024, `browser storage leaves room for ${size} bytes, too few for a check long enough to read a speed`)
+  const file = { path: 'large.bin', size, fill: 0x61 }
   // every piece holds the same bytes, so one hash stands for all of them
   const piece = createHash('sha1').update(Buffer.alloc(BIG_PIECE, file.fill)).digest()
   const bigInfo = { name: BIG, 'piece length': BIG_PIECE, pieces: Buffer.concat(Array.from({ length: file.size / BIG_PIECE }, () => piece)), files: [{ length: file.size, path: [file.path] }] }
