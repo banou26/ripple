@@ -342,6 +342,33 @@ describe('the caching half of the worker', () => {
     }
   })
 
+  // the entry is hash-named like every chunk, and the engine's wasm a file of its own beside its glue
+  it('serves the entry and the engine wasm from cache, and keeps both on use', async () => {
+    const caches = fakeCaches()
+    const typed = (type: string) => new Response('bytes', { headers: { 'content-type': type } })
+    const fetch = async (request: unknown) => String((request as { url: string }).url).endsWith('.wasm') ? typed('application/wasm') : typed('application/javascript')
+    const { on } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches, { fetch })
+    for (const path of ['/index-Bx33zPvJ.js', '/assets/libtorrent-CQ_rL18u.wasm']) {
+      const r = requestFor(ORIGIN + path)
+      on.fetch?.({ ...r.event, request: { url: ORIGIN + path, method: 'GET' } })
+      expect(r.taken(), `${path} must be answered by the worker`).not.toBeNull()
+      // respondWith was handed the route's promise
+      await (r.taken() as unknown as Promise<Response>)
+    }
+    expect([...caches._stores.get('ripple-assets-b1')!.keys()].sort()).toEqual(['/assets/libtorrent-CQ_rL18u.wasm', '/index-Bx33zPvJ.js'])
+  })
+
+  it('precaches the engine wasm, which answers as wasm rather than as a script', async () => {
+    const caches = fakeCaches()
+    const fetch = async (path: string) => new Response('bytes', { headers: { 'content-type': path.endsWith('.wasm') ? 'application/wasm' : 'application/javascript' } })
+    const manifest: [string, string][] = [...MANIFEST, ['/index-Bx33zPvJ.js', 'h3'], ['/assets/libtorrent-CQ_rL18u.wasm', 'h4']]
+    const { on } = bootStamped({ mode: 'cache', build: 'b2', manifest }, caches, { fetch, active: {} })
+    let done: Promise<unknown> = Promise.resolve()
+    on.install!({ waitUntil: (p: Promise<unknown>) => { done = p } })
+    await expect(done).resolves.toBeUndefined()
+    expect(caches._stores.get('ripple-assets-b2')?.has('/assets/libtorrent-CQ_rL18u.wasm')).toBe(true)
+  })
+
   it('still serves a streamed download, which shares this worker', async () => {
     const caches = fakeCaches()
     const { on } = bootStamped({ mode: 'cache', build: 'b1', manifest: MANIFEST }, caches)

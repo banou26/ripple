@@ -235,10 +235,8 @@ export default defineConfig((env) => ({
     outDir: 'build',
     target: 'esnext',
     emptyOutDir: false,
-    lib: {
-      entry: ['src/index.tsx'],
-      formats: ['es'],
-    },
+    // the entry at the root, where a package's main has to be (scripts/check-npm-package.mjs), and hashed like every chunk
+    rolldownOptions: { output: { entryFileNames: 'index-[hash].js' } },
   },
   server: {
     fs: {

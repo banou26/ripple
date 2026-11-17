@@ -172,7 +172,7 @@ test('short bursts are held and the dialogue is left as it is, on by default, an
   const page = await context.newPage()
   await page.addInitScript(instrument)
   const tenant = (url: URL) => url.origin === new URL(baseURL!).origin
-    && (url.pathname === '/watch' || url.pathname === '/volume-normalizer-worklet.js')
+    && (url.pathname === '/watch' || url.pathname.startsWith('/assets/volume-normalizer-worklet-'))
   await page.route(tenant, async (route) => {
     const response = await route.fetch()
     await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': TENANT_CSP } })
@@ -234,7 +234,7 @@ test('short bursts are held and the dialogue is left as it is, on by default, an
   await at(HALF + 0.5)
   // analysed under the tenant CSP by the worker the worklet's own file starts, across the whole file
   const analysis = await page.evaluate(() => (window as any).__analysis)
-  expect(analysis?.url, 'the analysis worker never started').toContain('/volume-normalizer-worklet.js')
+  expect(analysis?.url, 'the analysis worker never started').toContain('/assets/volume-normalizer-worklet-')
   expect(analysis.error).toBeNull()
   expect(analysis.unsupported).toBe(false)
   const analysed = (analysis.report?.spans ?? []).reduce((total: number, [from, to]: Span) => total + to - from, 0)

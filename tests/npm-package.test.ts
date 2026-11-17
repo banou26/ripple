@@ -12,9 +12,11 @@
  * beside it, and the check that refuses a layout the platform could not load.
  */
 import { packageProblems } from '../scripts/check-npm-package.mjs'
-import { npmManifest } from '../scripts/write-npm-manifest.mjs'
+import { entryIn, npmManifest as manifestFor } from '../scripts/write-npm-manifest.mjs'
 
 import { describe, expect, it } from 'vitest'
+
+const npmManifest = (pkg: Record<string, unknown>) => manifestFor(pkg, 'index-Bx33zPvJ.js')
 
 const REPO = {
   name: '@banou/ripple',
@@ -28,7 +30,7 @@ const REPO = {
 
 /** everything the entry reaches, at the paths a tenant would ask for */
 const SITE = [
-  'index.js',
+  'index-Bx33zPvJ.js',
   'assets/worker-SJZDGuG-.js',
   'libav-worker.js',
   'libav.wasm',
@@ -53,7 +55,21 @@ const tree = (paths: string[], entry = ENTRY) => ({
 
 describe('the manifest that ships with the built site', () => {
   it('points main at the root of the directory it sits in', () => {
-    expect(npmManifest(REPO).main).toBe('index.js')
+    expect(npmManifest(REPO).main).toBe('index-Bx33zPvJ.js')
+  })
+
+  // the entry's name changes with its bytes on every release, so it is read off the page the build wrote
+  it('names the entry the built index.html loads', () => {
+    const html = '<head><link rel="modulepreload" crossorigin href="/assets/osra-AAAA1111.js"><script type="module" crossorigin src="/index-Bx33zPvJ.js"></script></head>'
+    expect(entryIn(html)).toBe('index-Bx33zPvJ.js')
+  })
+
+  it('refuses a page that loads no hashed entry at the root', () => {
+    for (const html of [
+      '<script type="module" src="/index.js"></script>',
+      '<script type="module" src="/assets/index-Bx33zPvJ.js"></script>',
+      '<script type="module" src="/src/index.tsx"></script>',
+    ]) expect(() => entryIn(html), html).toThrow('index.html loads no /index-<hash>.js')
   })
 
   it('carries what provenance and the platform read, and nothing that would install', () => {
@@ -110,7 +126,7 @@ describe('the built site as the package root', () => {
     })
     expect(packageProblems(npmManifest(REPO), REPO, files([...SITE, 'assets/webrtc-DCtPDVeu.wasm']))).toEqual([])
     expect(packageProblems(npmManifest(REPO), REPO, files(SITE)).join('\n'))
-      .toContain('/assets/worker-SJZDGuG-.js, which index.js names, names /assets/webrtc-DCtPDVeu.wasm')
+      .toContain('/assets/worker-SJZDGuG-.js, which index-Bx33zPvJ.js names, names /assets/webrtc-DCtPDVeu.wasm')
   })
 
   it('refuses a file the entry only reaches by building a url at runtime', () => {

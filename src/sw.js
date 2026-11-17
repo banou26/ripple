@@ -18,8 +18,8 @@ const ACTIVE = 'ripple-active'
 /**
  * Which requests this worker may answer from its cache, and the whole of it.
  *
- * ONLY hash-named JavaScript chunks. Never the document, never /index.js, never /sw.js. That
- * narrowness is the design, not a shortcut:
+ * ONLY hash-named JavaScript chunks, the entry among them, and the engine's wasm. Never the document,
+ * never /sw.js, never the WebRTC stack's 3 MB of wasm. That narrowness is the design, not a shortcut:
  *
  *  - A hashed path names its BYTES, so a hit from any build is correct by construction. There is no
  *    stale-content failure available here, only a hit or a miss.
@@ -32,10 +32,10 @@ const ACTIVE = 'ripple-active'
  * SPA fallback: 200, text/html, which the browser then runs as a module worker. Measured against
  * production, an earlier build's chunk is byte-identical to one that never existed.
  */
-const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js$/
+const HASHED = /^\/(?:(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js|assets\/libtorrent-[A-Za-z0-9_-]{8}\.wasm)$/
 
 // An HTML answer for a chunk path is Cloudflare's SPA fallback for a chunk that is gone, not the chunk.
-const isScript = (response) => response.ok && (response.headers.get('content-type') || '').includes('javascript')
+const isChunk = (response) => response.ok && /javascript|wasm/.test(response.headers.get('content-type') || '')
 
 const PRECACHE_ATTEMPTS = 3
 
@@ -47,7 +47,7 @@ const precache = async () => {
     const failed = await Promise.all(missing.map(async (path) => {
       try {
         const response = await fetch(path)
-        if (!isScript(response)) return path
+        if (!isChunk(response)) return path
         await cache.put(path, response)
         return null
       } catch {
@@ -184,7 +184,7 @@ self.addEventListener('fetch', (event) => {
         // An HTML answer here IS the bug this worker exists for: the chunk is gone and Cloudflare
         // served the SPA fallback with a 200. Never store that, or the cache would preserve the
         // failure across the very reload meant to cure it.
-        if (isScript(fresh)) await (await caches.open(CACHE)).put(path, fresh.clone())
+        if (isChunk(fresh)) await (await caches.open(CACHE)).put(path, fresh.clone())
         return fresh
       })())
       return

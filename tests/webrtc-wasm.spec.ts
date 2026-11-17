@@ -6,6 +6,7 @@
  */
 import { expect, test } from './offline'
 
+import { entryIn } from '../scripts/write-npm-manifest.mjs'
 import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
 
 // with the one constant that stops WebRTC peers, the bundler leaves the stack out of the worker: nothing names it
@@ -15,7 +16,7 @@ const TENANT_CSP = "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; obj
 
 for (const tenant of [false, true]) {
   test(`the WebRTC stack the engine worker fetches is served and compiles${tenant ? ' under the tenant policy' : ''}`, async ({ browser, baseURL, request }) => {
-    const entry = await (await request.get('/index.js')).text()
+    const entry = await (await request.get(`/${entryIn(await (await request.get('/')).text())}`)).text()
     const worker = /\/assets\/worker-[\w-]+\.js/.exec(entry)?.[0]
     expect(worker, 'the entry names no engine worker').toBeDefined()
     const wasm = /\/assets\/webrtc-[\w-]+\.wasm/.exec(await (await request.get(worker!)).text())?.[0]

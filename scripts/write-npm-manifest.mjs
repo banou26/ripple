@@ -23,15 +23,25 @@ const KEPT = ['name', 'version', 'type', 'repository', 'keywords', 'license', 'd
 
 /** The manifest that ships beside the built site, given the repo's own. `main` is always the entry
  *  at the root of that directory, whatever the repo calls its build output. */
-export const npmManifest = (pkg, entry = 'index.js') => ({
+export const npmManifest = (pkg, entry) => ({
   ...Object.fromEntries(KEPT.filter((key) => pkg[key] !== undefined).map((key) => [key, pkg[key]])),
   main: entry,
 })
 
+/**
+ * The entry the built index.html loads, `index-<hash>.js` at the root: its name changes with its bytes, so the page
+ * vite wrote is where it is read. Throws when the page names no such entry.
+ */
+export const entryIn = (html) => {
+  const entry = html.match(/<script type="module"[^>]* src="\/(index-[A-Za-z0-9_-]{8}\.js)"/)?.[1]
+  if (!entry) throw new Error('index.html loads no /index-<hash>.js')
+  return entry
+}
+
 const isMain = process.argv[1]?.endsWith('write-npm-manifest.mjs')
 if (isMain) {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-  const out = npmManifest(pkg)
+  const out = npmManifest(pkg, entryIn(readFileSync('build/index.html', 'utf8')))
   writeFileSync('build/package.json', `${JSON.stringify(out, null, 2)}\n`)
   console.log(`build/package.json: ${out.name} ${out.version}, main ${out.main}`)
 }

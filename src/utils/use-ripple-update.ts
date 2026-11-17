@@ -33,10 +33,10 @@ export type UpdateTiming = {
    * actually sends) with two real builds and a marker in the DOM: after a single refresh the document
    * is ALREADY running the new build's code, while the new worker sits in `waiting` and stays there
    * across further refreshes. So within this window the page adopts the waiting worker without a
-   * reload: the document, `/index.js` and `/sw.js` are all revalidated by the same navigation, so a
-   * worker that installs in its wake belongs to the code this page is already running. An update that
-   * turns up LATER does not, so that page reloads: its own chunks stay cached only until the
-   * activation after this one (sw.js).
+   * reload: the document and `/sw.js` are revalidated by the same navigation, and the document names
+   * the entry by its hash, so a worker that installs in its wake belongs to the code this page is
+   * already running. An update that turns up LATER does not, so that page reloads: its own chunks
+   * stay cached only until the activation after this one (sw.js).
    */
   adoptWindowMs: number
   /** How long the page waits for the taken worker's `controllerchange` before reloading anyway. */
@@ -48,7 +48,8 @@ export type UpdateTiming = {
 export const UPDATE_TIMING: UpdateTiming = {
   adoptWindowMs: 10_000,
   // Chromium can drop a `skipWaiting()` activation when an event restarts the old worker mid-stop. The
-  // document, index.js and sw.js are never cached, so a reload without it still runs the new code.
+  // document is never cached and names the entry by its hash, so a reload without it still runs the
+  // new code.
   takeWaitMs: 5_000,
   recheckMs: 1_000,
 }

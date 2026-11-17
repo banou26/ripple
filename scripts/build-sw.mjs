@@ -19,6 +19,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
+import { entryIn } from './write-npm-manifest.mjs'
+
 const BUILD_DIR = 'build'
 const SOURCE = 'src/sw.js'
 const OUT = join(BUILD_DIR, 'sw.js')
@@ -28,7 +30,7 @@ const MODE_FILE = 'src/sw.mode'
  * The same rule the worker routes on (tests/sw.test.ts compares the two literals). Exactly eight hash
  * characters, the length Vite writes: with more allowed, `/volume-normalizer-worklet.js` passes too.
  */
-const HASHED = /^\/(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js$/
+const HASHED = /^\/(?:(?:assets\/)?[A-Za-z0-9_.$-]+-[A-Za-z0-9_-]{8}\.js|assets\/libtorrent-[A-Za-z0-9_-]{8}\.wasm)$/
 
 const MAX_CACHE_BYTES = 8 * 1024 * 1024
 
@@ -91,9 +93,15 @@ const total = manifest.reduce((n, [f]) => n + statSync(join(BUILD_DIR, f.slice(1
 if (manifest.length < 3) die(`only ${manifest.length} hashed chunks matched; the manifest would fix nothing`)
 const workers = manifest.filter(([f]) => /\/assets\/worker-[^/]+\.js$/.test(f))
 if (workers.length !== 1) die(`expected exactly one engine worker chunk, found ${workers.length}: ${workers.map(([f]) => f).join(', ')}`)
+if (!manifest.some(([f]) => f.endsWith('.wasm'))) die('the manifest leaves out the engine wasm, which a page on this build fetches after the next deploy')
 // manifest and entry point must come from the same build, or the cache names a chunk nothing loads
-const entry = readFileSync(join(BUILD_DIR, 'index.js'), 'utf8')
-if (!entry.includes(workers[0][0].slice(1))) die(`build/index.js does not reference ${workers[0][0]}; manifest and entry are from different builds`)
+let entryName
+try {
+  entryName = entryIn(readFileSync(join(BUILD_DIR, 'index.html'), 'utf8'))
+} catch (e) { die(`build/${String(e.message)}`) }
+if (!manifest.some(([f]) => f === '/' + entryName)) die(`the manifest leaves out the entry, /${entryName}`)
+const entry = readFileSync(join(BUILD_DIR, entryName), 'utf8')
+if (!entry.includes(workers[0][0].slice(1))) die(`build/${entryName} does not reference ${workers[0][0]}; manifest and entry are from different builds`)
 if (total > MAX_CACHE_BYTES) die(`manifest is ${(total / 1e6).toFixed(1)} MB, over the ${MAX_CACHE_BYTES / 1e6} MB ceiling`)
 
 let out

@@ -59,6 +59,8 @@ export default defineConfig({
     outDir: 'build/jassub',
     target: 'esnext',
     emptyOutDir: true,
+    // public/ is the app build's, already at the root of build/
+    copyPublicDir: false,
     rollupOptions: {
       input: { 'jassub-assets': 'src/jassub-assets.ts' },
       preserveEntrySignatures: 'allow-extension',

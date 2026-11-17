@@ -6,7 +6,7 @@ import type { Frame, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
 import { expect, test } from './offline'
-import { copyFileSync, createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { extname, join, relative } from 'node:path'
@@ -17,6 +17,7 @@ import { catalogues, english, englishIn, LANGUAGE_KEY, offerEveryLanguage, PSEUD
 const ROOT = join(import.meta.dirname, '..')
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png',
 }
 const LIST_FILTER_KEY = 'ripple:list-filter'
 const LIST_VIEW_KEY = 'ripple:list-view'
@@ -67,7 +68,6 @@ test.beforeAll(async () => {
     build: { outDir: dir, emptyOutDir: true },
     plugins: [offerEveryLanguage(), signedIn()],
   })
-  copyFileSync(join(ROOT, 'src', 'index.html'), join(dir, 'index.html'))
   server = createServer((request, response) => {
     const file = join(dir, decodeURIComponent(new URL(request.url ?? '/', 'http://app').pathname))
     const served = !relative(dir, file).startsWith('..') && existsSync(file) && statSync(file).isFile() ? file : join(dir, 'index.html')
@@ -1159,7 +1159,7 @@ test.describe('the Language setting', () => {
   const fetched = (page: Page) => {
     const tags: string[] = []
     page.on('request', (request) => {
-      const tag = /^\/([a-z]{2}(?:-[A-Za-z0-9]+)?)-[\w-]{8}\.js$/.exec(new URL(request.url()).pathname)?.[1]
+      const tag = /^\/assets\/([a-z]{2}(?:-[A-Za-z0-9]+)?)-[\w-]{8}\.js$/.exec(new URL(request.url()).pathname)?.[1]
       if (tag && tag in catalogues()) tags.push(tag)
     })
     return tags
