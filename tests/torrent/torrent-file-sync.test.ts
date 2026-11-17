@@ -13,7 +13,7 @@ const writes: string[] = []
 const unlinks: string[] = []
 const listings: string[] = []
 let readFails: (path: string) => boolean = () => false
-let readHangs = false
+let readHangs: (path: string) => boolean = () => false
 let writeFails = false
 let listFails = false
 let unlinkFails = false
@@ -37,7 +37,7 @@ vi.mock('@fkn/lib', () => ({
         readFile: async (path: string) => {
           reads.push(String(path))
           if (readFails(String(path))) throw new Error('broker said no')
-          if (readHangs && path !== NAME_KEY_PATH) return new Promise(() => {})
+          if (readHangs(String(path))) return new Promise(() => {})
           onRead()
           const hit = cloudFiles.get(String(path))
           if (!hit) throw notFound()
@@ -99,7 +99,7 @@ let switched = false
 beforeEach(() => {
   store.clear(); cloudFiles.clear()
   reads.length = 0; writes.length = 0; unlinks.length = 0; listings.length = 0
-  readFails = () => false; readHangs = false; writeFails = false; listFails = false; unlinkFails = false
+  readFails = () => false; readHangs = () => false; writeFails = false; listFails = false; unlinkFails = false
   onWrite = () => {}; onRead = () => {}
   switched = false
   cloudFiles.set(NAME_KEY_PATH, KEY)
@@ -273,7 +273,7 @@ describe('a failed storage call leaves this device as it was', () => {
 
   it('a read that never answers lets the caller go on, and keeps nothing', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    readHangs = true
+    readHangs = (path) => path !== NAME_KEY_PATH
     cloudFiles.set(await pathOf(B), bytes(2))
     let done = false
     const pending = keepSyncedTorrentFile(B).then(() => { done = true })
@@ -285,6 +285,21 @@ describe('a failed storage call leaves this device as it was', () => {
     expect(done, 'went on before the account had its time').toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     await pending
+    expect(kept(B)).toBeUndefined()
+  })
+
+  it('a naming key that never answers lets the caller go on in the same time, and keeps nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    readHangs = (path) => path === NAME_KEY_PATH
+    cloudFiles.set(await pathOf(B), bytes(2))
+    let done = false
+    const pending = keepSyncedTorrentFile(B).then(() => { done = true })
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(done, 'went on before the account had its time').toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(done, 'Download, a move or Save .torrent waited past the bound for the naming key').toBe(true)
+    await pending
+    expect(fileReads()).toEqual([])
     expect(kept(B)).toBeUndefined()
   })
 

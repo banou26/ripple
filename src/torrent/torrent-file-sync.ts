@@ -11,9 +11,9 @@ import { saveTorrentFile } from './torrent-export'
 /**
  * Each torrent's .torrent, carried between a person's own devices.
  *
- * A device that has a torrent only from the synced list knows its hash and nothing more, so its Download, a move into
- * the folder and Save .torrent waited for a peer to send the metadata, and never finished with no peer online. The
- * device that knows the metadata uploads the file, and a device that needs it downloads it.
+ * A device that has a torrent only from the synced list knows its hash and nothing more. With the file, its Download, a
+ * move into the folder and Save .torrent need no peer to send the metadata. The device that knows the metadata uploads
+ * the file, and a device that needs it downloads it.
  *
  * The thumbnail sync's shape: one sealed object per torrent, named by a keyed hash under the pictures' naming key (over
  * a prefix of its own, so a picture's name and its torrent's cannot be paired), uploaded once and deleted with the
@@ -121,13 +121,12 @@ export const keepSyncedTorrentFile = async (infoHash: string): Promise<void> => 
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     if (await keptHere(infoHash)) return
-    const name = await nameOf(infoHash)
+    // one bound for the whole wait on the account: the naming key is a read from it too, the first after each restore
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), PULL_TIMEOUT_MS) })
+    const inTime = <T>(work: Promise<T>) => Promise.race([work, late])
+    const name = await inTime(nameOf(infoHash))
     if (!following()) return
-    const data = await Promise.race([
-      cloud.fs.promises.readFile(torrentFilePath(name)),
-      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), PULL_TIMEOUT_MS) }),
-    ])
-    const bytes = bytesOf(data)
+    const bytes = bytesOf(await inTime(cloud.fs.promises.readFile(torrentFilePath(name))))
     if (!bytes.byteLength) return
     await update<Uint8Array>(torrentKey(infoHash), (prev) => (prev?.byteLength ? prev : bytes))
     // the account has it, so this device never uploads it
