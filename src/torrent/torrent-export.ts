@@ -1,7 +1,7 @@
 import { get } from 'idb-keyval'
 
 import { infoRange, isPrivateTorrent, readTorrentFile } from './torrent-file'
-import { magnetParams } from './magnet'
+import { magnetParam, magnetParams } from './magnet'
 import { resumeKey, torrentKey } from './library'
 
 /**
@@ -110,20 +110,22 @@ const keptTorrentFile = async (infoHash: string): Promise<Uint8Array | null> => 
  * A `.torrent` add's stored magnet is its identity, `xt` alone, and stays that way because it is
  * compared rather than re-derived. Handed out, it gives the receiver no name and no trackers. So
  * where this device kept the file, the magnet is read from the file, with its `dn` and every `tr`.
- * A row synced from another device has no file here and answers with the stored string.
+ * A magnet that names more than its hash is a magnet add's own and is handed out as it was added:
+ * the file kept for it was built from it, and reading it back would drop what a file cannot hold.
  */
 export const shareableMagnet = async (
   { infoHash, magnet }: { infoHash?: string, magnet?: string },
 ): Promise<string | undefined> => {
   if (!magnet || !infoHash) return magnet
+  if (magnetParam(magnet, 'dn') || magnetParams(magnet, 'tr').length) return magnet
   const kept = await keptTorrentFile(infoHash)
   return (kept && (await readTorrentFile(kept))?.magnet) || magnet
 }
 
 /**
  * Whether a library torrent is known to be private, which gives it no share link: the `.torrent`
- * this device kept for it says so. A magnet add, or a row synced from another device, keeps no file
- * here and is not known to be.
+ * this device keeps for it says so. A torrent with no file here yet (a magnet add before its
+ * metadata, a row synced from another device before it was needed) is not known to be.
  */
 export const knownPrivate = async (infoHash: string | undefined): Promise<boolean> => {
   const kept = infoHash ? await keptTorrentFile(infoHash) : null

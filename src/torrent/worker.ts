@@ -31,6 +31,7 @@ import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, folderLacks, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
+import { buildTorrentFile, infoFromResume, magnetExtras } from './torrent-export'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
@@ -641,6 +642,20 @@ const ensureSavePath = async (savePath: string | undefined) => {
   for (const segment of savePath.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(segment, { create: true })
 }
 
+/**
+ * Keeps a .torrent for a torrent added by magnet, from the info dictionary its resume data carries, so a move, a
+ * Download on another device and Save .torrent need no peer to send the metadata. Never over a file already kept,
+ * which may be the one the torrent was added from, with trackers a rebuild cannot know.
+ */
+const keepTorrentFile = async (ih: string, resume: Uint8Array, magnet: string) => {
+  if ((await get(torrentKey(ih)))?.byteLength) return
+  const info = infoFromResume(resume)
+  if (!info) return
+  const bytes = buildTorrentFile(info, magnetExtras(magnet))
+  // in one transaction, so a .torrent add's own file written since the read above stays
+  await update<Uint8Array>(torrentKey(ih), (prev) => (prev?.byteLength ? prev : bytes))
+}
+
 // saveResumeData gives up after 8s, longer than the loops that call this, so a second snapshot must not stack on the first
 const resumeInFlight = new Map<number, Promise<boolean>>()
 const persistResume = async (h: number): Promise<boolean> => {
@@ -677,6 +692,7 @@ const persistResume = async (h: number): Promise<boolean> => {
       if (!handles.includes(h)) return false
       await ensureSavePath(savePathByHandle.get(h))
       await set(resumeKey(ih), blob)
+      await keepTorrentFile(ih, blob, magnetByHandle.get(h) ?? '').catch(() => {})
       return true
     } catch (err) {
       console.error('[worker] saving resume data failed', String(err))
@@ -1396,10 +1412,13 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
   untrack(h)
+  // a saved state with the metadata and no .torrent kept from it yet, as one saved before they were kept, gives one now
+  const resume = await get(resumeKey(ih)).catch(() => undefined)
+  if (resume?.byteLength) await keepTorrentFile(ih, resume, magnet).catch(() => {})
   await del(resumeKey(ih)).catch(() => {})
 
-  // from the kept .torrent when there is one, as the restore does: a .torrent add's magnet is its bare hash, which
-  // gives the engine no file list until a peer sends it
+  // from the kept .torrent when there is one, as the restore does: a magnet, or a .torrent add's bare hash, gives the
+  // engine no file list until a peer sends it
   const bytes = await get(torrentKey(ih)).catch(() => undefined)
   const next = bytes?.byteLength ? live.addTorrentFile(bytes, savePath) : addMagnet(live, magnet, savePath)
   if (addFailed(next)) {
