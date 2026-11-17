@@ -88,7 +88,7 @@ import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk
 import type { GroupChoice } from '../components/list-toolbar'
 import { GroupLinkDialog, GroupNameDialog } from '../components/group-dialogs'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
-import { addLinkedGroup, useGroupLink, useGroupView } from './use-group-view'
+import { addLinkedGroup, receivable, useGroupLink, useGroupView } from './use-group-view'
 import { MAX_LINK_TORRENTS, readGroupLink } from './group-link'
 import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
@@ -2534,7 +2534,7 @@ const Home = () => {
   /** Asks about the group a link's fragment names. Refused inside a frame, as an /add link is (see that effect). */
   const receive = useCallback((fragment: string) => {
     if (isFramed()) return
-    const group = readGroupLink(fragment)
+    const group = receivable(readGroupLink(fragment))
     if (group) setReceived(group)
     else showToast(intl.formatMessage({ id: 'That link could not be read', defaultMessage: 'That link could not be read' }))
   }, [showToast, intl])

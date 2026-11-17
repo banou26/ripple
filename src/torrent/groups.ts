@@ -214,9 +214,15 @@ const editGroup = (id: string, change: (group: TorrentGroup, at: number) => Torr
 const newId = () =>
   btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(12)))).replace(/\+/g, '-').replace(/\//g, '_')
 
+/**
+ * A name as a group keeps it: trimmed, and cut to its first 200 code points, so a link someone sent cannot store a
+ * name of megabytes. Empty for a name that is blank.
+ */
+export const groupName = (name: string): string => name.trim().match(/^[\s\S]{0,200}/u)![0].trimEnd()
+
 /** Makes a group of these torrents. Resolves to its id once stored, or null for a name that is empty once trimmed. */
 export const createGroup = async (name: string, infoHashes: readonly string[]): Promise<string | null> => {
-  const clean = name.trim()
+  const clean = groupName(name)
   if (!clean) return null
   const id = newId()
   const at = Date.now()
@@ -226,7 +232,7 @@ export const createGroup = async (name: string, infoHashes: readonly string[]): 
 
 /** A name that is empty once trimmed is not saved. */
 export const renameGroup = (id: string, name: string) => {
-  const clean = name.trim()
+  const clean = groupName(name)
   return editGroup(id, (g, at) => (clean && clean !== g.name ? { ...g, name: clean, namedAt: at } : undefined))
 }
 

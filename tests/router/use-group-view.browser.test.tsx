@@ -10,7 +10,7 @@ import type { StoredGroups } from '../../src/torrent/groups'
 import { torrentKey } from '../../src/torrent/library'
 import { LIST_GROUP_KEY } from '../../src/torrent/list-view'
 import { GROUP_LINK_PREFIX, MAX_LINK_TORRENTS, readGroupLink } from '../../src/router/group-link'
-import { addLinkedGroup, useGroupLink, useGroupView } from '../../src/router/use-group-view'
+import { addLinkedGroup, receivable, useGroupLink, useGroupView } from '../../src/router/use-group-view'
 
 const hash = (c: string) => c.repeat(40)
 
@@ -141,6 +141,20 @@ describe('a group sent by link', () => {
     expect(made).not.toBe(other)
     expect(await heldBy(other), 'a torrent the link does not name').toEqual([hash('a'), hash('c')])
     expect(await heldBy(made!)).toEqual([hash('a'), hash('b')])
+  })
+})
+
+describe('a group read from a link, before it is asked about', () => {
+  const magnet = (c: string, length: number) => {
+    const head = `magnet:?xt=urn:btih:${hash(c)}&tr=`
+    return head + 'a'.repeat(length - head.length)
+  }
+
+  it('keeps 200 characters of its name, trimmed, and is refused once its magnets add up past 1 MiB', () => {
+    expect(receivable(null)).toBeNull()
+    const torrents = [{ infoHash: hash('a'), magnet: magnet('a', 512 * 1024) }, { infoHash: hash('b'), magnet: magnet('b', 512 * 1024) }]
+    expect(receivable({ name: ` ${'x'.repeat(300)} `, torrents })).toEqual({ name: 'x'.repeat(200), torrents })
+    expect(receivable({ name: 'Week 2', torrents: [torrents[0]!, { infoHash: hash('b'), magnet: magnet('b', 512 * 1024 + 1) }] })).toBeNull()
   })
 })
 

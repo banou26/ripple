@@ -2335,6 +2335,23 @@ test('a group link cut short says it could not be read, asks nothing, and is spe
   await expect(page).toHaveURL(`${origin}/`)
 })
 
+test('a group link whose magnets add up past 1 MiB could not be read, and one with a long name asks with 200 characters of it', async ({ page }) => {
+  // a few thousand characters, deflated
+  const heavy = linkTo('Week 9', [`magnet:?xt=urn:btih:${'7'.repeat(40)}&tr=${'a'.repeat(1024 * 1024)}`])
+  expect(readGroupLink(heavy), 'the control: the link reads').not.toBeNull()
+  await page.goto(`${origin}/add#${heavy}`)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.toast')).toHaveText('That link could not be read')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  const name = `${'\u{1F331}'.repeat(150)}${'x'.repeat(150)}`
+  await page.goto(`${origin}/add#${linkTo(`  ${name}`, [magnetOf('7', 'Seven')])}`)
+  await library(page, LIST, TORRENTS)
+  const title = page.getByRole('dialog').locator('h2')
+  await expect(title).toBeVisible()
+  expect(await title.evaluate(shown => shown.textContent)).toBe([...name].slice(0, 200).join(''))
+})
+
 test('a group link inside a frame asks nothing and adds nothing', async ({ page }) => {
   // another site, at another name for this server
   writeFileSync(join(dir, 'group-embedder.html'), `<body style="margin:0"><iframe src="${origin}/add#${SENT()}" style="border:0;width:100vw;height:100vh"></iframe>`)

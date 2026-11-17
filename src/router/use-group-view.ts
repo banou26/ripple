@@ -5,7 +5,7 @@ import type { LinkedGroup } from './group-link'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { createGroup, putInGroup, torrentsIn, useGroups } from '../torrent/groups'
+import { createGroup, groupName, putInGroup, torrentsIn, useGroups } from '../torrent/groups'
 import { savePathFor } from '../torrent/library'
 import { LIST_GROUP_KEY, isTemporary, readGroup } from '../torrent/list-view'
 import { useShareableMagnets } from '../torrent/use-shareable-magnet'
@@ -55,6 +55,19 @@ export const useGroupLink = (name: string, rows: readonly Torrent[]) => {
   return useMemo(() => read && { ...buildGroupLink(name, read.magnets.map((magnet) => ({ magnet }))), privateLeftOut: read.left }, [name, read])
 }
 
+/** A thousand torrents of 1 KiB each, far past the 7,276 characters a link of 250 measured. */
+const MAX_RECEIVED_MAGNETS = 1024 * 1024
+
+/**
+ * A group read from a link as Add keeps it, its name as a group keeps one (`groupName`); null for none, and for one
+ * whose magnets add up past 1 MiB. Each magnet is stored in the list and synced with it, and deflate lets a link of a
+ * few thousand characters carry megabytes.
+ */
+export const receivable = (linked: LinkedGroup | null): LinkedGroup | null =>
+  linked && linked.torrents.reduce((total, t) => total + t.magnet.length, 0) <= MAX_RECEIVED_MAGNETS
+    ? { ...linked, name: groupName(linked.name) }
+    : null
+
 /**
  * Copies a group read from a link into the list, as rows not on this device, and into a group, resolving to its id.
  * A group of the same name holding only torrents the link names takes the rest, so a link opened twice, or a newer one
@@ -67,7 +80,7 @@ export const addLinkedGroup = async (
   const addedAt = Date.now()
   importList(linked.torrents.map(({ infoHash, magnet }) => ({ infoHash, magnet, savePath: savePathFor(infoHash), addedAt })))
   const hashes = linked.torrents.map((t) => t.infoHash)
-  const name = linked.name.trim()
+  const name = groupName(linked.name)
   const same = groups.find((g) => g.name === name && [...torrentsIn(g)].every((hash) => hashes.includes(hash)))
   if (!same) return createGroup(name, hashes)
   await putInGroup(same.id, hashes)

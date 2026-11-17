@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mergeGroups, torrentsIn } from '../../src/torrent/groups'
+import { groupName, mergeGroups, torrentsIn } from '../../src/torrent/groups'
 import type { Member, TorrentGroup } from '../../src/torrent/groups'
 
 const A = 'a'.repeat(40)
@@ -130,5 +130,14 @@ describe('torrentsIn', () => {
   it('holds the torrents put in and not taken out since', () => {
     const g = group({ members: [{ infoHash: A, at: 1 }, { infoHash: B, at: 2, out: true }, { infoHash: C, at: 3 }] })
     expect([...torrentsIn(g)].sort()).toEqual([A, C])
+  })
+})
+
+describe('groupName', () => {
+  it('trims a name and keeps its first 200 code points, one outside the BMP counting once', () => {
+    expect(groupName('  Week 2 ')).toBe('Week 2')
+    expect(groupName('   ')).toBe('')
+    expect(groupName(` ${'\u{1F331}'.repeat(250)}`)).toBe('\u{1F331}'.repeat(200))
+    expect(groupName(`${'x'.repeat(199)} and more`), 'a space left at the cut goes too').toBe('x'.repeat(199))
   })
 })
