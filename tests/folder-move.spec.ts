@@ -7,7 +7,7 @@
  * own, and nothing but its kept .torrent can give the folder copy its file list. The folder copy then checks its files,
  * which downloads nothing, so its row shows no speed meanwhile. No transfer, so this is headless.
  */
-import type { Page } from '@playwright/test'
+import type { BrowserContext, Page } from '@playwright/test'
 
 import { createHash } from 'node:crypto'
 
@@ -128,12 +128,67 @@ const watchPaths = async (page: Page, infoHash: string) => {
   return () => page.evaluate(() => (window as any).__paths as string[])
 }
 
-test('a .torrent add moved into the folder keeps its file list and its progress', async ({ page }) => {
+/** The progress the engine reports for the torrent, wherever it is, each time it changes. */
+const watchProgress = async (page: Page, infoHash: string) => {
+  await page.addInitScript((infoHash) => {
+    const w = window as any
+    w.__progress = []
+    const Original = window.Worker
+    window.Worker = class extends Original {
+      constructor (url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        this.addEventListener('message', (event: MessageEvent) => {
+          if (event.data?.type !== 'state') return
+          const progress = (event.data.torrents ?? []).find((row: any) => row.magnet?.toLowerCase().includes(infoHash))?.status?.progress
+          if (progress !== undefined && progress !== w.__progress.at(-1)) w.__progress.push(progress)
+        })
+      }
+    }
+  }, infoHash)
+  return () => page.evaluate(() => (window as any).__progress as number[])
+}
+
+/**
+ * In every tab, each move its engine is asked for and each write of the torrent's files. A tab that borrows the engine
+ * sends its commands through the tab running it, so a move asked for anywhere reaches that tab's worker.
+ */
+const watchMoves = (context: BrowserContext) => context.addInitScript((names) => {
+  const w = window as unknown as { __relocates: string[], __writes: number }
+  w.__relocates = []
+  w.__writes = 0
+  const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void
+  Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+    const msg = args[0] as { type?: string, to: string } | undefined
+    if (msg?.type === 'relocate') w.__relocates.push(msg.to)
+    post.apply(this, args)
+  } as Worker['postMessage']
+  const createWritable = FileSystemFileHandle.prototype.createWritable
+  FileSystemFileHandle.prototype.createWritable = function (this: FileSystemFileHandle, ...args: Parameters<FileSystemFileHandle['createWritable']>) {
+    if (names.includes(this.name)) w.__writes++
+    return createWritable.apply(this, args)
+  }
+}, FILES.map((f) => f.path))
+
+const movesIn = (page: Page) => page.evaluate(() => (window as unknown as { __relocates: string[] }).__relocates)
+const writesIn = (page: Page) => page.evaluate(() => (window as unknown as { __writes: number }).__writes)
+const failed = (shown: string[]) => shown.filter((text) => text.includes('failed'))
+
+/** A second tab on the library, once its toasts are watched. It borrows the engine of the tab opened first. */
+const openSecondTab = async (context: BrowserContext) => {
+  const other = await context.newPage()
+  await other.goto('/')
+  await other.locator('input[type=file][accept*=".torrent"]').waitFor({ state: 'attached', timeout: 30_000 })
+  return { other, toasts: await watchToasts(other) }
+}
+
+test('a .torrent add moved into the folder keeps its file list and its progress', async ({ page, context }) => {
   test.setTimeout(180_000)
+  await watchMoves(context)
   const reports = await watchMove(page, INFO_HASH)
   await chooseFolder(page)
   const toasts = await watchToasts(page)
   await place(page, NAME, FILES)
+  const placed = await writesIn(page)
   await addToFolder(page, NAME, TORRENT)
 
   // THE CONTROL: it reached the folder, so the move ran
@@ -158,6 +213,8 @@ test('a .torrent add moved into the folder keeps its file list and its progress'
   await expect.poll(saved, { timeout: 15_000, message: 'the moved torrent saved no state' }).toBe(true)
   expect(await toasts(), 'the toast watcher saw nothing').toContain(`${NAME} added`)
   expect((await toasts()).filter((text) => text.startsWith('Moving')), 'a move that worked said it failed').toEqual([])
+  // the move copies each file once, and the copy into the folder of every finished torrent leaves a moving one alone
+  expect(await writesIn(page) - placed, 'a file was copied into the folder twice').toBe(FILES.length)
 })
 
 /*
@@ -284,6 +341,59 @@ test('a move into a folder that refuses the write says it failed, and moves once
   expect(await paths(), 'the torrent moved into a folder that refused the write').toEqual([])
   await block(false)
   await expect.poll(paths, { timeout: 60_000, message: 'the move never ran again once the folder took the write' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+/*
+ * The second tab holds the folder too, which its add dialog shows by offering it. Only the tab running the engine
+ * moves and copies the torrent: the other tab's move ran beside it and read files the first one's had just dropped,
+ * and its copy said it failed.
+ */
+test('with two tabs open, only the tab running the engine moves a torrent into the folder', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await watchMoves(context)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  const { other, toasts: otherToasts } = await openSecondTab(context)
+  await addToFolder(other, NAME, TORRENT)
+
+  // THE CONTROL: the tab opened first runs the engine, which moved the torrent
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  // the second tab shows the copy the first made, which is what offers removing the torrent but keeping its files
+  await other.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  await expect(other.getByRole('dialog').last().getByRole('button', { name: 'Remove from the library' })).toBeVisible({ timeout: 60_000 })
+
+  expect([...await movesIn(page), ...await movesIn(other)], 'the torrent was moved more than once').toEqual(['folder'])
+  expect(await writesIn(other), 'the tab not running the engine wrote into the folder').toBe(0)
+  expect(failed([...await toasts(), ...await otherToasts()]), 'a move that worked said it failed').toEqual([])
+})
+
+test('a move asked for in a tab not running the engine is made once, by the tab running it', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await watchMoves(context)
+  const paths = await watchPaths(page, INFO_HASH)
+  const progress = await watchProgress(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  const { other, toasts: otherToasts } = await openSecondTab(context)
+  await other.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+  const dialog = other.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
+  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+  await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished in browser storage' }).toContain(1)
+
+  await other.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  await other.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
+
+  await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  // a second move starts on the click or on the next state report, so it is sent within a second of the first
+  await page.waitForTimeout(3_000)
+  expect([...await movesIn(page), ...await movesIn(other)], 'the torrent was moved more than once').toEqual(['folder'])
+  expect(failed([...await toasts(), ...await otherToasts()]), 'a move that worked said it failed').toEqual([])
 })
 
 test('a torrent moved into the folder moves back into browser storage when asked', async ({ page }) => {

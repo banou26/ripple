@@ -31,8 +31,12 @@ const fakeRoot = (files: Map<string, Uint8Array>) => {
     writes,
     opened,
     getDirectoryHandle: async () => root,
-    getFileHandle: async (name: string) => {
+    getFileHandle: async (name: string, options?: { create?: boolean }) => {
       opened.push(name)
+      if (!files.has(name)) {
+        if (!options?.create) throw new DOMException(`${name} is not there`, 'NotFoundError')
+        files.set(name, new Uint8Array(0))
+      }
       return {
         getFile: async () => fakeFile(files.get(name) ?? new Uint8Array(0)),
         createWritable: async () => {
@@ -168,6 +172,33 @@ describe('deciding a file is already in the folder', () => {
     const client = { read: async () => { throw new Error('engine gone') } } as unknown as TorrentClient
     await expect(syncTorrentToDirectory(client, torrentOf([{ name: 'a.bin', size: 300_000 }]), root as never)).rejects.toThrow('engine gone')
     expect(root.writes[0]).toMatchObject({ closed: false, aborted: true })
+  })
+})
+
+// a tab that does not run the engine only checks what the tab running it copied
+describe('checking a copy without writing', () => {
+  const pack = torrentOf([{ name: 'a.bin', size: 300_000 }, { name: 'b.bin', size: 300_000 }])
+  const engine = () => fakeClient([bytes(300_000, 7), bytes(300_000, 9)])
+
+  it('rejects while a file is missing, and creates nothing in the folder', async () => {
+    const files = new Map([['a.bin', bytes(300_000, 7)]])
+    const root = fakeRoot(files)
+    await expect(syncTorrentToDirectory(engine(), pack, root as never, false)).rejects.toThrow()
+    expect([...files.keys()]).toEqual(['a.bin'])
+    expect(root.writes).toHaveLength(0)
+  })
+
+  it('rejects a different file of the same length rather than copying over it', async () => {
+    const files = new Map([['a.bin', bytes(300_000, 7)], ['b.bin', bytes(300_000, 3)]])
+    const root = fakeRoot(files)
+    await expect(syncTorrentToDirectory(engine(), pack, root as never, false)).rejects.toThrow()
+    expect(files.get('b.bin')).toEqual(bytes(300_000, 3))
+    expect(root.writes).toHaveLength(0)
+  })
+
+  it('resolves once every file is there', async () => {
+    const root = fakeRoot(new Map([['a.bin', bytes(300_000, 7)], ['b.bin', bytes(300_000, 9)]]))
+    expect(await syncTorrentToDirectory(engine(), pack, root as never, false)).toBe(0)
   })
 })
 
