@@ -532,8 +532,8 @@ const style = css`
 
 /** How long a link opened as its own page waits, once its files are in, before it starts the save itself. */
 const START_BY_ITSELF_MS = 2_000
-/** Per document, not per mount: going to the library and back mounts the page again, on the same file. */
-let startedOnce = false
+/** The links that started a save in this document. Per link, not per mount: going to the library and back mounts the page again, on the same link. */
+const startedLinks = new Set<string>()
 
 /** Whether this document is framed by another origin, which decides whether to offer a way out. */
 const framedByAnotherOrigin = (): boolean => {
@@ -573,9 +573,11 @@ type Props = {
    */
   selection: FileSelection
   linked: LinkLanguages
+  /** The link's parameters as one string, which names this page: a save starts by itself once per link in a document. */
+  link: string
 }
 
-const DownloadPage = ({ magnet, selection, linked }: Props) => {
+const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
   const intl = useIntl()
   const { client, snapshot, handle, viewer, claim, release, engineError, storageFull, unreadable } = useDownloadTorrent(magnet)
   /**
@@ -1037,23 +1039,23 @@ const DownloadPage = ({ magnet, selection, linked }: Props) => {
   /*
    * A link opened as its own page starts the save itself, a moment after its files are in, when the service worker
    * can hand it to the browser's downloads (the picker and the in-memory save need a click). Once a save has
-   * started, by itself or from a button, this document never starts one again (`startedOnce`). The ticks are read
-   * when the wait ends, through a ref: every engine broadcast rebuilds `entries`, which as a dependency would restart
-   * the wait each time.
+   * started, by itself or from a button, this document never starts one again for this link (`startedLinks`). The
+   * ticks are read when the wait ends, through a ref: every engine broadcast rebuilds `entries`, which as a dependency
+   * would restart the wait each time.
    */
   const ownPage = typeof window !== 'undefined' && window.top === window.self
   const controlled = useControlled()
   const entriesRef = useRef(entries)
   useEffect(() => { entriesRef.current = entries })
   useEffect(() => {
-    if (busy) startedOnce = true
-    if (startedOnce || !ready || !ownPage || !controlled) return
+    if (busy) startedLinks.add(link)
+    if (startedLinks.has(link) || !ready || !ownPage || !controlled) return
     const timer = window.setTimeout(() => {
-      startedOnce = true
+      startedLinks.add(link)
       start(entriesRef.current, downloading, true)
     }, START_BY_ITSELF_MS)
     return () => window.clearTimeout(timer)
-  }, [busy, ready, ownPage, controlled, start, downloading])
+  }, [busy, ready, ownPage, controlled, start, downloading, link])
 
   const label = unreadable
     ? intl.formatMessage({ id: 'Nothing to download', defaultMessage: 'Nothing to download' })

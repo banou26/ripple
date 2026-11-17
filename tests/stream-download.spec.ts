@@ -4,7 +4,8 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 
-import type { Frame, Page } from '@playwright/test'
+import type { Download, Frame, Page } from '@playwright/test'
+import { Route, linkPath } from '../src/router/path'
 import { expect, test } from './offline'
 import { hideController } from './worker-control'
 
@@ -379,6 +380,50 @@ test('a download link opened as its own page starts saving by itself', async ({ 
     expect(await opened(own)).toBe(1)
     await own.close()
   })
+})
+
+/*
+ * Two links that differ only after the `#` are one document: one pasted over the other, Back and Forward, a frame
+ * given a new src. The second still gets a page of its own, with nothing of the first's and a start of its own,
+ * and the way back to the first does not save it again.
+ */
+test('a second download link opened in the same tab is a page of its own', async ({ page, context }) => {
+  test.setTimeout(300_000)
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const SECOND = { name: 'E02.mkv', bytes: 200_000, fill: 0x22 }
+  const linkTo = async (file: typeof FILE) => {
+    await libraryFile(page, file)
+    await page.locator('.torrent', { hasText: file.name }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Copy magnet' }).click()
+    const magnet = await page.evaluate(() => navigator.clipboard.readText())
+    return new URL(linkPath(Route.DOWNLOAD, new URLSearchParams({ magnet: Buffer.from(magnet).toString('base64') })), page.url()).href
+  }
+  const first = await linkTo(FILE)
+  const second = await linkTo(SECOND)
+
+  const own = await context.newPage()
+  const saves: Download[] = []
+  own.on('download', (download) => saves.push(download))
+  await own.goto(first)
+  await expect.poll(() => saves.length, { timeout: 60_000 }).toBe(1)
+  await expect(own.getByText(`Saved ${FILE.name}`)).toBeVisible({ timeout: 30_000 })
+  await own.evaluate(() => { (window as any).__document = 'first' })
+
+  await own.goto(second)
+  expect(await own.evaluate(() => (window as any).__document), 'a new document, which proves nothing').toBe('first')
+  await expect(own.getByText(SECOND.name).first()).toBeVisible({ timeout: 60_000 })
+  // read once rather than waited for: the second's own save, 2 s on, would replace a line carried over
+  expect(await own.getByText(`Saved ${FILE.name}`).count(), 'the first link\'s page carried over').toBe(0)
+  await expect.poll(() => saves.length, { timeout: 60_000 }).toBe(2)
+  expect(readFileSync(await saves[1]!.path()).equals(Buffer.alloc(SECOND.bytes, SECOND.fill))).toBe(true)
+
+  await own.goBack()
+  expect(new URL(own.url()).hash).toBe(new URL(first).hash)
+  await expect(own.getByText(FILE.name).first()).toBeVisible({ timeout: 60_000 })
+  await expect(own.locator('button.cta')).toBeEnabled({ timeout: 60_000 })
+  await own.waitForTimeout(6_000)
+  expect(saves, 'back on the first link, it saved its file again').toHaveLength(2)
+  await own.close()
 })
 
 /*

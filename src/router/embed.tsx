@@ -907,7 +907,10 @@ const Embed = ({ mode = 'watch' }: { mode?: EmbedMode } = {}) => {
     [params],
   )
 
-  if (mode === 'download') return <DownloadPage magnet={magnet} selection={selection} linked={linked} />
+  // keyed on its link: two links that differ after the `#` are one document, and the second must not keep the first's
+  // ticks, saved files or running save
+  const link = params.toString()
+  if (mode === 'download') return <DownloadPage key={link} link={link} magnet={magnet} selection={selection} linked={linked} />
   return <Player linked={linked} />
 }
 
