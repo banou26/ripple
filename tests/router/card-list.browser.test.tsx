@@ -47,7 +47,7 @@ const handlers = {
   selected: false, onSelect: vi.fn(), savedToUserStorage: false,
 }
 
-const mount = async (filter: ListFilter = 'all') => {
+const mount = async (filter: ListFilter = 'all', first: Torrent[] = LIBRARY) => {
   const { CardList, TorrentRow, style } = await import('../../src/router/home')
   const clock = { now: 1_000_000 }
   const Library = ({ torrents }: { torrents: Torrent[] }) => {
@@ -67,7 +67,7 @@ const mount = async (filter: ListFilter = 'all') => {
   container.style.cssText = 'width: 1200px; height: 700px; display: flex; flex-direction: column;'
   document.body.append(container)
   const page = (torrents: Torrent[]) => <IntlRoot><MemoryRouter><Library torrents={torrents}/></MemoryRouter></IntlRoot>
-  const screen = await render(page(LIBRARY), { container })
+  const screen = await render(page(first), { container })
   /** The page from the top down: each heading as its words, each card as its name. */
   const drawn = () => [...screen.container.querySelectorAll('main .group-head, main .torrent')]
     .map((el) => el.matches('.group-head') ? `# ${(el as HTMLElement).innerText.replace(/\s+/g, ' ')}` : el.querySelector('.title strong')!.textContent)
@@ -160,6 +160,42 @@ describe('the cards under their group headings', () => {
     await rerender(paused.map((x) => ({ ...x })))
     expect(drawn().slice(0, 5)).toEqual(['# Downloading 1', 'Down two', '# Paused 2', 'Down one', 'Held'])
     await userEvent.hover(screen.container.ownerDocument.body, { position: { x: 1, y: 1 } })
+  })
+
+  /** After a reload every row is Starting for a moment, and nothing was ever drawn under a heading to hold. */
+  it('stands a row under its own heading once the engine reports it, even with the pointer in the list', async () => {
+    const starting = LIBRARY.map((x) => x.state === 'missing' ? x : { ...x, id: 'starting:' + x.infoHash, state: 'starting' as const })
+    const { screen, clock, drawn, card, rerender } = await mount('all', starting)
+    expect(drawn().slice(0, 6)).toEqual(['# Downloading 5', 'Seed one', 'Down one', 'Held', 'Down two', 'Seed two'])
+    await userEvent.hover(card('Held'))
+    await rerender(LIBRARY.map((x) => ({ ...x })))
+    clock.now += 500
+    await rerender(LIBRARY.map((x) => ({ ...x })))
+    expect(drawn()).toEqual([
+      '# Downloading 2', 'Down one', 'Down two',
+      '# Paused 1', 'Held',
+      '# Done 2', 'Seed one', 'Seed two',
+      '# Not on this device 1', 'Ghost',
+    ])
+    await userEvent.hover(screen.container.ownerDocument.body, { position: { x: 1, y: 1 } })
+  })
+
+  /** A row started from Not on this device takes a new id, and the click that started it must not see it jump away. */
+  it('holds a started card under its heading by its info hash, then moves it', async () => {
+    const { screen, clock, drawn, card, rerender } = await mount()
+    await userEvent.hover(card('Ghost'))
+    const started = LIBRARY.map((x) => x.state === 'missing' ? { ...x, id: 'starting:' + x.infoHash, state: 'starting' as const } : { ...x })
+    await rerender(started)
+    clock.now += 500
+    await rerender(started.map((x) => ({ ...x })))
+    expect(drawn().slice(-2)).toEqual(['# Not on this device 1', 'Ghost'])
+    expect(card('Ghost').matches('.starting')).toBe(true)
+
+    await userEvent.hover(screen.container.ownerDocument.body, { position: { x: 1, y: 1 } })
+    clock.now += 3_000
+    await rerender(started.map((x) => ({ ...x })))
+    expect(drawn().slice(0, 4)).toEqual(['# Downloading 3', 'Down one', 'Down two', 'Ghost'])
+    expect(drawn()).not.toContain('# Not on this device 1')
   })
 
   it('moves a card whose state changed when nobody is in the list (control)', async () => {

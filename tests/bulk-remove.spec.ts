@@ -14,6 +14,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from './offline'
 
+import { REORDER_QUIET_MS } from '../src/torrent/list-view'
 import { magnetParam } from '../src/torrent/magnet'
 
 const NAMES = ['Bulk.One.bin', 'Bulk.Two.bin', 'Bulk.Three.bin']
@@ -74,6 +75,20 @@ const make = async (page: Page, files: readonly string[]) => {
   expect(new Set(hashes).size).toBe(files.length)
   return hashes
 }
+
+/** Every heading the card named `name` stood under while `ms` passed, looked at ten times a second. */
+const headingsOver = ({ name, ms }: { name: string, ms: number }) => new Promise<string[]>((resolve) => {
+  const seen = new Set<string>()
+  const end = performance.now() + ms
+  const look = () => {
+    let el = [...document.querySelectorAll('main .torrent')].find((card) => card.querySelector('.title strong')?.textContent === name)?.previousElementSibling
+    while (el && !el.matches('.group-head')) el = el.previousElementSibling
+    seen.add(el ? (el as HTMLElement).innerText.replace(/\s+/gu, ' ') : 'none')
+    if (performance.now() < end) setTimeout(look, 100)
+    else resolve([...seen])
+  }
+  look()
+})
 
 const tickOf = (page: Page) => (name: string) => page.getByRole('checkbox', { name: `Select ${name}` })
 const badgeOf = (page: Page) => (name: string) => page.locator('.torrent', { hasText: name }).locator('.badge')
@@ -209,6 +224,29 @@ test('a shift+click ticks the run of rows between two boxes, in the order each v
   await tick('Run.Cherry.bin').click({ modifiers: ['Shift'] })
   await expect(bar).toContainText('1 selected')
   expect(await ticked()).toEqual([true, false, false, false])
+})
+
+/*
+ * A card paused from its own row keeps its heading while the pointer is in the list, so the card under it does not
+ * slide under the pointer, and goes under Paused once the pointer leaves. Two downloads with nobody to fetch from, so
+ * no state changes but the pause.
+ */
+test('a card paused under the pointer keeps its heading until the pointer leaves the list', async ({ page }) => {
+  await prepare(page)
+  await page.goto('/')
+  for (const [hash, name] of [['4d', 'Hold.One.bin'], ['5e', 'Hold.Two.bin']] as const) {
+    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${hash.repeat(20)}&dn=${name}`)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+  }
+  await expect(page.getByRole('heading', { name: 'Downloading 2' })).toBeVisible({ timeout: 30_000 })
+
+  await page.getByRole('button', { name: 'Pause Hold.One.bin' }).click({ timeout: 60_000 })
+  await expect(badgeOf(page)('Hold.One.bin')).toHaveText('Paused', { timeout: 30_000 })
+  expect(await page.evaluate(headingsOver, { name: 'Hold.One.bin', ms: REORDER_QUIET_MS + 1_500 })).toEqual(['Downloading 2'])
+
+  await page.getByRole('button', { name: /^Sort by /u }).hover()
+  await expect(page.getByRole('heading', { name: 'Paused 1' })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByRole('heading', { name: 'Downloading 1' })).toBeVisible()
 })
 
 /*
