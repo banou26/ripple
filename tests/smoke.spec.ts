@@ -37,6 +37,17 @@ const probeEngine = () => {
 const engineReady = async (page: Page) =>
   expect(await page.evaluate(() => (window as any).__engine as Promise<string>)).toBe('ready')
 
+/**
+ * Waits for libtorrent's queue to start a torrent, and for the page to draw it. Needs `probeEngine`. A magnet's first
+ * state carries no status and its row reads Downloading; the next is paused until the queue starts it, and its row reads
+ * Queued, offers Resume in Pause's place and has the tab close without asking.
+ */
+const queueStarted = async (page: Page) => {
+  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status && !t.status.paused), undefined, { timeout: 30_000 })
+  // seen as the message arrives, before the page renders it and its effects run
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+}
+
 /** A message to the engine worker, as the page's client sends it. Needs `probeEngine` and `engineReady`. */
 const tell = (page: Page, message: object) => page.evaluate((m) => (window as any).__worker.postMessage(m), message)
 
@@ -169,11 +180,14 @@ test('a torrent of one\'s own answers the offer too, and removing it does not br
 
 test('closing the tab asks first while a torrent of one\'s own downloads, and not once it is paused', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
   await page.goto('/')
   await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   const row = page.locator('.torrent').first()
   await expect(row.locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+  // a press on Pause before this can land on the Resume the queue puts in its place
+  await queueStarted(page)
 
   const asked: string[] = []
   page.on('dialog', (dialog) => { asked.push(dialog.type()); void dialog.dismiss() })
@@ -195,8 +209,7 @@ test('closing the tab asks from another of its pages too, which the engine goes 
   await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   await expect(page.locator('.torrent .badge')).toHaveText('Downloading', { timeout: 30_000 })
-  // started by the queue: a magnet's first state carries no status, and the one after it is paused until the queue starts it
-  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status && !t.status.paused), undefined, { timeout: 30_000 })
+  await queueStarted(page)
   await page.getByRole('link', { name: 'Privacy', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Privacy' })).toBeVisible()
   // a frame or two for the library page's effects to end, as they do once it is gone
