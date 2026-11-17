@@ -3432,7 +3432,7 @@ const Home = () => {
   })
   const holding = (hashes: string[]) => (groups ?? []).map((g) => {
     const held = torrentsIn(g)
-    return { id: g.id, name: g.name, holds: hashes.length > 0 && hashes.every((hash) => held.has(hash)) }
+    return { id: g.id, name: g.name, holds: hashes.every((hash) => held.has(hash)) }
   })
   const deleteShown = async (g: TorrentGroup) => {
     const ok = await confirm({
