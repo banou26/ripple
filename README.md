@@ -20,8 +20,9 @@ off, and plays a video while it downloads. There is nothing to install and no Ri
   several.
 - **Create a torrent** from files or a folder (v1, v2 or hybrid, private with a source tag, web
   seeds) and seed it straight from those files.
-- **Your library on every device.** Signed in to FKN, your list, thumbnails and .torrent files
-  sync, encrypted in your browser before they leave it.
+- **Groups.** Put torrents in groups, a torrent in as many as you like, and show one group at a time.
+- **Your library on every device.** Signed in to FKN, your list, its groups, thumbnails and .torrent
+  files sync, encrypted in your browser before they leave it.
 - **Share links** that open the player or a download page, which other sites can embed.
 - **One engine for all your tabs.** One tab runs it and the others use it.
 - **Speed limits** for everything or per torrent, and the peers, trackers, files and all-time share
@@ -136,9 +137,10 @@ Why each part works the way it does is in [docs/embedding.md](./docs/embedding.m
 
 ## Privacy
 
-Ripple needs no account and runs no analytics. Your list and files stay in your browser, or in a
-folder you choose. Signed in to FKN, your list, thumbnails and .torrent files sync to your account,
-encrypted in your browser first. Peers and trackers see the FKN relay's address, not yours, unless
+Ripple needs no account and runs no analytics. Your list, its groups and your files stay in your
+browser, or in a folder you choose. Signed in to FKN, your list, its groups, thumbnails and .torrent
+files sync to your FKN account, encrypted in your browser first.
+Peers and trackers see the FKN relay's address, not yours, unless
 you turn the VPN off: they then see your own, and so does the STUN server that tells your browser
 its address. The [privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps and names
 each of those hosts (`src/router/privacy.tsx`).

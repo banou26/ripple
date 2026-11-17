@@ -14,5 +14,11 @@ it('says peers see the relay\'s address only with the VPN on, and leaves the hos
 })
 
 it('says the .torrent files sync with the list and the thumbnails', () => {
-  expect(readme).toContain('Signed in to FKN, your list, thumbnails and .torrent files sync to your account,\nencrypted in your browser first.')
+  expect(readme.replace(/\s+/g, ' ')).toContain('Signed in to FKN, your list, its groups, thumbnails and .torrent files sync to your FKN account, encrypted in your browser first.')
+})
+
+it('says the groups stay in the browser and sync with the list, as the privacy page does', () => {
+  const privacy = readme.slice(readme.indexOf('## Privacy'), readme.indexOf('## License')).replace(/\s+/g, ' ')
+  expect(privacy).toContain('Your list, its groups and your files stay in your browser')
+  expect(privacy).toContain('your list, its groups, thumbnails and .torrent files sync to your FKN account')
 })
