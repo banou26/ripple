@@ -396,6 +396,56 @@ test('a move asked for in a tab not running the engine is made once, by the tab 
   expect(failed([...await toasts(), ...await otherToasts()]), 'a move that worked said it failed').toEqual([])
 })
 
+// the tab running the engine was opened before the folder was chosen, in the other tab
+test('a folder chosen in a tab not running the engine reaches the tab running it, which moves into it', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  await page.addInitScript(() => { try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ } })
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=".torrent"]').waitFor({ state: 'attached', timeout: 30_000 })
+  const other = await context.newPage()
+  await chooseFolder(other)
+  await place(other, NAME, FILES)
+  await addToFolder(other, NAME, TORRENT)
+
+  await expect.poll(paths, { timeout: 60_000, message: 'the tab running the engine never moved the torrent' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+test('a folder chosen, allowed or dropped in one tab shows in the other', async ({ page, context }) => {
+  // the folder's grant follows a flag, the way a browser's grant reaches every tab of a site
+  await context.addInitScript(() => {
+    const grant = async () => { localStorage.setItem('test:granted', '1'); return 'granted' }
+    Object.assign(window, { showDirectoryPicker: async () => { await grant(); return (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true }) } })
+    Object.assign(FileSystemHandle.prototype, {
+      queryPermission: async () => (localStorage.getItem('test:granted') === '1' ? 'granted' : 'prompt'),
+      requestPermission: grant,
+    })
+  })
+  const button = (tab: Page, name: string) => tab.getByRole('button', { name, exact: true })
+  await page.goto('/settings')
+  const other = await context.newPage()
+  await other.goto('/settings')
+  await expect(button(page, 'Choose folder')).toBeVisible({ timeout: 30_000 })
+
+  await button(other, 'Choose folder').click({ timeout: 30_000 })
+  await expect(button(other, 'Stop')).toBeVisible()
+  await expect(button(page, 'Stop'), 'a folder chosen in one tab did not reach the other').toBeVisible()
+
+  // the browser restarted, which keeps the folder and drops its grant
+  await page.evaluate(() => localStorage.setItem('test:granted', '0'))
+  for (const tab of [page, other]) {
+    await tab.reload()
+    await expect(button(tab, 'Allow picked')).toBeVisible({ timeout: 30_000 })
+  }
+  await button(page, 'Allow picked').click()
+  await expect(button(page, 'Stop')).toBeVisible()
+  await expect(button(other, 'Stop'), 'a folder allowed in one tab is still waiting in the other').toBeVisible()
+
+  await button(other, 'Stop').click()
+  await expect(button(other, 'Choose folder')).toBeVisible()
+  await expect(button(page, 'Choose folder'), 'a folder dropped in one tab is still in the other').toBeVisible()
+})
+
 test('a torrent moved into the folder moves back into browser storage when asked', async ({ page }) => {
   test.setTimeout(180_000)
   const paths = await watchPaths(page, INFO_HASH)
