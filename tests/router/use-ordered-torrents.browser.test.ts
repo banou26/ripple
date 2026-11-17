@@ -46,3 +46,30 @@ it('times a held heading from the row that moved, not from a torrent removed bef
   await rerender({ torrents: paused.map((x) => ({ ...x })), dir: 'desc' })
   expect(drawn()).toEqual(['a active', 'b active'])
 })
+
+it('stands a row under its own heading as soon as the engine reports it, with the pointer in the list', async () => {
+  const { clock, drawn, rerender } = await mount([t('a', 3), t('b', 2, 'starting')])
+  clock.now += 100
+  await rerender({ torrents: [t('a', 3), t('b', 2, 'seeding')], dir: 'desc' })
+  expect(drawn()).toEqual(['a active', 'b done'])
+})
+
+it('stands a row still starting at a release under its own heading once reported', async () => {
+  const { clock, drawn, rerender } = await mount([t('a', 3), t('b', 2), t('c', 1, 'starting')])
+  const paused = [t('a', 3, 'paused'), t('b', 2), t('c', 1, 'starting')]
+  await rerender({ torrents: paused, dir: 'desc' })
+  expect(drawn()).toEqual(['a active', 'b active', 'c active'])
+  clock.now += 10_500
+  await rerender({ torrents: paused.map((x) => ({ ...x })), dir: 'desc' })
+  expect(drawn()).toEqual(['a paused', 'b active', 'c active'])
+  clock.now += 100
+  await rerender({ torrents: [t('a', 3, 'paused'), t('b', 2), t('c', 1, 'seeding')], dir: 'desc' })
+  expect(drawn()).toEqual(['a paused', 'b active', 'c done'])
+})
+
+it('stands a torrent removed and added again under its new heading at once', async () => {
+  const { drawn, rerender } = await mount([t('a', 3), t('b', 2, 'seeding')])
+  await rerender({ torrents: [t('a', 3)], dir: 'desc' })
+  await rerender({ torrents: [t('a', 3), t('b', 2, 'paused')], dir: 'desc' })
+  expect(drawn()).toEqual(['a active', 'b paused'])
+})
