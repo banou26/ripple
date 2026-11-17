@@ -21,17 +21,26 @@ const bencode = (value: unknown): Buffer => {
 
 const NAME = 'Stored'
 const PIECE = 256 * 1024
+const BLOCK = 16 * 1024
 const FILE = { path: 'stored.bin', size: 1024 * 1024 * 1024, fill: 0x62 }
-// every piece holds the same bytes, so one hash stands for all of them
-const piece = createHash('sha1').update(Buffer.alloc(PIECE, FILE.fill)).digest()
-const info = { name: NAME, 'piece length': PIECE, pieces: Buffer.concat(Array.from({ length: FILE.size / PIECE }, () => piece)), files: [{ length: FILE.size, path: [FILE.path] }] }
-const INFO_HASH = createHash('sha1').update(bencode(info)).digest('hex')
+
+// each 16 KiB block starts with its own index, so a read answered with another read's bytes fails its piece's hash
+const storedTorrent = () => {
+  const bytes = Buffer.alloc(PIECE, FILE.fill)
+  const pieces = Array.from({ length: FILE.size / PIECE }, (_, index) => {
+    for (let at = 0; at < PIECE; at += BLOCK) bytes.writeUInt32BE((index * PIECE + at) / BLOCK, at)
+    return createHash('sha1').update(bytes).digest()
+  })
+  const info = { name: NAME, 'piece length': PIECE, pieces: Buffer.concat(pieces), files: [{ length: FILE.size, path: [FILE.path] }] }
+  return { torrent: bencode({ info }), infoHash: createHash('sha1').update(bencode(info)).digest('hex') }
+}
 
 type Beat = { at: number, progress: number | null }
 type Reading = { badge: string, pct: number }
 
 test('a torrent checking files already in browser storage keeps the engine reporting, and its row the check', async ({ page }) => {
   test.setTimeout(180_000)
+  const { torrent, infoHash } = storedTorrent()
   // one state message carries every torrent, so a gap between two is a gap for all of them
   await page.addInitScript((infoHash) => {
     try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
@@ -48,17 +57,21 @@ test('a torrent checking files already in browser storage keeps the engine repor
         })
       }
     }
-  }, INFO_HASH)
+  }, infoHash)
   await page.goto('/')
   await page.locator('input[type=file][accept*=".torrent"]').waitFor({ state: 'attached', timeout: 30_000 })
   // a .torrent add saves under the shared root, so this is where the engine's first check finds them
-  await page.evaluate(async ({ name, path, size, fill }) => {
+  await page.evaluate(async ({ name, path, size, fill, block }) => {
     const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('dl', { create: true })).getDirectoryHandle(name, { create: true })
     const writable = await (await dir.getFileHandle(path, { create: true })).createWritable()
     const chunk = new Uint8Array(16 * 1024 * 1024).fill(fill)
-    for (let at = 0; at < size; at += chunk.length) await writable.write(chunk)
+    const view = new DataView(chunk.buffer)
+    for (let at = 0; at < size; at += chunk.length) {
+      for (let from = 0; from < chunk.length; from += block) view.setUint32(from, (at + from) / block)
+      await writable.write(chunk)
+    }
     await writable.close()
-  }, { name: NAME, ...FILE })
+  }, { name: NAME, ...FILE, block: BLOCK })
   const addedAt = await page.evaluate((name) => {
     const readings: Reading[] = []
     Object.assign(window, { __readings: readings })
@@ -68,7 +81,7 @@ test('a torrent checking files already in browser storage keeps the engine repor
     }, 100)
     return performance.now()
   }, NAME)
-  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: bencode({ info }) })
+  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: torrent })
 
   const beats = () => page.evaluate(() => (window as unknown as { __beats: Beat[] }).__beats)
   await expect.poll(async () => (await beats()).some((b) => b.progress === 1), { timeout: 120_000, message: 'the torrent never finished its check' }).toBe(true)
