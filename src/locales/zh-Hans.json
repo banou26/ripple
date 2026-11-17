@@ -339,6 +339,8 @@
   "Some of those files could not be opened": "部分文件无法打开",
   "Sort": "排序",
   "Sort by {label}": "排序：{label}",
+  "Sort by {label}, ascending": "排序：{label}，升序",
+  "Sort by {label}, descending": "排序：{label}，降序",
   "Sorted ascending, click for descending": "升序排列，点击改为降序",
   "Sorted descending, click for ascending": "降序排列，点击改为升序",
   "Source": "源",

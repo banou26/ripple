@@ -339,6 +339,8 @@
   "Some of those files could not be opened": "一部のファイルを開けませんでした",
   "Sort": "並べ替え",
   "Sort by {label}": "並べ替え：{label}",
+  "Sort by {label}, ascending": "並べ替え：{label}、昇順",
+  "Sort by {label}, descending": "並べ替え：{label}、降順",
   "Sorted ascending, click for descending": "昇順で並べ替え中。クリックで降順に変更",
   "Sorted descending, click for ascending": "降順で並べ替え中。クリックで昇順に変更",
   "Source": "ソース",

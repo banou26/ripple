@@ -339,6 +339,8 @@
   "Some of those files could not be opened": "Bu dosyaların bazıları açılamadı",
   "Sort": "Sırala",
   "Sort by {label}": "Sırala: {label}",
+  "Sort by {label}, ascending": "Sırala: {label}, artan",
+  "Sort by {label}, descending": "Sırala: {label}, azalan",
   "Sorted ascending, click for descending": "Artan sıralı, azalan için tıklayın",
   "Sorted descending, click for ascending": "Azalan sıralı, artan için tıklayın",
   "Source": "Kaynak",

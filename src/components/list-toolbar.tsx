@@ -279,7 +279,9 @@ export const ListToolbar = (
       </button>
       <button
         type="button" className="chip sort" {...sortMenu.trigger}
-        aria-label={intl.formatMessage({ id: 'Sort by {label}', defaultMessage: 'Sort by {label}' }, { label: intl.formatMessage(SORT_LABEL[sortKey]) })}
+        aria-label={sortDir === 'asc'
+          ? intl.formatMessage({ id: 'Sort by {label}, ascending', defaultMessage: 'Sort by {label}, ascending' }, { label: intl.formatMessage(SORT_LABEL[sortKey]) })
+          : intl.formatMessage({ id: 'Sort by {label}, descending', defaultMessage: 'Sort by {label}, descending' }, { label: intl.formatMessage(SORT_LABEL[sortKey]) })}
         {...hint(sortDir === 'asc'
           ? intl.formatMessage({ id: 'Smallest first', defaultMessage: 'Smallest first' })
           : intl.formatMessage({ id: 'Largest first', defaultMessage: 'Largest first' }))}

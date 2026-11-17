@@ -339,6 +339,8 @@
   "Some of those files could not be opened": "Не удалось открыть некоторые из этих файлов",
   "Sort": "Сортировка",
   "Sort by {label}": "Сортировка: {label}",
+  "Sort by {label}, ascending": "Сортировка: {label}, по возрастанию",
+  "Sort by {label}, descending": "Сортировка: {label}, по убыванию",
   "Sorted ascending, click for descending": "Сортировка по возрастанию, нажмите для сортировки по убыванию",
   "Sorted descending, click for ascending": "Сортировка по убыванию, нажмите для сортировки по возрастанию",
   "Source": "Источник",

@@ -339,6 +339,8 @@
   "Some of those files could not be opened": "일부 파일을 열 수 없어요",
   "Sort": "정렬",
   "Sort by {label}": "정렬: {label}",
+  "Sort by {label}, ascending": "정렬: {label}, 오름차순",
+  "Sort by {label}, descending": "정렬: {label}, 내림차순",
   "Sorted ascending, click for descending": "오름차순 정렬됨, 클릭하면 내림차순으로 바뀌어요",
   "Sorted descending, click for ascending": "내림차순 정렬됨, 클릭하면 오름차순으로 바뀌어요",
   "Source": "소스",

@@ -75,10 +75,13 @@ describe('the list toolbar', () => {
     expect(chip(c, 'show').innerText.replace(/\s+/g, ' ').trim()).toBe('Kept 4')
     expect(chip(c, 'show')).toHaveAccessibleName('Show: Kept (4)')
     expect(chip(c, 'sort').innerText.trim()).toBe('Size')
-    expect(chip(c, 'sort')).toHaveAccessibleName('Sort by Size')
+    expect(chip(c, 'sort')).toHaveAccessibleName('Sort by Size, ascending')
     expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Smallest first')
     expect(pressed(c, 'Table')).toBe('true')
     expect([chip(c, 'show'), chip(c, 'sort')].map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false'])
+    const other = (await mount({ sortKey: 'size', sortDir: 'desc' }).screen).container
+    expect(chip(other, 'sort')).toHaveAccessibleName('Sort by Size, descending')
+    expect(chip(other, 'sort').getAttribute('data-tooltip-content')).toBe('Largest first')
   })
 
   it('offers each filter that shows a row, with how many it shows, the one chosen checked', async () => {
@@ -165,7 +168,7 @@ describe('the list toolbar', () => {
       expect([...c.querySelectorAll('.views button')].map((b) => b.textContent)).toEqual(['Karten', 'Tabelle'])
       expect([...c.querySelectorAll('[role=group]')].map((g) => g.getAttribute('aria-label'))).toEqual(['Ansicht'])
       expect(chip(c, 'show')).toHaveAccessibleName('Anzeigen: Alle (6)')
-      expect(chip(c, 'sort')).toHaveAccessibleName('Sortieren nach: Hinzugefügt am')
+      expect(chip(c, 'sort')).toHaveAccessibleName('Sortieren nach: Hinzugefügt am, aufsteigend')
       expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Kleinste zuerst')
       const filters = await opened(c, 'show')
       expect(c.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Anzeigen')
@@ -195,6 +198,7 @@ describe('the list toolbar', () => {
       await showIn('de', de)
       const { screen } = mount({ sortDir: 'desc' })
       const c = (await screen).container
+      expect(chip(c, 'sort')).toHaveAccessibleName('Sortieren nach: Hinzugefügt am, absteigend')
       expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Größte zuerst')
       expect((await opened(c, 'sort'))[0]).toHaveAccessibleDescription('Absteigend sortiert, klicken für aufsteigend')
     })
