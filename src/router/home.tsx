@@ -88,9 +88,9 @@ import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
   GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
-  filterCounts, groupTorrents, readFilter, readSort, readView, writeSort,
+  cardGroups, filterCounts, readFilter, readSort, readView, writeSort,
 } from '../torrent/list-view'
-import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
+import type { CardGroup, ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
@@ -876,15 +876,9 @@ export const style = css`
     min-height: 8rem;
   }
 
-  /* the cards stacked by state, each group under its heading and count */
-  .group {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
+  /* a group's heading and count, a sibling of the cards under it */
   .group-head {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2084,11 +2078,10 @@ const MissingRow = ({
               {/* A created source is the one ghost whose files were never in a swarm: this device was
                   the only seed, so there is nobody to fetch them from and the line has to say what
                   actually happened instead of offering a download that cannot work. */}
-              <span>
-                {t.saveTo === 'source'
-                  ? intl.formatMessage({ id: 'Source files unavailable. Create it again from the same files.', defaultMessage: 'Source files unavailable. Create it again from the same files.' })
-                  : intl.formatMessage({ id: 'Not on this device', defaultMessage: 'Not on this device' })}
-              </span>
+              {/* otherwise the size: the chip, and the heading where there is one, already say the files are not here */}
+              {t.saveTo === 'source'
+                ? <span>{intl.formatMessage({ id: 'Source files unavailable. Create it again from the same files.', defaultMessage: 'Source files unavailable. Create it again from the same files.' })}</span>
+                : t.size > 0 && <span>{getHumanReadableByteString(t.size, true)}</span>}
             </div>
           </div>
           <div className="side">
@@ -2393,6 +2386,27 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
     </div>
   )
 }, same)
+
+/**
+ * The cards, each run under its group's heading and count where it has one. Headings and cards are siblings in one
+ * list, so a card that changes group is moved rather than mounted again. Exported for its own test, like the row.
+ */
+export const CardList = ({ groups, row }: { groups: CardGroup<Torrent>[], row: (t: Torrent) => ReactNode }) => {
+  const intl = useIntl()
+  return (
+    <>
+      {groups.flatMap(({ group, rows }) => [
+        group && (
+          <h2 className="group-head" key={'group:' + group}>
+            {intl.formatMessage(GROUP_LABEL[group])}
+            <span className="count">{intl.formatNumber(rows.length)}</span>
+          </h2>
+        ),
+        ...rows.map(row),
+      ])}
+    </>
+  )
+}
 
 /** A line of the stats strip, which marks the ends it scrolls past for their fades. */
 const ReadoutLine = ({ children }: { children: ReactNode }) => {
@@ -3443,14 +3457,14 @@ const Home = () => {
    * plainly downloading.
    */
   const filterCount = filterCounts(torrents)
-  const { rows: visibleRows, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
+  const { rows: visibleRows, groupOf, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
   // the add field, when what it holds adds nothing, narrows the list instead
   const adds = readMagnets(input).length > 0
   const search = adds ? '' : input.trim()
   const shown = search ? visibleRows.filter((t) => matchesSearch(t, search)) : visibleRows
 
-  // the cards stack by state under headings, so a shift-click run follows the order they are drawn in
-  const groups = groupTorrents(shown)
+  // the cards stand under their group headings, so a shift-click run follows the order they are drawn in
+  const groups = cardGroups(shown, listFilter, groupOf)
   const bulk = useBulkSelection(listView === 'table' ? shown : groups.flatMap((g) => g.rows))
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
@@ -3918,13 +3932,10 @@ const Home = () => {
                 onPick={bulk.toggle}
               />
             )
-            : groups.map(({ group, rows }) => (
-              <section className="group" key={group}>
-                <h2 className="group-head">
-                  {intl.formatMessage(GROUP_LABEL[group])}
-                  <span className="count">{intl.formatNumber(rows.length)}</span>
-                </h2>
-                {rows.map((t) => (
+            : (
+              <CardList
+                groups={groups}
+                row={(t) => (
                   // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
                   <TorrentRow
                     key={t.id}
@@ -3943,9 +3954,9 @@ const Home = () => {
                     rates={rowRates[t.id]}
                     transport={transport}
                   />
-                ))}
-              </section>
-            ))}
+                )}
+              />
+            )}
         {/**
           * Hiding is only honest if it says so. A persisted filter outlives the session that set it,
           * so without this a person comes back to a library missing gigabytes they can see in the

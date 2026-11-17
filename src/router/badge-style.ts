@@ -15,7 +15,7 @@ export const STATE_HUE: Record<TorrentState, string> = {
   completed: STATE_UP,
   paused: STATE_PAUSED,
   queued: STATE_QUEUED,
-  starting: STATE_QUEUED,
+  starting: STATE_MISSING,
   error: STATE_ERROR,
   retrying: STATE_ERROR,
   missing: STATE_MISSING,
@@ -23,15 +23,15 @@ export const STATE_HUE: Record<TorrentState, string> = {
 
 /**
  * Sets `--hue`, `--tint` and `--edge` on anything carrying `data-state`, and on a chip carrying the state as its class,
- * so everything inside a row reads one set of variables. Files missing keeps today's neutral chip fill, since its grey
- * on a grey tint would fall under AA, and a quieter edge.
+ * so everything inside a row reads one set of variables. The grey of Files missing and Starting keeps today's neutral
+ * chip fill, since grey on a grey tint would fall under AA, and a quieter edge.
  */
 export const stateHues = css`
   ${Object.entries(STATE_HUE).map(([state, hue]) => `
     [data-state='${state}'], .badge.${state} {
       --hue: ${hue};
-      --tint: ${state === 'missing' ? CONTROL_BG : tint(hue)};
-      --edge: ${state === 'missing' ? STATE_MISSING_EDGE : hue};
+      --tint: ${hue === STATE_MISSING ? CONTROL_BG : tint(hue)};
+      --edge: ${hue === STATE_MISSING ? STATE_MISSING_EDGE : hue};
     }
   `).join('')}
 `

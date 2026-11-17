@@ -1,9 +1,9 @@
 import type { Torrent } from '../torrent/types'
-import type { ListFilter, SortDir, SortKey } from '../torrent/list-view'
+import type { ListFilter, ListGroup, SortDir, SortKey } from '../torrent/list-view'
 
 import { useCallback, useRef } from 'react'
 
-import { isVolatile, shouldReorder, sortTorrents, visibleTorrents } from '../torrent/list-view'
+import { groupOf, isVolatile, shouldReorder, sortTorrents, visibleTorrents } from '../torrent/list-view'
 
 /**
  * The visible list, arranged, with the ARRANGEMENT held still for a moment at a time.
@@ -20,6 +20,11 @@ import { isVolatile, shouldReorder, sortTorrents, visibleTorrents } from '../tor
  */
 export type OrderedTorrents = {
   rows: Torrent[]
+  /**
+   * The heading each row stands under, held the way the order is: a row paused, finished or started under the pointer
+   * keeps its heading until `shouldReorder` lets it move, so the row under it does not slide into its place.
+   */
+  groupOf: (t: Torrent) => ListGroup
   /** Wire to the list container so a held order knows somebody is reaching into it. */
   interaction: {
     onPointerEnter: () => void
@@ -28,6 +33,9 @@ export type OrderedTorrents = {
     onBlurCapture: () => void
   }
 }
+
+/** A row's group is held by info hash, so it outlives the row's id changing as a torrent starts. */
+const groupKey = (t: Torrent) => t.infoHash ?? t.id
 
 export const useOrderedTorrents = (
   all: readonly Torrent[],
@@ -40,6 +48,8 @@ export const useOrderedTorrents = (
   const at = useRef(0)
   const view = useRef('')
   const interacting = useRef(false)
+  const groups = useRef(new Map<string, ListGroup>())
+  const movedAt = useRef<number | null>(null)
 
   const visible = visibleTorrents(all, filter)
   const byId = new Map(visible.map((t) => [t.id, t]))
@@ -61,6 +71,24 @@ export const useOrderedTorrents = (
     order.current = sortTorrents(visible, key, dir).map((t) => t.id)
     at.current = now()
     view.current = viewKey
+  }
+
+  /*
+   * A group changes on its own whatever the sort, so it is held as a volatile key's order is, timed from the moment a
+   * row first stood under the wrong heading. A row the engine has not reported yet takes no held group, so after a
+   * reload each row goes under its own heading as soon as its state is known.
+   */
+  const live = new Map(visible.map((t) => [groupKey(t), groupOf(t)]))
+  const held = groups.current
+  for (const k of held.keys()) if (!live.has(k)) held.delete(k)
+  for (const t of visible) if (t.state !== 'starting' && !held.has(groupKey(t))) held.set(groupKey(t), groupOf(t))
+  if (![...held].some(([k, group]) => live.get(k) !== group)) movedAt.current = null
+  else {
+    movedAt.current ??= now()
+    if (shouldReorder({ viewChanged, idsChanged: false, volatile: true, interacting: interacting.current, sinceMs: now() - movedAt.current })) {
+      for (const k of held.keys()) held.set(k, live.get(k)!)
+      movedAt.current = null
+    }
   }
 
   /*
@@ -88,5 +116,5 @@ export const useOrderedTorrents = (
     onBlurCapture: useCallback(() => { interacting.current = false }, []),
   }
 
-  return { rows, interaction }
+  return { rows, groupOf: (t) => held.get(groupKey(t)) ?? groupOf(t), interaction }
 }

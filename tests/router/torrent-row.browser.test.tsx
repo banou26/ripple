@@ -395,7 +395,9 @@ describe('a library row', () => {
     const screen = await render(row(torrent()), sized())
 
     screen.rerender(row(torrent({ state: 'missing' })))
-    await expect.element(screen.getByText('Not on this device')).toBeInTheDocument()
+    // its size, rather than the "Not on this device" its chip and its heading already say
+    await expect.element(screen.getByText('4.5 GB')).toBeInTheDocument()
+    expect(screen.container.querySelector('.meta')?.textContent).toBe('4.5 GB')
     // the cached picture is still shown for a torrent whose files are gone
     expect(screen.container.querySelector('img.poster')).not.toBeNull()
 
@@ -430,6 +432,10 @@ describe('a library row', () => {
     expect(missing.edge).toBe(rgb(STATE_MISSING_EDGE))
     expect(missing.chip).toBe(rgb(STATE_MISSING))
     expect(missing.edge).not.toBe(rgb(STATE_ERROR))
+
+    // a row the engine has not reported yet may turn out finished or paused, so it waits in the same grey
+    const starting = await paints({ state: 'starting', id: 'starting:abc' })
+    expect([starting.edge, starting.chip]).toEqual([rgb(STATE_MISSING_EDGE), rgb(STATE_MISSING)])
   })
 
   /** A created source has no swarm to fetch from, so the row's one line is also its only way out. */

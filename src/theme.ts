@@ -244,18 +244,19 @@ export const STATE_DOWN = '#66c0f4'
 /** Seeding and completed: the success green. */
 export const STATE_UP = OK
 export const STATE_PAUSED = '#eab04e'
-/** Queued and starting: waiting for a turn rather than doing anything. */
+/** Queued: waiting for a turn rather than doing anything. */
 export const STATE_QUEUED = '#b09cff'
 /** Retrying and error. Lighter than DANGER, which falls under AA on its own tint. */
 export const STATE_ERROR = '#ff8787'
 /**
  * Files missing, the state most of a long-kept library is in: the quiet grey of today's chip, never the error hue, so
- * a library of them reads as calm rather than as a column of failures.
+ * a library of them reads as calm rather than as a column of failures. Starting takes it too, for the second before
+ * the engine says what a row is.
  */
 export const STATE_MISSING = TEXT_MUTED
 
 /** Its edge, a step quieter than its words (3.4:1 on a row): a run of these rows joins into one line in the table. */
-export const STATE_MISSING_EDGE = '#6b6b6b'
+export const STATE_MISSING_EDGE = TEXT_DISABLED
 
 export const STATE_TINT_ALPHA = 0.13
 
@@ -267,14 +268,14 @@ export const tint = (hex: string, alpha = STATE_TINT_ALPHA): string => {
 
 /* ----------------------------------------------------------- group headings */
 
-/** The library's group headings, a touch of Steam's blue-grey: a band that fades out across the heading. */
-export const GROUP_BAND = 'linear-gradient(90deg, rgba(102, 192, 244, 0.1), rgba(102, 192, 244, 0) 60%)'
+/** The library's group headings, a touch of Steam's blue: a band that fades out across the heading. */
+export const GROUP_BAND = `linear-gradient(90deg, ${tint(STATE_DOWN, 0.1)}, ${tint(STATE_DOWN, 0)} 60%)`
 
 /** A heading's words, Steam's light blue-grey. 12.8:1 on PAGE_BG. */
 export const GROUP_TEXT = '#c7d5e0'
 
 /** The count beside a heading. */
-export const GROUP_COUNT_BG = 'rgba(102, 192, 244, 0.16)'
+export const GROUP_COUNT_BG = tint(STATE_DOWN, 0.16)
 
 /* ------------------------------------------------------------------ charts */
 

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_GROUPS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
-  compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readSort,
+  cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readSort,
   readView, shouldReorder, sortTorrents, visibleTorrents, writeSort,
 } from '../../src/torrent/list-view'
 
@@ -110,7 +110,7 @@ describe('the state filters', () => {
 })
 
 describe('the groups the cards stack under', () => {
-  const heading = (state: TorrentState, progress = 0) => GROUP_LABEL[groupOf(t({ state, progress }))].defaultMessage
+  const heading = (state: TorrentState) => GROUP_LABEL[groupOf(t({ state }))].defaultMessage
 
   it('puts every state under its heading', () => {
     const under: Record<TorrentState, string> = {
@@ -126,12 +126,6 @@ describe('the groups the cards stack under', () => {
       starting: 'Downloading',
     }
     for (const [state, label] of Object.entries(under) as [TorrentState, string][]) expect(heading(state), state).toBe(label)
-  })
-
-  /** A finished torrent reloading has no engine state yet, and must not move between groups when it gets one. */
-  it('files a starting row by its progress', () => {
-    expect(heading('starting', 1)).toBe('Done')
-    expect(heading('starting', 0.4)).toBe('Downloading')
   })
 
   it('stacks the groups in order, keeps the order inside each, and leaves out empty ones', () => {
@@ -152,6 +146,25 @@ describe('the groups the cards stack under', () => {
     const states: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking', 'starting']
     const rows = states.map((state) => t({ name: state, state }))
     expect(groupTorrents(rows).flatMap((g) => names(g.rows)).sort()).toEqual([...states].sort())
+  })
+
+  /** The page hands its own, held while the pointer is in the list, so a row paused there keeps its heading. */
+  it('puts each row where the group it is handed says', () => {
+    const paused = t({ name: 'paused', state: 'paused' })
+    const rows = [t({ name: 'down', state: 'downloading' }), paused]
+    const held = (x: Torrent) => x === paused ? 'active' as const : groupOf(x)
+    expect(groupTorrents(rows, held).map((g) => [g.group, names(g.rows)])).toEqual([['active', ['down', 'paused']]])
+  })
+
+  /** A heading under a one-state filter only repeats the filter, and Downloading would count rows the filter leaves out. */
+  it('draws headings only under a filter that mixes states', () => {
+    const rows = [t({ name: 'seed', state: 'seeding' }), t({ name: 'down', state: 'downloading' })]
+    for (const filter of ['all', 'library', 'temporary'] as const) {
+      expect(cardGroups(rows, filter).map((g) => [g.group, names(g.rows)]), filter).toEqual([['active', ['down']], ['done', ['seed']]])
+    }
+    for (const filter of FILTERS.filter((f) => f !== 'all' && f !== 'library' && f !== 'temporary')) {
+      expect(cardGroups(rows, filter).map((g) => [g.group, names(g.rows)]), filter).toEqual([[null, ['seed', 'down']]])
+    }
   })
 })
 
