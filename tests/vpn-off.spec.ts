@@ -180,12 +180,14 @@ test('with nobody to find, no connection is made, and each row says no peers wer
   expect((await seen(alone.page)).made).toBe(0)
   expect((await seen(alone.page)).transports).toEqual(['direct'])
 
-  // the switch says Off as the choice it is, and the strip nothing of a relay port, since there is none to dial in through
+  // the switch says Off as the choice it is, and the strip nothing of a relay port, since there is none to dial in through,
+  // nor of the DHT, which is off
   const vpn = alone.page.locator('.stats .stat.vpn')
   await expect(vpn).toHaveAttribute('aria-checked', 'false')
   await expect(vpn.locator('strong')).toHaveText('Off')
   await expect(vpn).not.toHaveClass(/error/)
   await expect(alone.page.locator('.stats .readouts .stat', { hasText: 'Inbound' })).toHaveCount(0)
+  await expect(alone.page.locator('.stats .readouts .stat.dht')).toHaveCount(0)
 
   // not yet: the first round of a search is not over, and a row that said so now would say it of every new magnet
   const lines = alone.page.locator('.torrent .meta .retry')
@@ -272,11 +274,13 @@ test('a torrent made from a folder is still listed and shared after the VPN is s
 })
 
 // THE CONTROL of the readouts above: the same page with the VPN on, and a relay this machine cannot reach
-test('with the VPN on and no relay in reach, the switch says so and the strip keeps its inbound readout', async ({ browser, baseURL }) => {
+test('with the VPN on and no relay in reach, the switch says so and the strip keeps its inbound and DHT readouts', async ({ browser, baseURL }) => {
   test.setTimeout(120_000)
   const relayed = await visitor(await browser.newContext(), baseURL!, 'on')
   await add(relayed.page, `magnet:?xt=urn:btih:${'d'.repeat(40)}`)
   await expect(relayed.page.locator('.stats .readouts .stat', { hasText: 'Inbound' })).toHaveCount(1, { timeout: 60_000 })
+  // with no relay in reach the DHT finds nobody
+  await expect(relayed.page.locator('.stats .readouts .stat.dht strong')).toHaveText('0')
   const vpn = relayed.page.locator('.stats .stat.vpn')
   await expect(vpn).toHaveAttribute('aria-checked', 'true')
   await expect(vpn.locator('strong')).not.toHaveText('Off')

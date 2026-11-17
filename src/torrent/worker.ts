@@ -356,6 +356,9 @@ let swarmPolledAt = 0
 const PEER_POLL_MS = 2_000
 let peersPolledAt = 0
 let inboundNow = NO_INBOUND
+// the nodes the DHT knows, 0 while it is off, read once a second for the strip
+let dhtNodes = 0
+let dhtReadAt = 0
 
 // a pack of many thousand files takes longer to measure than the poll, so a torrent is never measured twice at once
 const measuring = new Set<number>()
@@ -411,7 +414,7 @@ const notContacted = (tracker: TrackerInfo): TrackerInfo => ({ ...tracker, messa
 const postState = () => {
   const detail = inspectDetail(Date.now())
   post({
-    type: 'state', torrents: snapshot(), transport, reachable: session!.reachable(), inboundNow,
+    type: 'state', torrents: snapshot(), transport, reachable: session!.reachable(), inboundNow, dhtNodes,
     detail, rateLimits: { ...sessionLimits },
   }, detail?.availability ? [detail.availability.buffer] : [])
 }
@@ -2023,6 +2026,10 @@ const init = async () => {
       for (const h of handles) void session.peers(h)
     }
     inboundNow = countInbound(handles.map((h) => session!.lastPeers(h)))
+    if (now - dhtReadAt >= 1_000) {
+      dhtReadAt = now
+      dhtNodes = session.dhtNodes()
+    }
     // timed from the first viewer, so a torrent whose trackers already answered shows its count at once
     if (viewers.size && now - swarmPolledAt >= TRACKER_POLL_MS) {
       swarmPolledAt = now

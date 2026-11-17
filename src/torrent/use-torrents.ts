@@ -344,6 +344,8 @@ export type UseTorrents = {
   transport: EngineTransport | null
   /** Peers dialled IN right now, which is not the running total `reachable` carries. */
   inboundNow: InboundNow
+  /** How many nodes the DHT knows. Null until an engine has said. */
+  dhtNodes: number | null
   /** A first visit in this browser, with an empty library: offer the sample torrent. */
   sampleOffered: boolean
   /** Answers the offer for good in this browser; true adds the sample. */
@@ -382,11 +384,13 @@ export const useTorrents = (): UseTorrents => {
   const [reachable, setReachable] = useState<Reachability | null>(null)
   const [transport, setTransport] = useState<EngineTransport | null>(null)
   const [inboundNow, setInboundNow] = useState<InboundNow>(NO_INBOUND)
+  const [dhtNodes, setDhtNodes] = useState<number | null>(null)
   const [sampleOffered, setSampleOffered] = useState(false)
   useEffect(() => {
     const offReachable = client.onReachable(setReachable)
     const offTransport = client.onTransport(setTransport)
     const offInbound = client.onInboundNow(setInboundNow)
+    const offDht = client.onDhtNodes(setDhtNodes)
     const offUnavailable = client.onStorageUnavailable(() => setStorageUnavailable(true))
     const offWorkerError = client.onWorkerError(({ message, fatal }) => { if (fatal) setWorkerError(message) })
     /*
@@ -427,7 +431,7 @@ export const useTorrents = (): UseTorrents => {
           } catch { }
         })
     })
-    return () => { offReachable(); offTransport(); offInbound(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
+    return () => { offReachable(); offTransport(); offInbound(); offDht(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
   const torrents = useMemo(() => {
@@ -476,5 +480,5 @@ export const useTorrents = (): UseTorrents => {
     setSampleOffered(false)
     if (add) void addDemo(client)
   }, [client])
-  return { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client }
+  return { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client }
 }

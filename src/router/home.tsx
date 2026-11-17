@@ -305,6 +305,17 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
   )
 }
 
+/** Exported for its own test. */
+export const DhtStat = ({ nodes }: { nodes: number }) => {
+  const intl = useIntl()
+  return (
+    <div className="stat dht">
+      <label>{intl.formatMessage({ id: 'DHT nodes', defaultMessage: 'DHT nodes' })}</label>
+      <strong>{nodes}</strong>
+    </div>
+  )
+}
+
 const HISTORY = 120
 
 /**
@@ -1757,7 +1768,7 @@ export const style = css`
         font-size: 1.15rem;
       }
 
-      .graph, .inbound {
+      .graph, .inbound, .dht {
         display: none;
       }
     }
@@ -2359,7 +2370,7 @@ const keepFocus = (e: ReactMouseEvent) => e.preventDefault()
 const Home = () => {
   const intl = useIntl()
   const wordless = useSyncExternalStore(onWordlessChange, () => matchMedia(WORDLESS).matches)
-  const { torrents, list, inboundNow, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
+  const { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -3778,8 +3789,9 @@ const Home = () => {
               <VpnSwitch reachable={reachable} transport={transport} quota={quota}/>
               {torrents.length > 0 && (
                 <>
-                  {/* with the VPN off nothing passes through the relay, so nobody can dial in through it */}
+                  {/* with the VPN off nothing passes through the relay, so nobody can dial in through it, and the DHT is off */}
                   {transport !== 'direct' && <ConnectionStat reachable={reachable} inboundNow={inboundNow}/>}
+                  {transport !== 'direct' && dhtNodes !== null && <DhtStat nodes={dhtNodes}/>}
                   {storage && <StorageStat storage={storage} low={lowStorage}/>}
                   {quota && <QuotaStat quota={quota}/>}
                   <SyncStat state={syncState}/>

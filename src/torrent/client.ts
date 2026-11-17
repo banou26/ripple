@@ -63,6 +63,8 @@ export type TorrentClient = {
    * the worker off the peer lists and is a different kind of fact, so it travels as one.
    */
   onInboundNow: (cb: (inbound: InboundNow) => void) => () => void
+  /** How many nodes the engine's DHT knows, 0 while it is off. Latched, and silent until an engine has said. */
+  onDhtNodes: (cb: (nodes: number) => void) => () => void
   /**
    * What the running engine reaches its peers through, which is what a readout shows: the stored choice says what
    * was asked for, and the engine follows it a moment later. Latched.
@@ -339,6 +341,7 @@ export type EngineClient = TorrentClient & {
   latestState: () => WorkerTorrentSnapshot[] | null
   latestReachable: () => Reachability | null
   latestInboundNow: () => InboundNow | null
+  latestDhtNodes: () => number | null
   latestTransport: () => EngineTransport | null
   /** For the leader replaying state to a follower that just joined. Null before the first broadcast. */
   latestRateLimits: () => RateLimits | null
@@ -413,6 +416,8 @@ export const createTorrentClient = (): EngineClient => {
   const reachableCbs = new Set<(r: Reachability) => void>()
   const inboundNowCbs = new Set<(i: InboundNow) => void>()
   let lastInboundNow: InboundNow | null = null
+  const dhtNodesCbs = new Set<(nodes: number) => void>()
+  let lastDhtNodes: number | null = null
   const transportCbs = new Set<(t: EngineTransport) => void>()
   let lastTransport: EngineTransport | null = null
   const rateLimitsCbs = new Set<(limits: RateLimits) => void>()
@@ -613,6 +618,7 @@ export const createTorrentClient = (): EngineClient => {
         // absent rather than empty when an older engine or a synthesized reply omits it, so the strip
         // keeps the last real count instead of blinking to nothing
         if (m.inboundNow) { lastInboundNow = m.inboundNow; inboundNowCbs.forEach((cb) => cb(m.inboundNow)) }
+        if (typeof m.dhtNodes === 'number') { lastDhtNodes = m.dhtNodes; dhtNodesCbs.forEach((cb) => cb(m.dhtNodes)) }
         // absent rather than unlimited when a synthesized state reply omits it, so a tab that has
         // just joined keeps showing the last real answer instead of flashing "Unlimited"
         if (m.rateLimits) {
@@ -674,6 +680,7 @@ export const createTorrentClient = (): EngineClient => {
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
     onInboundNow: (cb) => { inboundNowCbs.add(cb); cb(lastInboundNow ?? NO_INBOUND); return () => { inboundNowCbs.delete(cb) } },
+    onDhtNodes: (cb) => { dhtNodesCbs.add(cb); if (lastDhtNodes !== null) cb(lastDhtNodes); return () => { dhtNodesCbs.delete(cb) } },
     onTransport: (cb) => { transportCbs.add(cb); if (lastTransport) cb(lastTransport); return () => { transportCbs.delete(cb) } },
     onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
     inspect: (handle) => send({ type: 'inspect', handle }),
@@ -691,6 +698,7 @@ export const createTorrentClient = (): EngineClient => {
     latestState: () => lastRawState,
     latestReachable: () => lastReachable,
     latestInboundNow: () => lastInboundNow,
+    latestDhtNodes: () => lastDhtNodes,
     latestTransport: () => lastTransport,
     latestRateLimits: () => lastRateLimits,
     started: () => started,

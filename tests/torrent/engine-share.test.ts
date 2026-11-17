@@ -148,9 +148,9 @@ describe('the leader server', () => {
     stop()
   })
 
-  it('tells a follower that joins which transport the engine runs on', async () => {
+  it('tells a follower that joins which transport the engine runs on, and how many nodes its DHT knows', async () => {
     const { client } = makeClient()
-    Object.assign(client, { latestState: () => [], latestReachable: () => null, latestInboundNow: () => null, latestRateLimits: () => null, latestTransport: () => 'direct' })
+    Object.assign(client, { latestState: () => [], latestReachable: () => null, latestInboundNow: () => null, latestDhtNodes: () => 120, latestRateLimits: () => null, latestTransport: () => 'direct' })
     const stop = serveFollowers(client)
     const control = track(new BroadcastChannel(CONTROL_CHANNEL))
     const replies = track(new BroadcastChannel(replyChannel('tab-b')))
@@ -161,7 +161,7 @@ describe('the leader server', () => {
     control.postMessage({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'hello' } })
     await settle()
 
-    expect(heard.find((m) => m.type === 'state')).toMatchObject({ type: 'state', transport: 'direct' })
+    expect(heard.find((m) => m.type === 'state')).toMatchObject({ type: 'state', transport: 'direct', dhtNodes: 120 })
     stop()
   })
 

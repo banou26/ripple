@@ -157,6 +157,7 @@ export const serveFollowers = (client: EngineClient): () => void => {
           transport: client.latestTransport() ?? undefined,
           reachable: client.latestReachable() ?? undefined,
           inboundNow: client.latestInboundNow() ?? undefined,
+          dhtNodes: client.latestDhtNodes() ?? undefined,
           rateLimits: client.latestRateLimits() ?? undefined,
         })
       }

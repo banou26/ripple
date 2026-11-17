@@ -288,6 +288,25 @@ describe('what an add carries', () => {
   })
 })
 
+describe('the DHT node count', () => {
+  it('passes on what each state says, keeps it through a state that says nothing, and hands it to a late subscriber', async () => {
+    const rig = makeRig()
+    running(rig)
+    const heard: number[] = []
+    const off = rig.client.onDhtNodes((nodes) => heard.push(nodes))
+    expect(heard, 'nothing said yet').toEqual([])
+    rig.say({ type: 'state', torrents: [], dhtNodes: 120 })
+    rig.say({ type: 'state', torrents: [] })
+    rig.say({ type: 'state', torrents: [], dhtNodes: 0 })
+    expect(heard).toEqual([120, 0])
+    expect(rig.client.latestDhtNodes()).toBe(0)
+    off()
+    const late: number[] = []
+    rig.client.onDhtNodes((nodes) => late.push(nodes))
+    expect(late).toEqual([0])
+  })
+})
+
 describe('adding trackers', () => {
   it('sends the urls for the handle and settles with the ones the engine refused', async () => {
     const rig = makeRig()

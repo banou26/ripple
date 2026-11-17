@@ -192,3 +192,14 @@ describe('the inbound stat', () => {
     })
   })
 })
+
+describe('the DHT stat', () => {
+  it('says how many nodes the DHT knows, none included', async () => {
+    const { DhtStat } = await import('../../src/router/home')
+    for (const nodes of [0, 312]) {
+      const screen = await render(<IntlRoot><DhtStat nodes={nodes}/></IntlRoot>)
+      expect([...screen.container.querySelectorAll('.stat.dht > *')].map((part) => part.textContent)).toEqual(['DHT nodes', String(nodes)])
+      screen.unmount()
+    }
+  })
+})

@@ -184,6 +184,7 @@ export const fakeSession = (over: Partial<Record<string, unknown>> = {}): FakeSe
     lastTrackers: () => [],
     addTrackers: () => [],
     pieceAvailability: () => null,
+    dhtNodes: () => 0,
     setPriorities: () => {},
     setFlags: () => {},
     // an add's limits go to the engine with it
