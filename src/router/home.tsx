@@ -1760,10 +1760,22 @@ export const style = css`
       }
     }
 
-    /* each limit as its arrow, so Speed and both limits keep to one line at 320 px in every language */
-    footer .folder button {
-      > span { display: none; }
-      &::before { content: attr(data-arrow); }
+    /* each limit as its arrow, whole, on one line with Speed, which gives way to an ellipsis in a font too wide for both */
+    footer {
+      .folder { flex-wrap: nowrap; }
+
+      .folder > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .folder button {
+        flex: none;
+        > span { display: none; }
+        &::before { content: attr(data-arrow); }
+      }
     }
 
     /* the right-hand group takes its own line rather than squeezing the name out of existence */
