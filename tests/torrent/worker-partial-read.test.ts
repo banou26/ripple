@@ -69,6 +69,8 @@ it('a partial read whose first piece is missing waits for that piece alone, thou
   expect(await read({ viewer: 'player', partial: true, offset: 3_200_000, len: 2_500_000 })).toEqual({ asked: [4 * MiB - 3_200_000], got: 4 * MiB - 3_200_000 })
   // the end of the file ends the piece
   expect(await read({ viewer: 'player', partial: true, offset: 9_500_000, len: 2_500_000 })).toMatchObject({ asked: [500_000] })
+  // at the end of the file it goes to the engine as asked, never as a negative length, and the engine answers it empty
+  expect(await read({ viewer: 'player', partial: true, offset: 10_000_000, len: 2_500_000 })).toMatchObject({ asked: [2_500_000] })
 })
 
 it('any other read gets every byte it asked for, whoever its viewer is', async () => {
