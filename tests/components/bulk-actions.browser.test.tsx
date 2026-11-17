@@ -34,7 +34,7 @@ describe('the bulk bar', () => {
   it('says how many are ticked, and sends each press to its own action', async () => {
     const { props, screen } = mount()
     const c = (await screen).container
-    expect(c.querySelector('.count')?.textContent).toBe('2 selected')
+    expect(c.querySelector('[role="status"] .words')?.textContent).toBe('2 selected')
     expect(button(c, 'Pause').querySelector('svg')!.classList).toContain('lucide-pause')
     for (const [name, call] of [['Pause', props.onPause], ['Resume', props.onResume], ['Remove', props.onRemove], ['Clear selection', props.onClear]] as const) {
       button(c, name).click()

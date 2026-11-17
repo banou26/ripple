@@ -161,6 +161,8 @@ const barStyle = css`
     margin-right: auto;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+
+    .number { display: none; }
   }
 
   button {
@@ -205,6 +207,25 @@ const barStyle = css`
     button.danger { padding: 0; }
     button.danger span { display: none; }
   }
+
+  /* beside seven buttons a 390 px phone leaves the count about 30 px, so it shows its number alone and keeps its words
+     for a screen reader */
+  @media (max-width: 560px) {
+    .count .number { display: inline; }
+    .count .words { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* seven 40 px buttons and their gaps take 308 px, past the 270 px a 320 px window leaves them: narrower, they fit,
+     with room for three digits of the count from 340 px; below that the count is a screen reader's alone */
+  @media (max-width: 380px) {
+    gap: 2px;
+
+    button { min-width: 36px; }
+  }
+
+  @media (max-width: 340px) {
+    .count .number { display: none; }
+  }
 `
 
 export type BulkBarProps = {
@@ -248,7 +269,10 @@ export const BulkBar = ({
     <>
       <div css={barStyle} className="bulk-bar">
         <span className="count" role="status">
-          {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
+          <span className="words">
+            {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
+          </span>
+          <span className="number" aria-hidden="true">{intl.formatNumber(count)}</span>
         </span>
         {canDownload && (
           <button type="button" className="icon" onClick={onDownload} aria-label={download} {...hint(download)}>

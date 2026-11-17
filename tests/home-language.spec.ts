@@ -1912,19 +1912,25 @@ test.describe('on a phone', () => {
   }
 
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: the bar for ticked rows keeps to one row with Download showing`, async ({ page }) => {
+    test(`${language}: the bar for ticked rows keeps to one row inside the window from 390 to 320 px with Download showing, its count whole`, async ({ page }) => {
       await opened(page, language)
       for (const name of ['Some.Release.Name.S01.1080p', 'Elsewhere']) {
         await page.locator('.torrent').filter({ hasText: name }).locator('.row-check input').check()
       }
       const bar = page.locator('.bulk-bar')
       await expect(bar.locator('button svg.lucide-download'), 'the control: Download shows').toBeVisible()
-      for (const width of [390, 360]) {
+      for (const width of [390, 360, 320]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const { rows, kids, height } = await rowsOf(page, '.bulk-bar')
-        expect(kids, 'the control: the count and seven buttons were read').toBe(8)
+        expect(kids, 'the control: seven buttons, and the count while it shows, were read').toBe(width > 340 ? 8 : 7)
         expect(rows, `${width} px, ${height} px tall`).toBe(1)
+        expect(await bar.evaluate(shown => shown.lastElementChild!.getBoundingClientRect().right - shown.getBoundingClientRect().right), `${width} px: past the bar`).toBeLessThanOrEqual(0)
+        // its number shows whole while there is room for it, its words kept for a screen reader
+        await expect(bar.locator('.count .number')).toBeVisible({ visible: width > 340 })
+        await expect(bar.locator('.count .number')).toHaveText('2')
+        await expect(bar.getByRole('status').locator('.words')).toContainText('2')
+        expect(await bar.locator('.count').evaluate(count => count.scrollWidth - count.clientWidth), `${width} px: the count is cut`).toBe(0)
       }
     })
   }
