@@ -2383,7 +2383,7 @@ const keepTorrentFile = (page: Page, infoHash: string, bytes: Buffer) => page.ev
   const open = indexedDB.open('keyval-store')
   open.onupgradeneeded = () => open.result.createObjectStore('keyval')
   open.onsuccess = () => {
-    const put = open.result.transaction('keyval', 'readwrite').objectStore('keyval').put(new Uint8Array(bytes as number[]), key as string)
+    const put = open.result.transaction('keyval', 'readwrite').objectStore('keyval').put(new Uint8Array(bytes), key)
     put.onsuccess = () => { open.result.close(); resolve() }
     put.onerror = () => reject(put.error)
   }
