@@ -120,6 +120,11 @@ const FOLD_MAX = 519
 const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
 const NO_ROWS: Torrent[] = []
+/**
+ * A group's name inside a sentence, between a first strong isolate and its end (U+2068, U+2069), so a right-to-left
+ * name keeps the sentence in order and a U+202E in a name someone sent turns only the name.
+ */
+const isolated = (name: string) => `⁨${name}⁩`
 
 /**
  * Whether a drag carries something this page could actually add.
@@ -3443,8 +3448,8 @@ const Home = () => {
 
   const putIn = (g: TorrentGroup, hashes: string[], put: boolean) => {
     void (put ? putInGroup : takeOutOfGroup)(g.id, hashes).then(() => showToast(put
-      ? intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: g.name })
-      : intl.formatMessage({ id: 'Taken out of {name}', defaultMessage: 'Taken out of {name}' }, { name: g.name })))
+      ? intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(g.name) })
+      : intl.formatMessage({ id: 'Taken out of {name}', defaultMessage: 'Taken out of {name}' }, { name: isolated(g.name) })))
   }
   /** Asks for a name and makes a group of `hashes`, read when it is saved. With none, the new group is shown. */
   const newGroup = (hashes: () => string[]) => setNaming({
@@ -3453,7 +3458,7 @@ const Home = () => {
       const held = hashes()
       void createGroup(name, held).then((id) => {
         if (!id) return
-        if (held.length) showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name }))
+        if (held.length) showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(name) }))
         else chooseGroup(id)
       })
     },
@@ -3464,7 +3469,7 @@ const Home = () => {
   })
   const deleteShown = async (g: TorrentGroup) => {
     const ok = await confirm({
-      title: intl.formatMessage({ id: 'Delete {name}?', defaultMessage: 'Delete {name}?' }, { name: g.name }),
+      title: intl.formatMessage({ id: 'Delete {name}?', defaultMessage: 'Delete {name}?' }, { name: isolated(g.name) }),
       body: intl.formatMessage({ id: 'Its torrents stay in your list.', defaultMessage: 'Its torrents stay in your list.' }),
       confirmLabel: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
       tone: 'danger',
@@ -3475,7 +3480,7 @@ const Home = () => {
     setReceived(null)
     void addLinkedGroup(linked, groups ?? [], client.importList).then((id) => {
       if (id) chooseGroup(id)
-      showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: linked.name }))
+      showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: isolated(linked.name) }))
     })
   }
   const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : NO_ROWS)
@@ -3918,7 +3923,7 @@ const Home = () => {
                */
               (reachable || !torrents.some((t) => t.state === 'starting')) && <div className="empty">
                 {shownGroup && !groupRows.length
-                  ? intl.formatMessage({ id: 'Nothing in {name}.', defaultMessage: 'Nothing in {name}.' }, { name: shownGroup.name })
+                  ? intl.formatMessage({ id: 'Nothing in {name}.', defaultMessage: 'Nothing in {name}.' }, { name: isolated(shownGroup.name) })
                   : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
                   <button type="button" className="link" onClick={() => { chooseFilter('all'); chooseGroup(null); setInput('') }}>

@@ -640,6 +640,9 @@ const optionSurfaces = async (page: Page, width: number) => {
 }
 
 /** The fragment of the link of a group of `magnets` named `name`, as Copy link builds it. */
+/** A group's name as a sentence holds it, set apart from the words around it. */
+const isolated = (name: string) => `\u2068${name}\u2069`
+
 const linkTo = (name: string, magnets: string[]) => buildGroupLink(name, magnets.map(magnet => ({ magnet }))).link!.slice(GROUP_LINK_PREFIX.length)
 
 /** Makes a group of the ticked rows from the bar's Groups menu, named `name`. */
@@ -2148,7 +2151,7 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
 
   for (const name of ['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here']) await tick(name)
   await groupTicked(page, 'Week 2')
-  await expect(page.locator('.toast')).toHaveText('Added to Week 2')
+  await expect(page.locator('.toast')).toHaveText(`Added to ${isolated('Week 2')}`)
   await expect(titles, 'making a group shows nothing else').toHaveCount(13)
   await page.keyboard.press('Escape')
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
@@ -2207,7 +2210,7 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await drawn(page)
   await film.click({ button: 'right' })
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
-  await expect(page.locator('.toast')).toHaveText('Added to Week 3')
+  await expect(page.locator('.toast')).toHaveText(`Added to ${isolated('Week 3')}`)
   await fromChip('group', 'Week 3 (6)')
   await page.goto(origin)
   await library(page, list, TORRENTS)
@@ -2217,7 +2220,7 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await page.locator('.torrent', { hasText: 'Watched.Film' }).click({ button: 'right' })
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
-  await expect(page.locator('.toast')).toHaveText('Taken out of Week 3')
+  await expect(page.locator('.toast')).toHaveText(`Taken out of ${isolated('Week 3')}`)
   await expect(titles).toHaveCount(5)
   await expect(page.locator('.torrent', { hasText: 'Watched.Film' })).toHaveCount(0)
 
@@ -2225,12 +2228,12 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
-  await expect(page.locator('.empty')).toContainText('Nothing in Week 3.')
+  await expect(page.locator('.empty')).toContainText(`Nothing in ${isolated('Week 3')}.`)
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
   await chip.click()
   await menu.getByRole('menuitem', { name: 'Delete group' }).click()
-  await expect(dialog).toHaveAccessibleName('Delete Week 3?')
+  await expect(dialog).toHaveAccessibleName(`Delete ${isolated('Week 3')}?`)
   await expect(dialog).toContainText('Its torrents stay in your list.')
   await dialog.getByRole('button', { name: 'Delete group' }).click()
   await expect(chip).toHaveText('Group')
@@ -2268,7 +2271,7 @@ test('a group made from the Group chip is empty and shown, and Show everything s
   await paste(page, magnetOf('3', 'Pasted'))
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(page.locator('.list-toolbar .chip.group')).toHaveText('Later')
-  await expect(page.locator('.empty')).toContainText('Nothing in Later.')
+  await expect(page.locator('.empty')).toContainText(`Nothing in ${isolated('Later')}.`)
   // nothing to put in a link, so no Copy link
   await drawn(page)
   await page.locator('.list-toolbar .chip.group').click()
@@ -2309,7 +2312,7 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   expect(list.map(({ infoHash, magnet, savePath }) => ({ infoHash, magnet, savePath }))).toEqual(['7', '8'].map(c => ({
     infoHash: c.repeat(40), magnet: `magnet:?xt=urn:btih:${c.repeat(40)}`, savePath: `/dl/${c.repeat(40)}`,
   })))
-  await expect(page.locator('.toast')).toHaveText('Week 9 added')
+  await expect(page.locator('.toast')).toHaveText(`${isolated('Week 9')} added`)
   // as the engine lists them: not started, so not on this device
   const listed = [...LIST, ...list.map(item => ({ ...item, started: false, ephemeral: false }))]
   await post(page, { type: 'list', list: listed })
@@ -2337,7 +2340,7 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   await library(page, listed, TORRENTS)
   await expect(chip, 'the groups are read before Add').toHaveText('Week 9')
   await dialog.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(page.locator('.toast')).toHaveText('Week 9 added')
+  await expect(page.locator('.toast')).toHaveText(`${isolated('Week 9')} added`)
   await chip.click()
   await expect(page.getByRole('menu').getByRole('menuitemradio', { name: /^Week 9 /u })).toHaveCount(1)
 })
