@@ -141,6 +141,11 @@ describe('a group sent by link', () => {
     expect(made).not.toBe(other)
     expect(await heldBy(other), 'a torrent the link does not name').toEqual([hash('a'), hash('c')])
     expect(await heldBy(made!)).toEqual([hash('a'), hash('b')])
+
+    await del(GROUPS_KEY)
+    const long = { ...linked, name: 'x'.repeat(300) }
+    const first = await addLinkedGroup(long, [], () => {})
+    expect(await addLinkedGroup(long, await storedGroups(), () => {}), 'a name past 200 characters, opened again').toBe(first)
   })
 })
 
