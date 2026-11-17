@@ -2269,6 +2269,11 @@ test('a group made from the Group chip is empty and shown, and Show everything s
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(page.locator('.list-toolbar .chip.group')).toHaveText('Later')
   await expect(page.locator('.empty')).toContainText('Nothing in Later.')
+  // nothing to put in a link, so no Copy link
+  await drawn(page)
+  await page.locator('.list-toolbar .chip.group').click()
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['New group...', 'Rename...', 'Delete group'])
+  await page.keyboard.press('Escape')
   expect(await sent()).toEqual([])
   await paste(page, magnetOf('3', 'Pasted'))
   await expect.poll(async () => (await sent()).length, 'the control: the same paste with no dialog adds it').toBe(1)
@@ -2306,7 +2311,8 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   })))
   await expect(page.locator('.toast')).toHaveText('Week 9 added')
   // as the engine lists them: not started, so not on this device
-  await post(page, { type: 'list', list: [...LIST, ...list.map(item => ({ ...item, started: false, ephemeral: false }))] })
+  const listed = [...LIST, ...list.map(item => ({ ...item, started: false, ephemeral: false }))]
+  await post(page, { type: 'list', list: listed })
   const chip = page.locator('.list-toolbar .chip.group')
   await expect(chip).toHaveText('Week 9')
   await expect(chip).toHaveAccessibleName('Group: Week 9 (2)')
@@ -2325,6 +2331,21 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   await library(page, LIST, TORRENTS)
   await expect(page.locator('.list-toolbar')).toBeVisible()
   await expect(dialog).toHaveCount(0)
+
+  // the same link again adds nothing twice
+  await page.goto(link.replace('https://torrent.fkn.app', origin))
+  await library(page, listed, TORRENTS)
+  await expect(chip, 'the groups are read before Add').toHaveText('Week 9')
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.toast')).toHaveText('Week 9 added')
+  await chip.click()
+  await expect(page.getByRole('menu').getByRole('menuitemradio', { name: /^Week 9 /u })).toHaveCount(1)
+})
+
+test('an /add link holding a magnet asks about the magnet, whatever follows the #', async ({ page }) => {
+  await page.goto(`${origin}/add?magnet=${encodeURIComponent(magnetOf('7', 'Seven'))}#${SENT()}`)
+  await library(page, LIST, TORRENTS)
+  await expect(page.getByRole('dialog').locator('h2')).toHaveText('Seven')
 })
 
 test('a group link cut short says it could not be read, asks nothing, and is spent', async ({ page }) => {
@@ -2393,6 +2414,15 @@ test('the installed app asks about a group link it is opened with, and about one
   await expect(page.locator('.toast')).toHaveText('That link could not be read')
   await expect(dialog).toHaveCount(0)
   expect(await sent()).toEqual([])
+
+  // a magnet in the address is added as it is today, whatever follows the #
+  await launch(`${origin}/add?magnet=${encodeURIComponent(magnetOf('7', 'Seven'))}#${SENT()}`)
+  await expect(dialog.locator('h2')).toHaveText('Seven')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await launch(`${origin}/?magnet=${encodeURIComponent(magnetOf('3', 'Three'))}#${SENT()}`)
+  await expect(page.locator('.toast')).toHaveText('Magnet added')
+  await expect(dialog).toHaveCount(0)
 })
 
 /** Puts `bytes` where the page keeps the .torrent a torrent was added from. */
@@ -2424,6 +2454,10 @@ test('Copy link copies the shown group\'s link inside the click, leaves a privat
   await page.keyboard.press('Escape')
   await chip.click()
   await menu.getByRole('menuitemradio', { name: 'Week 2 (3)' }).click()
+  // the link holds the whole group, whatever the Show chip lets through
+  await page.locator('.list-toolbar .chip.show').click()
+  await menu.getByRole('menuitemradio', { name: /^Seeding \(/u }).click()
+  await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
   // where the click wrote to the clipboard: WebKit refuses a write once the click has awaited anything
   await page.evaluate(() => {
     let clicking = false
