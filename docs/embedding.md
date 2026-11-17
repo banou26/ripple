@@ -50,8 +50,10 @@ Since 2026-11-17 Ripple writes the parameters after `#`. A browser never sends t
 Cloudflare, which serves torrent.fkn.app, is not told which torrent and files a visit is about. In
 the query it got them in the request line, with the visitor's address, and again in the `Referer` of
 the requests that followed. The pages read both forms, the `#` first, so every link written before
-still opens. The pages also set `Referrer-Policy: strict-origin`, so an old link's query is not
-repeated in a `Referer`: every request names the origin alone. `strict-origin` rather than
+still opens. The pages also carry a referrer meta tag, `<meta name="referrer" content="strict-origin">`,
+so an old link's query is not repeated in a `Referer`: every request names the origin alone. It is
+a tag in the page rather than a response header, so `curl -I` still shows the host's own
+`Referrer-Policy` header, which the tag overrides for the page. `strict-origin` rather than
 `no-referrer` changes only what the same-origin requests carried, and other hosts get the origin as
 they did before.
 
