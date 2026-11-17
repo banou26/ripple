@@ -14,7 +14,13 @@ vi.mock('libtorrent-wasm', async () => {
   const { fakeSession } = await import('../utils/worker-rig')
   return {
     createSession: async () => fakeSession({
-      files: () => ({ storageIndex: 0, pieceLength: MiB, numPieces: 10, totalSize: 10_000_000, contentSize: 10_000_000, files: [{ path: 'film.mkv', offset: 0, size: 10_000_000, pad: false }] }),
+      // the second torrent's film starts at its byte 1,500,000, after a small file
+      files: (h: number) => ({
+        storageIndex: 0, pieceLength: MiB, numPieces: 10, totalSize: 10_000_000, contentSize: 10_000_000,
+        files: h === 1
+          ? [{ path: 'film.mkv', offset: 0, size: 10_000_000, pad: false }]
+          : [{ path: 'film.nfo', offset: 0, size: 1_500_000, pad: false }, { path: 'film.mkv', offset: 1_500_000, size: 8_500_000, pad: false }],
+      }),
       // pieces 0, 1, 2 and 4 are in, 3 is not
       bitfield: () => ({ numPieces: 10, pieceLength: MiB, length: 10, pieces: new Uint8Array([0b1110_1000, 0]) }),
       read: engine.read,
@@ -38,7 +44,7 @@ vi.mock('idb-keyval', () => {
 
 let id = 0
 /** The length the engine was asked to read for one read message, and the bytes the reader got back. */
-const read = async (message: { viewer?: string, partial?: boolean, offset: number, len: number }) => {
+const read = async (message: { handle?: number, fileIndex?: number, viewer?: string, partial?: boolean, offset: number, len: number }) => {
   engine.read.mockClear()
   const mine = ++id
   rig.send({ type: 'read', id: mine, handle: 1, fileIndex: 0, ...message })
@@ -68,5 +74,17 @@ it('a partial read whose first piece is missing waits for that piece alone, thou
 it('any other read gets every byte it asked for, whoever its viewer is', async () => {
   expect(await read({ viewer: 'save', offset: 2_000_000, len: 2_500_000 })).toEqual({ asked: [2_500_000], got: 2_500_000 })
   expect(await read({ offset: 3_200_000, len: 2_500_000 })).toEqual({ asked: [2_500_000], got: 2_500_000 })
+  expect(rig.of('worker-error')).toEqual([])
+})
+
+it('a partial read of a file that starts inside a piece counts its pieces from where the file starts', async () => {
+  rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}` })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(2))
+  const film = { viewer: 'player', partial: true, handle: 2, fileIndex: 1, len: 2_500_000 }
+
+  // the film's byte 0 is in piece 1, and pieces 1 and 2 are in, so the answer ends where piece 3 starts
+  expect(await read({ ...film, offset: 0 })).toEqual({ asked: [3 * MiB - 1_500_000], got: 3 * MiB - 1_500_000 })
+  // inside missing piece 3, the rest of that piece alone
+  expect(await read({ ...film, offset: 2_000_000 })).toEqual({ asked: [4 * MiB - 1_500_000 - 2_000_000], got: 4 * MiB - 1_500_000 - 2_000_000 })
   expect(rig.of('worker-error')).toEqual([])
 })
