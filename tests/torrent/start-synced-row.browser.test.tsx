@@ -108,18 +108,24 @@ it('starts a row synced from another device with the account\'s .torrent kept, a
 })
 
 it('starts many rows in one command once the account\'s .torrent of each is kept, and rows it holds none of as before', async () => {
-  const [synced, notSynced] = ['c'.repeat(40), 'd'.repeat(40)]
+  // a synced row at each end, so a keep that skips the first or the last row is seen
+  const [first, notSynced, last] = ['c'.repeat(40), 'd'.repeat(40), 'e'.repeat(40)]
   await clear()
   cloudFiles.set(NAME_KEY_PATH, KEY)
-  cloudFiles.set(await pathOf(synced), TORRENT)
+  cloudFiles.set(await pathOf(first), TORRENT)
+  cloudFiles.set(await pathOf(last), TORRENT)
   followAccount(() => true)
   try {
     await render(<IntlRoot><Probe/></IntlRoot>)
     await expect.poll(() => hook !== undefined).toBe(true)
 
-    hook!.startMany([synced, notSynced])
+    hook!.startMany([first, notSynced, last])
     await expect.poll(() => startedMany.length, { timeout: 5_000 }).toBe(1)
-    expect(await startedMany[0]!).toEqual([{ infoHash: synced, kept: TORRENT }, { infoHash: notSynced, kept: undefined }])
+    expect(await startedMany[0]!).toEqual([
+      { infoHash: first, kept: TORRENT },
+      { infoHash: notSynced, kept: undefined },
+      { infoHash: last, kept: TORRENT },
+    ])
     expect(started).toHaveLength(3)
   } finally {
     followAccount(null)
