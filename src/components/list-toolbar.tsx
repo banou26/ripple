@@ -198,7 +198,8 @@ const DirIcon = ({ dir }: { dir: SortDir }) => (dir === 'asc' ? <ArrowUpNarrowWi
 
 /**
  * `name` is the row's accessible name when its words and its count would otherwise be read run together. `typed` marks
- * a label somebody typed, a group's name, which is isolated so a right-to-left mark in it turns nothing around it.
+ * a label somebody typed, a group's name, which takes the direction of its own words, so one in Hebrew keeps its
+ * punctuation at its own end.
  */
 type Choice = { id: string, label: string, name?: string, count?: number, on: boolean, title?: string, arrow?: SortDir, typed?: boolean, pick: () => void }
 

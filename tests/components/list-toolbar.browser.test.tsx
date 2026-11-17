@@ -181,6 +181,22 @@ describe('the list toolbar', () => {
       expect(chip(shown, 'group').querySelector('.value')!.getAttribute('dir')).toBe('auto')
     })
 
+    it('checks All torrents while no group is shown', async () => {
+      const c = (await mount().screen).container
+      expect(checked(await opened(c, 'group'))).toEqual(['All torrents (6)'])
+    })
+
+    // the direction decides where a name's punctuation is drawn: the ! of this one at its left end, after its words
+    it('draws a group\'s name in the direction of its own words, in its row and over its actions', async () => {
+      const name = 'סדרה!'
+      const c = (await mount({ group: grouping({ list: [...GROUPS, { id: 'g3', name, count: 1 }], shown: 'g3' }) }).screen).container
+      const direction = (element: Element) => getComputedStyle(element).direction
+      const rows = await opened(c, 'group')
+      expect(rows.map((row) => direction(row.querySelector('.text')!)), 'All torrents and two English names left to right, the Hebrew one right to left').toEqual(['ltr', 'ltr', 'ltr', 'rtl'])
+      expect(labels(c)).toEqual(['Group', name])
+      expect([...c.querySelectorAll('[role="menu"] .group > label')].map(direction)).toEqual(['ltr', 'rtl'])
+    })
+
     it('offers every torrent and each group with its count, the one shown checked, and New group...', async () => {
       const { props, screen } = mount({ group: grouping({ shown: 'g2' }) })
       const c = (await screen).container

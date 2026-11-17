@@ -45,6 +45,12 @@ describe('naming a group', () => {
     expect(props.onSave).toHaveBeenCalledWith('Week 2 b')
   })
 
+  it('titles a rename in the direction of the name\'s own words', async () => {
+    const { dialog } = await open('סדרה!')
+    expect(dialog).toHaveAccessibleName('סדרה!')
+    expect(getComputedStyle(dialog.querySelector('h2')!).direction).toBe('rtl')
+  })
+
   it('saves nothing on Cancel or Escape', async () => {
     const { props, field, cancel } = await open()
     await userEvent.type(field, 'Week 2')
