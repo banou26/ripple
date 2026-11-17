@@ -16,8 +16,9 @@ import { LIST_GROUP_KEY, isTemporary, readGroup } from '../torrent/list-view'
 export const useGroupView = (torrents: readonly Torrent[]) => {
   const groups = useGroups()
   const [chosen, setChosen] = useState(() => readGroup((key) => localStorage.getItem(key)))
-  const shownAt = useRef(Date.now())
+  const shownAt = useRef(0)
   const group = chosen ? groups?.find((g) => g.id === chosen) : undefined
+  useEffect(() => { shownAt.current = Date.now() }, [])
 
   const choose = (id: string | null) => {
     setChosen(id)

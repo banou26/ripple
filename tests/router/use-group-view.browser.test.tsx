@@ -84,6 +84,15 @@ describe('the group shown', () => {
     await expect.poll(() => heldBy(id)).toEqual([hash('a'), hash('c')])
   })
 
+  it('takes in nothing the list held when a tab opened already showing the group', async () => {
+    const id = (await createGroup('Week 2', []))!
+    localStorage.setItem(LIST_GROUP_KEY, id)
+    const { result, rerender } = await renderHook((props?: { torrents: Torrent[] }) => useGroupView(props!.torrents), { initialProps: { torrents: [torrent('b')] } })
+    await expect.poll(() => result.current.group?.id).toBe(id)
+    await rerender({ torrents: [torrent('b'), torrent('c', { addedAt: Date.now() + 1 })] })
+    await expect.poll(() => heldBy(id)).toEqual([hash('c')])
+  })
+
   it('takes in nothing while every torrent is shown', async () => {
     const id = (await createGroup('Week 2', []))!
     const { result, rerender } = await renderHook((props?: { torrents: Torrent[] }) => useGroupView(props!.torrents), { initialProps: { torrents: [] as Torrent[] } })
