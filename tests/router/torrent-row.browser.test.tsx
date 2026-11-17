@@ -403,6 +403,35 @@ describe('a library row', () => {
     await expect.element(screen.getByText('82 peers')).toBeInTheDocument()
   })
 
+  /** Read off the page rather than the theme, so a selector that stops matching fails here. */
+  it('paints a row\'s state on its edge, chip, bar and percentage, and Files missing in grey, never the error hue', async () => {
+    thumbnail.current = null
+    const { STATE_DOWN, STATE_ERROR, STATE_MISSING, STATE_MISSING_EDGE } = await import('../../src/theme')
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
+    const paints = async (over: Partial<Torrent>) => {
+      const { container } = (await inPage(torrent(over))).screen
+      const row = container.querySelector('.torrent')!
+      const colour = (selector: string, property: 'color' | 'backgroundColor') => {
+        const el = container.querySelector(selector)
+        return el ? getComputedStyle(el)[property] : null
+      }
+      return {
+        edge: getComputedStyle(row, '::before').backgroundColor,
+        chip: colour('.badge', 'color'),
+        bar: colour('.bar .fill', 'backgroundColor'),
+        pct: colour('.side .pct', 'color'),
+      }
+    }
+    const down = rgb(STATE_DOWN)
+    expect(await paints({})).toEqual({ edge: down, chip: down, bar: down, pct: down })
+    expect((await paints({ state: 'retrying' })).edge).toBe(rgb(STATE_ERROR))
+
+    const missing = await paints({ state: 'missing' })
+    expect(missing.edge).toBe(rgb(STATE_MISSING_EDGE))
+    expect(missing.chip).toBe(rgb(STATE_MISSING))
+    expect(missing.edge).not.toBe(rgb(STATE_ERROR))
+  })
+
   /** A created source has no swarm to fetch from, so the row's one line is also its only way out. */
   it('tells a missing created source to be made again, with no download offered', async () => {
     thumbnail.current = null

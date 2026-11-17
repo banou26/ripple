@@ -98,6 +98,7 @@
   "Do not ask again": "次回から確認しない",
   "Don't ask again": "次回から確認しない",
   "Done#button": "完了",
+  "Done#heading": "完了",
   "Down": "ダウンロード",
   "Download first and last pieces first": "先頭と最後のピースを先にダウンロード",
   "Download in sequential order": "ピースを先頭から順番にダウンロード",

@@ -46,8 +46,8 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG,
   CHART_PRIMARY, CHART_PRIMARY_FILL, CHART_SECONDARY,
   CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG,
-  DANGER, ELEVATED_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, OK,
-  PAGE_BG, SUNKEN_BG, SURFACE_BG,
+  DANGER, ELEVATED_BG, EMPHASIS, FOCUS_RING, GROUP_BAND, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, OK,
+  PAGE_BG, STATE_DOWN, STATE_UP, SUNKEN_BG, SURFACE_BG,
   TEXT, TEXT_FAINT, TEXT_MUTED, WARN,
 } from '../theme'
 import { pickVideoFile, watchHref } from '../torrent/watch'
@@ -79,7 +79,7 @@ import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
 import { dropTarget } from './drop-target'
 import { FileGlyph } from './file-glyph'
-import { badgeRules } from './badge-style'
+import { badgeRules, stateHues } from './badge-style'
 import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
@@ -87,8 +87,8 @@ import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
-  LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
-  filterCounts, readFilter, readSort, readView, writeSort,
+  GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
+  filterCounts, groupTorrents, readFilter, readSort, readView, writeSort,
 } from '../torrent/list-view'
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
@@ -359,6 +359,8 @@ export const style = css`
   background: ${PAGE_BG};
   color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  ${stateHues}
 
   a {
     text-decoration: none;
@@ -787,6 +789,10 @@ export const style = css`
         color: ${TEXT};
       }
 
+      /* a speed takes its direction's hue only while bytes move, so an idle library stays quiet */
+      &.down.live strong { color: ${STATE_DOWN}; }
+      &.up.live strong { color: ${STATE_UP}; }
+
       &.quota strong.ok {
         color: ${OK};
       }
@@ -870,6 +876,38 @@ export const style = css`
     min-height: 8rem;
   }
 
+  /* the cards stacked by state, each group under its heading and count */
+  .group {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: ${GROUP_BAND};
+    color: ${GROUP_TEXT};
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+
+    .count {
+      flex: none;
+      padding: 1px 9px;
+      border-radius: 999px;
+      background: ${GROUP_COUNT_BG};
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
   .torrent, .sample {
     /* the row whose details are in the dock, marked clearly enough to find at a glance in a long
        library without shouting over the rest of it */
@@ -892,6 +930,21 @@ export const style = css`
     align-items: stretch;
     gap: 12px;
     transition: border-color 120ms ease, background 120ms ease;
+
+    /* the state's edge, drawn over the border so it costs the row no width */
+    &::before {
+      content: '';
+      position: absolute;
+      left: -1px;
+      top: 12px;
+      bottom: 12px;
+      width: 4px;
+      border-radius: 0 4px 4px 0;
+      background: var(--edge, transparent);
+    }
+
+    /* a ticked row's own edge says so, full height, and the state's would cover it */
+    &.picked::before { content: none; }
 
     /* Hover brightens the edge, and that is the whole of it. It used to lift a pixel as well, which
        made sense while the row also grew a drop shadow underneath: the two together read as the card
@@ -998,6 +1051,11 @@ export const style = css`
       }
     }
 
+    .side .pct {
+      color: var(--hue, ${TEXT});
+      font-weight: 600;
+    }
+
     /* the state chip, shared with the table view so there is one source for it */
     ${badgeRules}
 
@@ -1012,18 +1070,15 @@ export const style = css`
     .bar {
       height: 4px;
       border-radius: 2px;
-      background: ${SUNKEN_BG};
+      background: var(--tint, ${SUNKEN_BG});
       overflow: hidden;
 
-      /* No glow under this any more. The old fill was a mid-saturation orange on a purple track and
-         needed a 10px bloom to be perceptible at 3%; against a sunken track this is the brightest
-         object on the page at 17:1, so the sliver reads on its own. */
       /* No width transition: the width moves on every engine tick, so one never ends and lays the
          page out 48 times a second while anything downloads (23 against 9 ms/s of main thread). */
       .fill {
         height: 100%;
         border-radius: 2px;
-        background: ${EMPHASIS};
+        background: var(--hue, ${EMPHASIS});
       }
     }
 
@@ -1043,10 +1098,13 @@ export const style = css`
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
 
+      /* a figure takes its direction's hue only while bytes move, so an idle library stays quiet */
+      .rate.down.live { color: ${STATE_DOWN}; }
+      .rate.up.live { color: ${STATE_UP}; }
+
       /* The temporary marker, in the same box the limit chip uses: both are properties of the
-         torrent rather than live numbers, so they read as one kind of thing. No hue, because the
-         palette spends colour on exactly two states and a third claimant breaks the only rule it
-         still enforces. */
+         torrent rather than live numbers, so they read as one kind of thing. No hue: hue means a
+         torrent's state, and this is not one. */
       .temp {
         display: inline-flex;
         align-items: center;
@@ -1968,7 +2026,7 @@ const Poster = ({ url, t }: { url: string | null, t: Torrent }) =>
 const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
   const intl = useIntl()
   return (
-    <div className="torrent surface starting">
+    <div className="torrent surface starting" data-state={t.state}>
       <Poster url={poster} t={t}/>
       <div className="content">
         <div className="main">
@@ -1992,6 +2050,7 @@ const MissingRow = ({
   return (
     <div
       className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
+      data-state={t.state}
       aria-current={selected || undefined}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('button, a')) return
@@ -2159,6 +2218,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   return (
     <div
       className={'torrent surface' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
+      data-state={t.state}
       aria-current={selected || undefined}
       // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
       // that already does something of its own keeps doing it: the buttons, the Watch link, the
@@ -2215,8 +2275,8 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
                 </button>
               )}
               <span className="pair" data-room={figures.rooms.pair}>{figures.pair(chosen?.done ?? t.downloaded)}</span>
-              <span className="rate" data-room={figures.rooms.down}>{figures.down(t.down)}</span>
-              <span className="rate" data-room={figures.rooms.up}>{figures.up(t.up)}</span>
+              <span className={'rate down' + (t.down > 0 ? ' live' : '')} data-room={figures.rooms.down}>{figures.down(t.down)}</span>
+              <span className={'rate up' + (t.up > 0 ? ' live' : '')} data-room={figures.rooms.up}>{figures.up(t.up)}</span>
               <span className="peers" data-room={figures.rooms.peers}>{figures.peers(t.peers)}</span>
               {t.state === 'downloading' && t.eta !== '-' && <span>{t.etaSeconds === undefined ? intl.formatMessage({ id: 'queued', defaultMessage: 'queued' }) : intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: t.eta })}</span>}
               {/* Only once there is something to have seeded, and only where it means something: a
@@ -3389,7 +3449,9 @@ const Home = () => {
   const search = adds ? '' : input.trim()
   const shown = search ? visibleRows.filter((t) => matchesSearch(t, search)) : visibleRows
 
-  const bulk = useBulkSelection(shown)
+  // the cards stack by state under headings, so a shift-click run follows the order they are drawn in
+  const groups = groupTorrents(shown)
+  const bulk = useBulkSelection(listView === 'table' ? shown : groups.flatMap((g) => g.rows))
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
@@ -3771,11 +3833,11 @@ const Home = () => {
           <div className="readouts">
             {torrents.length > 0 && (
               <ReadoutLine>
-                <div className="stat big rate">
+                <div className={'stat big rate down' + (totalDown > 0 ? ' live' : '')}>
                   <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
                   <strong data-room={speedRoom}>{speed(totalDown)}</strong>
                 </div>
-                <div className="stat rate">
+                <div className={'stat rate up' + (totalUp > 0 ? ' live' : '')}>
                   <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
                   <strong data-room={speedRoom}>{speed(totalUp)}</strong>
                 </div>
@@ -3856,26 +3918,34 @@ const Home = () => {
                 onPick={bulk.toggle}
               />
             )
-            : shown.map((t) => (
-            // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
-            <TorrentRow
-              key={t.id}
-              t={t}
-              saving={saving}
-              onToggle={onToggle}
-              onSave={onSave}
-              onSaveZip={onSaveZip}
-              onStart={onStart}
-              onOptions={onOptions}
-              selected={t.id === selectedId}
-              onSelect={onSelect}
-              checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
-              onPick={bulk.toggle}
-              savedToUserStorage={!!folder && permitted && savedToFolder.has(copyKey(t))}
-              rates={rowRates[t.id]}
-              transport={transport}
-            />
-          ))}
+            : groups.map(({ group, rows }) => (
+              <section className="group" key={group}>
+                <h2 className="group-head">
+                  {intl.formatMessage(GROUP_LABEL[group])}
+                  <span className="count">{intl.formatNumber(rows.length)}</span>
+                </h2>
+                {rows.map((t) => (
+                  // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
+                  <TorrentRow
+                    key={t.id}
+                    t={t}
+                    saving={saving}
+                    onToggle={onToggle}
+                    onSave={onSave}
+                    onSaveZip={onSaveZip}
+                    onStart={onStart}
+                    onOptions={onOptions}
+                    selected={t.id === selectedId}
+                    onSelect={onSelect}
+                    checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
+                    onPick={bulk.toggle}
+                    savedToUserStorage={!!folder && permitted && savedToFolder.has(copyKey(t))}
+                    rates={rowRates[t.id]}
+                    transport={transport}
+                  />
+                ))}
+              </section>
+            ))}
         {/**
           * Hiding is only honest if it says so. A persisted filter outlives the session that set it,
           * so without this a person comes back to a library missing gigabytes they can see in the

@@ -149,8 +149,9 @@ describe('a ticked row', () => {
         expect(contrast(edge(ticked), fill(WHITE)), `${ticked.name} against an unticked row`).toBeGreaterThanOrEqual(3)
         expect(contrast(edge(ticked), fill(ticked)), `${ticked.name} against its own tint`).toBeGreaterThanOrEqual(3)
       }
-      // the control: an unticked row has no edge, its fill runs to its border
-      expect(contrast(edge(WHITE), fill(WHITE))).toBeLessThan(1.1)
+      // the control: an unticked row's edge is its state's hue, which the tick's edge takes the place of
+      expect(contrast(edge(WHITE), fill(WHITE))).toBeGreaterThanOrEqual(3)
+      expect(contrast(edge(BLACK), edge(WHITE))).toBeGreaterThan(1.5)
       // the tint: the same row's fill a step brighter once ticked
       expect(luminance(fill(BLACK))).toBeGreaterThan(luminance(unticked.fill(BLACK)))
       expect(contrast(fill(BLACK), unticked.fill(BLACK))).toBeGreaterThan(1.05)

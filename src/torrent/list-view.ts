@@ -57,6 +57,37 @@ export const FILTER_LABEL = defineMessages<ListFilter>({
  */
 export const isTemporary = (t: Torrent): boolean => t.ephemeral === true
 
+// ------------------------------------------------------------------------------------- the groups
+
+export type ListGroup = 'active' | 'paused' | 'done' | 'missing'
+
+/** The order the card view stacks its groups in: what is moving first, what is not on this device last. */
+export const LIST_GROUPS: readonly ListGroup[] = ['active', 'paused', 'done', 'missing']
+
+export const GROUP_LABEL = defineMessages<ListGroup>({
+  active: { id: 'Downloading', defaultMessage: 'Downloading' },
+  paused: { id: 'Paused', defaultMessage: 'Paused' },
+  done: { id: 'Done#heading', defaultMessage: 'Done', description: 'heading' },
+  missing: { id: 'Not on this device', defaultMessage: 'Not on this device' },
+})
+
+/**
+ * Which heading a row sits under. Queued, checking and retrying rows are downloads still to finish, so they sit under
+ * Downloading. A `starting` row has no engine state yet and goes by its progress, so a finished torrent reloading
+ * lands under Done straight away rather than moving there a second later.
+ */
+export const groupOf = (t: Pick<Torrent, 'state' | 'progress'>): ListGroup =>
+  t.state === 'missing' ? 'missing'
+  : t.state === 'paused' ? 'paused'
+  : t.state === 'seeding' || t.state === 'completed' || (t.state === 'starting' && t.progress >= 1) ? 'done'
+  : 'active'
+
+/** The rows split by group in LIST_GROUPS order, each keeping the order it arrived in. Empty groups are left out. */
+export const groupTorrents = <T extends Pick<Torrent, 'state' | 'progress'>>(rows: readonly T[]): { group: ListGroup, rows: T[] }[] =>
+  LIST_GROUPS
+    .map((group) => ({ group, rows: rows.filter((t) => groupOf(t) === group) }))
+    .filter(({ rows }) => rows.length > 0)
+
 const shows = (filter: ListFilter, t: Torrent): boolean =>
   filter === 'all' || (filter === 'library' ? !isTemporary(t) : filter === 'temporary' ? isTemporary(t) : t.state === filter)
 

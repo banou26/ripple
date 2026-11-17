@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CHART_PRIMARY, CHART_SECONDARY, CONTROL_ACTIVE_BG,
   CONTROL_BG, CONTROL_HOVER_BG, DANGER, DANGER_SOLID, ELEVATED_BG, EMPHASIS, EMPHASIS_HOVER,
-  FOCUS_RING, OK,
-  PAGE_BG, PICKED_WASH, PICTURE_SHADE, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN
+  FOCUS_RING, GROUP_BAND, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, OK,
+  PAGE_BG, PICKED_WASH, PICTURE_SHADE, STATE_ERROR, STATE_MISSING, STATE_MISSING_EDGE, STATE_TINT_ALPHA, SUNKEN_BG,
+  SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN, tint,
 } from '../src/theme'
+import { STATE_HUE } from '../src/router/badge-style'
 
 /**
  * The palette's contrast, asserted rather than asserted-in-a-comment.
@@ -263,5 +265,68 @@ describe('a ticked row and the box on a poster', () => {
 
   it('keeps the box\'s ring 3:1 from its shade on a white picture', () => {
     expect(contrast(EMPHASIS, over(PICTURE_SHADE, '#ffffff'))).toBeGreaterThanOrEqual(3)
+  })
+})
+
+const hueAngle = (hex: string) => {
+  const [r, g, b] = channels(hex).map((c) => c / 255) as [number, number, number]
+  const max = Math.max(r, g, b)
+  const d = max - Math.min(r, g, b)
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return (h * 60 + 360) % 360
+}
+
+describe('every torrent state reads in its own hue', () => {
+  // Files missing is the one grey, held to its own rules below
+  const hues = [...new Set(Object.values(STATE_HUE))].filter((hue) => hue !== STATE_MISSING)
+  /** What a row can sit on: its surface, selected, ticked, ticked and selected, and the table's hover. */
+  const ROWS = [SURFACE_BG, CONTROL_BG, over(PICKED_WASH, SURFACE_BG), over(PICKED_WASH, CONTROL_BG), over(HOVER_WASH, SURFACE_BG)]
+
+  it('keeps a state chip at AA: its hue on its own tint, over every fill a row can have', () => {
+    for (const hue of hues) {
+      for (const row of ROWS) {
+        expect(contrast(hue, over(tint(hue), row)), `${hue} on its tint over ${row}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it('keeps a state hue at AA as plain text on every surface', () => {
+    for (const hue of hues) expect(worstOn(hue), hue).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps each hue clearly coloured and clearly apart from the others', () => {
+    for (const hue of hues) expect(chroma(hue), hue).toBeGreaterThanOrEqual(60)
+    for (const a of hues) {
+      for (const b of hues) {
+        if (a === b) continue
+        const gap = Math.abs(hueAngle(a) - hueAngle(b))
+        expect(Math.min(gap, 360 - gap), `${a} against ${b}`).toBeGreaterThanOrEqual(30)
+      }
+    }
+  })
+
+  it('writes a tint as the hue at the tint alpha', () => {
+    expect(tint('#66c0f4')).toBe(`rgba(102, 192, 244, ${STATE_TINT_ALPHA})`)
+  })
+
+  /**
+   * Most of a library kept for long is Files missing, so a hue there paints a column of edges down the page, and the
+   * error hue reads as a column of failures. It stays the quiet grey, at AA on the neutral chip it keeps.
+   */
+  it('keeps Files missing a quiet grey, never the error hue', () => {
+    expect(STATE_HUE.missing).toBe(STATE_MISSING)
+    expect(STATE_MISSING).not.toBe(STATE_ERROR)
+    expect(chroma(STATE_MISSING)).toBe(0)
+    expect(contrast(STATE_MISSING, CONTROL_BG)).toBeGreaterThanOrEqual(4.5)
+    // the edge a step quieter, and still there: 3:1 on a row, under the words beside it
+    expect(chroma(STATE_MISSING_EDGE)).toBe(0)
+    expect(luminance(STATE_MISSING_EDGE)).toBeLessThan(luminance(STATE_MISSING))
+    expect(contrast(STATE_MISSING_EDGE, SURFACE_BG)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('keeps a group heading and its count readable on the band behind them', () => {
+    const band = over(GROUP_BAND.match(/rgba\([^)]+\)/)![0], PAGE_BG)
+    expect(contrast(GROUP_TEXT, band)).toBeGreaterThanOrEqual(7)
+    expect(contrast(GROUP_TEXT, over(GROUP_COUNT_BG, band))).toBeGreaterThanOrEqual(7)
   })
 })

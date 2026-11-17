@@ -11,14 +11,14 @@ import { defineMessage, useIntl } from 'react-intl'
 
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
 import { noPeersLine } from '../torrent/no-peers'
-import { badgeRules } from './badge-style'
+import { badgeRules, stateHues } from './badge-style'
 import { pickable } from './bulk-selection'
 import { STATE_LABEL, chosenBytes, relativeDay, speed, withWhole } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
 import { RowCheck, pickedRowStyle } from '../components/bulk-actions'
 import {
-  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, SUNKEN_BG,
+  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
 } from '../theme'
 
@@ -40,6 +40,7 @@ const style = css`
   border-collapse: collapse;
   font-size: 0.82rem;
 
+  ${stateHues}
   ${badgeRules}
 
   th, td {
@@ -88,6 +89,10 @@ const style = css`
   th.num button { justify-content: flex-end; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; color: ${TEXT_MUTED}; }
 
+  /* only while bytes move, as on the cards */
+  td.c-down.live { color: ${STATE_DOWN}; }
+  td.c-up.live { color: ${STATE_UP}; }
+
   tbody tr {
     border-bottom: 1px solid ${BORDER};
     cursor: default;
@@ -96,7 +101,14 @@ const style = css`
 
     &[data-selected] { background: ${CONTROL_BG}; }
 
-    &[data-picked] { ${pickedRowStyle} }
+    /* the state's edge, as on the cards; a ticked row's own edge takes its place */
+    td:first-of-type { box-shadow: inset 4px 0 0 var(--edge, transparent); }
+
+    &[data-picked] {
+      ${pickedRowStyle}
+
+      td:first-of-type { box-shadow: none; }
+    }
   }
 
   /* The box's label is its hit area, and its ::before spreads that over the whole cell, or a click just above or
@@ -169,13 +181,13 @@ const style = css`
     width: 64px;
     height: 4px;
     border-radius: 2px;
-    background: ${SUNKEN_BG};
+    background: var(--tint, ${SUNKEN_BG});
     overflow: hidden;
 
     .fill {
       height: 100%;
       border-radius: 2px;
-      background: ${EMPHASIS};
+      background: var(--hue, ${EMPHASIS});
     }
   }
 
@@ -183,7 +195,7 @@ const style = css`
     display: inline-block;
     min-width: 34px;
     text-align: right;
-    color: ${TEXT_FAINT};
+    color: var(--hue, ${TEXT_FAINT});
   }
 
   /* Dropped narrowest first, and the order is deliberate: a name and what it is doing are the two
@@ -305,6 +317,7 @@ export const TorrentTable = (
       {torrents.map((t) => (
         <tr
           key={t.id}
+          data-state={t.state}
           data-selected={t.id === selectedId || undefined}
           data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
           onClick={() => onSelect(t)}
@@ -346,8 +359,8 @@ export const TorrentTable = (
               {intl.formatMessage(STATE_LABEL[t.state])}
             </span>
           </td>
-          <td className="c-down num">{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
-          <td className="c-up num">{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
+          <td className={'c-down num' + (t.down > 0 ? ' live' : '')}>{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
+          <td className={'c-up num' + (t.up > 0 ? ' live' : '')}>{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
           <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
           <td className="c-added num">{relativeDay(t.addedAt)}</td>
           <td className="more">

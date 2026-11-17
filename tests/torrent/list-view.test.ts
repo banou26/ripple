@@ -3,9 +3,9 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 import { describe, expect, it } from 'vitest'
 
 import {
-  DEFAULT_SORT, FILTERS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
-  compareTorrents, filterCounts, isTemporary, isVolatile, offeredFilters, readFilter, readSort, readView,
-  shouldReorder, sortTorrents, visibleTorrents, writeSort,
+  DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_GROUPS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
+  compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readSort,
+  readView, shouldReorder, sortTorrents, visibleTorrents, writeSort,
 } from '../../src/torrent/list-view'
 
 /**
@@ -106,6 +106,52 @@ describe('the state filters', () => {
   /** a remembered filter can match nothing after a reload, and the menu still has to say which it is */
   it('keeps offering the chosen filter once it shows nothing', () => {
     expect(offeredFilters({ ...none, all: 3, downloading: 3 }, 'seeding')).toEqual(['all', 'downloading', 'seeding'])
+  })
+})
+
+describe('the groups the cards stack under', () => {
+  const heading = (state: TorrentState, progress = 0) => GROUP_LABEL[groupOf(t({ state, progress }))].defaultMessage
+
+  it('puts every state under its heading', () => {
+    const under: Record<TorrentState, string> = {
+      downloading: 'Downloading',
+      queued: 'Downloading',
+      checking: 'Downloading',
+      retrying: 'Downloading',
+      error: 'Downloading',
+      paused: 'Paused',
+      seeding: 'Done',
+      completed: 'Done',
+      missing: 'Not on this device',
+      starting: 'Downloading',
+    }
+    for (const [state, label] of Object.entries(under) as [TorrentState, string][]) expect(heading(state), state).toBe(label)
+  })
+
+  /** A finished torrent reloading has no engine state yet, and must not move between groups when it gets one. */
+  it('files a starting row by its progress', () => {
+    expect(heading('starting', 1)).toBe('Done')
+    expect(heading('starting', 0.4)).toBe('Downloading')
+  })
+
+  it('stacks the groups in order, keeps the order inside each, and leaves out empty ones', () => {
+    const rows = [
+      t({ name: 'gone', state: 'missing' }),
+      t({ name: 'seed 1', state: 'seeding', progress: 1 }),
+      t({ name: 'down 1', state: 'downloading' }),
+      t({ name: 'seed 2', state: 'completed', progress: 1 }),
+      t({ name: 'down 2', state: 'queued' }),
+    ]
+    const groups = groupTorrents(rows)
+    expect(groups.map((g) => g.group)).toEqual(['active', 'done', 'missing'])
+    expect(groups.map((g) => names(g.rows))).toEqual([['down 1', 'down 2'], ['seed 1', 'seed 2'], ['gone']])
+    expect(LIST_GROUPS).toEqual(['active', 'paused', 'done', 'missing'])
+  })
+
+  it('loses no row and repeats none', () => {
+    const states: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking', 'starting']
+    const rows = states.map((state) => t({ name: state, state }))
+    expect(groupTorrents(rows).flatMap((g) => names(g.rows)).sort()).toEqual([...states].sort())
   })
 })
 

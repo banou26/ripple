@@ -229,6 +229,53 @@ export const DANGER = '#f87171'
 /** Errors, as a fill. Pair with TEXT, never with DANGER. */
 export const DANGER_SOLID = '#ef4444'
 
+/* ------------------------------------------------------------- state hues */
+
+/*
+ * One hue per torrent state, so a row's state reads before its words do: its left edge, its chip, its progress bar
+ * and its percentage. Download and upload figures take STATE_DOWN and STATE_UP while bytes move. Which state takes
+ * which hue is decided once, in badge-style.ts.
+ *
+ * As chip text on its own tint (STATE_TINT_ALPHA) over every fill a row can have, the worst is STATE_ERROR on a row
+ * both ticked and selected, 4.65:1; theme.test.ts holds each to 4.5.
+ */
+/** Steam's own download blue. */
+export const STATE_DOWN = '#66c0f4'
+/** Seeding and completed: the success green. */
+export const STATE_UP = OK
+export const STATE_PAUSED = '#eab04e'
+/** Queued and starting: waiting for a turn rather than doing anything. */
+export const STATE_QUEUED = '#b09cff'
+/** Retrying and error. Lighter than DANGER, which falls under AA on its own tint. */
+export const STATE_ERROR = '#ff8787'
+/**
+ * Files missing, the state most of a long-kept library is in: the quiet grey of today's chip, never the error hue, so
+ * a library of them reads as calm rather than as a column of failures.
+ */
+export const STATE_MISSING = TEXT_MUTED
+
+/** Its edge, a step quieter than its words (3.4:1 on a row): a run of these rows joins into one line in the table. */
+export const STATE_MISSING_EDGE = '#6b6b6b'
+
+export const STATE_TINT_ALPHA = 0.13
+
+/** A hue as a translucent wash, so one chip or track reads right on every row fill under it. */
+export const tint = (hex: string, alpha = STATE_TINT_ALPHA): string => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/* ----------------------------------------------------------- group headings */
+
+/** The library's group headings, a touch of Steam's blue-grey: a band that fades out across the heading. */
+export const GROUP_BAND = 'linear-gradient(90deg, rgba(102, 192, 244, 0.1), rgba(102, 192, 244, 0) 60%)'
+
+/** A heading's words, Steam's light blue-grey. 12.8:1 on PAGE_BG. */
+export const GROUP_TEXT = '#c7d5e0'
+
+/** The count beside a heading. */
+export const GROUP_COUNT_BG = 'rgba(102, 192, 244, 0.16)'
+
 /* ------------------------------------------------------------------ charts */
 
 /**
