@@ -452,7 +452,7 @@ const untrack = (h: number) => {
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
   ephemeralHandles.delete(h); cacheIdle.delete(h); userStarted.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
-  forced.delete(h); watchedPastQueue.delete(h)
+  forced.delete(h); watchedPastQueue.delete(h); headFirst.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h); noPeersSince.delete(h); folderUnchecked.delete(h)
 }
@@ -941,6 +941,32 @@ const activeViewers = (h: number): Viewer[] => {
   return watching ? [...watching.values()].filter((v) => !v.held && (!v.prepare || preparing)) : []
 }
 
+// torrents whose first viewer still waits on its first read's pieces
+const headFirst = new Set<number>()
+
+/**
+ * The pieces a first watch's first read covers, while they are not all in, and null for any other plan. Until they
+ * are in, the band is exactly those pieces: libtorrent picks top-priority pieces in shuffled order, and the band's
+ * last piece came in before the first read's own in nearly every first watch on the swarm rig (2026-11-17).
+ */
+const firstReadOf = (h: number, files: TorrentFiles, active: Viewer[]): Range | null => {
+  const [only] = active
+  const file = only && files.files[only.fileIndex]
+  const read = only && file?.size && active.length === 1 && !only.bulk && !only.prepare && headFirst.has(h)
+    ? piecesOf({ ...file, pieceLength: files.pieceLength }, only.fromOffset, only.fromOffset + READ_SIZE)
+    : null
+  if (!read || allHeld(h, read)) { headFirst.delete(h); return null }
+  return read
+}
+
+// the band's last piece joins a first watch's plan the moment its first read's pieces are in
+const planPastFirstRead = () => {
+  for (const h of [...headFirst]) {
+    const files = session?.files(h)
+    if (files && !firstReadOf(h, files, activeViewers(h))) applyViewing(h)
+  }
+}
+
 const applyViewing = (h: number) => {
   if (!session) return
   // a handle the engine no longer has is not a torrent with no viewers, it is not a torrent at all;
@@ -948,6 +974,7 @@ const applyViewing = (h: number) => {
   if (!handles.includes(h)) { viewers.delete(h); pendingViewing.delete(h); return }
   const active = activeViewers(h)
   if (!active.length) {
+    headFirst.delete(h)
     // before the park below, which would otherwise be undone: the queue starts a paused torrent it manages
     if (watchedPastQueue.delete(h) && !forced.has(h) && !userPaused.has(h)) session.setFlags(h, TORRENT_FLAG.autoManaged, TORRENT_FLAG.autoManaged)
     // back to an ordinary download: default priority everywhere, no deadlines, sequential off.
@@ -1013,11 +1040,14 @@ const applyViewing = (h: number) => {
   const files = session.files(h)
   if (!files) { pendingViewing.add(h); return }
   if (newlyWatched.delete(h)) void runStorageBudget()
+  const first = firstReadOf(h, files, active)
   const claims = active.flatMap(({ fileIndex, fromOffset, bulk, prepare }) => {
     const head = { fileIndex, offset: fromOffset }
     const file = files.files[fileIndex]
     if (prepare) return file?.size ? [head, { fileIndex, offset: Math.max(0, file.size - READ_SIZE) }] : []
-    // Fetch trailing container metadata alongside the head, before the demuxer asks for it.
+    // Fetch trailing container metadata alongside the head, before the demuxer asks for it. In a first plan too: asked
+    // for once the head was in, it waited behind the pieces requested meanwhile, and an MP4 with its index at the end
+    // or a Matroska file with its tags there showed its first frame 0.4 to 0.5 s later (swarm rig, 2026-11-18).
     return !bulk && file?.size
       ? [head, { fileIndex, offset: file.size - 1 }]
       : [head]
@@ -1044,7 +1074,7 @@ const applyViewing = (h: number) => {
     : undefined)
   const planned = session.setStreamWindow(h, claims, {
     unclaimedPriority: PRIORITY.skip,
-    windowPieces: windowPiecesFor(files.pieceLength),
+    windowPieces: first ? first.end - first.start : windowPiecesFor(files.pieceLength),
     deadlineStepMs: deadlineStepMsFor(files.pieceLength, session.status(h)?.downloadRate || 3_000_000),
     deadlines: timed,
     ...(keep ? { keep } : {}),
@@ -1082,7 +1112,8 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
   // Carried forward when the caller does not say, because the re-anchor path does not: every 8 MiB
   // chunk of an export calls this through `anchorSequential` with no flag, and a claim that forgot
   // it was bulk would put the deadlines straight back and take the waste with them.
-  const kind = bulk ?? watching.get(viewer)?.bulk
+  const was = watching.get(viewer)
+  const kind = bulk ?? was?.bulk
   // `held: undefined` rather than `false`, so the entry a real claim writes is shaped exactly as it
   // was before holds existed and nothing downstream has to know the difference
   watching.set(viewer, {
@@ -1092,7 +1123,9 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
     ...(kind ? { bulk: kind } : {}),
     ...(prepare ? { prepare } : {}),
   })
-  if (first) { touchUsed(h); newlyWatched.add(h) }
+  if (first) { touchUsed(h); newlyWatched.add(h); headFirst.add(h) }
+  // a seek, or a second viewer, is planned whole at once
+  else if (was?.fromOffset !== fromOffset) headFirst.delete(h)
   // read now rather than at the next pump, which may be half a second away and from before this player
   if (prepare) preparing = playersHeld()
   applyViewing(h)
@@ -1749,6 +1782,7 @@ const pumpWhileWaiting = () => {
     const listed = unlisted.filter((h) => live.files(h))
     // planned here rather than on the next pass, or a seeder already sending is asked for pieces at random until then
     for (const h of listed) applyViewing(h)
+    planPastFirstRead()
     if (listed.length) postState()
   }, FAST_PUMP_MS)
 }
@@ -1928,6 +1962,7 @@ const init = async () => {
       }
     }
     for (const h of [...pendingViewing]) applyViewing(h)
+    planPastFirstRead()
     for (const h of [...wokenByRead]) {
       if (waitedOn(h) || now - (lastReadAt.get(h) ?? 0) < PARK_AFTER_READ_MS) continue
       wokenByRead.delete(h)
