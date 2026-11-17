@@ -68,6 +68,18 @@ it('starts each row on its own when the engine, an older build, does not answer 
   expect(startsOf(posted)).toEqual(ROWS)
 })
 
+// An engine that fails before it is up opens the gate for good with no engine behind it, so a press waiting for one
+// must give up rather than wait again on a gate that is already open, which would spin and freeze the page.
+it('drops a press made while the engine was starting when the engine then fails', async () => {
+  vi.useFakeTimers()
+  const { client, say, posted } = starting()
+  client.startMany(ROWS)
+  await vi.advanceTimersByTimeAsync(1_000)
+  say({ type: 'storage-unavailable' })
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(posted).toEqual([])
+})
+
 // The page draws the list before the engine is up, and with the VPN on the engine can wait 8 s for its port, so the
 // rows can be pressed long before anything could answer.
 it('counts the 5 s from when the engine is up, not from a press made while it was starting', async () => {

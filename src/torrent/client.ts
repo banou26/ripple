@@ -756,6 +756,7 @@ export const createTorrentClient = (): EngineClient => {
     // asked only once an engine is up, so an engine slow to start is not taken for an older one
     startMany: (infoHashes) => {
       const go = () => {
+        if (fatal) return
         if (!started) { gate.wait(go); return }
         ask({ type: 'start-many', infoHashes }, START_MANY_TIMEOUT)
           .catch(() => { for (const infoHash of infoHashes) send({ type: 'start', infoHash }) })
