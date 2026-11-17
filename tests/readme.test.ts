@@ -21,4 +21,9 @@ it('says the groups stay in the browser and sync with the list, as the privacy p
   const privacy = readme.slice(readme.indexOf('## Privacy'), readme.indexOf('## License')).replace(/\s+/g, ' ')
   expect(privacy).toContain('Your list, its groups and your files stay in your browser')
   expect(privacy).toContain('your list, its groups, thumbnails and .torrent files sync to your FKN account')
+  expect(privacy).toContain('A group\'s link carries its torrents after the `#`, which no server receives.')
+})
+
+it('says a group is shared by a link', () => {
+  expect(readme.replace(/\s+/g, ' ')).toContain('show one group at a time, and share one by a link that copies it into someone else\'s list.')
 })

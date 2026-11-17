@@ -20,7 +20,8 @@ off, and plays a video while it downloads. There is nothing to install and no Ri
   several.
 - **Create a torrent** from files or a folder (v1, v2 or hybrid, private with a source tag, web
   seeds) and seed it straight from those files.
-- **Groups.** Put torrents in groups, a torrent in as many as you like, and show one group at a time.
+- **Groups.** Put torrents in groups, a torrent in as many as you like, show one group at a time,
+  and share one by a link that copies it into someone else's list.
 - **Your library on every device.** Signed in to FKN, your list, its groups, thumbnails and .torrent
   files sync, encrypted in your browser before they leave it.
 - **Share links** that open the player or a download page, which other sites can embed.
@@ -139,7 +140,8 @@ Why each part works the way it does is in [docs/embedding.md](./docs/embedding.m
 
 Ripple needs no account and runs no analytics. Your list, its groups and your files stay in your
 browser, or in a folder you choose. Signed in to FKN, your list, its groups, thumbnails and .torrent
-files sync to your FKN account, encrypted in your browser first.
+files sync to your FKN account, encrypted in your browser first. A group's link carries its torrents
+after the `#`, which no server receives.
 Peers and trackers see the FKN relay's address, not yours, unless
 you turn the VPN off: they then see your own, and so does the STUN server that tells your browser
 its address. The [privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps and names
