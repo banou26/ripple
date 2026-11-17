@@ -77,11 +77,13 @@ describe('the list toolbar', () => {
     expect(chip(c, 'sort').innerText.trim()).toBe('Size')
     expect(chip(c, 'sort')).toHaveAccessibleName('Sort by Size, ascending')
     expect(chip(c, 'sort').getAttribute('data-tooltip-content')).toBe('Smallest first')
+    expect(chip(c, 'sort').querySelector('svg')).toHaveClass('lucide-arrow-up-narrow-wide')
     expect(pressed(c, 'Table')).toBe('true')
     expect([chip(c, 'show'), chip(c, 'sort')].map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false'])
     const other = (await mount({ sortKey: 'size', sortDir: 'desc' }).screen).container
     expect(chip(other, 'sort')).toHaveAccessibleName('Sort by Size, descending')
     expect(chip(other, 'sort').getAttribute('data-tooltip-content')).toBe('Largest first')
+    expect(chip(other, 'sort').querySelector('svg')).toHaveClass('lucide-arrow-down-wide-narrow')
   })
 
   it('offers each filter that shows a row, with how many it shows, the one chosen checked', async () => {
