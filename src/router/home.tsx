@@ -2450,7 +2450,7 @@ const keepFocus = (e: ReactMouseEvent) => e.preventDefault()
 const Home = () => {
   const intl = useIntl()
   const wordless = useSyncExternalStore(onWordlessChange, () => matchMedia(WORDLESS).matches)
-  const { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
+  const { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, startMany, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [saving, setSaving] = useState<Record<string, number>>({})
@@ -3417,7 +3417,8 @@ const Home = () => {
   const pickedNow = () => torrentsRef.current.filter((t) => pickable(t) && bulk.picked.has(t.infoHash))
   const pausePicked = () => { for (const t of toPause(pickedNow())) pause(Number(t.id)) }
   const resumePicked = () => { for (const t of toResume(pickedNow())) resume(Number(t.id)) }
-  const startPicked = () => { for (const t of toStart(pickedNow())) onStart(t) }
+  const startRows = (rows: readonly Torrent[]) => startMany(rows.flatMap((t) => (t.infoHash ? [t.infoHash] : [])))
+  const startPicked = () => startRows(toStart(pickedNow()))
   const pickedMagnets = useShareableMagnets(bulk.rows)
   const copyPicked = ({ magnets, left }: ShareableMagnets) => {
     const copied = left
@@ -3509,7 +3510,7 @@ const Home = () => {
     all: stateRows.length,
     onShow: chooseGroup,
     onNew: () => newGroup(() => []),
-    onDownloadAll: shownGroup && fetchable.length ? () => { for (const t of fetchable) onStart(t) } : undefined,
+    onDownloadAll: shownGroup && fetchable.length ? () => startRows(fetchable) : undefined,
     onCopyLink: shownGroup && groupLink?.count ? () => copyGroupLink(groupLink) : undefined,
     onRename: () => {
       if (shownGroup) setNaming({ title: shownGroup.name, name: shownGroup.name, save: (name) => { void renameGroup(shownGroup.id, name) } })

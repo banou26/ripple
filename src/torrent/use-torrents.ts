@@ -337,6 +337,7 @@ export type UseTorrents = {
   recheck: (handle: number) => void
   remove: (handle: number, deleteFiles?: boolean) => void
   start: (infoHash: string) => void
+  startMany: (infoHashes: string[]) => void
   removeMissing: (infoHash: string) => void
   storageUnavailable: boolean
   workerError: string | null
@@ -477,11 +478,15 @@ export const useTorrents = (): UseTorrents => {
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
   // with the account's .torrent kept first when this device has none, so the engine has the file list from the start
   const start = useCallback((infoHash: string) => { void keepSyncedTorrentFile(infoHash).then(() => client.start(infoHash)) }, [client])
+  // each row's kept the same way, all at once, so the wait is as bounded as one row's
+  const startMany = useCallback((infoHashes: string[]) => {
+    void Promise.all(infoHashes.map((infoHash) => keepSyncedTorrentFile(infoHash))).then(() => client.startMany(infoHashes))
+  }, [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
   const answerSample = useCallback((add: boolean) => {
     sampleAnswered()
     setSampleOffered(false)
     if (add) void addDemo(client)
   }, [client])
-  return { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client }
+  return { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, startMany, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client }
 }

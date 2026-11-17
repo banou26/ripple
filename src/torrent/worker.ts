@@ -47,7 +47,7 @@ import { relaySockets } from './relay-sockets'
 import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'add-trackers', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'start-many', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'add-trackers', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -270,16 +270,16 @@ const upsertList = async (entry: Persisted, over?: Partial<Persisted>) => {
 
 // `quiet` skips the broadcast: a lastUsedAt touch changes nothing any tab renders, and every `list`
 // message arms a debounced cloud backup write
-const patchList = async (ih: string, patch: Partial<Persisted>, quiet = false) => {
+const patchEntries = async (patches: ReadonlyMap<string, Partial<Persisted>>, quiet = false) => {
   let list: Persisted[] = []
   await update<Persisted[]>(LIST_KEY, (prev) => {
     list = prev ?? []
-    const i = list.findIndex((e) => e.infoHash === ih)
-    if (i >= 0) list[i] = { ...list[i]!, ...patch }
+    list.forEach((e, i) => { const patch = patches.get(e.infoHash); if (patch) list[i] = { ...e, ...patch } })
     return list
   })
   if (!quiet) post({ type: 'list', list })
 }
+const patchList = (ih: string, patch: Partial<Persisted>, quiet = false) => patchEntries(new Map([[ih, patch]]), quiet)
 
 const touchUsed = (h: number) => {
   const ih = infoHashByHandle.get(h)
@@ -2231,6 +2231,61 @@ const fetchesToBrowser = (e: Persisted) => isGrantedSavePath(e.savePath) && e.sa
 // one meant for the folder keeps that choice, and moves there once it finishes
 const keptSaveTo = (e: Persisted) => (isNativeSavePath(e.savePath) ? e.saveTo ?? 'folder' : e.saveTo)
 
+/**
+ * Download on rows this device is not running, in the order asked: one read of the list, one state and one write of it
+ * for any number of rows, so Download all of a large group has each tab draw the list once rather than once per torrent.
+ */
+const startEntries = async (session: Session, infoHashes: unknown[]) => {
+  const byHash = new Map((await loadList()).map((e) => [e.infoHash, e]))
+  const patches = new Map<string, Partial<Persisted>>()
+  for (const infoHash of new Set(infoHashes)) {
+    const e = typeof infoHash === 'string' ? byHash.get(infoHash) : undefined
+    if (!e) continue
+    /*
+     * A CREATED SOURCE IS NOT FETCHABLE, and adding one here is worse than doing nothing.
+     *
+     * Its bytes were never in a swarm: this device was the only seed, and its `savePath` is
+     * `/source/<hash>`, which is not a directory but a key into handles the page registers for one
+     * session through `create-source`. This handler registers none, so the storage resolves with
+     * `handles: null` and the first read throws a FATAL disk error, which is a red retrying row
+     * backing off to five minutes. Then the write below sets `started: true`, which hides the
+     * entry from every list again, this time with the Remove option that was on its row gone with
+     * it. The restore loop refuses these for the same reason; see the note there.
+     *
+     * The UI does not offer the button for one of these, and this is the second lock on the same
+     * door: the message can also arrive from a stale tab or a keyboard shortcut.
+     */
+    if (e.saveTo === 'source') {
+      post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Nothing to download this from. Create it again from the same files.', defaultMessage: 'Nothing to download this from. Create it again from the same files.' }) })
+      continue
+    }
+    const savePath = fetchesToBrowser(e) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
+    const bytes = (await get(torrentKey(e.infoHash)))
+    const h = bytes && bytes.byteLength
+      ? session.addTorrentFile(bytes, savePath)
+      : addMagnet(session, e.magnet, savePath)
+    if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); continue }
+    // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
+    // promotion an evicted item re-downloads straight back into the front of the eviction queue
+    // and the button spends the user's metered quota in a loop. A Start it had as cache goes too:
+    // the entry of one deleted for room or cleared by the browser still carries `resumed`.
+    track(h, e.magnet, e.infoHash, savePath, false)
+    // the entry is already in hand, so the ceiling it carries comes back with it. The piece plan
+    // is NOT seeded here, which is a live bug of its own rather than a precedent to copy.
+    wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
+    recovery.hold(h, Date.now())
+    patches.set(e.infoHash, {
+      savePath, saveTo: keptSaveTo(e),
+      started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now(),
+    })
+  }
+  if (!patches.size) return
+  // post state before flipping the entries so the live rows dedup the ghosts in the same render
+  postState()
+  // a patch, as an upsert keeps the save path the entry had
+  await patchEntries(patches)
+}
+
 const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
@@ -2816,50 +2871,8 @@ const handleMessage = async (session: Session, m: any) => {
       })
       for (const e of dropped) await forgetStored(e.infoHash)
       if (changed) post({ type: 'list', list })
-    } else if (m.type === 'start') {
-      const e = (await loadList()).find((x) => x.infoHash === m.infoHash)
-      /*
-       * A CREATED SOURCE IS NOT FETCHABLE, and adding one here is worse than doing nothing.
-       *
-       * Its bytes were never in a swarm: this device was the only seed, and its `savePath` is
-       * `/source/<hash>`, which is not a directory but a key into handles the page registers for one
-       * session through `create-source`. This handler registers none, so the storage resolves with
-       * `handles: null` and the first read throws a FATAL disk error, which is a red retrying row
-       * backing off to five minutes. Then the line below writes `started: true`, which hides the
-       * entry from every list again, this time with the Remove option that was on its row gone with
-       * it. The restore loop refuses these for the same reason; see the note there.
-       *
-       * The UI does not offer the button for one of these, and this is the second lock on the same
-       * door: the message can also arrive from a stale tab or a keyboard shortcut.
-       */
-      if (e?.saveTo === 'source') {
-        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Nothing to download this from. Create it again from the same files.', defaultMessage: 'Nothing to download this from. Create it again from the same files.' }) })
-        return
-      }
-      if (e) {
-        const savePath = fetchesToBrowser(e) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
-        const bytes = (await get(torrentKey(e.infoHash)))
-        const h = bytes && bytes.byteLength
-          ? session.addTorrentFile(bytes, savePath)
-          : addMagnet(session, e.magnet, savePath)
-        if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
-        // Pressing Download is the user claiming this torrent, so it stops being cache. Without the
-        // promotion an evicted item re-downloads straight back into the front of the eviction queue
-        // and the button spends the user's metered quota in a loop. A Start it had as cache goes too:
-        // the entry of one deleted for room or cleared by the browser still carries `resumed`.
-        track(h, e.magnet, e.infoHash, savePath, false)
-        // the entry is already in hand, so the ceiling it carries comes back with it. The piece plan
-        // is NOT seeded here, which is a live bug of its own rather than a precedent to copy.
-        wantLimits(h, { down: e.downloadLimit, up: e.uploadLimit })
-        recovery.hold(h, Date.now())
-        // post state before flipping the entry so the live row dedups the ghost in the same render
-        postState()
-        // a patch, as an upsert keeps the save path the entry had
-        await patchList(e.infoHash, {
-          savePath, saveTo: keptSaveTo(e),
-          started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now(),
-        })
-      }
+    } else if (m.type === 'start' || m.type === 'start-many') {
+      await startEntries(session, m.type === 'start' ? [m.infoHash] : Array.isArray(m.infoHashes) ? m.infoHashes : [])
     } else if (m.type === 'remove-missing') {
       if (typeof m.infoHash === 'string') {
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
@@ -3008,7 +3021,8 @@ const handleMessage = async (session: Session, m: any) => {
     }
   } catch (err: any) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })
-    else if (ASKS.has(m.type)) post({ type: 'answer', id: m.id, error: String(err?.message ?? err) })
+    // start-many was answered on arrival
+    else if (ASKS.has(m.type) && m.type !== 'start-many') post({ type: 'answer', id: m.id, error: String(err?.message ?? err) })
     else post({ type: 'error', message: String(err?.stack ?? err) })
   }
 }
@@ -3037,6 +3051,9 @@ self.addEventListener('message', (e: MessageEvent) => {
     return
   }
   if (UNQUEUED.has(m.type)) { void handleMessage(live, m); return }
+  // on arrival rather than once done, as a command may wait in the queue: the answer is how a page tells this engine
+  // from an older one, which drops the command
+  if (m.type === 'start-many') post({ type: 'answer', id: m.id, value: true })
   commands = commands.then(() => handleMessage(live, m))
 })
 

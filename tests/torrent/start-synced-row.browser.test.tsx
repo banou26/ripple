@@ -46,9 +46,13 @@ vi.mock('@fkn/lib', () => ({
 
 /** What the engine would find kept for each torrent at the moment it was told to start it. */
 const started: Promise<{ infoHash: string, kept: Uint8Array | undefined }>[] = []
+const keptNow = (infoHash: string) => get<Uint8Array>('ripple:torrent:' + infoHash).then((kept) => ({ infoHash, kept }))
+/** The same for each command that started many at once. */
+const startedMany: Promise<{ infoHash: string, kept: Uint8Array | undefined }[]>[] = []
 const client = new Proxy({}, {
   get: (_, key) => {
-    if (key === 'start') return (infoHash: string) => { started.push(get<Uint8Array>('ripple:torrent:' + infoHash).then((kept) => ({ infoHash, kept }))) }
+    if (key === 'start') return (infoHash: string) => { started.push(keptNow(infoHash)) }
+    if (key === 'startMany') return (infoHashes: string[]) => { startedMany.push(Promise.all(infoHashes.map(keptNow))) }
     if (typeof key === 'string' && key.startsWith('on')) return () => () => {}
     return key === 'owns' ? () => false : () => Promise.resolve()
   },
@@ -98,6 +102,25 @@ it('starts a row synced from another device with the account\'s .torrent kept, a
     hook!.start(NOT_SYNCED)
     await expect.poll(() => started.length, { timeout: 5_000 }).toBe(3)
     expect((await started[2]!).kept).toBeUndefined()
+  } finally {
+    followAccount(null)
+  }
+})
+
+it('starts many rows in one command once the account\'s .torrent of each is kept, and rows it holds none of as before', async () => {
+  const [synced, notSynced] = ['c'.repeat(40), 'd'.repeat(40)]
+  await clear()
+  cloudFiles.set(NAME_KEY_PATH, KEY)
+  cloudFiles.set(await pathOf(synced), TORRENT)
+  followAccount(() => true)
+  try {
+    await render(<IntlRoot><Probe/></IntlRoot>)
+    await expect.poll(() => hook !== undefined).toBe(true)
+
+    hook!.startMany([synced, notSynced])
+    await expect.poll(() => startedMany.length, { timeout: 5_000 }).toBe(1)
+    expect(await startedMany[0]!).toEqual([{ infoHash: synced, kept: TORRENT }, { infoHash: notSynced, kept: undefined }])
+    expect(started).toHaveLength(3)
   } finally {
     followAccount(null)
   }

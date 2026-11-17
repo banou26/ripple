@@ -44,6 +44,8 @@ const CLOSE_TIMEOUT = 1_500
 // how long a tab waits to hear its copy is listed: an engine on an older build drops a command it
 // does not know, and the player stops sending after as long without an answer
 const IMPORT_START_TIMEOUT = 30_000
+// how long a Download on many rows waits for the engine to say it knows the command, which it answers on arrival
+const START_MANY_TIMEOUT = 5_000
 
 export type TorrentClient = {
   ready: Promise<void>
@@ -200,6 +202,11 @@ export type TorrentClient = {
    */
   startSource: (infoHash: string, handles: (SourceRef | null)[]) => void
   start: (infoHash: string) => void
+  /**
+   * `start` for many rows in one command. An engine on an older build, in another tab, does not answer it, and each row
+   * is then started on its own.
+   */
+  startMany: (infoHashes: string[]) => void
   removeMissing: (infoHash: string) => void
   /**
    * `signal` cancels the read IN THE WORKER, not just here.
@@ -746,6 +753,10 @@ export const createTorrentClient = (): EngineClient => {
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),
     startSource: (infoHash, handles) => send({ type: 'start-source', infoHash, handles }),
     start: (infoHash) => send({ type: 'start', infoHash }),
+    startMany: (infoHashes) => {
+      ask({ type: 'start-many', infoHashes }, START_MANY_TIMEOUT)
+        .catch(() => { for (const infoHash of infoHashes) send({ type: 'start', infoHash }) })
+    },
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
     read: (handle, fileIndex, offset, len, prioritize = true, viewer, signal, partial) => {
       if (fatal) return Promise.reject(fatal)

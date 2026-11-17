@@ -120,12 +120,15 @@ describe('the leader server', () => {
     control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'export-chunk', id: 5, infoHash: 'a', fileIndex: 0, chunk: 1 } })
     control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'export-chunk', id: 6, infoHash: 'a', fileIndex: 0, chunk: 9 } })
     control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'import-start', id: 7, infoHash: 'a', magnet: 'magnet:?xt=urn:btih:a' } })
+    // the answer is how a follower tells this engine from one too old to start many at once
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'start-many', id: 8, infoHashes: ['a'] } })
     await settle()
 
     expect(heard).toContainEqual({ type: 'answer', id: 5, value: new Uint8Array([4, 5]) })
     expect(heard).toContainEqual({ type: 'answer', id: 6, error: 'that torrent is not being handed over' })
     expect(heard).toContainEqual({ type: 'answer', id: 7, value: new Uint8Array([4, 5]) })
-    expect(sent.filter((m) => m.type === 'export-chunk' || m.type === 'import-start'), 'an ask went out unanswered').toEqual([])
+    expect(heard).toContainEqual({ type: 'answer', id: 8, value: new Uint8Array([4, 5]) })
+    expect(sent.filter((m) => ['export-chunk', 'import-start', 'start-many'].includes(m.type)), 'an ask went out unanswered').toEqual([])
     stop()
   })
 
