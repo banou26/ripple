@@ -218,7 +218,7 @@ const newId = () =>
  * A name as a group keeps it: trimmed, and cut to its first 200 code points, so a link someone sent cannot store a
  * name of megabytes. Empty for a name that is blank.
  */
-export const groupName = (name: string): string => name.trim().match(/^[\s\S]{0,200}/u)![0].trimEnd()
+export const groupName = (name: string): string => name.trim().replace(/^([\s\S]{200})[\s\S]+/u, '$1').trimEnd()
 
 /** Makes a group of these torrents. Resolves to its id once stored, or null for a name that is empty once trimmed. */
 export const createGroup = async (name: string, infoHashes: readonly string[]): Promise<string | null> => {

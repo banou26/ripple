@@ -83,9 +83,9 @@ describe('the group store', () => {
   it('keeps the first 200 characters of a name, made or renamed', async () => {
     const long = `${'\u{1F331}'.repeat(150)}${'x'.repeat(150)}`
     const id = (await createGroup(long, [A]))!
-    expect((await storedGroup(id))?.name).toBe([...long].slice(0, 200).join(''))
+    expect((await storedGroup(id))?.name).toBe(Array.from(long).slice(0, 200).join(''))
     await renameGroup(id, `y${long}`)
-    expect((await storedGroup(id))?.name).toBe(`y${[...long].slice(0, 199).join('')}`)
+    expect((await storedGroup(id))?.name).toBe(`y${Array.from(long).slice(0, 199).join('')}`)
   })
 
   it('mints ids of 16 base64url characters, all different', async () => {

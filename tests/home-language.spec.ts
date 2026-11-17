@@ -2385,7 +2385,7 @@ test('a group link whose magnets add up past 1 MiB could not be read, and one wi
   await library(page, LIST, TORRENTS)
   const title = page.getByRole('dialog').locator('h2')
   await expect(title).toBeVisible()
-  expect(await title.evaluate(shown => shown.textContent)).toBe([...name].slice(0, 200).join(''))
+  expect(await title.evaluate(shown => shown.textContent)).toBe(Array.from(name).slice(0, 200).join(''))
 })
 
 test('a group link whose group the browser will not store says so, with no error left behind', async ({ page }) => {
@@ -2395,10 +2395,11 @@ test('a group link whose group the browser will not store says so, with no error
   await library(page, LIST, TORRENTS)
   const sent = await sending(page, ['import-list'])
   await page.evaluate((key) => {
-    const put = IDBObjectStore.prototype.put
-    IDBObjectStore.prototype.put = function (value: unknown, at?: IDBValidKey) {
-      if (at === key) throw new DOMException('refused', 'QuotaExceededError')
-      return put.call(this, value, at)
+    const store = IDBObjectStore.prototype as { put: (...args: unknown[]) => IDBRequest }
+    const put = store.put
+    store.put = function (...args) {
+      if (args[1] === key) throw new DOMException('refused', 'QuotaExceededError')
+      return put.apply(this, args)
     }
   }, 'ripple:groups')
   await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click()
