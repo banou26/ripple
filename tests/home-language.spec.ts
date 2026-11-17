@@ -2380,6 +2380,26 @@ test('a group link whose magnets add up past 1 MiB could not be read, and one wi
   expect(await title.evaluate(shown => shown.textContent)).toBe([...name].slice(0, 200).join(''))
 })
 
+test('a group link whose group the browser will not store says so, with no error left behind', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto(`${origin}/add#${SENT()}`)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['import-list'])
+  await page.evaluate((key) => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, at?: IDBValidKey) {
+      if (at === key) throw new DOMException('refused', 'QuotaExceededError')
+      return put.call(this, value, at)
+    }
+  }, 'ripple:groups')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('.toast')).toHaveText('Could not add the group')
+  expect(await sent()).toHaveLength(1)
+  // the frames of fkn.app the offline browser cannot load throw errors of their own
+  expect(errors.filter(message => message.includes('refused'))).toEqual([])
+})
+
 test('a group link inside a frame asks nothing and adds nothing', async ({ page }) => {
   // another site, at another name for this server
   writeFileSync(join(dir, 'group-embedder.html'), `<body style="margin:0"><iframe src="${origin}/add#${SENT()}" style="border:0;width:100vw;height:100vh"></iframe>`)

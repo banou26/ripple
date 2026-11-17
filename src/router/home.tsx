@@ -3482,7 +3482,7 @@ const Home = () => {
       // its rows are not on this device, which a remembered state such as Downloading would hide
       if (id) { chooseFilter('all'); chooseGroup(id) }
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: isolated(linked.name) }))
-    })
+    }, () => showToast(intl.formatMessage({ id: 'Could not add the group', defaultMessage: 'Could not add the group' })))
   }
   const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : NO_ROWS)
   const copyGroupLink = ({ link, privateLeftOut: left }: { link: string | null, privateLeftOut: number }) => {
