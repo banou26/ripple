@@ -58,10 +58,11 @@ describe('the magnets of the ticked rows', () => {
     expect(reads.at(-1)!.left).toBe(0)
   })
 
-  it('are read once for the page, however the ticks change, until a torrent is added again', async () => {
+  it('are read once for the page from the files kept here, however the ticks change, until a torrent is added again', async () => {
     const again = row('e', 'Again')
     kept.set(torrentKey(again.infoHash!), torrentFile('Again', { tracker: 'https://again.example/announce' }))
     const other = row('f', 'Other')
+    kept.set(torrentKey(other.infoHash!), torrentFile('Other', { tracker: 'https://other.example/announce' }))
     reads.length = 0
     asked.length = 0
     const screen = await render(<Probe rows={[again, other]}/>)
@@ -76,6 +77,21 @@ describe('the magnets of the ticked rows', () => {
     await screen.rerender(<Probe rows={[{ ...again, addedAt: 2 }]}/>)
     await expect.poll(() => reads.at(-1)?.magnets.length).toBe(1)
     expect(asked.length, 'a torrent removed and added again may have another file').toBeGreaterThan(once)
+  })
+
+  it('leave out a torrent whose file kept here since says it is private', async () => {
+    // a magnet add before its metadata, or a row synced from another device before its file was needed
+    const later = row('9', 'Later')
+    const other = row('6', 'Other')
+    reads.length = 0
+    const screen = await render(<Probe rows={[later]}/>)
+    await expect.poll(() => reads.at(-1)?.magnets).toEqual([later.magnet])
+    expect(reads.at(-1)!.left, 'not known to be private with no file here').toBe(0)
+
+    kept.set(torrentKey(later.infoHash!), torrentFile('Later', { tracker: 'https://members.example/key/announce', flag: 1 }))
+    await screen.rerender(<Probe rows={[later, other]}/>)
+    await expect.poll(() => reads.at(-1)?.magnets).toEqual([other.magnet])
+    expect(reads.at(-1)!.left, 'copied with its tracker key after its file said private').toBe(1)
   })
 
   it('keep the newer ticks\' magnets when an older read answers after them', async () => {

@@ -2,7 +2,7 @@ import type { Torrent } from './types'
 
 import { useEffect, useState } from 'react'
 
-import { knownPrivate, shareableMagnet } from './torrent-export'
+import { magnetToCopy, shareableMagnet } from './torrent-export'
 
 /**
  * `t`'s shareable magnet, or null while it is still being read.
@@ -30,8 +30,8 @@ export type ShareableMagnets = { magnets: string[], left: number }
 
 /**
  * Each torrent's magnet to copy, or null for one known to be private, by `[infoHash, magnet, addedAt]`. Kept for the
- * page: neither the file this device kept for a torrent nor its magnet changes while it is listed, and one removed and
- * added again has another `addedAt`.
+ * page once a file kept here answered it: that file does not change while the torrent is listed, and one removed and
+ * added again has another `addedAt`. A torrent with no file here yet is read again each time.
  */
 const copies = new Map<string, Promise<string | undefined | null>>()
 
@@ -39,7 +39,10 @@ const copyOf = (row: string): Promise<string | undefined | null> => {
   let copy = copies.get(row)
   if (!copy) {
     const [infoHash, magnet] = (JSON.parse(row) as (string | null)[]).map((value) => value ?? undefined)
-    copy = knownPrivate(infoHash).then((known) => known ? null : shareableMagnet({ infoHash, magnet }))
+    copy = magnetToCopy({ infoHash, magnet }).then((found) => {
+      if (!found.kept) copies.delete(row)
+      return found.magnet
+    })
     copies.set(row, copy)
   }
   return copy

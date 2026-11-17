@@ -132,6 +132,19 @@ export const knownPrivate = async (infoHash: string | undefined): Promise<boolea
   return !!kept && isPrivateTorrent(kept)
 }
 
+/**
+ * What a library torrent is copied as beside others: null when it is known to be private, else its shareable magnet.
+ * `kept` says a file kept here gave that answer, which then holds while the torrent is listed; a torrent with no file
+ * here yet may be given one, as its metadata lands or its file comes from the account, and answer otherwise.
+ */
+export const magnetToCopy = async (
+  { infoHash, magnet }: { infoHash?: string, magnet?: string },
+): Promise<{ magnet: string | undefined | null, kept: boolean }> => {
+  const kept = infoHash ? await keptTorrentFile(infoHash) : null
+  if (!kept) return { magnet, kept: false }
+  return { magnet: isPrivateTorrent(kept) ? null : await shareableMagnet({ infoHash, magnet }), kept: true }
+}
+
 /** How long to wait for the worker to write a blob after being asked, and how often to look. */
 const FLUSH_TIMEOUT_MS = 5_000
 const FLUSH_POLL_MS = 200
