@@ -338,6 +338,8 @@ const ROW_HISTORY = 60
 // A torrent already copied to the folder is parked on DONE, and a failed copy waits SYNC_RETRY before the next attempt
 const DONE = Number.POSITIVE_INFINITY
 const SYNC_RETRY = 30_000
+// A tab not running the engine only checks the copy, which stops at the first file not there, so it looks again sooner
+const CHECK_RETRY = 3_000
 
 // Resolves to null when another tab already holds it, which is a skip rather than a success or a failure
 const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<number | null> => {
@@ -3312,7 +3314,7 @@ const Home = () => {
         })
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
-          syncAtRef.current.set(key, Date.now() + SYNC_RETRY)
+          syncAtRef.current.set(key, Date.now() + (copies ? SYNC_RETRY : CHECK_RETRY))
           if (copies) showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
         })
         .finally(() => syncingRef.current.delete(t.id))
