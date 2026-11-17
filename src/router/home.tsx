@@ -3479,7 +3479,8 @@ const Home = () => {
   const addReceived = (linked: LinkedGroup) => {
     setReceived(null)
     void addLinkedGroup(linked, groups ?? [], client.importList).then((id) => {
-      if (id) chooseGroup(id)
+      // its rows are not on this device, which a remembered state such as Downloading would hide
+      if (id) { chooseFilter('all'); chooseGroup(id) }
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: isolated(linked.name) }))
     })
   }

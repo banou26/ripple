@@ -2292,6 +2292,9 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   // the link as Copy link writes it, at this server
   const link = buildGroupLink('Week 9', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')].map(magnet => ({ magnet }))).link!
   const fragment = link.split('#')[1]!
+  // a state the received rows are not in, remembered from before
+  await page.goto(origin)
+  await page.evaluate(key => localStorage.setItem(key, 'downloading'), LIST_FILTER_KEY)
   requests.length = 0
   await page.goto(link.replace('https://torrent.fkn.app', origin))
   await library(page, LIST, TORRENTS)
@@ -2319,6 +2322,7 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   const chip = page.locator('.list-toolbar .chip.group')
   await expect(chip).toHaveText('Week 9')
   await expect(chip).toHaveAccessibleName('Group: Week 9 (2)')
+  await expect(page.locator('.list-toolbar .chip.show')).toHaveAccessibleName(/^Show: All /u)
   await expect(page.locator('.torrent')).toHaveCount(2)
   await chip.click()
   await page.getByRole('menu').getByRole('menuitem', { name: 'Download all' }).click()
