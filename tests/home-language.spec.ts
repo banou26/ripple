@@ -2097,50 +2097,66 @@ test('the Show menu shows the rows of the state picked, counts each, offers none
 })
 
 test('a group made of ticked rows is shown alone, with a state on top, counted under it, downloaded, renamed, filled, emptied and deleted', async ({ page }) => {
-  // a torrent not on this device outside the group, which its Download all leaves alone
-  const list = [...LIST, entry('7', 'Elsewhere.Too', { started: false })]
+  // two torrents not on this device in the group, both of which its Download all fetches, and one outside it, left alone
+  const list = [...LIST, entry('7', 'Elsewhere.Too', { started: false }), entry('8', 'Elsewhere.Also', { started: false })]
   await page.goto(origin)
   await library(page, list, TORRENTS)
   const chip = page.locator('.list-toolbar .chip.group')
   const menu = page.getByRole('menu')
   const titles = page.locator('.torrent .title')
+  const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
   const names = () => menu.getByRole('menuitemradio').evaluateAll(all => all.map(row => row.getAttribute('aria-label')))
   const fromChip = async (which: string, row: string | RegExp) => {
     await page.locator(`.list-toolbar .chip.${which}`).click()
     await menu.getByRole('menuitemradio', { name: row, exact: true }).click()
     await expect(menu).toHaveCount(0)
   }
-  await expect(chip).toHaveAccessibleName('Group: All torrents (12)')
+  await expect(chip).toHaveAccessibleName('Group: All torrents (13)')
   await expect(chip).toHaveText('Group')
 
-  for (const name of ['A.Season.Pack', 'Elsewhere', 'Kept.Paused', 'Made.Here']) await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
+  for (const name of ['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here']) await tick(name)
   await groupTicked(page, 'Week 2')
   await expect(page.locator('.toast')).toHaveText('Added to Week 2')
-  await expect(titles, 'making a group shows nothing else').toHaveCount(12)
+  await expect(titles, 'making a group shows nothing else').toHaveCount(13)
   await page.keyboard.press('Escape')
+  await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
-  await fromChip('group', 'Week 2 (4)')
-  await expect.poll(async () => (await titles.allTextContents()).sort()).toEqual(['A.Season.Pack', 'Elsewhere', 'Kept.Paused', 'Made.Here'])
-  await expect(chip).toHaveAccessibleName('Group: Week 2 (4)')
+  // ticked rows the group holds only some of
+  for (const name of ['A.Season.Pack', 'Watched.Film']) await tick(name)
+  await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 2' }), 'some of the ticked rows are not in it').toHaveAttribute('aria-checked', 'false')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.bulk-bar')).toHaveCount(0)
+
+  // a state none of the group's rows is in says so, rather than that the group is empty
+  await fromChip('show', /^Downloading \(/u)
+  await fromChip('group', 'Week 2 (0)')
+  await expect(page.locator('.empty')).toContainText('Nothing matches this filter.')
+  await fromChip('show', 'All (5)')
+  await expect.poll(async () => (await titles.allTextContents()).sort()).toEqual(['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here'])
+  await expect(chip).toHaveAccessibleName('Group: Week 2 (5)')
   await page.locator('.list-toolbar .chip.show').click()
   await expect.poll(names, 'the filter counts within the group').toEqual([
-    'All (4)', 'Kept (3)', 'Temporary (1)', 'Seeding (1)', 'Paused (1)', 'Not on this device (2)',
+    'All (5)', 'Kept (4)', 'Temporary (1)', 'Seeding (1)', 'Paused (1)', 'Not on this device (3)',
   ])
   await menu.getByRole('menuitemradio', { name: 'Paused (1)' }).click()
   await expect(titles).toHaveText(['Kept.Paused'])
-  await expect(page.locator('.hidden-note'), 'the filter hides three of the group').toContainText('3 torrents hidden')
+  await expect(page.locator('.hidden-note'), 'the filter hides four of the group').toContainText('4 torrents hidden')
   await chip.click()
   await expect.poll(names, 'a group counts under the filter').toEqual(['All torrents (1)', 'Week 2 (1)'])
   await page.keyboard.press('Escape')
-  await fromChip('show', 'All (4)')
+  await fromChip('show', 'All (5)')
 
   // Made.Here is a created source, whose own row offers no download either
   await chip.click()
   await menu.getByRole('menuitem', { name: 'Download all' }).click()
-  const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started())
-  await expect.poll(started).toEqual(['f'.repeat(40)])
-  // the engine reports it started, so nothing is left to fetch
-  await post(page, { type: 'list', list: list.map(item => item.name === 'Elsewhere' ? { ...item, started: true } : item) }, { type: 'state', torrents: [...TORRENTS, snapshot(12, 'f', 'Elsewhere', {})] })
+  const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
+  await expect.poll(started).toEqual(['8'.repeat(40), 'f'.repeat(40)])
+  // the engine reports them started, so nothing is left to fetch
+  await post(page, { type: 'list', list: list.map(item => ['Elsewhere', 'Elsewhere.Also'].includes(item.name!) ? { ...item, started: true } : item) }, {
+    type: 'state', torrents: [...TORRENTS, snapshot(12, 'f', 'Elsewhere', {}), snapshot(13, '8', 'Elsewhere.Also', {})],
+  })
   await chip.click()
   await expect(menu.getByRole('menuitem')).toHaveText(['New group...', 'Rename...', 'Delete group'])
 
@@ -2160,17 +2176,23 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await film.click({ button: 'right' })
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
   await expect(page.locator('.toast')).toHaveText('Added to Week 3')
-  await fromChip('group', 'Week 3 (5)')
+  await fromChip('group', 'Week 3 (6)')
   await page.goto(origin)
   await library(page, list, TORRENTS)
   await expect(chip, 'the group shown is remembered').toHaveText('Week 3')
+  await expect(titles).toHaveCount(6)
+
+  await page.locator('.torrent', { hasText: 'Watched.Film' }).click({ button: 'right' })
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
+  await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
+  await expect(page.locator('.toast')).toHaveText('Taken out of Week 3')
   await expect(titles).toHaveCount(5)
+  await expect(page.locator('.torrent', { hasText: 'Watched.Film' })).toHaveCount(0)
 
   await page.locator('.list-toolbar .pick-all input').check()
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
-  await expect(page.locator('.toast')).toHaveText('Taken out of Week 3')
   await expect(page.locator('.empty')).toContainText('Nothing in Week 3.')
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
@@ -2180,9 +2202,9 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await expect(dialog).toContainText('Its torrents stay in your list.')
   await dialog.getByRole('button', { name: 'Delete group' }).click()
   await expect(chip).toHaveText('Group')
-  await expect(titles).toHaveCount(12)
+  await expect(titles).toHaveCount(13)
   await chip.click()
-  await expect.poll(names).toEqual(['All torrents (12)'])
+  await expect.poll(names).toEqual(['All torrents (13)'])
 })
 
 test('a group\'s name stops short on a wide window, so the sort keeps its word', async ({ page }) => {
