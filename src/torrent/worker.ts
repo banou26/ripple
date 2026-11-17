@@ -106,6 +106,11 @@ export type TorrentDetail = {
  * reference to a folder for a torrent nobody has any more.
  */
 const sourceKey = (ih: string) => 'ripple:source:' + ih
+/**
+ * The trackers added to a created torrent, which keeps no resume data to carry them (see persistResume), for
+ * start-source to give back. Never in the synced list: a tracker url can carry a private passkey.
+ */
+const addedTrackersKey = (ih: string) => 'ripple:trackers:' + ih
 // started === false is a torrent synced from another device and NOT added to the session; both flags are device-local and deliberately left out of the cloud backup
 // absent or true means active here; paused === true is a pause the user asked for, kept across reloads so auto-recovery never restarts a torrent stopped on purpose
 // ephemeral === true is a torrent the PLAYER asked for rather than the user: its bytes are a cache the engine may reclaim, and only those are ever auto-deleted
@@ -283,6 +288,7 @@ const forgetStored = async (ih: string) => {
   await del(resumeKey(ih)).catch(() => {})
   await del(torrentKey(ih)).catch(() => {})
   await del(sourceKey(ih)).catch(() => {})
+  await del(addedTrackersKey(ih)).catch(() => {})
   // the page drops it on a Remove too, but a row taken by another device's removal has no page action
   await del(thumbnailKey(ih)).catch(() => {})
 }
@@ -2324,6 +2330,7 @@ const handleMessage = async (session: Session, m: any) => {
         return
       }
       const entry = (await loadList()).find((e) => e.infoHash === ih)
+      const addedTrackers = await get<string[]>(addedTrackersKey(ih)).catch(() => undefined)
       const h = addSource(session, {
         infoHash: ih,
         magnet: entry?.magnet ?? m.magnet ?? '',
@@ -2332,6 +2339,7 @@ const handleMessage = async (session: Session, m: any) => {
         paused: entry?.paused === true,
       })
       if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
+      if (addedTrackers?.length) session.addTrackers(h, addedTrackers)
       // as the restore loop does, for the files the person left out after making it
       planByHandle.set(h, { wanted: entry?.wantedFiles, firstLast: entry?.firstLast })
       needsPriorityReset.add(h)
@@ -2790,6 +2798,7 @@ const handleMessage = async (session: Session, m: any) => {
       for (const e of dropped) {
         await del(resumeKey(e.infoHash)).catch(() => {})
         await del(torrentKey(e.infoHash)).catch(() => {})
+        await del(addedTrackersKey(e.infoHash)).catch(() => {})
       }
       post({ type: 'list', list: [] })
     } else if (m.type === 'pause') {
@@ -2869,6 +2878,11 @@ const handleMessage = async (session: Session, m: any) => {
       const refused = session.addTrackers(m.handle, m.urls)
       // the panel's list asks again on the next state, not up to TRACKER_POLL_MS later
       trackersPolledAt = 0
+      const ih = infoHashByHandle.get(m.handle)
+      const taken = (m.urls as string[]).filter((url) => !refused.includes(url))
+      if (ih && taken.length && isSourceSavePath(savePathByHandle.get(m.handle))) {
+        await update<string[]>(addedTrackersKey(ih), (prev) => [...new Set([...prev ?? [], ...taken])]).catch(() => {})
+      }
       // A finished torrent's blob is written once per pause state, so nothing else would save the trackers. A save
       // under way was asked before them, so it is waited for and the torrent saved again.
       void (async () => { await resumeInFlight.get(m.handle); await persistResume(m.handle) })()
