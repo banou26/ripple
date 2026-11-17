@@ -169,10 +169,13 @@ const style = css`
   }
 
   /* at their least, the three chips, the box and the views take 307 px with 8 px gaps, past the 288 px a 320 px window
-     leaves; at 390 px these 24 px are what a filter such as Temporary has before it is cut */
+     leaves. Narrower gaps alone left a filter such as Temporaires 3 to 10 px short at 390 px in DejaVu Sans (es-419, fr,
+     it, pl, pt-BR, ru), so the chips narrow inside too, and the sort and the group stop at 52 px */
   @media (max-width: 400px) {
     gap: 4px;
 
+    .chip { gap: 4px; padding: 0 6px 0 8px; }
+    .chip.sort, .chip.group { min-width: 52px; }
     .views button { padding: 5px 7px; }
   }
 `

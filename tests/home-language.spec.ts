@@ -1847,6 +1847,8 @@ test.describe('on a phone', () => {
         await expect(word).toHaveText(words[widest]!)
         return words[widest]!
       }
+      // the width the sort and the group chips stop at below 400 px, their icon and chevron alone
+      const FLOOR = 52.5
       const fitOf = () => page.locator('.list-toolbar').evaluate((bar) => {
         const box = (shown: Element) => shown.getBoundingClientRect()
         const [show, group, sort] = ['show', 'group', 'sort'].map(chip => bar.querySelector(`.chip.${chip}`)!)
@@ -1866,8 +1868,8 @@ test.describe('on a phone', () => {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const fit = await fitOf()
-        if (fit.groupCut) expect(fit.sortWidth, `${width} px: the word Group is cut while the sort has room to give`).toBeLessThanOrEqual(60.5)
-        if (fit.showCut) expect(Math.max(fit.sortWidth, fit.groupWidth), `${width} px: the filter is cut while another chip has room to give`).toBeLessThanOrEqual(60.5)
+        if (fit.groupCut) expect(fit.sortWidth, `${width} px: the word Group is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
+        if (fit.showCut) expect(Math.max(fit.sortWidth, fit.groupWidth), `${width} px: the filter is cut while another chip has room to give`).toBeLessThanOrEqual(FLOOR)
       }
       await page.setViewportSize({ width: 390, height: 844 })
       await page.locator('.list-toolbar .chip.show').click()
@@ -1897,8 +1899,8 @@ test.describe('on a phone', () => {
         expect(fit.chevrons, `${at}: each chevron whole inside its chip`).toEqual([true, true, true])
         expect(fit.groupCut, `${at}: the control: the name is longer than any phone has room for`).toBe(true)
         // the sort gives its word's room first, then the group, and the filter, which says which rows are listed, last
-        expect(fit.sortWidth, `${at}: the group is cut while the sort has room to give`).toBeLessThanOrEqual(60.5)
-        if (fit.showCut) expect(fit.groupWidth, `${at}: the filter is cut while the group has room to give`).toBeLessThanOrEqual(60.5)
+        expect(fit.sortWidth, `${at}: the group is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
+        if (fit.showCut) expect(fit.groupWidth, `${at}: the filter is cut while the group has room to give`).toBeLessThanOrEqual(FLOOR)
       }
     })
   }
