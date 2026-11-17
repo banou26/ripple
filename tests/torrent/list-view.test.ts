@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_GROUPS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
-  cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readSort,
-  readView, shouldReorder, sortTorrents, visibleTorrents, writeSort,
+  cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readGroup,
+  readSort, readView, shouldReorder, sortTorrents, visibleTorrents, writeSort,
 } from '../../src/torrent/list-view'
 
 /**
@@ -351,6 +351,14 @@ describe('the stored preferences', () => {
     expect(readFilter(throws)).toBe('all')
     expect(readView(throws)).toBe('cards')
     expect(readSort(throws)).toEqual(DEFAULT_SORT)
+    expect(readGroup(throws)).toBeNull()
+  })
+
+  /** any id: whether it names a group is the page's to say, once the groups are read */
+  it('reads the group shown by its id, and none when nothing is stored', () => {
+    expect(readGroup(from({ 'ripple:list-group': 'q9X-_0aZ12345678' }))).toBe('q9X-_0aZ12345678')
+    expect(readGroup(from({}))).toBeNull()
+    expect(readGroup(from({ 'ripple:list-group': '' }))).toBeNull()
   })
 })
 

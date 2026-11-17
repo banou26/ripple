@@ -93,6 +93,8 @@ const actions = () => ({
   retryNow: vi.fn(),
   start: vi.fn(),
   setKept: vi.fn(),
+  setInGroup: vi.fn(),
+  newGroup: vi.fn(),
 })
 
 const flat = (t: Torrent, a = actions(), saved = false) =>
@@ -757,12 +759,43 @@ describe('copying what names a torrent', () => {
   })
 })
 
+describe('putting the torrent in a group', () => {
+  const GROUPS = [{ id: 'g1', name: 'Week 2', holds: true }, { id: 'g2', name: 'Weekend', holds: false }]
+  const withGroups = (t: Torrent, a = actions()) => buildTorrentOptions(t, a, { savedToUserStorage: false, groups: GROUPS })
+
+  it('comes last, a box per group ticked where the torrent is, then New group...', () => {
+    const groups = withGroups(torrent({ queuePosition: 2 }))
+    const last = groups.at(-1)!
+    expect([last.id, last.label]).toEqual(['groups', 'Groups'])
+    expect(last.items.map((item) => [item.kind, item.label, item.kind === 'toggle' && item.checked])).toEqual([
+      ['toggle', 'Week 2', true], ['toggle', 'Weekend', false], ['action', 'New group...', false],
+    ])
+  })
+
+  it('puts it in or takes it out of the group whose box is pressed, and asks for a name for a new one', () => {
+    const a = actions()
+    const [week, weekend, fresh] = withGroups(torrent(), a).at(-1)!.items
+    if (week?.kind !== 'toggle' || weekend?.kind !== 'toggle' || fresh?.kind !== 'action') throw new Error('not two boxes and an action')
+    week.apply(false)
+    weekend.apply(true)
+    expect(a.setInGroup.mock.calls).toEqual([['g1', false], ['g2', true]])
+    fresh.run()
+    expect(a.newGroup).toHaveBeenCalledTimes(1)
+  })
+
+  it('is offered on a torrent this device is not running too, and on none without an info hash or without the groups', () => {
+    expect(withGroups(torrent({ state: 'missing', files: [] })).at(-1)!.id).toBe('groups')
+    expect(withGroups(torrent({ infoHash: undefined })).map((group) => group.id)).not.toContain('groups')
+    expect(buildTorrentOptions(torrent(), actions(), { savedToUserStorage: false }).map((group) => group.id)).not.toContain('groups')
+  })
+})
+
 describe('in the language of the page', () => {
   afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
 
   // between them these show every word the list has: each group, item, hint and reason
   const SHAPES: [Partial<Torrent>, TorrentOptionContext][] = [
-    [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
+    [{ queuePosition: 2, downloadLimit: 8_000_000 }, { savedToUserStorage: true, folderReady: true, folderName: 'Downloads', intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 }, groups: [] }],
     [{ state: 'paused' }, { savedToUserStorage: false, folderReady: true, intended: 'folder', sessionLimits: { down: 5_000_000, up: 0 } }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }, { name: 'b.mkv', size: 1e9, index: 1 }] }, { savedToUserStorage: false }],
     [{ state: 'seeding', progress: 1, files: [{ name: 'a.mkv', size: 1e9, index: 0 }] }, { savedToUserStorage: false }],
@@ -778,7 +811,7 @@ describe('in the language of the page', () => {
 
   it('writes every one of its words in German', async () => {
     const english = words()
-    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash']) {
+    for (const text of ['Queue position 3', '8 MB/s, held to 5 MB/s in total', 'Moves to Downloads when it finishes', 'Move to your folder', 'Still starting', 'Already checking', 'Waiting for the info hash', 'Copy name', 'Copy info hash', 'Groups', 'New group...']) {
       expect(english).toContain(text)
     }
     expect(english).toContain('Force start')

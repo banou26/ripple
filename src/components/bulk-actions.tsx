@@ -1,10 +1,12 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
 import { css } from '@emotion/react'
-import { Check, Download, Magnet, Pause, Play, Square, Trash2, X } from 'lucide-react'
+import { Check, Download, Layers, Magnet, Pause, Play, Square, Trash2, X } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
+import { MenuItems, MenuSurface } from './menu'
 import {
   BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, EMPHASIS,
   FOCUS_RING, PICKED_WASH, PICTURE_SHADE, TEXT, TEXT_ON_LIGHT,
@@ -217,6 +219,11 @@ export type BulkBarProps = {
   onDownload?: () => void
   /** Copies the ticked torrents' magnets; absent while they are being read, which disables it. */
   onCopyMagnets?: () => void
+  /** Each group, `holds` when every ticked torrent is in it, for the Groups menu. */
+  groups: { id: string, name: string, holds: boolean }[]
+  /** Puts every ticked torrent in the group, or takes them all out of it. */
+  onGroup: (id: string, put: boolean) => void
+  onNewGroup: () => void
   onPause: () => void
   onResume: () => void
   onRemove: () => void
@@ -224,8 +231,13 @@ export type BulkBarProps = {
 }
 
 /** What can be done to every ticked torrent at once, shown while any is ticked. */
-export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onDownload, onCopyMagnets, onPause, onResume, onRemove, onClear }: BulkBarProps) => {
+export const BulkBar = ({
+  count, canPause, canResume, finished, canDownload, onDownload, onCopyMagnets, groups, onGroup, onNewGroup, onPause, onResume, onRemove, onClear,
+}: BulkBarProps) => {
   const intl = useIntl()
+  const [grouping, setGrouping] = useState(false)
+  const groupsButton = useRef<HTMLButtonElement>(null)
+  const groupsWord = intl.formatMessage({ id: 'Groups', defaultMessage: 'Groups' })
   const download = intl.formatMessage({ id: 'Download#verb', defaultMessage: 'Download', description: 'verb' })
   const pause = finished ? intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' }) : intl.formatMessage({ id: 'Pause', defaultMessage: 'Pause' })
   const resume = finished ? intl.formatMessage({ id: 'Start', defaultMessage: 'Start' }) : intl.formatMessage({ id: 'Resume', defaultMessage: 'Resume' })
@@ -233,30 +245,54 @@ export const BulkBar = ({ count, canPause, canResume, finished, canDownload, onD
   const copyMagnets = intl.formatMessage({ id: 'Copy magnets', defaultMessage: 'Copy magnets' })
   const remove = intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })
   return (
-    <div css={barStyle} className="bulk-bar">
-      <span className="count" role="status">
-        {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
-      </span>
-      {canDownload && (
-        <button type="button" className="icon" onClick={onDownload} aria-label={download} {...hint(download)}>
-          <Download aria-hidden="true"/>
+    <>
+      <div css={barStyle} className="bulk-bar">
+        <span className="count" role="status">
+          {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
+        </span>
+        {canDownload && (
+          <button type="button" className="icon" onClick={onDownload} aria-label={download} {...hint(download)}>
+            <Download aria-hidden="true"/>
+          </button>
+        )}
+        <button type="button" className="icon" disabled={!canPause} onClick={onPause} aria-label={pause} {...hint(pause)}>
+          {finished ? <Square aria-hidden="true"/> : <Pause aria-hidden="true"/>}
         </button>
+        <button type="button" className="icon" disabled={!canResume} onClick={onResume} aria-label={resume} {...hint(resume)}>
+          <Play aria-hidden="true"/>
+        </button>
+        <button type="button" className="icon" disabled={!onCopyMagnets} onClick={onCopyMagnets} aria-label={copyMagnets} {...hint(copyMagnets)}>
+          <Magnet aria-hidden="true"/>
+        </button>
+        <button
+          type="button" className="icon" ref={groupsButton} aria-haspopup="menu" aria-expanded={grouping}
+          onClick={() => setGrouping((was) => !was)} aria-label={groupsWord} {...hint(groupsWord)}
+        >
+          <Layers aria-hidden="true"/>
+        </button>
+        <button type="button" className="danger" onClick={onRemove} aria-label={remove}>
+          <Trash2 aria-hidden="true"/><span>{remove}</span>
+        </button>
+        <button type="button" className="icon" onClick={onClear} aria-label={clear} {...hint(clear)}>
+          <X aria-hidden="true"/>
+        </button>
+      </div>
+      {/* beside the bar, so none of the bar's button rules reach the menu's rows */}
+      {grouping && (
+        <MenuSurface placement={{ kind: 'under', of: groupsButton, align: 'end' }} label={groupsWord} onClose={() => setGrouping(false)}>
+          <MenuItems
+            groups={[{
+              id: 'groups',
+              label: groupsWord,
+              items: [
+                ...groups.map((g) => ({ kind: 'toggle' as const, id: g.id, label: g.name, checked: g.holds, apply: (on: boolean) => onGroup(g.id, on) })),
+                { kind: 'action' as const, id: 'new-group', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: onNewGroup },
+              ],
+            }]}
+            onChose={() => setGrouping(false)}
+          />
+        </MenuSurface>
       )}
-      <button type="button" className="icon" disabled={!canPause} onClick={onPause} aria-label={pause} {...hint(pause)}>
-        {finished ? <Square aria-hidden="true"/> : <Pause aria-hidden="true"/>}
-      </button>
-      <button type="button" className="icon" disabled={!canResume} onClick={onResume} aria-label={resume} {...hint(resume)}>
-        <Play aria-hidden="true"/>
-      </button>
-      <button type="button" className="icon" disabled={!onCopyMagnets} onClick={onCopyMagnets} aria-label={copyMagnets} {...hint(copyMagnets)}>
-        <Magnet aria-hidden="true"/>
-      </button>
-      <button type="button" className="danger" onClick={onRemove} aria-label={remove}>
-        <Trash2 aria-hidden="true"/><span>{remove}</span>
-      </button>
-      <button type="button" className="icon" onClick={onClear} aria-label={clear} {...hint(clear)}>
-        <X aria-hidden="true"/>
-      </button>
-    </div>
+    </>
   )
 }

@@ -104,6 +104,8 @@ export interface TorrentOptionContext {
    * compare against, the item would show a number that is not the one in force and read as broken.
    */
   sessionLimits?: { down: number, up: number }
+  /** Each group, `holds` when this torrent is in it. Absent leaves the Groups part out. */
+  groups?: { id: string, name: string, holds: boolean }[]
 }
 
 /** Everything the option list needs to be able to do. Supplied by whoever renders it. */
@@ -152,6 +154,10 @@ export interface TorrentOptionActions {
   retryNow: () => void
   /** Add a library entry back to the session, for a torrent this device knows and is not running. */
   start: () => void
+  /** Put this torrent in the group, or take it out. */
+  setInGroup: (id: string, on: boolean) => void
+  /** Ask for a name, and make a group of this torrent. */
+  newGroup: () => void
 }
 
 const has = (t: Torrent, flag: number) => (t.flags & flag) !== 0
@@ -602,6 +608,18 @@ export const buildTorrentOptions = (
         label,
         run: () => a.moveInQueue(where),
       })),
+    })
+  }
+
+  // last, so however many groups there are, none pushes another part down; a group holds torrents by info hash
+  if (context.groups && t.infoHash) {
+    groups.push({
+      id: 'groups',
+      label: intl.formatMessage({ id: 'Groups', defaultMessage: 'Groups' }),
+      items: [
+        ...context.groups.map((g): OptionItem => ({ kind: 'toggle', id: `group-${g.id}`, label: g.name, checked: g.holds, apply: (on) => a.setInGroup(g.id, on) })),
+        { kind: 'action', id: 'new-group', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: a.newGroup },
+      ],
     })
   }
   return groups

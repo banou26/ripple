@@ -19,6 +19,9 @@ const mount = (over: Partial<Parameters<typeof BulkBar>[0]> = {}) => {
     onResume: vi.fn(),
     onRemove: vi.fn(),
     onClear: vi.fn(),
+    groups: [] as { id: string, name: string, holds: boolean }[],
+    onGroup: vi.fn(),
+    onNewGroup: vi.fn(),
     ...over,
   }
   return { props, screen: render(<IntlRoot><BulkBar {...props}/></IntlRoot>) }
@@ -82,6 +85,34 @@ describe('the bulk bar', () => {
     } finally {
       await page.viewport(1280, 720)
     }
+  })
+
+  it('opens Groups beside the bar, a box per group ticked where every ticked torrent is, and New group...', async () => {
+    const { props, screen } = mount({ groups: [{ id: 'g1', name: 'Week 2', holds: true }, { id: 'g2', name: 'Weekend', holds: false }] })
+    const c = (await screen).container
+    const groups = button(c, 'Groups')
+    expect(groups.querySelector('svg')!.classList).toContain('lucide-layers')
+    expect(groups.getAttribute('data-tooltip-content')).toBe('Groups')
+    const menu = () => c.querySelector<HTMLElement>('[role="menu"]')
+    const rows = async () => {
+      groups.click()
+      await expect.poll(menu).not.toBeNull()
+      return [...menu()!.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')]
+    }
+    const first = await rows()
+    expect(groups.getAttribute('aria-expanded')).toBe('true')
+    // none of the bar's own button rules reach a row
+    expect(menu()!.closest('.bulk-bar')).toBeNull()
+    expect(first.map((row) => [row.getAttribute('role'), row.textContent, row.getAttribute('aria-checked')])).toEqual([
+      ['menuitemcheckbox', '✓Week 2', 'true'], ['menuitemcheckbox', 'Weekend', 'false'], ['menuitem', 'New group...', null],
+    ])
+    first[0]!.click()
+    await expect.poll(menu).toBeNull()
+    ;(await rows())[1]!.click()
+    expect(props.onGroup).toHaveBeenNthCalledWith(1, 'g1', false)
+    expect(props.onGroup).toHaveBeenNthCalledWith(2, 'g2', true)
+    ;(await rows())[2]!.click()
+    expect(props.onNewGroup).toHaveBeenCalledTimes(1)
   })
 
   it('says Stop and Start when every ticked torrent is finished, for the same two actions', async () => {

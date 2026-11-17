@@ -79,22 +79,23 @@ Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `
 ## Ripple's own words
 
 The library is the list of torrents ripple keeps. A share link opens one torrent on somebody else's device. A temporary
-download is one the library does not keep.
+download is one the library does not keep. A group is a named set of torrents in the library, never the folder a
+download is saved in.
 
-| | library | share link | temporary download |
-| --- | --- | --- | --- |
-| `es-419` | biblioteca | enlace para compartir | descarga temporal |
-| `pt-BR` | biblioteca | link de compartilhamento | download temporário |
-| `fr` | bibliothèque | lien de partage | téléchargement temporaire |
-| `de` | Bibliothek | Freigabelink | temporärer Download |
-| `it` | libreria | link di condivisione | download temporaneo |
-| `ru` | библиотека | ссылка для общего доступа | временная загрузка |
-| `ja` | ライブラリ | 共有リンク | 一時的なダウンロード |
-| `ko` | 라이브러리 | 공유 링크 | 임시 다운로드 |
-| `zh-Hans` | 资料库 | 分享链接 | 临时下载 |
-| `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 |
-| `tr` | kütüphane | paylaşım bağlantısı | geçici indirme |
-| `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie |
+| | library | share link | temporary download | group |
+| --- | --- | --- | --- | --- |
+| `es-419` | biblioteca | enlace para compartir | descarga temporal | grupo |
+| `pt-BR` | biblioteca | link de compartilhamento | download temporário | grupo |
+| `fr` | bibliothèque | lien de partage | téléchargement temporaire | groupe |
+| `de` | Bibliothek | Freigabelink | temporärer Download | Gruppe |
+| `it` | libreria | link di condivisione | download temporaneo | gruppo |
+| `ru` | библиотека | ссылка для общего доступа | временная загрузка | группа |
+| `ja` | ライブラリ | 共有リンク | 一時的なダウンロード | グループ |
+| `ko` | 라이브러리 | 공유 링크 | 임시 다운로드 | 그룹 |
+| `zh-Hans` | 资料库 | 分享链接 | 临时下载 | 分组 |
+| `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 | 分組 |
+| `tr` | kütüphane | paylaşım bağlantısı | geçici indirme | grup |
+| `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie | grupa |
 
 ## The VPN switch
 

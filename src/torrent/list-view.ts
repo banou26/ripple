@@ -261,6 +261,8 @@ export const shouldReorder = (
 export const LIST_FILTER_KEY = 'ripple:list-filter'
 export const LIST_SORT_KEY = 'ripple:list-sort'
 export const LIST_VIEW_KEY = 'ripple:list-view'
+/** The group shown, by its id. One that names no group, deleted here or on another device, shows every torrent. */
+export const LIST_GROUP_KEY = 'ripple:list-group'
 
 export type ViewMode = 'cards' | 'table'
 
@@ -279,6 +281,10 @@ const isDir = (v: unknown): v is SortDir => v === 'asc' || v === 'desc'
 
 export const readFilter = (read: (key: string) => string | null): ListFilter => {
   try { const v = read(LIST_FILTER_KEY); return isFilter(v) ? v : 'all' } catch { return 'all' }
+}
+
+export const readGroup = (read: (key: string) => string | null): string | null => {
+  try { return read(LIST_GROUP_KEY) || null } catch { return null }
 }
 
 export const readView = (read: (key: string) => string | null): ViewMode => {

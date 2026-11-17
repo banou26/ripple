@@ -85,10 +85,15 @@ import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
+import type { GroupChoice } from '../components/list-toolbar'
+import { GroupNameDialog } from '../components/group-dialogs'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
+import { useGroupView } from './use-group-view'
+import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
+import type { TorrentGroup } from '../torrent/groups'
 import {
   GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
-  cardGroups, filterCounts, readFilter, readSort, readView, writeSort,
+  cardGroups, filterCounts, readFilter, readSort, readView, visibleTorrents, writeSort,
 } from '../torrent/list-view'
 import type { CardGroup, ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
@@ -2498,6 +2503,8 @@ const Home = () => {
   const [rateEdit, setRateEdit] = useState<
     { scope: 'session' | { torrent: string }, direction: 'down' | 'up' } | null
   >(null)
+  /** A group being named, new or renamed, for the same reason as `rateEdit`. */
+  const [naming, setNaming] = useState<{ title: string, name?: string, save: (name: string) => void } | null>(null)
   /**
    * What the panel should adopt once the engine catches up with a drop.
    *
@@ -2702,7 +2709,7 @@ const Home = () => {
       // editor counts for the same reason, and doubly so: it holds a text field, so a stray paste
       // there is a gesture aimed at THIS dialog rather than at the page behind it. And the add dialog,
       // whose torrent a paste behind it would replace.
-      if (confirmOpen || rateEdit || pendingAdd) return
+      if (confirmOpen || rateEdit || pendingAdd || naming) return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
@@ -2710,7 +2717,7 @@ const Home = () => {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [commitMagnet, confirmOpen, rateEdit, pendingAdd])
+  }, [commitMagnet, confirmOpen, rateEdit, pendingAdd, naming])
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
@@ -2969,6 +2976,8 @@ const Home = () => {
     embed: () => { void subjectOf(t).then(openEmbed) },
     retryNow: () => retry(Number(t.id)),
     start: () => { if (t.infoHash) start(t.infoHash) },
+    setInGroup: (id, on) => { const g = groups?.find((one) => one.id === id); if (g && t.infoHash) putIn(g, [t.infoHash], on) },
+    newGroup: () => newGroup(() => (t.infoHash ? [t.infoHash] : [])),
   })
 
   /**
@@ -3304,6 +3313,7 @@ const Home = () => {
       folderName: folder?.name,
       folderReady: !!folder && permitted,
       sessionLimits,
+      groups: t.infoHash ? holding([t.infoHash]) : undefined,
     }
   }
 
@@ -3351,16 +3361,22 @@ const Home = () => {
    * the second one, and letting it silence the first would make the app report 0 B/s while it is
    * plainly downloading.
    */
-  const filterCount = filterCounts(torrents)
-  const { rows: visibleRows, groupOf, interaction } = useOrderedTorrents(torrents, listFilter, listSort.key, listSort.dir)
+  const { groups, group: shownGroup, members, choose: chooseGroup } = useGroupView(torrents)
+  /**
+   * The group narrows the list and the filter narrows it again, so a group and a state combine. The count beside each
+   * choice is what picking it would show: the filter's within the group, a group's under the filter.
+   */
+  const groupRows = members ? torrents.filter((t) => !!t.infoHash && members.has(t.infoHash)) : torrents
+  const filterCount = filterCounts(groupRows)
+  const { rows: visibleRows, groupOf, interaction } = useOrderedTorrents(groupRows, listFilter, listSort.key, listSort.dir)
   // the add field, when what it holds adds nothing, narrows the list instead
   const adds = readMagnets(input).length > 0
   const search = adds ? '' : input.trim()
   const shown = search ? visibleRows.filter((t) => matchesSearch(t, search)) : visibleRows
 
   // the cards stand under their group headings, so a shift-click run follows the order they are drawn in
-  const groups = cardGroups(shown, listFilter, groupOf)
-  const bulk = useBulkSelection(listView === 'table' ? shown : groups.flatMap((g) => g.rows))
+  const stateGroups = cardGroups(shown, listFilter, groupOf)
+  const bulk = useBulkSelection(listView === 'table' ? shown : stateGroups.flatMap((g) => g.rows))
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
@@ -3396,8 +3412,59 @@ const Home = () => {
   }
 
   const anyPicked = bulk.rows.length > 0
+
+  const putIn = (g: TorrentGroup, hashes: string[], put: boolean) => {
+    void (put ? putInGroup : takeOutOfGroup)(g.id, hashes).then(() => showToast(put
+      ? intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: g.name })
+      : intl.formatMessage({ id: 'Taken out of {name}', defaultMessage: 'Taken out of {name}' }, { name: g.name })))
+  }
+  /** Asks for a name and makes a group of `hashes`, read when it is saved. With none, the new group is shown. */
+  const newGroup = (hashes: () => string[]) => setNaming({
+    title: intl.formatMessage({ id: 'New group', defaultMessage: 'New group' }),
+    save: (name) => {
+      const held = hashes()
+      void createGroup(name, held).then((id) => {
+        if (!id) return
+        if (held.length) showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name }))
+        else chooseGroup(id)
+      })
+    },
+  })
+  const holding = (hashes: string[]) => (groups ?? []).map((g) => {
+    const held = torrentsIn(g)
+    return { id: g.id, name: g.name, holds: hashes.length > 0 && hashes.every((hash) => held.has(hash)) }
+  })
+  const deleteShown = async (g: TorrentGroup) => {
+    const ok = await confirm({
+      title: intl.formatMessage({ id: 'Delete {name}?', defaultMessage: 'Delete {name}?' }, { name: g.name }),
+      body: intl.formatMessage({ id: 'Its torrents stay in your list.', defaultMessage: 'Its torrents stay in your list.' }),
+      confirmLabel: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
+      tone: 'danger',
+    })
+    if (ok) await deleteGroup(g.id)
+  }
+  const stateRows = visibleTorrents(torrents, listFilter)
+  const fetchable = toStart(groupRows)
+  const group: GroupChoice = {
+    list: (groups ?? []).map((g) => {
+      const held = torrentsIn(g)
+      return { id: g.id, name: g.name, count: stateRows.filter((t) => !!t.infoHash && held.has(t.infoHash)).length }
+    }),
+    shown: shownGroup?.id ?? null,
+    all: stateRows.length,
+    onShow: chooseGroup,
+    onNew: () => newGroup(() => []),
+    onDownloadAll: shownGroup && fetchable.length ? () => { for (const t of fetchable) onStart(t) } : undefined,
+    onRename: () => {
+      if (shownGroup) setNaming({ title: shownGroup.name, name: shownGroup.name, save: (name) => { void renameGroup(shownGroup.id, name) } })
+    },
+    onDelete: () => { if (shownGroup) void deleteShown(shownGroup) },
+  }
+  const pickedHashes = () => pickedNow().flatMap((t) => (t.infoHash ? [t.infoHash] : []))
+
   const toolbar = {
     filter: listFilter, onFilter: chooseFilter,
+    group,
     sortKey: listSort.key, sortDir: listSort.dir, onSort: chooseSort,
     view: listView, onView: chooseView,
     counts: filterCount,
@@ -3421,7 +3488,7 @@ const Home = () => {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [anyPicked, clearPicked])
-  const hiddenByFilter = torrents.length - visibleRows.length
+  const hiddenByFilter = groupRows.length - visibleRows.length
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
@@ -3800,9 +3867,11 @@ const Home = () => {
                * starting after it may never start, and must not blank the list for the session.
                */
               (reachable || !torrents.some((t) => t.state === 'starting')) && <div className="empty">
-                {intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
+                {shownGroup && !groupRows.length
+                  ? intl.formatMessage({ id: 'Nothing in {name}.', defaultMessage: 'Nothing in {name}.' }, { name: shownGroup.name })
+                  : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
-                  <button type="button" className="link" onClick={() => { chooseFilter('all'); setInput('') }}>
+                  <button type="button" className="link" onClick={() => { chooseFilter('all'); chooseGroup(null); setInput('') }}>
                     {intl.formatMessage({ id: 'Show everything', defaultMessage: 'Show everything' })}
                   </button>
                 </div>
@@ -3823,7 +3892,7 @@ const Home = () => {
             )
             : (
               <CardList
-                groups={groups}
+                groups={stateGroups}
                 row={(t) => (
                   // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
                   <TorrentRow
@@ -3870,6 +3939,9 @@ const Home = () => {
           canDownload={toStart(bulk.rows).length > 0}
           onDownload={startPicked}
           onCopyMagnets={pickedMagnets ? () => copyPicked(pickedMagnets) : undefined}
+          groups={holding(bulk.rows.map((t) => t.infoHash))}
+          onGroup={(id, put) => { const g = groups?.find((one) => one.id === id); if (g) putIn(g, pickedHashes(), put) }}
+          onNewGroup={() => newGroup(pickedHashes)}
           onPause={pausePicked}
           onResume={resumePicked}
           onRemove={() => { void removePicked() }}
@@ -3919,6 +3991,15 @@ const Home = () => {
               else if (next.bytes) addTorrentFile(next.bytes)
             }
           }}
+        />
+      )}
+
+      {naming && (
+        <GroupNameDialog
+          title={naming.title}
+          name={naming.name}
+          onCancel={() => setNaming(null)}
+          onSave={(name) => { setNaming(null); naming.save(name) }}
         />
       )}
 
