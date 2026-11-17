@@ -60,8 +60,8 @@ const watchMove = async (page: Page, infoHash: string) => {
   return () => page.evaluate(() => (window as any).__moved as Report[])
 }
 
-/** Opens the page with a folder the picker gives, and chooses it. */
-const chooseFolder = async (page: Page) => {
+/** Opens the page with a folder the picker gives, and chooses it. With `ask`, an add asks where its files go. */
+const chooseFolder = async (page: Page, ask = true) => {
   await page.addInitScript(() => {
     try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
     Object.assign(window, { showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true }) })
@@ -70,8 +70,10 @@ const chooseFolder = async (page: Page) => {
   await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
   await page.getByRole('button', { name: 'picked', exact: true }).waitFor({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Start straight away', exact: true }).click({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Ask what to download', exact: true }).waitFor({ timeout: 10_000 })
+  if (ask) {
+    await page.getByRole('button', { name: 'Start straight away', exact: true }).click({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'Ask what to download', exact: true }).waitFor({ timeout: 10_000 })
+  }
   await page.locator('header a.back').click()
 }
 
@@ -412,6 +414,30 @@ test('a folder chosen in a tab not running the engine reaches the tab running it
   await addToFolder(other, NAME, TORRENT)
 
   await expect.poll(paths, { timeout: 60_000, message: 'the tab running the engine never moved the torrent' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+// an add that does not ask has no place of its own, so it goes where the default says, set here in the other tab
+test('a default location chosen in a tab not running the engine reaches the tab running it, which moves into it', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await watchMoves(context)
+  const paths = await watchPaths(page, INFO_HASH)
+  const progress = await watchProgress(page, INFO_HASH)
+  await chooseFolder(page, false)
+  await page.locator('input[type=file][accept*=".torrent"]').waitFor({ state: 'attached', timeout: 30_000 })
+  const toasts = await watchToasts(page)
+  const other = await context.newPage()
+  await other.goto('/settings')
+  await other.getByRole('button', { name: 'Files stay in the browser', exact: true }).click({ timeout: 30_000 })
+  await other.getByRole('button', { name: 'Files go to picked', exact: true }).waitFor({ timeout: 10_000 })
+  await other.goto('/')
+  await place(other, NAME, FILES)
+  await other.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+
+  // THE CONTROL: the torrent reached the engine and finished, so it could move
+  await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished' }).toContain(1)
+  await expect.poll(paths, { timeout: 30_000, message: 'the tab running the engine never moved the torrent' }).toEqual([`/native/${INFO_HASH}`])
+  expect([...await movesIn(page), ...await movesIn(other)], 'the torrent was moved more than once').toEqual(['folder'])
+  expect(failed(await toasts()), 'a move that worked said it failed').toEqual([])
 })
 
 test('a folder chosen, allowed or dropped in one tab shows in the other', async ({ page, context }) => {
