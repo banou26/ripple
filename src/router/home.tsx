@@ -3104,6 +3104,16 @@ const Home = () => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
   }
+  // a default chosen in another tab is this one's too, and the tab running the engine is the one that moves
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      // a null key is the whole storage cleared
+      if (event.key !== SAVE_LOCATION_KEY && event.key !== null) return
+      try { setDefaultLocation(readGlobalDefault((k) => localStorage.getItem(k))) } catch {}
+    }
+    window.addEventListener('storage', changed)
+    return () => window.removeEventListener('storage', changed)
+  }, [])
 
   const rateEditTorrent = rateEdit && typeof rateEdit.scope === 'object'
     ? torrents.find((t) => t.id === (rateEdit.scope as { torrent: string }).torrent)
