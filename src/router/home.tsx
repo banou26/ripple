@@ -3157,7 +3157,8 @@ const Home = () => {
       if (waiting) showToast(waiting)
       return
     }
-    await runMove(t, location)
+    // in another tab, the tab running the engine moves it from the location just recorded
+    if (client.owns()) await runMove(t, location)
   }
 
   /**
@@ -3217,10 +3218,11 @@ const Home = () => {
    * Carry out the moves that became possible: a torrent finished, or the folder came back.
    *
    * Runs off the same state tick as the mirror below, so it re-checks twice a second, and every move
-   * it starts is guarded by `movingRef` so a tick during a copy cannot start a second one.
+   * it starts is guarded by `movingRef` so a tick during a copy cannot start a second one. Only in the tab running the
+   * engine: another tab's move would read files this one's had just dropped.
    */
   useEffect(() => {
-    if (!folder || !permitted) return
+    if (!folder || !permitted || !client.owns()) return
     for (const t of torrents) {
       if (t.state === 'missing') continue
       const { intended, current } = locationOf(t)
@@ -3260,6 +3262,8 @@ const Home = () => {
   }), [client])
   useEffect(() => {
     if (!folder || !permitted) return
+    // only the tab running the engine copies, beside its moves; another tab checks what it copied, for its options
+    const copies = client.owns()
     const now = Date.now()
     for (const t of torrents) {
       if (!finished(t) || !holdsChosen(t)) continue
@@ -3278,13 +3282,15 @@ const Home = () => {
        * pick written to their disk a third time.
        */
       if (isOwnContent(t)) continue
+      // a move copies the files itself, and drops the ones a copy beside it would still be reading
+      if (t.infoHash && movingRef.current.has(t.infoHash)) continue
       if (!t.files?.length || syncingRef.current.has(t.id)) continue
       const key = copyKey(t)
       const attempt = syncAtRef.current.get(key)
       if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
       syncingRef.current.add(t.id)
       const generation = folderGenerationRef.current
-      copyUnderLock(t, () => syncTorrentToDirectory(client, t, folder))
+      copyUnderLock(t, () => syncTorrentToDirectory(client, t, folder, copies))
         .then((written) => {
           if (generation !== folderGenerationRef.current) return
           if (written === null) return
@@ -3297,7 +3303,7 @@ const Home = () => {
         .catch(() => {
           if (generation !== folderGenerationRef.current) return
           syncAtRef.current.set(key, Date.now() + SYNC_RETRY)
-          showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
+          if (copies) showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
         })
         .finally(() => syncingRef.current.delete(t.id))
     }

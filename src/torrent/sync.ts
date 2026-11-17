@@ -12,12 +12,12 @@ const CHUNK = 8 * 1024 * 1024
 const PROBE_WINDOW = 16 * 1024
 const PROBE_AT = [0, 0.25, 0.5, 0.75, 1]
 
-const fileHandleAt = async (root: FileSystemDirectoryHandle, path: string): Promise<FileSystemFileHandle> => {
+const fileHandleAt = async (root: FileSystemDirectoryHandle, path: string, create: boolean): Promise<FileSystemFileHandle> => {
   const parts = path.split('/').filter(Boolean)
   const name = parts.pop()!
   let dir = root
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true })
-  return dir.getFileHandle(name, { create: true })
+  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create })
+  return dir.getFileHandle(name, { create })
 }
 
 const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => {
@@ -91,12 +91,14 @@ export const holdsChosen = (torrent: Pick<Torrent, 'files' | 'wantedFiles' | 'bi
  *
  * Resolving means every chosen file is present AND its content was checked, which is what the caller turns
  * into "saved to your folder". Returns how many files it had to write, so a copy that found
- * everything already in place can stay quiet.
+ * everything already in place can stay quiet. With `write` false it creates and writes nothing, and rejects at the
+ * first file not already there.
  */
 export const syncTorrentToDirectory = async (
   client: TorrentClient,
   torrent: Torrent,
   root: FileSystemDirectoryHandle,
+  write = true,
 ): Promise<number> => {
   let written = 0
   for (const file of chosenFiles(torrent)) {
@@ -109,8 +111,9 @@ export const syncTorrentToDirectory = async (
      * down with it, so the torrent is never marked as saved to the folder.
      */
     const index = file.index
-    const handle = await fileHandleAt(root, file.name)
+    const handle = await fileHandleAt(root, file.name, write)
     if (await alreadyThere(client, torrent, index, handle, file.size)) continue
+    if (!write) throw new Error(`sync: ${file.name} is not in the folder`)
     const writable = await handle.createWritable()
     try {
       for (let offset = 0; offset < file.size; offset += CHUNK) {
