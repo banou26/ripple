@@ -2745,10 +2745,7 @@ const Home = () => {
     } catch {}
   }, [addTorrentFiles, askNext, commitMagnet])
 
-  const onToggle = useCallback((t: Torrent) =>
-    t.state === 'retrying'
-      ? retry(Number(t.id))
-      : stopped(t) ? resume(Number(t.id)) : pause(Number(t.id)), [retry, resume, pause])
+  const onToggle = useCallback((t: Torrent) => stopped(t) ? resume(Number(t.id)) : pause(Number(t.id)), [resume, pause])
 
   const onStart = useCallback((t: Torrent) => { if (t.infoHash) start(t.infoHash) }, [start])
 

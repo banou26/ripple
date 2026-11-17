@@ -2134,6 +2134,16 @@ const sending = async (page: Page, types: string[]) => {
   return () => page.evaluate(() => (window as unknown as { sent: () => Record<string, unknown>[] }).sent())
 }
 
+test('a retrying torrent\'s Pause pauses it, and does not retry it', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const row = page.locator('.torrent', { hasText: 'Having.Trouble' })
+  await expect(row.locator('.badge')).toHaveText('Retrying')
+  const sent = await sending(page, ['pause', 'resume', 'retry'])
+  await row.getByRole('button', { name: 'Pause Having.Trouble', exact: true }).click()
+  await expect.poll(sent).toEqual([{ type: 'pause', handle: 4 }])
+})
+
 const paste = (page: Page, text: string) => page.evaluate((text) => {
   const data = new DataTransfer()
   data.setData('text/plain', text)
