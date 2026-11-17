@@ -85,7 +85,7 @@ describe('the privacy page, on groups', () => {
     const screen = await privacy()
     const heading = [...screen.container.querySelectorAll('h2')].find((h) => h.textContent === 'Group links')
     const text = heading?.nextElementSibling?.textContent?.replace(/\s+/g, ' ')
-    expect(text).toContain('A group’s link holds the group’s name and, for each of its torrents, its magnet link without its name: the info hash, trackers and web seeds.')
+    expect(text).toContain('A group’s link holds the group’s name and, for each of its torrents, its magnet link without its name: the info hash, trackers, web seeds and any other part of it.')
     expect(text).toContain('a part browsers never send to a server, so opening the link shows the server a visit to /add and nothing of the group')
     expect(text).toContain('A torrent added on this device from a .torrent file marked private is left out.')
   })
