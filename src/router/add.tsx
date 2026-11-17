@@ -14,8 +14,8 @@ import { getRoutePath, Route } from './path'
  * Nothing is decided here, deliberately, including whether the magnet is any good. Home validates
  * it, because a refusal belongs on the page they will end up on either way.
  *
- * A group link carries its group after the `#`, which no server receives, and it stays there: in the query, every
- * request the library makes would hand it to the host in its Referer.
+ * A group link carries its group after the `#`, which no server receives, and it stays there: in the query, a reload,
+ * or a request the library made before reading it, would hand it to the host.
  *
  * `replace` so Back returns to the site that linked them, rather than to a redirect that would send
  * them straight forward again.
