@@ -4,6 +4,14 @@ import { del, get, set } from 'idb-keyval'
 import { isFramed } from '../utils/framed'
 
 const KEY = 'ripple:folder'
+// a folder chosen, allowed or dropped in one tab is every tab's, and the tab running the engine is the one that moves
+const CHANGED = 'ripple:folder-changed'
+
+const announce = () => {
+  const channel = new BroadcastChannel(CHANGED)
+  channel.postMessage(null)
+  channel.close()
+}
 
 type PermissionCapableHandle = FileSystemDirectoryHandle & {
   queryPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>
@@ -71,12 +79,16 @@ export const useFolder = (): UseFolder => {
   const [permitted, setPermitted] = useState(false)
 
   useEffect(() => {
-    (async () => {
+    const restore = async () => {
       const stored = await get<FileSystemDirectoryHandle>(KEY)
-      if (!stored) return
-      setFolder(stored)
-      setPermitted(await queryPermission(stored) === 'granted')
-    })()
+      const granted = !!stored && await queryPermission(stored) === 'granted'
+      setFolder(stored ?? null)
+      setPermitted(granted)
+    }
+    void restore()
+    const changed = new BroadcastChannel(CHANGED)
+    changed.onmessage = () => { void restore() }
+    return () => changed.close()
   }, [])
 
   const pick = useCallback(async () => {
@@ -85,18 +97,21 @@ export const useFolder = (): UseFolder => {
     await set(KEY, handle)
     setFolder(handle)
     setPermitted(true)
+    announce()
     return true
   }, [])
 
   const allow = useCallback(async () => {
     if (!folder) return
     setPermitted(await ensurePermission(folder))
+    announce()
   }, [folder])
 
   const clear = useCallback(async () => {
     await del(KEY)
     setFolder(null)
     setPermitted(false)
+    announce()
   }, [])
 
   return { supported: folderPickerSupported(), folder, permitted, pick, allow, clear }
