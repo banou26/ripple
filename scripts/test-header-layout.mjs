@@ -195,7 +195,7 @@ try {
       if (!opened) bad.push('the card did not open on hover')
       else if (href !== 'https://docs.fkn.dev/user/') bad.push(`the card links to ${href}`)
       else if (box.x < 0 || box.x + box.width > width) bad.push('the card runs out of the viewport')
-      if (width === 1440 || width === 390) await page.screenshot({ path: `${OUT}/mark-${name}-${width}.png`, clip: { x: 0, y: 0, width: Math.min(width, 520), height: 200 } })
+      if (width === 1440 || width === 390) await page.screenshot({ path: `${OUT}/mark-${String(name)}-${width}.png`, clip: { x: 0, y: 0, width: Math.min(width, 520), height: 200 } })
       await page.mouse.move(width / 2, 600)
       if (opened && !(await card.waitFor({ state: 'hidden', timeout: 2_000 }).then(() => true, () => false))) bad.push('the card stayed open after the pointer left')
       console.log(`mark ${name.padEnd(8)} ${String(width).padStart(4)}px  ${JSON.stringify(m)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
