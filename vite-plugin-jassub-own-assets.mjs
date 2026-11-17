@@ -4,15 +4,14 @@
  * jassub resolves a default for each of them with `new URL('./...', import.meta.url)`, and a bundler
  * follows those statically whether or not the branch can ever run. Ripple always passes all six urls
  * (see `src/router/embed.tsx`), so every one of those defaults is dead code, and following them costs
- * a great deal: ripple builds with `build.lib` set, where vite inlines assets as base64 and ignores
- * `assetsInlineLimit`, so the emitted graph came to a 2,873,243 byte worker chunk and a 2,841,695 byte
- * emscripten glue chunk, both carrying the wasm inline, neither ever fetched. It also emitted a second
- * `assets/worker-<hash>.js`, which `scripts/build-sw.mjs` refuses because it can no longer tell which
- * one is ripple's engine worker.
+ * a great deal: without this plugin the app build emits 4.6 MB of hashed files nobody fetches (both
+ * wasm builds, their scripts and the font) and a second `assets/worker-<hash>.js`, which
+ * `scripts/build-sw.mjs` refuses because it can no longer tell which one is ripple's engine worker
+ * (measured 2026-11-17).
  *
- * The assets ripple actually serves are built by `vite.jassub.config.ts` into `build/jassub`, with
- * `lib` unset so none of that inlining applies. This plugin belongs to the APP build only; the asset
- * pass needs the real graph.
+ * The assets ripple actually serves are built by `vite.jassub.config.ts` into `build/jassub`, under the
+ * fixed names the app addresses. This plugin belongs to the APP build only; the asset pass needs the
+ * real graph.
  *
  * Each replacement is asserted. A jassub upgrade that renames any of these should fail the build
  * loudly rather than quietly go back to bundling five megabytes nobody loads.

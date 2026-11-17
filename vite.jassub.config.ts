@@ -23,11 +23,9 @@ const EXPECTED: [string, number][] = [
 /**
  * A second build pass, for jassub's assets only.
  *
- * See `src/jassub-assets.ts` for why they cannot go through the app's own build. The two things that
- * matter here are that `lib` is UNSET, which is what stops vite inlining the wasm as base64, and that
- * the output names are stable, so the app can address them by a fixed path instead of a hash it would
- * have to be told about. `emptyOutDir` is false because this runs after the app build and writes into
- * the same directory.
+ * See `src/jassub-assets.ts` for why they cannot go through the app's own build. What matters here is
+ * that the output names are stable, so the app can address them by a fixed path instead of a hash it
+ * would have to be told about.
  */
 export default defineConfig({
   plugins: [{

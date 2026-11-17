@@ -2,13 +2,13 @@
  * jassub's worker and data files, built by their own pass.
  *
  * They are NOT part of the app bundle. jassub 2's worker is an ES module that imports `abslink` and
- * `lfa-ponyfill` by bare specifier, so it has to be built rather than copied, and the app builds with
- * `build.lib` set, where vite inlines every asset as base64 and names a worker `assets/worker-<hash>.js`,
- * the name `scripts/build-sw.mjs` keeps for the engine's own worker.
+ * `lfa-ponyfill` by bare specifier, so it has to be built rather than copied, and the app build would
+ * hash every name and call the worker `assets/worker-<hash>.js`, the name `scripts/build-sw.mjs` keeps
+ * for the engine's own worker.
  *
- * So `vite.jassub.config.ts` builds this file on its own, with `lib` unset and stable output names,
- * into the same `build/` directory. Nothing imports this module at runtime: the app addresses the
- * results by the fixed paths in `src/router/embed.tsx`, the same way it already addresses libav's.
+ * So `vite.jassub.config.ts` builds this file on its own, with stable output names, into
+ * `build/jassub`. Nothing imports this module at runtime: the app addresses the results by the fixed
+ * paths in `src/router/embed.tsx`, the same way it already addresses libav's.
  */
 // Exported, never a bare import: since vite 8.3.0 (#22473) a build drops a worker whose url no output
 // chunk references, and a bare import tree-shakes to nothing, so worker.js and fonts.js silently

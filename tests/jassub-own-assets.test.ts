@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 import jassubOwnAssets from '../vite-plugin-jassub-own-assets.mjs'
 
 /**
- * Every url jassub resolves for itself is a file the app build would pull in, and under `build.lib` inline as base64,
- * while ripple passes all of them explicitly. The plugin's own check only notices a replacement that stopped
- * matching, not a default a jassub upgrade added, which is how 2.5.35's two wasm scripts would have slipped in.
+ * Every url jassub resolves for itself is a file the app build would emit, while ripple passes all of them explicitly.
+ * The plugin's own check only notices a replacement that stopped matching, not a default a jassub upgrade added, which
+ * is how 2.5.35's two wasm scripts would have slipped in.
  */
 const JASSUB = readFileSync(new URL('../node_modules/jassub/dist/jassub.js', import.meta.url), 'utf8')
 
