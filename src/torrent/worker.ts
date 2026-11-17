@@ -1746,7 +1746,10 @@ const pumpWhileWaiting = () => {
     // a status is answered inside a tick, and with no socket traffic the engine's own next tick is up to 250 ms away
     live.tick()
     live.popAlerts()
-    if (unlisted.some((h) => live.files(h))) postState()
+    const listed = unlisted.filter((h) => live.files(h))
+    // planned here rather than on the next pass, or a seeder already sending is asked for pieces at random until then
+    for (const h of listed) applyViewing(h)
+    if (listed.length) postState()
   }, FAST_PUMP_MS)
 }
 
