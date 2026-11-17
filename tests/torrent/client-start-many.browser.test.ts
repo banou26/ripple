@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { Transport, TransportHost } from '../../src/torrent/engine-protocol'
 
 import { createTorrentClient } from '../../src/torrent/client'
+import { ENGINE_RESET } from '../../src/torrent/engine-protocol'
 
 const ROWS = ['a', 'b', 'c'].map((c) => c.repeat(40))
 
@@ -73,7 +74,10 @@ it('counts the 5 s from when the engine is up, not from a press made while it wa
   vi.useFakeTimers()
   const { client, say, posted } = starting()
   client.startMany(ROWS)
-  await vi.advanceTimersByTimeAsync(8_000)
+  await vi.advanceTimersByTimeAsync(1_000)
+  // a handover wakes everything that waits for the engine, while no engine is up yet
+  say({ type: ENGINE_RESET })
+  await vi.advanceTimersByTimeAsync(7_000)
   say({ type: 'ready' })
   await vi.advanceTimersByTimeAsync(0)
   expect(posted.filter((m) => m.type === 'start-many')).toHaveLength(1)
