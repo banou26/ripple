@@ -2238,7 +2238,7 @@ const keptSaveTo = (e: Persisted) => (isNativeSavePath(e.savePath) ? e.saveTo ??
 const startEntries = async (session: Session, infoHashes: unknown[]) => {
   const byHash = new Map((await loadList()).map((e) => [e.infoHash, e]))
   const patches = new Map<string, Partial<Persisted>>()
-  for (const infoHash of new Set(infoHashes)) {
+  for (const infoHash of infoHashes) {
     const e = typeof infoHash === 'string' ? byHash.get(infoHash) : undefined
     if (!e) continue
     /*
