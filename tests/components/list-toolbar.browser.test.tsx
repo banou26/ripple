@@ -140,6 +140,18 @@ describe('the list toolbar', () => {
     expect(props.onSort).toHaveBeenCalledWith('size', 'asc')
   })
 
+  it('hangs each menu from the start of its chip, and keeps the views at the far end', async () => {
+    const c = (await mount().screen).container
+    const box = (element: Element) => element.getBoundingClientRect()
+    expect(box(c.querySelector('.views')!).right).toBeCloseTo(box(c.querySelector('.list-toolbar')!).right, 0)
+    for (const which of ['show', 'sort'] as const) {
+      await opened(c, which)
+      await expect.poll(() => box(c.querySelector('[role="menu"]')!).left, { message: which }).toBeCloseTo(box(chip(c, which)).left, 0)
+      chip(c, which).click()
+      await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
+    }
+  })
+
   it('offers every sort key the rules define', async () => {
     const { screen } = mount()
     expect(names(await opened((await screen).container, 'sort'))).toEqual(['Date added', 'Name', 'Size', 'Progress', 'Download speed', 'Upload speed', 'Peers', 'Time left'])
