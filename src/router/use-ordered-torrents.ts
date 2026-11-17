@@ -1,7 +1,7 @@
 import type { Torrent } from '../torrent/types'
 import type { ListFilter, ListGroup, SortDir, SortKey } from '../torrent/list-view'
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { groupOf, isVolatile, shouldReorder, sortTorrents, visibleTorrents } from '../torrent/list-view'
 
@@ -37,6 +37,29 @@ export type OrderedTorrents = {
 /** A row's group is held by info hash, so it outlives the row's id changing as a torrent starts. */
 const groupKey = (t: Torrent) => t.infoHash ?? t.id
 
+/** The heading each row was last drawn under, and when one of them first stood under the wrong heading. */
+type GroupHold = { groups: ReadonlyMap<string, ListGroup>, movedAt: number | null }
+
+/**
+ * A group changes on its own whatever the sort, so it is held as a volatile key's order is, timed from the moment a
+ * row first stood under the wrong heading. A row the engine has not reported yet takes no held group, so after a
+ * reload each row goes under its own heading as soon as its state is known. Gives back `hold` itself when nothing in
+ * it changed, so a tick that moves no row sets no state.
+ */
+const nextGroupHold = (hold: GroupHold, visible: readonly Torrent[], viewChanged: boolean, interacting: boolean, now: number): GroupHold => {
+  const live = new Map(visible.map((t) => [groupKey(t), groupOf(t)]))
+  const groups = new Map([...hold.groups].filter(([k]) => live.has(k)))
+  for (const t of visible) if (t.state !== 'starting' && !groups.has(groupKey(t))) groups.set(groupKey(t), groupOf(t))
+  let movedAt = [...groups].some(([k, group]) => live.get(k) !== group) ? hold.movedAt ?? now : null
+  if (movedAt !== null && shouldReorder({ viewChanged, idsChanged: false, volatile: true, interacting, sinceMs: now - movedAt })) {
+    for (const [k, group] of live) if (groups.has(k)) groups.set(k, group)
+    movedAt = null
+  }
+  const same = movedAt === hold.movedAt && groups.size === hold.groups.size
+    && [...groups].every(([k, group]) => hold.groups.get(k) === group)
+  return same ? hold : { groups, movedAt }
+}
+
 export const useOrderedTorrents = (
   all: readonly Torrent[],
   filter: ListFilter,
@@ -46,50 +69,36 @@ export const useOrderedTorrents = (
 ): OrderedTorrents => {
   const order = useRef<string[]>([])
   const at = useRef(0)
-  const view = useRef('')
   const interacting = useRef(false)
-  const groups = useRef(new Map<string, ListGroup>())
-  const movedAt = useRef<number | null>(null)
+  const [view, setView] = useState('')
+  const [groupHold, setGroupHold] = useState<GroupHold>({ groups: new Map(), movedAt: null })
 
   const visible = visibleTorrents(all, filter)
   const byId = new Map(visible.map((t) => [t.id, t]))
 
   const viewKey = `${filter}:${key}:${dir}`
-  const viewChanged = view.current !== viewKey
+  const viewChanged = view !== viewKey
+  if (viewChanged) setView(viewKey)
   // membership, not arrangement: an added or removed torrent makes the held order wrong rather than
   // merely stale, and a held order that omits a row would hide it entirely
   const idsChanged = order.current.length !== visible.length
     || order.current.some((id) => !byId.has(id))
+  const touching = interacting.current
 
   if (shouldReorder({
     viewChanged,
     idsChanged,
     volatile: isVolatile(key),
-    interacting: interacting.current,
+    interacting: touching,
     sinceMs: now() - at.current,
   })) {
     order.current = sortTorrents(visible, key, dir).map((t) => t.id)
     at.current = now()
-    view.current = viewKey
   }
 
-  /*
-   * A group changes on its own whatever the sort, so it is held as a volatile key's order is, timed from the moment a
-   * row first stood under the wrong heading. A row the engine has not reported yet takes no held group, so after a
-   * reload each row goes under its own heading as soon as its state is known.
-   */
-  const live = new Map(visible.map((t) => [groupKey(t), groupOf(t)]))
-  const held = groups.current
-  for (const k of held.keys()) if (!live.has(k)) held.delete(k)
-  for (const t of visible) if (t.state !== 'starting' && !held.has(groupKey(t))) held.set(groupKey(t), groupOf(t))
-  if (![...held].some(([k, group]) => live.get(k) !== group)) movedAt.current = null
-  else {
-    movedAt.current ??= now()
-    if (shouldReorder({ viewChanged, idsChanged: false, volatile: true, interacting: interacting.current, sinceMs: now() - movedAt.current })) {
-      for (const [k, group] of live) if (held.has(k)) held.set(k, group)
-      movedAt.current = null
-    }
-  }
+  // state set while rendering, so React draws the rows once, under the held headings, rather than again after an effect
+  const held = nextGroupHold(groupHold, visible, viewChanged, touching, now())
+  if (held !== groupHold) setGroupHold(held)
 
   /*
    * Map the held ids back onto the CURRENT objects, so every number on every row is live even while
@@ -116,5 +125,5 @@ export const useOrderedTorrents = (
     onBlurCapture: useCallback(() => { interacting.current = false }, []),
   }
 
-  return { rows, groupOf: (t) => held.get(groupKey(t)) ?? groupOf(t), interaction }
+  return { rows, groupOf: (t) => held.groups.get(groupKey(t)) ?? groupOf(t), interaction }
 }
