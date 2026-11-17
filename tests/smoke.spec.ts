@@ -22,10 +22,11 @@ const probeEngine = () => {
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options)
         this.addEventListener('message', (event: MessageEvent) => {
-          const data = event.data as { type?: string, list?: unknown } | null
+          const data = event.data as { type?: string, list?: unknown, torrents?: unknown } | null
           if (data?.type === 'ready' || data?.type === 'storage-unavailable') resolve(data.type)
           if (data?.type === 'ready') w.__worker = this
           if (data?.type === 'list') w.__list = data.list
+          if (data?.type === 'state') w.__state = data.torrents
         })
       }
     }
@@ -189,10 +190,13 @@ test('closing the tab asks first while a torrent of one\'s own downloads, and no
 
 test('closing the tab asks from another of its pages too, which the engine goes on downloading behind', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
   await page.goto('/')
   await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   await expect(page.locator('.torrent .badge')).toHaveText('Downloading', { timeout: 30_000 })
+  // started by the queue: a magnet's first state carries no status, and the one after it is paused until the queue starts it
+  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status && !t.status.paused), undefined, { timeout: 30_000 })
   await page.getByRole('link', { name: 'Privacy', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Privacy' })).toBeVisible()
   // a frame or two for the library page's effects to end, as they do once it is gone
