@@ -12,3 +12,7 @@ it('says peers see the relay\'s address only with the VPN on, and leaves the hos
   // a host written here would fall behind the list the engine is handed
   expect(VPN_OFF_HOSTS.filter((host) => readme.includes(host))).toEqual([])
 })
+
+it('says the .torrent files sync with the list and the thumbnails', () => {
+  expect(readme).toContain('Signed in to FKN, your list, thumbnails and .torrent files sync to your account,\nencrypted in your browser first.')
+})

@@ -350,8 +350,10 @@ export const applyRemovals = (list: Persisted[], incoming: Persisted[], removals
 export const resumeKey = (infoHash: string) => 'ripple:resume:' + infoHash
 
 /**
- * Where the `.torrent` a torrent was added from lives, byte for byte. The worker writes it; the page
- * reads it for the magnet a torrent is copied and shared as, and for Save .torrent.
+ * Where a torrent's `.torrent` lives: the file it was added from, byte for byte, else one the worker
+ * rebuilt from its resume data once a magnet add's metadata landed, or the account's copy. The engine
+ * adds from it on a restore, a move and a Download; the page reads it for the magnet a torrent is
+ * copied and shared as, for Save .torrent, and to sync it.
  */
 export const torrentKey = (infoHash: string) => 'ripple:torrent:' + infoHash
 

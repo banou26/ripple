@@ -20,8 +20,8 @@ off, and plays a video while it downloads. There is nothing to install and no Ri
   several.
 - **Create a torrent** from files or a folder (v1, v2 or hybrid, private with a source tag, web
   seeds) and seed it straight from those files.
-- **Your library on every device.** Signed in to FKN, your list and its thumbnails sync, encrypted
-  in your browser before they leave it.
+- **Your library on every device.** Signed in to FKN, your list, thumbnails and .torrent files
+  sync, encrypted in your browser before they leave it.
 - **Share links** that open the player or a download page, which other sites can embed.
 - **One engine for all your tabs.** One tab runs it and the others use it.
 - **Speed limits** for everything or per torrent, and the peers, trackers, files and all-time share
@@ -48,8 +48,8 @@ off, and plays a video while it downloads. There is nothing to install and no Ri
   and thumbnails are in IndexedDB.
 - **Player**: [`@banou/media-player`](https://www.npmjs.com/package/@banou/media-player) at
   `/watch` (`src/router/embed.tsx`), with libav-wasm and jassub.
-- **Sync**: `src/torrent/use-cloud-backup.ts` and `src/torrent/thumbnail-sync.ts`, under `ripple/`
-  in the FKN account's storage.
+- **Sync**: `src/torrent/use-cloud-backup.ts`, `src/torrent/thumbnail-sync.ts` and
+  `src/torrent/torrent-file-sync.ts`, under `ripple/` in the FKN account's storage.
 
 ## Development
 
@@ -136,8 +136,8 @@ Why each part works the way it does is in [docs/embedding.md](./docs/embedding.m
 
 ## Privacy
 
-Ripple needs no account and runs no analytics. Your list and your files stay in your browser, or in
-a folder you choose. Signed in to FKN, your list and its thumbnails sync to your FKN account,
+Ripple needs no account and runs no analytics. Your list and files stay in your browser, or in a
+folder you choose. Signed in to FKN, your list, thumbnails and .torrent files sync to your account,
 encrypted in your browser first. Peers and trackers see the FKN relay's address, not yours, unless
 you turn the VPN off: they then see your own, and so does the STUN server that tells your browser
 its address. The [privacy page](https://torrent.fkn.app/privacy) lists what Ripple keeps and names

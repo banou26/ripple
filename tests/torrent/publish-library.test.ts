@@ -7,6 +7,7 @@ import type { Persisted } from '../../src/torrent/library'
 const store = new Map<string, unknown>()
 const cloudText = new Map<string, string>()
 const forgotten: string[][] = []
+const forgottenFiles: string[][] = []
 let removalsUnreadable = false
 
 vi.mock('idb-keyval', () => ({
@@ -39,6 +40,12 @@ vi.mock('../../src/torrent/thumbnail-sync', () => ({
   syncThumbnails: async () => {},
 }))
 
+vi.mock('../../src/torrent/torrent-file-sync', () => ({
+  followAccount: () => {},
+  forgetSyncedTorrentFiles: async (hashes: string[]) => { forgottenFiles.push(hashes) },
+  syncTorrentFiles: async () => {},
+}))
+
 const { BACKUP_PATH, REMOVALS_PATH, publishLibrary } = await import('../../src/torrent/use-cloud-backup')
 
 const HASH = 'a'.repeat(40)
@@ -47,17 +54,24 @@ const entry = (infoHash: string, addedAt = 1_000): Persisted =>
   ({ infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt })
 
 beforeEach(() => {
-  store.clear(); cloudText.clear(); forgotten.length = 0
+  store.clear(); cloudText.clear(); forgotten.length = 0; forgottenFiles.length = 0
   removalsUnreadable = false
 })
 
 describe('publishing the library', () => {
-  it('deletes the picture of a torrent whose removal it publishes first', async () => {
+  it('deletes the picture and the .torrent of a torrent whose removal it publishes first', async () => {
     store.set('ripple:removed', [{ infoHash: HASH, removedAt: 2_000 }])
     cloudText.set(BACKUP_PATH, JSON.stringify([entry(HASH), entry(OTHER)]))
     await publishLibrary([entry(OTHER)])
     expect(JSON.parse(cloudText.get(REMOVALS_PATH)!)).toEqual([{ infoHash: HASH, removedAt: 2_000 }])
     expect(forgotten.flat()).toEqual([HASH])
+    expect(forgottenFiles.flat()).toEqual([HASH])
+  })
+
+  it('keeps the .torrent of a torrent added again after its removal', async () => {
+    store.set('ripple:removed', [{ infoHash: HASH, removedAt: 2_000 }])
+    await publishLibrary([entry(HASH, 3_000)])
+    expect(forgottenFiles.flat()).toEqual([])
   })
 
   it('leaves alone a removal the account already has', async () => {

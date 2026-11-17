@@ -56,6 +56,12 @@ vi.mock('../../src/torrent/thumbnail-sync', () => ({
   syncThumbnails: async (hashes: string[]) => { synced.push(hashes); events.push('sync') },
 }))
 
+vi.mock('../../src/torrent/torrent-file-sync', () => ({
+  followAccount: () => {},
+  forgetSyncedTorrentFiles: async () => {},
+  syncTorrentFiles: async () => {},
+}))
+
 const { useCloudBackup } = await import('../../src/torrent/use-cloud-backup')
 const { DEMO_MAGNET } = await import('../../src/torrent/constants')
 const { magnetInfoHash } = await import('../../src/torrent/magnet')

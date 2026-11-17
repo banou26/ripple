@@ -87,6 +87,13 @@ const keyFor = (): Promise<CryptoKey> => {
 const nameOf = async (key: CryptoKey, infoHash: string) =>
   hex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(infoHash)))
 
+/**
+ * An object name for `text` under the account's naming key, for another synced file kept beside the pictures. Rejects
+ * when the key cannot be read or made. `resetThumbnailSync` makes the next call read the key of the account now
+ * signed in.
+ */
+export const opaqueName = async (text: string): Promise<string> => nameOf(await keyFor(), text)
+
 const pushedSet = async (): Promise<Set<string>> =>
   new Set((await get<string[]>(PUSHED_KEY).catch(() => undefined)) ?? [])
 

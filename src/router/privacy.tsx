@@ -4,7 +4,7 @@ import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 14 November 2026</div>
+    <div className="updated">Last updated 17 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -14,7 +14,7 @@ const Privacy = () => (
 
     <h2>What Ripple stores on your device</h2>
     <p>
-      Your torrent list, each torrent&rsquo;s resume data and thumbnail, and your settings
+      Your torrent list, each torrent&rsquo;s resume data, .torrent file and thumbnail, and your settings
       (such as speed limits, how the list is sorted and whether the VPN is on) live in your
       browser&rsquo;s storage
       (IndexedDB and local storage). Downloaded files live in your browser&rsquo;s storage
@@ -33,7 +33,8 @@ const Privacy = () => (
       that is its magnet link, name, size and file list, where it is saved, when you added it,
       and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
       torrents you removed and when, so other devices remove them too, and one thumbnail
-      picture per torrent. It never syncs the downloaded files themselves.
+      picture per torrent. Each torrent&rsquo;s .torrent file syncs too, with its tracker
+      addresses. It never syncs the downloaded files themselves.
     </p>
     <p>
       All of it is encrypted in your browser before it is uploaded, so FKN stores it without
@@ -83,7 +84,7 @@ const Privacy = () => (
     <p>
       Ripple itself has no account to delete. Disconnecting your FKN account stops the sync.
       Removing a torrent also removes it from the synced list and deletes its synced
-      thumbnail. Deleting your FKN account at{' '}
+      thumbnail and .torrent file. Deleting your FKN account at{' '}
       <a href="https://fkn.app" target="_blank" rel="noreferrer noopener">fkn.app</a>{' '}
       deletes everything Ripple stored in it.
     </p>

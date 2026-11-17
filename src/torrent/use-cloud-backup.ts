@@ -11,6 +11,7 @@ import { DEMO_MAGNET, DEMO_SEEDED_KEY } from './constants'
 import { REMOVED_KEY, mergeRemovals, survivesRemovals } from './library'
 import { magnetInfoHash } from './magnet'
 import { forgetSyncedThumbnails, resetThumbnailSync, syncThumbnails } from './thumbnail-sync'
+import { followAccount, forgetSyncedTorrentFiles, syncTorrentFiles } from './torrent-file-sync'
 import { mergeTotals } from './uptime'
 
 export const BACKUP_PATH = 'ripple/torrents.json'
@@ -266,7 +267,9 @@ export const publishLibrary = async (local: Persisted[]) => {
     await cloud.fs.promises.writeFile(REMOVALS_PATH, JSON.stringify(removals), { contentType: 'application/json' })
     // tied to the removal's first publish, since no later write sees it as new
     const kept = new Set(list.map((e) => e.infoHash))
-    void forgetSyncedThumbnails(fresh.map((r) => r.infoHash).filter((h) => !kept.has(h))).catch(() => {})
+    const gone = fresh.map((r) => r.infoHash).filter((h) => !kept.has(h))
+    void forgetSyncedThumbnails(gone).catch(() => {})
+    void forgetSyncedTorrentFiles(gone).catch(() => {})
   }
   await cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(list), { contentType: 'application/json' })
   return list
@@ -322,15 +325,16 @@ export const useCloudBackup = (): SyncState => {
         const published = await writeNow()
         if (!cancelled) setStatus('synced')
         /*
-         * Pictures ride alongside the list, not inside it.
+         * Pictures and .torrent files ride alongside the list, not inside it.
          *
          * Done here because this is the point at which the cloud is known to be reachable and the
          * list is known to agree on both sides. It is bounded per pass and every failure is
          * swallowed, so it can never turn a good backup into a reported one: a missing thumbnail is
-         * a smaller problem than anything worth risking to avoid it. The pictures follow the list
-         * as published, so a torrent removed elsewhere, or the unclaimed demo, uploads none.
+         * a smaller problem than anything worth risking to avoid it. Both follow the list as
+         * published, so a torrent removed elsewhere, or the unclaimed demo, uploads none.
          */
         void syncThumbnails(published.map((e) => e.infoHash)).catch(() => {})
+        void syncTorrentFiles(published.map((e) => e.infoHash)).catch(() => {})
       }
       catch (err) {
         if (cancelled) return
@@ -441,6 +445,8 @@ export const useCloudBackup = (): SyncState => {
       if (name) { try { localStorage.setItem(ACCOUNT_KEY, name) } catch {} }
       writesFor = name
       resetThumbnailSync()
+      // this pass's account, read or known empty: the torrent files follow it until the next restore begins
+      if (text !== null || missing) followAccount(() => !stale())
 
       if (text !== null) {
         let list: unknown
