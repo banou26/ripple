@@ -305,11 +305,13 @@ const wordsOf = (page: Shown, root = 'body') => page.evaluate(root => [...docume
 const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
-  // on a phone the toolbar's words give way, the sort's, the group's, then the filter's (the order is the toolbar test's
-  // to check), and the footer's Speed, as the count of the bar for ticked rows does; and a group's name, as long as
-  // somebody typed it, at any width; always to an ellipsis, which is drawn only where the overflow is cut
-  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip .value, footer .folder > span')
-    || width <= 700 && element.matches('.bulk-bar .count') || element.matches('.list-toolbar .chip.group .value'))
+  // always to an ellipsis, which is drawn only where the overflow is cut: on a phone the sort chip's word, which gives
+  // way first, then the group chip's (the toolbar test checks the order), and the footer's Speed; a group's name, as
+  // long as somebody typed it, at any width; and at 390 px the pseudo-language's filter, whose words run longer than
+  // any language's (the Temporary test holds every language's whole)
+  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip.sort .value, .list-toolbar .chip.group .value, footer .folder > span')
+    || element.matches('.list-toolbar .chip.group .value[dir=auto]')
+    || width <= 400 && document.documentElement.lang === 'en-XA' && element.matches('.list-toolbar .chip.show .value'))
     && getComputedStyle(element).textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(getComputedStyle(element).overflowX)
   return [
     ...document.documentElement.scrollWidth > width ? [`the page scrolls sideways by ${document.documentElement.scrollWidth - width} px`] : [],
@@ -320,8 +322,8 @@ const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) && !element.closest('.stats .line') ? [`past the edge: ${named(element)}`]
         // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
         // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
-        // link's, cuts nothing off
-        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !givesWay(element)
+        // link's, cuts nothing off; words kept for a screen reader alone are drawn 1 px wide
+        : own && box.width > 1 && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !givesWay(element)
           && !element.matches('.torrent-table .title, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
         : element instanceof SVGSVGElement && box.height > 0 && box.width < box.height - 0.5
@@ -1901,12 +1903,12 @@ test.describe('on a phone', () => {
     })
   }
 
-  for (const language of ['en', 'de']) {
+  for (const language of ['en', ...Object.keys(catalogues())]) {
     test(`${language}: at 390 px the filter Temporary keeps its whole word beside the Group and Sort chips`, async ({ page }) => {
       await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'temporary'])
       await opened(page, language)
       const word = page.locator('.list-toolbar .chip.show .value')
-      await expect(word, 'the control: the filter is Temporary').toHaveText(language === 'en' ? 'Temporary' : 'Temporär')
+      await expect(word, 'the control: the filter is Temporary').toHaveText(language === 'en' ? 'Temporary' : catalogues()[language]!['Temporary#filter']!)
       expect(await word.evaluate(shown => shown.scrollWidth - shown.clientWidth)).toBe(0)
     })
   }
