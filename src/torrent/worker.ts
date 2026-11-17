@@ -394,7 +394,7 @@ const inspectDetail = (now: number): TorrentDetail | null => {
     void measureInspected(handle).catch(() => {})
   }
   const own = session!.lastTrackers(handle)
-  const availability = session!.pieceAvailability(handle)
+  const availability = session?.pieceAvailability(handle)
   return {
     handle,
     peers: session!.lastPeers(handle),
