@@ -77,6 +77,7 @@ describe('a group sent by link', () => {
   it('is named as its sender named it, says how many torrents it holds, and adds only on Add', async () => {
     const { props, dialog, add, cancel } = await received('Week 2', 3)
     expect(dialog).toHaveAccessibleName('Week 2')
+    expect(dialog.querySelector('p')).toBeVisible()
     expect(dialog.querySelector('p')?.textContent).toBe('3 torrents')
     // the proposal is someone else's, so Enter does not take it
     expect(document.activeElement).toBe(cancel)

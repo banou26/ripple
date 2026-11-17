@@ -2281,9 +2281,11 @@ test('a group made from the Group chip is empty and shown, and Show everything s
 const SENT = () => linkTo('Week 9', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')])
 
 test('a group link asks first, adds its torrents as rows not on this device in a group of its name, and is spent', async ({ page }) => {
-  const fragment = SENT()
+  // the link as Copy link writes it, at this server
+  const link = buildGroupLink('Week 9', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')].map(magnet => ({ magnet }))).link!
+  const fragment = link.split('#')[1]!
   requests.length = 0
-  await page.goto(`${origin}/add#${fragment}`)
+  await page.goto(link.replace('https://torrent.fkn.app', origin))
   await library(page, LIST, TORRENTS)
   const dialog = page.getByRole('dialog')
   await expect(dialog).toHaveAccessibleName('Week 9')
