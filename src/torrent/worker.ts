@@ -91,6 +91,11 @@ export type TorrentDetail = {
   trackers: TrackerInfo[]
   /** Bytes it takes in browser storage, absent before the first measure and for a torrent in a folder. */
   storageBytes?: number
+  /**
+   * How many connected peers have each piece, seeds included, one entry a piece. Absent before the file list, and
+   * while libtorrent keeps no count: for a torrent that has every piece, or one checking its files. Transferred.
+   */
+  availability?: Uint16Array
 }
 
 /**
@@ -386,12 +391,14 @@ const inspectDetail = (now: number): TorrentDetail | null => {
     void measureInspected(handle).catch(() => {})
   }
   const own = session!.lastTrackers(handle)
+  const availability = session!.pieceAvailability(handle)
   return {
     handle,
     peers: session!.lastPeers(handle),
     // the WebSocket trackers WebRTC peers are found through are no trackers of libtorrent's, so its list lacks them
     trackers: [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(handle) ?? []],
     storageBytes: inspectedBytes?.handle === handle ? inspectedBytes.bytes ?? undefined : undefined,
+    ...(availability?.length ? { availability } : {}),
   }
 }
 
@@ -401,10 +408,13 @@ const notContacted = (tracker: TrackerInfo): TrackerInfo => ({ ...tracker, messa
 
 // Every state message is built here: the page reads a missing `detail` as none, which empties an open detail
 // panel for an update.
-const postState = () => post({
-  type: 'state', torrents: snapshot(), transport, reachable: session!.reachable(), inboundNow,
-  detail: inspectDetail(Date.now()), rateLimits: { ...sessionLimits },
-})
+const postState = () => {
+  const detail = inspectDetail(Date.now())
+  post({
+    type: 'state', torrents: snapshot(), transport, reachable: session!.reachable(), inboundNow,
+    detail, rateLimits: { ...sessionLimits },
+  }, detail?.availability ? [detail.availability.buffer] : [])
+}
 
 /** The names this torrent occupies directly inside its save path. Empty until the layout lands. */
 const rootEntriesOf = (h: number): string[] => {

@@ -9,6 +9,8 @@ export interface TorrentDetailView {
   trackers: TrackerInfo[]
   /** Bytes it takes in browser storage, absent until measured and for a torrent in a folder. */
   storageBytes?: number
+  /** How many connected peers have each piece, absent while the engine keeps no count. */
+  availability?: Uint16Array
   /** False until the first broadcast for this handle lands, so a panel can say "loading" honestly. */
   loaded: boolean
 }
@@ -42,7 +44,7 @@ export const useTorrentDetail = (handle: number | null): TorrentDetailView => {
     client.inspect(handle)
     const off = client.onDetail((detail) => {
       if (!detail || detail.handle !== handle) return
-      setView({ handle, peers: detail.peers, trackers: detail.trackers, storageBytes: detail.storageBytes, loaded: true })
+      setView({ handle, peers: detail.peers, trackers: detail.trackers, storageBytes: detail.storageBytes, availability: detail.availability, loaded: true })
     })
     return () => {
       off()

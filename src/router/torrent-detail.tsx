@@ -8,7 +8,7 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG,
   EMPHASIS, FOCUS_RING, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 
 import { PEER_FLAG, PEER_SOURCE } from 'libtorrent-wasm'
@@ -98,37 +98,57 @@ const ratio = (s: TorrentStats): string => {
 }
 
 const Fact = ({ label, value, mono, children }: { label: string, value: React.ReactNode, mono?: boolean, children?: React.ReactNode }) => (
-  <div className={children ? 'fact has-bar' : 'fact'}>
+  <div className={Children.toArray(children).length ? 'fact has-bar' : 'fact'}>
     <label>{label}</label>
     <span className={mono ? 'mono' : undefined}>{value}</span>
     {children}
   </div>
 )
 
-/** The pieces on disk, one column per device pixel, each as bright as the share of its pieces held. */
-const PiecesBar = ({ bitfield }: { bitfield: PieceBitfield }) => {
+/** A bar over `pieces` pieces, one column per device pixel, each as bright as `shade` of the pieces it covers, 0 to 1. */
+const PieceColumns = ({ pieces, shade, label }: { pieces: number, shade: (from: number, to: number) => number, label?: string }) => {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = ref.current
     const context = canvas?.getContext('2d')
     if (!canvas || !context) return
-    const { numPieces } = bitfield
     const width = canvas.width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio))
     canvas.height = 1
     context.fillStyle = EMPHASIS
     for (let x = 0; x < width; x++) {
-      const from = Math.floor(x * numPieces / width)
-      const to = Math.max(from + 1, Math.floor((x + 1) * numPieces / width))
-      let held = 0
-      for (let p = from; p < to; p++) if (hasPiece(bitfield, p)) held++
-      context.globalAlpha = held / (to - from)
+      const from = Math.floor(x * pieces / width)
+      context.globalAlpha = shade(from, Math.max(from + 1, Math.floor((x + 1) * pieces / width)))
       context.fillRect(x, 0, 1, 1)
     }
-  }, [bitfield])
-  return <canvas ref={ref} aria-hidden="true"/>
+  })
+  return <canvas ref={ref} aria-hidden="true" {...hint(label)}/>
 }
 
-const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => {
+/** The pieces on disk, each column as bright as the share of its pieces held. */
+const PiecesBar = ({ bitfield }: { bitfield: PieceBitfield }) => (
+  <PieceColumns
+    pieces={bitfield.numPieces}
+    shade={(from, to) => {
+      let held = 0
+      for (let p = from; p < to; p++) if (hasPiece(bitfield, p)) held++
+      return held / (to - from)
+    }}
+  />
+)
+
+/** How many connected peers have each piece, each column as bright as its scarcest piece: none, one, or two and more. */
+const AvailabilityBar = ({ counts }: { counts: Uint16Array }) => {
+  const intl = useIntl()
+  return (
+    <PieceColumns
+      pieces={counts.length}
+      shade={(from, to) => counts.subarray(from, to).reduce((fewest, count) => Math.min(fewest, count), 2) / 2}
+      label={intl.formatMessage({ id: 'Availability', defaultMessage: 'Availability' })}
+    />
+  )
+}
+
+const General = ({ t, storageBytes, availability }: { t: Torrent, storageBytes?: number, availability?: Uint16Array }) => {
   const intl = useIntl()
   const s = t.stats
   const withSession = (total: string, session: string) =>
@@ -193,6 +213,7 @@ const General = ({ t, storageBytes }: { t: Torrent, storageBytes?: number }) => 
               : UNKNOWN}
           >
             {!!t.bitfield?.numPieces && <PiecesBar bitfield={t.bitfield}/>}
+            {!!availability?.length && <AvailabilityBar counts={availability}/>}
           </Fact>
           <Fact label={intl.formatMessage({ id: 'Progress', defaultMessage: 'Progress' })} value={pct(t.progress)}/>
           <Fact label={intl.formatMessage({ id: 'Added on', defaultMessage: 'Added on' })} value={t.addedAt ? when(t.addedAt / 1000, intl) : UNKNOWN}/>
@@ -988,7 +1009,7 @@ export const TorrentDetailDock = ({
         ))}
       </div>
       <div className="pane">
-        {tab === 'general' && <General t={t} storageBytes={detail.storageBytes}/>}
+        {tab === 'general' && <General t={t} storageBytes={detail.storageBytes} availability={detail.availability}/>}
         {/* no handle means no bytes on this device, so Save would name a torrent the engine has
             never heard of and open a browser download that can only sit at zero and abort */}
         {tab === 'files' && (

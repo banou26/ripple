@@ -693,6 +693,25 @@ describe('the docked torrent details', () => {
     expect([...screen.container.querySelectorAll<HTMLElement>('.row.file .fill')].map((fill) => fill.style.width)).toEqual(['100%', '0%'])
   })
 
+  it('draws how many peers have each piece under the pieces bar, as none, one, or two and more', async () => {
+    const screen = await mount(halfHeld())
+    const bars = () => [...screen.container.querySelectorAll<HTMLCanvasElement>('.fact.has-bar canvas')]
+    expect(bars()).toHaveLength(1)
+    // what the engine answers for a torrent with every piece, or one checking its files
+    send({ availability: new Uint16Array(0) })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(bars()).toHaveLength(1)
+
+    send({ availability: new Uint16Array([0, 1, 2, 9]) })
+    await expect.poll(() => bars().length).toBe(2)
+    const bar = bars()[1]!
+    const { data } = bar.getContext('2d')!.getImageData(0, 0, bar.width, 1)
+    // each quarter is a piece, read at its middle, its alpha as 0, 1 or 2 peers
+    const level = (quarter: number) => Math.round(data[Math.floor((quarter + 0.5) / 4 * bar.width) * 4 + 3]! / 255 * 2)
+    expect([0, 1, 2, 3].map(level)).toEqual([0, 1, 2, 2])
+    expect(bar.getAttribute('data-tooltip-content')).toBe('Availability')
+  })
+
   it('says 100% only when the file is whole', async () => {
     // 1000 pieces of a byte, all held but the last
     const pieces = new Uint8Array(125).fill(0xff)

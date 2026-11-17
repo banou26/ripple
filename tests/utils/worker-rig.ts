@@ -86,6 +86,8 @@ export type WorkerRig = {
   posted: Posted[]
   /** Every message of one type, in the order the worker posted them. */
   of: (type: string) => Posted[]
+  /** What the worker transferred with one of its messages, rather than copied. */
+  transferOf: (message: Posted) => Transferable[]
   /** Hand the worker a message the way the page's `postMessage` would. */
   send: (message: unknown) => void
   root: FakeDir
@@ -107,6 +109,7 @@ export const installWorkerGlobals = (
   },
 ): WorkerRig => {
   const posted: Posted[] = []
+  const transfers = new Map<Posted, Transferable[]>()
   const listeners = new Map<string, ((event: { data: unknown }) => void)[]>()
   const dir = root ?? fakeDir('')
 
@@ -115,7 +118,7 @@ export const installWorkerGlobals = (
   class DedicatedWorkerGlobalScope {}
   const self = Object.assign(new DedicatedWorkerGlobalScope(), {
     name: name ?? '',
-    postMessage: (message: Posted) => { posted.push(message) },
+    postMessage: (message: Posted, transfer: Transferable[] = []) => { posted.push(message); transfers.set(message, transfer) },
     addEventListener: (type: string, fn: (event: { data: unknown }) => void) => {
       listeners.set(type, [...(listeners.get(type) ?? []), fn])
     },
@@ -133,6 +136,7 @@ export const installWorkerGlobals = (
   return {
     posted,
     of: (type) => posted.filter((message) => message.type === type),
+    transferOf: (message) => transfers.get(message) ?? [],
     send: (message) => { for (const fn of listeners.get('message') ?? []) fn({ data: message }) },
     root: dir,
   }
@@ -179,6 +183,7 @@ export const fakeSession = (over: Partial<Record<string, unknown>> = {}): FakeSe
     lastPeers: () => [],
     lastTrackers: () => [],
     addTrackers: () => [],
+    pieceAvailability: () => null,
     setPriorities: () => {},
     setFlags: () => {},
     // an add's limits go to the engine with it
