@@ -2275,6 +2275,10 @@ const handleMessage = async (session: Session, m: any) => {
         // started/paused written explicitly: this add is what clears an eviction's tombstone
         if (ih) await upsertList({ infoHash: ih, magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false }, elsewhere ? { savePath, saveTo: keptSaveTo(known) } : undefined)
         post({ type: 'added', handle: h, magnet })
+        // listed now rather than on the next pass: a player claims a torrent from a state, and its claim is what
+        // starts the torrent past the engine's queue (494 ms of a first watch's 588 ms from the add to the first
+        // connection on the swarm rig, 2026-11-17)
+        postState()
         void runStorageBudget()
       }
     } else if (m.type === 'create-source') {
