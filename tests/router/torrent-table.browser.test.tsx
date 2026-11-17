@@ -220,6 +220,40 @@ describe('the torrent table', () => {
     expect([...(await screen).container.querySelectorAll('td.c-size')].map((td) => td.textContent)).toEqual(['32.8 kB (52.8 kB)', '52.8 kB'])
   })
 
+  /** Read off the page rather than the theme, so a selector that stops matching fails here. */
+  it('paints a row\'s state on its edge, chip, bar and percentage, and a speed in its hue only while it moves', async () => {
+    const { STATE_DOWN, STATE_MISSING, STATE_MISSING_EDGE, STATE_PAUSED, STATE_UP } = await import('../../src/theme')
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
+    const { screen } = mount({
+      torrents: [t({ name: 'moving' }), t({ name: 'held', state: 'paused', down: 0, up: 0 }), t({ name: 'gone', state: 'missing', down: 0, up: 0 })],
+    })
+    const c = (await screen).container
+    const paints = (name: string) => {
+      const row = [...c.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('.title')!.textContent === name)!
+      const colour = (selector: string, property: 'color' | 'backgroundColor' = 'color') => getComputedStyle(row.querySelector(selector)!)[property]
+      return {
+        edge: getComputedStyle(row.querySelector('td')!).boxShadow,
+        chip: colour('.badge'),
+        bar: colour('.bar .fill', 'backgroundColor'),
+        pct: colour('.pct'),
+        down: colour('.c-down'),
+        up: colour('.c-up'),
+      }
+    }
+    const moving = paints('moving')
+    expect(moving.edge).toContain(rgb(STATE_DOWN))
+    expect([moving.chip, moving.bar, moving.pct, moving.down, moving.up]).toEqual([rgb(STATE_DOWN), rgb(STATE_DOWN), rgb(STATE_DOWN), rgb(STATE_DOWN), rgb(STATE_UP)])
+
+    const held = paints('held')
+    expect(held.edge).toContain(rgb(STATE_PAUSED))
+    expect([held.chip, held.bar, held.pct]).toEqual([rgb(STATE_PAUSED), rgb(STATE_PAUSED), rgb(STATE_PAUSED)])
+    expect([rgb(STATE_DOWN), rgb(STATE_UP)]).not.toContain(held.down)
+    expect([rgb(STATE_DOWN), rgb(STATE_UP)]).not.toContain(held.up)
+
+    const gone = paints('gone')
+    expect([gone.edge.includes(rgb(STATE_MISSING_EDGE)), gone.chip]).toEqual([true, rgb(STATE_MISSING)])
+  })
+
   describe('in the language of the page', () => {
     afterEach(showEnglish)
 

@@ -438,6 +438,20 @@ describe('a library row', () => {
     expect([starting.edge, starting.chip]).toEqual([rgb(STATE_MISSING_EDGE), rgb(STATE_MISSING)])
   })
 
+  it('writes a speed in its direction\'s hue only while bytes move', async () => {
+    thumbnail.current = null
+    const { STATE_DOWN, STATE_UP } = await import('../../src/theme')
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
+    const speeds = async (over: Partial<Torrent>) => {
+      const { container } = (await inPage(torrent(over))).screen
+      return [...container.querySelectorAll('.meta .rate')].map((el) => getComputedStyle(el).color)
+    }
+    expect(await speeds({})).toEqual([rgb(STATE_DOWN), rgb(STATE_UP)])
+    const idle = await speeds({ down: 0, up: 0 })
+    expect(idle).toHaveLength(2)
+    for (const colour of idle) expect([rgb(STATE_DOWN), rgb(STATE_UP)]).not.toContain(colour)
+  })
+
   /** A created source has no swarm to fetch from, so the row's one line is also its only way out. */
   it('tells a missing created source to be made again, with no download offered', async () => {
     thumbnail.current = null

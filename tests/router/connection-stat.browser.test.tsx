@@ -199,7 +199,30 @@ describe('the DHT stat', () => {
     for (const nodes of [0, 312]) {
       const screen = await render(<IntlRoot><DhtStat nodes={nodes}/></IntlRoot>)
       expect([...screen.container.querySelectorAll('.stat.dht > *')].map((part) => part.textContent)).toEqual(['DHT nodes', String(nodes)])
-      screen.unmount()
+      await screen.unmount()
     }
+  })
+})
+
+describe('the strip\'s speeds', () => {
+  it('take their direction\'s hue only while bytes move', async () => {
+    const { SpeedStat, style } = await import('../../src/router/home')
+    const { STATE_DOWN, STATE_UP } = await import('../../src/theme')
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
+    const colours = async (down: number, up: number) => {
+      const screen = await render(
+        <IntlRoot><div css={style}><section className="stats">
+          <SpeedStat dir="down" big bps={down} room="" label="Download"/>
+          <SpeedStat dir="up" bps={up} room="" label="Upload"/>
+        </section></div></IntlRoot>,
+      )
+      const read = [...screen.container.querySelectorAll('.stat strong')].map((el) => getComputedStyle(el).color)
+      await screen.unmount()
+      return read
+    }
+    expect(await colours(5_000_000, 20_000)).toEqual([rgb(STATE_DOWN), rgb(STATE_UP)])
+    const idle = await colours(0, 0)
+    expect(idle).toHaveLength(2)
+    for (const colour of idle) expect([rgb(STATE_DOWN), rgb(STATE_UP)]).not.toContain(colour)
   })
 })

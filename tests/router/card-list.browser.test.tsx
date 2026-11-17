@@ -121,6 +121,22 @@ describe('the cards under their group headings', () => {
     expect(card('Down one')).toBe(before)
   })
 
+  /** The hold is for aiming, so a pointer resting on the list cannot keep a card under the wrong heading for good. */
+  it('moves the card after 10 s even with the pointer still in the list', async () => {
+    const { REORDER_CEILING_MS } = await import('../../src/torrent/list-view')
+    const { screen, clock, drawn, card, rerender } = await mount()
+    await userEvent.hover(card('Down one'))
+    const paused = LIBRARY.map((x) => x.name === 'Down one' ? { ...x, state: 'paused' as const } : { ...x })
+    await rerender(paused)
+    clock.now += REORDER_CEILING_MS - 1_000
+    await rerender(paused.map((x) => ({ ...x })))
+    expect(drawn().slice(0, 3)).toEqual(['# Downloading 2', 'Down one', 'Down two'])
+    clock.now += 2_000
+    await rerender(paused.map((x) => ({ ...x })))
+    expect(drawn().slice(0, 5)).toEqual(['# Downloading 1', 'Down two', '# Paused 2', 'Down one', 'Held'])
+    await userEvent.hover(screen.container.ownerDocument.body, { position: { x: 1, y: 1 } })
+  })
+
   it('moves a card whose state changed when nobody is in the list (control)', async () => {
     const { clock, drawn, rerender } = await mount()
     const paused = LIBRARY.map((x) => x.name === 'Down one' ? { ...x, state: 'paused' as const } : { ...x })

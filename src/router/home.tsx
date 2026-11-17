@@ -317,6 +317,14 @@ export const DhtStat = ({ nodes }: { nodes: number }) => {
   )
 }
 
+/** A total speed in the strip, in its direction's hue only while bytes move. Exported for its own test. */
+export const SpeedStat = ({ dir, big, bps, room, label }: { dir: 'down' | 'up', big?: boolean, bps: number, room: string, label: string }) => (
+  <div className={'stat' + (big ? ' big' : '') + ` rate ${dir}` + (bps > 0 ? ' live' : '')}>
+    <label>{label}</label>
+    <strong data-room={room}>{speed(bps)}</strong>
+  </div>
+)
+
 const HISTORY = 120
 
 /**
@@ -3847,14 +3855,8 @@ const Home = () => {
           <div className="readouts">
             {torrents.length > 0 && (
               <ReadoutLine>
-                <div className={'stat big rate down' + (totalDown > 0 ? ' live' : '')}>
-                  <label>{intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}</label>
-                  <strong data-room={speedRoom}>{speed(totalDown)}</strong>
-                </div>
-                <div className={'stat rate up' + (totalUp > 0 ? ' live' : '')}>
-                  <label>{intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}</label>
-                  <strong data-room={speedRoom}>{speed(totalUp)}</strong>
-                </div>
+                <SpeedStat dir="down" big bps={totalDown} room={speedRoom} label={intl.formatMessage({ id: 'Download#a speed', defaultMessage: 'Download', description: 'a speed' })}/>
+                <SpeedStat dir="up" bps={totalUp} room={speedRoom} label={intl.formatMessage({ id: 'Upload#a speed', defaultMessage: 'Upload', description: 'a speed' })}/>
                 {/* Which direction this is has to be said: `history` samples download alone, so a library that is
                     purely seeding shows a flat 0 here. */}
                 <div className="stat rate">
