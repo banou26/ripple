@@ -4,8 +4,9 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CHART_PRIMARY, CHART_SECONDARY, CONTROL_ACTIVE_BG,
   CONTROL_BG, CONTROL_HOVER_BG, DANGER, DANGER_SOLID, ELEVATED_BG, EMPHASIS, EMPHASIS_HOVER,
   FOCUS_RING, GROUP_BAND, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, OK,
-  PAGE_BG, PICKED_WASH, PICTURE_SHADE, STATE_ERROR, STATE_MISSING, STATE_MISSING_EDGE, STATE_TINT_ALPHA, SUNKEN_BG,
-  SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED, TEXT_ON_LIGHT, WARN, tint,
+  PAGE_BG, PICKED_WASH, PICTURE_SHADE, STATE_DOWN, STATE_ERROR, STATE_MISSING, STATE_MISSING_EDGE, STATE_PAUSED,
+  STATE_QUEUED, STATE_TINT_ALPHA, STATE_UP, SUNKEN_BG, SURFACE_BG, TEXT, TEXT_DISABLED, TEXT_FAINT, TEXT_MUTED,
+  TEXT_ON_LIGHT, WARN, tint,
 } from '../src/theme'
 import { STATE_HUE } from '../src/router/badge-style'
 
@@ -281,6 +282,22 @@ describe('every torrent state reads in its own hue', () => {
   const hues = [...new Set(Object.values(STATE_HUE))].filter((hue) => hue !== STATE_MISSING)
   /** What a row can sit on: its surface, selected, ticked, ticked and selected, and the table's hover. */
   const ROWS = [SURFACE_BG, CONTROL_BG, over(PICKED_WASH, SURFACE_BG), over(PICKED_WASH, CONTROL_BG), over(HOVER_WASH, SURFACE_BG)]
+
+  /** The checks below see each hue once, so a state moved onto another state's hue passes them all. */
+  it('gives each state the hue of the design', () => {
+    expect(STATE_HUE).toEqual({
+      downloading: STATE_DOWN,
+      checking: STATE_DOWN,
+      seeding: STATE_UP,
+      completed: STATE_UP,
+      paused: STATE_PAUSED,
+      queued: STATE_QUEUED,
+      retrying: STATE_ERROR,
+      error: STATE_ERROR,
+      missing: STATE_MISSING,
+      starting: STATE_MISSING,
+    })
+  })
 
   it('keeps a state chip at AA: its hue on its own tint, over every fill a row can have', () => {
     for (const hue of hues) {
