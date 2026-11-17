@@ -167,27 +167,34 @@ test('two of three torrents removed in one action stay removed after a reload, a
 
 /*
  * A shift+click on a box ticks every row from the box clicked before it, in the order the list draws them: by name, which
- * is not the order the torrents were made in, in the cards and then, the other way round, in the table.
+ * is not the order the torrents were made in, and in the cards under their headings, so a download with nobody to fetch
+ * it from stands above the three made here, which is not the order of their names. Then, the other way round and with
+ * no headings, in the table.
  */
 test('a shift+click ticks the run of rows between two boxes, in the order each view draws them', async ({ page }) => {
   test.setTimeout(300_000)
-  const names = ['Run.Cherry.bin', 'Run.Apple.bin', 'Run.Date.bin', 'Run.Banana.bin']
+  const names = ['Run.Cherry.bin', 'Run.Apple.bin', 'Run.Date.bin']
   await prepare(page)
   await page.goto('/')
+  await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${'3c'.repeat(20)}&dn=Run.Banana.bin`)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
   await make(page, await filesFor(names))
 
   const tick = tickOf(page)
-  for (const name of names) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
+  for (const name of [...names, 'Run.Banana.bin']) await expect(tick(name)).toBeVisible({ timeout: 120_000 })
   await fromChip(page, /^Sort by /u, 'Name')
+  // every made torrent past its check, so the headings stand as below
+  await expect(page.getByRole('heading', { name: 'Done 3' })).toBeVisible({ timeout: 120_000 })
+  await expect(page.getByRole('heading', { name: 'Downloading 1' })).toBeVisible()
   const bar = page.locator('.bulk-bar')
   // the boxes from the top of the list down
   const ticked = () => page.locator('.row-check input').evaluateAll((boxes) => boxes.map((box) => (box as HTMLInputElement).checked))
 
-  // Apple, Banana, Cherry, Date
+  // Banana under Downloading, then Apple, Cherry, Date under Done
   await tick('Run.Apple.bin').click()
-  await tick('Run.Cherry.bin').click({ modifiers: ['Shift'] })
+  await tick('Run.Date.bin').click({ modifiers: ['Shift'] })
   await expect(bar).toContainText('3 selected')
-  expect(await ticked()).toEqual([true, true, true, false])
+  expect(await ticked()).toEqual([false, true, true, true])
 
   await bar.getByRole('button', { name: 'Clear selection' }).click()
   await page.getByRole('button', { name: 'Table' }).click()
