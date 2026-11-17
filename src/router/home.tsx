@@ -3269,6 +3269,8 @@ const Home = () => {
   useEffect(() => client.onEngineReset(() => {
     syncAtRef.current.clear()
     syncingRef.current.clear()
+    // a move the old engine never reported done is decided again from the new one's rows
+    movingRef.current.clear()
     // ids are session handles, so after a reset they name different torrents entirely
     setSavedToFolder(new Set())
   }), [client])
