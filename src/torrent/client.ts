@@ -20,6 +20,7 @@ import { intl, wordsOf } from '../i18n'
 
 import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
+import { CHECKING_STATES } from './recovery'
 import { electEngineOwner } from './engine-election'
 import { ASKS, ENGINE_RESET, hasWebLocks, isSessionScoped, newClientId } from './engine-protocol'
 import { createGate } from './gate'
@@ -633,14 +634,16 @@ export const createTorrentClient = (): EngineClient => {
         lastRawState = m.torrents as WorkerTorrentSnapshot[]
         const torrents = lastRawState.map((torrent): TorrentSnapshot => {
           handles.add(torrent.handle)
-          const stopped = torrent.status?.paused || torrent.status?.state === 4 || torrent.status?.state === 5
+          const status = torrent.status
+          // a check adds every piece it verifies to totalDone, which downloads nothing
+          const stopped = status?.paused || status?.state === 4 || status?.state === 5 || (!!status && CHECKING_STATES.has(status.state))
           if (stopped) recentRate.reset(torrent.handle)
           return {
             ...torrent,
             displayDownloadRate: stopped
               ? 0
-              : torrent.status
-                ? recentRate.sample(torrent.handle, torrent.status.totalDone, at) ?? torrent.status.downloadRate
+              : status
+                ? recentRate.sample(torrent.handle, status.totalDone, at) ?? status.downloadRate
                 : 0,
           }
         })

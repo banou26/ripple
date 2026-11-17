@@ -352,3 +352,40 @@ describe('listing a torrent copied in from the player', () => {
     }
   })
 })
+
+describe('the download speed a row shows', () => {
+  const MB = 1_000_000
+
+  /** the speed shown on each of `reports`, sent a second apart as the engine does: [libtorrent state, totalDone, its own rate] */
+  const shown = (reports: [number, number, number][]) => {
+    const rig = makeRig()
+    running(rig)
+    const rates: number[] = []
+    rig.client.onState((torrents) => rates.push(torrents[0]!.displayDownloadRate))
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    try {
+      reports.forEach(([state, totalDone, downloadRate], second) => {
+        clock = second * 1_000
+        rig.say({ type: 'state', torrents: [{ handle: 1, status: { state, paused: false, totalDone, downloadRate } }] })
+      })
+    } finally {
+      now.mockRestore()
+    }
+    return rates
+  }
+
+  it('shows how fast a download grows, the control the rest needs', () => {
+    expect(shown([[3, 0, 0], [3, 100 * MB, 0], [3, 200 * MB, 0]]).at(-1)).toBe(100 * MB)
+  })
+
+  // libtorrent's 1 is checking files and 7 checking resume data
+  it.each([1, 7])('shows no speed while a check in state %i verifies the pieces held', (state) => {
+    expect(shown([[state, 0, 0], [state, 100 * MB, 0], [state, 200 * MB, 0], [state, 300 * MB, 0]])).toEqual([0, 0, 0, 0])
+  })
+
+  it('shows the download after a check at its own speed, not the check\'s', () => {
+    const rates = shown([[1, 0, 0], [1, 100 * MB, 0], [1, 200 * MB, 0], [3, 201 * MB, MB], [3, 202 * MB, MB]])
+    expect(rates.slice(3)).toEqual([MB, MB])
+  })
+})
