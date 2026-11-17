@@ -48,8 +48,9 @@ const Privacy = () => (
       A group&rsquo;s link holds the group&rsquo;s name and, for each of its torrents, its magnet
       link without its name: the info hash, trackers and web seeds. All of it is after the # in
       the address, a part browsers never send to a server, so opening the link shows the server a
-      visit to /add and nothing of the group. Torrents marked private are left out. Like any link,
-      it stays wherever you paste it, and whoever has it can read it.
+      visit to /add and nothing of the group. A torrent added on this device from a .torrent file
+      marked private is left out. Like any link, it stays wherever you paste it, and whoever has it
+      can read it.
     </p>
 
     <h2>The VPN and your IP address</h2>
