@@ -1,6 +1,6 @@
 // How a first watch's window is planned: on the pump that brings the layout, not the next 500 ms pass, with a band of
 // exactly the first read's pieces and the file's tail. The band's last piece joins on the drain that brings those
-// pieces in; a seek, a save and a prepared file are planned whole at once.
+// pieces in; a seek, a second viewer, a save and a prepared file are planned whole at once.
 import { expect, it, vi } from 'vitest'
 
 import { installWorkerGlobals } from '../utils/worker-rig'
@@ -154,5 +154,14 @@ it('plans a prepared file\'s first claim whole, so its tail band reaches the las
   engine.arriving.listed.add(5)
   await vi.waitFor(() => expect(plansOf(5).length).toBeGreaterThan(0))
   expect(plansOf(5)[0]).toEqual([5, [HEAD, { fileIndex: 0, offset: SIZE - 2_500_000 }], expect.objectContaining({ windowPieces: 6 })])
+  expect(rig.of('error')).toEqual([])
+}, 10_000)
+
+it('plans a second viewer whole at once, though the first read\'s pieces are not in', async () => {
+  await firstWatch(6)
+  engine.arriving.listed.add(6)
+  await vi.waitFor(() => expect(plansOf(6)).toEqual([firstPlan(6)]))
+  rig.send({ type: 'watch', viewer: 'player-6b', handle: 6, fileIndex: 0, fromOffset: 0 })
+  await vi.waitFor(() => expect(plansOf(6).at(-1)).toEqual([6, [HEAD, TAIL, HEAD, TAIL], expect.objectContaining({ windowPieces: 6 })]))
   expect(rig.of('error')).toEqual([])
 }, 10_000)

@@ -952,7 +952,7 @@ const headFirst = new Set<number>()
 const firstReadOf = (h: number, files: TorrentFiles, active: Viewer[]): Range | null => {
   const [only] = active
   const file = only && files.files[only.fileIndex]
-  const read = only && file?.size && active.length === 1 && !only.bulk && !only.prepare && headFirst.has(h)
+  const read = only && file?.size && !only.bulk && !only.prepare && headFirst.has(h)
     ? piecesOf({ ...file, pieceLength: files.pieceLength }, only.fromOffset, only.fromOffset + READ_SIZE)
     : null
   if (!read || allHeld(h, read)) { headFirst.delete(h); return null }
