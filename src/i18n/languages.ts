@@ -84,10 +84,15 @@ export const setUnitLocale = (locale: string) => {
 /** The language Automatic shows: the offered one best serving the browser's, else English. */
 export const automaticLanguage = (languages = browserLanguages(), offered = OFFERED) => bestLanguage(languages, offered) ?? 'en'
 
-/** The `language=` of a /watch or /download link, the embedder's page's, which no other page reads. */
+/**
+ * The `language=` of a /watch or /download link, the embedder's page's, which no other page reads. After the `#`
+ * first, then in the query, as `linkParams` in router/path.ts reads a link.
+ */
 const linkedLanguage = () => {
-  const { pathname, search } = globalThis.location ?? { pathname: '', search: '' }
-  return /^\/(?:watch|download)\/?$/.test(pathname) ? new URLSearchParams(search).get('language') : null
+  const { pathname, search, hash } = globalThis.location ?? { pathname: '', search: '', hash: '' }
+  return /^\/(?:watch|download)\/?$/.test(pathname)
+    ? new URLSearchParams(hash.slice(1)).get('language') ?? new URLSearchParams(search).get('language')
+    : null
 }
 
 /**

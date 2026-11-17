@@ -88,9 +88,19 @@ describe('the language shown', () => {
       expect(uiLanguage(['fr-CA'])).toBe('en')
     })
 
+    test('is read after the #, where a link written now carries it, and from there when the query names another', () => {
+      stored.set(LANGUAGE_KEY, 'de')
+      at('/watch#m=x&language=ja')
+      expect(uiLanguage(['fr-CA'])).toBe('ja')
+      at('/download#language=pt-PT&m=x')
+      expect(uiLanguage(['fr-CA'])).toBe('pt-BR')
+      at('/watch?language=ja#m=x&language=en')
+      expect(uiLanguage(['fr-CA'])).toBe('en')
+    })
+
     test('is not read on any other page', () => {
       stored.set(LANGUAGE_KEY, 'de')
-      for (const href of ['/?language=ja', '/add?language=ja', '/legal?language=ja', '/watched?language=ja']) {
+      for (const href of ['/?language=ja', '/add?language=ja', '/legal?language=ja', '/watched?language=ja', '/#language=ja', '/add#language=ja']) {
         at(href)
         expect(uiLanguage(['fr-CA']), href).toBe('de')
       }

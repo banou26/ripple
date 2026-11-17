@@ -50,15 +50,23 @@ test.describe('in an English browser', () => {
     await page.goto('/legal')
     await page.evaluate((src) => { document.body.append(Object.assign(document.createElement('iframe'), { id: 'ripple', src })) }, watch('&language=fr'))
     const ripple = page.frameLocator('#ripple')
+    // ripple's own text, which follows the link's language apart from the player's labels
+    const ripplesOwn = ripple.getByTestId('open-in-ripple')
     await expectLabels(ripple, FRENCH)
+    await expect(ripplesOwn).toHaveAttribute('aria-label', 'Ouvrir ce torrent dans Ripple')
 
     const opened = page.evaluate(() => new Promise(resolve => { addEventListener('message', event => { if (event.data?.ripple === 'opened') resolve(true) }) }))
     await page.evaluate((magnet) => (document.getElementById('ripple') as HTMLIFrameElement).contentWindow!.postMessage({ ripple: 'open', magnet, fileIndex: 2 }, '*'), NEXT)
     await opened
     const frame = () => page.frames().find(f => f.url().includes('/watch'))!
     await expect.poll(() => linkParams(new URL(frame().url())).get('fileIndex')).toBe('2')
+    expect(new URL(frame().url()).search, 'the address is a link written now').toBe('')
     expect(linkParams(new URL(frame().url())).get('language')).toBe('fr')
     await expectLabels(ripple, FRENCH)
+    // the address change asks for the language again and shows it a turn or a fetch later, never at once
+    await frame().waitForTimeout(2_000)
+    await expect(ripplesOwn).toHaveAttribute('aria-label', 'Ouvrir ce torrent dans Ripple')
+    expect(await frame().evaluate(() => document.documentElement.lang)).toBe('fr')
   })
 })
 
