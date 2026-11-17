@@ -40,12 +40,10 @@ const INFO_HASH = createHash('sha1').update(bencode(info)).digest('hex')
 type Report = { at: number, progress: number, state: number | null, paused: boolean, totalDone: number, files: number }
 type Placed = { path: string, size: number, fill: number }
 
-/** Every engine report of the torrent once it is at the folder, from the first, with a folder the picker gives. */
+/** Every engine report of the torrent once it is at the folder, from the first. */
 const watchMove = async (page: Page, infoHash: string) => {
   await page.addInitScript((moved) => {
     const w = window as any
-    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
-    w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true })
     w.__moved = []
     const Original = window.Worker
     window.Worker = class extends Original {
@@ -62,7 +60,12 @@ const watchMove = async (page: Page, infoHash: string) => {
   return () => page.evaluate(() => (window as any).__moved as Report[])
 }
 
+/** Opens the page with a folder the picker gives, and chooses it. */
 const chooseFolder = async (page: Page) => {
+  await page.addInitScript(() => {
+    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+    Object.assign(window, { showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true }) })
+  })
   await page.goto('/')
   await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
@@ -92,10 +95,44 @@ const addToFolder = async (page: Page, name: string, torrent: Buffer) => {
   await dialog.waitFor({ state: 'detached', timeout: 10_000 })
 }
 
+/** Every message the toast shows from now on, in order, since the next one replaces it. */
+const watchToasts = async (page: Page) => {
+  await page.evaluate(() => {
+    const shown: string[] = []
+    Object.assign(window, { __toasts: shown })
+    new MutationObserver(() => {
+      const text = document.querySelector('.toast')?.textContent
+      if (text && text !== shown.at(-1)) shown.push(text)
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  })
+  return () => page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts)
+}
+
+/** The save paths the engine reports for the torrent, each time it changes. */
+const watchPaths = async (page: Page, infoHash: string) => {
+  await page.addInitScript((infoHash) => {
+    const w = window as any
+    w.__paths = []
+    const Original = window.Worker
+    window.Worker = class extends Original {
+      constructor (url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        this.addEventListener('message', (event: MessageEvent) => {
+          if (event.data?.type !== 'state') return
+          const path = (event.data.torrents ?? []).find((row: any) => row.status?.savePath?.endsWith(infoHash))?.status.savePath
+          if (path && path !== w.__paths.at(-1)) w.__paths.push(path)
+        })
+      }
+    }
+  }, infoHash)
+  return () => page.evaluate(() => (window as any).__paths as string[])
+}
+
 test('a .torrent add moved into the folder keeps its file list and its progress', async ({ page }) => {
   test.setTimeout(180_000)
   const reports = await watchMove(page, INFO_HASH)
   await chooseFolder(page)
+  const toasts = await watchToasts(page)
   await place(page, NAME, FILES)
   await addToFolder(page, NAME, TORRENT)
 
@@ -119,6 +156,8 @@ test('a .torrent add moved into the folder keeps its file list and its progress'
     open.onerror = () => resolve(false)
   }), `ripple:resume:${INFO_HASH}`)
   await expect.poll(saved, { timeout: 15_000, message: 'the moved torrent saved no state' }).toBe(true)
+  expect(await toasts(), 'the toast watcher saw nothing').toContain(`${NAME} added`)
+  expect((await toasts()).filter((text) => text.startsWith('Moving')), 'a move that worked said it failed').toEqual([])
 })
 
 /*
@@ -218,4 +257,39 @@ test('a torrent checking its files at the folder shows no download speed', async
   expect(readings.filter((r) => r.badge === 'Checking' && shows(r.down)).map((r) => r.down), 'the row showed a speed while checking').toEqual([])
   // nothing downloaded since the page opened, so the strip's highest download is none
   expect(shows((await page.locator('.stats .stat.rate strong').nth(2).textContent()) ?? ''), 'the peak counted the check as a download').toBe(false)
+})
+
+test('a move into a folder that refuses the write says it failed, and moves once the folder takes it', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  // a directory where the move writes its first file
+  const block = (on: boolean) => page.evaluate(async ({ name, path, on }) => {
+    const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name, { create: true })
+    if (on) await dir.getDirectoryHandle(path, { create: true })
+    else await dir.removeEntry(path, { recursive: true })
+  }, { name: NAME, path: FILES[0]!.path, on })
+  await block(true)
+  await addToFolder(page, NAME, TORRENT)
+
+  await expect.poll(toasts, { timeout: 60_000, message: 'the refused move never said it failed' }).toContain(`Moving ${NAME} failed`)
+  expect(await paths(), 'the torrent moved into a folder that refused the write').toEqual([])
+  await block(false)
+  await expect.poll(paths, { timeout: 60_000, message: 'the move never ran again once the folder took the write' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+test('a torrent moved into the folder moves back into browser storage when asked', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  // THE CONTROL: the automatic move ran
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+
+  await page.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  await page.getByRole('dialog').last().getByRole('radio', { name: 'Keep in browser storage' }).click({ timeout: 10_000 })
+  await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved back' }).toEqual([`/native/${INFO_HASH}`, `/dl/${INFO_HASH}`])
 })
