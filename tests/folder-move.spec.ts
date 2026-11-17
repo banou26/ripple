@@ -510,6 +510,47 @@ test('a folder chosen, allowed or dropped in one tab shows in the other', async 
   await expect(button(page, 'Choose folder'), 'a folder dropped in one tab is still in the other').toBeVisible()
 })
 
+/*
+ * The engine stops between a move's relocate and the row's new place: the relocate never reaches it, and it then
+ * reports itself gone, which has the tab start another.
+ */
+test('a move its engine stopped before making is made by the next engine', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  await page.addInitScript(() => {
+    const w = window as unknown as { __dropped: boolean, __engines: Worker[] }
+    w.__dropped = false
+    w.__engines = []
+    const Original = window.Worker
+    window.Worker = class extends Original {
+      constructor (url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        this.addEventListener('message', (event: MessageEvent) => { if (event.data?.type === 'ready') w.__engines.push(this) })
+      }
+    }
+    // oxlint-disable-next-line typescript/unbound-method
+    Worker.prototype.postMessage = new Proxy(Worker.prototype.postMessage, {
+      apply: (post, worker, args) => {
+        if (args[0]?.type === 'relocate' && !w.__dropped) { w.__dropped = true; return }
+        return Reflect.apply(post, worker, args)
+      },
+    })
+  })
+  type Seen = { __dropped: boolean, __engines: Worker[] }
+  const dropped = () => page.evaluate(() => (window as unknown as Seen).__dropped)
+  const engines = () => page.evaluate(() => (window as unknown as Seen).__engines.length)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  // THE CONTROL: the move ran, and its relocate never reached the engine
+  await expect.poll(dropped, { timeout: 60_000 }).toBe(true)
+  expect(await engines()).toBe(1)
+
+  await page.evaluate(() => (window as unknown as Seen).__engines[0]!.dispatchEvent(new MessageEvent('message', { data: { type: 'fatal', message: 'stopped' } })))
+  await expect.poll(engines, { timeout: 60_000, message: 'no engine started after the first stopped' }).toBe(2)
+  await expect.poll(paths, { timeout: 60_000, message: 'the next engine never made the move' }).toEqual([`/native/${INFO_HASH}`])
+})
+
 test('a torrent moved into the folder moves back into browser storage when asked', async ({ page }) => {
   test.setTimeout(180_000)
   const paths = await watchPaths(page, INFO_HASH)
