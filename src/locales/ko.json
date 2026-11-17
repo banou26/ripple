@@ -251,7 +251,7 @@
   "Pause {name}": "{name} 일시 중지",
   "Paused": "일시 중지됨",
   "Paused#filter": "일시 중지됨",
-  "Paused#heading": "일시 중지",
+  "Paused#heading": "일시 중지됨",
   "Peak down": "최고 다운로드",
   "Peers": "피어",
   "Peers and trackers of every running torrent will see your IP address.": "실행 중인 모든 토렌트의 피어와 트래커가 내 IP 주소를 보게 돼요.",

@@ -68,7 +68,8 @@ export const GROUP_LABEL = defineMessages<ListGroup>({
   active: { id: 'Downloading#heading', defaultMessage: 'Downloading', description: 'heading' },
   paused: { id: 'Paused#heading', defaultMessage: 'Paused', description: 'heading' },
   done: { id: 'Done#heading', defaultMessage: 'Done', description: 'heading' },
-  missing: { id: 'Not on this device', defaultMessage: 'Not on this device' },
+  // the filter's words name a group, where the bare id is the sentence a row's line says
+  missing: FILTER_LABEL.missing,
 })
 
 /**

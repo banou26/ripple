@@ -7,9 +7,15 @@ import { userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
 
 import { IntlRoot } from '../../src/i18n'
+import es419 from '../../src/locales/es-419.json'
+import ja from '../../src/locales/ja.json'
+import ko from '../../src/locales/ko.json'
+import ptBR from '../../src/locales/pt-BR.json'
+import tr from '../../src/locales/tr.json'
 import { useBulkSelection } from '../../src/router/bulk-selection'
 import { useOrderedTorrents } from '../../src/router/use-ordered-torrents'
 import { cardGroups } from '../../src/torrent/list-view'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 vi.mock('../../src/torrent/use-thumbnails', () => ({
   useThumbnail: () => null,
@@ -80,6 +86,25 @@ describe('the cards under their group headings', () => {
     ])
     // the count is a word of its own in the heading's name, not run into the label
     await expect.element(screen.getByRole('heading', { name: 'Downloading 2' })).toBeInTheDocument()
+  })
+
+  /** A heading names a group, so never the sentence a row's line says, which reads wrong beside it in some languages. */
+  it('names each heading as a group in the language of the page', async () => {
+    try {
+      await showIn('ko', ko)
+      expect((await mount()).drawn().filter((line) => line?.startsWith('# '))).toEqual(['# 다운로드 중 2', '# 일시 중지됨 1', '# 완료 2', '# 이 기기에 없음 1'])
+      for (const [language, catalogue, heading] of [
+        ['ja', ja, 'このデバイスにない'],
+        ['tr', tr, 'Bu cihazda olmayanlar'],
+        ['es-419', es419, 'No están en este dispositivo'],
+        ['pt-BR', ptBR, 'Não estão neste dispositivo'],
+      ] as const) {
+        await showIn(language, catalogue)
+        expect((await mount()).drawn().at(-2), language).toBe(`# ${heading} 1`)
+      }
+    } finally {
+      await showEnglish()
+    }
   })
 
   it('draws no heading under a filter of one state', async () => {
