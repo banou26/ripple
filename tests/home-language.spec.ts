@@ -99,8 +99,9 @@ const standIns = (folder: string) => {
   const reads: { id: number, len: number }[] = []
   // the torrents those reads were for
   const readFrom = new Set<number>()
-  // the info hash of each start the page sent
+  // the info hash of each start the page sent, and the command each went in
   const started: string[] = []
+  const startCommands: string[] = []
   let answering = false
   let refusal: unknown
   // each worker the page made, by its script: the engine's, and libav's for a thumbnail
@@ -118,8 +119,14 @@ const standIns = (folder: string) => {
       }
       addEventListener (type: string, listener: EventListener) { if (type === 'message') heard.add(listener) }
       removeEventListener (_: string, listener: EventListener) { heard.delete(listener) }
-      postMessage (message: { type?: string, id: number, len: number, handle: number, infoHash: string }) {
+      postMessage (message: { type?: string, id: number, len: number, handle: number, infoHash: string, infoHashes: string[] }) {
+        if (message?.type === 'start' || message?.type === 'start-many') startCommands.push(message.type)
         if (message?.type === 'start') started.push(message.infoHash)
+        // answered on arrival, as the engine of this build answers it
+        if (message?.type === 'start-many') {
+          started.push(...message.infoHashes)
+          setTimeout(() => engine({ type: 'answer', id: message.id, value: true }))
+        }
         if (message?.type !== 'read') return
         readFrom.add(message.handle)
         reads.push(message)
@@ -135,6 +142,7 @@ const standIns = (folder: string) => {
     answerReads: () => { answering = true; answerAll() },
     readFrom: () => [...readFrom],
     started: () => [...started],
+    startCommands: () => [...startCommands],
     refuseReads: (error: unknown) => { refusal = error; answerAll() },
     // refused as a framed page's is, by the test's setting
     showSaveFilePicker: async () => {
@@ -209,6 +217,8 @@ const snapshot = (handle: number, hash: string, name: string, status: object, ov
   totals: {},
   ...over,
 })
+/** The start commands the page sent the engine, in order. */
+const startCommands = (page: Page) => page.evaluate(() => (window as unknown as { startCommands: () => string[] }).startCommands())
 const entry = (hash: string, name: string, over: object = {}) => ({ infoHash: hash.repeat(40), magnet: magnetOf(hash, name), name, size: 4.5 * GB, addedAt: 1, started: true, ...over })
 
 const SEEDING = { state: 5, progress: 1, totalDone: 4.5 * GB, totalWanted: 4.5 * GB, downloadRate: 0, numPeers: 1 }
@@ -2076,6 +2086,7 @@ test('the bar for ticked rows downloads every ticked torrent not on this device 
   await bar.getByRole('button', { name: 'Download' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
   await expect.poll(started).toEqual(['7'.repeat(40), 'f'.repeat(40)])
+  expect(await startCommands(page), 'one command for every ticked row').toEqual(['start-many'])
 })
 
 test('the bar for ticked rows says Stop and Start only while every ticked torrent is finished', async ({ page }) => {
@@ -2188,6 +2199,7 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await menu.getByRole('menuitem', { name: 'Download all' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
   await expect.poll(started).toEqual(['8'.repeat(40), 'f'.repeat(40)])
+  expect(await startCommands(page), 'one command for the whole group').toEqual(['start-many'])
   // the engine reports them started, so nothing is left to fetch
   await post(page, { type: 'list', list: list.map(item => ['Elsewhere', 'Elsewhere.Also'].includes(item.name!) ? { ...item, started: true } : item) }, {
     type: 'state', torrents: [...TORRENTS, snapshot(12, 'f', 'Elsewhere', {}), snapshot(13, '8', 'Elsewhere.Also', {})],
@@ -2332,6 +2344,7 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   await page.getByRole('menu').getByRole('menuitem', { name: 'Download all' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
   await expect.poll(started).toEqual(['7'.repeat(40), '8'.repeat(40)])
+  expect(await startCommands(page), 'one command for the whole group').toEqual(['start-many'])
 
   await paste(page, magnetOf('3', 'Pasted'))
   await expect.poll(async () => (await sent()).length, 'the control: the same paste with no dialog adds it').toBe(2)
