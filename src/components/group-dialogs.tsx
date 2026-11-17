@@ -69,3 +69,30 @@ export const GroupNameDialog = ({ title, name: was = '', onCancel, onSave }: {
     </Modal>
   )
 }
+
+/**
+ * A group someone sent by link: its name, which a stranger chose, and how many torrents Add puts in the list. Cancel,
+ * first, has the focus, as in the add dialog, since the proposal is someone else's.
+ */
+export const GroupLinkDialog = ({ name, count, onCancel, onAdd }: {
+  name: string
+  count: number
+  onCancel: () => void
+  onAdd: () => void
+}) => {
+  const intl = useIntl()
+  return (
+    <Modal labelledBy="group-link-title" onClose={onCancel}>
+      <div css={confirmStyle}>
+        <div className="card">
+          <h2 id="group-link-title" dir="auto">{name}</h2>
+          <p>{intl.formatMessage({ id: '{count, plural, one {{count} torrent} other {{count} torrents}}', defaultMessage: '{count, plural, one {{count} torrent} other {{count} torrents}}' }, { count })}</p>
+          <div className="actions">
+            <button type="button" onClick={onCancel}>{intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}</button>
+            <button type="button" onClick={onAdd}>{intl.formatMessage({ id: 'Add', defaultMessage: 'Add' })}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}

@@ -80,6 +80,15 @@ describe('the privacy page, on groups', () => {
     const control = paragraphs.find((p) => p.startsWith('Ripple itself has no account to delete'))
     expect(control).toContain('it stays in the groups it was in until you delete them')
   })
+
+  it('says what a group\'s link holds, that no server receives it, and that private torrents stay out of it', async () => {
+    const screen = await privacy()
+    const heading = [...screen.container.querySelectorAll('h2')].find((h) => h.textContent === 'Group links')
+    const text = heading?.nextElementSibling?.textContent?.replace(/\s+/g, ' ')
+    expect(text).toContain('A group’s link holds the group’s name and, for each of its torrents, its magnet link without its name: the info hash, trackers and web seeds.')
+    expect(text).toContain('a part browsers never send to a server, so opening the link shows the server a visit to /add and nothing of the group')
+    expect(text).toContain('Torrents marked private are left out.')
+  })
 })
 
 describe('the legal page', () => {

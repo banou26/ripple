@@ -1,13 +1,16 @@
+import type { Persisted } from '../../src/torrent/library'
 import type { Torrent } from '../../src/torrent/types'
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
-import { del, get } from 'idb-keyval'
+import { del, get, set } from 'idb-keyval'
 
 import { GROUPS_KEY, createGroup, takeOutOfGroup, torrentsIn } from '../../src/torrent/groups'
 import type { StoredGroups } from '../../src/torrent/groups'
+import { torrentKey } from '../../src/torrent/library'
 import { LIST_GROUP_KEY } from '../../src/torrent/list-view'
-import { useGroupView } from '../../src/router/use-group-view'
+import { GROUP_LINK_PREFIX, MAX_LINK_TORRENTS, readGroupLink } from '../../src/router/group-link'
+import { addLinkedGroup, useGroupLink, useGroupView } from '../../src/router/use-group-view'
 
 const hash = (c: string) => c.repeat(40)
 
@@ -100,5 +103,66 @@ describe('the group shown', () => {
     await rerender({ torrents: [torrent('c', { addedAt: Date.now() + 1 })] })
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(await heldBy(id)).toEqual([])
+  })
+})
+
+const storedGroups = async () => (await get<StoredGroups>(GROUPS_KEY))?.groups.filter((g) => g.deletedAt === undefined) ?? []
+
+const str = (value: string) => `${value.length}:${value}`
+// a .torrent of one 11-byte file whose info dictionary says private, as a private tracker hands one out
+const PRIVATE_TORRENT = new TextEncoder().encode(`d${str('announce')}${str('https://members.example/announce')}${str('info')}d${str('length')}i11e${str('name')}${str('Members')}${str('piece length')}i16384e${str('pieces')}${str('p'.repeat(20))}${str('private')}i1eee`)
+
+describe('a group sent by link', () => {
+  const linked = { name: ' Week 2 ', torrents: [hash('a'), hash('b')].map((infoHash) => ({ infoHash, magnet: `magnet:?xt=urn:btih:${infoHash}&tr=udp%3A%2F%2Ft.example%3A1` })) }
+
+  it('goes in the list in one import, each torrent in its own folder and added now, and in a group of its name', async () => {
+    const imported: Persisted[][] = []
+    const before = Date.now()
+    const id = await addLinkedGroup(linked, [], (list) => imported.push(list))
+    expect(imported).toHaveLength(1)
+    expect(imported[0]!.map(({ infoHash, magnet, savePath }) => ({ infoHash, magnet, savePath }))).toEqual([
+      { infoHash: hash('a'), magnet: linked.torrents[0]!.magnet, savePath: `/dl/${hash('a')}` },
+      { infoHash: hash('b'), magnet: linked.torrents[1]!.magnet, savePath: `/dl/${hash('b')}` },
+    ])
+    for (const entry of imported[0]!) expect(entry.addedAt).toBeGreaterThanOrEqual(before)
+    const groups = await storedGroups()
+    expect(groups.map((g) => [g.id, g.name, [...torrentsIn(g)].sort()])).toEqual([[id, 'Week 2', [hash('a'), hash('b')]]])
+  })
+
+  it('fills the group of its name that holds only torrents it names, and makes a new one beside any other', async () => {
+    const subset = (await createGroup('Week 2', [hash('a')]))!
+    expect(await addLinkedGroup(linked, await storedGroups(), () => {}), 'opened again').toBe(subset)
+    expect(await heldBy(subset)).toEqual([hash('a'), hash('b')])
+    expect(await storedGroups()).toHaveLength(1)
+
+    await del(GROUPS_KEY)
+    const other = (await createGroup('Week 2', [hash('a'), hash('c')]))!
+    const made = await addLinkedGroup(linked, await storedGroups(), () => {})
+    expect(made).not.toBe(other)
+    expect(await heldBy(other), 'a torrent the link does not name').toEqual([hash('a'), hash('c')])
+    expect(await heldBy(made!)).toEqual([hash('a'), hash('b')])
+  })
+})
+
+describe('a group\'s link', () => {
+  afterAll(() => del(torrentKey(hash('c'))))
+
+  it('is built from its rows\' magnets once they are read, leaving out a private one and counting it', async () => {
+    await set(torrentKey(hash('c')), PRIVATE_TORRENT)
+    const rows = [torrent('a'), torrent('b'), torrent('c')]
+    const { result } = await renderHook(() => useGroupLink('Week 2', rows))
+    await expect.poll(() => result.current).not.toBeNull()
+    expect(result.current).toMatchObject({ count: 2, privateLeftOut: 1 })
+    expect(result.current!.link!.startsWith(GROUP_LINK_PREFIX)).toBe(true)
+    const read = readGroupLink(result.current!.link!.slice(GROUP_LINK_PREFIX.length))
+    expect(read?.name).toBe('Week 2')
+    expect(read?.torrents.map((t) => t.infoHash).sort()).toEqual([hash('a'), hash('b')])
+  })
+
+  it('is none past the most a link holds, still counted, so Copy link can say why', async () => {
+    const rows = Array.from({ length: MAX_LINK_TORRENTS + 1 }, (_, i) => torrent('a', { id: String(i), infoHash: i.toString(16).padStart(40, '0'), magnet: `magnet:?xt=urn:btih:${i.toString(16).padStart(40, '0')}` }))
+    const { result } = await renderHook(() => useGroupLink('Week 2', rows))
+    await expect.poll(() => result.current, { timeout: 10_000 }).not.toBeNull()
+    expect(result.current).toMatchObject({ link: null, count: MAX_LINK_TORRENTS + 1, privateLeftOut: 0 })
   })
 })

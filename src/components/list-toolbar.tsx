@@ -275,6 +275,8 @@ export type GroupChoice = {
   onNew: () => void
   /** Fetches the shown group's torrents not on this device; absent while it has none that can be fetched. */
   onDownloadAll?: () => void
+  /** Copies the shown group's link; absent while it is built, and while no torrent of it can go in one. */
+  onCopyLink?: () => void
   onRename: () => void
   onDelete: () => void
 }
@@ -320,6 +322,7 @@ export const ListToolbar = (
   ]
   const groupActions: Action[] = [
     ...group.onDownloadAll ? [{ id: 'download-all', label: intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }), run: group.onDownloadAll }] : [],
+    ...group.onCopyLink ? [{ id: 'copy-link', label: intl.formatMessage({ id: 'Copy link', defaultMessage: 'Copy link' }), run: group.onCopyLink }] : [],
     { id: 'rename', label: intl.formatMessage({ id: 'Rename...', defaultMessage: 'Rename...' }), run: group.onRename },
     { id: 'delete', label: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }), danger: true, run: group.onDelete },
   ]

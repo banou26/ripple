@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
 
-import { GroupNameDialog } from '../../src/components/group-dialogs'
+import { GroupLinkDialog, GroupNameDialog } from '../../src/components/group-dialogs'
 import { IntlRoot } from '../../src/i18n'
+import ru from '../../src/locales/ru.json'
+import { showEnglish, showIn } from '../i18n/show-in'
 
 const open = async (name?: string) => {
   const props = { title: name ?? 'New group', name, onCancel: vi.fn(), onSave: vi.fn() }
@@ -58,5 +60,43 @@ describe('naming a group', () => {
     await userEvent.keyboard('{Escape}')
     expect(props.onCancel).toHaveBeenCalledTimes(2)
     expect(props.onSave).not.toHaveBeenCalled()
+  })
+})
+
+const received = async (name: string, count: number) => {
+  const props = { name, count, onCancel: vi.fn(), onAdd: vi.fn() }
+  await render(<IntlRoot><GroupLinkDialog {...props}/></IntlRoot>)
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+  const button = (text: string) => [...dialog.querySelectorAll('button')].find((b) => b.textContent === text)!
+  return { props, dialog, add: button('Add'), cancel: button('Cancel') }
+}
+
+describe('a group sent by link', () => {
+  afterEach(showEnglish)
+
+  it('is named as its sender named it, says how many torrents it holds, and adds only on Add', async () => {
+    const { props, dialog, add, cancel } = await received('Week 2', 3)
+    expect(dialog).toHaveAccessibleName('Week 2')
+    expect(dialog.querySelector('p')?.textContent).toBe('3 torrents')
+    // the proposal is someone else's, so Enter does not take it
+    expect(document.activeElement).toBe(cancel)
+    cancel.click()
+    await userEvent.keyboard('{Escape}')
+    expect(props.onCancel).toHaveBeenCalledTimes(2)
+    expect(props.onAdd).not.toHaveBeenCalled()
+    add.click()
+    expect(props.onAdd).toHaveBeenCalledTimes(1)
+  })
+
+  it('draws a name in the direction of its own words, since a stranger chose it', async () => {
+    const { dialog } = await received('סדרה!', 1)
+    expect(getComputedStyle(dialog.querySelector('h2')!).direction).toBe('rtl')
+    expect(dialog.querySelector('p')?.textContent).toBe('1 torrent')
+  })
+
+  it('counts in the language of the page', async () => {
+    await showIn('ru', ru)
+    const { dialog } = await received('Неделя 2', 5)
+    expect(dialog.querySelector('p')?.textContent).toBe('5 торрентов')
   })
 })

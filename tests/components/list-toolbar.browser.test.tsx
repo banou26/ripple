@@ -238,6 +238,16 @@ describe('the list toolbar', () => {
         await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
       }
     })
+
+    it('offers Copy link for the group shown once its link is built, after Download all', async () => {
+      const { props, screen } = mount({ group: grouping({ shown: 'g1', onDownloadAll: vi.fn(), onCopyLink: vi.fn() }) })
+      const c = (await screen).container
+      await opened(c, 'group')
+      expect(actions(c).map((row) => row.textContent)).toEqual(['New group...', 'Download all', 'Copy link', 'Rename...', 'Delete group'])
+      actions(c).find((one) => one.textContent === 'Copy link')!.click()
+      expect(props.group.onCopyLink).toHaveBeenCalledTimes(1)
+      await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
+    })
   })
 
   it('shows Cards and Table as icons on a phone, each still named for a screen reader', async () => {

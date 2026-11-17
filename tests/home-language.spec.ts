@@ -13,6 +13,7 @@ import { extname, join, relative } from 'node:path'
 import { build } from 'vite-plus'
 
 import { catalogues, english, englishIn, LANGUAGE_KEY, offerEveryLanguage, PSEUDO } from './languages'
+import { buildGroupLink, GROUP_LINK_PREFIX, readGroupLink } from '../src/router/group-link'
 
 const ROOT = join(import.meta.dirname, '..')
 const TYPES: Record<string, string> = {
@@ -59,6 +60,8 @@ export const useCloudBackup = (): SyncState => {
 let dir: string
 let server: Server
 let origin: string
+/** Each request the server received, as its address and the page it came from. */
+const requests: string[] = []
 
 test.beforeAll(async () => {
   test.setTimeout(300_000)
@@ -71,6 +74,7 @@ test.beforeAll(async () => {
     plugins: [offerEveryLanguage(), signedIn()],
   })
   server = createServer((request, response) => {
+    requests.push(`${request.url} from ${request.headers.referer}`)
     const file = join(dir, decodeURIComponent(new URL(request.url ?? '/', 'http://app').pathname))
     const served = !relative(dir, file).startsWith('..') && existsSync(file) && statSync(file).isFile() ? file : join(dir, 'index.html')
     response.writeHead(200, { 'content-type': TYPES[extname(served)] ?? 'application/octet-stream' })
@@ -635,6 +639,9 @@ const optionSurfaces = async (page: Page, width: number) => {
   return { words, cut }
 }
 
+/** The fragment of the link of a group of `magnets` named `name`, as Copy link builds it. */
+const linkTo = (name: string, magnets: string[]) => buildGroupLink(name, magnets.map(magnet => ({ magnet }))).link!.slice(GROUP_LINK_PREFIX.length)
+
 /** Makes a group of the ticked rows from the bar's Groups menu, named `name`. */
 const groupTicked = async (page: Page, name: string) => {
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
@@ -651,6 +658,7 @@ const groupSurfaces = async (page: Page, width: number) => {
   const dialog = page.getByRole('dialog')
   const chip = page.locator('.list-toolbar .chip.group')
   await page.setViewportSize({ width, height: 1500 })
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
 
@@ -680,9 +688,13 @@ const groupSurfaces = async (page: Page, width: number) => {
   await expect(page.locator('.torrent')).toHaveCount(3)
   await read('a group shown')
   await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveCount(4)
+  await expect(menu.getByRole('menuitem')).toHaveCount(5)
   await read('menu of a group shown')
   await menu.getByRole('menuitem').nth(2).click()
+  await expect(page.locator('.toast')).toBeVisible()
+  await read('its link copied')
+  await chip.click()
+  await menu.getByRole('menuitem').nth(3).click()
   await expect(dialog.locator('input')).toHaveValue('Orbital Gardeners')
   await read('rename')
   await dialog.locator('button:not([type=submit])').click()
@@ -702,6 +714,16 @@ const groupSurfaces = async (page: Page, width: number) => {
   await menu.getByRole('menuitemcheckbox').click()
   await expect(page.locator('.empty')).toBeVisible()
   await read('an empty group')
+
+  const sent = linkTo('Weekend watch list', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')])
+  await page.goto(`${origin}/add#${sent}`)
+  await library(page, LIST, TORRENTS)
+  await expect(dialog).toBeVisible()
+  await read('a group sent by link')
+  await page.goto(`${origin}/add#${sent.slice(0, -8)}`)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.toast')).toBeVisible()
+  await read('a group link cut short')
   return { words, cut }
 }
 
@@ -2168,7 +2190,7 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
     type: 'state', torrents: [...TORRENTS, snapshot(12, 'f', 'Elsewhere', {}), snapshot(13, '8', 'Elsewhere.Also', {})],
   })
   await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveText(['New group...', 'Rename...', 'Delete group'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['New group...', 'Copy link', 'Rename...', 'Delete group'])
 
   await menu.getByRole('menuitem', { name: 'Rename...' }).click()
   const dialog = page.getByRole('dialog')
@@ -2253,6 +2275,178 @@ test('a group made from the Group chip is empty and shown, and Show everything s
   await page.locator('.empty').getByRole('button', { name: 'Show everything' }).click()
   await expect(page.locator('.list-toolbar .chip.group')).toHaveText('Group')
   await expect(page.locator('.torrent')).toHaveCount(11)
+})
+
+/** The link of a group of Seven and Eight, which the list does not hold. */
+const SENT = () => linkTo('Week 9', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')])
+
+test('a group link asks first, adds its torrents as rows not on this device in a group of its name, and is spent', async ({ page }) => {
+  const fragment = SENT()
+  requests.length = 0
+  await page.goto(`${origin}/add#${fragment}`)
+  await library(page, LIST, TORRENTS)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toHaveAccessibleName('Week 9')
+  await expect(dialog.locator('p')).toHaveText('2 torrents')
+  await expect(page, 'spent once read, so a reload asks nothing').toHaveURL(`${origin}/`)
+  const sent = await sending(page, ['import-list', 'add-magnet'])
+  // a paste behind the dialog adds nothing, as behind any other
+  await paste(page, magnetOf('3', 'Pasted'))
+  await drawn(page)
+  expect(await sent(), 'nothing is added while it asks').toEqual([])
+
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => (await sent()).length).toBe(1)
+  const { list } = (await sent())[0] as { list: { infoHash: string, magnet: string, savePath: string }[] }
+  expect(list.map(({ infoHash, magnet, savePath }) => ({ infoHash, magnet, savePath }))).toEqual(['7', '8'].map(c => ({
+    infoHash: c.repeat(40), magnet: `magnet:?xt=urn:btih:${c.repeat(40)}`, savePath: `/dl/${c.repeat(40)}`,
+  })))
+  await expect(page.locator('.toast')).toHaveText('Week 9 added')
+  // as the engine lists them: not started, so not on this device
+  await post(page, { type: 'list', list: [...LIST, ...list.map(item => ({ ...item, started: false, ephemeral: false }))] })
+  const chip = page.locator('.list-toolbar .chip.group')
+  await expect(chip).toHaveText('Week 9')
+  await expect(chip).toHaveAccessibleName('Group: Week 9 (2)')
+  await expect(page.locator('.torrent')).toHaveCount(2)
+  await chip.click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Download all' }).click()
+  const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
+  await expect.poll(started).toEqual(['7'.repeat(40), '8'.repeat(40)])
+
+  await paste(page, magnetOf('3', 'Pasted'))
+  await expect.poll(async () => (await sent()).length, 'the control: the same paste with no dialog adds it').toBe(2)
+  // the server never received the group, in an address or as the page a request came from
+  expect(requests.filter(line => line.startsWith('/add ')), 'the control: the log holds the visit').toHaveLength(1)
+  expect(requests.filter(line => line.includes(fragment.slice(0, 16)))).toEqual([])
+  await page.reload()
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.list-toolbar')).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+})
+
+test('a group link cut short says it could not be read, asks nothing, and is spent', async ({ page }) => {
+  await page.goto(`${origin}/add#${SENT().slice(0, -8)}`)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.toast')).toHaveText('That link could not be read')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).toHaveURL(`${origin}/`)
+})
+
+test('a group link inside a frame asks nothing and adds nothing', async ({ page }) => {
+  // another site, at another name for this server
+  writeFileSync(join(dir, 'group-embedder.html'), `<body style="margin:0"><iframe src="${origin}/add#${SENT()}" style="border:0;width:100vw;height:100vh"></iframe>`)
+  const embedder = new URL('/group-embedder.html', origin.replace('127.0.0.1', 'localhost')).href
+  await page.route(embedder, route => route.continue())
+  await page.goto(embedder)
+  const frame = page.frames().find(each => each.url().startsWith(origin))!
+  await library(frame, LIST, TORRENTS)
+  await expect(frame.locator('.list-toolbar')).toBeVisible()
+  await drawn(frame)
+  await expect(frame.getByRole('dialog')).toHaveCount(0)
+  await expect(frame.locator('.toast')).toHaveCount(0)
+})
+
+test('the installed app asks about a group link it is opened with, and about one reaching its open window', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, 'launchQueue', {
+    configurable: true,
+    value: { setConsumer: (consumer: unknown) => Object.assign(window, { launch: consumer }) },
+  }))
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  const sent = await sending(page, ['import-list', 'add-magnet'])
+  const launch = (address: string) => page.evaluate(async (targetURL) => {
+    const { launch } = window as unknown as { launch: (params: object) => Promise<void> }
+    await launch({ targetURL, files: [] })
+  }, address)
+  const dialog = page.getByRole('dialog')
+
+  await launch(`${origin}/add#${SENT()}`)
+  await expect(dialog).toHaveAccessibleName('Week 9')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  // the address an /add link leads to
+  await launch(`${origin}/?group#${linkTo('Week 10', [magnetOf('7', 'Seven')])}`)
+  await expect(dialog).toHaveAccessibleName('Week 10')
+  await expect(dialog.locator('p')).toHaveText('1 torrent')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await launch(`${origin}/add#${SENT().slice(0, -8)}`)
+  await expect(page.locator('.toast')).toHaveText('That link could not be read')
+  await expect(dialog).toHaveCount(0)
+  expect(await sent()).toEqual([])
+})
+
+/** Puts `bytes` where the page keeps the .torrent a torrent was added from. */
+const keepTorrentFile = (page: Page, infoHash: string, bytes: Buffer) => page.evaluate(([key, bytes]) => new Promise<void>((resolve, reject) => {
+  const open = indexedDB.open('keyval-store')
+  open.onupgradeneeded = () => open.result.createObjectStore('keyval')
+  open.onsuccess = () => {
+    const put = open.result.transaction('keyval', 'readwrite').objectStore('keyval').put(new Uint8Array(bytes as number[]), key as string)
+    put.onsuccess = () => { open.result.close(); resolve() }
+    put.onerror = () => reject(put.error)
+  }
+  open.onerror = () => reject(open.error)
+}), [`ripple:torrent:${infoHash}`, [...bytes]] as const)
+
+const str = (value: string) => `${Buffer.byteLength(value)}:${value}`
+// a .torrent whose info dictionary says private, as a private tracker hands one out
+const PRIVATE_TORRENT = Buffer.from(`d${str('announce')}${str('https://members.example/key/announce')}${str('info')}d${str('length')}i11e${str('name')}${str('Members')}${str('piece length')}i16384e${str('pieces')}${str('p'.repeat(20))}${str('private')}i1eee`)
+
+test('Copy link copies the shown group\'s link inside the click, leaves a private torrent out and says so, and reads back as the group', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await page.goto(origin)
+  // Elsewhere's kept .torrent says private
+  await keepTorrentFile(page, 'f'.repeat(40), PRIVATE_TORRENT)
+  await library(page, LIST, TORRENTS)
+  const chip = page.locator('.list-toolbar .chip.group')
+  const menu = page.getByRole('menu')
+  for (const name of ['A.Season.Pack', 'Elsewhere', 'Kept.Paused']) await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
+  await groupTicked(page, 'Week 2')
+  await page.keyboard.press('Escape')
+  await chip.click()
+  await menu.getByRole('menuitemradio', { name: 'Week 2 (3)' }).click()
+  // where the click wrote to the clipboard: WebKit refuses a write once the click has awaited anything
+  await page.evaluate(() => {
+    let clicking = false
+    window.addEventListener('click', () => { clicking = true }, true)
+    window.addEventListener('click', () => { clicking = false })
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard)
+    navigator.clipboard.writeText = (text: string) => {
+      Object.assign(window, { inClick: clicking })
+      return write(text)
+    }
+  })
+  await chip.click()
+  await menu.getByRole('menuitem', { name: 'Copy link' }).click()
+  await expect(page.locator('.toast')).toHaveText('Link copied, 1 private torrent left out')
+  expect(await page.evaluate(() => (window as unknown as { inClick: boolean }).inClick)).toBe(true)
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied.startsWith(GROUP_LINK_PREFIX)).toBe(true)
+  const read = readGroupLink(copied.slice(GROUP_LINK_PREFIX.length))
+  expect(read?.name).toBe('Week 2')
+  expect(read?.torrents.map(t => t.infoHash).sort()).toEqual(['b'.repeat(40), 'c'.repeat(40)])
+})
+
+test('Copy link for a group past the most a link holds says so, and copies nothing', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, 'table'])
+  await page.goto(origin)
+  const hashOf = (i: number) => i.toString(16).padStart(40, '0')
+  const many = Array.from({ length: 1001 }, (_, i) => ({ infoHash: hashOf(i), magnet: `magnet:?xt=urn:btih:${hashOf(i)}`, name: `Many.${i}`, size: GB, addedAt: 1, started: false }))
+  await library(page, many, [])
+  await page.locator('.list-toolbar .pick-all input').check()
+  await groupTicked(page, 'All of them')
+  await page.keyboard.press('Escape')
+  const chip = page.locator('.list-toolbar .chip.group')
+  const menu = page.getByRole('menu')
+  await chip.click()
+  await menu.getByRole('menuitemradio', { name: 'All of them (1001)' }).click()
+  await page.evaluate(() => navigator.clipboard.writeText('held before'))
+  await chip.click()
+  await menu.getByRole('menuitem', { name: 'Copy link' }).click({ timeout: 30_000 })
+  await expect(page.locator('.toast')).toHaveText('Links hold up to 1,000 torrents')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('held before')
 })
 
 test('a state filter says nothing matches from the engine\'s first report on, and not before', async ({ page }) => {
@@ -2802,4 +2996,11 @@ test('the control: in English the options menu\'s and its dialogs\' own words ar
     '8 MB/s, held to 5 MB/s in total', `Moves to ${FOLDER} when it finishes`, 'Done', 'Capped at 5 MB/s by the total limit.',
     'kB/s', 'Enter a speed in kB/s, or tick Unlimited.', 'Remove limit', 'Cancel', 'Don\'t ask again',
   ]) expect(words).toContain(text)
+})
+
+test('the control: in English the groups\' surfaces and a group sent by link are read too, and fit', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { words, cut } = await groupSurfaces(page, 1280)
+  expect(cut).toEqual([])
+  for (const text of ['New group...', 'Download all', 'Copy link', 'Link copied', 'Weekend watch list', '2 torrents', 'Add', 'That link could not be read']) expect(words).toContain(text)
 })

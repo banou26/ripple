@@ -86,9 +86,11 @@ import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import type { GroupChoice } from '../components/list-toolbar'
-import { GroupNameDialog } from '../components/group-dialogs'
+import { GroupLinkDialog, GroupNameDialog } from '../components/group-dialogs'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
-import { useGroupView } from './use-group-view'
+import { addLinkedGroup, useGroupLink, useGroupView } from './use-group-view'
+import { MAX_LINK_TORRENTS, readGroupLink } from './group-link'
+import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
 import type { TorrentGroup } from '../torrent/groups'
 import {
@@ -117,6 +119,7 @@ const FOLD_MAX = 519
 /** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
 const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
+const NO_ROWS: Torrent[] = []
 
 /**
  * Whether a drag carries something this page could actually add.
@@ -2505,6 +2508,8 @@ const Home = () => {
   >(null)
   /** A group being named, new or renamed, for the same reason as `rateEdit`. */
   const [naming, setNaming] = useState<{ title: string, name?: string, save: (name: string) => void } | null>(null)
+  /** A group sent by a link, being asked about; up here for the same reason. */
+  const [received, setReceived] = useState<LinkedGroup | null>(null)
   /**
    * What the panel should adopt once the engine catches up with a drop.
    *
@@ -2525,6 +2530,14 @@ const Home = () => {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
   useEffect(() => () => clearTimeout(toastTimer.current), [])
+
+  /** Asks about the group a link's fragment names. Refused inside a frame, as an /add link is (see that effect). */
+  const receive = useCallback((fragment: string) => {
+    if (isFramed()) return
+    const group = readGroupLink(fragment)
+    if (group) setReceived(group)
+    else showToast(intl.formatMessage({ id: 'That link could not be read', defaultMessage: 'That link could not be read' }))
+  }, [showToast, intl])
 
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine)
@@ -2709,7 +2722,7 @@ const Home = () => {
       // editor counts for the same reason, and doubly so: it holds a text field, so a stray paste
       // there is a gesture aimed at THIS dialog rather than at the page behind it. And the add dialog,
       // whose torrent a paste behind it would replace.
-      if (confirmOpen || rateEdit || pendingAdd || naming) return
+      if (confirmOpen || rateEdit || pendingAdd || naming || received) return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       const text = e.clipboardData?.getData('text') ?? ''
@@ -2717,7 +2730,7 @@ const Home = () => {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [commitMagnet, confirmOpen, rateEdit, pendingAdd, naming])
+  }, [commitMagnet, confirmOpen, rateEdit, pendingAdd, naming, received])
 
   // dragenter/dragleave fire per element, so a depth counter keeps the overlay from flickering while the drag crosses children
   const [dragging, setDragging] = useState(false)
@@ -2789,6 +2802,11 @@ const Home = () => {
       if (!rawUrl) return false
       try {
         const url = new URL(rawUrl, window.location.origin)
+        // a group link, or the address it leads to
+        if (url.hash && (at(Route.ADD, url) ? !url.searchParams.has('magnet') : at(Route.HOME, url) && url.searchParams.has('group'))) {
+          receive(url.hash.slice(1))
+          return true
+        }
         const magnet = at(Route.ADD, url)
           ? namedMagnet(url.searchParams.get('magnet') ?? '', url.searchParams.get('name'))
           : at(Route.HOME, url) && url.searchParams.get('add')
@@ -2817,7 +2835,7 @@ const Home = () => {
         }
       })
     } catch {}
-  }, [addTorrentFiles, askNext, commitMagnet])
+  }, [addTorrentFiles, askNext, commitMagnet, receive])
 
   const onToggle = useCallback((t: Torrent) => stopped(t) ? resume(Number(t.id)) : pause(Number(t.id)), [resume, pause])
 
@@ -3304,6 +3322,16 @@ const Home = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.get('add')])
 
+  // a group link, read before anything updates the address, which drops the fragment, and spent once read whatever it
+  // holds, so a reload asks nothing again
+  useEffect(() => {
+    if (!params.has('group')) return
+    const fragment = window.location.hash.slice(1)
+    setParams(new URLSearchParams(), { replace: true })
+    receive(fragment)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const optionContext = (t: Torrent): TorrentOptionContext => {
     const { intended, current } = locationOf(t)
     return {
@@ -3443,6 +3471,27 @@ const Home = () => {
     })
     if (ok) await deleteGroup(g.id)
   }
+  const addReceived = (linked: LinkedGroup) => {
+    setReceived(null)
+    void addLinkedGroup(linked, groups ?? [], client.importList).then((id) => {
+      if (id) chooseGroup(id)
+      showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: linked.name }))
+    })
+  }
+  const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : NO_ROWS)
+  const copyGroupLink = ({ link, privateLeftOut: left }: { link: string | null, privateLeftOut: number }) => {
+    if (!link) {
+      showToast(intl.formatMessage({ id: 'Links hold up to {max, number} torrents', defaultMessage: 'Links hold up to {max, number} torrents' }, { max: MAX_LINK_TORRENTS }))
+      return
+    }
+    copy(
+      link,
+      left
+        ? intl.formatMessage({ id: '{count, plural, one {Link copied, {count} private torrent left out} other {Link copied, {count} private torrents left out}}', defaultMessage: '{count, plural, one {Link copied, {count} private torrent left out} other {Link copied, {count} private torrents left out}}' }, { count: left })
+        : intl.formatMessage({ id: 'Link copied', defaultMessage: 'Link copied' }),
+      intl.formatMessage({ id: 'Could not copy the link', defaultMessage: 'Could not copy the link' }),
+    )
+  }
   const stateRows = visibleTorrents(torrents, listFilter)
   const fetchable = toStart(groupRows)
   const group: GroupChoice = {
@@ -3455,6 +3504,7 @@ const Home = () => {
     onShow: chooseGroup,
     onNew: () => newGroup(() => []),
     onDownloadAll: shownGroup && fetchable.length ? () => { for (const t of fetchable) onStart(t) } : undefined,
+    onCopyLink: shownGroup && groupLink?.count ? () => copyGroupLink(groupLink) : undefined,
     onRename: () => {
       if (shownGroup) setNaming({ title: shownGroup.name, name: shownGroup.name, save: (name) => { void renameGroup(shownGroup.id, name) } })
     },
@@ -4000,6 +4050,15 @@ const Home = () => {
           name={naming.name}
           onCancel={() => setNaming(null)}
           onSave={(name) => { setNaming(null); naming.save(name) }}
+        />
+      )}
+
+      {received && (
+        <GroupLinkDialog
+          name={received.name}
+          count={received.torrents.length}
+          onCancel={() => setReceived(null)}
+          onAdd={() => addReceived(received)}
         />
       )}
 
