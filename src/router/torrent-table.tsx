@@ -196,15 +196,16 @@ const style = css`
      the list's padding (32), the box column (32), the options column (30), that name and the state cell's padding
      (6, the options button's own room standing for the rest), and with Progress showing, its column (100, as wide as
      Italian's AVANZAMENTO in DejaVu Sans). Without it Brazilian Portuguese's TENTANDO NOVAMENTE left a name 54 px at
-     320 px, and French 49 px at 401 px; a floor on the column instead wrapped EN PAUSE at 390 px, where nothing has to. One word wider than the room, French TÉLÉCHARGEMENT below
-     420 px in DejaVu Sans, widens its badge rather than spill out of it, and leaves the name 75 px at 401 px. */
+     320 px, and French 49 px at 401 px; a floor on the column instead wrapped EN PAUSE at 390 px, where nothing has to.
+     One word wider than the room, French TÉLÉCHARGEMENT or German ABGESCHLOSSEN in DejaVu Sans, breaks across two lines
+     rather than widen its badge into the name's room. */
   @media (max-width: 560px) {
     .c-down, .bar { display: none; }
     /* a finger's height, and the name's padding beside the box, for a finger's width without taking the name's room */
     tbody td.check { height: 40px; }
     td.check .row-check::before { right: -8px; }
     td.c-status { padding-left: 4px; padding-right: 2px; }
-    td.c-status .badge { width: max-content; min-width: min-content; max-width: calc(100vw - 284px); white-space: normal; }
+    td.c-status .badge { width: max-content; max-width: calc(100vw - 284px); white-space: normal; overflow-wrap: anywhere; }
     td.c-status .badge::before { flex: none; }
   }
   /* with Progress, French left a name 47 px at 360 px and ran past a 320 px window */

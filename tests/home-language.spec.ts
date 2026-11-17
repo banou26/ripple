@@ -1842,22 +1842,24 @@ test.describe('on a phone', () => {
     expect(at412.get('paused'), `412 px: ${[...at412].join(' ')}`).toBe(at412.get('seeding'))
   })
 
-  for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: the table stays inside the window from 320 to 412 px, with a name to read`, async ({ page }) => {
+  for (const language of ['en', ...Object.keys(catalogues()), PSEUDO]) {
+    test(`${language}: the table stays inside the window from 320 to 412 px, with a name to read and each state inside its badge`, async ({ page }) => {
       await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
       await opened(page, language)
       await expect(page.locator('.torrent-table')).toBeVisible()
       for (const width of [320, 360, 390, 412]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
-        const { right, window, name } = await page.evaluate(() => ({
+        const { right, window, name, spilled } = await page.evaluate(() => ({
           right: document.querySelector('.torrent-table')!.getBoundingClientRect().right,
           window: document.documentElement.clientWidth,
           name: document.querySelector('.torrent-table tbody td.name')!.getBoundingClientRect().width,
+          spilled: [...document.querySelectorAll('.torrent-table tbody .badge')].filter(badge => badge.scrollWidth > badge.clientWidth + 1).map(badge => badge.textContent),
         }))
         expect(right, `${width} px`).toBeLessThanOrEqual(window)
         // about eight letters, which a state too long to sit beside it on one line wraps to leave
         expect(name, `${width} px`).toBeGreaterThanOrEqual(80)
+        expect(spilled, `${width} px`).toEqual([])
       }
     })
   }
