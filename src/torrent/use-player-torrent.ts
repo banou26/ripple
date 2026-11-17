@@ -146,7 +146,7 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
       const handle = await held()
       const engine = engineRef.current
       try {
-        const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current, readsRef.current?.signal)
+        const u8 = await client.read(handle, fileIndex, offset, clamped, prioritize, viewerRef.current, readsRef.current?.signal, true)
         const buf = u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
           ? u8.buffer
           : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)

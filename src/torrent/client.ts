@@ -208,8 +208,10 @@ export type TorrentClient = {
    * stalled read for up to eighteen attempts, and re-anchors the viewer's claim between them, which
    * silently resurrects a claim the page has already handed back. So a reader that has gone away has
    * to say so.
+   *
+   * `partial` takes a shorter answer as soon as the first piece is in, for a reader that asks again for the rest.
    */
-  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string, signal?: AbortSignal) => Promise<Uint8Array>
+  read: (handle: number, fileIndex: number, offset: number, len: number, prioritize?: boolean, viewer?: string, signal?: AbortSignal, partial?: boolean) => Promise<Uint8Array>
   newViewerId: () => string
   /**
    * Move a viewer's anchor. Pass `readLen` when the move came from a read rather than from a user seek:
@@ -745,7 +747,7 @@ export const createTorrentClient = (): EngineClient => {
     startSource: (infoHash, handles) => send({ type: 'start-source', infoHash, handles }),
     start: (infoHash) => send({ type: 'start', infoHash }),
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
-    read: (handle, fileIndex, offset, len, prioritize = true, viewer, signal) => {
+    read: (handle, fileIndex, offset, len, prioritize = true, viewer, signal, partial) => {
       if (fatal) return Promise.reject(fatal)
       if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
       return new Promise<Uint8Array>((resolve, reject) => {
@@ -761,7 +763,7 @@ export const createTorrentClient = (): EngineClient => {
           send({ type: 'cancel-read', id, handle })
           settleRead(id)?.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
         }, { once: true, signal: off!.signal })
-        send({ type: 'read', id, handle, fileIndex, offset, len, prioritize, viewer })
+        send({ type: 'read', id, handle, fileIndex, offset, len, prioritize, viewer, partial })
       })
     },
     pause: (handle) => send({ type: 'pause', handle }),

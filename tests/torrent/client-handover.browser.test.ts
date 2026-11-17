@@ -199,6 +199,15 @@ describe('a command caught by an engine handover', () => {
  * the torrent and carried on downloading a file somebody had just cancelled. Abandoning the promise
  * here cannot stop that; only telling the worker can.
  */
+it('tells the engine a read takes a short answer only when its reader says so', async () => {
+  const rig = makeRig()
+  running(rig)
+  rig.client.read(3, 0, 0, 8, true, 'player', undefined, true).catch(() => {})
+  rig.client.read(3, 0, 0, 8, true, 'save').catch(() => {})
+  await Promise.resolve()
+  expect(rig.posted.filter((m) => m.type === 'read').map((m) => m.partial)).toEqual([true, undefined])
+})
+
 describe('cancelling a read', () => {
   it('tells the engine, with the id it is already using', async () => {
     const rig = makeRig()

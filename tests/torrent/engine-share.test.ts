@@ -141,10 +141,12 @@ describe('the leader server', () => {
     replies.addEventListener('message', ({ data }) => heard.push(data.msg))
     await settle()
 
-    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 3, handle: 1, fileIndex: 0, offset: 0, len: 3 } })
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 3, handle: 1, fileIndex: 0, offset: 0, len: 3, prioritize: true, viewer: 'player', partial: true } })
     await settle()
 
     expect(heard).toContainEqual({ type: 'read-result', id: 3, data: new Uint8Array([1, 2, 3]) })
+    // a follower's player takes a short answer as its own engine's would give it
+    expect(client.read).toHaveBeenCalledWith(1, 0, 0, 3, true, 'player', undefined, true)
     stop()
   })
 
