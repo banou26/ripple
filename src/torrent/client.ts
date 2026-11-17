@@ -21,7 +21,7 @@ import { intl, wordsOf } from '../i18n'
 import { createChannelTransport, serveFollowers } from './engine-share'
 import { createRecentRateTracker } from './recent-rate'
 import { electEngineOwner } from './engine-election'
-import { ENGINE_RESET, hasWebLocks, isSessionScoped, newClientId } from './engine-protocol'
+import { ASKS, ENGINE_RESET, hasWebLocks, isSessionScoped, newClientId } from './engine-protocol'
 import { createGate } from './gate'
 import { ICE_SERVERS } from './vpn-config'
 import { vpnFollower } from './vpn-follow'
@@ -93,6 +93,11 @@ export type TorrentClient = {
   setFlags: (handle: number, flags: number, mask: number) => void
   /** Announce to this torrent's trackers now. libtorrent rate limits it internally. */
   reannounce: (handle: number) => void
+  /**
+   * Add trackers to a torrent, running or not, kept with its resume data. Answers the urls the engine did not take:
+   * any that is not an http, https, udp, ws or wss url. Rejects when the engine was replaced before it was asked.
+   */
+  addTrackers: (handle: number, urls: string[]) => Promise<string[]>
   moveInQueue: (handle: number, where: 'top' | 'up' | 'down' | 'bottom') => void
   /** Bytes per second, 0 for unlimited. Omit a side to leave it alone. Kept across reloads. */
   setLimits: (handle: number, limits: { down?: number, up?: number }) => void
@@ -550,10 +555,10 @@ export const createTorrentClient = (): EngineClient => {
        * give that number to, and `remove` carries `deleteFiles`. See SESSION_SCOPED.
        */
       if ((epoch !== issued || !aimed) && isSessionScoped(msg?.type)) {
-        // A read is the one command somebody is awaiting, so dropping it in silence parks that caller
-        // for the whole READ_TIMEOUT. Every caller already retries a failed read; none survives a
+        // A read or an ask is awaited, so dropping it in silence parks that caller for the whole
+        // READ_TIMEOUT or ASK_TIMEOUT. Every caller already retries a failed read; none survives a
         // promise that never settles.
-        if (msg?.type === 'read') {
+        if (msg?.type === 'read' || ASKS.has(msg?.type)) {
           settleRead(msg.id)?.reject(new Error(intl.formatMessage({
             id: 'the engine was replaced while this read was waiting',
             defaultMessage: 'the engine was replaced while this read was waiting',
@@ -674,6 +679,7 @@ export const createTorrentClient = (): EngineClient => {
     inspect: (handle) => send({ type: 'inspect', handle }),
     setFlags: (handle, flags, mask) => send({ type: 'set-flags', handle, flags, mask }),
     reannounce: (handle) => send({ type: 'reannounce', handle }),
+    addTrackers: (handle, urls) => ask({ type: 'add-trackers', handle, urls }) as Promise<string[]>,
     moveInQueue: (handle, where) => send({ type: 'queue-move', handle, where }),
     setLimits: (handle, limits) => send({ type: 'set-limits', handle, ...limits }),
     setSessionLimits: (limits) => send({ type: 'set-session-limits', ...limits }),

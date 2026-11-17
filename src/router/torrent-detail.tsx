@@ -5,8 +5,8 @@ import type { PieceBitfield } from 'libtorrent-wasm'
 import { css } from '@emotion/react'
 
 import {
-  BORDER, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG,
-  EMPHASIS, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
+  BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG,
+  EMPHASIS, FOCUS_RING, OK, SUNKEN_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
@@ -399,6 +399,33 @@ const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boole
   )
 }
 
+/** Takes tracker urls, one per line, for a torrent in the session; those the engine refuses stay in the field. */
+const AddTrackers = ({ onAdd }: { onAdd: (urls: string[]) => Promise<string[]> }) => {
+  const intl = useIntl()
+  const [text, setText] = useState('')
+  const [refused, setRefused] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const urls = text.split('\n').map((line) => line.trim()).filter(Boolean)
+  const add = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    const left = await onAdd(urls).catch(() => urls)
+    setBusy(false)
+    setRefused(left)
+    setText(left.join('\n'))
+  }
+  return (
+    <form className="add-trackers" onSubmit={add}>
+      <label>
+        <span>{intl.formatMessage({ id: 'Trackers, one per line', defaultMessage: 'Trackers, one per line' })}</span>
+        <textarea value={text} onChange={(event) => setText(event.target.value)}/>
+      </label>
+      <button type="submit" disabled={busy || !urls.length}>{intl.formatMessage({ id: 'Add trackers', defaultMessage: 'Add trackers' })}</button>
+      {refused.length > 0 && <p className="refused">{intl.formatMessage({ id: 'Not added: {urls}', defaultMessage: 'Not added: {urls}' }, { urls: refused.join(', ') })}</p>}
+    </form>
+  )
+}
+
 const readHeight = (): number => {
   try {
     const stored = Number(localStorage.getItem(HEIGHT_KEY))
@@ -784,25 +811,67 @@ export const dockStyle = css`
       color: ${TEXT_MUTED};
       background: ${CONTROL_HOVER_BG};
     }
+  }
 
-    button {
-      flex: none;
-      border: 1px solid ${BORDER};
+  .row button,
+  .add-trackers button {
+    flex: none;
+    border: 1px solid ${BORDER};
+    border-radius: 4px;
+    background: ${CONTROL_BG};
+    color: ${TEXT};
+    padding: 3px 12px;
+    font-size: 0.75rem;
+
+    &:hover {
+      background: ${CONTROL_HOVER_BG};
+      border-color: ${BORDER_STRONG};
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+  }
+
+  .add-trackers {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 6px 12px;
+    margin-top: 10px;
+    font-size: 0.78rem;
+
+    label {
+      flex: 1 1 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: ${TEXT_MUTED};
+    }
+
+    textarea {
+      min-height: 3.4em;
+      resize: vertical;
+      padding: 5px 8px;
+      border: 1px solid ${BORDER_INTERACTIVE};
       border-radius: 4px;
-      background: ${CONTROL_BG};
+      background: ${SUNKEN_BG};
       color: ${TEXT};
-      padding: 3px 12px;
-      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.95em;
 
-      &:hover {
-        background: ${CONTROL_HOVER_BG};
-        border-color: ${BORDER_STRONG};
+      &:focus-visible {
+        outline: 2px solid ${FOCUS_RING};
+        outline-offset: 1px;
       }
+    }
 
-      &:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
+    .refused {
+      flex-basis: 100%;
+      margin: 0;
+      color: ${DANGER};
+      overflow-wrap: anywhere;
     }
   }
 
@@ -933,6 +1002,7 @@ export const TorrentDetailDock = ({
         )}
         {tab === 'peers' && <Peers peers={detail.peers} loaded={detail.loaded}/>}
         {tab === 'trackers' && <Trackers trackers={detail.trackers} loaded={detail.loaded}/>}
+        {tab === 'trackers' && handle != null && <AddTrackers key={t.id} onAdd={(urls) => client.addTrackers(handle, urls)}/>}
       </div>
     </section>
   )

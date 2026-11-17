@@ -131,6 +131,18 @@ describe('a command caught by an engine handover', () => {
     expect(types(rig)).not.toContain('read')
   })
 
+  it('fails an add of trackers it drops, which a panel waits on', async () => {
+    const rig = makeRig()
+    running(rig)
+    rig.say({ type: ENGINE_RESET })
+
+    const added = rig.client.addTrackers(7, ['wss://tracker.invalid'])
+    rig.say({ type: 'ready' })
+
+    await expect(added).rejects.toThrow(/engine was replaced/)
+    expect(types(rig)).not.toContain('add-trackers')
+  })
+
   it('carries a command that names its torrent by info hash across the same handover', async () => {
     const rig = makeRig()
     // exactly the case gate.ts exists for: /watch issues this during its own election
@@ -273,6 +285,19 @@ describe('what an add carries', () => {
     expect(rig.posted.find((m) => m.type === 'watch')).toMatchObject({
       viewer: 'viewer-1', handle: 7, fileIndex: 3, held: false, bulk: true,
     })
+  })
+})
+
+describe('adding trackers', () => {
+  it('sends the urls for the handle and settles with the ones the engine refused', async () => {
+    const rig = makeRig()
+    running(rig)
+    const added = rig.client.addTrackers(7, ['wss://tracker.invalid', 'not a tracker'])
+    await Promise.resolve()
+    const sent = rig.posted.find((m) => m.type === 'add-trackers')
+    expect(sent).toMatchObject({ handle: 7, urls: ['wss://tracker.invalid', 'not a tracker'] })
+    rig.say({ type: 'answer', id: sent.id, value: ['not a tracker'] })
+    await expect(added).resolves.toEqual(['not a tracker'])
   })
 })
 

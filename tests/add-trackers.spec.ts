@@ -1,0 +1,98 @@
+/*
+ * Trackers added to a running torrent from its details panel, end to end on this build's engine with the VPN off. A
+ * WebSocket tracker on loopback is announced to within seconds with no restart, and a line that is no tracker is
+ * named. The tracker is in the torrent's resume data before any reload, and after one the torrent lists it and
+ * announces to it again. The torrent is made here from a file copied into browser storage, which keeps resume data,
+ * and seeds from the start, so nothing leaves this machine.
+ */
+import type { Page } from '@playwright/test'
+
+import { expect, test } from './offline'
+
+import { WEBRTC_PEERS } from '../src/torrent/vpn-config'
+import { startTracker } from './vpn-off/tracker.mjs'
+
+// with WebRTC peers stopped nothing announces to a WebSocket tracker
+test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
+
+test.use({
+  launchOptions: {
+    executablePath: process.env.RIPPLE_CHROME || undefined,
+    args: ['--mute-audio', '--host-resolver-rules=MAP ripple-tracker.test 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'],
+  },
+})
+
+const NAME = 'Tracked.Film.bin'
+
+/** One key of the raw idb-keyval store, where the worker keeps each torrent's resume data, its bytes as latin1 text. */
+const storedText = (page: Page, key: string) => page.evaluate((key) => new Promise<string>((resolve) => {
+  const request = indexedDB.open('keyval-store')
+  request.onerror = () => resolve('')
+  request.onsuccess = () => {
+    const read = request.result.transaction('keyval', 'readonly').objectStore('keyval').get(key)
+    read.onsuccess = () => resolve(read.result instanceof Uint8Array ? new TextDecoder('latin1').decode(read.result) : '')
+    read.onerror = () => resolve('')
+  }
+}), key)
+
+let tracker: Awaited<ReturnType<typeof startTracker>>
+test.beforeEach(async () => { tracker = await startTracker() })
+test.afterEach(async () => { await tracker.close() })
+
+test('a tracker added to a running torrent is announced to at once, a refused line is named, and the tracker survives a reload', async ({ page }) => {
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(String(error)))
+  const fs = await import('node:fs')
+  fs.mkdirSync(test.info().outputPath(), { recursive: true })
+  const file = test.info().outputPath(NAME)
+  fs.writeFileSync(file, Buffer.alloc(200_000, 7))
+  await page.context().addInitScript(() => {
+    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
+    delete (window as any).showDirectoryPicker
+    delete (window as any).showOpenFilePicker
+  })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  const dialog = page.getByRole('dialog')
+  const chooser = page.waitForEvent('filechooser')
+  await dialog.getByRole('button', { name: 'Choose a file', exact: true }).click()
+  await (await chooser).setFiles(file)
+  await dialog.getByLabel('Trackers, one per line').fill('')
+  await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
+  const infoHash = (await dialog.locator('code').first().textContent())!
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  const row = page.locator('.torrent', { hasText: NAME })
+  await expect(row.locator('.badge')).toHaveText('Seeding', { timeout: 120_000 })
+
+  const dock = page.getByRole('region', { name: `Details for ${NAME}` })
+  const listed = dock.locator('.rows .row', { hasText: `ripple-tracker.test:${tracker.port}` })
+  const openTrackers = async () => {
+    await row.locator('.title').click()
+    await dock.getByRole('button', { name: 'Trackers', exact: true }).click()
+  }
+  await openTrackers()
+  // THE CONTROL: nothing announces to the tracker before it is added
+  await page.waitForTimeout(3_000)
+  expect(tracker.seen.announces).toBe(0)
+  await expect(listed).toHaveCount(0)
+
+  await dock.getByLabel('Trackers, one per line').fill(`ws://ripple-tracker.test:${tracker.port}\nnot a tracker\n`)
+  await dock.getByRole('button', { name: 'Add trackers' }).click()
+  await expect(dock.getByText('Not added: not a tracker')).toBeVisible()
+  await expect.poll(() => tracker.peers(), { timeout: 15_000, message: 'the running torrent never announced to the added tracker' }).toBe(1)
+  await expect(listed).toHaveCount(1, { timeout: 15_000 })
+  await expect
+    .poll(() => storedText(page, `ripple:resume:${infoHash}`), { timeout: 15_000, message: 'the tracker is not in the resume data' })
+    .toContain(`ripple-tracker.test:${tracker.port}`)
+
+  const announced = tracker.seen.announces
+  await page.reload()
+  await expect(row.locator('.badge')).toHaveText('Seeding', { timeout: 120_000 })
+  await openTrackers()
+  await expect(listed).toHaveCount(1, { timeout: 30_000 })
+  await expect.poll(() => tracker.seen.announces, { timeout: 30_000, message: 'the reloaded torrent never announced to the tracker' }).toBeGreaterThan(announced)
+  expect(errors).toEqual([])
+})

@@ -178,6 +178,7 @@ export const fakeSession = (over: Partial<Record<string, unknown>> = {}): FakeSe
     trackers: () => [],
     lastPeers: () => [],
     lastTrackers: () => [],
+    addTrackers: () => [],
     setPriorities: () => {},
     setFlags: () => {},
     // an add's limits go to the engine with it

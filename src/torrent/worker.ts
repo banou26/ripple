@@ -46,7 +46,7 @@ import { relaySockets } from './relay-sockets'
 import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'add-trackers', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -2848,6 +2848,14 @@ const handleMessage = async (session: Session, m: any) => {
       void persistResume(m.handle)
     } else if (m.type === 'reannounce') {
       session.forceReannounce(m.handle)
+    } else if (m.type === 'add-trackers') {
+      const refused = session.addTrackers(m.handle, m.urls)
+      // the panel's list asks again on the next state, not up to TRACKER_POLL_MS later
+      trackersPolledAt = 0
+      // A finished torrent's blob is written once per pause state, so nothing else would save the trackers. A save
+      // under way was asked before them, so it is waited for and the torrent saved again.
+      void (async () => { await resumeInFlight.get(m.handle); await persistResume(m.handle) })()
+      post({ type: 'answer', id: m.id, value: refused })
     } else if (m.type === 'queue-move') {
       session.moveInQueue(m.handle, m.where)
     } else if (m.type === 'set-limits') {

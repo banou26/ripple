@@ -56,7 +56,7 @@ export const BROADCAST_TYPES = new Set([
 export const ENGINE_RESET = 'engine-reset'
 
 /** The commands a page awaits an answer to, `{ type: 'answer', id, value }` or `{ ..., error }`, sent to the asker alone. */
-export const ASKS = new Set(['export-start', 'export-chunk', 'import-start'])
+export const ASKS = new Set(['export-start', 'export-chunk', 'import-start', 'add-trackers'])
 
 // Ten ticks of the leader's worker posting state on a fixed 500ms tick, which doubles as its heartbeat.
 // Headroom for a busy main thread, not for throttling: real Chromium and Firefox hold the 500ms interval closely even when backgrounded. Playwright's headless
@@ -87,7 +87,7 @@ export const LEADER_SILENCE_MS = 5_000
  * `add-magnet` it issues during its own election and waits forever on metadata.
  */
 export const SESSION_SCOPED = new Set([
-  'cancel-read', 'force-start', 'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'remove', 'resume',
+  'add-trackers', 'cancel-read', 'force-start', 'inspect', 'pause', 'queue-move', 'read', 'reannounce', 'recheck', 'remove', 'resume',
   'retry', 'set-flags', 'set-limits', 'set-plan', 'watch',
 ])
 

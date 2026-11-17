@@ -19,6 +19,9 @@ import { render } from 'vitest-browser-react'
 
 const inspected: (number | null)[] = []
 const planned: [number, { wanted?: number[], firstLast?: boolean }][] = []
+const trackersAdded: [number, string[]][] = []
+// what the engine answers an add of trackers with: the urls it refused
+let refusing: (urls: string[]) => Promise<string[]> = async () => []
 let detailCb: ((detail: any) => void) | null = null
 
 // one client, as the page has: a new one per render would subscribe again on every render, and empty the panel each time
@@ -27,6 +30,7 @@ vi.mock('../../src/torrent/client', () => {
     inspect: (handle: number | null) => { inspected.push(handle) },
     onDetail: (cb: (d: any) => void) => { detailCb = cb; return () => { detailCb = null } },
     setPlan: (handle: number, plan: { wanted?: number[], firstLast?: boolean }) => { planned.push([handle, plan]) },
+    addTrackers: (handle: number, urls: string[]) => { trackersAdded.push([handle, urls]); return refusing(urls) },
   }
   return { getTorrentClient: () => client }
 })
@@ -628,6 +632,41 @@ describe('the docked torrent details', () => {
     send({ trackers: [tracker({ fails: 0 }), tracker({ url: 'udp://b.invalid:80/announce', fails: 3 })] })
     await expect.element(screen.getByText('Working')).toBeInTheDocument()
     await expect.element(screen.getByText('Failed 3×')).toBeInTheDocument()
+  })
+
+  it('adds the trackers typed one per line, and keeps and names the ones the engine refused', async () => {
+    const screen = await mount()
+    tabButton(screen, 'Trackers').click()
+    trackersAdded.length = 0
+    refusing = async (urls) => urls.filter((url) => !url.includes('://'))
+    const field = screen.getByLabelText('Trackers, one per line')
+    const add = screen.getByRole('button', { name: 'Add trackers' })
+    await field.fill(' \n\n')
+    // nothing to add
+    await expect.element(add).toBeDisabled()
+    await field.fill('  wss://tracker.invalid  \n\nnot a tracker\n')
+    await add.click()
+    await expect.element(screen.getByText('Not added: not a tracker')).toBeInTheDocument()
+    expect(trackersAdded).toEqual([[7, ['wss://tracker.invalid', 'not a tracker']]])
+    await expect.element(field).toHaveValue('not a tracker')
+
+    // an engine replaced before it was asked took none of them
+    refusing = async () => { throw new Error('the engine was replaced') }
+    await field.fill('wss://tracker.invalid\nwss://other.invalid')
+    await add.click()
+    await expect.element(screen.getByText('Not added: wss://tracker.invalid, wss://other.invalid')).toBeInTheDocument()
+
+    refusing = async () => []
+    await add.click()
+    await expect.element(field).toHaveValue('')
+    expect(screen.container.querySelector('.refused')).toBeNull()
+  })
+
+  it('offers no field to add trackers to a torrent that is not on this device', async () => {
+    const screen = await mount(torrent(), null)
+    tabButton(screen, 'Trackers').click()
+    await expect.element(screen.getByText('Asking the engine…')).toBeInTheDocument()
+    expect(screen.container.querySelector('.add-trackers')).toBeNull()
   })
 
   it('says a torrent has no trackers instead of leaving the tab blank', async () => {
