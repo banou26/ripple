@@ -753,9 +753,14 @@ export const createTorrentClient = (): EngineClient => {
     createSource: (torrent) => send({ type: 'create-source', ...torrent }),
     startSource: (infoHash, handles) => send({ type: 'start-source', infoHash, handles }),
     start: (infoHash) => send({ type: 'start', infoHash }),
+    // asked only once an engine is up, so an engine slow to start is not taken for an older one
     startMany: (infoHashes) => {
-      ask({ type: 'start-many', infoHashes }, START_MANY_TIMEOUT)
-        .catch(() => { for (const infoHash of infoHashes) send({ type: 'start', infoHash }) })
+      const go = () => {
+        if (!started) { gate.wait(go); return }
+        ask({ type: 'start-many', infoHashes }, START_MANY_TIMEOUT)
+          .catch(() => { for (const infoHash of infoHashes) send({ type: 'start', infoHash }) })
+      }
+      gate.wait(go)
     },
     removeMissing: (infoHash) => send({ type: 'remove-missing', infoHash }),
     read: (handle, fileIndex, offset, len, prioritize = true, viewer, signal, partial) => {

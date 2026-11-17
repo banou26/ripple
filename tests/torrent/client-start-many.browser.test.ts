@@ -12,8 +12,8 @@ const ROWS = ['a', 'b', 'c'].map((c) => c.repeat(40))
 
 const clients: ReturnType<typeof createTorrentClient>[] = []
 
-/** A client whose engine is up, what it posted, and `say`, through which the engine speaks to it. */
-const running = () => {
+/** A client whose engine is still starting, what it posted, and `say`, through which the engine speaks to it. */
+const starting = () => {
   let host!: TransportHost
   const posted: { type: string, id?: number, infoHash?: string, infoHashes?: string[] }[] = []
   const factory = (h: TransportHost): Transport => {
@@ -24,9 +24,14 @@ const running = () => {
   clients.push(client)
   client.useTransport(factory, true)
   const say = (msg: object) => host.message(msg)
-  say({ type: 'ready' })
-  say({ type: 'list', list: [] })
   return { client, say, posted }
+}
+
+const running = () => {
+  const engine = starting()
+  engine.say({ type: 'ready' })
+  engine.say({ type: 'list', list: [] })
+  return engine
 }
 
 const startsOf = (posted: { type: string, infoHash?: string }[]) => posted.filter((m) => m.type === 'start').map((m) => m.infoHash)
@@ -56,6 +61,22 @@ it('starts each row on its own when the engine, an older build, does not answer 
   // advanced by hand: vi.waitFor moves fake timers on by itself
   await vi.advanceTimersByTimeAsync(0)
   expect(posted.at(-1)?.type).toBe('start-many')
+  await vi.advanceTimersByTimeAsync(4_999)
+  expect(startsOf(posted)).toEqual([])
+  await vi.advanceTimersByTimeAsync(1)
+  expect(startsOf(posted)).toEqual(ROWS)
+})
+
+// The page draws the list before the engine is up, and with the VPN on the engine can wait 8 s for its port, so the
+// rows can be pressed long before anything could answer.
+it('counts the 5 s from when the engine is up, not from a press made while it was starting', async () => {
+  vi.useFakeTimers()
+  const { client, say, posted } = starting()
+  client.startMany(ROWS)
+  await vi.advanceTimersByTimeAsync(8_000)
+  say({ type: 'ready' })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(posted.filter((m) => m.type === 'start-many')).toHaveLength(1)
   await vi.advanceTimersByTimeAsync(4_999)
   expect(startsOf(posted)).toEqual([])
   await vi.advanceTimersByTimeAsync(1)
