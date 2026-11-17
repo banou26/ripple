@@ -305,10 +305,10 @@ const wordsOf = (page: Shown, root = 'body') => page.evaluate(root => [...docume
 const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
-  // on a phone the sort chip's word and the footer's Speed give way first, as the count of the bar for ticked rows does,
-  // and a group's name, as long as somebody typed it, at any width; always to an ellipsis, which is drawn only where the
-  // overflow is cut
-  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip.sort .value, footer .folder > span')
+  // on a phone the toolbar's words give way, the sort's, the group's, then the filter's (the order is the toolbar test's
+  // to check), and the footer's Speed, as the count of the bar for ticked rows does; and a group's name, as long as
+  // somebody typed it, at any width; always to an ellipsis, which is drawn only where the overflow is cut
+  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip .value, footer .folder > span')
     || width <= 700 && element.matches('.bulk-bar .count') || element.matches('.list-toolbar .chip.group .value'))
     && getComputedStyle(element).textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(getComputedStyle(element).overflowX)
   return [
@@ -1858,12 +1858,14 @@ test.describe('on a phone', () => {
           sortWidth: box(sort!).width,
         }
       })
-      // as it opens, with every torrent shown: the Group chip's word gives way only once the sort has given its own
+      // as it opens, with every torrent shown: the Group chip's word gives way only once the sort has given its own, and
+      // the filter's once both have
       for (const width of [390, 360, 320]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const fit = await fitOf()
         if (fit.groupCut) expect(fit.sortWidth, `${width} px: the word Group is cut while the sort has room to give`).toBeLessThanOrEqual(60.5)
+        if (fit.showCut) expect(Math.max(fit.sortWidth, fit.groupWidth), `${width} px: the filter is cut while another chip has room to give`).toBeLessThanOrEqual(60.5)
       }
       await page.setViewportSize({ width: 390, height: 844 })
       await page.locator('.list-toolbar .chip.show').click()
@@ -1896,6 +1898,16 @@ test.describe('on a phone', () => {
         expect(fit.sortWidth, `${at}: the group is cut while the sort has room to give`).toBeLessThanOrEqual(60.5)
         if (fit.showCut) expect(fit.groupWidth, `${at}: the filter is cut while the group has room to give`).toBeLessThanOrEqual(60.5)
       }
+    })
+  }
+
+  for (const language of ['en', 'de']) {
+    test(`${language}: at 390 px the filter Temporary keeps its whole word beside the Group and Sort chips`, async ({ page }) => {
+      await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, 'temporary'])
+      await opened(page, language)
+      const word = page.locator('.list-toolbar .chip.show .value')
+      await expect(word, 'the control: the filter is Temporary').toHaveText(language === 'en' ? 'Temporary' : 'Temporär')
+      expect(await word.evaluate(shown => shown.scrollWidth - shown.clientWidth)).toBe(0)
     })
   }
 

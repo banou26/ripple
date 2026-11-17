@@ -169,8 +169,8 @@ const style = css`
   }
 
   /* at their least, the three chips, the box and the views take 307 px with 8 px gaps, past the 288 px a 320 px window
-     leaves */
-  @media (max-width: 360px) {
+     leaves; at 390 px these 24 px are what a filter such as Temporary has before it is cut */
+  @media (max-width: 400px) {
     gap: 4px;
 
     .views button { padding: 5px 7px; }
