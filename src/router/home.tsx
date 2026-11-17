@@ -95,7 +95,8 @@ import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions } from '../torrent/torrent-options'
-import { knownPrivate, saveTorrentFile, shareableMagnet } from '../torrent/torrent-export'
+import { knownPrivate, shareableMagnet } from '../torrent/torrent-export'
+import { saveSyncedTorrentFile } from '../torrent/torrent-file-sync'
 import { useShareableMagnet, useShareableMagnets } from '../torrent/use-shareable-magnet'
 import type { TorrentOptionActions, TorrentOptionContext } from '../torrent/torrent-options'
 import type { ShareableMagnets } from '../torrent/use-shareable-magnet'
@@ -2876,11 +2877,11 @@ const Home = () => {
     saveTorrentFile: () => {
       if (!t.magnet || !t.infoHash) return
       /*
-       * Rebuilt from the resume blob, which is the only copy of the info dictionary outside
-       * libtorrent's own memory. `flushResume` is what makes one exist for a torrent the engine has
-       * not got round to persisting yet; it writes to IndexedDB, not to torrent storage.
+       * The kept .torrent, else the account's, else one rebuilt from the resume blob. `flushResume`
+       * is what makes a blob exist for a torrent the engine has not got round to persisting yet; it
+       * writes to IndexedDB, not to torrent storage.
        */
-      void saveTorrentFile({ infoHash: t.infoHash, magnet: t.magnet, name: t.name, flush: () => client.flushResume() })
+      void saveSyncedTorrentFile({ infoHash: t.infoHash, magnet: t.magnet, name: t.name, flush: () => client.flushResume() })
         .then((result) => showToast(
           result === 'saved' ? intl.formatMessage({ id: 'Saved {name}.torrent', defaultMessage: 'Saved {name}.torrent' }, { name: t.name })
             : result === 'no-metadata' ? intl.formatMessage({ id: '{name} has no metadata yet', defaultMessage: '{name} has no metadata yet' }, { name: t.name })

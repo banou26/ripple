@@ -43,7 +43,7 @@ import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from 
 import { VpnSwitch } from '../components/vpn-switch'
 import { canOfferWatch, pickVideoFile } from '../torrent/watch'
 import { magnetInfoHash, magnetParam, sameInfoHash } from '../torrent/magnet'
-import { saveTorrentFile } from '../torrent/torrent-export'
+import { saveSyncedTorrentFile } from '../torrent/torrent-file-sync'
 import { hint } from '../components/hint'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { useControlled } from '../utils/use-controlled'
@@ -851,17 +851,14 @@ const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
   }, [magnet, say, intl])
 
   /*
-   * The .torrent is REBUILT rather than fetched, because there is nothing to fetch.
-   *
-   * A magnet carries an infohash and the engine gets the rest from the swarm, so afterwards the info
-   * dictionary lives only inside libtorrent, which exposes no way to read it back. `torrentFileFor`
-   * takes it out of the resume blob, which libtorrent is already asked to write with `save_info_dict`.
+   * The kept .torrent, else the account's, else one rebuilt from the resume blob: libtorrent exposes
+   * no way to read the info dictionary back, and writes it into the blob with `save_info_dict`.
    * Nothing here touches torrent storage, so a page that has deliberately written nothing still has.
    */
   const onSaveTorrentFile = useCallback(() => {
     if (!magnet || !infoHash || savingTorrent) return
     setSavingTorrent(true)
-    void saveTorrentFile({ infoHash, magnet, name: torrentName, flush: () => client.flushResume() })
+    void saveSyncedTorrentFile({ infoHash, magnet, name: torrentName, flush: () => client.flushResume() })
       .then((result) => say(
         result === 'saved' ? intl.formatMessage({ id: 'Saved the .torrent', defaultMessage: 'Saved the .torrent' })
           : result === 'no-metadata' ? intl.formatMessage({ id: 'The metadata has not arrived yet', defaultMessage: 'The metadata has not arrived yet' })

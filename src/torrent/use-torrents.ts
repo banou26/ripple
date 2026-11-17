@@ -16,6 +16,7 @@ import { noPeersFound } from './no-peers'
 import { CHECKING_STATES, pauseLanded } from './recovery'
 import { heldBytes } from './downloaded-ranges'
 import { cloudRestoreSettled } from './use-cloud-backup'
+import { keepSyncedTorrentFile } from './torrent-file-sync'
 import { holdWhileStored } from '../utils/page-work'
 import { writeDuration } from './uptime'
 
@@ -473,7 +474,8 @@ export const useTorrents = (): UseTorrents => {
   const retry = useCallback((handle: number) => client.retry(handle), [client])
   const recheck = useCallback((handle: number) => client.recheck(handle), [client])
   const remove = useCallback((handle: number, deleteFiles?: boolean) => client.remove(handle, deleteFiles), [client])
-  const start = useCallback((infoHash: string) => client.start(infoHash), [client])
+  // with the account's .torrent kept first when this device has none, so the engine has the file list from the start
+  const start = useCallback((infoHash: string) => { void keepSyncedTorrentFile(infoHash).then(() => client.start(infoHash)) }, [client])
   const removeMissing = useCallback((infoHash: string) => client.removeMissing(infoHash), [client])
   const answerSample = useCallback((add: boolean) => {
     sampleAnswered()

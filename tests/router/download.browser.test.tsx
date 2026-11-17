@@ -129,9 +129,10 @@ vi.mock('../../src/torrent/save-file', async (importOriginal) => ({
 
 /** Each `.torrent` the page asks for waits here until the test answers it with `result`. */
 const exported = { result: 'saved' as 'saved' | 'no-metadata' | 'failed', settle: null as null | (() => void) }
-vi.mock('../../src/torrent/torrent-export', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/torrent/torrent-export')>()),
-  saveTorrentFile: () => new Promise((resolve) => { exported.settle = () => resolve(exported.result) }),
+// the module the page saves through, not torrent-export: the engine's worker imports that one, and runs no mock
+vi.mock('../../src/torrent/torrent-file-sync', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/torrent-file-sync')>()),
+  saveSyncedTorrentFile: () => new Promise((resolve) => { exported.settle = () => resolve(exported.result) }),
 }))
 
 const sized = () => {

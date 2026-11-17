@@ -5,6 +5,7 @@ import type { Torrent } from './types'
 import { contentFiles } from './types'
 import { savePathIn } from './save-location'
 import { syncTorrentToDirectory } from './sync'
+import { keepSyncedTorrentFile } from './torrent-file-sync'
 import { pageWork } from '../utils/page-work'
 
 /**
@@ -120,5 +121,7 @@ export const moveTorrentFiles = async (
    * and nothing has been dropped, so the torrent is exactly where it was and this is a retry.
    */
   if (!torrent.infoHash) throw new Error('the torrent has no info hash, so the move cannot be finished safely')
+  // the engine adds it again at the new place, from the kept .torrent when there is one
+  await keepSyncedTorrentFile(torrent.infoHash)
   client.relocate(torrent.infoHash, to)
 })

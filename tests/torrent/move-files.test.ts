@@ -15,6 +15,12 @@ import type { Torrent } from '../../src/torrent/types'
 
 const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
 
+// the hashes whose account .torrent a move asked for, and a gate a case can hold those asks behind
+const synced = vi.hoisted(() => ({ kept: [] as string[], hold: null as Promise<void> | null }))
+vi.mock('../../src/torrent/torrent-file-sync', () => ({
+  keepSyncedTorrentFile: async (infoHash: string) => { synced.kept.push(infoHash); await synced.hold },
+}))
+
 /**
  * A directory tree with just enough of the API for a copy.
  *
@@ -211,6 +217,29 @@ describe('the order of a move', () => {
       to: 'browser',
     })).rejects.toThrow()
     expect(client.relocate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the account\'s .torrent first, so the engine adds the torrent again with its file list', async () => {
+    let release!: () => void
+    synced.kept.length = 0
+    synced.hold = new Promise((resolve) => { release = resolve })
+    try {
+      const client = fakeClient()
+      const moving = moveTorrentFiles({
+        client,
+        torrent: torrentOf([{ name: 'a.bin', size: 4 }]),
+        folder: fakeDir({ 'a.bin': bytes(4, 1) }),
+        opfsRoot: fakeDir({}),
+        to: 'browser',
+      })
+      await vi.waitFor(() => expect(synced.kept).toEqual(['abc']))
+      expect(client.relocate, 'the engine was told before the .torrent was kept').not.toHaveBeenCalled()
+      release()
+      await moving
+      expect(client.relocate).toHaveBeenCalledWith('abc', 'browser')
+    } finally {
+      synced.hold = null
+    }
   })
 
   it('goes through the verifying mirror on the way into a folder', async () => {
