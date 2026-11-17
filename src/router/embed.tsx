@@ -450,7 +450,7 @@ const useLinkParams = () => {
 const Player = ({ linked }: { linked: LinkLanguages }) => {
   const intl = useIntl()
   const params = useLinkParams()
-  const { fileIndex: _fileIndex } = Object.fromEntries(params.entries())
+  const _fileIndex = params.get('fileIndex')
   /**
    * Both parameters, because this is the SECOND of two decode sites and they have to agree: the
    * other is in `Embed` below. Reading `m` here and only `magnet` there would render an empty player

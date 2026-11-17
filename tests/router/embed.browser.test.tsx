@@ -681,6 +681,14 @@ describe('the watch route', () => {
     }
   })
 
+  // as Embed and the download page read it, so the two routes name one file
+  it('plays the file named after the # when the query names another', async () => {
+    state.named = []
+    const screen = await mount(DESKTOP, '?magnet=bWFnbmV0Og==&fileIndex=1#fileIndex=3')
+    await expect.element(screen.getByText('Some.Release.Name.S01E04.1080p.mkv')).toBeInTheDocument()
+    expect(state.named.at(-1)).toBe(3)
+  })
+
   it('downloads the file the button names, once the file list is known', async () => {
     const special = { path: 'Feature/Feature.Extra.SP01.mkv', size: 200_000_000, offset: 0, pad: false }
     const film = { path: 'Feature/Feature.mkv', size: 2_000_000_000, offset: 200_000_000, pad: false }
