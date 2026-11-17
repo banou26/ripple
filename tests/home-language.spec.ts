@@ -303,8 +303,10 @@ const wordsOf = (page: Shown, root = 'body') => page.evaluate(root => [...docume
 const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
-  // on a phone the sort chip's word and the footer's Speed give way first, always to an ellipsis
-  const givesWay = (element: Element) => width <= 560 && element.matches('.list-toolbar .chip.sort .value, footer .folder > span') && getComputedStyle(element).textOverflow === 'ellipsis'
+  // on a phone the sort chip's word and the footer's Speed give way first, always to an ellipsis, which is drawn only
+  // where the overflow is cut
+  const givesWay = (element: Element) => width <= 560 && element.matches('.list-toolbar .chip.sort .value, footer .folder > span')
+    && getComputedStyle(element).textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(getComputedStyle(element).overflowX)
   return [
     ...document.documentElement.scrollWidth > width ? [`the page scrolls sideways by ${document.documentElement.scrollWidth - width} px`] : [],
     ...[...document.querySelector(root)!.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap((element) => {
