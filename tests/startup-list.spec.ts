@@ -67,6 +67,15 @@ test('a reload shows the library before the engine is ready', async ({ page }) =
 })
 
 test('a starting row carries the torrent name, and becomes the real row', async ({ page }) => {
+  // recorded as the list changes rather than polled: with the VPN off the engine reports about 20 ms after the
+  // starting row is drawn, sooner than a poll comes round
+  await page.addInitScript(() => {
+    const w = window as any
+    w.__starting = null as string | null
+    document.addEventListener('DOMContentLoaded', () => new MutationObserver(() => {
+      w.__starting ??= document.querySelector('.torrent.starting')?.textContent ?? null
+    }).observe(document.body, { childList: true, subtree: true }))
+  })
   await page.goto('/')
   await addSample(page, { pause: true })
   await expect(page.locator('.torrent')).toHaveCount(1)
@@ -74,14 +83,14 @@ test('a starting row carries the torrent name, and becomes the real row', async 
 
   await page.reload()
 
-  const starting = page.locator('.torrent.starting').first()
-  await starting.waitFor({ timeout: 10_000 })
+  const starting = () => page.evaluate(() => (window as any).__starting as string | null)
+  await expect.poll(starting, { timeout: 10_000 }).not.toBeNull()
   // The NAME, not an info hash. Most stored magnets carry no `dn` at all (the sample's entry is a bare
   // `magnet:?xt=urn:btih:...`), so this falls back to the name the torrent occupies on disk. Without
   // it the row shows eight hex characters where a title belongs, which reads as a different torrent
   // rather than as this one still loading.
-  await expect(starting).toContainText('Sintel')
-  await expect(starting).toContainText('Starting')
+  expect(await starting()).toContain('Sintel')
+  expect(await starting()).toContain('Starting')
 
   // and it has to be REPLACED rather than joined: one torrent must never occupy two rows
   await expect(page.locator('.torrent.starting')).toHaveCount(0, { timeout: 40_000 })
