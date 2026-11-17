@@ -30,7 +30,12 @@ const server = serve()
 let code = 0
 try {
   await waitUp()
-  const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
+  // nothing off this machine, as tests/offline.ts keeps the local specs: the app would otherwise load fkn.app and
+  // reserve a port on a production relay
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'],
+  })
 
   for (const [name, width, height] of [['wide', 1280, 860], ['narrow', 620, 780]]) {
     const page = await browser.newPage({ viewport: { width, height } })
@@ -143,8 +148,10 @@ try {
   const linked = await drop
     .waitForFunction((want) => {
       const url = document.querySelector('[role="dialog"] [data-testid="embed-url"]')?.textContent ?? ''
-      if (!url.includes('?')) return false
-      const params = new URLSearchParams(url.slice(url.indexOf('?')))
+      let link
+      try { link = new URL(url) } catch { return false }
+      // after the `#` and in the query, the `#` first, as linkParams in src/router/path.ts reads a link
+      const params = new URLSearchParams([...new URLSearchParams(link.hash.slice(1)), ...new URLSearchParams(link.search)])
 
       const packed = params.get('m')
       if (packed) {
