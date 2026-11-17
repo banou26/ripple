@@ -1279,6 +1279,32 @@ test.describe('the Language setting', () => {
         expect(parts.every(part => Math.abs(part.middle - parts[0]!.middle) < 2), `${width} px: Speed and its two limits on one line`).toBe(true)
         expect(parts.every(part => part.oneLine), `${width} px: each limit's text on one line`).toBe(true)
       }
+      // with no limit set, or a bigger text size, two limits can leave Speed no room beside them (Russian's two
+      // Unlimited at 320 px): the up limit may take a second line, but nothing leaves the window or the footer's
+      // padding, and Speed keeps at least a letter and its ellipsis
+      for (const rateLimits of [{ down: 5_000_000, up: 0 }, { down: 0, up: 0 }]) {
+        await post(page, { type: 'state', torrents: TORRENTS, rateLimits, ...READOUTS[0] })
+        for (const size of ['100%', '125%']) {
+          await page.evaluate((size) => { document.documentElement.style.fontSize = size }, size)
+          for (const width of [320, 390]) {
+            await page.setViewportSize({ width, height: 844 })
+            await drawn(page)
+            const at = `${width} px, ${rateLimits.down ? 'a limit' : 'no limit'} set, text at ${size}`
+            expect(await cutOff(page, 'footer'), at).toEqual([])
+            expect(await page.locator('footer').evaluate((footer) => {
+              const speed = footer.querySelector<HTMLElement>('.folder > span')!
+              const pen = document.createElement('canvas').getContext('2d')!
+              pen.font = getComputedStyle(speed).font
+              const end = footer.getBoundingClientRect().right - parseFloat(getComputedStyle(footer).paddingRight)
+              return {
+                speed: speed.clientWidth + 1 >= Math.min(speed.scrollWidth, pen.measureText(`${speed.textContent.slice(0, 1)}…`).width),
+                inside: [...footer.querySelectorAll('.folder > *')].every(part => part.getBoundingClientRect().right <= end + 0.5),
+              }
+            }), at).toEqual({ speed: true, inside: true })
+          }
+        }
+      }
+      await page.evaluate(() => { document.documentElement.style.fontSize = '' })
       await toSettings(page)
       await expect(page.locator('html')).toHaveAttribute('lang', language)
       await expect(select(page).locator('option').first()).toContainText('Español latinoamericano')

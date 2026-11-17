@@ -1762,12 +1762,12 @@ export const style = css`
       }
     }
 
-    /* each limit as its arrow, whole, on one line with Speed, which gives way to an ellipsis in a font too wide for both */
+    /* each limit as its arrow, whole, beside Speed, which gives way to an ellipsis down to a letter and the ellipsis
+       before a limit takes a second line */
     footer {
-      .folder { flex-wrap: nowrap; }
-
       .folder > span {
-        min-width: 0;
+        flex: 1 1 0;
+        min-width: 2em;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
