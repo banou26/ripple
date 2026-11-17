@@ -3111,22 +3111,26 @@ const Home = () => {
       : intl.formatMessage({ id: '{name} can be deleted to free space', defaultMessage: '{name} can be deleted to free space' }, { name: t.name }))
   }
 
-  /** In-flight moves, so the effect below and a click cannot start the same one twice. */
-  const movingRef = useRef(new Set<string>())
+  /**
+   * Moves in flight, by info hash, with where each goes, so the effect below and a click cannot start the same one twice.
+   * A move that worked keeps its mark until its row reports the new place: until then the row still reads the old one,
+   * and a second move would read files the engine already dropped.
+   */
+  const movingRef = useRef(new Map<string, SaveLocation>())
 
   const runMove = async (t: Torrent, to: SaveLocation) => {
-    if (!folder || !permitted || movingRef.current.has(t.id)) return
-    movingRef.current.add(t.id)
+    const infoHash = t.infoHash
+    if (!folder || !permitted || !infoHash || movingRef.current.has(infoHash)) return
+    movingRef.current.set(infoHash, to)
     try {
       await moveTorrentFiles({ client, torrent: t, folder, to })
       showToast(to === 'folder'
         ? intl.formatMessage({ id: '{name} moved to {folder}', defaultMessage: '{name} moved to {folder}' }, { name: t.name, folder: folder.name })
         : intl.formatMessage({ id: '{name} moved into browser storage', defaultMessage: '{name} moved into browser storage' }, { name: t.name }))
     } catch {
+      movingRef.current.delete(infoHash)
       // nothing was deleted: the copy runs first and the engine is only told once it lands
       showToast(intl.formatMessage({ id: 'Moving {name} failed', defaultMessage: 'Moving {name} failed' }, { name: t.name }))
-    } finally {
-      movingRef.current.delete(t.id)
     }
   }
 
@@ -3141,6 +3145,7 @@ const Home = () => {
     for (const t of torrents) {
       if (t.state === 'missing') continue
       const { intended, current } = locationOf(t)
+      if (t.infoHash && movingRef.current.get(t.infoHash) === current) movingRef.current.delete(t.infoHash)
       const readiness = moveReadiness({ current, intended, complete: t.progress >= 1 && holdsChosen(t), folderReady: true, leavesFilesOut: leavesFilesOut(t) })
       if (readiness.move) void runMove(t, readiness.to)
     }
