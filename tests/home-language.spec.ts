@@ -303,6 +303,8 @@ const wordsOf = (page: Shown, root = 'body') => page.evaluate(root => [...docume
 const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
+  // the sort chip's word gives way first on a phone, always to an ellipsis
+  const givesWay = (element: Element) => width <= 560 && element.matches('.list-toolbar .chip.sort .value') && getComputedStyle(element).textOverflow === 'ellipsis'
   return [
     ...document.documentElement.scrollWidth > width ? [`the page scrolls sideways by ${document.documentElement.scrollWidth - width} px`] : [],
     ...[...document.querySelector(root)!.querySelectorAll<HTMLElement>('*:not(style, script)')].flatMap((element) => {
@@ -310,11 +312,11 @@ const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
       const own = [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
       // a line of the stats strip scrolls sideways on a phone, so a readout past the window's edge is reachable
       return box.width > 0 && (box.left < 0 || box.right > width + 0.5) && !element.closest('.stats .line') ? [`past the edge: ${named(element)}`]
-        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language, as the sort chip's
-        // word does, which gives way first on a phone; a hint wraps, and only its arrow hangs past its box, on the side
-        // away from where it is placed; a box that scrolls, the share link's, cuts nothing off
-        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline'
-          && !element.matches('.torrent-table .title, .list-toolbar .chip.sort .value, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
+        // a torrent's name is as long as it is, so the table's ends in an ellipsis in any language; a hint wraps, and
+        // only its arrow hangs past its box, on the side away from where it is placed; a box that scrolls, the share
+        // link's, cuts nothing off
+        : own && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).display !== 'inline' && !givesWay(element)
+          && !element.matches('.torrent-table .title, .react-tooltip, .ripple-overlay-content .file-name') && !['auto', 'scroll'].includes(getComputedStyle(element).overflowX)
           ? [`clipped: ${named(element)}`]
         : element instanceof SVGSVGElement && box.height > 0 && box.width < box.height - 0.5
           ? [`an icon squeezed to ${Math.round(box.width)} of ${Math.round(box.height)} px: ${named(element.parentElement!)}`]
