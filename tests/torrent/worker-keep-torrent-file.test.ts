@@ -19,6 +19,8 @@ const fixture = vi.hoisted(() => {
     ORIGINAL: encoder.encode(`d8:announce${str('https://tracker.own.example/announce')}4:info${info('From a file')}e`),
     blob: (infoDict: string) => encoder.encode(`d4:info${infoDict}e`),
     store: new Map<string, unknown>(),
+    /** Keys a plain read misses although the store holds them, as a value written right after the read. */
+    unseen: new Set<string>(),
   }
 })
 
@@ -54,7 +56,7 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   createHybridStorage: () => ({ usageOf: async () => 0, usageOfStorage: async () => 0, refusedFile: () => undefined }),
 }))
 vi.mock('idb-keyval', () => ({
-  get: async (key: string) => fixture.store.get(key),
+  get: async (key: string) => (fixture.unseen.has(key) ? undefined : fixture.store.get(key)),
   set: async (key: string, value: unknown) => { fixture.store.set(key, value) },
   del: async (key: string) => { fixture.store.delete(key) },
   update: async (key: string, fn: (prev: unknown) => unknown) => { fixture.store.set(key, fn(fixture.store.get(key))) },
@@ -73,6 +75,8 @@ it('keeps a .torrent for a magnet add from its saved state, and leaves a .torren
   fixture.store.set('ripple:resume:' + MAGNET_ADD, new TextEncoder().encode('d4:spami1ee'))
   fixture.store.set('ripple:resume:' + FILE_ADD, new TextEncoder().encode('d4:spami1ee'))
   fixture.store.set('ripple:torrent:' + FILE_ADD, fixture.ORIGINAL)
+  // so its file is first seen inside the write, as a .torrent add landing between the save's look and its write
+  fixture.unseen.add('ripple:torrent:' + FILE_ADD)
   expect(fixture.store.has('ripple:torrent:' + MAGNET_ADD), 'the control: a magnet add keeps no file before').toBe(false)
 
   await import('../../src/torrent/worker')

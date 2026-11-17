@@ -16,6 +16,8 @@ const listeners = new Set<(list: Persisted[]) => void>()
 const checks: (() => boolean)[] = []
 const synced: string[][] = []
 let accountName = 'someone'
+let backupFails = 1
+const statuses: string[] = []
 let accountChanged: (() => void) | undefined
 
 vi.mock('@fkn/lib', () => ({
@@ -29,6 +31,7 @@ vi.mock('@fkn/lib', () => ({
       unlock: async () => false,
       promises: {
         readFile: async (path: string) => {
+          if (path === 'ripple/torrents.json' && backupFails > 0) { backupFails--; throw new Error('broker said no') }
           const hit = cloudText.get(path)
           if (hit === undefined) throw Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
           return hit
@@ -61,10 +64,14 @@ vi.mock('../../src/torrent/torrent-file-sync', () => ({
 
 const { useCloudBackup } = await import('../../src/torrent/use-cloud-backup')
 
-const Harness = () => { useCloudBackup(); return null }
+const Harness = () => { statuses.push(useCloudBackup().status); return null }
 
 it('follows the account whose backup was read, uploads the published list\'s files, and stops at an account change', async () => {
   render(<Harness/>)
+  // a backup read that failed follows nothing, so a Download does not wait on a broker that just failed
+  await expect.poll(() => statuses.at(-1), { timeout: 15_000 }).toBe('error')
+  expect(checks, 'followed the account after its backup read failed').toEqual([])
+  // THE CONTROL: the retry reads it
   await expect.poll(() => checks.length, { timeout: 15_000, message: 'the restore handed over no account to follow' }).toBe(1)
   const first = checks[0]!
   expect(first()).toBe(true)

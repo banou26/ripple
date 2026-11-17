@@ -19,11 +19,12 @@ let listFails = false
 let unlinkFails = false
 let onWrite: () => void = () => {}
 let onRead: () => void = () => {}
+let onGet: () => void = () => {}
 
 const notFound = () => Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
 
 vi.mock('idb-keyval', () => ({
-  get: async (k: string) => store.get(k),
+  get: async (k: string) => { onGet(); return store.get(k) },
   set: async (k: string, v: unknown) => { store.set(k, v) },
   del: async (k: string) => { store.delete(k) },
   update: async (k: string, fn: (prev: unknown) => unknown) => { store.set(k, fn(store.get(k))) },
@@ -100,7 +101,7 @@ beforeEach(() => {
   store.clear(); cloudFiles.clear()
   reads.length = 0; writes.length = 0; unlinks.length = 0; listings.length = 0
   readFails = () => false; readHangs = () => false; writeFails = false; listFails = false; unlinkFails = false
-  onWrite = () => {}; onRead = () => {}
+  onWrite = () => {}; onRead = () => {}; onGet = () => {}
   switched = false
   cloudFiles.set(NAME_KEY_PATH, KEY)
   resetThumbnailSync()
@@ -212,6 +213,17 @@ describe('a removed torrent\'s file', () => {
     expect(cloudFiles.has(await pathOf(A))).toBe(false)
   })
 
+  it('is uploaded again when the torrent left the list for a pass, as a removal from another device, and came back', async () => {
+    store.set('ripple:torrent:' + A, bytes(7))
+    store.set('ripple:torrent:' + B, bytes(8))
+    await syncTorrentFiles([A, B])
+    // the other device's removal deleted it from the account
+    cloudFiles.delete(await pathOf(A))
+    await syncTorrentFiles([B])
+    await syncTorrentFiles([A, B])
+    expect(cloudFiles.get(await pathOf(A)), 'never uploaded again once it had been').toEqual(bytes(7))
+  })
+
   it('is uploaded again when the torrent is added again', async () => {
     store.set('ripple:torrent:' + A, bytes(7))
     await syncTorrentFiles([A])
@@ -241,6 +253,14 @@ describe('an account switch', () => {
     onWrite = () => { switched = true }
     await syncTorrentFiles([A, B, C])
     expect(fileWrites()).toEqual([await pathOf(A)])
+  })
+
+  it('lists nothing once the switch lands while this device\'s files are gathered', async () => {
+    store.set('ripple:torrent:' + A, bytes(7))
+    onGet = () => { switched = true }
+    await syncTorrentFiles([A])
+    expect(listings, 'the other account\'s files were listed').toEqual([])
+    expect(writes).toEqual([])
   })
 
   it('reads nothing once the switch lands while a download is on its way', async () => {
@@ -339,6 +359,12 @@ describe('a failed storage call leaves this device as it was', () => {
     unlinkFails = true
     cloudFiles.set(await pathOf(A), bytes(7))
     await expect(forgetSyncedTorrentFiles([A])).resolves.toBeUndefined()
+  })
+
+  it('an empty file in the account keeps nothing', async () => {
+    cloudFiles.set(await pathOf(B), new Uint8Array(0))
+    await keepSyncedTorrentFile(B)
+    expect(kept(B)).toBeUndefined()
   })
 
   it('a download never writes over a file this device kept meanwhile', async () => {
