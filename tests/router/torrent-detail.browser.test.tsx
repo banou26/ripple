@@ -669,6 +669,27 @@ describe('the docked torrent details', () => {
     expect(screen.container.querySelector('.add-trackers')).toBeNull()
   })
 
+  it('takes no second add while one is under way, and starts another torrent with an empty field', async () => {
+    const screen = await mount()
+    tabButton(screen, 'Trackers').click()
+    let answer: (refused: string[]) => void = () => {}
+    refusing = () => new Promise((resolve) => { answer = resolve })
+    onTestFinished(() => { refusing = async () => [] })
+    const field = screen.getByLabelText('Trackers, one per line')
+    const add = screen.getByRole('button', { name: 'Add trackers' })
+    await field.fill('wss://tracker.invalid\nnot a tracker')
+    await add.click()
+    await expect.element(add).toBeDisabled()
+    answer(['not a tracker'])
+    await expect.element(screen.getByText('Not added: not a tracker')).toBeInTheDocument()
+    await expect.element(add).toBeEnabled()
+
+    await screen.rerender(<TorrentDetailDock t={torrent({ id: '8', name: 'Sintel' })} handle={8} saving={{}} onSave={() => {}} onClose={onClose}/>)
+    await expect.element(screen.getByText('Sintel')).toBeInTheDocument()
+    await expect.element(screen.getByLabelText('Trackers, one per line')).toHaveValue('')
+    expect(screen.container.querySelector('.refused')).toBeNull()
+  })
+
   it('says a torrent has no trackers instead of leaving the tab blank', async () => {
     const screen = await mount()
     tabButton(screen, 'Trackers').click()
@@ -710,6 +731,27 @@ describe('the docked torrent details', () => {
     const level = (quarter: number) => Math.round(data[Math.floor((quarter + 0.5) / 4 * bar.width) * 4 + 3]! / 255 * 2)
     expect([0, 1, 2, 3].map(level)).toEqual([0, 1, 2, 2])
     expect(bar.getAttribute('data-tooltip-content')).toBe('Availability')
+  })
+
+  it('shades a column of the availability bar by its scarcest piece, so a piece nobody has stays in sight', async () => {
+    const screen = await mount(halfHeld())
+    const bar = () => screen.container.querySelectorAll<HTMLCanvasElement>('.fact.has-bar canvas')[1]
+    const level = (x: number) => Math.round(bar()!.getContext('2d')!.getImageData(x, 0, 1, 1).data[3]! / 255 * 2)
+    send({ availability: new Uint16Array([2]) })
+    await expect.poll(() => bar()).toBeTruthy()
+    // four pieces a column, all held by two peers but one in the middle column, which is not that column's first
+    const column = Math.floor(bar()!.width / 2)
+    const counts = new Uint16Array(bar()!.width * 4).fill(2)
+    counts[column * 4 + 1] = 0
+    send({ availability: counts })
+    await expect.poll(() => level(column)).toBe(0)
+    expect([level(column - 1), level(column + 1)]).toEqual([2, 2])
+  })
+
+  it('lays out the pieces fact as any other when it has neither bar', async () => {
+    const screen = await mount()
+    const pieces = [...screen.container.querySelectorAll('.fact')].find((fact) => fact.querySelector('label')?.textContent === 'Pieces')
+    expect(pieces?.className).toBe('fact')
   })
 
   it('says 100% only when the file is whole', async () => {
