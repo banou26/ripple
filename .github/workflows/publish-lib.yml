@@ -32,6 +32,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
@@ -48,6 +51,8 @@ jobs:
         github.event.workflow_run.head_sha == github.sha
       )
     runs-on: ubuntu-24.04
+    # where FKN_RELEASE_KEY belongs once it moves out of the repository secrets
+    environment: release
     # The retry window below is 30 minutes, so half of this is spent waiting on npm before the
     # build is counted at all. A timeout that expires PAST the publish spends a version nobody saw
     # the registry serve: a workflow_dispatch re-run reads changed=false from the gate and runs none
@@ -61,7 +66,9 @@ jobs:
       actions: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Require a green Test run for this commit
         if: github.event_name == 'workflow_dispatch' && inputs.force != true
@@ -82,17 +89,18 @@ jobs:
       #
       # Node 22 because that is what every other gate in this repo builds under: the build runs the
       # vite-plus toolchain, and a publish is the wrong place to be the first run on a newer runtime.
-      - uses: actions/setup-node@v4
+      # No `cache: npm`: a release restores nothing another job could have written.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: npm
 
-      # Trusted publishing needs npm 11.5.1 or newer, which no node 22 image ships. Pinned rather
-      # than assumed: an npm too old fails at the publish step with an auth error that reads like a
-      # revoked credential rather than a stale CLI.
+      # Trusted publishing needs npm 11.5.1 or newer, which no node 22 image ships, and an npm too old
+      # fails at the publish step with an auth error that reads like a revoked credential. Exact, so a
+      # new npm only arrives by a bump here: 12.2.2 is what run 44131046720 (2026-11-17) published
+      # 0.0.69 with.
       - name: Use an npm that supports trusted publishing
         run: |
-          npm install -g npm@latest
+          npm install -g npm@12.2.2
           echo "npm $(npm --version)"
 
       - run: npm ci
