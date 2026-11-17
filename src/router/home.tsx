@@ -119,7 +119,6 @@ const FOLD_MAX = 519
 /** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
 const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
-const NO_ROWS: Torrent[] = []
 /**
  * A group's name inside a sentence, between a first strong isolate and its end (U+2068, U+2069), so a right-to-left
  * name keeps the sentence in order and a U+202E in a name someone sent turns only the name.
@@ -3485,7 +3484,7 @@ const Home = () => {
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: isolated(linked.name) }))
     }, () => showToast(intl.formatMessage({ id: 'Could not add the group', defaultMessage: 'Could not add the group' })))
   }
-  const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : NO_ROWS)
+  const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : [])
   const copyGroupLink = ({ link, privateLeftOut: left }: { link: string | null, privateLeftOut: number }) => {
     if (!link) {
       showToast(intl.formatMessage({ id: 'Links hold up to {max, number} torrents', defaultMessage: 'Links hold up to {max, number} torrents' }, { max: MAX_LINK_TORRENTS }))
