@@ -86,7 +86,7 @@ export const useOrderedTorrents = (
   else {
     movedAt.current ??= now()
     if (shouldReorder({ viewChanged, idsChanged: false, volatile: true, interacting: interacting.current, sinceMs: now() - movedAt.current })) {
-      for (const k of held.keys()) held.set(k, live.get(k)!)
+      for (const [k, group] of live) if (held.has(k)) held.set(k, group)
       movedAt.current = null
     }
   }
