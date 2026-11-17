@@ -4,8 +4,11 @@
  * The move adds the torrent again at the folder. A .torrent add's stored magnet is its bare hash, so a re-add from it
  * has no file list until a peer sends one, and with no peer the row read "Fetching metadata…" at 0% until a reload.
  * Here the files are placed in browser storage before the add, so the torrent finishes with no peer and moves on its
- * own, and nothing but its kept .torrent can give the folder copy its file list. No transfer, so this is headless.
+ * own, and nothing but its kept .torrent can give the folder copy its file list. The folder copy then checks its files,
+ * which downloads nothing, so its row shows no speed meanwhile. No transfer, so this is headless.
  */
+import type { Page } from '@playwright/test'
+
 import { createHash } from 'node:crypto'
 
 import { expect, test } from './offline'
@@ -33,17 +36,16 @@ for (let at = 0; at < all.length; at += PIECE) pieces.push(createHash('sha1').up
 const info = { name: NAME, 'piece length': PIECE, pieces: Buffer.concat(pieces), files: FILES.map((f) => ({ length: f.size, path: [f.path] })) }
 const TORRENT = bencode({ info })
 const INFO_HASH = createHash('sha1').update(bencode(info)).digest('hex')
-const MOVED = `/native/${INFO_HASH}`
 
-type Row = { progress: number, state: number | null, files: number }
+type Report = { at: number, progress: number, state: number | null, paused: boolean, totalDone: number, files: number }
+type Placed = { path: string, size: number, fill: number }
 
-test('a .torrent add moved into the folder keeps its file list and its progress', async ({ page }) => {
-  test.setTimeout(180_000)
+/** Every engine report of the torrent once it is at the folder, from the first, with a folder the picker gives. */
+const watchMove = async (page: Page, infoHash: string) => {
   await page.addInitScript((moved) => {
     const w = window as any
     try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
     w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true })
-    // every report of the torrent once it is at the folder, from the first
     w.__moved = []
     const Original = window.Worker
     window.Worker = class extends Original {
@@ -52,13 +54,15 @@ test('a .torrent add moved into the folder keeps its file list and its progress'
         this.addEventListener('message', (event: MessageEvent) => {
           if (event.data?.type !== 'state') return
           const t = (event.data.torrents ?? []).find((row: any) => row.status?.savePath === moved)
-          if (t) w.__moved.push({ progress: t.status.progress, state: t.status.state, files: (t.files?.files ?? []).length })
+          if (t) w.__moved.push({ at: performance.now(), progress: t.status.progress, state: t.status.state, paused: t.status.paused, totalDone: t.status.totalDone, files: (t.files?.files ?? []).length })
         })
       }
     }
-  }, MOVED)
-  const reports = () => page.evaluate(() => (window as any).__moved as Row[])
+  }, `/native/${infoHash}`)
+  return () => page.evaluate(() => (window as any).__moved as Report[])
+}
 
+const chooseFolder = async (page: Page) => {
   await page.goto('/')
   await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
@@ -66,23 +70,34 @@ test('a .torrent add moved into the folder keeps its file list and its progress'
   await page.getByRole('button', { name: 'Start straight away', exact: true }).click({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Ask what to download', exact: true }).waitFor({ timeout: 10_000 })
   await page.locator('header a.back').click()
+}
 
-  // a .torrent add saves under the shared root, so this is where the engine's first check finds them
-  await page.evaluate(async ({ name, files }) => {
-    const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('dl', { create: true })).getDirectoryHandle(name, { create: true })
-    for (const { path, size, fill } of files) {
-      const writable = await (await dir.getFileHandle(path, { create: true })).createWritable()
-      await writable.write(new Uint8Array(size).fill(fill))
-      await writable.close()
-    }
-  }, { name: NAME, files: FILES })
+// a .torrent add saves under the shared root, so this is where the engine's first check finds them
+const place = (page: Page, name: string, files: Placed[]) => page.evaluate(async ({ name, files }) => {
+  const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('dl', { create: true })).getDirectoryHandle(name, { create: true })
+  for (const { path, size, fill } of files) {
+    const writable = await (await dir.getFileHandle(path, { create: true })).createWritable()
+    const chunk = new Uint8Array(Math.min(size, 16 * 1024 * 1024)).fill(fill)
+    for (let at = 0; at < size; at += chunk.length) await writable.write(at + chunk.length > size ? chunk.subarray(0, size - at) : chunk)
+    await writable.close()
+  }
+}, { name, files })
 
-  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+const addToFolder = async (page: Page, name: string, torrent: Buffer) => {
+  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${name}.torrent`, mimeType: 'application/x-bittorrent', buffer: torrent })
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
   await dialog.locator('label.check', { hasText: 'picked' }).locator('input').check()
   await dialog.getByRole('button', { name: 'Add torrent' }).click()
   await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+}
+
+test('a .torrent add moved into the folder keeps its file list and its progress', async ({ page }) => {
+  test.setTimeout(180_000)
+  const reports = await watchMove(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
 
   // THE CONTROL: it reached the folder, so the move ran
   await expect.poll(async () => (await reports()).length, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toBeGreaterThan(0)
@@ -114,24 +129,7 @@ test('a .torrent add moved into the folder keeps its file list and its progress'
  */
 test('a magnet add whose metadata landed, moved into the folder, keeps its file list without a peer', async ({ page }) => {
   test.setTimeout(240_000)
-  await page.addInitScript((moved) => {
-    const w = window as any
-    try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
-    w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true })
-    w.__moved = []
-    const Original = window.Worker
-    window.Worker = class extends Original {
-      constructor (url: string | URL, options?: WorkerOptions) {
-        super(url, options)
-        this.addEventListener('message', (event: MessageEvent) => {
-          if (event.data?.type !== 'state') return
-          const t = (event.data.torrents ?? []).find((row: any) => row.status?.savePath === moved)
-          if (t) w.__moved.push({ progress: t.status.progress, state: t.status.state, files: (t.files?.files ?? []).length })
-        })
-      }
-    }
-  }, MOVED)
-  const reports = () => page.evaluate(() => (window as any).__moved as Row[])
+  const reports = await watchMove(page, INFO_HASH)
   const stored = (key: string) => page.evaluate((key) => new Promise<number[] | null>((resolve) => {
     const open = indexedDB.open('keyval-store')
     open.onsuccess = () => {
@@ -141,23 +139,8 @@ test('a magnet add whose metadata landed, moved into the folder, keeps its file 
     }
     open.onerror = () => resolve(null)
   }), key)
-
-  await page.goto('/')
-  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'picked', exact: true }).waitFor({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Start straight away', exact: true }).click({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Ask what to download', exact: true }).waitFor({ timeout: 10_000 })
-  await page.locator('header a.back').click()
-
-  await page.evaluate(async ({ name, files }) => {
-    const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('dl', { create: true })).getDirectoryHandle(name, { create: true })
-    for (const { path, size, fill } of files) {
-      const writable = await (await dir.getFileHandle(path, { create: true })).createWritable()
-      await writable.write(new Uint8Array(size).fill(fill))
-      await writable.close()
-    }
-  }, { name: NAME, files: FILES })
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
 
   await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
   const dialog = page.getByRole('dialog')
@@ -195,4 +178,44 @@ test('a magnet add whose metadata landed, moved into the folder, keeps its file 
   expect(seen.filter((r) => r.state === 2), 'the moved torrent waited for its metadata').toEqual([])
   expect(seen.at(-1)?.files).toBe(FILES.length)
   await expect(page.getByText('Fetching metadata…')).toHaveCount(0)
+})
+
+test('a torrent checking its files at the folder shows no download speed', async ({ page }) => {
+  test.setTimeout(180_000)
+  const BIG = 'Large'
+  /*
+   * A speed is read from engine reports a second apart, which come every 500 ms. Measured 2026-11-17 on a 16 thread
+   * desktop, the check at the folder ran at 100 to 350 MB/s, and 512 MiB in 256 KiB pieces checked in 1.5 s.
+   */
+  const BIG_PIECE = 64 * 1024
+  const file = { path: 'large.bin', size: 1024 * 1024 * 1024, fill: 0x61 }
+  // every piece holds the same bytes, so one hash stands for all of them
+  const piece = createHash('sha1').update(Buffer.alloc(BIG_PIECE, file.fill)).digest()
+  const bigInfo = { name: BIG, 'piece length': BIG_PIECE, pieces: Buffer.concat(Array.from({ length: file.size / BIG_PIECE }, () => piece)), files: [{ length: file.size, path: [file.path] }] }
+  const reports = await watchMove(page, createHash('sha1').update(bencode(bigInfo)).digest('hex'))
+  await chooseFolder(page)
+  await place(page, BIG, [file])
+  await page.evaluate((name) => {
+    const readings: { badge: string, down: string }[] = []
+    Object.assign(window, { __readings: readings })
+    window.setInterval(() => {
+      const row = [...document.querySelectorAll('.torrent')].find((el) => el.querySelector('.title strong')?.textContent === name)
+      if (row) readings.push({ badge: row.querySelector('.badge')?.textContent ?? '', down: row.querySelector('.meta .rate')?.textContent ?? '' })
+    }, 100)
+  }, BIG)
+  await addToFolder(page, BIG, bencode({ info: bigInfo }))
+
+  await expect.poll(async () => ((await reports()).at(-1)?.progress ?? 0) >= 1, { timeout: 120_000, message: 'the moved torrent never finished its check' }).toBe(true)
+  // THE CONTROL: the check reported a growing total for long enough that a speed could be read from it
+  const checks = (await reports()).filter((r) => r.state === 1 && !r.paused)
+  expect(checks.length, 'the moved torrent never reported a check').toBeGreaterThan(0)
+  expect(checks.at(-1)!.at - checks[0]!.at, 'the check ended before a speed could be read').toBeGreaterThan(1_400)
+  expect(checks.at(-1)!.totalDone).toBeGreaterThan(checks[0]!.totalDone)
+
+  const shows = (text: string) => Number(/[\d.,]+/.exec(text)?.[0]?.replaceAll(',', '') ?? 0) > 0
+  const readings = await page.evaluate(() => (window as unknown as { __readings: { badge: string, down: string }[] }).__readings)
+  expect(readings.filter((r) => r.badge === 'Checking').length, 'the row never read Checking').toBeGreaterThan(0)
+  expect(readings.filter((r) => r.badge === 'Checking' && shows(r.down)).map((r) => r.down), 'the row showed a speed while checking').toEqual([])
+  // nothing downloaded since the page opened, so the strip's highest download is none
+  expect(shows((await page.locator('.stats .stat.rate strong').nth(2).textContent()) ?? ''), 'the peak counted the check as a download').toBe(false)
 })
