@@ -197,8 +197,8 @@ const style = css`
      (6, the options button's own room standing for the rest), and with Progress showing, its column (100, as wide as
      Italian's AVANZAMENTO in DejaVu Sans). Without it Brazilian Portuguese's TENTANDO NOVAMENTE left a name 54 px at
      320 px, and French 49 px at 401 px; a floor on the column instead wrapped EN PAUSE at 390 px, where nothing has to.
-     One word wider than the room, French TÉLÉCHARGEMENT or German ABGESCHLOSSEN in DejaVu Sans, breaks across two lines
-     rather than widen its badge into the name's room. */
+     One word wider than the room breaks inside itself rather than widen its badge into the name's room, in any font
+     (French TÉLÉCHARGEMENT at 320 px), and from 401 px also where Progress is narrower than the 100 px allowed. */
   @media (max-width: 560px) {
     .c-down, .bar { display: none; }
     /* a finger's height, and the name's padding beside the box, for a finger's width without taking the name's room */
