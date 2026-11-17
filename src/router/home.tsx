@@ -123,7 +123,7 @@ const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
  * A group's name inside a sentence, between a first strong isolate and its end (U+2068, U+2069), so a right-to-left
  * name keeps the sentence in order and a U+202E in a name someone sent turns only the name.
  */
-const isolated = (name: string) => `⁨${name}⁩`
+const isolated = (name: string) => `\u2068${name}\u2069`
 
 /**
  * Whether a drag carries something this page could actually add.
