@@ -1,6 +1,6 @@
 // How a first watch's window is planned: on the pump that brings the layout, not the next 500 ms pass, with a band of
 // exactly the first read's pieces and the file's tail. The band's last piece joins on the drain that brings those
-// pieces in; a seek is planned whole at once.
+// pieces in; a seek, a save and a prepared file are planned whole at once.
 import { expect, it, vi } from 'vitest'
 
 import { installWorkerGlobals } from '../utils/worker-rig'
@@ -49,6 +49,7 @@ vi.mock('libtorrent-wasm', async () => {
       bitfield: (h: number) => engine.listed.has(h) ? { numPieces: 115, pieceLength: 524_288, length: 115, pieces: bits(h) } : null,
       setStreamWindow: engine.setStreamWindow,
       clearStreamWindow: () => {},
+      pauseTorrent: () => {},
       cancelPieceRequests: () => {},
       read: (handle: number, _fileIndex: number, offset: number, len: number) => new Promise((resolve) => {
         const pieces = Array.from({ length: Math.floor((offset + len - 1) / 524_288) - Math.floor(offset / 524_288) + 1 }, (_, i) => Math.floor(offset / 524_288) + i)
@@ -76,11 +77,11 @@ const afterPass = async () => {
   await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(states), { timeout: 1_000, interval: 5 })
 }
 const plansOf = (handle: number) => engine.setStreamWindow.mock.calls.filter(([h]) => h === handle)
-/** A first watch of a new add, its file list not in yet. */
-const firstWatch = async (handle: number) => {
+/** A first watch of a new add, its file list not in yet: a player's, unless `claim` says otherwise. */
+const firstWatch = async (handle: number, claim: object = { viewer: `player-${handle}` }) => {
   rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${String(handle).repeat(40)}`, ephemeral: true })
   await vi.waitFor(() => expect(rig.of('added').some((m) => m.handle === handle)).toBe(true))
-  rig.send({ type: 'watch', viewer: `player-${handle}`, handle, fileIndex: 0, fromOffset: 0 })
+  rig.send({ type: 'watch', handle, fileIndex: 0, fromOffset: 0, ...claim })
   await new Promise((resolve) => setTimeout(resolve, 20))
   expect(plansOf(handle)).toEqual([])
 }
@@ -137,4 +138,21 @@ it('plans a seek whole at once, though the first read\'s pieces are not in', asy
   rig.send({ type: 'watch', viewer: 'player-3', handle: 3, fileIndex: 0, fromOffset: 30_000_000 })
   await vi.waitFor(() => expect(plansOf(3).at(-1)).toEqual([3, [{ fileIndex: 0, offset: 30_000_000 }, TAIL], expect.objectContaining({ windowPieces: 6 })]))
   expect(rig.of('worker-error')).toEqual([])
+}, 10_000)
+
+it('plans a save\'s first claim whole', async () => {
+  await firstWatch(4, { viewer: 'save-4', bulk: true })
+  engine.arriving.listed.add(4)
+  await vi.waitFor(() => expect(plansOf(4).length).toBeGreaterThan(0))
+  expect(plansOf(4)[0]).toEqual([4, [HEAD], expect.objectContaining({ windowPieces: 6, deadlines: false })])
+}, 10_000)
+
+it('plans a prepared file\'s first claim whole, so its tail band reaches the last piece', async () => {
+  // a prepared file is planned only once every player's file is held, so the players above leave first
+  for (const handle of [1, 2, 3]) rig.send({ type: 'unwatch', viewer: `player-${handle}` })
+  await firstWatch(5, { viewer: 'next-5', prepare: true })
+  engine.arriving.listed.add(5)
+  await vi.waitFor(() => expect(plansOf(5).length).toBeGreaterThan(0))
+  expect(plansOf(5)[0]).toEqual([5, [HEAD, { fileIndex: 0, offset: SIZE - 2_500_000 }], expect.objectContaining({ windowPieces: 6 })])
+  expect(rig.of('error')).toEqual([])
 }, 10_000)
