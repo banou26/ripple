@@ -30,6 +30,7 @@ import { ASKS } from './engine-protocol'
 import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, folderLacks, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
+import { pacedReads } from './paced-reads'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { buildTorrentFile, infoFromResume, magnetExtras } from './torrent-export'
 import { currentLocation, savePathIn } from './save-location'
@@ -1790,7 +1791,7 @@ const init = async () => {
   ])
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
+  storage = pacedReads(createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache))
   session = await createSession(relay
     // the relay looks names up: with no `dnsLookup` the engine asks 1.1.1.1 itself, from the person's own address
     ? { net: relay.net, dgram: relay.dgram, dnsLookup: lookup, storage, utpReceiveBufferBytes: 4_194_304 }
