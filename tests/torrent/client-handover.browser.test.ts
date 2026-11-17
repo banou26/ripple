@@ -381,11 +381,11 @@ describe('the download speed a row shows', () => {
 
   // libtorrent's 1 is checking files and 7 checking resume data
   it.each([1, 7])('shows no speed while a check in state %i verifies the pieces held', (state) => {
-    expect(shown([[state, 0, 0], [state, 100 * MB, 0], [state, 200 * MB, 0], [state, 300 * MB, 0]])).toEqual([0, 0, 0, 0])
+    expect(shown([[state, 0, 5 * MB], [state, 100 * MB, 5 * MB], [state, 200 * MB, 5 * MB], [state, 300 * MB, 5 * MB]])).toEqual([0, 0, 0, 0])
   })
 
   it('shows the download after a check at its own speed, not the check\'s', () => {
-    const rates = shown([[1, 0, 0], [1, 100 * MB, 0], [1, 200 * MB, 0], [3, 201 * MB, MB], [3, 202 * MB, MB]])
+    const rates = shown([[3, 0, MB], [3, MB, MB], [1, 100 * MB, 0], [3, 200 * MB, MB], [3, 201 * MB, MB]])
     expect(rates.slice(3)).toEqual([MB, MB])
   })
 })
