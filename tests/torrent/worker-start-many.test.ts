@@ -15,6 +15,8 @@ const ROWS = Array.from({ length: 20 }, (_, i) => (i + 1).toString(16).padStart(
 const KEPT = ROWS[3]!
 const SOURCE = 'e'.repeat(40)
 const UNKNOWN = 'f'.repeat(40)
+// asked for by nothing until the last test
+const SPARE = 'd'.repeat(40)
 // asked in an order of the page's own, not the list's
 const ASKED = [...ROWS].reverse()
 
@@ -43,7 +45,7 @@ vi.mock('idb-keyval', () => {
   const row = (infoHash: string, over: Partial<Persisted> = {}): Persisted => ({
     infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt: 1, started: false, ephemeral: false, ...over,
   })
-  store.set('ripple:torrents', [...ROWS.map((infoHash) => row(infoHash)), row(SOURCE, { savePath: '/source/' + SOURCE, saveTo: 'source' })])
+  store.set('ripple:torrents', [...ROWS.map((infoHash) => row(infoHash)), row(SOURCE, { savePath: '/source/' + SOURCE, saveTo: 'source' }), row(SPARE)])
   store.set('ripple:torrent:' + KEPT, new Uint8Array([1, 2, 3]))
   return {
     get: async (key: string) => { if (key === 'ripple:torrents') io.reads++; return store.get(key) },
@@ -74,6 +76,8 @@ it('starts every row asked for with one read of the list, one write, one state a
   expect(io.reads - reads).toBe(1)
   expect(io.writes - writes).toBe(1)
   expect(posted.filter((m) => m.type === 'state').length - (engine.ticks - ticks)).toBe(1)
+  // the state first, so each tab's running rows replace the rows not on this device in the same render
+  expect(posted[posted.findIndex((m) => m.type === 'list') - 1]?.type).toBe('state')
 
   // in the order asked, the kept .torrent's row from its file
   expect(engine.adds).toEqual(ASKED.map((infoHash) => [infoHash === KEPT ? 'file' : 'magnet', '/dl/' + infoHash]))
@@ -84,3 +88,20 @@ it('starts every row asked for with one read of the list, one write, one state a
   ])
   expect(entryOf(SOURCE)?.started).toBe(false)
 }, 20_000)
+
+it('writes and posts no list for a start that starts nothing', async () => {
+  await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
+  const from = rig.posted.length
+  const writes = io.writes
+
+  rig.send({ type: 'start', infoHash: SOURCE })
+  rig.send({ type: 'start-many', id: 8, infoHashes: [UNKNOWN] })
+  // queued behind both, so once it is written the two before it are done
+  rig.send({ type: 'start', infoHash: SPARE })
+  await vi.waitFor(() => expect(entryOf(SPARE)?.started).toBe(true))
+
+  const posted = rig.posted.slice(from)
+  expect(posted.filter((m) => m.type === 'add-failed')).toHaveLength(1)
+  expect(posted.filter((m) => m.type === 'list')).toHaveLength(1)
+  expect(io.writes - writes).toBe(1)
+})
