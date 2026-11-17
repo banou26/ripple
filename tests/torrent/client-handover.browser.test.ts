@@ -190,15 +190,6 @@ describe('a command caught by an engine handover', () => {
   })
 })
 
-/**
- * A cancelled read has to be cancelled in the WORKER, and the reason is not tidiness.
- *
- * The worker retries a stalled read for up to eighteen attempts and RE-ANCHORS the viewer between
- * them, under whatever viewer id the read carried. An export's reads carry the download page's own
- * viewer id, so a read the page abandoned promoted the page's held claim back to an active one, woke
- * the torrent and carried on downloading a file somebody had just cancelled. Abandoning the promise
- * here cannot stop that; only telling the worker can.
- */
 it('tells the engine a read takes a short answer only when its reader says so', async () => {
   const rig = makeRig()
   running(rig)
@@ -208,6 +199,15 @@ it('tells the engine a read takes a short answer only when its reader says so', 
   expect(rig.posted.filter((m) => m.type === 'read').map((m) => m.partial)).toEqual([true, undefined])
 })
 
+/**
+ * A cancelled read has to be cancelled in the WORKER, and the reason is not tidiness.
+ *
+ * The worker retries a stalled read for up to eighteen attempts and RE-ANCHORS the viewer between
+ * them, under whatever viewer id the read carried. An export's reads carry the download page's own
+ * viewer id, so a read the page abandoned promoted the page's held claim back to an active one, woke
+ * the torrent and carried on downloading a file somebody had just cancelled. Abandoning the promise
+ * here cannot stop that; only telling the worker can.
+ */
 describe('cancelling a read', () => {
   it('tells the engine, with the id it is already using', async () => {
     const rig = makeRig()
