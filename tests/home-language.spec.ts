@@ -2303,8 +2303,12 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   await expect(dialog.locator('p')).toHaveText('2 torrents')
   await expect(page, 'spent once read, so a reload asks nothing').toHaveURL(`${origin}/`)
   const sent = await sending(page, ['import-list', 'add-magnet'])
-  // a paste behind the dialog adds nothing, as behind any other
+  // a paste or a drop behind the dialog adds nothing, as behind the add dialog
   await paste(page, magnetOf('3', 'Pasted'))
+  await drag(page, 'dragenter', magnetOf('1', 'Dropped'))
+  await drawn(page)
+  await expect(page.locator('[data-drag]')).toHaveCount(0)
+  await drag(page, 'drop', magnetOf('1', 'Dropped'))
   await drawn(page)
   expect(await sent(), 'nothing is added while it asks').toEqual([])
 
@@ -2331,6 +2335,10 @@ test('a group link asks first, adds its torrents as rows not on this device in a
 
   await paste(page, magnetOf('3', 'Pasted'))
   await expect.poll(async () => (await sent()).length, 'the control: the same paste with no dialog adds it').toBe(2)
+  await drag(page, 'dragenter', magnetOf('1', 'Dropped'))
+  await expect(page.locator('[data-drag]'), 'the control: the same drag with no dialog is shown').toHaveCount(1)
+  await drag(page, 'drop', magnetOf('1', 'Dropped'))
+  await expect.poll(async () => (await sent()).length, 'the control: the same drop with no dialog adds it').toBe(3)
   // the server never received the group, in an address or as the page a request came from
   expect(requests.filter(line => line.startsWith('/add ')), 'the control: the log holds the visit').toHaveLength(1)
   expect(requests.filter(line => line.includes(fragment.slice(0, 16)))).toEqual([])
@@ -2691,6 +2699,14 @@ test('a retrying torrent\'s Pause pauses it, and does not retry it', async ({ pa
   await row.getByRole('button', { name: 'Pause Having.Trouble', exact: true }).click()
   await expect.poll(sent).toEqual([{ type: 'pause', handle: 4 }])
 })
+
+/** A drag of `text` reaching the page, or its drop, as the browser hands them over. */
+const drag = (page: Page, type: 'dragenter' | 'drop', text: string) => page.evaluate(([type, text]) => {
+  const data = new DataTransfer()
+  data.setData('text/plain', text)
+  data.setData('text/uri-list', text)
+  document.body.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }))
+}, [type, text] as const)
 
 const paste = (page: Page, text: string) => page.evaluate((text) => {
   const data = new DataTransfer()

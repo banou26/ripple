@@ -2751,9 +2751,10 @@ const Home = () => {
   const [fieldDrag, setFieldDrag] = useState(false)
   const endDrag = useCallback(() => { dragDepth.current = 0; setDragging(false); setFieldDrag(false) }, [])
   useEffect(() => {
-    // a drop waits while the add dialog asks, as a paste does
+    // a drop adds nothing while the add dialog or a group link's asks, as a paste does
+    const asking = pendingAdd || received
     const onDragEnter = (e: DragEvent) => {
-      if (pendingAdd || !droppable(e.dataTransfer)) return
+      if (asking || !droppable(e.dataTransfer)) return
       if (++dragDepth.current === 1) setDragging(true)
     }
     const onDragLeave = (e: DragEvent) => {
@@ -2764,7 +2765,7 @@ const Home = () => {
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
       endDrag()
-      if (!pendingAdd) acceptDrop(e.dataTransfer)
+      if (!asking) acceptDrop(e.dataTransfer)
     }
     window.addEventListener('dragenter', onDragEnter)
     window.addEventListener('dragleave', onDragLeave)
@@ -2788,7 +2789,7 @@ const Home = () => {
       window.removeEventListener('blur', endDrag)
       window.removeEventListener('drop', onDrop)
     }
-  }, [acceptDrop, endDrag, pendingAdd])
+  }, [acceptDrop, endDrag, pendingAdd, received])
 
   useEffect(() => {
     // a launch's address is read as the router reads a path, so /Add and /add/ are /add, as they are in a tab
