@@ -106,7 +106,7 @@ test('a private .torrent gets no share link from its row, before a reload and af
 
     const shared = await share('Public pack')
     const link = await shared.getByTestId('embed-url').textContent({ timeout: 15_000 })
-    expect(decodeMagnetParam(new URL(link ?? '').searchParams), 'the control made no link with its tracker').toContain(KEY)
+    expect(decodeMagnetParam(linkParams(new URL(link ?? ''))), 'the control made no link with its tracker').toContain(KEY)
     await expect(shared.getByText('No share link for a private torrent.')).toHaveCount(0)
     await shared.getByRole('button', { name: 'Close' }).click()
     await expect(shared).toHaveCount(0)
