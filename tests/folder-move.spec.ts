@@ -156,17 +156,20 @@ const watchMoves = (context: BrowserContext) => context.addInitScript((names) =>
   const w = window as unknown as { __relocates: string[], __writes: number }
   w.__relocates = []
   w.__writes = 0
-  const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void
-  Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
-    const msg = args[0] as { type?: string, to: string } | undefined
-    if (msg?.type === 'relocate') w.__relocates.push(msg.to)
-    post.apply(this, args)
-  } as Worker['postMessage']
-  const createWritable = FileSystemFileHandle.prototype.createWritable
-  FileSystemFileHandle.prototype.createWritable = function (this: FileSystemFileHandle, ...args: Parameters<FileSystemFileHandle['createWritable']>) {
-    if (names.includes(this.name)) w.__writes++
-    return createWritable.apply(this, args)
-  }
+  // oxlint-disable-next-line typescript/unbound-method
+  Worker.prototype.postMessage = new Proxy(Worker.prototype.postMessage, {
+    apply: (post, worker, args) => {
+      if (args[0]?.type === 'relocate') w.__relocates.push(args[0].to)
+      return Reflect.apply(post, worker, args)
+    },
+  })
+  // oxlint-disable-next-line typescript/unbound-method
+  FileSystemFileHandle.prototype.createWritable = new Proxy(FileSystemFileHandle.prototype.createWritable, {
+    apply: (create, handle: FileSystemFileHandle, args) => {
+      if (names.includes(handle.name)) w.__writes++
+      return Reflect.apply(create, handle, args)
+    },
+  })
 }, FILES.map((f) => f.path))
 
 const movesIn = (page: Page) => page.evaluate(() => (window as unknown as { __relocates: string[] }).__relocates)
