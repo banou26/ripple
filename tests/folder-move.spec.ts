@@ -440,6 +440,41 @@ test('a default location chosen in a tab not running the engine reaches the tab 
   expect(failed(await toasts()), 'a move that worked said it failed').toEqual([])
 })
 
+// the tab running the engine copies from the library only, so the other tab looks for the copy first and finds nothing
+test('a tab not running the engine sees a copy into the folder within seconds of it landing', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
+  const other = await context.newPage()
+  await other.addInitScript((name) => {
+    const w = window as unknown as { __looks: number }
+    w.__looks = 0
+    // oxlint-disable-next-line typescript/unbound-method
+    FileSystemDirectoryHandle.prototype.getDirectoryHandle = new Proxy(FileSystemDirectoryHandle.prototype.getDirectoryHandle, {
+      apply: (get, dir, args) => {
+        if (args[0] === name && !args[1]?.create) w.__looks++
+        return Reflect.apply(get, dir, args)
+      },
+    })
+  }, NAME)
+  await other.goto('/')
+  await place(other, NAME, FILES)
+  await other.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+  const dialog = other.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
+  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // THE CONTROL: the other tab looked before the copy was made
+  await expect.poll(() => other.evaluate(() => (window as unknown as { __looks: number }).__looks), { timeout: 60_000 }).toBeGreaterThan(0)
+  await page.locator('header a.back').click()
+  await expect.poll(toasts, { timeout: 30_000, message: 'the tab running the engine never copied the torrent' }).toContain(`${NAME} saved to picked`)
+  await other.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  await expect(other.getByRole('dialog').last().getByRole('button', { name: 'Remove from the library' }), 'the other tab saw the copy late').toBeVisible({ timeout: 10_000 })
+})
+
 test('a folder chosen, allowed or dropped in one tab shows in the other', async ({ page, context }) => {
   // the folder's grant follows a flag, the way a browser's grant reaches every tab of a site
   await context.addInitScript(() => {
