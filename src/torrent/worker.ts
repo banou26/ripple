@@ -2500,8 +2500,9 @@ const handleMessage = async (session: Session, m: any) => {
       // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
       const known = (await loadList()).find((e) => e.infoHash === ih)
+      // the session's pause, not the add's: a Pause sent during the poll above had no entry to write itself into
       await upsertList(
-        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: m.paused === true, wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) },
+        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: userPaused.has(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) },
         known && fetchesToBrowser(known) ? { savePath, saveTo: keptSaveTo(known), ...saveTo } : undefined,
       )
       /*

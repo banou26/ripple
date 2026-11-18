@@ -339,6 +339,48 @@ test('a press aimed at a reloaded torrent\'s Pause pauses it, though the engine 
   await expect(row.locator('.badge')).toHaveText('Paused')
 })
 
+/** Every badge the first row shows, in order, from the page's first frame. */
+const badges = () => {
+  const w = window as any
+  w.__badges = []
+  const look = () => {
+    const now = document.querySelector('.torrent .badge')?.textContent
+    if (now && now !== w.__badges.at(-1)) w.__badges.push(now)
+    requestAnimationFrame(look)
+  }
+  requestAnimationFrame(look)
+}
+
+test('a Pause the engine gets while it reads a new .torrent\'s infohash outlasts a reload, and reads Paused throughout it', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
+  await page.addInitScript(badges)
+  await page.goto('/')
+  await engineReady(page)
+  // a .torrent's handle is reported before its infohash is read, and its magnet, which needs that hash, is still empty
+  await page.evaluate(() => {
+    const w = window as any
+    const first = (event: MessageEvent) => {
+      const t = event.data?.type === 'state' && event.data.torrents.find((s: { magnet: string }) => !s.magnet)
+      if (!t) return
+      w.__worker.removeEventListener('message', first)
+      w.__listedAtPause = (w.__list ?? []).length
+      w.__worker.postMessage({ type: 'pause', handle: t.handle })
+    }
+    w.__worker.addEventListener('message', first)
+  })
+  await page.locator('label.file-button input[type=file]').first().setInputFiles([torrentFile('Early')])
+  await expect(card(page, 'Early').locator('.badge')).toHaveText('Paused', { timeout: 30_000 })
+  expect(await page.evaluate(() => (window as any).__listedAtPause), 'paused before the engine listed it').toBe(0)
+
+  await page.reload()
+  await expect(card(page, 'Early').locator('.badge')).toHaveText('Paused', { timeout: 30_000 })
+  await page.waitForTimeout(3_000)
+  await expect(card(page, 'Early').locator('.badge')).toHaveText('Paused')
+  // not Downloading or Queued before the engine's first status, whose row would offer the wrong control
+  expect((await page.evaluate(() => (window as any).__badges as string[])).filter((badge) => badge !== 'Starting')).toEqual(['Paused'])
+})
+
 // the page's worker, whose update another tab takes when the test calls updateTaken; the new one never answers, so the
 // page reloads once its wait for it runs out
 const updateStandIn = () => {
