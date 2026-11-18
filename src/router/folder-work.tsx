@@ -177,8 +177,9 @@ const Work = () => {
        * pick written to their disk a third time.
        */
       if (isOwnContent(t)) continue
-      // a move copies the files itself, and drops the ones a copy beside it would still be reading
-      if (t.infoHash && movingRef.current.has(t.infoHash)) continue
+      // a move copies the files itself, and drops the ones a copy beside it would still be reading, so the copy also
+      // waits out a failed move's wait: it would still be writing when the move tries again
+      if (t.infoHash && (movingRef.current.has(t.infoHash) || now < (moveAtRef.current.get(t.infoHash) ?? 0))) continue
       if (!t.files?.length || syncingRef.current.has(t.id)) continue
       const key = copyKey(t)
       const attempt = syncAtRef.current.get(key)
