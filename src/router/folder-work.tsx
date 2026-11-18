@@ -93,16 +93,20 @@ const Work = () => {
    * and a second move would read files the engine already dropped.
    */
   const movingRef = useRef(new Map<string, SaveLocation>())
+  // When a failed move may be tried again, by info hash: like a failed copy, it waits SYNC_RETRY rather than the next tick
+  const moveAtRef = useRef(new Map<string, number>())
 
   const runMove = async (t: Torrent, to: SaveLocation) => {
     const infoHash = t.infoHash
     if (!folder || !permitted || !infoHash || movingRef.current.has(infoHash)) return
+    if (Date.now() < (moveAtRef.current.get(infoHash) ?? 0)) return
     movingRef.current.set(infoHash, to)
     try {
       await moveTorrentFiles({ client, torrent: t, folder, to })
       tell(movedNews(intl, t.name, to, folder.name))
     } catch {
       movingRef.current.delete(infoHash)
+      moveAtRef.current.set(infoHash, Date.now() + SYNC_RETRY)
       // nothing was deleted: the copy runs first and the engine is only told once it lands
       tell(intl.formatMessage({ id: 'Moving {name} failed', defaultMessage: 'Moving {name} failed' }, { name: t.name }))
     }
