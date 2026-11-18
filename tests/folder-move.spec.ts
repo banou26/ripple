@@ -437,6 +437,29 @@ test('a move into a folder that refuses the write says it failed, waits, and mov
   expect((await copies()).filter((at) => at < again), 'the copy into the folder ran while a failed move waited').toEqual([])
 })
 
+test('a move a folder refused is made at once into another folder chosen during its wait', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  await refuse(page, true)
+  await addToFolder(page, NAME, TORRENT)
+  // THE CONTROL: the move was tried, and the folder refused it
+  await expect.poll(toasts, { timeout: 60_000, message: 'the refused move never said it failed' }).toContain(`Moving ${NAME} failed`)
+  const failedAt = Date.now()
+
+  await page.evaluate(() => Object.assign(window, { showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle('another', { create: true }) }))
+  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'picked', exact: true }).click({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'another', exact: true }).waitFor({ timeout: 10_000 })
+
+  // the folder that refused still does, so a move that lands went into the other one
+  await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved into the other folder' }).toEqual([`/native/${INFO_HASH}`])
+  // the wait is 30 s from the failure
+  expect(Date.now() - failedAt, 'the move into the other folder waited out the refused one\'s wait').toBeLessThan(20_000)
+})
+
 test('a torrent finishing while the tab running the engine shows Settings moves into the folder', async ({ page, context }) => {
   test.setTimeout(180_000)
   const paths = await watchPaths(page, INFO_HASH)
