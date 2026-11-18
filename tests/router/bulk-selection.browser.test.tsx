@@ -293,21 +293,40 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       expect(ticked()).toEqual(NONE)
       expect(onSelect).not.toHaveBeenCalled()
     })
+
+    it(`leaves a Shift+right press on a row to the browser in the ${view}`, async () => {
+      const { screen } = await library(view, DRAWN)
+      const prevented: boolean[] = []
+      const look = (e: MouseEvent) => { prevented.push(e.defaultPrevented) }
+      document.addEventListener('mousedown', look)
+      try {
+        await userEvent.click(screen.getByText('Lime', { exact: true }), { button: 'right', modifiers: ['Shift'] })
+      } finally {
+        document.removeEventListener('mousedown', look)
+      }
+      expect(prevented).toEqual([false])
+    })
   }
 
   // the cards alone draw a Watch link
   it('leaves a Ctrl+click on a row\'s link to the link, which opens it in a tab', async () => {
     const { screen, ticked, onSelect } = await library('cards', DRAWN)
-    const prevented: boolean[] = []
+    const prevented: [string, boolean][] = []
     // after the row's own handlers, and in their place the tab is not opened
-    const stop = (e: MouseEvent) => { prevented.push(e.defaultPrevented); e.preventDefault() }
-    document.addEventListener('click', stop)
+    const look = (e: MouseEvent) => {
+      prevented.push([e.type, e.defaultPrevented])
+      if (e.type === 'click') e.preventDefault()
+    }
+    document.addEventListener('mousedown', look)
+    document.addEventListener('click', look)
     try {
       await userEvent.click(screen.getByRole('link', { name: 'Watch Jujube' }), { modifiers: ['Control'] })
     } finally {
-      document.removeEventListener('click', stop)
+      document.removeEventListener('mousedown', look)
+      document.removeEventListener('click', look)
     }
-    expect(prevented).toEqual([false])
+    // the press too, so the link can still be dragged with a key held
+    expect(prevented).toEqual([['mousedown', false], ['click', false]])
     expect(ticked()).toEqual(NONE)
     expect(onSelect).not.toHaveBeenCalled()
   })
