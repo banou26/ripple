@@ -79,9 +79,12 @@ const Work = () => {
    * election, which is not necessarily this one. Every tab offers what it has and the newest offer
    * wins, so a grant given anywhere reaches the engine. Offering null when the grant goes is just as
    * important: a stale handle would have the engine reading against permission it no longer has.
+   * An engine started by a handover or a restart has none of it, so each new one is offered it again.
    */
   useEffect(() => {
-    client.setFolder(folder && permitted ? folder : null)
+    const offer = () => client.setFolder(folder && permitted ? folder : null)
+    offer()
+    return client.onEngineReset(offer)
   }, [client, folder, permitted])
 
   /**
