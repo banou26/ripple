@@ -28,6 +28,10 @@ export const numberFormat = (locale: string, options: Intl.NumberFormatOptions):
   return format
 }
 
+// Arabic's short kilobyte is the whole word كيلوبايت beside its megabyte's م.ب, which wraps a column of speeds; its narrow
+// form abbreviates each, ك.ب and م.ب
+const unitDisplay = (locale: string) => (locale.split('-')[0] === 'ar' ? 'narrow' : 'short')
+
 const sized = (bytes, compact: boolean | undefined, per = '') => {
   if (isNaN(bytes)) return 'NaN'
   const locale = unitLocale()
@@ -37,7 +41,7 @@ const sized = (bytes, compact: boolean | undefined, per = '') => {
     unit: `${UNITS[i]}${per}`,
     notation: 'standard',
     style: 'unit',
-    unitDisplay: 'short',
+    unitDisplay: unitDisplay(locale),
     maximumFractionDigits: i >= 3 ? 2 : 1,
   })
     .format(some ? bytes / Math.pow(1000, i) : 0)
@@ -56,7 +60,7 @@ export const writeSpeed = (count: number, unit: 'kilobyte' | 'megabyte' | 'gigab
   numberFormat(unitLocale(), {
     unit: `${unit}-per-second`,
     style: 'unit',
-    unitDisplay: 'short',
+    unitDisplay: unitDisplay(unitLocale()),
     useGrouping: false,
     maximumFractionDigits: 1,
   }).format(count)

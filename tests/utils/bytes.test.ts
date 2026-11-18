@@ -110,6 +110,12 @@ describe('in the language of the page', () => {
     expect(plain(getHumanReadableSpeed(1_500_000, true))).toBe('1.5 MB/秒')
   })
 
+  it('Arabic abbreviates a kilobyte as it does a megabyte, so a speed stays short', async () => {
+    await show('ar')
+    expect([getHumanReadableSpeed(512_000, true), getRoundedSpeed(512_000), getHumanReadableByteString(1_500_000)].map(plain))
+      .toEqual(['512 ك.ب/ث', '512 ك.ب/ث', '1.5 م.ب'])
+  })
+
   it('a byte reads as its symbol wherever the language spells it out, singular or plural', async () => {
     await show('pt-BR')
     expect(plain(getHumanReadableByteString(999))).toBe('999 B')
