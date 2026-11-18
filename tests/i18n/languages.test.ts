@@ -50,8 +50,8 @@ describe('the best match of the browser\'s languages', () => {
 })
 
 describe('the language shown', () => {
-  test('English and the 12 of wave 1 are offered, so a French browser shows French and a German pick German', () => {
-    expect([...OFFERED].sort()).toEqual(['de', 'en', 'es-419', 'fr', 'it', 'ja', 'ko', 'pl', 'pt-BR', 'ru', 'tr', 'zh-Hans', 'zh-Hant'])
+  test('English, the 12 of wave 1, Arabic and Hebrew are offered, so a French browser shows French and a German pick German', () => {
+    expect([...OFFERED].sort()).toEqual(['ar', 'de', 'en', 'es-419', 'fr', 'he', 'it', 'ja', 'ko', 'pl', 'pt-BR', 'ru', 'tr', 'zh-Hans', 'zh-Hant'])
     expect(uiLanguage()).toBe('fr')
     stored.set(LANGUAGE_KEY, 'de')
     expect(uiLanguage()).toBe('de')
@@ -68,7 +68,7 @@ describe('the language shown', () => {
     stored.set(LANGUAGE_KEY, 'en')
     expect(readPickedLanguage()).toBe('en')
     expect(uiLanguage(['fr-CA'], PLANNED)).toBe('en')
-    for (const unknown of ['xx', 'ar', 'fr-FR', '']) {
+    for (const unknown of ['xx', 'sw', 'fr-FR', '']) {
       stored.set(LANGUAGE_KEY, unknown)
       expect(readPickedLanguage()).toBeUndefined()
       expect(uiLanguage(['fr-CA'])).toBe('fr')

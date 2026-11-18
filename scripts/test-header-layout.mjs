@@ -52,6 +52,11 @@ const measure = () => {
         })
       : false,
     docOverflowX: doc.scrollWidth - doc.clientWidth,
+    // right to left, a row too wide runs off the left, which no sideways scroll shows
+    insideWindow: [...document.querySelectorAll('header > *')].every((item) => {
+      const box = item.getBoundingClientRect()
+      return box.width === 0 || (box.left >= -1 && box.right <= doc.clientWidth + 1)
+    }),
     // the two that were removed; their absence is the ask
     hasAddButton: [...document.querySelectorAll('header button')].some((b) => b.textContent?.trim() === 'Add'),
     hasOpenFileButton: [...document.querySelectorAll('header *')].some((e) => e.textContent?.trim() === 'Open file'),
@@ -97,30 +102,41 @@ let code = 0
 try {
   await waitUp()
   // the system Chrome when one is named, as playwright.config.ts does
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.RIPPLE_CHROME || undefined, args: ['--mute-audio'] })
+  // reaching nothing off this machine, as tests/offline.ts keeps the specs: fkn.app's frames stay empty
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.RIPPLE_CHROME || undefined, args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'] })
   const page = await browser.newPage({ viewport: { width: WIDTHS[0], height: 800 } })
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
   await page.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('header .field', { timeout: 30_000 })
 
-  for (const width of WIDTHS) {
-    await page.setViewportSize({ width, height: 800 })
-    await page.waitForTimeout(150)
-    const m = await page.evaluate(measure)
-    if (width === 1440 || width === 800 || width === 420) {
-      await page.screenshot({ path: `${OUT}/header-${width}.png`, clip: { x: 0, y: 0, width, height: 120 } })
+  // English, then the two languages that mirror the header, whose overflow would run off its other side
+  for (const language of ['en', 'ar', 'he']) {
+    await page.evaluate((language) => localStorage.setItem('ripple:language', language), language)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector(`html[lang="${language}"] header .field`, { timeout: 30_000 })
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.waitForTimeout(150)
+      const m = await page.evaluate(measure)
+      if (width === 1440 || width === 800 || width === 420) {
+        await page.screenshot({ path: `${OUT}/header-${language}-${width}.png`, clip: { x: 0, y: 0, width, height: 120 } })
+      }
+      const bad = []
+      if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
+      if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
+      if (m.icons !== 2 && m.icons !== 3) bad.push(`expected 2 or 3 icons, saw ${m.icons}`)
+      if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
+      if (!m.insideWindow) bad.push('a header item is past the window\'s edge')
+      if (m.hasAddButton) bad.push('the Add button is still there')
+      if (m.hasOpenFileButton) bad.push('the Open file button is still there')
+      console.log(`${language.padEnd(2)} ${String(width).padStart(4)}px  field=${String(m.fieldWidth).padStart(4)} text=${String(m.inputWidth).padStart(4)} icons=${m.icons} overflowX=${m.docOverflowX} share=${JSON.stringify(m.shareLabel)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
+      if (bad.length) code = 1
     }
-    const bad = []
-    if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
-    if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
-    if (m.icons !== 2 && m.icons !== 3) bad.push(`expected 2 or 3 icons, saw ${m.icons}`)
-    if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
-    if (m.hasAddButton) bad.push('the Add button is still there')
-    if (m.hasOpenFileButton) bad.push('the Open file button is still there')
-    console.log(`${String(width).padStart(4)}px  field=${String(m.fieldWidth).padStart(4)} text=${String(m.inputWidth).padStart(4)} icons=${m.icons} overflowX=${m.docOverflowX} share=${JSON.stringify(m.shareLabel)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
-    if (bad.length) code = 1
   }
+  await page.evaluate(() => localStorage.removeItem('ripple:language'))
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('html[lang="en"] header .field', { timeout: 30_000 })
 
   // Typing changes the control: a clear button appears and the submit stops being dead. Both were
   // words before and are now shapes, so whether they show up at the right moment is the whole of

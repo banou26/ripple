@@ -296,6 +296,7 @@ describe('the watch route', () => {
   // in English at 1280px "Downloads:" ended one line and "8054" began the next, and in French "Sources" / "partielles : 973"
   it('keeps each of the swarm\'s counts on one line with its words in every language, as wide as they get', async () => {
     const { showEnglish, showIn } = await import('../i18n/show-in')
+    const { wordsOf } = await import('../../src/i18n')
     const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
     const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
     const facts = { 'Seeders: {count}': 216, 'Leechers: {count}': 973, 'Downloads: {count}': 8054 }
@@ -328,7 +329,8 @@ describe('the watch route', () => {
           await userEvent.hover(screen.getByTestId('peers').element())
           await expect.poll(() => screen.container.querySelector('[role="tooltip"]')).not.toBeNull()
           const chip = screen.container.querySelector('[role="tooltip"]')!
-          const words = Object.entries(facts).map(([id, count]) => (catalogue?.[id] ?? id).replace('{count}', String(count)))
+          // as the page writes them, a right to left language's values isolated
+          const words = Object.entries(facts).map(([message, count]) => wordsOf({ message, values: { count } }))
           for (const [i, fact] of words.entries()) {
             const shown = i < words.length - 1 ? `${fact} ·` : fact
             const lines = linesOf(chip, shown)
@@ -339,7 +341,7 @@ describe('the watch route', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(13)
+    expect(languages).toHaveLength(15)
     expect(split).toEqual([])
   }, 60_000)
 
@@ -477,7 +479,7 @@ describe('the watch route', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(13)
+    expect(languages).toHaveLength(15)
     // each state drawn as its own, so none of them was measured as another
     expect(seen.size).toBe(35)
     expect(cut).toEqual([])
@@ -964,7 +966,7 @@ describe('the VPN switch on /watch', () => {
       country.listed = false
       await showEnglish()
     }
-    expect(languages).toHaveLength(13)
+    expect(languages).toHaveLength(15)
     expect(scrolls).toEqual([])
   }, 30_000)
 
@@ -1010,7 +1012,7 @@ describe('the VPN switch on /watch', () => {
       sheet.remove()
       await showEnglish()
     }
-    expect(words.size).toBe(13 * 5)
+    expect(words.size).toBe(15 * 5)
     expect(moved).toEqual([])
   }, 60_000)
 })
@@ -1103,7 +1105,7 @@ describe('the quota offer on /watch', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(13)
+    expect(languages).toHaveLength(15)
     expect(out).toEqual([])
   }, 60_000)
 

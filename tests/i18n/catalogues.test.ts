@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
+import { startLanguage } from '../../src/i18n'
 import { catalogues, english } from '../languages'
 
 const PLACEHOLDER = 'Add a magnet link, or search'
@@ -42,5 +43,22 @@ describe('every catalogue', () => {
   // a field cannot wrap, and a phone leaves the English's own length to it
   test.each(Object.entries(catalogues()))('%s words the magnet field no longer than English', (_, catalogue) => {
     expect(catalogue[PLACEHOLDER]!.length).toBeLessThanOrEqual(PLACEHOLDER.length)
+  })
+})
+
+// Arabic and Hebrew write one and two in words, and their isolates, which only set a value apart, are left out here
+describe('the right to left catalogues', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+  const message = (english: string) => ({ id: english, defaultMessage: english })
+  const FILES = message('{count, plural, one {{count} file} other {{count} files}}')
+  const PEERS = message('{count, plural, one {{count} peer} other {{count} peers}}')
+  const bare = (text: string) => text.replace(/[\u2068\u2069]/g, '')
+
+  test('write Arabic\'s six forms and Hebrew\'s three', async () => {
+    const ar = await startLanguage({ language: 'ar', languages: ['ar-MA'] })
+    expect([0, 1, 2, 3, 11, 100].map(count => bare(ar.formatMessage(FILES, { count })))).toEqual(['0 ملف', 'ملف واحد', 'ملفان', '3 ملفات', '11 ملفًا', '100 ملف'])
+    expect([1, 2, 5, 11].map(count => bare(ar.formatMessage(PEERS, { count })))).toEqual(['قرين واحد', 'قرينان', '5 قرناء', '11 قرينًا'])
+    const he = await startLanguage({ language: 'he', languages: ['he-IL'] })
+    expect([1, 2, 3, 20].map(count => bare(he.formatMessage(FILES, { count })))).toEqual(['קובץ אחד', 'שני קבצים', '3 קבצים', '20 קבצים'])
   })
 })

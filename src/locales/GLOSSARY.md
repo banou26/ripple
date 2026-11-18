@@ -26,15 +26,27 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   headers share the table's width, so each is a word or two where the language allows. Down and Up are the transfer's
   two directions below.
 - **Plurals** carry every form the language needs (the check names a missing one): Russian and Polish
-  `one, few, many, other`; Japanese, Korean and Chinese `other` alone. A count is written as the English writes it:
+  `one, few, many, other`; Japanese, Korean and Chinese `other` alone; Arabic `zero, one, two, few, many, other`;
+  Hebrew `one, two, other`. Arabic and Hebrew write one and two in words (`ملف واحد`, `ملفان`, `קובץ אחד`,
+  `שני קבצים`), so their `one` and `two` branches hold no `{count}`. A count is written as the English writes it:
   `{count}` as given, never `#` or `{count, number}`, which group it (`1.100 Dateien`); the check names either form
   where the English lacks it.
 - **A value Intl writes** (a size `1,5 Go`, a speed `512 ko/s`, a duration, a date) comes with its unit and in the
   nominative, so the words around it add no unit and ask no case of it: German `noch {eta}` where `in` would want a
   dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date. A unit written as
-  text, the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`), so it reads
-  as the speeds beside it. A piece size is binary, as qBittorrent writes it: `Kio` and `Mio` in French, `КБ` and `МБ` in
-  Russian, `KiB` and `MiB` elsewhere.
+  text, the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`, `ك.ب/ث`,
+  `kB/שנ׳`), so it reads as the speeds beside it. Arabic's units are Intl's narrow ones (`src/utils/bytes.ts`), whose
+  short kilobyte is the whole word `كيلوبايت` beside `م.ب`. A piece size is binary, as qBittorrent writes it: `Kio` and `Mio` in French, `КБ` and `МБ` in
+  Russian, `ك.ب` and `م.ب` in Arabic, `KiB` and `MiB` elsewhere, Hebrew too, whose sizes beside it Intl writes in Latin.
+- **Arabic and Hebrew** read right to left, and `src/i18n` isolates each plain value at load, so a catalogue holds no
+  direction mark. Brand names stay in Latin script, and a prefix joins one the way the language writes it: Arabic
+  `لـ {name}` and `بـ {name}`, Hebrew `ב-{name}`, `ל-{name}` and `מ-{name}`. Arabic writes its own comma and question
+  mark (`،`, `؟`) and guillemets (`«غير محدود»`), Hebrew gershayim (`״ללא הגבלה״`). A value beside an adjective or a past
+  verb would ask it to agree with a number or a person nobody knows, so the line is a label and a colon, or Arabic's
+  `تمت` with a verbal noun: `المتصلون: {count}`, `נבחרו: {count}`, `تمت الإضافة إلى {name}`,
+  `הוספה לקבוצה: {name}`. A `.torrent` or `.zip` written beside a value or a word would be
+  split from it by the isolate, so it is the language's words for the file: `ملف التورنت`, `كملف zip`, `קובץ הטורנט`,
+  `כקובץ zip`.
 
 ## Register and torrent terms
 
@@ -57,6 +69,8 @@ mode and the like) have no column here and follow that language's qBittorrent th
 | `zh-Hant` | 你 | torrent | 磁力連結 | 種子, 下載者 | 用戶 | 追蹤者 | 分塊 |
 | `tr` | siz | torrent | magnet bağlantısı | gönderen, çeken | kişi | izleyici | parça |
 | `pl` | ty, or impersonal | torrent | odnośnik magnet | seedujący, pijawka | partner | tracker | część |
+| `ar` | imperative in the masculine singular in a sentence, the verbal noun on buttons | تورنت | رابط مغناطيسي | باذر, محمِّل | قرين | متتبع | قطعة |
+| `he` | imperative in the plural in a sentence, the action noun on buttons | טורנט | קישור מגנט | זורע, עלוקה | עמית | עוקבן | חתיכה |
 
 Where this differs from qBittorrent:
 
@@ -65,6 +79,8 @@ Where this differs from qBittorrent:
 - `zh-Hans` seeder and leecher: qBittorrent's `做种` and `下载` are column titles, and `下载` alone reads as a download.
 - `zh-Hant` peer: qBittorrent's `下載者` is its word for a leecher too, and ripple shows both, so it takes the word
   `zh-Hans` uses. Never `節點` or `节点`, which is a DHT node.
+- `ar` Paused is `متوقف مؤقتًا`, where qBittorrent's `مُلبث` is a word few readers know; a torrent's states read
+  `قيد التنزيل`, `قيد البذر`, `قيد الفحص`. `he` Trackers is `עוקבנים`, where stub's `כלי מעקב` is a watch list's.
 - The options menu's names: `Download first and last pieces first` takes this table's piece where qBittorrent's
   differs (`es-419` `piezas`, `it` `parte`, `zh-Hans` `区块`, `zh-Hant` `分塊`), and `pt-BR` writes `para` for its `pra`.
   Unlimited is a box's label and a value both, so `pl` writes `Bez limitu` for `Nieograniczone` and `zh-Hans` `无限制`
@@ -74,7 +90,8 @@ In Chinese `种子` and `種子` are a seed and never a torrent, which stays `to
 
 A transfer's two directions, on a stat or a limit, are qBittorrent's too: `es-419` Bajada, Subida; `pt-BR`, `de` and `it`
 Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `ja` ダウンロード, アップロード; `ko` 다운로드, 업로드;
-`zh-Hans` 下载, 上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie.
+`zh-Hans` 下载, 上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie; `ar` التنزيل, الرفع;
+`he` הורדה, העלאה.
 
 ## Ripple's own words
 
@@ -96,6 +113,8 @@ download is saved in.
 | `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 | 分組 |
 | `tr` | kütüphane | paylaşım bağlantısı | geçici indirme | grup |
 | `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie | grupa |
+| `ar` | المكتبة | رابط مشاركة | تنزيل مؤقت | مجموعة |
+| `he` | ספרייה | קישור שיתוף | הורדה זמנית | קבוצה |
 
 ## The VPN switch
 
@@ -104,6 +123,6 @@ The VPN takes an article where the language has one: `la VPN` in `es-419` and `i
 switch keeps the room of the widest of them, so a new or changed one is no wider than the widest that language has.
 Off there is the state, and `Turn off` the action that leads to it (`Désactivé` and `Désactiver`, `Aus` and
 `Ausschalten`). The state agrees with the VPN where it has a gender (`Desactivada`, `Desativada`, `Disattivata`,
-`Désactivé`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for Close: where
+`Désactivé`), and takes the VPN as masculine in Arabic and Hebrew (`يعمل`, `متوقف`, `פועל`, `כבוי`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for Close: where
 the two would be one word it names the VPN (`VPN'i kapat`, `关闭 VPN`, `關閉 VPN`). A peer and a tracker in the
 warning and in the line of a download that found nobody are the table's words above.

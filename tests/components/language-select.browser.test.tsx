@@ -64,6 +64,8 @@ describe('the Language select', () => {
       { value: 'pt-BR', text: 'Português (Brasil)', lang: 'pt-BR' },
       { value: 'tr', text: 'Türkçe', lang: 'tr' },
       { value: 'ru', text: 'Русский', lang: 'ru' },
+      { value: 'he', text: 'עברית', lang: 'he' },
+      { value: 'ar', text: 'العربية', lang: 'ar' },
       { value: 'ko', text: '한국어', lang: 'ko' },
       { value: 'ja', text: '日本語', lang: 'ja' },
       { value: 'zh-Hans', text: '简体中文', lang: 'zh-Hans' },

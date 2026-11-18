@@ -734,7 +734,7 @@ describe('the word keeps its room', () => {
     const { VpnSwitch } = await import('../../src/components/vpn-switch')
     const catalogues = import.meta.glob<Record<string, string>>('../../src/locales/*.json', { import: 'default', eager: true })
     const languages = [['en', null], ...Object.entries(catalogues).map(([path, catalogue]) => [path.match(/([^/]+)\.json$/)![1]!, catalogue] as const)] as const
-    expect(languages).toHaveLength(13)
+    expect(languages).toHaveLength(15)
     // no word, as before an engine has spoken, then the five: on, reconnecting, unreachable, off, and waiting each way
     const states: { reachable: Reachability | null, transport: EngineTransport, off: boolean }[] = [
       { reachable: null, transport: 'relay', off: false },
@@ -771,7 +771,7 @@ describe('the word keeps its room', () => {
       }
     } finally { sheet.remove(); localStorage.removeItem('ripple:vpn') }
     // each state drew a word of its own in each language, or none, so no state was measured as another
-    expect(words.size).toBe(13 * 6)
+    expect(words.size).toBe(15 * 6)
     expect(moved).toEqual([])
   }, 60_000)
 })

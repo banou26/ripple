@@ -2,7 +2,7 @@
 // build offers too (tests/languages.ts), so a test picks one by its setting. The engine is a stand-in this file writes
 // to, so each kind of row, banner and readout is drawn with no swarm, and every request leaving this origin is refused.
 import type { AddressInfo } from 'node:net'
-import type { Frame, Page } from '@playwright/test'
+import type { Frame, Locator, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
 import { expect, test } from './offline'
@@ -1151,7 +1151,7 @@ const engineSurfaces = async (page: Page, width: number) => {
 }
 
 test.describe('in each language', () => {
-  for (const language of [PSEUDO, 'de', 'ja', 'fr']) {
+  for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
       test.setTimeout(240_000)
       await opening(page, language)
@@ -1645,6 +1645,144 @@ test.describe('the header', () => {
   })
 })
 
+/*
+ * Arabic and Hebrew mirror the page: what starts a row starts it on the right. English is the control, each check
+ * finding the opposite side there. A name keeps its own direction and shows its start when it is cut, the player keeps
+ * time running left to right, and of the icons only those that point along the line turn.
+ */
+test.describe('right to left', () => {
+  type Box = { left: number, right: number, mid: number }
+  const boxOf = (locator: Locator): Promise<Box> => locator.evaluate((element) => {
+    const { left, right } = element.getBoundingClientRect()
+    return { left, right, mid: (left + right) / 2 }
+  })
+  // the icon's own turn, which only the rule mirroring the ones that point along the line sets
+  const turned = (locator: Locator) => locator.evaluate(icon => getComputedStyle(icon).scale === '-1 1')
+
+  for (const language of ['ar', 'he', 'en']) {
+    const rtl = language !== 'en'
+    /** Whether `a` comes before `b` along the line: right of it right to left, left of it otherwise. */
+    const before = (a: Box, b: Box) => (rtl ? a.mid > b.mid : a.mid < b.mid)
+
+    test(`${language}: the header, a row, the toolbar, the menus and the details panel ${rtl ? 'mirror' : 'keep their sides'}, at 1280 and 390 px`, async ({ page }) => {
+      test.setTimeout(120_000)
+      await opening(page, language)
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      expect(await page.locator('html').getAttribute('dir')).toBe(rtl ? 'rtl' : null)
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        await drawn(page)
+        const at = `${width} px`
+        expect(before(await boxOf(page.locator('header .brand')), await boxOf(page.locator('header a.settings'))), `${at}: the logo starts the header`).toBe(true)
+        const row = page.locator('.torrent', { hasText: 'Elsewhere' })
+        expect(before(await boxOf(row.locator('> .row-check')), await boxOf(row.locator('.content'))), `${at}: a row's box starts it`).toBe(true)
+        expect(before(await boxOf(page.locator('.list-toolbar .chip.show')), await boxOf(page.locator('.list-toolbar .views'))), `${at}: the filter starts the toolbar`).toBe(true)
+        // a Latin name reads left to right and sits at its row's start
+        const name = row.locator('.title strong')
+        expect(await name.evaluate(element => getComputedStyle(element).direction), at).toBe('ltr')
+        const words = await name.evaluate((element) => {
+          const range = document.createRange()
+          range.selectNodeContents(element)
+          const { left, right } = range.getBoundingClientRect()
+          return { left, right, mid: (left + right) / 2 }
+        })
+        const own = await boxOf(name)
+        expect(Math.abs((rtl ? own.right - words.right : words.left - own.left)), `${at}: the name at its row's start`).toBeLessThan(1)
+      }
+
+      // a menu under a control hangs from the control's start, and one at the pointer opens away from the line's end
+      await page.setViewportSize({ width: 1280, height: 900 })
+      const chip = page.locator('.list-toolbar .chip.show')
+      await chip.click()
+      const menu = page.getByRole('menu')
+      await expect(menu).toBeVisible()
+      const [chipBox, under] = [await boxOf(chip), await boxOf(menu)]
+      expect(Math.abs(rtl ? chipBox.right - under.right : chipBox.left - under.left), 'the Show menu hangs from its chip\'s start').toBeLessThan(1)
+      // spacing would pull Arabic's joined letters apart, and Hebrew's are not joined
+      const spacing = await menu.locator('.group > label').first().evaluate(label => getComputedStyle(label).letterSpacing)
+      expect(spacing === 'normal', `the menu's heading spaced ${spacing}`).toBe(language === 'ar')
+      await page.keyboard.press('Escape')
+      const row = page.locator('.torrent', { hasText: 'Elsewhere' })
+      // a menu closes when the list under it scrolls, as a click's own scroll to its row would
+      await row.scrollIntoViewIfNeeded()
+      await drawn(page)
+      const point = await boxOf(row)
+      await row.click({ button: 'right', position: { x: (point.right - point.left) / 2, y: 20 } })
+      await expect(menu).toBeVisible()
+      const pointed = await boxOf(menu)
+      const x = point.mid
+      // within the pixel the pointer lands on
+      expect(Math.abs(rtl ? pointed.right - x : pointed.left - x), 'the row\'s menu opens away from the pointer towards the line\'s end').toBeLessThanOrEqual(1)
+      await page.keyboard.press('Escape')
+
+      // the details panel: its first tab starts the row of tabs
+      await row.click()
+      const tabs = page.locator('main + section .tabs button')
+      await expect(tabs.first()).toBeVisible()
+      expect(before(await boxOf(tabs.nth(0)), await boxOf(tabs.nth(1))), 'the first tab starts the details panel').toBe(true)
+
+      // an icon that points along the line turns, Play does not
+      await expect(page.locator('.torrent .lucide-play').first()).toBeVisible()
+      expect(await turned(page.locator('.torrent .lucide-play').first()), 'Play').toBe(false)
+      await toSettings(page)
+      expect(await turned(page.locator('header a.back svg')), 'the way back').toBe(rtl)
+
+      // the legal pages are in English on any page, so they read left to right
+      await page.goto(`${origin}/privacy`)
+      expect(await page.locator('p').first().evaluate(paragraph => getComputedStyle(paragraph).direction), 'the privacy page').toBe('ltr')
+    })
+
+    test(`${language}: a name cut short shows its start and ends in an ellipsis, in the table at 390 px`, async ({ page }) => {
+      await opening(page, language)
+      await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      const cut = await page.locator('.torrent-table .title').evaluateAll(titles => titles
+        .filter(title => title.scrollWidth > title.clientWidth + 1)
+        .map((title) => {
+          const range = document.createRange()
+          range.setStart(title.firstChild!, 0)
+          range.setEnd(title.firstChild!, 1)
+          return { name: title.textContent, gap: range.getBoundingClientRect().left - title.getBoundingClientRect().left, ellipsis: getComputedStyle(title).textOverflow }
+        }))
+      expect(cut.length, 'the control: a name is cut').toBeGreaterThan(0)
+      expect(cut.filter(({ gap, ellipsis }) => Math.abs(gap) > 1 || ellipsis !== 'ellipsis')).toEqual([])
+    })
+
+    test(`${language}: the stats strip's line scrolls from its start, its fades on the side they cover, on a phone`, async ({ page }) => {
+      await opening(page, language)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(origin)
+      await signIn(page, THROTTLED, SYNCED)
+      await page.evaluate(() => localStorage.removeItem('ripple:quota-offer'))
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      const fades = page.locator('.stats .fades').last()
+      await expect(fades, 'the control: the line runs past its end').toHaveAttribute('data-more-end')
+      await expect(fades).not.toHaveAttribute('data-more-start')
+      const side = (pseudo: string) => fades.evaluate((element, pseudo) => getComputedStyle(element, pseudo)[getComputedStyle(element).direction === 'rtl' ? 'right' : 'left'], pseudo)
+      expect(await side('::before'), 'the start\'s fade at the start').toBe('0px')
+      await fades.locator('.line').evaluate((line) => { line.scrollLeft = (getComputedStyle(line).direction === 'rtl' ? -1 : 1) * line.scrollWidth })
+      await expect(fades).toHaveAttribute('data-more-start')
+      await expect(fades).not.toHaveAttribute('data-more-end')
+    })
+
+    test(`${language}: the player keeps left to right, its top row ${rtl ? 'mirrored' : 'as it is'}`, async ({ page }) => {
+      await opening(page, language)
+      await page.setViewportSize({ width: 1280, height: 844 })
+      await page.goto(watchPage(PACK))
+      await library(page, PACK_LIST, [PLAYING], READOUTS[0])
+      await expect(page.getByTestId('peers')).toContainText('28')
+      const play = await boxOf(page.locator('button.play').first())
+      expect(play.mid, 'Play on the left').toBeLessThan(640)
+      expect(before(await boxOf(page.locator('.ripple-overlay-content .file-name')), await boxOf(page.getByTestId('peers'))), 'the file\'s name starts the top row').toBe(true)
+      expect(await turned(page.locator('[data-testid=open-in-ripple] svg')), 'the link out').toBe(rtl)
+    })
+  }
+})
+
 test.describe('the stats strip', () => {
   for (const language of ['en', ...Object.keys(catalogues())]) {
     test(`${language}: two rows at most from 320 to 1440 px, signed in with the quota and the sync, and signed out`, async ({ page }) => {
@@ -1888,9 +2026,12 @@ test.describe('on a phone', () => {
         const box = (shown: Element) => shown.getBoundingClientRect()
         const [show, group, sort] = ['show', 'group', 'sort'].map(chip => bar.querySelector(`.chip.${chip}`)!)
         const cut = (chip: Element) => { const word = chip.querySelector('.value')!; return word.scrollWidth > word.clientWidth }
+        // how far the toolbar's end, its right or, right to left, its left, is passed
+        const rtl = getComputedStyle(bar).direction === 'rtl'
+        const end = (shown: Element) => (rtl ? -box(shown).left : box(shown).right)
         return {
-          past: Math.max(...[...bar.children].map(kid => box(kid).right)) - box(bar).right,
-          chevrons: [show!, group!, sort!].map((chip) => { const chevron = box(chip.querySelector('.chev')!); return chevron.width > 13.5 && chevron.right <= box(chip).right }),
+          past: Math.max(...[...bar.children].map(end)) - end(bar),
+          chevrons: [show!, group!, sort!].map((chip) => { const chevron = chip.querySelector('.chev')!; return box(chevron).width > 13.5 && end(chevron) <= end(chip) }),
           showCut: cut(show!),
           groupCut: cut(group!),
           groupWidth: box(group!).width,
