@@ -1022,12 +1022,17 @@ const applyViewing = (h: number) => {
     // Never the sample either, though it is temporary: the person pressed Add for all of it, so it
     // downloads like their own.
     if (ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !userStarted.has(h) && !forced.has(h) && !cacheIdle.has(h)) {
+      // Nor while it checks, which a pause stops where it is: a temporary torrent started again with nobody watching
+      // (moved into the folder, or back with no saved state) read Queued at 0% with every file on the device, for
+      // good. So the park, and the end of a hold, wait for the next pumps; one not reported on may not have begun.
+      const st = session.status(h)
+      if (!st || CHECKING_STATES.has(st.state)) { pendingViewing.add(h); return }
       cacheIdle.add(h)
       wantPause(h)
       session.pauseTorrent(h)
       releaseHold(h)
       void persistResume(h)
-    }
+    } else releaseHold(h)
     return
   }
   wake(h)
@@ -1898,8 +1903,8 @@ const init = async () => {
        * placed below, `recovery` read that as a torrent that had stopped on its own.
        *
        * Ephemeral entries are started too rather than left as they are. `applyViewing` re-parks
-       * them on the first pump that has their layout, which costs a fraction of a second of
-       * downloading, and it needs them running to get that layout at all: a paused torrent
+       * them on the first pump that has their layout and no check running, which costs a fraction
+       * of a second of downloading, and it needs them running to get that layout at all: a paused torrent
        * connects to nobody, so one restored paused with no metadata could never fetch any and
        * would sit stopped for the life of the session.
        */
@@ -1907,8 +1912,8 @@ const init = async () => {
       if (e.resumed) userStarted.add(h)
       if (e.forced && !e.paused) { forced.add(h); run(h) }
       recovery.hold(h, Date.now())
-      // Held like a page's add until the pump at its layout, which parks it or, for one the person started,
-      // only releases it: it comes back running, with no saved state or one saved while it ran, and asked a
+      // Held like a page's add until the pump at its layout, or past its check, which parks it or, for one the person
+      // started, only releases it: it comes back running, with no saved state or one saved while it ran, and asked a
       // web source for up to 16 MiB before that pump (swarm rig, 2026-11-14). A saved state only under
       // /cache, as releasing the hold would clear the upload mode a folder's blob carries.
       if (e.ephemeral && (!resume?.byteLength || isCacheSavePath(savePath))) {
@@ -1950,7 +1955,7 @@ const init = async () => {
       // a plain size check would read that as "somebody is watching" and skip the very pass the
       // hold was asked for.
       if (!activeViewers(h).length) applyViewing(h)
-      releaseHold(h)
+      else releaseHold(h)
     }
     if (folderHandle) {
       for (const h of [...folderUnchecked]) {
