@@ -205,6 +205,50 @@ const watchMoves = (context: BrowserContext) => context.addInitScript((names) =>
   })
 }, FILES.map((f) => f.path))
 
+/** In every tab, each engine it starts, once that engine says it is ready. */
+const watchEngines = (context: BrowserContext) => context.addInitScript(() => {
+  const w = window as unknown as { __engines: Worker[] }
+  w.__engines = []
+  const Original = window.Worker
+  window.Worker = class extends Original {
+    constructor (url: string | URL, options?: WorkerOptions) {
+      super(url, options)
+      this.addEventListener('message', (event: MessageEvent) => { if (event.data?.type === 'ready') w.__engines.push(this) })
+    }
+  }
+})
+
+const enginesIn = (page: Page) => page.evaluate(() => (window as unknown as { __engines: Worker[] }).__engines.length)
+
+/**
+ * The bytes the newest engine of the tab reads from the start of the torrent's first file, once it reports the torrent
+ * whole in the folder, or why it could not. A read skips the engine's queue of commands, so it waits for a flush sent
+ * through that queue, which runs every command the page sent before it, the folder's offer among them.
+ */
+const readInFolder = (page: Page) => page.evaluate(async (savePath) => {
+  const engine = (window as unknown as { __engines: Worker[] }).__engines.at(-1)!
+  const heard = <T>(pick: (data: any) => T | undefined) => new Promise<T>((resolve) => {
+    const listen = (event: MessageEvent) => {
+      const found = pick(event.data)
+      if (found === undefined) return
+      engine.removeEventListener('message', listen)
+      resolve(found)
+    }
+    engine.addEventListener('message', listen)
+  })
+  const handle = await heard<number>((data) => (data?.type === 'state'
+    ? data.torrents?.find((t: any) => t.status?.savePath === savePath && t.status.progress >= 1)?.handle
+    : undefined))
+  // ids the page never gives, so its own reads and asks are not answered by these
+  const flushed = heard((data) => (data?.type === 'answer' && data.id === -1 ? true : undefined))
+  engine.postMessage({ type: 'flush-resume', id: -1 })
+  await flushed
+  const read = heard<{ type: string, data?: Uint8Array, error?: string }>((data) => (data?.id === -2 && /^read-/.test(data.type) ? data : undefined))
+  engine.postMessage({ type: 'read', id: -2, handle, fileIndex: 0, offset: 0, len: 1_000, prioritize: false })
+  const answer = await Promise.race([read, new Promise<{ type: string }>((resolve) => setTimeout(() => resolve({ type: 'none' }), 30_000))])
+  return answer.type === 'read-result' ? [...new Set((answer as { data: Uint8Array }).data)] : `${answer.type}: ${(answer as { error?: string }).error ?? ''}`
+}, `/native/${INFO_HASH}`)
+
 const movesIn = (page: Page) => page.evaluate(() => (window as unknown as { __relocates: string[] }).__relocates)
 const writesIn = (page: Page) => page.evaluate(() => (window as unknown as { __writes: number }).__writes)
 const failed = (shown: string[]) => shown.filter((text) => text.includes('failed'))
@@ -699,6 +743,44 @@ test('a move its engine stopped before making is made by the next engine', async
   await page.evaluate(() => (window as unknown as Seen).__engines[0]!.dispatchEvent(new MessageEvent('message', { data: { type: 'fatal', message: 'stopped' } })))
   await expect.poll(engines, { timeout: 60_000, message: 'no engine started after the first stopped' }).toBe(2)
   await expect.poll(paths, { timeout: 60_000, message: 'the next engine never made the move' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+const WHOLE = [FILES[0]!.fill]
+
+test('a torrent kept in the folder reads after another tab takes the engine over', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await watchEngines(context)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  // THE CONTROL: the engine that moved it reads it from the folder
+  expect(await readInFolder(page)).toEqual(WHOLE)
+  const other = await context.newPage()
+  await other.goto('/')
+  await other.locator('input[type=file][accept*=".torrent"]').waitFor({ state: 'attached', timeout: 30_000 })
+
+  await page.close()
+  await expect.poll(() => enginesIn(other), { timeout: 60_000, message: 'the other tab never took the engine over' }).toBe(1)
+  expect(await readInFolder(other), 'the engine of the tab that took over could not read the folder').toEqual(WHOLE)
+})
+
+test('a torrent kept in the folder reads after the engine starts again', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await watchEngines(context)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  // THE CONTROL: the engine that moved it reads it from the folder
+  expect(await readInFolder(page)).toEqual(WHOLE)
+
+  // an engine that reports itself gone has the tab start another
+  await page.evaluate(() => (window as unknown as { __engines: Worker[] }).__engines[0]!.dispatchEvent(new MessageEvent('message', { data: { type: 'fatal', message: 'stopped' } })))
+  await expect.poll(() => enginesIn(page), { timeout: 60_000, message: 'no engine started after the first stopped' }).toBe(2)
+  expect(await readInFolder(page), 'the engine started again could not read the folder').toEqual(WHOLE)
 })
 
 test('a torrent moved into the folder moves back into browser storage when asked', async ({ page }) => {
