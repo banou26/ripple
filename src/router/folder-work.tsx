@@ -143,6 +143,7 @@ const Work = () => {
   useEffect(() => {
     folderGenerationRef.current++
     syncAtRef.current.clear()
+    moveAtRef.current.clear()
     // a different folder, or a revoked grant, means nothing is known to be mirrored any more
     setSaved(() => new Set())
   }, [folder, permitted])
