@@ -53,7 +53,7 @@ import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { useFinishNotice } from './finish-notice'
-import { onFolderNews, useSavedToFolder } from './folder-work'
+import { movedNews, onFolderNews, useSavedToFolder } from './folder-work'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { useConfirm } from '../components/confirm-dialog'
@@ -3118,6 +3118,17 @@ const Home = () => {
     current: currentLocation(t.stats?.savePath),
   })
 
+  // moves asked for in this tab and made by the tab running the engine, by info hash, with where each goes
+  const askedRef = useRef(new Map<string, SaveLocation>())
+  useEffect(() => {
+    for (const t of torrents) {
+      const at = currentLocation(t.stats?.savePath)
+      if (!t.infoHash || !t.stats || askedRef.current.get(t.infoHash) !== at) continue
+      askedRef.current.delete(t.infoHash)
+      showToast(movedNews(intl, t.name, at, folder?.name ?? ''))
+    }
+  }, [torrents, folder, showToast, intl])
+
   /**
    * Record where a torrent belongs, which the tab running the engine moves it to once it can.
    *
@@ -3127,6 +3138,7 @@ const Home = () => {
   const onSetLocation = (t: Torrent, location: SaveLocation) => {
     if (!t.infoHash) return
     client.setLocation(t.infoHash, location)
+    askedRef.current.delete(t.infoHash)
     const { current } = locationOf(t)
     const readiness = moveReadiness({
       current,
@@ -3138,7 +3150,10 @@ const Home = () => {
     if (!readiness.move) {
       const waiting = pendingLabel(readiness, folder?.name, intl)
       if (waiting) showToast(waiting)
+      return
     }
+    // the tab running the engine says so once the move lands, and this one once its row reports the new place
+    if (!client.owns()) askedRef.current.set(t.infoHash, location)
   }
 
   /**
