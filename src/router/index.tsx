@@ -11,6 +11,7 @@ import Privacy from './privacy'
 import Settings from './settings'
 import { Hints } from '../components/hint'
 import { shownLanguage, startLanguage, uiLanguage } from '../i18n'
+import { FolderWork } from './folder-work'
 import { useLeavePrompt } from './leave-prompt'
 import { getRoutePath, getRouterRoutePath, Route } from './path'
 
@@ -55,7 +56,12 @@ const routes: RouteObject[] = [
 /** Around every page, for what holds in the tab whichever one shows. */
 const Pages = () => {
   useLeavePrompt()
-  return <Outlet/>
+  return (
+    <>
+      <Outlet/>
+      <FolderWork/>
+    </>
+  )
 }
 
 const router = createBrowserRouter([{ element: <Pages/>, children: routes }])

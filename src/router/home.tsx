@@ -25,8 +25,7 @@ import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import { StorageWarning } from '../components/storage-warning'
 import { useCloudBackup } from '../torrent/use-cloud-backup'
 import { isSaveCancelled, saveTorrentAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
-import { copyKey, holdsChosen, syncTorrentToDirectory } from '../torrent/sync'
-import { moveTorrentFiles } from '../torrent/move-files'
+import { copyKey, holdsChosen } from '../torrent/sync'
 import { describeAddRequest, namedMagnet } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
 import {
@@ -34,7 +33,7 @@ import {
 } from '../torrent/add-options'
 import type { AddChoices } from '../torrent/add-options'
 import {
-  currentLocation, intendedLocation, isOwnContent, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
+  currentLocation, intendedLocation, moveReadiness, pendingLabel, readGlobalDefault, SAVE_LOCATION_KEY,
 } from '../torrent/save-location'
 import type { InboundNow } from '../torrent/inbound'
 import type { SaveLocation } from '../torrent/library'
@@ -54,6 +53,7 @@ import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { useFinishNotice } from './finish-notice'
+import { onFolderNews, useSavedToFolder } from './folder-work'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { useConfirm } from '../components/confirm-dialog'
@@ -334,23 +334,6 @@ const HISTORY = 120
  * one is well under a pixel, so the line stops being a shape and becomes a texture.
  */
 const ROW_HISTORY = 60
-
-// A torrent already copied to the folder is parked on DONE, and a failed copy waits SYNC_RETRY before the next attempt
-const DONE = Number.POSITIVE_INFINITY
-const SYNC_RETRY = 30_000
-// A tab not running the engine only checks the copy, which stops at the first file not there, so it looks again sooner
-const CHECK_RETRY = 3_000
-
-// Resolves to null when another tab already holds it, which is a skip rather than a success or a failure
-const copyUnderLock = (torrent: Torrent, copy: () => Promise<number>): Promise<number | null> => {
-  const key = torrent.infoHash
-  if (!navigator.locks || !key) return copy()
-  return navigator.locks.request(
-    `ripple:folder-sync:${key}`,
-    { ifAvailable: true },
-    (lock) => (lock ? copy() : Promise.resolve(null)),
-  )
-}
 
 /**
  * Exported so a row can be measured on its own.
@@ -2975,7 +2958,7 @@ const Home = () => {
     forceStart: () => client.forceStart(Number(t.id)),
     remove: () => { void onRemoveKeepingFiles(t) },
     removeWithFiles: () => { void onRemove(t) },
-    setLocation: (location) => { void onSetLocation(t, location) },
+    setLocation: (location) => onSetLocation(t, location),
     setKept: (kept) => { void onSetKept(t, kept) },
     setFirstLast: (on) => client.setPlan(Number(t.id), { wanted: t.wantedFiles, firstLast: on }),
     pickFolder,
@@ -3106,7 +3089,7 @@ const Home = () => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
   }
-  // a default chosen in another tab is this one's too, and the tab running the engine is the one that moves
+  // a default chosen in another tab is this one's too
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       // a null key is the whole storage cleared
@@ -3129,18 +3112,6 @@ const Home = () => {
     setRateEdit(null)
   }
 
-  /**
-   * Hand the engine the folder, from whichever tab actually holds the grant.
-   *
-   * A File System Access grant belongs to a realm, and the engine runs in whichever tab won the
-   * election, which is not necessarily this one. Every tab offers what it has and the newest offer
-   * wins, so a grant given anywhere reaches the engine. Offering null when the grant goes is just as
-   * important: a stale handle would have the engine reading against permission it no longer has.
-   */
-  useEffect(() => {
-    client.setFolder(folder && permitted ? folder : null)
-  }, [client, folder, permitted])
-
   const locationOf = (t: Torrent) => ({
     intended: intendedLocation(t, defaultLocation),
     // the engine's own answer for where it is writing, rather than a remembered one
@@ -3148,12 +3119,12 @@ const Home = () => {
   })
 
   /**
-   * Record where a torrent belongs, and move it if it can move now.
+   * Record where a torrent belongs, which the tab running the engine moves it to once it can.
    *
-   * The two halves are deliberately separate. Recording always happens, so choosing a folder for
-   * something still downloading is remembered and acted on when it finishes rather than refused.
+   * Recording always happens, so choosing a folder for something still downloading is remembered
+   * and acted on when it finishes rather than refused.
    */
-  const onSetLocation = async (t: Torrent, location: SaveLocation) => {
+  const onSetLocation = (t: Torrent, location: SaveLocation) => {
     if (!t.infoHash) return
     client.setLocation(t.infoHash, location)
     const { current } = locationOf(t)
@@ -3167,10 +3138,7 @@ const Home = () => {
     if (!readiness.move) {
       const waiting = pendingLabel(readiness, folder?.name, intl)
       if (waiting) showToast(waiting)
-      return
     }
-    // in another tab, the tab running the engine moves it from the location just recorded
-    if (client.owns()) await runMove(t, location)
   }
 
   /**
@@ -3203,125 +3171,8 @@ const Home = () => {
       : intl.formatMessage({ id: '{name} can be deleted to free space', defaultMessage: '{name} can be deleted to free space' }, { name: t.name }))
   }
 
-  /**
-   * Moves in flight, by info hash, with where each goes, so the effect below and a click cannot start the same one twice.
-   * A move that worked keeps its mark until its row reports the new place: until then the row still reads the old one,
-   * and a second move would read files the engine already dropped.
-   */
-  const movingRef = useRef(new Map<string, SaveLocation>())
-
-  const runMove = async (t: Torrent, to: SaveLocation) => {
-    const infoHash = t.infoHash
-    if (!folder || !permitted || !infoHash || movingRef.current.has(infoHash)) return
-    movingRef.current.set(infoHash, to)
-    try {
-      await moveTorrentFiles({ client, torrent: t, folder, to })
-      showToast(to === 'folder'
-        ? intl.formatMessage({ id: '{name} moved to {folder}', defaultMessage: '{name} moved to {folder}' }, { name: t.name, folder: folder.name })
-        : intl.formatMessage({ id: '{name} moved into browser storage', defaultMessage: '{name} moved into browser storage' }, { name: t.name }))
-    } catch {
-      movingRef.current.delete(infoHash)
-      // nothing was deleted: the copy runs first and the engine is only told once it lands
-      showToast(intl.formatMessage({ id: 'Moving {name} failed', defaultMessage: 'Moving {name} failed' }, { name: t.name }))
-    }
-  }
-
-  /**
-   * Carry out the moves that became possible: a torrent finished, or the folder came back.
-   *
-   * Runs off the same state tick as the mirror below, so it re-checks twice a second, and every move
-   * it starts is guarded by `movingRef` so a tick during a copy cannot start a second one. Only in the tab running the
-   * engine: another tab's move would read files this one's had just dropped.
-   */
-  useEffect(() => {
-    if (!folder || !permitted || !client.owns()) return
-    for (const t of torrents) {
-      if (t.state === 'missing') continue
-      const { intended, current } = locationOf(t)
-      if (t.infoHash && movingRef.current.get(t.infoHash) === current) movingRef.current.delete(t.infoHash)
-      const readiness = moveReadiness({ current, intended, complete: t.progress >= 1 && holdsChosen(t), folderReady: true, leavesFilesOut: leavesFilesOut(t) })
-      if (readiness.move) void runMove(t, readiness.to)
-    }
-  })
-
-  // The backoff is what makes retrying safe: this effect re-runs twice a second from the state tick, so a bare retry would hammer the disk
-  const syncAtRef = useRef(new Map<string, number>())
-  // In-flight copies are tracked apart from the backoff: a copy can run longer than the retry window while this effect re-runs twice a second, and a swap-file
-  // writable leaves the destination at its old size until close(), so the size-based idempotence check cannot catch a second pass over the same files
-  const syncingRef = useRef(new Set<string>())
-  const folderGenerationRef = useRef(0)
-  /**
-   * Which torrents have actually landed in the user's folder, by `copyKey`, so a file chosen since is not counted
-   * as there. STATE rather than a ref.
-   *
-   * The backoff map above is a ref because nothing renders from it. This does render: it decides
-   * whether "Remove from the library" is offered at all, since keeping the files is only a real
-   * choice once the files are somewhere the person can open.
-   */
-  const [savedToFolder, setSavedToFolder] = useState<Set<string>>(new Set())
-  useEffect(() => {
-    folderGenerationRef.current++
-    syncAtRef.current.clear()
-    // a different folder, or a revoked grant, means nothing is known to be mirrored any more
-    setSavedToFolder(new Set())
-  }, [folder, permitted])
-  // Both maps are keyed by the session handle, which names a different torrent after the engine moves to another tab
-  useEffect(() => client.onEngineReset(() => {
-    syncAtRef.current.clear()
-    syncingRef.current.clear()
-    // a move the old engine never reported done is decided again from the new one's rows
-    movingRef.current.clear()
-    // ids are session handles, so after a reset they name different torrents entirely
-    setSavedToFolder(new Set())
-  }), [client])
-  useEffect(() => {
-    if (!folder || !permitted) return
-    // only the tab running the engine copies, beside its moves; another tab checks what it copied, for its options
-    const copies = client.owns()
-    const now = Date.now()
-    for (const t of torrents) {
-      if (!finished(t) || !holdsChosen(t)) continue
-      /*
-       * A created torrent is never mirrored.
-       *
-       * Its bytes ARE the user's own files, already sitting where they chose. Copying them into the
-       * auto-save folder would duplicate an entire folder on their disk to produce a second copy of
-       * something they already had, and the copy would then be the one Ripple offered to remove.
-       * `moveReadiness` refuses the other half of this, the move into OPFS; this is the mirror.
-       *
-       * `created` as well as `saveTo`, since the copy path: a torrent made from a pick that could
-       * not be re-opened lives in BROWSER storage, so it reaches here as an ordinary finished
-       * download while its bytes are still a copy of files the person already has. Testing `saveTo`
-       * alone stopped being enough the moment that existed, and the cost of missing it is the whole
-       * pick written to their disk a third time.
-       */
-      if (isOwnContent(t)) continue
-      // a move copies the files itself, and drops the ones a copy beside it would still be reading
-      if (t.infoHash && movingRef.current.has(t.infoHash)) continue
-      if (!t.files?.length || syncingRef.current.has(t.id)) continue
-      const key = copyKey(t)
-      const attempt = syncAtRef.current.get(key)
-      if (attempt !== undefined && (attempt === DONE || now < attempt)) continue
-      syncingRef.current.add(t.id)
-      const generation = folderGenerationRef.current
-      copyUnderLock(t, () => syncTorrentToDirectory(client, t, folder, copies))
-        .then((written) => {
-          if (generation !== folderGenerationRef.current) return
-          if (written === null) return
-          syncAtRef.current.set(key, DONE)
-          // `written` is false for a copy that was already there, which is still "it is in the
-          // folder" and still the thing the removal options need to know
-          setSavedToFolder((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
-          if (written) showToast(intl.formatMessage({ id: '{name} saved to {folder}', defaultMessage: '{name} saved to {folder}' }, { name: t.name, folder: folder.name }))
-        })
-        .catch(() => {
-          if (generation !== folderGenerationRef.current) return
-          syncAtRef.current.set(key, Date.now() + (copies ? SYNC_RETRY : CHECK_RETRY))
-          if (copies) showToast(intl.formatMessage({ id: 'Saving {name} to {folder} failed, retrying', defaultMessage: 'Saving {name} to {folder} failed, retrying' }, { name: t.name, folder: folder.name }))
-        })
-        .finally(() => syncingRef.current.delete(t.id))
-    }
-  }, [torrents, folder, permitted, client, showToast, intl])
+  const savedToFolder = useSavedToFolder()
+  useEffect(() => onFolderNews(showToast), [showToast])
 
   /**
    * What the option list needs to know about this torrent's surroundings.

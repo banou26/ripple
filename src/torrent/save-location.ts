@@ -109,8 +109,8 @@ export const readGlobalDefault = (read: (key: string) => string | null): SaveLoc
  *
  * A source-backed entry always wants to stay where it is, whatever the global default says. Without
  * that the ordinary default of `browser` would read as "this torrent belongs in browser storage",
- * and the effect in home.tsx that carries out pending moves would copy the person's entire picked
- * folder into OPFS: the largest, least wanted copy the app could possibly make, started by nobody.
+ * and the effect in folder-work.tsx that carries out pending moves would copy the person's entire
+ * picked folder into OPFS: the largest, least wanted copy the app could possibly make, started by nobody.
  */
 export const intendedLocation = (
   entry: { saveTo?: SaveLocation } | null | undefined,
