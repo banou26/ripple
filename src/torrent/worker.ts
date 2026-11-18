@@ -1955,7 +1955,6 @@ const init = async () => {
       // a plain size check would read that as "somebody is watching" and skip the very pass the
       // hold was asked for.
       if (!activeViewers(h).length) applyViewing(h)
-      else releaseHold(h)
     }
     if (folderHandle) {
       for (const h of [...folderUnchecked]) {
