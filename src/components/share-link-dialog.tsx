@@ -306,7 +306,7 @@ const style = css`
     .list {
       max-height: 200px;
       overflow-y: auto;
-      padding-right: 8px;
+      padding-inline-end: 8px;
       margin-top: 4px;
     }
 
@@ -431,7 +431,7 @@ const style = css`
     gap: 10px;
     flex-wrap: wrap;
 
-    .spacer { margin-left: auto; }
+    .spacer { margin-inline-start: auto; }
   }
 
   button, .file-button {
@@ -618,7 +618,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
 
   const subject = torrent && (
     <div className="subject">
-      <strong>{torrent.name}</strong>
+      <strong dir="auto">{torrent.name}</strong>
       <span className="size">
         {fileCount > 0
           ? intl.formatMessage({
@@ -745,7 +745,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                             {files!.map((f) => (
                               <label className="file" key={f.index}>
                                 <input type="checkbox" checked={indices.includes(f.index)} onChange={() => toggle(f.index)} />
-                                <span className="name">{leaf(f.name)}</span>
+                                <span className="name" dir="auto">{leaf(f.name)}</span>
                                 <span className="size">{getHumanReadableByteString(f.size)}</span>
                               </label>
                             ))}

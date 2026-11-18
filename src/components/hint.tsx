@@ -68,7 +68,7 @@ const style = css`
   font-size: 0.8rem;
   font-weight: 400;
   line-height: 1.45;
-  text-align: left;
+  text-align: start;
 
   /* above the modal scrim, or a hint on a control inside a dialog is drawn behind it */
   z-index: 1000;

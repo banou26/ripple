@@ -486,10 +486,13 @@ describe('the docked torrent details', () => {
         await expect.poll(() => rowsOf(screen).length).toBe(rows)
         const [head, first] = screen.container.querySelectorAll('.rows .row')
         const [labels, cells] = [shown(head!), shown(first!)]
+        // right to left, each column follows the one before it on its left
+        const rtl = getComputedStyle(head!).direction === 'rtl'
         for (const [i, label] of labels.entries()) {
           const [box, under, before] = [label, cells[i]!, labels[i - 1]].map((cell) => cell?.getBoundingClientRect())
+          const overlaps = rtl ? box!.right > (before?.left ?? Infinity) : box!.left < (before?.right ?? 0)
           if (label.scrollWidth > label.clientWidth + 1) problems.push(`${table}: ${label.textContent} runs past its column`)
-          else if (Math.abs(box!.left - under!.left) > 0.5 || Math.abs(box!.right - under!.right) > 0.5 || box!.left < (before?.right ?? 0)) {
+          else if (Math.abs(box!.left - under!.left) > 0.5 || Math.abs(box!.right - under!.right) > 0.5 || overlaps) {
             problems.push(`${table}: ${label.textContent} is out of line`)
           }
         }

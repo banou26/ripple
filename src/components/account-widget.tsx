@@ -56,7 +56,8 @@ const triggerStyle = css`
   /* the ConnectButton's iframe is a hardcoded 140x38 and this replaces it in place, so matching the
      height is what keeps the header from changing height the moment the broker answers */
   min-height: 38px;
-  padding: 4px 8px 4px 12px;
+  padding-block: 4px;
+  padding-inline: 12px 8px;
   border-radius: 6px;
   border: 1px solid ${BORDER};
   background: ${CONTROL_BG};
@@ -117,7 +118,8 @@ const triggerStyle = css`
     flex: 0 1 auto;
     min-width: 0;
     gap: 6px;
-    padding: 4px 6px 4px 8px;
+    padding-block: 4px;
+    padding-inline: 8px 6px;
 
     .who { overflow: hidden; }
     .name { max-width: 100%; }
@@ -144,7 +146,7 @@ const rowStyle = css`
   color: ${TEXT};
   font-family: inherit;
   font-size: 0.82rem;
-  text-align: left;
+  text-align: start;
   text-decoration: none;
   cursor: pointer;
 
@@ -248,7 +250,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
         onClick={() => setOpen((was) => !was)}
       >
         <span className="who">
-          <span className="name">{name}</span>
+          <span className="name" dir="auto">{name}</span>
           <span className={`tier ${info.premium ? 'premium' : 'free'}`}>{tier}</span>
         </span>
         <ChevronDown className="chevron" aria-hidden="true"/>

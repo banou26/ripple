@@ -21,6 +21,30 @@ const style = css`
     color-scheme: dark;
   }
 
+  /* a gradient has no logical direction to name */
+  :root[dir='rtl'] {
+    --inline-start: right;
+    --inline-end: left;
+  }
+
+  /* :dir() rather than [dir]: the player stays left to right inside a right to left page, and its icons with it.
+     Play, the player's controls, the piece map and the speed graph never mirror: time and a file's bytes run left
+     to right in every language, as the player's seek bar does */
+  :is(.lucide-arrow-left, .lucide-log-out, .lucide-external-link, .lucide-list, .lucide-arrow-up-narrow-wide, .lucide-arrow-down-wide-narrow):dir(rtl) {
+    scale: -1 1;
+  }
+
+  /* a name somebody wrote keeps its own order and is cut at its own end, on the side of the row it starts */
+  :where([dir='auto']:not(button)) {
+    text-align: -webkit-match-parent;
+    text-align: match-parent;
+  }
+
+  /* spacing pulls Arabic's joined letters apart */
+  :lang(ar) {
+    letter-spacing: normal !important;
+  }
+
   *, *::before, *::after {
     box-sizing: border-box;
   }

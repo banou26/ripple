@@ -40,7 +40,7 @@ const style = (size: buttonSize) => css`
   max-width: min(calc(32 * var(--mp-unit)), calc(100vw - calc(2.4 * var(--mp-unit))));
   white-space: normal;
   overflow-wrap: anywhere;
-  text-align: left;
+  text-align: start;
 
   /*
    * The radius carries !important for exactly the reason the padding below does, and the note above

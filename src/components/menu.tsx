@@ -61,10 +61,14 @@ const GAP = 6
 export const place = (placement: MenuPlacement, box: { width: number, height: number }): MenuPosition | null => {
   const vw = window.innerWidth
   const vh = window.innerHeight
+  // a right to left page mirrors both: a pointer menu opens towards the left, and a control's start is its right
+  const rtl = document.dir === 'rtl'
   if (placement.kind === 'pointer') {
     const { at } = placement
+    const right = at.x + box.width + MARGIN <= vw
+    const left = at.x - box.width >= MARGIN
     return {
-      x: at.x + box.width + MARGIN > vw ? Math.max(MARGIN, at.x - box.width) : at.x,
+      x: (rtl ? left || !right : !right) ? Math.max(MARGIN, at.x - box.width) : at.x,
       y: at.y + box.height + MARGIN > vh ? Math.max(MARGIN, at.y - box.height) : at.y,
     }
   }
@@ -73,7 +77,7 @@ export const place = (placement: MenuPlacement, box: { width: number, height: nu
   // End-aligned with the trigger, then slid back inside the viewport. Sliding is safe here and is
   // not safe for a pointer menu: nothing is hovering the place it slides to. A trigger is not
   // always flush right, so the clamp is not decoration.
-  const wanted = placement.align === 'start' ? anchor.left : anchor.right - box.width
+  const wanted = (placement.align === 'start') !== rtl ? anchor.left : anchor.right - box.width
   const x = Math.min(Math.max(MARGIN, wanted), Math.max(MARGIN, vw - box.width - MARGIN))
   const below = anchor.bottom + GAP
   // ACROSS the trigger, never over it. The pointer branch subtracts the height from a POINT, which
@@ -132,7 +136,7 @@ export const menuStyle = css`
     color: ${TEXT};
     padding: 7px 10px;
     font-size: 0.82rem;
-    text-align: left;
+    text-align: start;
 
     &:hover:not(:disabled),
     &:focus-visible {

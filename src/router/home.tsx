@@ -478,7 +478,8 @@ export const style = css`
       display: flex;
       align-items: center;
       gap: 2px;
-      padding: 3px 5px 3px 18px;
+      padding-block: 3px;
+      padding-inline: 18px 5px;
       border-radius: 999px;
       /* a hole punched in the header, and an outline bright enough to be the only thing saying a
          control is here, which is all a bare pill has left once there is no accent to lean on */
@@ -738,8 +739,8 @@ export const style = css`
         visibility: hidden;
       }
 
-      &::before { left: 0; background: linear-gradient(to right, ${SURFACE_BG}, transparent); }
-      &::after { right: 0; background: linear-gradient(to left, ${SURFACE_BG}, transparent); }
+      &::before { inset-inline-start: 0; background: linear-gradient(to var(--inline-end, right), ${SURFACE_BG}, transparent); }
+      &::after { inset-inline-end: 0; background: linear-gradient(to var(--inline-start, left), ${SURFACE_BG}, transparent); }
       &[data-more-start]::before, &[data-more-end]::after { visibility: visible; }
     }
 
@@ -934,11 +935,12 @@ export const style = css`
     &::before {
       content: '';
       position: absolute;
-      left: -1px;
+      inset-inline-start: -1px;
       top: 12px;
       bottom: 12px;
       width: 4px;
-      border-radius: 0 4px 4px 0;
+      border-start-end-radius: 4px;
+      border-end-end-radius: 4px;
       background: var(--edge, transparent);
     }
 
@@ -1000,7 +1002,7 @@ export const style = css`
     > .row-check {
       position: absolute;
       top: 7px;
-      left: 9px;
+      inset-inline-start: 9px;
       z-index: 1;
     }
 
@@ -1310,7 +1312,7 @@ export const style = css`
       .pane {
         max-height: 260px;
         overflow-y: auto;
-        padding-right: 8px;
+        padding-inline-end: 8px;
       }
 
       .none {
@@ -1342,7 +1344,7 @@ export const style = css`
         span {
           min-width: 0;
           overflow-wrap: anywhere;
-          text-align: right;
+          text-align: end;
           color: ${TEXT};
           font-variant-numeric: tabular-nums;
         }
@@ -1424,7 +1426,7 @@ export const style = css`
         .num {
           flex: none;
           width: 74px;
-          text-align: right;
+          text-align: end;
           color: ${TEXT_MUTED};
           font-variant-numeric: tabular-nums;
         }
@@ -1478,7 +1480,7 @@ export const style = css`
     border: none;
     background: none;
     padding: 0;
-    margin-left: 8px;
+    margin-inline-start: 8px;
     font: inherit;
     font-size: inherit;
     color: ${TEXT};
@@ -1622,7 +1624,7 @@ export const style = css`
     }
 
     .controls {
-      margin-left: auto;
+      margin-inline-start: auto;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
@@ -1719,7 +1721,7 @@ export const style = css`
         form {
           flex: none;
           min-width: 0;
-          margin-right: auto;
+          margin-inline-end: auto;
         }
 
         .field {
@@ -1729,7 +1731,7 @@ export const style = css`
           .glyph {
             display: block;
             position: absolute;
-            left: 9px;
+            inset-inline-start: 9px;
             top: calc(50% - 8px);
             width: 16px;
             height: 16px;
@@ -1762,7 +1764,7 @@ export const style = css`
               content: '';
               position: absolute;
               top: 5px;
-              left: 22px;
+              inset-inline-start: 22px;
               width: 8px;
               height: 8px;
               border-radius: 50%;
@@ -1786,7 +1788,7 @@ export const style = css`
           > :not(.brand, form) {
             position: absolute;
             top: 0;
-            left: 0;
+            inset-inline-start: 0;
             max-width: 100%;
             opacity: 0;
             pointer-events: none;
@@ -2002,7 +2004,7 @@ type RowProps = {
 
 /** A torrent's name with a break chance after each dot, underscore and dash, so a release name wraps between its parts. */
 const Name = ({ name }: { name: string }) => (
-  <strong>{name.split(/(?<=[._-])/u).flatMap((part, i) => (i ? [<wbr key={i}/>, part] : [part]))}</strong>
+  <strong dir="auto">{name.split(/(?<=[._-])/u).flatMap((part, i) => (i ? [<wbr key={i}/>, part] : [part]))}</strong>
 )
 
 /** The picture, or the box it would have been in, so every row's text starts at the same place. */
@@ -2420,8 +2422,10 @@ const ReadoutLine = ({ children }: { children: ReactNode }) => {
   const read = useCallback(() => {
     const box = ref.current
     if (!box) return
-    const start = box.scrollLeft > 1
-    const end = box.scrollLeft + box.clientWidth < box.scrollWidth - 1
+    // right to left, a line scrolled from its start reads a negative scrollLeft
+    const scrolled = Math.abs(box.scrollLeft)
+    const start = scrolled > 1
+    const end = scrolled + box.clientWidth < box.scrollWidth - 1
     setMore((was) => (was.start === start && was.end === end ? was : { start, end }))
   }, [])
   // a readout's words change with every engine tick, and a resize moves the end, so each render reads it again

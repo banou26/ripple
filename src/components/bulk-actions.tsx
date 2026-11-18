@@ -149,7 +149,8 @@ const barStyle = css`
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 8px 6px 14px;
+  padding-block: 6px;
+  padding-inline: 14px 8px;
   border-radius: 8px;
   /* floats over the list's end, so it takes the floating pair of tokens */
   background: ${ELEVATED_BG};
@@ -158,7 +159,7 @@ const barStyle = css`
   font-size: 0.85rem;
 
   .count {
-    margin-right: auto;
+    margin-inline-end: auto;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 
@@ -199,7 +200,7 @@ const barStyle = css`
   @media (max-width: 700px) {
     flex-wrap: nowrap;
     gap: 4px;
-    padding-left: 8px;
+    padding-inline-start: 8px;
 
     .count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

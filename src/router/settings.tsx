@@ -195,7 +195,7 @@ const Settings = () => {
               : permitted
                 ? (
                   <>
-                    <button type="button" className="on" onClick={() => { void pickFolder() }}>{folder.name}</button>
+                    <button type="button" className="on" dir="auto" onClick={() => { void pickFolder() }}>{folder.name}</button>
                     <button type="button" onClick={() => { void clearFolder() }}>{intl.formatMessage({ id: 'Stop', defaultMessage: 'Stop' })}</button>
                   </>
                 )

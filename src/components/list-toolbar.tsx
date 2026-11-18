@@ -16,7 +16,8 @@ import {
 
 /* the box's 40 px hit area pulled into the margin, so the row keeps its height */
 const pickAllStyle = css`
-  margin: -5px -10px -5px -8px;
+  margin-block: -5px;
+  margin-inline: -8px -10px;
 
   input:disabled { cursor: default; }
 `
@@ -116,7 +117,7 @@ const style = css`
   gap: 8px;
   margin: 14px 16px 0;
 
-  .views { margin-left: auto; flex: none; }
+  .views { margin-inline-start: auto; flex: none; }
 
   /* a chip narrows before the row would wrap, its word ending in an ellipsis */
   .chip {
@@ -126,7 +127,8 @@ const style = css`
     align-items: center;
     gap: 6px;
     height: 30px;
-    padding: 0 8px 0 10px;
+    padding-block: 0;
+    padding-inline: 10px 8px;
     border: 1px solid ${BORDER};
     border-radius: 999px;
     background: ${CONTROL_BG};
@@ -174,7 +176,7 @@ const style = css`
   @media (max-width: 400px) {
     gap: 4px;
 
-    .chip { gap: 4px; padding: 0 6px 0 8px; }
+    .chip { gap: 4px; padding-inline: 8px 6px; }
     .chip.sort, .chip.group { min-width: 52px; }
     .views button { padding: 5px 7px; }
   }
@@ -182,7 +184,7 @@ const style = css`
 
 const choicesStyle = css`
   button .count {
-    margin-left: 16px;
+    margin-inline-start: 16px;
     color: ${TEXT_MUTED};
     font-variant-numeric: tabular-nums;
   }

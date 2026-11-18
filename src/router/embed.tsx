@@ -13,7 +13,7 @@ import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
-import { readPickedLanguage } from '../i18n'
+import { isRightToLeft, readPickedLanguage } from '../i18n'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
@@ -67,8 +67,7 @@ const playerStyle = css`
   .ripple-overlay-content {
     position: absolute;
     top: 0;
-    left: 0;
-    right: 0;
+    inset-inline: 0;
     /* longhands per breakpoint: a shorthand inside a media query is hoisted after the rule above it
        and would silently drop the safe-area inset, which clears a notch in fullscreen */
     padding-top: calc(calc(1.2 * var(--mp-unit)) + env(safe-area-inset-top, 0px));
@@ -687,10 +686,12 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     </>
   )
 
+  // the player stays left to right, as time runs in every language, and what ripple draws in it follows the page
+  const dir = isRightToLeft(intl.locale) ? 'rtl' : 'ltr'
   const overlay = (
-    <div className="ripple-overlay-content">
+    <div className="ripple-overlay-content" dir={dir}>
       {/* always rendered, empty or not: it is what takes the width the rest of the row leaves */}
-      <div className="file-name">{fileName}</div>
+      <div className="file-name" dir="auto">{fileName}</div>
       {/* The way back to the whole torrent, and to its files. At the head of the row, and drawn as
           glyphs alone: the tooltip carries the sentence, which is more than a one word label said. */}
       <div className="player-links">
@@ -841,7 +842,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   )
 
   return (
-    <div css={playerStyle} ref={box}>
+    <div css={playerStyle} ref={box} dir="ltr">
       <MediaPlayer
         key={played}
         {...source}
@@ -881,7 +882,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         onSeek={(fraction) => { if (fileSize) prioritizeFrom(fraction * fileSize) }}
       >
         {/* inside the player, which in fullscreen shows nothing outside itself */}
-        {vpn.answer && <VpnWarning inline onAnswer={vpn.answer}/>}
+        {vpn.answer && <div dir={dir} style={{ display: 'contents' }}><VpnWarning inline onAnswer={vpn.answer}/></div>}
       </MediaPlayer>
     </div>
   )

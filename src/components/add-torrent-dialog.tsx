@@ -148,7 +148,7 @@ const style = css`
     align-items: center;
 
     .count {
-      margin-left: auto;
+      margin-inline-start: auto;
       font-size: 0.8rem;
       color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
@@ -210,7 +210,7 @@ const style = css`
     gap: 10px;
     flex-wrap: wrap;
 
-    .spacer { margin-left: auto; }
+    .spacer { margin-inline-start: auto; }
   }
 
   button {
@@ -337,7 +337,7 @@ export const AddTorrentDialog = ({
       <div css={style}>
       <div className="card">
         <header>
-          <h2 id="add-torrent-title">{name}</h2>
+          <h2 id="add-torrent-title" dir="auto">{name}</h2>
           {external && (
             <p className="from">
               {from
@@ -374,7 +374,7 @@ export const AddTorrentDialog = ({
                       return (
                         <label className={on ? 'file' : 'file off'} key={file.index}>
                           <input type="checkbox" checked={on} onChange={() => onChoices(toggleFile(choices, file.index))}/>
-                          <span className="path"><FilePath path={file.name}/></span>
+                          <span className="path" dir="auto"><FilePath path={file.name}/></span>
                           <span className="size">{getHumanReadableByteString(file.size, true)}</span>
                         </label>
                       )

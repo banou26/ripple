@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { place } from '../../src/components/menu'
 
@@ -89,5 +89,21 @@ describe('a menu at the pointer', () => {
     const at = place({ kind: 'pointer', at: { x: vw() - 5, y: vh() - 5 } }, BOX)!
     expect(at.x).toBe(vw() - 5 - BOX.width)
     expect(at.y).toBe(vh() - 5 - BOX.height)
+  })
+})
+
+describe('on a right to left page', () => {
+  beforeEach(() => { document.dir = 'rtl' })
+  afterEach(() => { document.dir = '' })
+
+  it('a control\'s menu start-aligns with its right edge, and end-aligns with its left', () => {
+    const a = { right: 600, bottom: 60, top: 22, left: 460 }
+    expect(place({ kind: 'under', of: anchor(a) }, BOX)!.x).toBe(460)
+    expect(place({ kind: 'under', of: anchor(a), align: 'start' }, BOX)!.x).toBe(600 - BOX.width)
+  })
+
+  it('a pointer menu opens to the left of the cursor, and to its right where the left has no room', () => {
+    expect(place({ kind: 'pointer', at: { x: 400, y: 40 } }, BOX)!.x).toBe(400 - BOX.width)
+    expect(place({ kind: 'pointer', at: { x: 40, y: 40 } }, BOX)!.x).toBe(40)
   })
 })

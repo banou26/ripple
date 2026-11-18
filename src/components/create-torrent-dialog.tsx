@@ -410,13 +410,13 @@ export const CreateTorrentDialog = ({ create, onClose, onShare, onToast }: Props
                   <summary className="faint">
                     {intl.formatMessage({ id: '{count, plural, one {{count} left out} other {{count} left out}}', defaultMessage: '{count, plural, one {{count} left out} other {{count} left out}}' }, { count: state.skipped.length })}
                   </summary>
-                  <div className="skipped">{state.skipped.map(wordsOf).map((path) => <div key={path}>{path}</div>)}</div>
+                  <div className="skipped">{state.skipped.map(wordsOf).map((path) => <div key={path} dir="auto">{path}</div>)}</div>
                 </details>
               )}
 
               <label className="field">
                 <span>{intl.formatMessage({ id: 'Name', defaultMessage: 'Name' })}</span>
-                <input type="text" value={name} onChange={(event) => setName(event.target.value)}/>
+                <input type="text" value={name} onChange={(event) => setName(event.target.value)} dir="auto"/>
               </label>
 
               <label className="field">

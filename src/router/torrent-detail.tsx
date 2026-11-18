@@ -290,7 +290,7 @@ const Files = ({
           <div className={on ? 'row file' : 'row file off'} key={f.index}>
             <label className="name">
               {onWanted && <input type="checkbox" checked={on} disabled={on && tickedCount === 1} onChange={() => toggle(f.index)}/>}
-              <span className="path">{dir && <span className="dim">{dir}</span>}{name}</span>
+              <span className="path" dir="auto">{dir && <span className="dim">{dir}</span>}{name}</span>
             </label>
             {share != null && (
               <>
@@ -358,11 +358,11 @@ const Peers = ({ peers, loaded }: { peers: PeerInfo[], loaded: boolean }) => {
         <div className="row" key={p.endpoint}>
           <span className="name">
             {/* a WebRTC peer's endpoint is the engine's own number for it, not an address */}
-            <span className="mono">{p.transport === 'webrtc' ? '' : p.endpoint}</span>
+            <span className="mono" dir="auto">{p.transport === 'webrtc' ? '' : p.endpoint}</span>
             <span className="tags">{peerTags(p, intl).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</span>
           </span>
           {/* arbitrary text a stranger chose, so it is rendered as text and never as markup */}
-          <span className="client" {...hint(p.client)}>{p.client || intl.formatMessage({ id: 'unknown', defaultMessage: 'unknown' })}</span>
+          <span className="client" dir="auto" {...hint(p.client)}>{p.client || intl.formatMessage({ id: 'unknown', defaultMessage: 'unknown' })}</span>
           <span className="num">{pct(p.progress)}</span>
           <span className="num">{p.downloadRate ? speed(p.downloadRate) : UNKNOWN}</span>
           <span className="num">{p.uploadRate ? speed(p.uploadRate) : UNKNOWN}</span>
@@ -406,7 +406,7 @@ const Trackers = ({ trackers, loaded }: { trackers: TrackerInfo[], loaded: boole
         const state = trackerState(tr, intl)
         return (
           <div className="row" key={tr.url}>
-            <span className="name mono" {...hint(tr.url)}>{tr.url}</span>
+            <span className="name mono" dir="auto" {...hint(tr.url)}>{tr.url}</span>
             <span className={`client ${state.tone}`} {...hint(tr.message || undefined)}>{state.label}</span>
             <span className="num wide">{tr.tier}</span>
             {/* -1 means never scraped: a 0 there would read as a tracker that answered and knows of nobody */}
@@ -640,7 +640,7 @@ export const dockStyle = css`
     span {
       min-width: 0;
       overflow-wrap: anywhere;
-      text-align: right;
+      text-align: end;
       color: ${TEXT};
       font-variant-numeric: tabular-nums;
     }
@@ -794,7 +794,7 @@ export const dockStyle = css`
     .num {
       flex: none;
       min-width: 72px;
-      text-align: right;
+      text-align: end;
       color: ${TEXT_MUTED};
       font-variant-numeric: tabular-nums;
     }
@@ -990,7 +990,7 @@ export const TorrentDetailDock = ({
         aria-label={intl.formatMessage({ id: 'Resize the details panel', defaultMessage: 'Resize the details panel' })}
       />
       <header>
-        <span className="title" {...hint(t.name)}>{t.name}</span>
+        <span className="title" dir="auto" {...hint(t.name)}>{t.name}</span>
         <button type="button" className="close" onClick={onClose}>{intl.formatMessage({ id: 'Close', defaultMessage: 'Close' })}</button>
       </header>
       <div className="tabs" role="group" aria-label={intl.formatMessage({ id: 'Torrent details', defaultMessage: 'Torrent details' })}>

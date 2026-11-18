@@ -269,7 +269,7 @@ export const tint = (hex: string, alpha = STATE_TINT_ALPHA): string => {
 /* ----------------------------------------------------------- group headings */
 
 /** The library's group headings, a touch of Steam's blue: a band that fades out across the heading. */
-export const GROUP_BAND = `linear-gradient(90deg, ${tint(STATE_DOWN, 0.1)}, ${tint(STATE_DOWN, 0)} 60%)`
+export const GROUP_BAND = `linear-gradient(to var(--inline-end, right), ${tint(STATE_DOWN, 0.1)}, ${tint(STATE_DOWN, 0)} 60%)`
 
 /** A heading's words, Steam's light blue-grey. 12.8:1 on PAGE_BG. */
 export const GROUP_TEXT = '#c7d5e0'

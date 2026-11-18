@@ -91,8 +91,9 @@ const style = css`
   }
 `
 
+/** The legal pages, kept in English whatever the page's language, so left to right on a right to left page too. */
 export const LegalDoc = ({ children }: { children: ReactNode }) => (
-  <div css={style}>
+  <div css={style} lang="en" dir="ltr">
     <div className="shell">
       <Link className="wordmark" to={getRoutePath(Route.HOME)}>Ripple</Link>
       {children}

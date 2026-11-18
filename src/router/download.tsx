@@ -438,7 +438,7 @@ const style = css`
       max-height: 220px;
       overflow-y: auto;
       /* the row button ends flush against the scrollbar without this, to a third of a pixel */
-      padding-right: 8px;
+      padding-inline-end: 8px;
     }
 
     .file {
@@ -488,7 +488,7 @@ const style = css`
         justify-content: flex-end;
         align-items: center;
         gap: 4px 12px;
-        margin-left: auto;
+        margin-inline-start: auto;
       }
 
       .size {
@@ -1106,7 +1106,7 @@ const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
                 : <FileGlyph name={torrentName} files={files && offered.map((entry) => ({ name: entry.path }))}/>}
             </div>
             <div className="about">
-              <div className="name">{subjectName}</div>
+              <div className="name" dir="auto">{subjectName}</div>
               {/* The SELECTION's size, which is what the button is about to take, and which moves
                   as boxes are ticked. The two empty cases are different facts and read as different
                   sentences: a link naming files this torrent does not have is the sender's mistake,
@@ -1260,7 +1260,7 @@ const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
                           with nothing to tell them apart. */}
                       <label className="pick">
                         <input type="checkbox" checked={on} onChange={() => toggle(file.index)}/>
-                        <span className="name">{leaf(file.path)}</span>
+                        <span className="name" dir="auto">{leaf(file.path)}</span>
                       </label>
                       <span className="tail">
                         <span className="size">{getHumanReadableByteString(file.size)}</span>

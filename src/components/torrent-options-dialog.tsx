@@ -93,7 +93,7 @@ const style = css`
     color: inherit;
     font: inherit;
     padding: 9px 10px;
-    text-align: left;
+    text-align: start;
 
     &:hover:not(:disabled),
     &:focus-visible {
@@ -161,12 +161,12 @@ const style = css`
       content: '';
       position: absolute;
       top: 1px;
-      left: 1px;
+      inset-inline-start: 1px;
       width: 14px;
       height: 14px;
       border-radius: 999px;
       background: ${EMPHASIS};
-      transition: transform 120ms ease;
+      transition: inset-inline-start 120ms ease;
     }
 
     /*
@@ -180,7 +180,7 @@ const style = css`
       background: ${CONTROL_ACTIVE_BG};
 
       &::after {
-        transform: translateX(14px);
+        inset-inline-start: 15px;
       }
     }
   }

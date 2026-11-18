@@ -44,7 +44,7 @@ const style = css`
   ${badgeRules}
 
   th, td {
-    text-align: left;
+    text-align: start;
     padding: 8px 10px;
     white-space: nowrap;
   }
@@ -87,7 +87,7 @@ const style = css`
 
   /* numbers right-aligned so their digits line up down the column, names left */
   th.num button { justify-content: flex-end; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; color: ${TEXT_MUTED}; }
+  td.num { text-align: end; font-variant-numeric: tabular-nums; color: ${TEXT_MUTED}; }
 
   /* only while bytes move, as on the cards */
   td.c-down.live { color: ${STATE_DOWN}; }
@@ -194,7 +194,7 @@ const style = css`
   .pct {
     display: inline-block;
     min-width: 34px;
-    text-align: right;
+    text-align: end;
     color: var(--hue, ${TEXT_FAINT});
   }
 
@@ -215,8 +215,8 @@ const style = css`
     .c-down, .bar { display: none; }
     /* a finger's height, and the name's padding beside the box, for a finger's width without taking the name's room */
     tbody td.check { height: 40px; }
-    td.check .row-check::before { right: -8px; }
-    td.c-status { padding-left: 4px; padding-right: 2px; }
+    td.check .row-check::before { inset-inline-end: -8px; }
+    td.c-status { padding-inline: 4px 2px; }
     td.c-status .badge { width: max-content; max-width: calc(100vw - 284px); white-space: normal; overflow-wrap: anywhere; }
     td.c-status .badge::before { flex: none; }
   }
@@ -341,7 +341,7 @@ export const TorrentTable = (
                   <Clock size={13} aria-hidden="true"/>
                 </span>
               )}
-              <span className="title">{t.name}</span>
+              <span className="title" dir="auto">{t.name}</span>
             </div>
           </td>
           <td className="c-size num">{sizeOf(intl, t)}</td>
