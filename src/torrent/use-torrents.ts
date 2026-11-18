@@ -105,7 +105,8 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
   /**
    * A finished torrent that does not run is `completed` whoever stopped it: the person's Stop, libtorrent's queue
    * parking it past `active_seeds`, or `applyViewing` parking a cache torrent nobody watches. Its row offers Start.
-   * An unfinished one is `paused` when the person stopped it and `queued` otherwise.
+   * An unfinished one is `paused` when the person stopped it and `queued` otherwise. The person's pause counts before
+   * the engine has applied it: a reload brings a torrent back unreported, or running, until the next pump pauses it.
    */
   const complete = !!st && COMPLETE.has(st.state)
   const stopped: TorrentState = complete ? 'completed' : s.userPaused ? 'paused' : 'queued'
@@ -115,8 +116,8 @@ export const snapshotState = (s: TorrentSnapshot): TorrentState => {
    * leaves the check where it is until a resume, so that one reads as stopped, which offers the Resume.
    */
   const base: TorrentState = st
-    ? (CHECKING_STATES.has(st.state) && !pauseLanded(st) ? 'checking' : st.paused ? stopped : (STATE[st.state] ?? 'downloading'))
-    : (s.files ? 'queued' : 'downloading')
+    ? (CHECKING_STATES.has(st.state) && !pauseLanded(st) ? 'checking' : st.paused || s.userPaused ? stopped : (STATE[st.state] ?? 'downloading'))
+    : (s.userPaused ? 'paused' : s.files ? 'queued' : 'downloading')
   return retrying ? 'retrying' : base
 }
 

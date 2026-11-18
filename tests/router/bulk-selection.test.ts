@@ -147,9 +147,10 @@ describe('the bulk selection', () => {
   })
 
   /** The options menu's rule, row by row. */
-  it('pauses every row not stopped, resumes the paused, the queued and the completed, and leaves a ghost to neither', () => {
+  it('pauses every row not stopped, resumes the paused, the parked and the completed, and leaves a ghost to neither', () => {
     const STATES: TorrentState[] = ['downloading', 'seeding', 'paused', 'queued', 'completed', 'error', 'missing', 'retrying', 'checking']
-    const rows = STATES.map((state) => t({ state }))
+    // a Queued row Ripple parked: paused, and not under libtorrent's queue
+    const rows = STATES.map((state) => t({ state, flags: state === 'queued' ? TORRENT_FLAG.paused : 0 }))
     expect(toPause(rows).map((x) => x.state)).toEqual(['downloading', 'seeding', 'error', 'retrying', 'checking'])
     expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued', 'completed'])
     expect(toPause([t({ state: 'paused' }), t({ state: 'missing' })])).toEqual([])
@@ -157,11 +158,12 @@ describe('the bulk selection', () => {
   })
 
   /** Pause takes a torrent out of libtorrent's queue, and Resume would hand it straight back, which changes nothing. */
-  it('pauses a torrent the queue holds, and leaves it to Resume no longer', () => {
+  it('pauses a torrent the queue holds or the engine has not reported on, and leaves it to Resume no longer', () => {
     const held = t({ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged })
+    const unreported = t({ state: 'queued', flags: 0 })
     const running = t()
-    expect(toPause([held, running])).toEqual([held, running])
-    expect(toResume([held, running])).toEqual([])
+    expect(toPause([held, unreported, running])).toEqual([held, unreported, running])
+    expect(toResume([held, unreported, running])).toEqual([])
   })
 
   /** A created source's files were never in a swarm, so its row offers no download either. */

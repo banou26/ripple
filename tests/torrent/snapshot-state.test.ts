@@ -3,7 +3,7 @@ import type { TorrentSnapshot } from '../../src/torrent/client'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { startLanguage } from '../../src/i18n'
-import { toResume } from '../../src/router/bulk-selection'
+import { toPause, toResume } from '../../src/router/bulk-selection'
 import { isActive, snapshotState, snapshotToTorrent } from '../../src/torrent/use-torrents'
 
 /**
@@ -100,6 +100,18 @@ describe('the state a torrent row shows', () => {
     // layout but no status: known to exist, not known to be doing anything
     expect(snapshotState(snap(null))).toBe('queued')
     expect(snapshotState(snap(null, { files: null }))).toBe('downloading')
+    // and offers Pause, as it will once the queue holds it or starts it
+    expect(toPause([snapshotToTorrent(snap(null))])).toHaveLength(1)
+  })
+
+  // every reload of a torrent the person paused starts here, and its row offers Resume from the first beat
+  it('says Paused before the engine reports on a torrent the person paused, or pauses it again', () => {
+    expect(snapshotState(snap(null, { userPaused: true }))).toBe('paused')
+    expect(snapshotState(snap(null, { userPaused: true, files: null }))).toBe('paused')
+    expect(toResume([snapshotToTorrent(snap(null, { userPaused: true }))])).toHaveLength(1)
+    // a torrent paused before the engine kept anything of it comes back running, for a beat
+    expect(snapshotState(snap({ state: 3 }, { userPaused: true }))).toBe('paused')
+    expect(snapshotState(snap({ state: 5 }, { userPaused: true }))).toBe('completed')
   })
 })
 

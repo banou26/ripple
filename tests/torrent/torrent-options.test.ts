@@ -232,7 +232,7 @@ describe('the torrent option list', () => {
 
     it('offers Resume for a stopped torrent and Pause for a running one', () => {
       expect(find(torrent({ state: 'paused' }), 'toggle-run')!.label).toBe('Resume')
-      expect(find(torrent({ state: 'queued' }), 'toggle-run')!.label).toBe('Resume')
+      expect(find(torrent({ state: 'queued', flags: TORRENT_FLAG.paused }), 'toggle-run')!.label).toBe('Resume')
       expect(find(torrent({ state: 'downloading' }), 'toggle-run')!.label).toBe('Pause')
     })
 

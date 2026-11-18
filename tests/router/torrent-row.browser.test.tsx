@@ -648,7 +648,9 @@ describe('a library row', () => {
         seeding: ['Stop', 'Stop', 'square'], completed: ['Start', 'Start', 'play'],
       } as const
       for (const [state, [label, hint, icon]] of Object.entries(words)) {
-        const t = torrent({ progress: state === 'seeding' || state === 'completed' ? 1 : 0.5, state: state as Torrent['state'] })
+        // a Queued row Ripple parked, which libtorrent's queue does not hold
+        const flags = state === 'queued' ? TORRENT_FLAG.paused : 0
+        const t = torrent({ progress: state === 'seeding' || state === 'completed' ? 1 : 0.5, state: state as Torrent['state'], flags })
         const { screen, props } = await inPage(t)
         const control = screen.getByRole('button', { name: `${label} ${t.name}` })
         await expect.element(control).toHaveAttribute('data-tooltip-content', hint)
@@ -659,15 +661,17 @@ describe('a library row', () => {
       }
     })
 
-    // the half second libtorrent's queue holds every new torrent too, so the control does not change under a press
-    it('says Pause on a torrent the queue holds, with the Pause icon', async () => {
+    // the beats before libtorrent's queue starts every new or reloaded torrent, so the control does not change under a press
+    it('says Pause on a torrent the queue holds or the engine has not reported on, with the Pause icon', async () => {
       thumbnail.current = null
-      const t = torrent({ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged })
-      const { screen } = await inPage(t)
-      const control = screen.getByRole('button', { name: `Pause ${t.name}` })
-      await expect.element(control).toHaveAttribute('data-tooltip-content', 'Pause')
-      expect(control.element().querySelector('svg')!.classList).toContain('lucide-pause')
-      screen.unmount()
+      for (const flags of [TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged, 0]) {
+        const t = torrent({ state: 'queued', flags })
+        const { screen } = await inPage(t)
+        const control = screen.getByRole('button', { name: `Pause ${t.name}` })
+        await expect.element(control).toHaveAttribute('data-tooltip-content', 'Pause')
+        expect(control.element().querySelector('svg')!.classList, String(flags)).toContain('lucide-pause')
+        screen.unmount()
+      }
     })
 
     it('has moved the rest into the menu rather than shrinking them', async () => {

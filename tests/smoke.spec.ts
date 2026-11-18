@@ -280,7 +280,7 @@ test('a torrent the queue holds offers Pause, which keeps it out of the queue ac
   await engineReady(page)
   for (const name of ['Two', 'Three', 'Five']) await expect(card(page, name).locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
   await expect(card(page, 'Four').locator('.badge')).toHaveText('Paused')
-  expect(await statusOf(page, hashOf('Four'))).toMatchObject({ paused: true, autoManaged: false })
+  await expect.poll(() => statusOf(page, hashOf('Four'))).toMatchObject({ paused: true, autoManaged: false })
 
   // back under the queue, which starts it or holds it
   await card(page, 'Four').getByRole('button', { name: 'Resume Four', exact: true }).click()
@@ -307,6 +307,36 @@ test('the options and the bar pause a torrent the queue holds', async ({ page })
   expect(await card(page, 'Five').locator('.badge').textContent(), 'still held as the bar is pressed').toBe('Queued')
   await page.locator('.bulk-bar').getByRole('button', { name: 'Pause' }).click()
   for (const name of ['Three', 'Five']) await expect(card(page, name).locator('.badge')).toHaveText('Paused')
+})
+
+const TRACKER = 'https://tracker.invalid/announce'
+
+/** A one-file .torrent named `name`, whose tracker no name resolves to. */
+const torrentFile = (name: string) => ({
+  name: `${name}.torrent`,
+  mimeType: 'application/x-bittorrent',
+  buffer: Buffer.from(`d8:announce${TRACKER.length}:${TRACKER}4:infod6:lengthi11e4:name${name.length}:${name}12:piece lengthi16384e6:pieces20:${'p'.repeat(20)}ee`),
+})
+
+// a .torrent's row knows its files before the engine's first status, on its add and on every reload
+test('a press aimed at a reloaded torrent\'s Pause pauses it, though the engine has not reported on it yet', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  await page.locator('label.file-button input[type=file]').first().setInputFiles([torrentFile('Pack')])
+  const row = card(page, 'Pack')
+  await expect(row.locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+
+  await page.reload()
+  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.files && !t.status), undefined, { timeout: 30_000, polling: 'raf' })
+  const at = (await row.getByRole('button', { name: /^(Pause|Resume) Pack$/ }).boundingBox())!
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await row.locator('.badge').textContent(), 'the press lands before the engine reports').toBe('Queued')
+  await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+  await expect(row.locator('.badge')).toHaveText('Paused')
+  await page.waitForTimeout(3_000)
+  await expect(row.locator('.badge')).toHaveText('Paused')
 })
 
 // the page's worker, whose update another tab takes when the test calls updateTaken; the new one never answers, so the

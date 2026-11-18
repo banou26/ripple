@@ -180,18 +180,13 @@ export type Torrent = {
 }
 
 /**
- * libtorrent's queue holds it: paused with auto-management still on. An error keeps auto-management on as well, and a
- * resume does not clear one, so a retrying row is not held.
- */
-export const queueHolds = (t: Torrent): boolean =>
-  (t.flags & TORRENT_FLAG.paused) !== 0 && (t.flags & TORRENT_FLAG.autoManaged) !== 0 && t.state !== 'retrying'
-
-/**
- * Not running, so its row, its options and the bar for selected rows offer to start it. Not a torrent the queue holds,
- * which they offer to pause: the pause takes it out of the queue, and a resume hands it back.
+ * Not running, so its row, its options and the bar for selected rows offer to start it. A Queued torrent counts only
+ * where Ripple parked it (paused, auto-management off): one libtorrent's queue holds, or one the engine has not reported
+ * on yet, offers Pause, which takes it out of the queue until a resume hands it back.
  */
 export const stopped = (t: Torrent): boolean =>
-  t.state === 'paused' || t.state === 'completed' || (t.state === 'queued' && !queueHolds(t))
+  t.state === 'paused' || t.state === 'completed'
+  || (t.state === 'queued' && (t.flags & TORRENT_FLAG.paused) !== 0 && (t.flags & TORRENT_FLAG.autoManaged) === 0)
 
 /** Every chosen file on disk, so the control that pauses or resumes it says Stop or Start, as qBittorrent's does. */
 export const finished = (t: Torrent): boolean => t.state === 'seeding' || t.state === 'completed'
