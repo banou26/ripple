@@ -15,7 +15,7 @@ import { finished, leavesFilesOut } from '../torrent/types'
 import { useFolder } from '../torrent/use-folder'
 import { useTorrents } from '../torrent/use-torrents'
 
-// A torrent already copied to the folder is parked on DONE, and a failed copy waits SYNC_RETRY before the next attempt
+// A torrent already copied to the folder is parked on DONE, and a failed copy or move waits SYNC_RETRY before the next attempt
 const DONE = Number.POSITIVE_INFINITY
 const SYNC_RETRY = 30_000
 // A tab not running the engine only checks the copy, which stops at the first file not there, so it looks again sooner

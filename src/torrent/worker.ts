@@ -505,12 +505,12 @@ const planByHandle = new Map<number, { wanted?: number[], firstLast?: boolean }>
  * this object, never from the engine.
  *
  * Owned by the WORKER rather than pushed down by a page, and that is what makes it survive. The
- * engine moves between tabs, and a page that pushed a setting into the tab that used to hold the
- * engine has no idea the engine has gone: there is no re-push on handover today, which is why
- * `setFolder` has to be offered by every tab continuously. Reading this out of IndexedDB in the
- * worker ties its lifetime to the session's by construction, so there is no window in which an
- * engine is running without the limits the user chose, whichever tab happens to be hosting it and
- * whether or not that tab has a settings screen at all. A `/watch` tab has none.
+ * engine moves between tabs, and a setting a page pushes down reaches only the engine running at
+ * the time, so every page would have to offer it again to each new engine, as `setFolder` is
+ * offered. Reading this out of IndexedDB in the worker ties its lifetime to the session's by
+ * construction, so there is no window in which an engine is running without the limits the user
+ * chose, whichever tab happens to be hosting it and whether or not that tab has a settings screen at
+ * all. A `/watch` tab has none.
  */
 let sessionLimits: RateLimits = { down: 0, up: 0 }
 
