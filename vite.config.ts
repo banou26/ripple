@@ -123,6 +123,16 @@ const serveServiceWorkerInDev = () => ({
  * itself cannot go through the transform pipeline. libav needs no equivalent because a single classic
  * script survives being transformed.
  */
+// unpkg answers 500 for a 0-byte file (0.0.76's empty chunk, 2026-11-19), and a device verifies every file through it
+const noEmptyChunks = () => ({
+  name: 'ripple-no-empty-chunks',
+  apply: 'build' as const,
+  // renderChunk is never called for a chunk with no code, so the last look before writing is the one that sees it
+  generateBundle (_: unknown, bundle: Record<string, { type: string, code?: string }>) {
+    for (const file of Object.values(bundle)) if (file.type === 'chunk' && !file.code?.trim()) file.code = '/* empty */\n'
+  },
+})
+
 const serveJassubAssetsInDev = () => ({
   name: 'ripple-serve-jassub-in-dev',
   apply: 'serve' as const,
@@ -301,7 +311,7 @@ export default defineConfig((env) => ({
   worker: {
     format: 'es',
     // No React plugin here: Fast Refresh's import.meta.hot injection into the worker's @fkn/lib graph corrupts the osra relay
-    plugins: () => [polyfills()],
+    plugins: () => [polyfills(), noEmptyChunks()],
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(env.mode),
@@ -315,6 +325,7 @@ export default defineConfig((env) => ({
     // Not in the unit project: its aliases turn node:fs and node:child_process into empty objects there
     { ...polyfills(), apply: (config: { test?: { name?: string } }) => config.test?.name !== 'unit' },
     jassubOwnAssets(),
+    noEmptyChunks(),
     serveServiceWorkerInDev(),
     serveJassubAssetsInDev(),
   ]),
