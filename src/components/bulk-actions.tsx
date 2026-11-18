@@ -1,3 +1,5 @@
+import type { MouseEvent as ReactMouseEvent } from 'react'
+
 import { css } from '@emotion/react'
 import { Check, Download, Magnet, Pause, Play, Square, Trash2, X } from 'lucide-react'
 import { useIntl } from 'react-intl'
@@ -110,6 +112,30 @@ export const RowCheck = ({ name, checked, onChange, overPicture = false }: {
       {overPicture && <Check aria-hidden="true" strokeWidth={3}/>}
     </label>
   )
+}
+
+const CONTROL = 'a, button, input, label, summary'
+
+type RowEvent = ReactMouseEvent<HTMLElement>
+
+/**
+ * A row's own click and mousedown. With Ctrl, Cmd or Shift held a click picks the row as its box would, `pick` told
+ * whether shift was held, and opens nothing; `pick` is null for a row that cannot be picked, where such a click does
+ * nothing. Any other click, and one on a control of the row's own (a Ctrl+click on a link opens a tab), is `onClick`'s.
+ */
+export const rowClicks = (pick: ((shift: boolean) => void) | null, onClick: (e: RowEvent) => void) => {
+  const picking = (e: RowEvent) => (e.ctrlKey || e.metaKey || e.shiftKey) && !(e.target as Element).closest(CONTROL)
+  return {
+    onClick: (e: RowEvent) => {
+      if (picking(e)) pick?.(e.shiftKey)
+      else onClick(e)
+    },
+    // the press would otherwise select text: from the last click with shift held, and in Firefox 157 the table cell
+    // under a Ctrl+click (2026-11-18)
+    onMouseDown: (e: RowEvent) => {
+      if (e.button === 0 && picking(e)) e.preventDefault()
+    },
+  }
 }
 
 const barStyle = css`

@@ -16,7 +16,7 @@ import { pickable } from './bulk-selection'
 import { STATE_LABEL, chosenBytes, relativeDay, speed, withWhole } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint } from '../components/hint'
-import { RowCheck, pickedRowStyle } from '../components/bulk-actions'
+import { RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import {
   BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
@@ -320,7 +320,7 @@ export const TorrentTable = (
           data-state={t.state}
           data-selected={t.id === selectedId || undefined}
           data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-          onClick={() => onSelect(t)}
+          {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, () => onSelect(t))}
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >
           <td className="check">

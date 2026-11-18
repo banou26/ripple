@@ -84,7 +84,7 @@ import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent
 import { TorrentTable } from './torrent-table'
 import { useOrderedTorrents } from './use-ordered-torrents'
 import { ListToolbar } from '../components/list-toolbar'
-import { BulkBar, RowCheck, pickedRowStyle } from '../components/bulk-actions'
+import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
 import {
   GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
@@ -2056,10 +2056,10 @@ const MissingRow = ({
       className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       data-state={t.state}
       aria-current={selected || undefined}
-      onClick={(e) => {
+      {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, (e) => {
         if ((e.target as HTMLElement).closest('button, a')) return
         onSelect(t)
-      }}
+      })}
       onContextMenu={(e) => {
         if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
@@ -2226,12 +2226,12 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
       // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
       // that already does something of its own keeps doing it: the buttons, the Watch link, the
       // file list, and any text the user is trying to select rather than click.
-      onClick={(e) => {
+      {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, (e) => {
         const el = e.target as HTMLElement
         if (el.closest('button, a, input, summary')) return
         if (window.getSelection()?.toString()) return
         onSelect(t)
-      }}
+      })}
       onContextMenu={(e) => {
         // The detail panel keeps the browser's own menu: its peer addresses, tracker URLs and info
         // hash are there to be copied, and replacing Copy with a torrent menu would take away the

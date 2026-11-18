@@ -137,6 +137,40 @@ describe('useBulkSelection', () => {
   })
 })
 
+/** Both ways the library is drawn, handed `drawn` the way the page hands it, with the selection the page holds. */
+const library = async (view: 'cards' | 'table', drawn: Torrent[]) => {
+  const { TorrentRow, style } = await import('../../src/router/home')
+  const onSelect = vi.fn()
+  const onOptions = vi.fn()
+  const handlers = {
+    saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onStart: vi.fn(), onOptions,
+    selected: false, onSelect, savedToUserStorage: false,
+  }
+  const Library = () => {
+    const bulk = useBulkSelection(drawn)
+    return view === 'table'
+      ? (
+        <TorrentTable
+          torrents={drawn} sortKey="name" sortDir="asc" onSort={vi.fn()}
+          selectedId={null} onSelect={onSelect} onOptions={onOptions} picked={bulk.picked} onPick={bulk.toggle}
+        />
+      )
+      : (
+        <div css={style}><main>
+          {drawn.map((x) => <TorrentRow key={x.id} t={x} {...handlers} checked={bulk.picked.has(x.infoHash!)} onPick={bulk.toggle}/>)}
+        </main></div>
+      )
+  }
+  const container = document.createElement('div')
+  container.style.cssText = 'width: 1200px;'
+  document.body.append(container)
+  const screen = await render(<IntlRoot><MemoryRouter><Library/></MemoryRouter></IntlRoot>, { container })
+  const box = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
+  // the boxes from the top of the list down
+  const ticked = () => [...screen.container.querySelectorAll<HTMLInputElement>('.row-check input')].map((x) => x.checked)
+  return { screen, box, ticked, onSelect, onOptions }
+}
+
 /**
  * Real boxes, clicked with shift held, in each of the two ways the library is drawn. Both are handed the list the way
  * the page hands it, sorted by name, so the order on screen is not the order the torrents arrived in. Fig is a ghost,
@@ -145,41 +179,10 @@ describe('useBulkSelection', () => {
 describe('shift+clicking the boxes', () => {
   const ARRIVED = [...['Cherry', 'Apple', 'Elder', 'Banana', 'Date'].map((name) => t({ name })), t({ name: 'Fig', state: 'missing' })]
   const DRAWN = sortTorrents(ARRIVED, 'name', 'asc')
-  const handlers = {
-    saving: {}, onToggle: vi.fn(), onSave: vi.fn(), onSaveZip: vi.fn(), onStart: vi.fn(), onOptions: vi.fn(),
-    selected: false, onSelect: vi.fn(), savedToUserStorage: false,
-  }
-
-  const library = async (view: 'cards' | 'table') => {
-    const { TorrentRow, style } = await import('../../src/router/home')
-    const Library = () => {
-      const bulk = useBulkSelection(DRAWN)
-      return view === 'table'
-        ? (
-          <TorrentTable
-            torrents={DRAWN} sortKey="name" sortDir="asc" onSort={vi.fn()}
-            selectedId={null} onSelect={vi.fn()} onOptions={vi.fn()} picked={bulk.picked} onPick={bulk.toggle}
-          />
-        )
-        : (
-          <div css={style}><main>
-            {DRAWN.map((x) => <TorrentRow key={x.id} t={x} {...handlers} checked={bulk.picked.has(x.infoHash!)} onPick={bulk.toggle}/>)}
-          </main></div>
-        )
-    }
-    const container = document.createElement('div')
-    container.style.cssText = 'width: 1200px;'
-    document.body.append(container)
-    const screen = await render(<IntlRoot><MemoryRouter><Library/></MemoryRouter></IntlRoot>, { container })
-    const box = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
-    // the boxes from the top of the list down
-    const ticked = () => [...screen.container.querySelectorAll<HTMLInputElement>('.row-check input')].map((x) => x.checked)
-    return { screen, box, ticked }
-  }
 
   for (const view of ['cards', 'table'] as const) {
     it(`ticks and unticks a run in the order the ${view} draw`, async () => {
-      const { box, ticked } = await library(view)
+      const { box, ticked } = await library(view, DRAWN)
       expect(DRAWN.map((x) => x.name)).toEqual(['Apple', 'Banana', 'Cherry', 'Date', 'Elder', 'Fig'])
       await userEvent.click(box('Apple'))
       await userEvent.click(box('Cherry'), { modifiers: ['Shift'] })
@@ -199,7 +202,7 @@ describe('shift+clicking the boxes', () => {
      * label on to the box. This file also runs in Firefox for that (vite.config.ts).
      */
     it(`ticks the run and selects no text in the ${view} when the shift+click lands beside the box`, async () => {
-      const { screen, ticked } = await library(view)
+      const { screen, ticked } = await library(view, DRAWN)
       const beside = (i: number) => [...screen.container.querySelectorAll<HTMLElement>('.row-check')][i]!
       window.getSelection()?.removeAllRanges()
       await userEvent.click(beside(0), { position: { x: 2, y: 2 } })
@@ -209,4 +212,77 @@ describe('shift+clicking the boxes', () => {
       expect(ticked()).toEqual([true, true, true, false, false, false])
     })
   }
+})
+
+/**
+ * A click on a row itself with Ctrl, Cmd or Shift held picks it as its box would, as on a file manager's rows, and
+ * leaves the detail panel alone. Jujube has a Watch link, which is not the row's to take; Peach is still starting, so
+ * it cannot be picked; Olive is a ghost, whose card is a component of its own.
+ */
+describe('a click on a row with Ctrl, Cmd or Shift held', () => {
+  const DRAWN = sortTorrents([
+    t({ name: 'Jujube', magnet: 'magnet:?xt=urn:btih:' + 'c'.repeat(40), files: [{ name: 'Jujube.mkv', size: 1_000, index: 0 }] }),
+    ...['Kiwi', 'Lime', 'Mango', 'Nectarine'].map((name) => t({ name })),
+    t({ name: 'Olive', state: 'missing' }),
+    t({ name: 'Peach', state: 'starting' }),
+  ], 'name', 'asc')
+  const NONE = [false, false, false, false, false, false]
+
+  for (const view of ['cards', 'table'] as const) {
+    it(`picks in the ${view} as the box would, and opens nothing`, async () => {
+      const { screen, ticked, onSelect } = await library(view, DRAWN)
+      expect(DRAWN.map((x) => x.name)).toEqual(['Jujube', 'Kiwi', 'Lime', 'Mango', 'Nectarine', 'Peach', 'Olive'])
+      const row = (name: string) => screen.getByText(name, { exact: true })
+      window.getSelection()?.removeAllRanges()
+      await userEvent.click(row('Lime'), { modifiers: ['Control'] })
+      expect(ticked()).toEqual([false, false, true, false, false, false])
+      // Firefox selects a table cell under a Ctrl+click of its own
+      expect(window.getSelection()?.toString()).toBe('')
+      await userEvent.click(row('Lime'), { modifiers: ['Meta'] })
+      expect(ticked()).toEqual(NONE)
+      await userEvent.click(row('Kiwi'), { modifiers: ['Meta'] })
+      await userEvent.click(row('Olive'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([false, true, true, true, true, true])
+      // nor any text from the click before it
+      expect(window.getSelection()?.toString()).toBe('')
+      // Lime is ticked, so the run from Olive back to it unticks
+      await userEvent.click(row('Lime'), { modifiers: ['Control', 'Shift'] })
+      expect(ticked()).toEqual([false, true, false, false, false, false])
+      await userEvent.click(row('Peach'), { modifiers: ['Control'] })
+      await userEvent.click(row('Peach'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([false, true, false, false, false, false])
+      expect(onSelect).not.toHaveBeenCalled()
+      // the control: with no key held the click opens the row, and picks nothing
+      await userEvent.click(row('Mango'))
+      expect(onSelect).toHaveBeenCalledOnce()
+      expect(ticked()).toEqual([false, true, false, false, false, false])
+    })
+
+    it(`leaves a Ctrl+click on a control of the row's own to it in the ${view}`, async () => {
+      const { screen, ticked, onSelect, onOptions } = await library(view, DRAWN)
+      await userEvent.click(screen.getByRole('button', { name: 'Options for Lime' }), { modifiers: ['Control'] })
+      expect(onOptions).toHaveBeenCalledWith(expect.objectContaining({ name: 'Lime' }), null)
+      await userEvent.click(screen.getByRole('button', { name: 'Options for Olive' }), { modifiers: ['Shift'] })
+      expect(onOptions).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Olive' }), null)
+      expect(ticked()).toEqual(NONE)
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+  }
+
+  // the cards alone draw a Watch link
+  it('leaves a Ctrl+click on a row\'s link to the link, which opens it in a tab', async () => {
+    const { screen, ticked, onSelect } = await library('cards', DRAWN)
+    const prevented: boolean[] = []
+    // after the row's own handlers, and in their place the tab is not opened
+    const stop = (e: MouseEvent) => { prevented.push(e.defaultPrevented); e.preventDefault() }
+    document.addEventListener('click', stop)
+    try {
+      await userEvent.click(screen.getByRole('link', { name: 'Watch Jujube' }), { modifiers: ['Control'] })
+    } finally {
+      document.removeEventListener('click', stop)
+    }
+    expect(prevented).toEqual([false])
+    expect(ticked()).toEqual(NONE)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
 })

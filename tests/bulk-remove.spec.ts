@@ -227,6 +227,50 @@ test('a shift+click ticks the run of rows between two boxes, in the order each v
 })
 
 /*
+ * A click on a row itself with Ctrl, Cmd or Shift held picks it as its box does, in both views, and the detail panel
+ * neither opens nor changes. Three downloads with nobody to fetch from, sorted by name.
+ */
+test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail panel stays as it was', async ({ page }) => {
+  const names = ['Apple', 'Banana', 'Cherry'] as const
+  await prepare(page)
+  await page.goto('/')
+  for (const [i, name] of names.entries()) {
+    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 6).repeat(40)}&dn=${name}`)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+  }
+  for (const name of names) await expect(tickOf(page)(name)).toBeVisible({ timeout: 60_000 })
+  await fromChip(page, /^Sort by /u, 'Name')
+  const bar = page.locator('.bulk-bar')
+  const details = page.locator('main ~ section')
+  const row = (name: string) => page.locator('main').getByText(name, { exact: true })
+  const [apple, banana, cherry] = names
+
+  for (const view of ['cards', 'table'] as const) {
+    if (view === 'table') await page.getByRole('button', { name: 'Table' }).click()
+    await row(banana).click({ modifiers: ['Control'] })
+    await expect(bar).toContainText('1 selected')
+    await expect(details).toHaveCount(0)
+    // the control: a click with no key held opens the panel, and picks nothing
+    await row(apple).click()
+    await expect(details).toHaveAttribute('aria-label', `Details for ${apple}`)
+    await expect(bar).toContainText('1 selected')
+
+    await row(banana).click({ modifiers: ['Meta'] })
+    await expect(bar).toHaveCount(0)
+    await row(cherry).click({ modifiers: ['Control'] })
+    await row(apple).click({ modifiers: ['Shift'] })
+    await expect(bar).toContainText('3 selected')
+    for (const name of names) await expect(tickOf(page)(name)).toBeChecked()
+    await expect(details).toHaveAttribute('aria-label', `Details for ${apple}`)
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
+
+    await bar.getByRole('button', { name: 'Clear selection' }).click()
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveCount(0)
+  }
+})
+
+/*
  * A card paused from its own row keeps its heading while the pointer is in the list, so the card under it does not
  * slide under the pointer, and goes under Paused once the pointer leaves. Two downloads with nobody to fetch from, so
  * no state changes but the pause.
