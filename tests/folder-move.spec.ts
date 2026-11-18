@@ -417,7 +417,7 @@ test('with two tabs open, only the tab running the engine moves a torrent into t
   expect(failed([...await toasts(), ...await otherToasts()]), 'a move that worked said it failed').toEqual([])
 })
 
-test('a move asked for in a tab not running the engine is made once, by the tab running it', async ({ page, context }) => {
+test('a move asked for in a tab not running the engine is made once, by the tab running it, and the tab that asked says so', async ({ page, context }) => {
   test.setTimeout(180_000)
   await watchMoves(context)
   const paths = await watchPaths(page, INFO_HASH)
@@ -438,6 +438,7 @@ test('a move asked for in a tab not running the engine is made once, by the tab 
   await other.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
 
   await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  await expect.poll(otherToasts, { timeout: 10_000, message: 'the tab that asked never said the torrent moved' }).toContain(`${NAME} moved to picked`)
   // a second move starts on the click or on the next state report, so it is sent within a second of the first
   await page.waitForTimeout(3_000)
   expect([...await movesIn(page), ...await movesIn(other)], 'the torrent was moved more than once').toEqual(['folder'])
