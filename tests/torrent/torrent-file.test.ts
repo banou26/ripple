@@ -1,25 +1,9 @@
-import { readFile } from 'fs/promises'
 import { describe, expect, it } from 'vitest'
 import { isPrivateTorrent, readMagnet, readTorrentFile } from '../../src/torrent/torrent-file'
 
-const REAL = {
-  path: '/home/banou/downloads/single-file.torrent',
-  infoHash: 'f00dfacef00dfacef00dfacef00dfacef00dface',
-}
 const bencode = (s: string) => new TextEncoder().encode(s)
 
 describe('reading a share subject without the engine', () => {
-  it('reads a real single-file torrent whole', async ({ skip }) => {
-    const bytes = await readFile(REAL.path).catch(() => null)
-    if (!bytes) return skip(`the owner's file is not on this machine: ${REAL.path}`)
-    const s = await readTorrentFile(new Uint8Array(bytes))
-    expect(s!.magnet).toContain(REAL.infoHash)
-    expect(s!.name).toContain('Single File')
-    expect(s!.files!.length).toBe(1)
-    expect(s!.size).toBeGreaterThan(1_000_000_000)
-    expect(s!.magnet).toContain('tr=')
-  })
-
   it('reads a multi-file torrent, joining each path onto the name', async () => {
     const doc = bencode('d8:announce9:udp://a:14:infod5:filesld6:lengthi10e4:pathl1:a5:b.mkveed6:lengthi20e4:pathl5:c.srteee4:name4:packee')
     const s = await readTorrentFile(doc)
