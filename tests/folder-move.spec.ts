@@ -399,19 +399,22 @@ test('a torrent checking its files at the folder shows no download speed', async
 
 test('a move into a folder that refuses the write says it failed, waits, and moves once the folder takes it', async ({ page }) => {
   test.setTimeout(180_000)
-  // every move runs as page work, and nothing else here starts page work once the add is made
+  // every move runs as page work, and nothing else here starts page work once the add is made; a copy takes its own lock
   await page.addInitScript(() => {
-    const w = window as unknown as { __work: number[] }
-    w.__work = []
+    const w = window as unknown as { __locks: [string, number][] }
+    w.__locks = []
     // oxlint-disable-next-line typescript/unbound-method
     LockManager.prototype.request = new Proxy(LockManager.prototype.request, {
       apply: (request, locks, args) => {
-        if (args[0] === 'ripple:page-work') w.__work.push(performance.now())
+        w.__locks.push([args[0], performance.now()])
         return Reflect.apply(request, locks, args)
       },
     })
   })
-  const work = () => page.evaluate(() => (window as unknown as { __work: number[] }).__work)
+  const locked = async (name: RegExp) => (await page.evaluate(() => (window as unknown as { __locks: [string, number][] }).__locks))
+    .filter(([lock]) => name.test(lock)).map(([, at]) => at)
+  const work = () => locked(/^ripple:page-work$/)
+  const copies = () => locked(/^ripple:folder-sync:/)
   const paths = await watchPaths(page, INFO_HASH)
   await chooseFolder(page)
   const toasts = await watchToasts(page)
@@ -428,6 +431,10 @@ test('a move into a folder that refuses the write says it failed, waits, and mov
   const again = (await work()).find((at) => at > failedBy)!
   // the wait is 30 s from the failure, which comes after the move started
   expect(again - tried, 'a refused move was tried again before its wait').toBeGreaterThan(29_000)
+  // THE CONTROL: the copy into the folder of the moved torrent takes its lock, which finds the files already there
+  await expect.poll(async () => (await copies()).length, { timeout: 30_000, message: 'the copy into the folder never ran' }).toBeGreaterThan(0)
+  // it writes the same files as the move, so it waits with the move rather than writing beside its next try
+  expect((await copies()).filter((at) => at < again), 'the copy into the folder ran while a failed move waited').toEqual([])
 })
 
 test('a torrent finishing while the tab running the engine shows Settings moves into the folder', async ({ page, context }) => {
