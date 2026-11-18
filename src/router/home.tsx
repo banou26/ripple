@@ -3123,6 +3123,7 @@ const Home = () => {
   useEffect(() => {
     for (const t of torrents) {
       const at = currentLocation(t.stats?.savePath)
+      // a row with no engine report, as every row is while an engine starts, reads browser storage
       if (!t.infoHash || !t.stats || askedRef.current.get(t.infoHash) !== at) continue
       askedRef.current.delete(t.infoHash)
       showToast(movedNews(intl, t.name, at, folder?.name ?? ''))

@@ -100,6 +100,24 @@ const addToFolder = async (page: Page, name: string, torrent: Buffer) => {
   await dialog.waitFor({ state: 'detached', timeout: 10_000 })
 }
 
+const addInBrowserStorage = async (page: Page) => {
+  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
+  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+}
+
+/** Chooses where the torrent's files go, from its options. */
+const pick = async (page: Page, place: 'Move to picked' | 'Keep in browser storage') => {
+  await page.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  const dialog = page.getByRole('dialog').last()
+  await dialog.getByRole('radio', { name: place }).click({ timeout: 10_000 })
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+
 /** A directory where a move writes the torrent's first file, which refuses that write until it is taken away. */
 const refuse = (page: Page, on: boolean) => page.evaluate(async ({ name, path, on }) => {
   const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name, { create: true })
@@ -253,12 +271,7 @@ test('a magnet add whose metadata landed, moved into the folder, keeps its file 
   await chooseFolder(page)
   await place(page, NAME, FILES)
 
-  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
-  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
-  await dialog.getByRole('button', { name: 'Add torrent' }).click()
-  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+  await addInBrowserStorage(page)
 
   // THE CONTROL: the saved state carries the metadata, which is all a magnet add has once it landed
   const carriesInfo = async () => {
@@ -443,16 +456,10 @@ test('a move asked for in a tab not running the engine is made once, by the tab 
   const toasts = await watchToasts(page)
   await place(page, NAME, FILES)
   const { other, toasts: otherToasts } = await openSecondTab(context)
-  await other.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
-  const dialog = other.getByRole('dialog')
-  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
-  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
-  await dialog.getByRole('button', { name: 'Add torrent' }).click()
-  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+  await addInBrowserStorage(other)
   await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished in browser storage' }).toContain(1)
 
-  await other.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
-  await other.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
+  await pick(other, 'Move to picked')
 
   await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
   await expect.poll(otherToasts, { timeout: 10_000, message: 'the tab that asked never said the torrent moved' }).toContain(`${NAME} moved to picked`)
@@ -460,6 +467,74 @@ test('a move asked for in a tab not running the engine is made once, by the tab 
   await page.waitForTimeout(3_000)
   expect([...await movesIn(page), ...await movesIn(other)], 'the torrent was moved more than once').toEqual(['folder'])
   expect(failed([...await toasts(), ...await otherToasts()]), 'a move that worked said it failed').toEqual([])
+})
+
+/*
+ * The tab not running the engine asks for the folder while the folder refuses the write, and then takes the ask back.
+ * The move the tab running the engine is asked for later is said there, and not in the tab that took its ask back.
+ */
+test('a move asked for and taken back in a tab not running the engine is not said there once another tab makes it', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  const progress = await watchProgress(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  const { other, toasts: otherToasts } = await openSecondTab(context)
+  // before the add, since the copy into the folder writes the same file
+  await refuse(page, true)
+  await addInBrowserStorage(other)
+  await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished in browser storage' }).toContain(1)
+
+  await pick(other, 'Move to picked')
+  // THE CONTROL: the tab running the engine tried the move the other tab asked for
+  await expect.poll(toasts, { timeout: 30_000 }).toContain(`Moving ${NAME} failed`)
+  await pick(other, 'Keep in browser storage')
+  // the tab running the engine tries a refused move again twice a second, until it hears the ask was taken back
+  await page.waitForTimeout(2_000)
+  await refuse(page, false)
+
+  await pick(page, 'Move to picked')
+  await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  await expect.poll(toasts, { timeout: 10_000 }).toContain(`${NAME} moved to picked`)
+  // the other tab's row reports the new place on the next state report, twice a second
+  await other.waitForTimeout(3_000)
+  expect(await otherToasts(), 'the tab that took its ask back said the move another tab asked for').not.toContain(`${NAME} moved to picked`)
+})
+
+/*
+ * The copy out of the folder never ends here, and the tab running the engine closes during it. The tab that asked takes
+ * the engine over, and its rows have no engine report while the new engine starts.
+ */
+test('a tab that asked for a move into browser storage does not say it moved while its new engine starts', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await context.addInitScript(() => {
+    const w = window as unknown as { __copies: number }
+    w.__copies = 0
+    // oxlint-disable-next-line typescript/unbound-method
+    ReadableStream.prototype.pipeTo = new Proxy(ReadableStream.prototype.pipeTo, {
+      apply: () => { w.__copies++; return new Promise<void>(() => {}) },
+    })
+  })
+  const copies = (tab: Page) => tab.evaluate(() => (window as unknown as { __copies: number }).__copies)
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  const other = await context.newPage()
+  const otherPaths = await watchPaths(other, INFO_HASH)
+  await other.goto('/')
+  const otherToasts = await watchToasts(other)
+  await pick(other, 'Keep in browser storage')
+  // THE CONTROL: the tab running the engine started the move
+  await expect.poll(() => copies(page), { timeout: 30_000 }).toBeGreaterThan(0)
+
+  await page.close()
+  // THE CONTROL: the tab that asked runs the next engine, which has the torrent in the folder and tries the move again
+  await expect.poll(otherPaths, { timeout: 90_000 }).toEqual([`/native/${INFO_HASH}`])
+  await expect.poll(() => copies(other), { timeout: 30_000 }).toBeGreaterThan(0)
+  expect(await otherToasts(), 'the tab that asked said the torrent moved before it did').not.toContain(`${NAME} moved into browser storage`)
 })
 
 // the tab running the engine was opened before the folder was chosen, in the other tab
@@ -534,12 +609,7 @@ test('a tab not running the engine sees a copy into the folder within seconds of
   }, NAME)
   await other.goto('/')
   await place(other, NAME, FILES)
-  await other.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
-  const dialog = other.getByRole('dialog')
-  await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
-  await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
-  await dialog.getByRole('button', { name: 'Add torrent' }).click()
-  await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+  await addInBrowserStorage(other)
 
   // THE CONTROL: the other tab looked before the copy was made
   await expect.poll(() => other.evaluate(() => (window as unknown as { __looks: number }).__looks), { timeout: 60_000 }).toBeGreaterThan(0)
@@ -634,7 +704,6 @@ test('a torrent moved into the folder moves back into browser storage when asked
   // THE CONTROL: the automatic move ran
   await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
 
-  await page.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
-  await page.getByRole('dialog').last().getByRole('radio', { name: 'Keep in browser storage' }).click({ timeout: 10_000 })
+  await pick(page, 'Keep in browser storage')
   await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved back' }).toEqual([`/native/${INFO_HASH}`, `/dl/${INFO_HASH}`])
 })
