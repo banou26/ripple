@@ -1,6 +1,9 @@
 // What building ripple as an app, rather than as a library, gives a visitor, on the built bytes: a return visit runs the
 // hash-named entry from the service worker's cache, the engine's wasm arrives as a file of its own, and the manifest,
 // which the build leaves as it is, names icons that are there.
+import { readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { expect, test } from './offline'
 
 const MAGNET = 'input[aria-label="Add a magnet link, or search"]'
@@ -65,3 +68,10 @@ test('the manifest names icons that are there', async ({ request, baseURL }) => 
 })
 
 type Icon = { src: string, type: string }
+
+// unpkg answers 500 for a 0-byte file, and a device verifies every file of the package through it (0.0.76, 2026-11-19)
+test('no file of the build is empty', () => {
+  const files = (readdirSync('build', { recursive: true }) as string[]).filter((name) => statSync(join('build', name)).isFile())
+  expect(files.length, 'the build holds no files').toBeGreaterThan(20)
+  expect(files.filter((name) => statSync(join('build', name)).size === 0)).toEqual([])
+})
