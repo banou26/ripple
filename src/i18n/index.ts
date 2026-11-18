@@ -4,6 +4,7 @@
 // by id, and `npm run i18n:check` keeps the two in step. A description is part of the id (`Play#verb`), which tells
 // apart two messages spelled alike. Components format with useIntl().formatMessage.
 
+import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
 import { createElement, useSyncExternalStore, type ReactNode } from 'react'
 import { createIntl, createIntlCache, RawIntlProvider, type IntlShape } from 'react-intl'
 
@@ -22,10 +23,25 @@ const cache = createIntlCache()
 // the page stays empty while it waits, so a catalogue this late is a catalogue that failed to load
 const CATALOGUE_WAIT_MS = 3_000
 
+// U+2068 and U+2069 around each plain value, as <bdi> would: in a right to left sentence a Latin name otherwise takes the
+// punctuation beside it into its own order, and a size or a count opening on a digit joins the Latin word before it.
+// On the parsed message, the one place a value is told from a branch's text. Stub's own, as its catalogues are
+const isolated = (elements: MessageFormatElement[]): MessageFormatElement[] => elements.flatMap((element): MessageFormatElement[] =>
+  element.type === TYPE.argument ? [{ type: TYPE.literal, value: '\u2068' }, element, { type: TYPE.literal, value: '\u2069' }]
+  : element.type === TYPE.tag ? [{ ...element, children: isolated(element.children) }]
+  : element.type === TYPE.select || element.type === TYPE.plural
+    ? [{ ...element, options: Object.fromEntries(Object.entries(element.options).map(([key, option]) => [key, { ...option, value: isolated(option.value) }])) }]
+  : [element])
+
+// a message that does not parse stays text, which formatjs answers with its English, as in any other language
+const isolatedText = (text: string) => {
+  try { return isolated(parse(text)) } catch { return text }
+}
+
 // English shown, the defaultLocale is the browser's own English: against plain `en`, react-intl reports each message
 // of an en-GB page missing and writes its numbers in `en`
-const intlOf = (language: string, locale: string, messages: Catalogue) =>
-  createIntl({ locale, defaultLocale: language === 'en' ? locale : 'en', messages }, cache)
+const intlOf = (language: string, locale: string, messages: Record<string, string | MessageFormatElement[]>) =>
+  createIntl({ locale, defaultLocale: language === 'en' ? locale : 'en', messages: messages as Record<string, string> }, cache)
 
 /**
  * The page's react-intl object, which IntlRoot hands to every component's useIntl(), for text written outside a
@@ -83,7 +99,10 @@ export const startLanguage = async ({ language = uiLanguage(), languages, catalo
   ])
   if (start !== starts) return intl
   shown = catalogue ? language : 'en'
-  intl = intlOf(shown, formatLocale(shown, languages), catalogue ?? {})
+  const messages = catalogue && isRightToLeft(shown)
+    ? Object.fromEntries(Object.entries(catalogue).map(([id, text]) => [id, isolatedText(text)]))
+    : catalogue ?? {}
+  intl = intlOf(shown, formatLocale(shown, languages), messages)
   setUnitLocale(intl.locale)
   if (html) {
     html.lang = shown

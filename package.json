@@ -74,6 +74,7 @@
     "@banou/ponyfill": "^0.0.15",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.75",
+    "@formatjs/icu-messageformat-parser": "^3.5.22",
     "ass-compiler": "^0.1.15",
     "fflate": "^0.8.3",
     "idb-keyval": "^6.2.1",
@@ -95,7 +96,6 @@
   },
   "devDependencies": {
     "@formatjs/cli": "^6.16.35",
-    "@formatjs/icu-messageformat-parser": "^3.5.22",
     "@playwright/test": "1.58.0",
     "@rollup/plugin-inject": "^5.0.3",
     "@types/node": "^25.9.3",

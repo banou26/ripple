@@ -67,6 +67,43 @@ describe('plurals in each language\'s own forms', () => {
   })
 })
 
+describe('a right to left language', () => {
+  const FAILED = message('Moving {name} failed')
+
+  test('a value is isolated from the sentence around it, so a Latin name keeps its punctuation outside', async () => {
+    const he = await start('he', { [FAILED.id]: 'העברת {name} נכשלה.' })
+    expect(he.formatMessage(FAILED, { name: 'Sintel (2010)' })).toBe('העברת \u2068Sintel (2010)\u2069 נכשלה.')
+  })
+
+  test('also inside a branch and a tag, while the plural and the select still choose on the raw value', async () => {
+    const LEFT = message('{count, plural, one {{count} left out} other {{count} left out}}')
+    const KIND = message('{kind, select, seeder {A seeder} other {{name}}}')
+    const LINKED = message('Download not starting? <link>{name}</link>.')
+    const ar = await start('ar', {
+      [LEFT.id]: '{count, plural, zero {zero} one {one} two {two} few {{count} few} many {{count} many} other {{count} other}}',
+      [KIND.id]: '{kind, select, seeder {باذر} other {{name}}}',
+      [LINKED.id]: 'لم يبدأ؟ <link>{name}</link>.',
+    })
+    expect([1, 2, 3, 11, 100].map(count => ar.formatMessage(LEFT, { count }))).toEqual(['one', 'two', '\u20683\u2069 few', '\u206811\u2069 many', '\u2068100\u2069 other'])
+    expect(ar.formatMessage(KIND, { kind: 'seeder', name: 'x' })).toBe('باذر')
+    expect(ar.formatMessage(KIND, { kind: 'web', name: 'Sintel' })).toBe('\u2068Sintel\u2069')
+    const linked = ar.formatMessage(LINKED, { name: 'Ripple', link: (text: string[]) => `[${text.join('')}]` })
+    expect([linked].flat().join('')).toBe('لم يبدأ؟ [\u2068Ripple\u2069].')
+  })
+
+  test('a left to right language stays as written', async () => {
+    const fr = await start('fr', { [FAILED.id]: 'Impossible de déplacer {name}' })
+    expect(fr.formatMessage(FAILED, { name: 'Sintel' })).toBe('Impossible de déplacer Sintel')
+  })
+
+  test('a message that does not parse falls to its English, as in any language', async () => {
+    const onError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const ar = await start('ar', { [FAILED.id]: '{name' })
+    expect(ar.formatMessage(FAILED, { name: 'Sintel' })).toBe('Moving Sintel failed')
+    onError.mockRestore()
+  })
+})
+
 describe('a description tells apart two messages spelled alike, and is part of the id', () => {
   const noun = message('Seed')
   const verb = message('Seed', 'verb')
