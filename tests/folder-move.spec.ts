@@ -97,6 +97,13 @@ const addToFolder = async (page: Page, name: string, torrent: Buffer) => {
   await dialog.waitFor({ state: 'detached', timeout: 10_000 })
 }
 
+/** A directory where a move writes the torrent's first file, which refuses that write until it is taken away. */
+const refuse = (page: Page, on: boolean) => page.evaluate(async ({ name, path, on }) => {
+  const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name, { create: true })
+  if (on) await dir.getDirectoryHandle(path, { create: true })
+  else await dir.removeEntry(path, { recursive: true })
+}, { name: NAME, path: FILES[0]!.path, on })
+
 /** Every message the toast shows from now on, in order, since the next one replaces it. */
 const watchToasts = async (page: Page) => {
   await page.evaluate(() => {
@@ -333,19 +340,55 @@ test('a move into a folder that refuses the write says it failed, and moves once
   await chooseFolder(page)
   const toasts = await watchToasts(page)
   await place(page, NAME, FILES)
-  // a directory where the move writes its first file
-  const block = (on: boolean) => page.evaluate(async ({ name, path, on }) => {
-    const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name, { create: true })
-    if (on) await dir.getDirectoryHandle(path, { create: true })
-    else await dir.removeEntry(path, { recursive: true })
-  }, { name: NAME, path: FILES[0]!.path, on })
-  await block(true)
+  await refuse(page, true)
   await addToFolder(page, NAME, TORRENT)
 
   await expect.poll(toasts, { timeout: 60_000, message: 'the refused move never said it failed' }).toContain(`Moving ${NAME} failed`)
   expect(await paths(), 'the torrent moved into a folder that refused the write').toEqual([])
-  await block(false)
+  await refuse(page, false)
   await expect.poll(paths, { timeout: 60_000, message: 'the move never ran again once the folder took the write' }).toEqual([`/native/${INFO_HASH}`])
+})
+
+test('a torrent finishing while the tab running the engine shows Settings moves into the folder', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  const progress = await watchProgress(page, INFO_HASH)
+  await chooseFolder(page)
+  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
+  const other = await context.newPage()
+  await other.goto('/')
+  await place(other, NAME, FILES)
+  await addToFolder(other, NAME, TORRENT)
+
+  // THE CONTROL: the torrent reached the engine and finished, so it could move
+  await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished' }).toContain(1)
+  await expect.poll(paths, { timeout: 30_000, message: 'the tab running the engine did not move the torrent from Settings' }).toEqual([`/native/${INFO_HASH}`])
+  expect(new URL(page.url()).pathname).toBe('/settings')
+})
+
+/*
+ * The tab then opens a share link, so its engine starts again on the player and the library never shows. That engine
+ * reads the moved files through the folder this tab gives it.
+ */
+test('a move the folder takes while the tab running the engine shows the player is made, and read from the folder', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  const reports = await watchMove(page, INFO_HASH)
+  await chooseFolder(page)
+  const toasts = await watchToasts(page)
+  await place(page, NAME, FILES)
+  await refuse(page, true)
+  await addToFolder(page, NAME, TORRENT)
+  // THE CONTROL: the torrent finished and its move was tried
+  await expect.poll(toasts, { timeout: 60_000, message: 'the refused move never said it failed' }).toContain(`Moving ${NAME} failed`)
+
+  const film = `magnet:?xt=urn:btih:${'0123456789abcdef'.repeat(2)}01234567&dn=Film`
+  await page.goto(`/watch?magnet=${encodeURIComponent(Buffer.from(film).toString('base64'))}`)
+  await expect(page.locator('.loading-information')).toHaveText('Loading metadata…', { timeout: 30_000 })
+  await refuse(page, false)
+  await expect.poll(paths, { timeout: 60_000, message: 'the tab running the engine did not move the torrent from the player' }).toEqual([`/native/${INFO_HASH}`])
+  await expect.poll(async () => ((await reports()).at(-1)?.progress ?? 0) >= 1, { timeout: 30_000, message: 'the engine could not read the moved files' }).toBe(true)
+  expect(new URL(page.url()).pathname).toBe('/watch')
 })
 
 /*
@@ -440,11 +483,24 @@ test('a default location chosen in a tab not running the engine reaches the tab 
   expect(failed(await toasts()), 'a move that worked said it failed').toEqual([])
 })
 
-// the tab running the engine copies from the library only, so the other tab looks for the copy first and finds nothing
+/*
+ * The tab running the engine finds every copy's lock taken until the other tab has looked for the copy and found
+ * nothing, and then copies while it shows Settings.
+ */
 test('a tab not running the engine sees a copy into the folder within seconds of it landing', async ({ page, context }) => {
   test.setTimeout(180_000)
+  await watchMoves(context)
+  await page.addInitScript(() => {
+    const w = window as unknown as { __held: boolean }
+    w.__held = true
+    // oxlint-disable-next-line typescript/unbound-method
+    LockManager.prototype.request = new Proxy(LockManager.prototype.request, {
+      apply: (request, locks, args) => (w.__held && String(args[0]).startsWith('ripple:folder-sync:')
+        ? Promise.resolve(args.at(-1)(null))
+        : Reflect.apply(request, locks, args)),
+    })
+  })
   await chooseFolder(page)
-  const toasts = await watchToasts(page)
   await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
   const other = await context.newPage()
   await other.addInitScript((name) => {
@@ -469,8 +525,8 @@ test('a tab not running the engine sees a copy into the folder within seconds of
 
   // THE CONTROL: the other tab looked before the copy was made
   await expect.poll(() => other.evaluate(() => (window as unknown as { __looks: number }).__looks), { timeout: 60_000 }).toBeGreaterThan(0)
-  await page.locator('header a.back').click()
-  await expect.poll(toasts, { timeout: 30_000, message: 'the tab running the engine never copied the torrent' }).toContain(`${NAME} saved to picked`)
+  await page.evaluate(() => { (window as unknown as { __held: boolean }).__held = false })
+  await expect.poll(() => writesIn(page), { timeout: 30_000, message: 'the tab running the engine did not copy the torrent from Settings' }).toBe(FILES.length)
   await other.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
   await expect(other.getByRole('dialog').last().getByRole('button', { name: 'Remove from the library' }), 'the other tab saw the copy late').toBeVisible({ timeout: 10_000 })
 })
