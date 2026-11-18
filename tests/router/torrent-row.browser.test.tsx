@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { page, userEvent } from '@vitest/browser/context'
 import { MemoryRouter } from 'react-router-dom'
+import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { IntlRoot } from '../../src/i18n'
 
@@ -656,6 +657,17 @@ describe('a library row', () => {
         expect(props.onToggle, state).toHaveBeenCalledOnce()
         screen.unmount()
       }
+    })
+
+    // the half second libtorrent's queue holds every new torrent too, so the control does not change under a press
+    it('says Pause on a torrent the queue holds, with the Pause icon', async () => {
+      thumbnail.current = null
+      const t = torrent({ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged })
+      const { screen } = await inPage(t)
+      const control = screen.getByRole('button', { name: `Pause ${t.name}` })
+      await expect.element(control).toHaveAttribute('data-tooltip-content', 'Pause')
+      expect(control.element().querySelector('svg')!.classList).toContain('lucide-pause')
+      screen.unmount()
     })
 
     it('has moved the rest into the menu rather than shrinking them', async () => {
