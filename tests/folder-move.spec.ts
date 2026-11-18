@@ -397,8 +397,21 @@ test('a torrent checking its files at the folder shows no download speed', async
   expect(shows((await page.locator('.stats .stat.rate strong').nth(2).textContent()) ?? ''), 'the peak counted the check as a download').toBe(false)
 })
 
-test('a move into a folder that refuses the write says it failed, and moves once the folder takes it', async ({ page }) => {
+test('a move into a folder that refuses the write says it failed, waits, and moves once the folder takes it', async ({ page }) => {
   test.setTimeout(180_000)
+  // every move runs as page work, and nothing else here starts page work once the add is made
+  await page.addInitScript(() => {
+    const w = window as unknown as { __work: number[] }
+    w.__work = []
+    // oxlint-disable-next-line typescript/unbound-method
+    LockManager.prototype.request = new Proxy(LockManager.prototype.request, {
+      apply: (request, locks, args) => {
+        if (args[0] === 'ripple:page-work') w.__work.push(performance.now())
+        return Reflect.apply(request, locks, args)
+      },
+    })
+  })
+  const work = () => page.evaluate(() => (window as unknown as { __work: number[] }).__work)
   const paths = await watchPaths(page, INFO_HASH)
   await chooseFolder(page)
   const toasts = await watchToasts(page)
@@ -407,9 +420,14 @@ test('a move into a folder that refuses the write says it failed, and moves once
   await addToFolder(page, NAME, TORRENT)
 
   await expect.poll(toasts, { timeout: 60_000, message: 'the refused move never said it failed' }).toContain(`Moving ${NAME} failed`)
+  const failedBy = await page.evaluate(() => performance.now())
   expect(await paths(), 'the torrent moved into a folder that refused the write').toEqual([])
   await refuse(page, false)
   await expect.poll(paths, { timeout: 60_000, message: 'the move never ran again once the folder took the write' }).toEqual([`/native/${INFO_HASH}`])
+  const tried = (await work()).filter((at) => at <= failedBy).at(-1)!
+  const again = (await work()).find((at) => at > failedBy)!
+  // the wait is 30 s from the failure, which comes after the move started
+  expect(again - tried, 'a refused move was tried again before its wait').toBeGreaterThan(29_000)
 })
 
 test('a torrent finishing while the tab running the engine shows Settings moves into the folder', async ({ page, context }) => {
@@ -539,7 +557,7 @@ test('a move asked for and taken back in a tab not running the engine is not sai
   // THE CONTROL: the tab running the engine tried the move the other tab asked for
   await expect.poll(toasts, { timeout: 30_000 }).toContain(`Moving ${NAME} failed`)
   await pick(other, 'Keep in browser storage')
-  // the tab running the engine tries a refused move again twice a second, until it hears the ask was taken back
+  // the tab running the engine hears the ask was taken back before the folder takes the write
   await page.waitForTimeout(2_000)
   await refuse(page, false)
 
