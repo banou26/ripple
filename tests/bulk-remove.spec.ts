@@ -251,17 +251,18 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
     await expect(bar).toContainText('1 selected')
     await expect(details).toHaveCount(0)
     // the control: a click with no key held opens the panel, and picks nothing
-    await row(apple).click()
-    await expect(details).toHaveAttribute('aria-label', `Details for ${apple}`)
+    await row(cherry).click()
+    await expect(details).toHaveAttribute('aria-label', `Details for ${cherry}`)
     await expect(bar).toContainText('1 selected')
 
     await row(banana).click({ modifiers: ['Meta'] })
     await expect(bar).toHaveCount(0)
     await row(cherry).click({ modifiers: ['Control'] })
+    // on another row than the plain click's, which left the caret to extend a selection from
     await row(apple).click({ modifiers: ['Shift'] })
     await expect(bar).toContainText('3 selected')
     for (const name of names) await expect(tickOf(page)(name)).toBeChecked()
-    await expect(details).toHaveAttribute('aria-label', `Details for ${apple}`)
+    await expect(details).toHaveAttribute('aria-label', `Details for ${cherry}`)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
 
     await bar.getByRole('button', { name: 'Clear selection' }).click()

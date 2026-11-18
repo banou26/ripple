@@ -258,6 +258,16 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       expect(ticked()).toEqual([false, true, false, false, false, false])
     })
 
+    it(`selects no text from a plain click to a shift+click on another row in the ${view}`, async () => {
+      const { screen, ticked } = await library(view, DRAWN)
+      const row = (name: string) => screen.getByText(name, { exact: true })
+      window.getSelection()?.removeAllRanges()
+      await userEvent.click(row('Kiwi'))
+      await userEvent.click(row('Nectarine'), { modifiers: ['Shift'] })
+      expect(window.getSelection()?.toString()).toBe('')
+      expect(ticked()).toEqual([false, false, false, false, true, false])
+    })
+
     it(`leaves a Ctrl+click on a control of the row's own to it in the ${view}`, async () => {
       const { screen, ticked, onSelect, onOptions } = await library(view, DRAWN)
       await userEvent.click(screen.getByRole('button', { name: 'Options for Lime' }), { modifiers: ['Control'] })
