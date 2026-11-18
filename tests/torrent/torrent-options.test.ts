@@ -236,6 +236,18 @@ describe('the torrent option list', () => {
       expect(find(torrent({ state: 'downloading' }), 'toggle-run')!.label).toBe('Pause')
     })
 
+    it('offers Pause beside Force start for a torrent the queue holds, and pauses it', () => {
+      const a = actions()
+      const held = torrent({ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged })
+      const item = find(held, 'toggle-run', a)!
+      expect(item.label).toBe('Pause')
+      if (item.kind !== 'action') throw new Error('not an action')
+      item.run()
+      expect(a.pause).toHaveBeenCalledOnce()
+      expect(a.resume).not.toHaveBeenCalled()
+      expect(find(held, 'force-start')!.label).toBe('Force start')
+    })
+
     it('offers Stop for a seeding torrent and Start for a completed one, which pause and resume it', () => {
       for (const [state, label, call] of [['seeding', 'Stop', 'pause'], ['completed', 'Start', 'resume']] as const) {
         const a = actions()

@@ -26,7 +26,7 @@ export const pickedRows = (rows: readonly Torrent[], picked: Picked) =>
 /** The rows Pause changes: every one not stopped already, as the options menu has it. A ghost has no engine to pause. */
 export const toPause = (rows: readonly Torrent[]) => rows.filter((t) => t.state !== 'missing' && !stopped(t))
 
-/** The rows Resume changes: the paused, the queued and the completed. */
+/** The rows Resume changes: the stopped, as the options menu has it. */
 export const toResume = (rows: readonly Torrent[]) => rows.filter(stopped)
 
 /** The rows Download fetches: those not on this device, as the row's own button, so never a created source. */

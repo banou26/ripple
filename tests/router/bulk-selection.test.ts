@@ -2,6 +2,8 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 
 import { describe, expect, it } from 'vitest'
 
+import { TORRENT_FLAG } from 'libtorrent-wasm'
+
 import { keepShown, pickAll, pickRun, pickable, pickedRows, toPause, toResume, toStart, togglePick } from '../../src/router/bulk-selection'
 import { visibleTorrents } from '../../src/torrent/list-view'
 
@@ -152,6 +154,14 @@ describe('the bulk selection', () => {
     expect(toResume(rows).map((x) => x.state)).toEqual(['paused', 'queued', 'completed'])
     expect(toPause([t({ state: 'paused' }), t({ state: 'missing' })])).toEqual([])
     expect(toResume([t({ state: 'seeding' }), t({ state: 'missing' })])).toEqual([])
+  })
+
+  /** Pause takes a torrent out of libtorrent's queue, and Resume would hand it straight back, which changes nothing. */
+  it('pauses a torrent the queue holds, and leaves it to Resume no longer', () => {
+    const held = t({ state: 'queued', flags: TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged })
+    const running = t()
+    expect(toPause([held, running])).toEqual([held, running])
+    expect(toResume([held, running])).toEqual([])
   })
 
   /** A created source's files were never in a swarm, so its row offers no download either. */
