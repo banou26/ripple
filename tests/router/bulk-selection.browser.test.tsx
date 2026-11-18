@@ -251,11 +251,14 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       await userEvent.click(row('Peach'), { modifiers: ['Control'] })
       await userEvent.click(row('Peach'), { modifiers: ['Shift'] })
       expect(ticked()).toEqual([false, true, false, false, false, false])
+      // nor did Peach become the row a run starts from: it is still Lime
+      await userEvent.click(row('Nectarine'), { modifiers: ['Shift'] })
+      expect(ticked()).toEqual([false, true, true, true, true, false])
       expect(onSelect).not.toHaveBeenCalled()
       // the control: with no key held the click opens the row, and picks nothing
       await userEvent.click(row('Mango'))
       expect(onSelect).toHaveBeenCalledOnce()
-      expect(ticked()).toEqual([false, true, false, false, false, false])
+      expect(ticked()).toEqual([false, true, true, true, true, false])
     })
 
     it(`selects no text from a plain click to a shift+click on another row in the ${view}`, async () => {

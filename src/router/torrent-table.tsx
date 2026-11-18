@@ -266,7 +266,7 @@ export type TorrentTableProps = {
   onOptions: (t: Torrent, at: { x: number, y: number } | null) => void
   /** The ticked rows, by info hash, which are not the one row the dock shows. */
   picked: Picked
-  /** `shift` when shift was held, which ticks or unticks the run from the box clicked before. */
+  /** Ticks or unticks `t`, or with `shift` the run from the box clicked before, and ignores a row that cannot be ticked. */
   onPick: (t: Torrent, shift: boolean) => void
   /** What the engine reaches its peers through: with the VPN off a download that found nobody says so on its state. */
   transport?: EngineTransport | null
@@ -320,7 +320,7 @@ export const TorrentTable = (
           data-state={t.state}
           data-selected={t.id === selectedId || undefined}
           data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-          {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, () => onSelect(t))}
+          {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
           onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
         >
           <td className="check">

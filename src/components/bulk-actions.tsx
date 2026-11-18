@@ -120,14 +120,14 @@ type RowEvent = ReactMouseEvent<HTMLElement>
 
 /**
  * A row's own click and mousedown. With Ctrl, Cmd or Shift held a click picks the row as its box would, `pick` told
- * whether shift was held, and opens nothing; `pick` is null for a row that cannot be picked, where such a click does
- * nothing. Any other click, and one on a control of the row's own (a Ctrl+click on a link opens a tab), is `onClick`'s.
+ * whether shift was held, and opens nothing, also on a row that cannot be picked, which `pick` is left to ignore. Any
+ * other click, and one on a control of the row's own (a Ctrl+click on a link opens a tab), is `onClick`'s.
  */
-export const rowClicks = (pick: ((shift: boolean) => void) | null, onClick: (e: RowEvent) => void) => {
+export const rowClicks = (pick: (shift: boolean) => void, onClick: (e: RowEvent) => void) => {
   const picking = (e: RowEvent) => (e.ctrlKey || e.metaKey || e.shiftKey) && !(e.target as Element).closest(CONTROL)
   return {
     onClick: (e: RowEvent) => {
-      if (picking(e)) pick?.(e.shiftKey)
+      if (picking(e)) pick(e.shiftKey)
       else onClick(e)
     },
     // the press would otherwise select text: from the last click with shift held, and in Firefox 157 the table cell

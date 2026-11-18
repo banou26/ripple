@@ -1995,7 +1995,7 @@ type RowProps = {
   onSelect: (t: Torrent) => void
   /** Ticked for a bulk action, which is not the selection above. */
   checked: boolean
-  /** `shift` when shift was held, which ticks or unticks the run from the box clicked before. */
+  /** Ticks or unticks `t`, or with `shift` the run from the box clicked before, and ignores a row that cannot be ticked. */
   onPick: (t: Torrent, shift: boolean) => void
   /** Whether this torrent's files are already in the folder the user chose. Hides the save button. */
   savedToUserStorage: boolean
@@ -2056,7 +2056,7 @@ const MissingRow = ({
       className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       data-state={t.state}
       aria-current={selected || undefined}
-      {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, (e) => {
+      {...rowClicks((shift) => onPick(t, shift), (e) => {
         if ((e.target as HTMLElement).closest('button, a')) return
         onSelect(t)
       })}
@@ -2226,7 +2226,7 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
       // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
       // that already does something of its own keeps doing it: the buttons, the Watch link, the
       // file list, and any text the user is trying to select rather than click.
-      {...rowClicks(pickable(t) ? (shift) => onPick(t, shift) : null, (e) => {
+      {...rowClicks((shift) => onPick(t, shift), (e) => {
         const el = e.target as HTMLElement
         if (el.closest('button, a, input, summary')) return
         if (window.getSelection()?.toString()) return
