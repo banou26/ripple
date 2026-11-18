@@ -40,7 +40,7 @@ const engineReady = async (page: Page) =>
 /**
  * Waits for libtorrent's queue to start a torrent, and for the page to draw it. Needs `probeEngine`. A magnet's first
  * state carries no status and its row reads Downloading; the next is paused until the queue starts it, and its row reads
- * Queued, offers Resume in Pause's place and has the tab close without asking.
+ * Queued and has the tab close without asking.
  */
 const queueStarted = async (page: Page) => {
   await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status && !t.status.paused), undefined, { timeout: 30_000 })
@@ -186,7 +186,7 @@ test('closing the tab asks first while a torrent of one\'s own downloads, and no
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   const row = page.locator('.torrent').first()
   await expect(row.locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
-  // a press on Pause before this can land on the Resume the queue puts in its place
+  // a close before this can come while the queue holds it, which does not ask
   await queueStarted(page)
 
   const asked: string[] = []
@@ -219,6 +219,94 @@ test('closing the tab asks from another of its pages too, which the engine goes 
   page.on('dialog', (dialog) => { asked.push(dialog.type()); void dialog.dismiss() })
   await page.close({ runBeforeUnload: true })
   await expect.poll(() => asked).toEqual(['beforeunload'])
+})
+
+/** The card of the torrent named `name`. */
+const card = (page: Page, name: string) => page.locator('.torrent').filter({ has: page.locator('.title strong', { hasText: new RegExp(`^${name}$`) }) })
+
+/** The engine's last status for the torrent of `hash`, as the page last heard it. Needs `probeEngine`. */
+const statusOf = (page: Page, hash: string) =>
+  page.evaluate((h) => ((window as any).__state ?? []).find((t: any) => t.magnet.includes(h))?.status ?? null, hash)
+
+/**
+ * Adds a magnet named after each of `names`, nobody answering any of them. libtorrent's queue runs three downloads and
+ * holds the rest for their first minute, so from the fourth on each reads Queued until then.
+ */
+const addHeld = async (page: Page, names: readonly string[]) => {
+  for (const [i, name] of names.entries()) {
+    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 1).repeat(40)}&dn=${name}`)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+  }
+  for (const name of names.slice(3)) await expect(card(page, name).locator('.badge')).toHaveText('Queued', { timeout: 30_000 })
+  return (name: string) => String(names.indexOf(name) + 1).repeat(40)
+}
+
+test('a press aimed at a new torrent\'s Pause pauses it, though the queue holds it as the press lands', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const row = page.locator('.torrent').first()
+  // where the Pause icon first shows, before the engine has reported on the magnet
+  const at = (await row.getByRole('button', { name: 'Pause Own', exact: true }).boundingBox({ timeout: 30_000 }))!
+  // the half second libtorrent's queue holds every new torrent, once the page has drawn it
+  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status?.paused && t.status.autoManaged), undefined, { timeout: 30_000 })
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await row.locator('.badge').textContent(), 'the press lands while the queue holds it').toBe('Queued')
+  await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+  await expect(row.locator('.badge')).toHaveText('Paused')
+  await page.waitForTimeout(3_000)
+  await expect(row.locator('.badge')).toHaveText('Paused')
+})
+
+test('a torrent the queue holds offers Pause, which keeps it out of the queue across a reload until Resume hands it back', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  const hashOf = await addHeld(page, ['One', 'Two', 'Three', 'Four', 'Five'])
+
+  // a few seconds, not the default wait: a Pause the hold left out would show once the queue starts the torrent
+  await card(page, 'Four').getByRole('button', { name: 'Pause Four', exact: true }).click({ timeout: 5_000 })
+  await expect(card(page, 'Four').locator('.badge')).toHaveText('Paused')
+  // a slot freed, which the queue fills with the torrent it still holds and not with the one paused
+  await card(page, 'One').getByRole('button', { name: 'Pause One', exact: true }).click()
+  await expect(card(page, 'Five').locator('.badge')).toHaveText('Downloading', { timeout: 15_000 })
+  await expect(card(page, 'Four').locator('.badge')).toHaveText('Paused')
+
+  await page.reload()
+  await engineReady(page)
+  for (const name of ['Two', 'Three', 'Five']) await expect(card(page, name).locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+  await expect(card(page, 'Four').locator('.badge')).toHaveText('Paused')
+  expect(await statusOf(page, hashOf('Four'))).toMatchObject({ paused: true, autoManaged: false })
+
+  // back under the queue, which starts it or holds it
+  await card(page, 'Four').getByRole('button', { name: 'Resume Four', exact: true }).click()
+  await expect(card(page, 'Four').locator('.badge')).toHaveText(/^(Queued|Downloading)$/)
+  await expect(card(page, 'Four').getByRole('button', { name: 'Pause Four', exact: true })).toBeVisible()
+  await expect.poll(() => statusOf(page, hashOf('Four'))).toMatchObject({ autoManaged: true })
+})
+
+test('the options and the bar pause a torrent the queue holds', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  await addHeld(page, ['One', 'Two', 'Three', 'Four', 'Five'])
+
+  await card(page, 'Four').getByRole('button', { name: 'Options for Four' }).click()
+  const options = page.getByRole('dialog')
+  await expect(options.getByRole('switch', { name: 'Force start' })).toBeVisible()
+  await options.getByRole('button', { name: 'Pause', exact: true }).click({ timeout: 5_000 })
+  await expect(card(page, 'Four').locator('.badge')).toHaveText('Paused')
+
+  await page.getByRole('checkbox', { name: 'Select Three' }).check()
+  await page.getByRole('checkbox', { name: 'Select Five' }).check()
+  expect(await card(page, 'Five').locator('.badge').textContent(), 'still held as the bar is pressed').toBe('Queued')
+  await page.locator('.bulk-bar').getByRole('button', { name: 'Pause' }).click()
+  for (const name of ['Three', 'Five']) await expect(card(page, name).locator('.badge')).toHaveText('Paused')
 })
 
 // the page's worker, whose update another tab takes when the test calls updateTaken; the new one never answers, so the
