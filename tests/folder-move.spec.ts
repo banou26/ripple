@@ -118,6 +118,9 @@ const pick = async (page: Page, place: 'Move to picked' | 'Keep in browser stora
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
 
+/** The torrent's row once it shows the engine's report of it finished, which a pick in that tab is decided from. */
+const finishedRow = (page: Page) => expect(page.locator('.torrent .badge.seeding, .torrent .badge.completed').first()).toBeVisible({ timeout: 30_000 })
+
 /** A directory where a move writes the torrent's first file, which refuses that write until it is taken away. */
 const refuse = (page: Page, on: boolean) => page.evaluate(async ({ name, path, on }) => {
   const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name, { create: true })
@@ -458,6 +461,7 @@ test('a move asked for in a tab not running the engine is made once, by the tab 
   const { other, toasts: otherToasts } = await openSecondTab(context)
   await addInBrowserStorage(other)
   await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished in browser storage' }).toContain(1)
+  await finishedRow(other)
 
   await pick(other, 'Move to picked')
 
@@ -485,6 +489,7 @@ test('a move asked for and taken back in a tab not running the engine is not sai
   await refuse(page, true)
   await addInBrowserStorage(other)
   await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished in browser storage' }).toContain(1)
+  await finishedRow(other)
 
   await pick(other, 'Move to picked')
   // THE CONTROL: the tab running the engine tried the move the other tab asked for
@@ -526,6 +531,7 @@ test('a tab that asked for a move into browser storage does not say it moved whi
   const otherPaths = await watchPaths(other, INFO_HASH)
   await other.goto('/')
   const otherToasts = await watchToasts(other)
+  await finishedRow(other)
   await pick(other, 'Keep in browser storage')
   // THE CONTROL: the tab running the engine started the move
   await expect.poll(() => copies(page), { timeout: 30_000 }).toBeGreaterThan(0)
