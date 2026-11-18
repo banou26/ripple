@@ -60,14 +60,17 @@ const watchMove = async (page: Page, infoHash: string) => {
   return () => page.evaluate(() => (window as any).__moved as Report[])
 }
 
-/** Opens the page with a folder the picker gives, and chooses it. With `ask`, an add asks where its files go. */
-const chooseFolder = async (page: Page, ask = true) => {
+/**
+ * Opens the page at `opened` with a folder the picker gives, chooses it, and goes to the library. With `ask`, an add
+ * asks where its files go.
+ */
+const chooseFolder = async (page: Page, ask = true, opened: '/' | '/settings' = '/') => {
   await page.addInitScript(() => {
     try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
     Object.assign(window, { showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true }) })
   })
-  await page.goto('/')
-  await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
+  await page.goto(opened)
+  if (opened === '/') await page.getByRole('link', { name: 'Settings', exact: true }).click({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 10_000 })
   await page.getByRole('button', { name: 'picked', exact: true }).waitFor({ timeout: 10_000 })
   if (ask) {
@@ -364,6 +367,20 @@ test('a torrent finishing while the tab running the engine shows Settings moves 
   await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished' }).toContain(1)
   await expect.poll(paths, { timeout: 30_000, message: 'the tab running the engine did not move the torrent from Settings' }).toEqual([`/native/${INFO_HASH}`])
   expect(new URL(page.url()).pathname).toBe('/settings')
+})
+
+// Settings makes no engine, so the tab starts one when it goes to the library, with no reload
+test('a tab opened on Settings moves a torrent into the folder once it goes to the library', async ({ page }) => {
+  test.setTimeout(180_000)
+  const paths = await watchPaths(page, INFO_HASH)
+  const progress = await watchProgress(page, INFO_HASH)
+  await chooseFolder(page, true, '/settings')
+  await place(page, NAME, FILES)
+  await addToFolder(page, NAME, TORRENT)
+
+  // THE CONTROL: the torrent reached the engine and finished, so it could move
+  await expect.poll(progress, { timeout: 60_000, message: 'the torrent never finished' }).toContain(1)
+  await expect.poll(paths, { timeout: 30_000, message: 'the tab opened on Settings never moved the torrent' }).toEqual([`/native/${INFO_HASH}`])
 })
 
 /*
