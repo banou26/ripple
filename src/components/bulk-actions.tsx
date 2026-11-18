@@ -131,9 +131,12 @@ export const rowClicks = (pick: ((shift: boolean) => void) | null, onClick: (e: 
       else onClick(e)
     },
     // the press would otherwise select text: from the last click with shift held, and in Firefox 157 the table cell
-    // under a Ctrl+click (2026-11-18)
+    // under a Ctrl+click (2026-11-18). Prevented, it no longer takes the focus off a field either, which would then
+    // keep the Escape that clears the picks
     onMouseDown: (e: RowEvent) => {
-      if (e.button === 0 && picking(e)) e.preventDefault()
+      if (e.button !== 0 || !picking(e)) return
+      e.preventDefault()
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     },
   }
 }

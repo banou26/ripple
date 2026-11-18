@@ -268,6 +268,22 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       expect(ticked()).toEqual([false, false, false, false, true, false])
     })
 
+    // a field left focused would keep Escape, which clears the picks, to itself
+    it(`takes the focus off a field as a plain click does in the ${view}`, async () => {
+      const field = document.createElement('input')
+      document.body.prepend(field)
+      try {
+        const { screen } = await library(view, DRAWN)
+        for (const key of ['Control', 'Meta', 'Shift'] as const) {
+          field.focus()
+          await userEvent.click(screen.getByText('Lime', { exact: true }), { modifiers: [key] })
+          expect(document.activeElement, key).toBe(document.body)
+        }
+      } finally {
+        field.remove()
+      }
+    })
+
     it(`leaves a Ctrl+click on a control of the row's own to it in the ${view}`, async () => {
       const { screen, ticked, onSelect, onOptions } = await library(view, DRAWN)
       await userEvent.click(screen.getByRole('button', { name: 'Options for Lime' }), { modifiers: ['Control'] })

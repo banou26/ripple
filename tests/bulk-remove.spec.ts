@@ -234,8 +234,9 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
   const names = ['Apple', 'Banana', 'Cherry'] as const
   await prepare(page)
   await page.goto('/')
+  const field = page.getByPlaceholder('Add a magnet link')
   for (const [i, name] of names.entries()) {
-    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 6).repeat(40)}&dn=${name}`)
+    await field.fill(`magnet:?xt=urn:btih:${String(i + 6).repeat(40)}&dn=${name}`)
     await page.getByRole('button', { name: 'Add', exact: true }).click()
   }
   for (const name of names) await expect(tickOf(page)(name)).toBeVisible({ timeout: 60_000 })
@@ -265,7 +266,13 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
     await expect(details).toHaveAttribute('aria-label', `Details for ${cherry}`)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
 
-    await bar.getByRole('button', { name: 'Clear selection' }).click()
+    // from the search field, which such a click leaves as a plain click does, so Escape clears the picks
+    await field.focus()
+    await row(banana).click({ modifiers: ['Control'] })
+    await expect(bar).toContainText('2 selected')
+    await page.keyboard.press('Escape')
+    await expect(bar).toHaveCount(0)
+    // and only then closes the panel
     await page.keyboard.press('Escape')
     await expect(details).toHaveCount(0)
   }
