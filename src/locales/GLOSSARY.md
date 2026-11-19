@@ -11,10 +11,10 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   WebRTC.
 - **A label stub already shows** takes stub's text as it stands, so the two apps read alike. The exceptions are `ko`
   Remove, `제거` where stub writes `삭제`: ripple's `Remove and delete` needs both words; and two words stub means of a
-  watch list. Stub's Stop is Hindi's `रोकें`, so Pause is `पॉज़ करें`. Paused takes qBittorrent's word where stub's reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`,
-  `zh-Hans` `已暂停`, `zh-Hant` `已暫停`, `pl` `Wstrzymano`, `ko` `일시 중지됨`), and Progress where stub's reads as how
-  much was watched (`it` `Avanzamento`, `ja` `進捗`, `ko` `진행률`, `zh-Hans` `进度`, `zh-Hant` `進度`). A torrent's Format
-  is `格式` in Chinese, where stub's `形式` is a show's.
+  watch list. Stub's Stop is Hindi's `रोकें`, so Pause is `पॉज़ करें`. Paused takes qBittorrent's word where stub's
+  reads as on hold (`ru` `На паузе`, `tr` `Duraklatıldı`, `zh-Hans` `已暂停`, `zh-Hant` `已暫停`, `pl` `Wstrzymano`, `ko`
+  `일시 중지됨`), and Progress where stub's reads as how much was watched (`it` `Avanzamento`, `ja` `進捗`, `ko` `진행률`,
+  `zh-Hans` `进度`, `zh-Hant` `進度`). A torrent's Format is `格式` in Chinese, where stub's `形式` is a show's.
 - **No em or en dash** (U+2014, U+2013), even where the language's typography uses one: restructure, or use a comma,
   a colon, a plain hyphen or the language's own range mark (`～` in Japanese, `~` in Korean, `至` in Chinese).
 - **French and Italian** write the typographic apostrophe `’`. French puts a no-break space (U+00A0) before `?` and `:`.
@@ -29,28 +29,27 @@ same change, using the terms below, and runs `npm run i18n:check`. The rules for
   `one, few, many, other`; Czech and Romanian `one, few, other`; Japanese, Korean, Chinese, Indonesian, Malay,
   Vietnamese and Thai `other` alone; Hindi `one, other`, its `one` taking 0 as well; Arabic
   `zero, one, two, few, many, other`; Hebrew `one, two, other`. Romanian puts `de` before a noun from 20 on
-  (`20 de fișiere`), and Hungarian keeps the noun singular after a number (`5 fájl`). Arabic and Hebrew write one and two in words (`ملف واحد`, `ملفان`, `קובץ אחד`,
-  `שני קבצים`), so their `one` and `two` branches hold no `{count}`. A count is written as the English writes it:
-  `{count}` as given, never `#` or `{count, number}`, which group it (`1.100 Dateien`); the check names either form
-  where the English lacks it.
+  (`20 de fișiere`), and Hungarian keeps the noun singular after a number (`5 fájl`). Arabic and Hebrew write one and
+  two in words (`ملف واحد`, `ملفان`, `קובץ אחד`, `שני קבצים`), so their `one` and `two` branches hold no `{count}`. A
+  count is written as the English writes it: `{count}` as given, never `#` or `{count, number}`, which group it
+  (`1.100 Dateien`); the check names either form where the English lacks it.
 - **A value Intl writes** (a size `1,5 Go`, a speed `512 ko/s`, a duration, a date) comes with its unit and in the
   nominative, so the words around it add no unit and ask no case of it: German `noch {eta}` where `in` would want a
-  dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date. A unit written as
-  text, the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`, `ك.ب/ث`,
-  `kB/שנ׳`, `kB/sec`, `kB/δευτ.`, `kB/mp`, `kB/dtk`, `kB/giây`, `kB/วิ`, `kB/से॰`, `кБ/с`), so it reads as the speeds
-  beside it. Arabic's units are Intl's narrow ones (`src/utils/bytes.ts`), whose
-  short kilobyte is the whole word `كيلوبايت` beside `م.ب`. A piece size is binary, as qBittorrent writes it: `Kio` and `Mio` in French, `KiO` and `MiO` in
-  Romanian, `КБ` and `МБ` in Russian, `КіБ` and `МіБ` in Ukrainian, `ك.ب` and `م.ب` in Arabic, `KiB` and `MiB`
-  elsewhere, Hebrew, Hindi and Thai too, whose sizes beside it Intl writes in Latin.
+  dative, Polish `jeszcze {eta}` where `za` would want an accusative, and a colon before a date. A unit written as text,
+  the speed field's `kB/s`, is the unit as Intl writes it there (`ko/s`, `кБ/c`, `KB/秒`, `kB/sn`, `ك.ب/ث`, `kB/שנ׳`,
+  `kB/sec`, `kB/δευτ.`, `kB/mp`, `kB/dtk`, `kB/giây`, `kB/วิ`, `kB/से॰`, `кБ/с`), so it reads as the speeds beside it.
+  Arabic's units are Intl's narrow ones (`src/utils/bytes.ts`), whose short kilobyte is the whole word `كيلوبايت` beside
+  `م.ب`. A piece size is binary, as qBittorrent writes it: `Kio` and `Mio` in French, `KiO` and `MiO` in Romanian, `КБ`
+  and `МБ` in Russian, `КіБ` and `МіБ` in Ukrainian, `ك.ب` and `م.ب` in Arabic, `KiB` and `MiB` elsewhere, Hebrew, Hindi
+  and Thai too, whose sizes beside it Intl writes in Latin.
 - **Arabic and Hebrew** read right to left, and `src/i18n` isolates each plain value at load, so a catalogue holds no
   direction mark. Brand names stay in Latin script, and a prefix joins one the way the language writes it: Arabic
   `لـ {name}` and `بـ {name}`, Hebrew `ב-{name}`, `ל-{name}` and `מ-{name}`. Arabic writes its own comma and question
-  mark (`،`, `؟`) and guillemets (`«غير محدود»`), Hebrew gershayim (`״ללא הגבלה״`). A value beside an adjective or a past
-  verb would ask it to agree with a number or a person nobody knows, so the line is a label and a colon, or Arabic's
-  `تمت` with a verbal noun: `المتصلون: {count}`, `נבחרו: {count}`, `تمت الإضافة إلى {name}`,
-  `הוספה לקבוצה: {name}`. A `.torrent` or `.zip` written beside a value or a word would be
-  split from it by the isolate, so it is the language's words for the file: `ملف التورنت`, `كملف zip`, `קובץ הטורנט`,
-  `כקובץ zip`.
+  mark (`،`, `؟`) and guillemets (`«غير محدود»`), Hebrew gershayim (`״ללא הגבלה״`). A value beside an adjective or a
+  past verb would ask it to agree with a number or a person nobody knows, so the line is a label and a colon, or
+  Arabic's `تمت` with a verbal noun: `المتصلون: {count}`, `נבחרו: {count}`, `تمت الإضافة إلى {name}`,
+  `הוספה לקבוצה: {name}`. A `.torrent` or `.zip` written beside a value or a word would be split from it by the isolate,
+  so it is the language's words for the file: `ملف التورنت`, `كملف zip`, `קובץ הטורנט`, `כקובץ zip`.
 - **The second wave** follows stub's rules for it. A value takes no case ending: Hungarian writes it after a colon or
   in parentheses (`Másolva: {name}`, `A mentés nem sikerült ({name})`), since a suffix would follow the value's own
   vowels. A participle beside a count would agree with a gender the count does not give in Czech and Romanian, so
@@ -126,12 +125,12 @@ Where this differs from qBittorrent:
 
 In Chinese `种子` and `種子` are a seed and never a torrent, which stays `torrent` as qBittorrent writes it.
 
-A transfer's two directions, on a stat or a limit, are qBittorrent's too: `es-419` Bajada, Subida; `pt-BR`, `de` and `it`
-Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `ja` ダウンロード, アップロード; `ko` 다운로드, 업로드;
-`zh-Hans` 下载, 上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie; `ar` التنزيل, الرفع;
-`he` הורדה, העלאה; `id` Unduh, Unggah; `vi` Tải xuống, Tải lên; `th` ดาวน์โหลด, อัปโหลด; `hi` डाउनलोड, अपलोड;
-`uk` Завантаження (`Прийом` in a column), Віддача; `nl` Download, Upload; `sv` Hämtning, Sändning; `cs` Stahování, Odesílání;
-`el` Λήψη, Αποστολή; `ro` Descărcare, Încărcare; `hu` Letöltés, Feltöltés; `ms` Muat turun, Muat naik.
+A transfer's two directions, on a stat or a limit, are qBittorrent's too: `es-419` Bajada, Subida; `pt-BR`, `de` and
+`it` Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `ja` ダウンロード, アップロード; `ko` 다운로드, 업로드; `zh-Hans` 下载,
+上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie; `ar` التنزيل, الرفع; `he` הורדה, העלאה; `id`
+Unduh, Unggah; `vi` Tải xuống, Tải lên; `th` ดาวน์โหลด, อัปโหลด; `hi` डाउनलोड, अपलोड; `uk` Завантаження (`Прийом` in a
+column), Віддача; `nl` Download, Upload; `sv` Hämtning, Sändning; `cs` Stahování, Odesílání; `el` Λήψη, Αποστολή; `ro`
+Descărcare, Încărcare; `hu` Letöltés, Feltöltés; `ms` Muat turun, Muat naik.
 
 ## Ripple's own words
 
@@ -172,10 +171,10 @@ download is saved in.
 
 The VPN takes an article where the language has one: `la VPN` in `es-419` and `it`, `a VPN` in `pt-BR`, `le VPN` in
 `fr`, `das VPN` in `de`. Its state is one word on the switch (On, Off, Reconnecting, Unreachable, Waiting), and the
-switch keeps the room of the widest of them, so a new or changed one is no wider than the widest that language has.
-Off there is the state, and `Turn off` the action that leads to it (`Désactivé` and `Désactiver`, `Aus` and
-`Ausschalten`). The state agrees with the VPN where it has a gender (`Desactivada`, `Desativada`, `Disattivata`,
-`Désactivé`), and takes the VPN as masculine in Arabic and Hebrew (`يعمل`, `متوقف`, `פועל`, `כבוי`) and as neuter
-in Czech, Greek and Romanian (`Zapnuto`, `Ενεργό`, `Pornit`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for Close: where
-the two would be one word it names the VPN (`VPN'i kapat`, `关闭 VPN`, `關閉 VPN`, `VPN बंद करें`, `ปิด VPN`). A peer and a tracker in the
-warning and in the line of a download that found nobody are the table's words above.
+switch keeps the room of the widest of them, so a new or changed one is no wider than the widest that language has. Off
+there is the state, and `Turn off` the action that leads to it (`Désactivé` and `Désactiver`, `Aus` and `Ausschalten`).
+The state agrees with the VPN where it has a gender (`Desactivada`, `Desativada`, `Disattivata`, `Désactivé`), and takes
+the VPN as masculine in Arabic and Hebrew (`يعمل`, `متوقف`, `פועל`, `כבוי`) and as neuter in Czech, Greek and Romanian
+(`Zapnuto`, `Ενεργό`, `Pornit`). `Turn off` stands beside Cancel in the warning, so it is never the catalogue's word for
+Close: where the two would be one word it names the VPN (`VPN'i kapat`, `关闭 VPN`, `關閉 VPN`, `VPN बंद करें`, `ปิด VPN`).
+A peer and a tracker in the warning and in the line of a download that found nobody are the table's words above.
