@@ -41,8 +41,8 @@ const style = css`
     text-align: match-parent;
   }
 
-  /* spacing pulls Arabic's joined letters apart */
-  :lang(ar) {
+  /* spacing pulls Arabic's joined letters apart, and breaks the line Hindi's letters hang from */
+  :lang(ar), :lang(hi) {
     letter-spacing: normal !important;
   }
 

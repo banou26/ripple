@@ -1458,6 +1458,20 @@ test.describe('the Inbound tooltip joins its two sentences as the language does'
   }
 })
 
+// spacing breaks the line a Devanagari word's letters hang from, as it pulls Arabic's joined letters apart
+test.describe('a heading in Hindi keeps its letters together', () => {
+  for (const language of ['hi', 'en']) {
+    test(language, async ({ page }) => {
+      await opening(page, language)
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      await page.locator('.list-toolbar .chip.show').click()
+      const spacing = await page.getByRole('menu').locator('.group > label').first().evaluate(label => getComputedStyle(label).letterSpacing)
+      expect(spacing === 'normal', `the menu's heading spaced ${spacing}`).toBe(language === 'hi')
+    })
+  }
+})
+
 // wider than a 320 px window in any font
 const LONG_ACCOUNT = { name: 'Alexandra Maximiliane Konstantinopoulou-Lindqvist', premium: false }
 
