@@ -1765,6 +1765,16 @@ test.describe('right to left', () => {
     }
     return at < 0 ? null : left(shown[at]!) < left(shown[at + 1]!)
   }, port)
+  /** The offset in its value the caret lands on every 4 px across an input, from 2 px inside its left edge to 2 px inside its right. */
+  const caretsAcross = (input: Locator) => input.evaluate((field: HTMLInputElement) => {
+    const { left, right, top, height } = field.getBoundingClientRect()
+    const across = Array.from({ length: Math.ceil((right - left - 4) / 4) }, (_, k) => left + 2 + 4 * k).concat(right - 2)
+    return across.map((x) => {
+      const caret = document.caretPositionFromPoint(x, top + height / 2)
+      if (caret?.offsetNode !== field) throw new Error(`the caret at ${x} px lands on ${caret?.offsetNode.nodeName}, not the field`)
+      return caret.offset
+    })
+  })
 
   for (const language of ['ar', 'he', 'en']) {
     const rtl = language !== 'en'
@@ -2085,6 +2095,26 @@ test.describe('right to left', () => {
         await expect(row).toContainText(peers[i]!)
         expect(await colonFirst(row, port), `the peer ${peers[i]}`).toBe(true)
       }
+    })
+
+    test(`${language}: what is typed in the add field takes its own direction, the empty field the page's`, async ({ page }) => {
+      await opening(page, language)
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      const field = page.locator('header form input:not([type=file])')
+      // its placeholder is in the page's words
+      expect(await field.evaluate(input => getComputedStyle(input).direction), 'the empty field').toBe(rtl ? 'rtl' : 'ltr')
+      await field.fill(magnetOf('3', 'Fresh'))
+      await field.blur()
+      const magnet = await caretsAcross(field)
+      expect(magnet[0], 'a magnet link starts at the field\'s left').toBe(0)
+      expect(magnet, 'and reads left to right').toEqual(magnet.toSorted((a, b) => a - b))
+      await field.fill('بحث عربي')
+      await field.blur()
+      const arabic = await caretsAcross(field)
+      expect(arabic.at(-1), 'Arabic starts at the field\'s right').toBe(0)
+      expect(arabic, 'and reads right to left').toEqual(arabic.toSorted((a, b) => b - a))
     })
   }
 })

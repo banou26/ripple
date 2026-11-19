@@ -3698,6 +3698,8 @@ const Home = () => {
             <input
               ref={fieldRef}
               value={input}
+              // each entry in its own direction, and the placeholder in the page's, which auto with nothing typed is not
+              dir={input ? 'auto' : undefined}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Escape') setInput('') }}
               placeholder={intl.formatMessage({ id: 'Add a magnet link, or search', defaultMessage: 'Add a magnet link, or search' })}
