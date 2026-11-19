@@ -149,9 +149,10 @@ const standIns = (folder: string) => {
       if (localStorage.getItem('spec:picker') === 'refused') throw new DOMException('refused', 'NotAllowedError')
       return { createWritable: async () => ({ write: async () => {}, close: async () => {}, abort: async () => {} }) }
     },
-    // the create dialog's pick, by its id, is a folder of its own, which the spec writes (folderToShare)
+    // the create dialog's pick, by its id, is a folder of its own, which the spec writes (folderToShare); the other is
+    // named by `spec:folder` when a test sets it
     showDirectoryPicker: async ({ id }: { id?: string } = {}) =>
-      (await navigator.storage.getDirectory()).getDirectoryHandle(id === 'ripple-source' ? 'Holiday' : folder, { create: true }),
+      (await navigator.storage.getDirectory()).getDirectoryHandle(id === 'ripple-source' ? 'Holiday' : localStorage.getItem('spec:folder') ?? folder, { create: true }),
   })
   const answers = () => JSON.parse(localStorage.getItem('spec:storage') ?? '{}') as { low?: boolean, persisted?: boolean, denied?: boolean }
   const { storage, permissions } = navigator
@@ -1659,6 +1660,71 @@ test.describe('right to left', () => {
   // the icon's own turn, which only the rule mirroring the ones that point along the line sets
   const turned = (locator: Locator) => locator.evaluate(icon => getComputedStyle(icon).scale === '-1 1')
 
+  // names somebody wrote, each opening or closing on a bracket, a dot or a slash, which have no direction of their own
+  const RELEASE = '[Group] Orbital Gardeners Season Two - 01 (1080p) [ABCD1234]'
+  const PEER_ADDRESS = '[2001:db8::7]:51413'
+  const PEER_CLIENT = '[XX] Unknown 0.1'
+  const TRACKER = 'http://bt.example.org:2710/'
+  const TRACKER_SAYS = 'Unregistered torrent.'
+  const GROUP = '[Fansub] Picks (2024)'
+  const ACCOUNT_NAME = '[Team] A person'
+  const SAVE_FOLDER = '[Media] Downloads'
+  const SKIPPED = '.DS_Store'
+  const NAMED_MAGNET = magnetOf('a', encodeURIComponent(RELEASE))
+  const NAMED_LIST = [entry('a', RELEASE, { magnet: NAMED_MAGNET })]
+  const NAMED = snapshot(1, 'a', RELEASE, { numPeers: 28 }, {
+    magnet: NAMED_MAGNET,
+    files: { files: [{ path: `${RELEASE}/${RELEASE}.mkv`, size: 2 * GB }, { path: `${RELEASE}/${RELEASE}.srt`, size: 40_000 }], contentSize: 2 * GB + 40_000, pieceLength: 16_384 },
+  })
+
+  /**
+   * Each of `typed` drawn inside `locator`, and how any is drawn out of its own order: a right to left line carries a
+   * bracket, a dot or a slash at a name's end to its other side, and shows a cut Latin name's end rather than its start.
+   * An input holding one is read by its direction.
+   */
+  const order = (locator: Locator, typed: string[]) => locator.evaluate((root, typed) => {
+    const found: string[] = []
+    const wrong: string[] = []
+    const at = (node: Text, i: number) => {
+      const range = document.createRange()
+      range.setStart(node, i)
+      range.setEnd(node, i + 1)
+      return range.getBoundingClientRect()
+    }
+    const sameLine = (a: DOMRect, b: DOMRect) => Math.abs(a.top - b.top) < a.height / 2
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+      for (const name of typed) {
+        const i = node.data.indexOf(name)
+        if (i < 0) continue
+        const first = at(node, i)
+        const second = at(node, i + 1)
+        const beforeLast = at(node, i + name.length - 2)
+        const last = at(node, i + name.length - 1)
+        if (!first.width) continue
+        found.push(name)
+        if (sameLine(first, second) && first.left > second.left) wrong.push(`${name}: its first character after its second`)
+        if (sameLine(beforeLast, last) && last.left < beforeLast.left) wrong.push(`${name}: its last character before the one ahead of it`)
+        let clip = node.parentElement
+        while (clip && getComputedStyle(clip).overflowX === 'visible') clip = clip.parentElement
+        const box = clip?.getBoundingClientRect() ?? { left: 0, right: document.documentElement.clientWidth }
+        if (first.left < box.left - 1 || first.right > box.right + 1) wrong.push(`${name}: its start cut off`)
+      }
+    }
+    for (const input of root.matches('input') ? [root] : [...root.querySelectorAll('input')]) {
+      const name = typed.find(each => input.value.includes(each))
+      if (!name) continue
+      found.push(name)
+      if (getComputedStyle(input).direction !== 'ltr') wrong.push(`${name}: typed right to left`)
+    }
+    return { found, wrong }
+  }, typed)
+  const expectInOrder = async (locator: Locator, typed: string[], what: string) => {
+    const { found, wrong } = await order(locator, typed)
+    expect(typed.filter(name => !found.includes(name)), `${what}: the control, each name is drawn`).toEqual([])
+    expect(wrong, what).toEqual([])
+  }
+
   for (const language of ['ar', 'he', 'en']) {
     const rtl = language !== 'en'
     /** Whether `a` comes before `b` along the line: right of it right to left, left of it otherwise. */
@@ -1779,6 +1845,155 @@ test.describe('right to left', () => {
       expect(play.mid, 'Play on the left').toBeLessThan(640)
       expect(before(await boxOf(page.locator('.ripple-overlay-content .file-name')), await boxOf(page.getByTestId('peers'))), 'the file\'s name starts the top row').toBe(true)
       expect(await turned(page.locator('[data-testid=open-in-ripple] svg')), 'the link out').toBe(rtl)
+    })
+
+    test(`${language}: a name somebody wrote keeps its own order in the table, its menus, the share dialog and the details, at 390 px`, async ({ page }) => {
+      test.setTimeout(120_000)
+      await opening(page, language)
+      await page.addInitScript(key => localStorage.setItem(key, 'table'), LIST_VIEW_KEY)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(origin)
+      await library(page, NAMED_LIST, [NAMED])
+      const row = page.locator('.torrent-table tbody tr').first()
+      const menu = page.getByRole('menu')
+      const dialog = page.getByRole('dialog')
+      const chip = page.locator('[role=tooltip]')
+      const hinted = async (anchor: Locator, name: string, what: string) => {
+        await anchor.hover()
+        await expect(chip).toContainText(name)
+        await expectInOrder(chip, [name], what)
+        await page.mouse.move(0, 0)
+      }
+      await expectInOrder(row.locator('.title'), [RELEASE], 'the table\'s name')
+      await hinted(row.locator('td.name'), RELEASE, 'the hint on the table\'s name')
+
+      // a group, which the bar's menu, the row's menu and the options each list by its name
+      await page.locator('.list-toolbar .pick-all input').check()
+      await groupTicked(page, GROUP)
+      await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
+      await expectInOrder(menu, [GROUP], 'the bar\'s Groups menu')
+      await page.keyboard.press('Escape')
+      await page.locator('.list-toolbar .pick-all input').uncheck()
+      await row.click({ button: 'right' })
+      await expect(menu).toBeVisible()
+      await expectInOrder(menu, [GROUP], 'the row\'s menu')
+      await page.keyboard.press('Escape')
+      await row.locator('button.more').click()
+      await expect(dialog).toBeVisible()
+      await expectInOrder(dialog, [GROUP], 'the options')
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+
+      // the share dialog: the name and its files, and the link and the frame, which read left to right in any language
+      await row.click({ button: 'right' })
+      await menu.getByText(language === 'en' ? 'Get a share link' : catalogues()[language]!['Get a share link']!).click()
+      await expect(dialog.locator('.subject')).toBeVisible()
+      await expectInOrder(dialog.locator('.subject'), [RELEASE], 'the share dialog\'s name')
+      await dialog.locator('details.files summary').click()
+      await expectInOrder(dialog.locator('details.files'), [RELEASE], 'the share dialog\'s files')
+      const link = dialog.getByTestId('embed-url')
+      await expectInOrder(link, [(await link.textContent())!], 'the share link')
+      await dialog.locator('details.snippet summary').click()
+      const frame = dialog.getByTestId('embed-iframe')
+      await expectInOrder(frame, [(await frame.textContent())!], 'the frame to embed')
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+
+      // the details panel: its name, cut short here, its files, a peer and a tracker
+      await row.click()
+      const dock = page.locator('main + section')
+      const tab = (i: number) => dock.locator('.tabs button').nth(i)
+      const title = dock.locator('header .title')
+      await expect(title).toBeVisible()
+      expect(await title.evaluate(element => element.scrollWidth > element.clientWidth), 'the control: the name is cut').toBe(true)
+      await expectInOrder(title, [RELEASE], 'the details\' name')
+      await hinted(title, RELEASE, 'the hint on the details\' name')
+      await tab(1).click()
+      await expect(dock.locator('.row.file')).toHaveCount(2)
+      await expectInOrder(dock.locator('.row.file').first(), [RELEASE], 'a file\'s path')
+      await tab(2).click()
+      const peer = { ...SWARM_PEER, endpoint: PEER_ADDRESS, client: PEER_CLIENT }
+      const tracker = { ...SWARM_TRACKER, url: TRACKER, tier: 0, message: TRACKER_SAYS }
+      await post(page, { type: 'state', torrents: [NAMED], detail: { handle: NAMED.handle, peers: [peer], trackers: [tracker] } })
+      const swarm = dock.locator('.rows .row:not(.head)')
+      await expect(swarm).toHaveCount(1)
+      await expectInOrder(swarm, [PEER_ADDRESS], 'a peer\'s address')
+      await tab(3).click()
+      await expect(swarm.locator('.name')).toContainText(TRACKER)
+      await expectInOrder(swarm, [TRACKER], 'a tracker, its address wrapped')
+      // a phone shows no peer's client and no tracker's state
+      await page.setViewportSize({ width: 1280, height: 844 })
+      await expectInOrder(swarm, [TRACKER], 'a tracker')
+      await hinted(swarm.locator('.name'), TRACKER, 'the hint on a tracker')
+      await hinted(swarm.locator('.client'), TRACKER_SAYS, 'the hint on what a tracker said')
+      await tab(2).click()
+      await expect(swarm.locator('.client')).toBeVisible()
+      await expectInOrder(swarm, [PEER_ADDRESS, PEER_CLIENT], 'a peer')
+      await hinted(swarm.locator('.client'), PEER_CLIENT, 'the hint on a peer\'s client')
+    })
+
+    test(`${language}: a name somebody wrote keeps its own order in the account, Settings, the add and create dialogs, the download page and the player`, async ({ page }) => {
+      test.setTimeout(120_000)
+      await opening(page, language)
+      await page.addInitScript((folder) => { localStorage.setItem('spec:folder', folder); localStorage.setItem('ripple:add-dialog', '1') }, SAVE_FOLDER)
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(origin)
+      await signIn(page, null, null, { name: ACCOUNT_NAME, premium: false })
+      await library(page, NAMED_LIST, [NAMED])
+      await expectInOrder(page.locator('.account-tag'), [ACCOUNT_NAME], 'the account\'s name')
+      await page.locator('.account-tag').click()
+      const menu = page.getByRole('menu')
+      await expect(menu).toBeVisible()
+      expect(await turned(menu.locator('.lucide-log-out')), 'the way out').toBe(rtl)
+      await page.keyboard.press('Escape')
+
+      await toSettings(page)
+      const autoSave = page.locator('main .folder').last()
+      await autoSave.getByRole('button').first().click()
+      await expect(autoSave.getByRole('button')).toHaveCount(3)
+      await expectInOrder(autoSave, [SAVE_FOLDER], 'the folder on Settings')
+      await toLibrary(page)
+
+      // the add dialog: the name, its files and the folder they can go to
+      const added = magnetOf('b', encodeURIComponent(RELEASE))
+      const field = page.locator('header form input:not([type=file])')
+      await field.fill(added)
+      await field.press('Enter')
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+      await post(page, { type: 'list', list: [...NAMED_LIST, entry('b', RELEASE, { magnet: added, ephemeral: true })] }, { type: 'state', torrents: [NAMED, { ...NAMED, handle: 2, magnet: added }] })
+      await expect(dialog.locator('.file')).toHaveCount(2)
+      await expectInOrder(dialog.locator('h2'), [RELEASE], 'the add dialog\'s name')
+      await expectInOrder(dialog.locator('.file').first(), [RELEASE], 'a file in the add dialog')
+      await expectInOrder(dialog.locator('label.check', { hasText: SAVE_FOLDER }), [SAVE_FOLDER], 'the folder in the add dialog')
+      await dialog.locator('footer button:not(.primary)').click()
+      await expect(dialog).toHaveCount(0)
+
+      // the create dialog: a file it leaves out, and the name somebody gives the torrent
+      await folderToShare(page, true)
+      await page.locator('header button.create').click()
+      await dialog.locator('button.go').click()
+      await expect(dialog.locator('.facts')).toBeVisible()
+      for (const summary of await dialog.locator('details summary').all()) await summary.click()
+      await expectInOrder(dialog.locator('.skipped'), [SKIPPED], 'a file left out')
+      const named = dialog.locator('label.field input').first()
+      await named.fill(RELEASE)
+      await expectInOrder(named, [RELEASE], 'the new torrent\'s name')
+
+      await page.goto(downloadPage(NAMED_MAGNET))
+      await library(page, NAMED_LIST, [NAMED])
+      await expect(page.locator('.card .file')).toHaveCount(2)
+      await expectInOrder(page.locator('.card .about .name'), [RELEASE], 'the download page\'s name')
+      await expectInOrder(page.locator('.card .file').first(), [RELEASE], 'a file on the download page')
+
+      // the player's file name, cut short on a phone
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(watchPage(NAMED_MAGNET))
+      await library(page, NAMED_LIST, [NAMED])
+      await expect(page.getByTestId('peers')).toContainText('28')
+      const file = page.locator('.ripple-overlay-content .file-name')
+      expect(await file.evaluate(element => element.scrollWidth > element.clientWidth), 'the control: the file\'s name is cut').toBe(true)
+      await expectInOrder(file, [RELEASE], 'the player\'s file')
     })
   }
 })

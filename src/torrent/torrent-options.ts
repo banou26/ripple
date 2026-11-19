@@ -34,6 +34,8 @@ export type OptionItem =
     kind: 'toggle'
     id: string
     label: string
+    /** A label somebody typed, a group's name, which takes the direction of its own words. */
+    typed?: boolean
     /** A short state or scope note, only where the label does not already say it. */
     hint?: string
     checked: boolean
@@ -617,7 +619,7 @@ export const buildTorrentOptions = (
       id: 'groups',
       label: intl.formatMessage({ id: 'Groups', defaultMessage: 'Groups' }),
       items: [
-        ...context.groups.map((g): OptionItem => ({ kind: 'toggle', id: `group-${g.id}`, label: g.name, checked: g.holds, apply: (on) => a.setInGroup(g.id, on) })),
+        ...context.groups.map((g): OptionItem => ({ kind: 'toggle', id: `group-${g.id}`, label: g.name, typed: true, checked: g.holds, apply: (on) => a.setInGroup(g.id, on) })),
         { kind: 'action', id: 'new-group', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: a.newGroup },
       ],
     })

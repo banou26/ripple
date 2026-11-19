@@ -15,7 +15,7 @@ import { badgeRules, stateHues } from './badge-style'
 import { pickable } from './bulk-selection'
 import { STATE_LABEL, chosenBytes, relativeDay, speed, withWhole } from './torrent-format'
 import { getHumanReadableByteString, writePercent } from '../utils/bytes'
-import { hint } from '../components/hint'
+import { hint, typedHint } from '../components/hint'
 import { RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import {
   BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
@@ -326,7 +326,7 @@ export const TorrentTable = (
           <td className="check">
             {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
           </td>
-          <td className="name" {...hint(t.name)}>
+          <td className="name" {...typedHint(t.name)}>
             <div className="cell-name">
               {/*
                 * A span rather than a button here, unlike the card view. A button per row would add

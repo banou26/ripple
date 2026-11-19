@@ -34,6 +34,13 @@ export const HINT_ID = 'ripple-hint'
 export const hint = (text: string | null | undefined) =>
   (text ? { 'data-tooltip-id': HINT_ID, 'data-tooltip-content': text } : {})
 
+/**
+ * `hint()` for text somebody wrote, a name, a URL or a tracker's words, set apart (U+2068, U+2069) so it keeps its own
+ * order in a chip that takes the page's direction. Not the chip's own direction: a Hebrew sentence opening on
+ * `Ripple` would then be laid out left to right.
+ */
+export const typedHint = (text: string | null | undefined) => hint(text && `⁨${text}⁩`)
+
 /*
  * The chip.
  *

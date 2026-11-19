@@ -228,7 +228,7 @@ export const MenuItems = ({
                   onClick={() => { item.apply(!item.checked); onChose() }}
                 >
                   <Tick on={item.checked}/>
-                  <span className="text">{item.label}</span>
+                  <span className="text" dir={item.typed ? 'auto' : undefined}>{item.label}</span>
                 </button>
               )
             }

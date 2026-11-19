@@ -406,7 +406,7 @@ export const AddTorrentDialog = ({
                     checked={choices.location === 'folder'}
                     onChange={() => set({ location: 'folder' })}
                   />
-                  <span>{folderName ?? intl.formatMessage({ id: 'Your folder', defaultMessage: 'Your folder' })}</span>
+                  <span dir={folderName ? 'auto' : undefined}>{folderName ?? intl.formatMessage({ id: 'Your folder', defaultMessage: 'Your folder' })}</span>
                 </label>
               </div>
             </div>

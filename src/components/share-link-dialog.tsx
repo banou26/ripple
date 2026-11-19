@@ -761,7 +761,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                     : (
                       <>
                         <div className="out">
-                          <code data-testid="embed-url">{url}</code>
+                          <code data-testid="embed-url" dir="ltr">{url}</code>
                           <button
                             type="button"
                             className="primary"
@@ -779,7 +779,7 @@ export const ShareLinkDialog = ({ torrent, dragging, onMagnet, onFiles, onClear,
                         <details className="snippet">
                           <summary>{intl.formatMessage({ id: 'Embed on a web page', defaultMessage: 'Embed on a web page' })}</summary>
                           <div className="out">
-                            <pre data-testid="embed-iframe">{snippet}</pre>
+                            <pre data-testid="embed-iframe" dir="ltr">{snippet}</pre>
                             <button
                               type="button"
                               onClick={() => copy(

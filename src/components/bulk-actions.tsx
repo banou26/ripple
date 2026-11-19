@@ -310,7 +310,7 @@ export const BulkBar = ({
               id: 'groups',
               label: groupsWord,
               items: [
-                ...groups.map((g) => ({ kind: 'toggle' as const, id: g.id, label: g.name, checked: g.holds, apply: (on: boolean) => onGroup(g.id, on) })),
+                ...groups.map((g) => ({ kind: 'toggle' as const, id: g.id, label: g.name, typed: true, checked: g.holds, apply: (on: boolean) => onGroup(g.id, on) })),
                 { kind: 'action' as const, id: 'new-group', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: onNewGroup },
               ],
             }]}

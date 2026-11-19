@@ -298,7 +298,7 @@ export const TorrentOptionsDialog = ({
                     >
                       <span className="switch" data-on={item.checked || undefined} aria-hidden="true"/>
                       <span className="text">
-                        <span className="label">{item.label}</span>
+                        <span className="label" dir={item.typed ? 'auto' : undefined}>{item.label}</span>
                         {hint && <span className="hint">{hint}</span>}
                       </span>
                     </button>
