@@ -2088,7 +2088,7 @@ test.describe('right to left', () => {
       await page.locator('.torrent').first().click()
       const dock = page.locator('main + section')
       await dock.locator('.tabs button').nth(2).click()
-      const peers = ['203.0.113.7:51413', '[2001:4860::8888]:6881']
+      const peers = ['203.0.113.7:51413', '[2001:2::8888]:6881']
       await post(page, { type: 'state', torrents: [NAMED], detail: { handle: NAMED.handle, peers: peers.map(endpoint => ({ ...SWARM_PEER, endpoint })), trackers: [] } })
       for (const [i, port] of ['51413', '6881'].entries()) {
         const row = dock.locator('.rows .row:not(.head)').nth(i)
