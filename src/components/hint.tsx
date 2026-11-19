@@ -39,7 +39,7 @@ export const hint = (text: string | null | undefined) =>
  * order in a chip that takes the page's direction. Not the chip's own direction: a Hebrew sentence opening on
  * `Ripple` would then be laid out left to right.
  */
-export const typedHint = (text: string | null | undefined) => hint(text && `⁨${text}⁩`)
+export const typedHint = (text: string | null | undefined) => hint(text && `\u2068${text}\u2069`)
 
 /*
  * The chip.
