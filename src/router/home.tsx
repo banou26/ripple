@@ -266,6 +266,9 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
   // dropped tunnel the acceptor heals itself, and until it does this readout would otherwise keep
   // naming a dead number with exactly the confidence it had when the number worked.
   const healing = !!port && !portOpen && listeners.some((l) => l.healing)
+  // its colon ahead of its digits in a right to left line too, as a message's `:{port}` gets from src/i18n
+  const colonPort = `:${port}`
+  const portText = <span dir="ltr">{colonPort}</span>
   /**
    * `:41337 · 2 tcp · 1 utp`: the port written the way it is everywhere else, then who is dialled in
    * THROUGH it right now, split by transport.
@@ -290,8 +293,8 @@ export const ConnectionStat = ({ reachable, inboundNow = NO_INBOUND }: {
     : !port ? intl.formatMessage({ id: 'Unreachable', defaultMessage: 'Unreachable' })
     : healing ? intl.formatMessage({ id: ':{port} · reconnecting', defaultMessage: ':{port} · reconnecting' }, { port })
     : !portOpen ? intl.formatMessage({ id: ':{port} · closed', defaultMessage: ':{port} · closed' }, { port })
-    : !detail ? `:${port}`
-    : `:${port} · ${detail}`
+    : !detail ? portText
+    : <>{portText}{` · ${detail}`}</>
   /*
    * The tooltip carries what the label cannot: the session total. "Nobody is connected in right now"
    * is not the same as "nothing has ever reached this port", and only the second is a reason to go

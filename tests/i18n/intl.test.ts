@@ -91,6 +91,14 @@ describe('a right to left language', () => {
     expect([linked].flat().join('')).toBe('لم يبدأ؟ [\u2068Ripple\u2069].')
   })
 
+  test('a colon written against a value is isolated with it, so a port reads its colon first, and one before a space is not', async () => {
+    const CLOSED = message(':{port} · closed')
+    const ACCOUNT = message('Account: {name}')
+    const ar = await start('ar', { [CLOSED.id]: ':{port} · مغلق', [ACCOUNT.id]: 'الحساب: {name}' })
+    expect(ar.formatMessage(CLOSED, { port: 41337 })).toBe('\u2068:41337\u2069 · مغلق')
+    expect(ar.formatMessage(ACCOUNT, { name: 'Sintel' })).toBe('الحساب: \u2068Sintel\u2069')
+  })
+
   test('a left to right language stays as written', async () => {
     const fr = await start('fr', { [FAILED.id]: 'Impossible de déplacer {name}' })
     expect(fr.formatMessage(FAILED, { name: 'Sintel' })).toBe('Impossible de déplacer Sintel')

@@ -4,7 +4,7 @@
 // by id, and `npm run i18n:check` keeps the two in step. A description is part of the id (`Play#verb`), which tells
 // apart two messages spelled alike. Components format with useIntl().formatMessage.
 
-import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
+import { parse, TYPE, type LiteralElement, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
 import { createElement, useSyncExternalStore, type ReactNode } from 'react'
 import { createIntl, createIntlCache, RawIntlProvider, type IntlShape } from 'react-intl'
 
@@ -23,11 +23,18 @@ const cache = createIntlCache()
 // the page stays empty while it waits, so a catalogue this late is a catalogue that failed to load
 const CATALOGUE_WAIT_MS = 3_000
 
+// a colon written against a value, as in `:{port}`, is the value's: left outside, a right to left line draws it after
+// the digits
+const glued = (element: MessageFormatElement | undefined, next: MessageFormatElement | undefined): element is LiteralElement =>
+  element?.type === TYPE.literal && element.value.endsWith(':') && next?.type === TYPE.argument
+
 // U+2068 and U+2069 around each plain value, as <bdi> would: in a right to left sentence a Latin name otherwise takes the
 // punctuation beside it into its own order, and a size or a count opening on a digit joins the Latin word before it.
 // On the parsed message, the one place a value is told from a branch's text. Stub's own, as its catalogues are
-const isolated = (elements: MessageFormatElement[]): MessageFormatElement[] => elements.flatMap((element): MessageFormatElement[] =>
-  element.type === TYPE.argument ? [{ type: TYPE.literal, value: '\u2068' }, element, { type: TYPE.literal, value: '\u2069' }]
+const isolated = (elements: MessageFormatElement[]): MessageFormatElement[] => elements.flatMap((element, i): MessageFormatElement[] =>
+  element.type === TYPE.argument
+    ? [{ type: TYPE.literal, value: glued(elements[i - 1], element) ? '\u2068:' : '\u2068' }, element, { type: TYPE.literal, value: '\u2069' }]
+  : glued(element, elements[i + 1]) ? [{ ...element, value: element.value.slice(0, -1) }]
   : element.type === TYPE.tag ? [{ ...element, children: isolated(element.children) }]
   : element.type === TYPE.select || element.type === TYPE.plural
     ? [{ ...element, options: Object.fromEntries(Object.entries(element.options).map(([key, option]) => [key, { ...option, value: isolated(option.value) }])) }]

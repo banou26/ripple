@@ -1749,6 +1749,22 @@ test.describe('right to left', () => {
     expect(typed.filter(name => !found.includes(name)), `${what}: the control, each name is drawn`).toEqual([])
     expect(wrong, what).toEqual([])
   }
+  /** Whether the colon written before `port` inside `locator` is drawn left of its first digit, or null with no such port. */
+  const colonFirst = (locator: Locator, port: string) => locator.evaluate((root, port) => {
+    const shown: { node: Text, i: number }[] = []
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+      for (let i = 0; i < node.data.length; i++) if (!/[\u2066-\u2069]/.test(node.data[i]!)) shown.push({ node, i })
+    }
+    const at = shown.map(({ node, i }) => node.data[i]).join('').lastIndexOf(`:${port}`)
+    const left = ({ node, i }: { node: Text, i: number }) => {
+      const range = document.createRange()
+      range.setStart(node, i)
+      range.setEnd(node, i + 1)
+      return range.getBoundingClientRect().left
+    }
+    return at < 0 ? null : left(shown[at]!) < left(shown[at + 1]!)
+  }, port)
 
   for (const language of ['ar', 'he', 'en']) {
     const rtl = language !== 'en'
@@ -2044,6 +2060,31 @@ test.describe('right to left', () => {
       const file = page.locator('.ripple-overlay-content .file-name')
       expect(await file.evaluate(element => element.scrollWidth > element.clientWidth), 'the control: the file\'s name is cut').toBe(true)
       await expectInOrder(file, [RELEASE], 'the player\'s file')
+    })
+
+    test(`${language}: a port's colon is drawn before its digits, in the stats strip and a peer's address`, async ({ page }) => {
+      await opening(page, language)
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(origin)
+      await library(page, NAMED_LIST, [NAMED])
+      const inbound = page.locator('.stats .stat.inbound strong')
+      // with someone connected in, with nobody, closed, and reconnecting
+      for (const readout of [READOUTS[0]!, READOUTS[2]!, READOUTS[3]!, READOUTS[4]!]) {
+        await post(page, { type: 'state', torrents: [NAMED], ...readout })
+        await drawn(page)
+        expect(await colonFirst(inbound, '41337'), `the strip's ${await inbound.textContent()}`).toBe(true)
+      }
+      // an address with no letter in it to give it a direction
+      await page.locator('.torrent').first().click()
+      const dock = page.locator('main + section')
+      await dock.locator('.tabs button').nth(2).click()
+      const peers = ['203.0.113.7:51413', '[2001:4860::8888]:6881']
+      await post(page, { type: 'state', torrents: [NAMED], detail: { handle: NAMED.handle, peers: peers.map(endpoint => ({ ...SWARM_PEER, endpoint })), trackers: [] } })
+      for (const [i, port] of ['51413', '6881'].entries()) {
+        const row = dock.locator('.rows .row:not(.head)').nth(i)
+        await expect(row).toContainText(peers[i]!)
+        expect(await colonFirst(row, port), `the peer ${peers[i]}`).toBe(true)
+      }
     })
   }
 })
