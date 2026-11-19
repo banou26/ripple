@@ -83,7 +83,7 @@ export const englishIn = (shown: readonly string[], english: Record<string, stri
     // a value reads as `.+`, so a letter in the pattern is one of the message's own
     .filter(([, pattern]) => /\p{L}/u.test(pattern))
     // and the message as the language writes it, which can read as one of the English's forms: Hungarian's `82 peer`
-    .map(([id, pattern]) => [id, new RegExp(`^${pattern}$`), translated?.[id] === undefined ? undefined : matching(translated[id]!)] as const)
+    .map(([id, pattern]) => [id, new RegExp(`^${pattern}$`), translated?.[id] === undefined ? undefined : matching(translated[id])] as const)
   return shown.filter(text => !own.has(text))
     .flatMap(text => patterns.filter(([, pattern, theirs]) => pattern.test(text) && !theirs?.test(text)).map(([id]) => `${JSON.stringify(text)} (${id})`))
 }
