@@ -52,11 +52,6 @@ const measure = () => {
         })
       : false,
     docOverflowX: doc.scrollWidth - doc.clientWidth,
-    // right to left, a row too wide runs off the left, which no sideways scroll shows
-    insideWindow: [...document.querySelectorAll('header > *')].every((item) => {
-      const box = item.getBoundingClientRect()
-      return box.width === 0 || (box.left >= -1 && box.right <= doc.clientWidth + 1)
-    }),
     // the two that were removed; their absence is the ask
     hasAddButton: [...document.querySelectorAll('header button')].some((b) => b.textContent?.trim() === 'Add'),
     hasOpenFileButton: [...document.querySelectorAll('header *')].some((e) => e.textContent?.trim() === 'Open file'),
@@ -127,13 +122,18 @@ try {
       if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
       if (m.icons !== 2 && m.icons !== 3) bad.push(`expected 2 or 3 icons, saw ${m.icons}`)
       if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
-      if (!m.insideWindow) bad.push('a header item is past the window\'s edge')
       if (m.hasAddButton) bad.push('the Add button is still there')
       if (m.hasOpenFileButton) bad.push('the Open file button is still there')
       console.log(`${language.padEnd(2)} ${String(width).padStart(4)}px  field=${String(m.fieldWidth).padStart(4)} text=${String(m.inputWidth).padStart(4)} icons=${m.icons} overflowX=${m.docOverflowX} share=${JSON.stringify(m.shareLabel)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
       if (bad.length) code = 1
     }
   }
+  // the control: right to left too, a row wider than the window scrolls the page sideways, past its left edge
+  await page.evaluate(() => { document.querySelector('header form').style.minWidth = '100vw' })
+  const past = await page.evaluate(measure)
+  await page.evaluate(() => { document.querySelector('header form').style.minWidth = '' })
+  console.log(`control  he, a row past the window  overflowX=${past.docOverflowX}  ${past.docOverflowX > 0 ? 'PASS' : 'FAIL: the sideways scroll check cannot see it'}`)
+  if (past.docOverflowX <= 0) code = 1
   await page.evaluate(() => localStorage.removeItem('ripple:language'))
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('html[lang="en"] header .field', { timeout: 30_000 })
