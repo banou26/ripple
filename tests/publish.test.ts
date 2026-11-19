@@ -84,6 +84,15 @@ describe('the trusted publisher', () => {
     expect(steps(), 'registry-url on setup-node skips the OIDC exchange entirely').not.toMatch(/registry-url/)
   })
 
+  // setup-node 6 and later turn npm's cache on by themselves when package.json carries a devEngines
+  // npm block, which Vite+ has written into it before; a publish restores nothing another job wrote
+  it('restores no cache, even when setup-node would turn one on by itself', () => {
+    const setup = steps().split(/\n\s*- /).find((step) => step.includes('actions/setup-node@')) ?? ''
+    expect(setup, 'the publish job has a setup-node step').toContain('node-version: 22')
+    expect(setup).toMatch(/^\s*package-manager-cache: false$/m)
+    expect(setup).not.toMatch(/^\s*cache:/m)
+  })
+
   it('publishes the scope publicly, which a scoped package does not do by default', () => {
     expect(steps(), 'a bare name is a package spec to npm, so the path has to say it is a directory').toContain('npm publish ./build --access public')
   })
