@@ -959,6 +959,8 @@ describe('the VPN switch on /watch', () => {
         await expect.poll(() => warning(screen)).not.toBeNull()
         const card = warning(screen)!
         expect(card.querySelectorAll('p'), language).toHaveLength(2)
+        // drawn inside the player, which stays left to right, it reads in the page's direction
+        expect(getComputedStyle(card).direction, language).toBe(['ar', 'he'].includes(language) ? 'rtl' : 'ltr')
         if (card.scrollHeight > card.clientHeight) scrolls.push(`${language}: ${card.scrollHeight}px in ${card.clientHeight}px`)
         await screen.unmount()
       }
