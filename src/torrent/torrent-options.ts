@@ -4,6 +4,7 @@ import type { SaveLocation } from './library'
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { intl } from '../i18n'
+import { getHumanReadableByteString } from '../utils/bytes'
 import { magnetParam } from './magnet'
 import { hasPlayableFile } from './watch'
 import { moveReadiness, pendingLabel } from './save-location'
@@ -625,4 +626,23 @@ export const buildTorrentOptions = (
     })
   }
   return groups
+}
+
+/**
+ * What the confirmation before removing `rows` with their files says. Removing never deletes from the person's folder,
+ * so only the bytes of the rows not `inFolder` are named as deleted, and with none of those it says the files stay.
+ */
+export const removalWords = (rows: readonly Torrent[], inFolder: (t: Torrent) => boolean): { body: string, confirmLabel: string } => {
+  const lost = rows.filter((t) => !inFolder(t))
+  if (!lost.length) {
+    return {
+      body: intl.formatMessage({ id: 'The files stay in your folder.', defaultMessage: 'The files stay in your folder.' }),
+      confirmLabel: intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' }),
+    }
+  }
+  const size = getHumanReadableByteString(lost.reduce((n, t) => n + (t.downloaded ?? 0), 0), true)
+  return {
+    body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size }),
+    confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
+  }
 }

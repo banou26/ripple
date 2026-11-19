@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "ダウンロード済みのファイルは残りますが、進行状況は消去されます。",
   "The engine refused that torrent": "エンジンがこの Torrent を拒否しました",
   "The engine refused the torrent that was just built": "エンジンが作成したばかりの Torrent を拒否しました",
+  "The files stay in your folder.": "ファイルはフォルダに残ります。",
   "The link": "リンク",
   "The metadata has not arrived yet": "メタデータはまだ届いていません",
   "The torrent this was built from is no longer stored": "これの作成元の Torrent はもう保存されていません",

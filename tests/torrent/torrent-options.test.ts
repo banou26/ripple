@@ -7,7 +7,7 @@ import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { startLanguage } from '../../src/i18n'
 import de from '../../src/locales/de.json'
-import { buildTorrentOptions } from '../../src/torrent/torrent-options'
+import { buildTorrentOptions, removalWords } from '../../src/torrent/torrent-options'
 
 /**
  * The option list, which is the single definition both the right-click menu and the options dialog
@@ -407,6 +407,25 @@ describe('the torrent option list', () => {
       expect(a.removeWithFiles).not.toHaveBeenCalled()
       wipe.run()
       expect(a.removeWithFiles).toHaveBeenCalled()
+    })
+  })
+
+  // RIPPLE-171: the confirmation of a torrent in the person's folder said it deleted the download, which stays there
+  describe('what the confirmation of a removal says', () => {
+    const inFolder = (t: Torrent) => t.id === 'kept'
+
+    it('says the files stay when every torrent is in the folder', () => {
+      expect(removalWords([torrent({ id: 'kept' })], inFolder)).toEqual({ body: 'The files stay in your folder.', confirmLabel: 'Remove' })
+    })
+
+    it('names what is deleted from browser storage', () => {
+      expect(removalWords([torrent({ id: 'held', downloaded: 1_400_000_000 })], inFolder))
+        .toEqual({ body: 'This deletes the 1.4 GB already downloaded.', confirmLabel: 'Remove and delete' })
+    })
+
+    it('counts only the torrents outside the folder', () => {
+      const rows = [torrent({ id: 'kept', downloaded: 2_000_000_000 }), torrent({ id: 'held', downloaded: 1_400_000_000 })]
+      expect(removalWords(rows, inFolder).body).toBe('This deletes the 1.4 GB already downloaded.')
     })
   })
 

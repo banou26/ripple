@@ -101,7 +101,7 @@ import type { CardGroup, ListFilter, SortDir, SortKey, ViewMode } from '../torre
 import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
-import { buildTorrentOptions } from '../torrent/torrent-options'
+import { buildTorrentOptions, removalWords } from '../torrent/torrent-options'
 import { knownPrivate, shareableMagnet } from '../torrent/torrent-export'
 import { saveSyncedTorrentFile } from '../torrent/torrent-file-sync'
 import { useShareableMagnet, useShareableMagnets } from '../torrent/use-shareable-magnet'
@@ -2882,15 +2882,12 @@ const Home = () => {
   const onStart = useCallback((t: Torrent) => { if (t.infoHash) start(t.infoHash) }, [start])
 
   const onRemove = async (t: Torrent) => {
-    // A torrent whose files are already gone has nothing to destroy, so asking would be noise. Every
-    // other case deletes the payload, which on a metered connection costs the time to fetch it again.
+    // A torrent whose files are already gone has nothing to destroy, so asking would be noise.
     const missing = t.state === 'missing'
     if (!missing) {
-      const onDisk = getHumanReadableByteString(t.downloaded ?? 0, true)
       const ok = await confirm({
         title: intl.formatMessage({ id: 'Remove {name}?', defaultMessage: 'Remove {name}?' }, { name: t.name }),
-        body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size: onDisk }),
-        confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
+        ...removalWords([t], inFolder),
         tone: 'danger',
         rememberKey: 'ripple:confirm-remove',
       })
@@ -2913,7 +2910,7 @@ const Home = () => {
   }
 
   /**
-   * Remove the torrent and LEAVE the files. Separate from onRemove, which deletes them.
+   * Remove the torrent and LEAVE the files. Separate from onRemove, which deletes those held in browser storage.
    *
    * Still confirmed, because it is still not undoable: the library entry, the resume data and the
    * thumbnail all go. It just does not cost the bytes back, so it says so and does not offer to be
@@ -3372,10 +3369,13 @@ const Home = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // moved there, which the engine's save path says without a live grant, or copied there whole: removing never deletes there
+  const inFolder = (t: Torrent) => locationOf(t).current === 'folder' || (!!folder && permitted && savedToFolder.has(copyKey(t)))
+
   const optionContext = (t: Torrent): TorrentOptionContext => {
     const { intended, current } = locationOf(t)
     return {
-      savedToUserStorage: !!folder && permitted && savedToFolder.has(copyKey(t)),
+      savedToUserStorage: inFolder(t),
       intended,
       current,
       folderName: folder?.name,
@@ -3465,11 +3465,9 @@ const Home = () => {
   const removePicked = async () => {
     const live = bulk.rows.filter((t) => t.state !== 'missing')
     if (live.length) {
-      const onDisk = getHumanReadableByteString(live.reduce((n, t) => n + (t.downloaded ?? 0), 0), true)
       const ok = await confirm({
         title: intl.formatMessage({ id: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}', defaultMessage: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}' }, { count: bulk.rows.length }),
-        body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size: onDisk }),
-        confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
+        ...removalWords(live, inFolder),
         tone: 'danger',
         rememberKey: 'ripple:confirm-remove',
       })

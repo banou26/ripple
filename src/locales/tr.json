@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "İndirilen dosyalar kalır, ancak ilerlemesi unutulur.",
   "The engine refused that torrent": "Motor bu torrenti reddetti",
   "The engine refused the torrent that was just built": "Motor az önce oluşturulan torrenti reddetti",
+  "The files stay in your folder.": "Dosyalar klasörünüzde kalır.",
   "The link": "Bağlantı",
   "The metadata has not arrived yet": "Meta veri henüz gelmedi",
   "The torrent this was built from is no longer stored": "Bunun oluşturulduğu torrent artık kayıtlı değil",

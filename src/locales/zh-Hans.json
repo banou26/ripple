@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "已下载的文件会保留，但进度会被清除。",
   "The engine refused that torrent": "引擎拒绝了该 torrent",
   "The engine refused the torrent that was just built": "引擎拒绝了刚创建的 torrent",
+  "The files stay in your folder.": "文件会保留在你的文件夹中。",
   "The link": "链接",
   "The metadata has not arrived yet": "元数据尚未到达",
   "The torrent this was built from is no longer stored": "创建此内容所用的 torrent 已不再保存",

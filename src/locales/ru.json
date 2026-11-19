@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "Загруженные файлы останутся, но прогресс будет забыт.",
   "The engine refused that torrent": "Движок отклонил этот торрент",
   "The engine refused the torrent that was just built": "Движок отклонил только что созданный торрент",
+  "The files stay in your folder.": "Файлы останутся в вашей папке.",
   "The link": "Ссылка",
   "The metadata has not arrived yet": "Метаданные ещё не получены",
   "The torrent this was built from is no longer stored": "Торрент, из которого это было создано, больше не сохранён",

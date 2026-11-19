@@ -100,8 +100,8 @@ const addToFolder = async (page: Page, name: string, torrent: Buffer) => {
   await dialog.waitFor({ state: 'detached', timeout: 10_000 })
 }
 
-const addInBrowserStorage = async (page: Page) => {
-  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${NAME}.torrent`, mimeType: 'application/x-bittorrent', buffer: TORRENT })
+const addInBrowserStorage = async (page: Page, name = NAME, torrent = TORRENT) => {
+  await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: `${name}.torrent`, mimeType: 'application/x-bittorrent', buffer: torrent })
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Add torrent' }).waitFor({ timeout: 20_000 })
   await dialog.locator('label.check', { hasText: 'Browser storage' }).locator('input').check()
@@ -842,4 +842,106 @@ test('a torrent moved into the folder moves back into browser storage when asked
 
   await pick(page, 'Keep in browser storage')
   await expect.poll(paths, { timeout: 60_000, message: 'the torrent never moved back' }).toEqual([`/native/${INFO_HASH}`, `/dl/${INFO_HASH}`])
+})
+
+/*
+ * RIPPLE-171: removing never deletes from the person's folder, and the confirmation of a torrent there said it deleted
+ * the download all the same. Whole is moved into the folder, Copied stays in browser storage and is copied into the
+ * folder, and Spare has no bytes anywhere, so it is in browser storage alone. A reload with `ripple:test-no-grant` set
+ * finds the folder without its grant, as one does until the person allows it again.
+ */
+test('removing a torrent in the folder says its files stay, and leaves them', async ({ page }) => {
+  test.setTimeout(240_000)
+  const COPIED = 'Copied'
+  const SPARE = 'Spare'
+  const copied = bencode({ info: { ...info, name: COPIED } })
+  const spare = bencode({ info: { name: SPARE, 'piece length': PIECE, pieces: createHash('sha1').update(Buffer.alloc(PIECE, 0x66)).digest(), length: PIECE } })
+  await page.addInitScript(() => {
+    if (localStorage.getItem('ripple:test-no-grant')) Object.assign(FileSystemDirectoryHandle.prototype, { queryPermission: async () => 'prompt' })
+  })
+  const paths = await watchPaths(page, INFO_HASH)
+  await chooseFolder(page)
+  await place(page, NAME, FILES)
+  await place(page, COPIED, FILES)
+  await addToFolder(page, NAME, TORRENT)
+  await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
+  await addInBrowserStorage(page, COPIED, copied)
+  await addInBrowserStorage(page, SPARE, spare)
+
+  const options = async (name: string) => {
+    await page.getByRole('button', { name: `Options for ${name}`, exact: true }).first().click()
+    const dialog = page.getByRole('dialog').last()
+    await dialog.waitFor({ timeout: 10_000 })
+    return dialog
+  }
+  const optionsText = async (name: string) => {
+    const dialog = await options(name)
+    const text = await dialog.innerText()
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    return text
+  }
+  const fromOptions = (name: string, item: string) => async () => {
+    await (await options(name)).getByRole('button', { name: item, exact: true }).click()
+  }
+  const bar = page.locator('.bulk-bar')
+  const fromBar = () => bar.getByRole('button', { name: 'Remove', exact: true }).click()
+  const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}` }).check()
+  /** What the confirmation `ask` raises says, and the actions it offers, once it is cancelled. */
+  const confirmation = async (ask: () => Promise<void>) => {
+    await ask()
+    const dialog = page.getByRole('dialog').last()
+    const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+    await cancel.waitFor({ timeout: 10_000 })
+    const said = { body: await dialog.locator('p').innerText(), actions: await dialog.getByRole('button').allInnerTexts() }
+    await cancel.click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    return said
+  }
+  const STAY = { body: 'The files stay in your folder.', actions: ['Cancel', 'Remove'] }
+  /** Each file's size in `root`'s directory of the torrent `name`, none when it has no directory there. */
+  const filesIn = (root: 'picked' | 'dl', name: string) => page.evaluate(async ({ root, name }) => {
+    const sizes: Record<string, number> = {}
+    try {
+      const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle(root)).getDirectoryHandle(name)
+      for await (const [file, handle] of (dir as any).entries() as AsyncIterable<[string, FileSystemFileHandle]>) sizes[file] = (await handle.getFile()).size
+    } catch { /* no directory */ }
+    return sizes
+  }, { root, name })
+  const placed = Object.fromEntries(FILES.map((f) => [f.path, f.size]))
+
+  // THE CONTROL: both copies in the folder are known whole, which is what offers to delete only Ripple's copy
+  for (const name of [NAME, COPIED]) await expect.poll(() => optionsText(name), { timeout: 30_000 }).toContain('Remove and delete Ripple\'s copy')
+  expect(await confirmation(fromOptions(SPARE, 'Remove and delete the files')))
+    .toEqual({ body: 'This deletes the 0 B already downloaded.', actions: ['Cancel', 'Remove and delete'] })
+  for (const name of [NAME, COPIED]) expect(await confirmation(fromOptions(name, 'Remove and delete Ripple\'s copy')), name).toEqual(STAY)
+  await tick(NAME)
+  expect(await confirmation(fromBar)).toEqual(STAY)
+  await tick(SPARE)
+  // Whole's bytes are not counted, since they stay
+  expect((await confirmation(fromBar)).body).toBe('This deletes the 0 B already downloaded.')
+  await bar.getByRole('button', { name: 'Clear selection' }).click()
+
+  await page.evaluate(() => localStorage.setItem('ripple:test-no-grant', '1'))
+  await page.reload()
+  // THE CONTROL: without the grant the options offer no place for the files, and no copy can be known whole
+  await expect.poll(async () => {
+    const text = await optionsText(NAME)
+    return !text.includes('Keep in browser storage') && text.includes('Remove and delete Ripple\'s copy')
+  }, { timeout: 60_000 }).toBe(true)
+  expect(await confirmation(fromOptions(NAME, 'Remove and delete Ripple\'s copy'))).toEqual(STAY)
+
+  await page.evaluate(() => localStorage.removeItem('ripple:test-no-grant'))
+  await page.reload()
+  for (const name of [NAME, COPIED]) await expect.poll(() => optionsText(name), { timeout: 60_000 }).toContain('Remove and delete Ripple\'s copy')
+  expect(await filesIn('dl', COPIED), 'Ripple\'s copy of Copied is not where the control looks').toEqual(placed)
+  await tick(NAME)
+  await tick(COPIED)
+  await fromBar()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove', exact: true }).click()
+  for (const name of [NAME, COPIED]) await expect(page.locator('.torrent', { hasText: name })).toHaveCount(0, { timeout: 15_000 })
+  // THE CONTROL: the removal ran in the engine, which deleted Ripple's own copy of Copied
+  await expect.poll(() => filesIn('dl', COPIED), { timeout: 30_000 }).toEqual({})
+  expect(await filesIn('picked', NAME)).toEqual(placed)
+  expect(await filesIn('picked', COPIED)).toEqual(placed)
 })

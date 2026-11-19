@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "Los archivos descargados se quedan, pero se olvida su progreso.",
   "The engine refused that torrent": "El motor rechazó ese torrent",
   "The engine refused the torrent that was just built": "El motor rechazó el torrent que se acaba de crear",
+  "The files stay in your folder.": "Los archivos se quedan en tu carpeta.",
   "The link": "El enlace",
   "The metadata has not arrived yet": "Los metadatos todavía no llegaron",
   "The torrent this was built from is no longer stored": "El torrent con el que se creó esto ya no está guardado",
