@@ -178,7 +178,7 @@ jobs:
         if: steps.decide.outputs.changed == 'true'
         env:
           FKN_RELEASE_KEY: ${{ secrets.FKN_RELEASE_KEY }}
-        run: npx --yes @fkn/sign@0.0.14 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"
+        run: npx --yes @fkn/sign@0.0.15 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"
 
       # No credential is passed. npm exchanges the job's OIDC identity for a short lived token against
       # the trusted publisher configured on npmjs.org for banou26/ripple + publish-lib.yml. A
@@ -241,7 +241,8 @@ jobs:
           exit 1
 
       # What a device does with the version: its fkn.json and every file it lists, fetched from unpkg
-      # and checked. Exit 2 is unpkg not serving every file yet, the only answer worth waiting out
+      # and checked. Exit 2 is unpkg not serving every file yet (from 0.0.15 also a 5xx or a 429 from unpkg,
+      # which answered 500 once right after 0.0.77 went out), the only answer worth waiting out
       - name: Confirm devices verify it
         if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'
         env:
@@ -249,7 +250,7 @@ jobs:
         run: |
           for attempt in $(seq 1 40); do
             set +e
-            npx --yes @fkn/sign@0.0.14 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
+            npx --yes @fkn/sign@0.0.15 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
             CODE=$?
             set -e
             if [ "$CODE" = "0" ]; then exit 0; fi
