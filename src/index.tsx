@@ -29,7 +29,8 @@ const style = css`
 
   /* :dir() rather than [dir]: the player stays left to right inside a right to left page, and its icons with it.
      Play, the player's controls, the piece map and the speed graph never mirror: time and a file's bytes run left
-     to right in every language, as the player's seek bar does */
+     to right in every language, as the player's seek bar does. A download's bar does mirror, filling from the start:
+     it says how much is done, not where in the file, as in Apple's and Material's guidance and qBittorrent */
   :is(.lucide-arrow-left, .lucide-log-out, .lucide-external-link, .lucide-list, .lucide-arrow-up-narrow-wide, .lucide-arrow-down-wide-narrow):dir(rtl) {
     scale: -1 1;
   }

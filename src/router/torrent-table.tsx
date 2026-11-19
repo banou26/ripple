@@ -85,7 +85,7 @@ const style = css`
     .arrow { opacity: 0.9; }
   }
 
-  /* numbers right-aligned so their digits line up down the column, names left */
+  /* numbers at the cell's end so their digits line up down the column, names at its start */
   th.num button { justify-content: flex-end; }
   td.num { text-align: end; font-variant-numeric: tabular-nums; color: ${TEXT_MUTED}; }
 

@@ -174,7 +174,7 @@ const style = css`
      * the fill can only step from SUNKEN_BG to CONTROL_ACTIVE_BG, which measures 1.63:1: readable
      * as a step inside a track the outline already draws, but well under the 3:1 WCAG 1.4.11 wants
      * of a state cue standing alone. So the knob sliding the full width of the track carries the
-     * state, and the transform below is load bearing rather than decoration.
+     * state, and the knob's offset below is load bearing rather than decoration.
      */
     &[data-on] {
       background: ${CONTROL_ACTIVE_BG};
