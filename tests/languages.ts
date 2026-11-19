@@ -76,11 +76,14 @@ export const englishIn = (shown: readonly string[], english: Record<string, stri
   // a text the language's own catalogue writes is the language's, though an English message reads alike: German's
   // Download, a speed, beside the English Download a link is made for
   const own = new Set(Object.values(translated ?? {}))
+  const matching = (text: string) => new RegExp(`^${patternOf(parse(text))}$`)
   const patterns = Object.entries(english)
     .filter(([id, text]) => !translated || translated[id] !== text)
     .map(([id, text]) => [id, patternOf(parse(text))] as const)
     // a value reads as `.+`, so a letter in the pattern is one of the message's own
     .filter(([, pattern]) => /\p{L}/u.test(pattern))
-    .map(([id, pattern]) => [id, new RegExp(`^${pattern}$`)] as const)
-  return shown.filter(text => !own.has(text)).flatMap(text => patterns.filter(([, pattern]) => pattern.test(text)).map(([id]) => `${JSON.stringify(text)} (${id})`))
+    // and the message as the language writes it, which can read as one of the English's forms: Hungarian's `82 peer`
+    .map(([id, pattern]) => [id, new RegExp(`^${pattern}$`), translated?.[id] === undefined ? undefined : matching(translated[id]!)] as const)
+  return shown.filter(text => !own.has(text))
+    .flatMap(text => patterns.filter(([, pattern, theirs]) => pattern.test(text) && !theirs?.test(text)).map(([id]) => `${JSON.stringify(text)} (${id})`))
 }

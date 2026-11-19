@@ -15,3 +15,12 @@ test('a text the language writes for one message is no English left, though anot
   expect(englishIn(['Download', 'Download starten'], english, de)).toEqual([])
   expect(englishIn(['Download Sintel'], english, de)).toEqual(['"Download Sintel" (Download {name})'])
 })
+
+test('a count the language writes as one of the English\'s forms is no English left, the same text untranslated still is', () => {
+  const peers = '{count, plural, one {{count} peer} other {{count} peers}}'
+  const english = { [peers]: peers }
+  const hu = { [peers]: '{count, plural, one {{count} peer} other {{count} peer}}' }
+  expect(englishIn(['82 peer', '1 peer'], english, hu)).toEqual([])
+  expect(englishIn(['82 peers'], english, hu)).toEqual([`"82 peers" (${peers})`])
+  expect(englishIn(['82 peer'], english, { [peers]: '{count, plural, one {{count} пир} few {{count} пира} many {{count} пиров} other {{count} пира}}' })).toEqual([`"82 peer" (${peers})`])
+})
