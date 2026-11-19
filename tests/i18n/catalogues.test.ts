@@ -7,6 +7,10 @@ const PLACEHOLDER = 'Add a magnet link, or search'
 
 // stub's own words for labels the two apps share, so they read alike
 const STUB_WORDS: Record<string, Record<string, string>> = {
+  // the FKN account's, which stub words apart from unlinking a list service
+  Disconnect: { ar: 'تسجيل الخروج', he: 'התנתקות' },
+  'Disconnecting...': { ar: 'جارٍ تسجيل الخروج...', he: 'מתנתק...' },
+  Disconnected: { ar: 'تم تسجيل الخروج', he: 'נותק' },
   'How it works': { de: 'So funktioniert es', ja: '仕組み' },
   Legal: { 'es-419': 'Aviso legal', 'pt-BR': 'Aviso legal', tr: 'Yasal bilgiler', 'zh-Hans': '法律声明', 'zh-Hant': '法律聲明' },
   'Powered by FKN': { de: 'Bereitgestellt von FKN', 'es-419': 'Con tecnología de FKN', it: 'Con tecnologia FKN', 'zh-Hant': '由 FKN 提供技術支援' },
