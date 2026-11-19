@@ -91,12 +91,16 @@ describe('a right to left language', () => {
     expect([linked].flat().join('')).toBe('لم يبدأ؟ [\u2068Ripple\u2069].')
   })
 
-  test('a colon written against a value is isolated with it, so a port reads its colon first, and one before a space is not', async () => {
+  test('a colon opening a value is isolated with it, so a port reads its colon first, and a label\'s colon is not', async () => {
     const CLOSED = message(':{port} · closed')
     const ACCOUNT = message('Account: {name}')
-    const ar = await start('ar', { [CLOSED.id]: ':{port} · مغلق', [ACCOUNT.id]: 'الحساب: {name}' })
+    const PORT = message('Port {port}')
+    const INBOUND = message('Inbound :{port}')
+    const ar = await start('ar', { [CLOSED.id]: ':{port} · مغلق', [ACCOUNT.id]: 'الحساب: {name}', [PORT.id]: 'المنفذ:{port}', [INBOUND.id]: 'الوارد :{port}' })
     expect(ar.formatMessage(CLOSED, { port: 41337 })).toBe('\u2068:41337\u2069 · مغلق')
+    expect(ar.formatMessage(INBOUND, { port: 41337 })).toBe('الوارد \u2068:41337\u2069')
     expect(ar.formatMessage(ACCOUNT, { name: 'Sintel' })).toBe('الحساب: \u2068Sintel\u2069')
+    expect(ar.formatMessage(PORT, { port: 41337 })).toBe('المنفذ:\u206841337\u2069')
   })
 
   test('a left to right language stays as written', async () => {

@@ -23,10 +23,10 @@ const cache = createIntlCache()
 // the page stays empty while it waits, so a catalogue this late is a catalogue that failed to load
 const CATALOGUE_WAIT_MS = 3_000
 
-// a colon written against a value, as in `:{port}`, is the value's: left outside, a right to left line draws it after
-// the digits
+// a colon opening a value, as in `:{port}`, is the value's: left outside, a right to left line draws it after the
+// digits. A colon against a word ends that word, as a label's does
 const glued = (element: MessageFormatElement | undefined, next: MessageFormatElement | undefined): element is LiteralElement =>
-  element?.type === TYPE.literal && element.value.endsWith(':') && next?.type === TYPE.argument
+  element?.type === TYPE.literal && /(^|\s):$/.test(element.value) && next?.type === TYPE.argument
 
 // U+2068 and U+2069 around each plain value, as <bdi> would: in a right to left sentence a Latin name otherwise takes the
 // punctuation beside it into its own order, and a size or a count opening on a digit joins the Latin word before it.
