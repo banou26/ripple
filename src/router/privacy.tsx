@@ -4,7 +4,7 @@ import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 17 November 2026</div>
+    <div className="updated">Last updated 20 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -18,8 +18,9 @@ const Privacy = () => (
       thumbnail, and your settings (such as speed limits, how the list is sorted and whether
       the VPN is on) live in your browser&rsquo;s storage
       (IndexedDB and local storage). Downloaded files live in your browser&rsquo;s storage
-      (OPFS). If you choose a folder on your disk, finished downloads are saved there. Once
-      you sign in, Ripple also remembers which FKN account your list and groups belong to.
+      (OPFS). If you choose a folder on your disk, the finished downloads you keep are saved
+      there. Once you sign in, Ripple also remembers which FKN account your list and groups
+      belong to.
     </p>
     <p>
       Ripple never stores your files on FKN or on any server. Like any BitTorrent app, while a
