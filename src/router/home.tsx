@@ -114,8 +114,8 @@ const LOGO = new URL('../assets/logo.svg', import.meta.url).href
 
 /** Up to this width the header is a phone's: one row, Create an icon. */
 const PHONE_MAX = 700
-/** Up to this width a phone's add field is folded until it is used: wider, it has room for its hint beside the rest. */
-const FOLD_MAX = 519
+/** The add field's floor wherever it is open: a phone's row that leaves it less folds it to its glyph until it is used. */
+const FIELD_FLOOR = 240
 /** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
 const CREATE_WORDS_MIN = 900
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
@@ -472,7 +472,7 @@ export const style = css`
     form {
       flex: 1;
       display: flex;
-      min-width: 240px;
+      min-width: ${FIELD_FLOOR}px;
     }
 
     .field {
@@ -1680,7 +1680,8 @@ export const style = css`
   /* a phone: one row, of which fkn.app's 140 px Connect FKN frame takes nearly half at 320 px */
   @media (max-width: ${PHONE_MAX}px) {
     header {
-      gap: 4px;
+      --gap: 8px;
+      gap: var(--gap);
       padding: 8px;
 
       .powered {
@@ -1689,6 +1690,11 @@ export const style = css`
 
       .logo img {
         height: 24px;
+      }
+
+      /* a phone's form takes the room the row leaves, and never less than the folded field's 100 px */
+      form {
+        min-width: 100px;
       }
 
       /* 38 px tall, as Connect FKN and the account are, so the row keeps its height while they give way to it */
@@ -1707,27 +1713,29 @@ export const style = css`
         height: 30px;
       }
 
-      /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 360 px it is drawn smaller */
+      /* under 375 px a signed-out row has room for only 4 px between its items */
+      @media (width < 375px) {
+        --gap: 4px;
+      }
+
+      /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 360 px it is drawn smaller,
+         and so is the room held for it until the broker answers */
       @media (width < 360px) {
-        iframe {
+        iframe, .account-pending {
           transform: scale(0.78);
           margin: 0 -15px;
         }
       }
 
       /*
-       * Too narrow for the field's hint beside the rest: it folds to its search glyph, its file and its + until it is
-       * pressed, and unfolds over the controls after it while it has the focus. They stay in the tab order under it:
-       * reaching one hands the row back to them. A search it holds while folded is marked on the glyph.
+       * The row leaves the field under its floor: it folds to its search glyph, its file and its + until it is pressed,
+       * and unfolds over the controls after it while it has the focus. They keep their places, hidden, so the room it
+       * was folded for holds, and stay in the tab order: reaching one hands the row back to them. A search it holds
+       * while folded is marked on the glyph.
        */
-      @media (max-width: ${FOLD_MAX}px) {
-        form {
-          flex: none;
-          min-width: 0;
-          margin-inline-end: auto;
-        }
-
+      &[data-folded] {
         .field {
+          flex: none;
           position: relative;
           padding-inline: 2px;
 
@@ -1784,20 +1792,20 @@ export const style = css`
         }
 
         &[data-searching] {
-          form, .field input:not([type='file']) {
-            flex: 1 1 auto;
-          }
-
-          .field input:not([type='file'])::placeholder {
-            color: ${TEXT_MUTED};
-          }
-
-          /* out of the row an item is as wide as its words, so a long account name's tag would reach past the window */
-          > :not(.brand, form) {
+          /* from after the 24 px logo to the row's end */
+          .field {
             position: absolute;
-            top: 0;
-            inset-inline-start: 0;
-            max-width: 100%;
+            inset-block: 8px;
+            inset-inline: calc(8px + 24px + var(--gap)) 8px;
+
+            input:not([type='file']) {
+              flex: 1 1 auto;
+
+              &::placeholder { color: ${TEXT_MUTED}; }
+            }
+          }
+
+          > :not(.brand, form) {
             opacity: 0;
             pointer-events: none;
           }
@@ -2487,6 +2495,21 @@ const Home = () => {
       document.removeEventListener('focusin', read)
       document.removeEventListener('focusout', read)
     }
+  }, [])
+  /*
+   * Whether a phone's row leaves the add field under its floor, measured on the form, which takes what the logo,
+   * Create, the gear and the account leave it: the account's width decides that room as much as the window's.
+   * Folding and unfolding move nothing in the row, so the measure holds in every state.
+   */
+  const [folded, setFolded] = useState(false)
+  useLayoutEffect(() => {
+    const form = formRef.current
+    if (!form) return
+    const read = () => setFolded(form.getBoundingClientRect().width < FIELD_FLOOR)
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(form)
+    return () => observer.disconnect()
   }, [])
   const [embedOpen, setEmbedOpen] = useState(false)
   /**
@@ -3656,7 +3679,7 @@ const Home = () => {
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
-      <header data-searching={searching || undefined}>
+      <header data-searching={searching || undefined} data-folded={folded || undefined}>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">

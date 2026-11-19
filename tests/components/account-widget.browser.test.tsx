@@ -2,7 +2,7 @@ import type { AccountInfo } from '../../src/torrent/use-account'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { userEvent } from '@vitest/browser/context'
+import { page, userEvent } from '@vitest/browser/context'
 
 /**
  * The account tag, and the menu it opens.
@@ -98,12 +98,20 @@ beforeEach(() => {
 
 afterEach(() => { vi.useRealTimers() })
 
+/** What the widget draws in the header's row, its box and its text. */
+const drawn = () => {
+  const shown = document.querySelector<HTMLElement>('.account-pending, [aria-haspopup="menu"], [data-testid="connect"]')
+  const box = shown?.getBoundingClientRect()
+  return shown && { width: box!.width, height: box!.height, text: shown.textContent }
+}
+
 describe('the account tag before it has an account', () => {
-  it('renders nothing at all while the broker has not answered', async () => {
+  it('holds Connect FKN\'s room, empty, while the broker has not answered', async () => {
     account.ready = false
     await settled()
     expect(trigger()).toBeNull()
     expect(connect()).toBeNull()
+    expect(drawn()).toEqual({ width: 140, height: 38, text: '' })
   })
 
   it('offers the connect button when nobody is signed in', async () => {
@@ -115,6 +123,19 @@ describe('the account tag before it has an account', () => {
 })
 
 describe('the account tag', () => {
+  it('on a phone is never wider than the room held for it before the broker answered, whatever the name', async () => {
+    account.info = signedIn({ name: 'Alexandra Maximiliane Konstantinopoulou-Lindqvist' })
+    await page.viewport(390, 844)
+    try {
+      await mounted()
+      const { width } = drawn()!
+      expect(width, 'the name keeps a part to read').toBeGreaterThan(100)
+      expect(width).toBeLessThanOrEqual(140)
+    } finally {
+      await page.viewport(1280, 720)
+    }
+  })
+
   it('says who you are and that it opens a menu', async () => {
     await mounted()
     expect(trigger().textContent).toContain('banou')

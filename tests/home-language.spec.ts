@@ -1520,6 +1520,41 @@ const headerRows = (page: Page) => page.locator('header').evaluate((header) => {
   }
 })
 
+/**
+ * The add field in the header's row, measured along the line, so from the window's right edge in Arabic and Hebrew:
+ * whether the line runs right to left, the room the row leaves the field, between the logo and Create less a gap each
+ * side, its pill's width and how far after the logo it starts, the width its text is drawn in and its hint's, and the
+ * least space between two neighbours shown (the logo, the field's pill, Create, the gear and the account) and how far
+ * along the line the last of them reaches.
+ */
+const fieldInRow = (page: Page) => page.locator('header').evaluate((header) => {
+  const gap = parseFloat(getComputedStyle(header).columnGap)
+  const rtl = getComputedStyle(header).direction === 'rtl'
+  const along = (element: Element) => {
+    const { left, right, width } = element.getBoundingClientRect()
+    return rtl ? { left: innerWidth - right, right: innerWidth - left, width } : { left, right, width }
+  }
+  const brand = along(header.querySelector('.brand')!)
+  const pill = along(header.querySelector('form .field')!)
+  const input = header.querySelector<HTMLInputElement>('form input:not([type=file])')!
+  const after = [...header.children].slice(2).map(along).filter(box => box.width > 0)
+  const shown = [brand, pill, ...after]
+  const style = getComputedStyle(input)
+  const pen = document.createElement('canvas').getContext('2d')!
+  pen.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+  return {
+    rtl,
+    room: after[0]!.left - brand.right - 2 * gap,
+    pill: pill.width,
+    afterLogo: pill.left - brand.right,
+    text: input.getBoundingClientRect().width,
+    content: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+    hint: pen.measureText(input.placeholder).width,
+    apart: Math.min(...shown.slice(1).map((box, i) => box.left - shown[i]!.right)),
+    end: Math.max(...shown.map(box => box.right)),
+  }
+})
+
 /** The rows the strip's readouts sit on, by their boxes, and how many it shows. */
 const stripRows = (page: Page) => page.locator('.stats').evaluate((strip) => {
   const boxes = [...strip.querySelectorAll('.stat')].map(stat => stat.getBoundingClientRect())
@@ -1538,28 +1573,48 @@ const stripRows = (page: Page) => page.locator('.stats').evaluate((strip) => {
 test.describe('the header', () => {
   const field = (page: Page) => page.locator('header form input:not([type=file])')
 
+  /*
+   * A phone's field folds to its glyph only where the row leaves it under its 240 px floor, which the account's width
+   * decides as much as the window's: at 499 px, a 748 px window at 150 %, a short name leaves it that room and Connect
+   * FKN does not. The row's neighbours stand 8 px apart, 4 under 375 px, and 12 on a wide window. Arabic and Hebrew
+   * run the row from the right, the logo first there too.
+   */
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: one row from 320 to 700 px and at 1280, signed in or out, the add field folded, unfolded and holding a search`, async ({ page }) => {
-      test.setTimeout(120_000)
+    test(`${language}: one row from 320 to 700 px and at 1280, signed in or out, the add field open wherever the row has its floor, folded, unfolded and holding a search`, async ({ page }) => {
+      test.setTimeout(240_000)
       await opening(page, language)
       await page.goto(origin)
-      for (const account of ['out', LONG_ACCOUNT] as const) {
+      for (const account of ['out', ACCOUNT, LONG_ACCOUNT] as const) {
         await signIn(page, null, null, account)
         await library(page, LIST, TORRENTS)
         await expect(page.locator(account === 'out' ? 'header iframe' : 'header .account-tag'), 'the control: the account is in the header').toBeVisible()
-        for (const width of [320, 360, 390, 519, 520, 700, 1280]) {
-          const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
-          const room = () => field(page).evaluate(input => input.getBoundingClientRect().width)
-          const open = () => page.locator('header form').evaluate(form => form.getBoundingClientRect().width)
+        for (const width of [320, 360, 375, 390, 499, 520, 548, 700, 1280]) {
+          const at = `${account === 'out' ? 'signed out' : account === ACCOUNT ? 'signed in' : 'signed in with a long name'} at ${width} px`
           await page.setViewportSize({ width, height: 844 })
           await drawn(page)
           const folded = await headerRows(page)
           expect(folded.items, `${at}: the control, the logo, the field, Create, the gear and the account were read`).toBe(5)
           expect(folded.rows, `${at}, ${folded.height} px tall`).toBe(1)
           expect(folded.sideways, at).toBe(0)
-          // folded to its glyph as wide a target as the buttons beside it; from 520 px open, at its floor or wider
-          if (width < 520) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
-          else expect(await open(), `${at}: the field is open`).toBeGreaterThanOrEqual(240)
+          const row = await fieldInRow(page)
+          expect(row.rtl, `${at}: the control, the row is measured along its own direction`).toBe(language === 'ar' || language === 'he')
+          const least = width > 700 ? 12 : width < 375 ? 4 : 8
+          expect(row.apart, `${at}: the least space between two neighbours`).toBeGreaterThanOrEqual(least)
+          expect(row.end, `${at}: the account ends inside the window`).toBeLessThanOrEqual(width)
+          expect(Math.abs(row.afterLogo - least), `${at}: the field starts a gap after the logo, ${row.afterLogo} px`).toBeLessThan(1)
+          // open, at its floor or wider, wherever the row has that room; folded to its glyph, as wide a target as the
+          // buttons beside it, only where it has not, its pill as wide as its glyph, file and + side by side
+          const fits = row.room >= 240
+          if (fits) expect(row.pill, `${at}: the field is open in its ${row.room} px`).toBeGreaterThanOrEqual(240)
+          else {
+            expect(row.text, `${at}: the field is folded to its glyph in its ${row.room} px`).toBe(30)
+            expect(row.pill, `${at}: the folded field is no wider than its three buttons`).toBeLessThanOrEqual(100.5)
+          }
+          if (width >= 520 || (width === 499 && account === ACCOUNT)) expect(fits, `${at}: the row has room for the field`).toBe(true)
+          if (width < 499) expect(fits, `${at}: a phone's row has no room for the field`).toBe(false)
+          if (width >= 700 || (width >= 548 && account === ACCOUNT)) {
+            expect(row.content, `${at}: the hint is whole`).toBeGreaterThanOrEqual(row.hint)
+          }
           // the file and + buttons beside the field, Create and the gear on its row, whole in the window
           for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings']) {
             const box = (await page.locator(control).boundingBox())!
@@ -1572,8 +1627,11 @@ test.describe('the header', () => {
           expect(unfolded.rows, `${at}, unfolded`).toBe(1)
           expect(unfolded.height, `${at}: unfolding moves nothing under the header`).toBe(folded.height)
           expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
-          if (width < 520) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
-          else expect(await open(), `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
+          const unfoldedRow = await fieldInRow(page)
+          expect(unfoldedRow.room, `${at}: unfolding moves nothing in the row`).toBe(row.room)
+          expect(unfoldedRow.afterLogo, `${at}: the unfolded field starts a gap after the logo`).toBeGreaterThanOrEqual(least)
+          if (!fits) expect(unfoldedRow.text, `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          else expect(unfoldedRow.pill, `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
 
           await field(page).blur()
           await drawn(page)
@@ -1582,7 +1640,7 @@ test.describe('the header', () => {
           expect(held.rows, `${at}, holding a search`).toBe(1)
           expect(held.height, `${at}, holding a search`).toBe(folded.height)
           expect(held.sideways, `${at}, holding a search`).toBe(0)
-          if (width < 520) expect(await room(), `${at}: a search held folds with the focus elsewhere`).toBe(30)
+          if (!fits) expect((await fieldInRow(page)).text, `${at}: a search held folds with the focus elsewhere`).toBe(30)
           await field(page).fill('')
           await field(page).blur()
         }
@@ -1596,6 +1654,8 @@ test.describe('the header', () => {
     await library(page, LIST, TORRENTS)
     const gear = page.locator('header a.settings')
     await expect(gear).toHaveCSS('opacity', '1')
+    await expect(page.locator('header .account-pending'), 'the control: the broker has not answered').toBeAttached()
+    expect((await headerRows(page)).sideways, 'the room held for the account stays inside the window').toBe(0)
     await field(page).click()
     await expect(field(page)).toBeFocused()
     await expect(gear, 'the unfolded field covers the gear').toHaveCSS('opacity', '0')

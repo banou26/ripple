@@ -113,7 +113,8 @@ const triggerStyle = css`
 
   &[aria-expanded='true'] .chevron { transform: rotate(180deg); }
 
-  /* a phone's header is one row, so the name gives way first, to an ellipsis */
+  /* A phone's header is one row, so the name gives way first, to an ellipsis. Cut at 100 px, it keeps the tag narrower
+     than Connect FKN, whose room is held until the broker answers, so the add field never folds when it does. */
   @media (max-width: 700px) {
     flex: 0 1 auto;
     min-width: 0;
@@ -121,7 +122,7 @@ const triggerStyle = css`
     padding-block: 4px;
     padding-inline: 8px 6px;
 
-    .who { overflow: hidden; }
+    .who { overflow: hidden; max-width: 100px; }
     .name { max-width: 100%; }
   }
 
@@ -229,7 +230,7 @@ export const AccountWidget = ({ onToast }: { onToast: (message: string) => void 
   }
 
   // every hook is above these returns: the widget has three shapes and only one of them has a menu
-  if (!ready) return null
+  if (!ready) return <span className="account-pending" style={{ flex: 'none', width: 140, height: 38 }}/>
   if (!info) return <ConnectButton style={{ flex: 'none', width: 140, height: 38 }}/>
 
   const name = info.name || intl.formatMessage({ id: 'Account', defaultMessage: 'Account' })

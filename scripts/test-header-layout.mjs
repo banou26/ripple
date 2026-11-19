@@ -22,7 +22,8 @@ const OUT = process.env.SHOT_DIR ?? '/tmp/claude-1000/-home-banou-dev-ripple'
 // add anything. 210px was the old floor the input carried explicitly; the pill has to beat it.
 const READABLE_PX = 210
 
-// a wide window's: a phone's field is folded until it is used, which tests/home-language.spec.ts measures
+// a wide window's: on a phone the field folds only where the row leaves it under 240 px, which
+// tests/home-language.spec.ts measures
 const WIDTHS = [1440, 1100, 900, 800, 720]
 
 const serve = () => spawn('npx', ['serve', '-s', '-C', '-p', String(PORT), 'build'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })

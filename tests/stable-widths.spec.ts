@@ -159,15 +159,22 @@ test('the library\'s header is one row at the widths most laptops have, in every
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
     for (const font of ROWS_FONTS) {
       const style = await page.addStyleTag({ content: `body * { font-family: '${font}' !important }` })
-      // 700 px is a phone's layout, one row too, with the add field folded
-      for (const width of [1440, 1366, 1280, 700]) {
+      // from 700 px down a phone's layout, one row too, its add field folded where the row leaves it too little room
+      for (const width of [1440, 1366, 1280, 700, 499, 390, 320]) {
         await page.setViewportSize({ width, height: 720 })
-        const tops = await page.locator('header').evaluate((header) => [...header.children]
-          .map((child) => child.getBoundingClientRect())
-          .filter((box) => box.width > 0)
-          .map((box) => Math.round(box.top + box.height / 2)))
+        const { tops, sideways, overlaps } = await page.locator('header').evaluate((header) => {
+          const boxes = [...header.children].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0)
+          // right to left, each item stands left of the one before it
+          const rtl = getComputedStyle(header).direction === 'rtl'
+          return {
+            tops: boxes.map((box) => Math.round(box.top + box.height / 2)),
+            sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            overlaps: boxes.slice(1).some((box, i) => (rtl ? boxes[i]!.left < box.right : box.left < boxes[i]!.right)),
+          }
+        })
         // one row: every item's middle is within a few pixels of the others'
         if (Math.max(...tops) - Math.min(...tops) > 12) wrong.push(`${language} in ${font} at ${width} px, two rows: ${tops.join(' ')}`)
+        if (sideways || overlaps) wrong.push(`${language} in ${font} at ${width} px, ${sideways} px sideways, overlapping: ${overlaps}`)
         expect(tops.length, `${language}: the header holds fewer items than a visitor's`).toBeGreaterThanOrEqual(5)
         if (width === 1280) {
           for (const button of await page.locator('header > button').all()) {
@@ -190,7 +197,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
       await style.evaluate((element) => (element as HTMLStyleElement).remove())
     }
   }
-  expect(wrong, 'the header took a second row, gave up its words where it had the room, or drew its icon out of size').toEqual([])
+  expect(wrong, 'the header took a second row, ran past the window, gave up its words where it had the room, or drew its icon out of size').toEqual([])
 
   // and the switch is on the page with no torrent, under the header: where there is one to draw at all
   await expect(page.locator('.torrent')).toHaveCount(0)
