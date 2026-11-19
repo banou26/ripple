@@ -1151,10 +1151,10 @@ const engineSurfaces = async (page: Page, width: number) => {
   return { words: [...row.words, ...whole.words], cut: [...row.cut, ...whole.cut] }
 }
 
-// the pseudo-language for length and a language of each script: the second wave's 12 all passed these on 2026-11-19,
-// in 22 minutes, too long for every push
+// the pseudo-language for length and a language of each script but Korean's and Chinese's: the second wave's other 8,
+// all in Latin, passed these on 2026-11-20, about 100 s each, too long for every push
 test.describe('in each language', () => {
-  for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he', 'th', 'hi', 'el']) {
+  for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he', 'th', 'hi', 'el', 'uk']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
       test.setTimeout(240_000)
       await opening(page, language)
