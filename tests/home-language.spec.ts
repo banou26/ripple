@@ -2229,7 +2229,10 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await expect(chip, 'the group shown is remembered').toHaveText('Week 3')
   await expect(titles).toHaveCount(6)
 
-  await page.locator('.torrent', { hasText: 'Watched.Film' }).click({ button: 'right' })
+  // the same scroll as above, after the reload (it closed the menu on CI, 0.0.78)
+  await film.scrollIntoViewIfNeeded()
+  await drawn(page)
+  await film.click({ button: 'right' })
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
   await expect(page.locator('.toast')).toHaveText(`Taken out of ${isolated('Week 3')}`)
