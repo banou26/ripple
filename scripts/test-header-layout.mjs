@@ -12,6 +12,7 @@
 
 import { chromium } from 'playwright'
 import { spawn } from 'child_process'
+import { readFileSync } from 'fs'
 
 const PORT = 4603
 const ORIGIN = `http://127.0.0.1:${PORT}`
@@ -105,8 +106,9 @@ try {
   await page.goto(ORIGIN, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('header .field', { timeout: 30_000 })
 
-  // English, then the two languages that mirror the header, whose overflow would run off its other side
-  for (const language of ['en', 'ar', 'he']) {
+  // every language offered, Hebrew last for the control below: one that mirrors the header would run off its other side
+  const offered = JSON.parse(readFileSync(new URL('../src/i18n/offered.json', import.meta.url), 'utf8'))
+  for (const language of [...offered.filter((tag) => tag !== 'he'), 'he']) {
     await page.evaluate((language) => localStorage.setItem('ripple:language', language), language)
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForSelector(`html[lang="${language}"] header .field`, { timeout: 30_000 })
@@ -124,7 +126,7 @@ try {
       if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
       if (m.hasAddButton) bad.push('the Add button is still there')
       if (m.hasOpenFileButton) bad.push('the Open file button is still there')
-      console.log(`${language.padEnd(2)} ${String(width).padStart(4)}px  field=${String(m.fieldWidth).padStart(4)} text=${String(m.inputWidth).padStart(4)} icons=${m.icons} overflowX=${m.docOverflowX} share=${JSON.stringify(m.shareLabel)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
+      console.log(`${language.padEnd(7)} ${String(width).padStart(4)}px  field=${String(m.fieldWidth).padStart(4)} text=${String(m.inputWidth).padStart(4)} icons=${m.icons} overflowX=${m.docOverflowX} share=${JSON.stringify(m.shareLabel)}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
       if (bad.length) code = 1
     }
   }
