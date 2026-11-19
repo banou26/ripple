@@ -50,8 +50,8 @@ describe('the best match of the browser\'s languages', () => {
 })
 
 describe('the language shown', () => {
-  test('English, the 12 of wave 1, Arabic and Hebrew are offered, so a French browser shows French and a German pick German', () => {
-    expect([...OFFERED].sort()).toEqual(['ar', 'de', 'en', 'es-419', 'fr', 'he', 'it', 'ja', 'ko', 'pl', 'pt-BR', 'ru', 'tr', 'zh-Hans', 'zh-Hant'])
+  test('English and stub\'s 26 others are offered, so a French browser shows French and a German pick German', () => {
+    expect([...OFFERED].sort()).toEqual(['ar', 'cs', 'de', 'el', 'en', 'es-419', 'fr', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'ms', 'nl', 'pl', 'pt-BR', 'ro', 'ru', 'sv', 'th', 'tr', 'uk', 'vi', 'zh-Hans', 'zh-Hant'])
     expect(uiLanguage()).toBe('fr')
     stored.set(LANGUAGE_KEY, 'de')
     expect(uiLanguage()).toBe('de')
@@ -60,8 +60,8 @@ describe('the language shown', () => {
   test('the best match among the offered, else English', () => {
     expect(uiLanguage(['fr-CA', 'en'], PLANNED)).toBe('fr')
     expect(uiLanguage(['th'], PLANNED)).toBe('en')
-    expect(automaticLanguage(['th', 'pt-PT'])).toBe('pt-BR')
-    expect(automaticLanguage(['th'])).toBe('en')
+    expect(automaticLanguage(['sw', 'pt-PT'])).toBe('pt-BR')
+    expect(automaticLanguage(['sw'])).toBe('en')
   })
 
   test('a language picked wins, and one not offered is not read', () => {
@@ -108,12 +108,12 @@ describe('the language shown', () => {
 
     test('one no catalogue serves, or none, gives way to the pick, then to Automatic', () => {
       stored.set(LANGUAGE_KEY, 'de')
-      for (const search of ['?language=sv', '?language=not%20a%20tag', '?language=', '']) {
+      for (const search of ['?language=sw', '?language=not%20a%20tag', '?language=', '']) {
         at(`/watch${search}`)
         expect(uiLanguage(['fr-CA']), search).toBe('de')
       }
       stored.clear()
-      at('/watch?language=sv')
+      at('/watch?language=sw')
       expect(uiLanguage(['fr-CA'])).toBe('fr')
     })
   })

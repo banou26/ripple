@@ -140,7 +140,7 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  * words from 900 px and is a square under it; any other header button with words keeps them at 1440 px and on a phone.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
-  test.setTimeout(240_000)
+  test.setTimeout(420_000)
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.goto('/')
   // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does

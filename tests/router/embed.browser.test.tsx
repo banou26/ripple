@@ -341,7 +341,7 @@ describe('the watch route', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(15)
+    expect(languages).toHaveLength(27)
     expect(split).toEqual([])
   }, 60_000)
 
@@ -479,7 +479,7 @@ describe('the watch route', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(15)
+    expect(languages).toHaveLength(27)
     // each state drawn as its own, so none of them was measured as another
     expect(seen.size).toBe(35)
     expect(cut).toEqual([])
@@ -968,7 +968,7 @@ describe('the VPN switch on /watch', () => {
       country.listed = false
       await showEnglish()
     }
-    expect(languages).toHaveLength(15)
+    expect(languages).toHaveLength(27)
     expect(scrolls).toEqual([])
   }, 30_000)
 
@@ -1014,7 +1014,7 @@ describe('the VPN switch on /watch', () => {
       sheet.remove()
       await showEnglish()
     }
-    expect(words.size).toBe(15 * 5)
+    expect(words.size).toBe(27 * 5)
     expect(moved).toEqual([])
   }, 60_000)
 })
@@ -1107,7 +1107,7 @@ describe('the quota offer on /watch', () => {
         }
       }
     } finally { await showEnglish() }
-    expect(languages).toHaveLength(15)
+    expect(languages).toHaveLength(27)
     expect(out).toEqual([])
   }, 60_000)
 

@@ -55,17 +55,29 @@ describe('the Language select', () => {
     expect(select.value).toBe('')
     expect(options()).toEqual([
       { value: '', text: 'Automatic (English)', lang: null },
+      { value: 'cs', text: 'Čeština', lang: 'cs' },
       { value: 'de', text: 'Deutsch', lang: 'de' },
       { value: 'en', text: 'English', lang: 'en' },
       { value: 'es-419', text: 'Español latinoamericano', lang: 'es-419' },
       { value: 'fr', text: 'Français', lang: 'fr' },
+      { value: 'id', text: 'Indonesia', lang: 'id' },
       { value: 'it', text: 'Italiano', lang: 'it' },
+      { value: 'hu', text: 'Magyar', lang: 'hu' },
+      { value: 'ms', text: 'Melayu', lang: 'ms' },
+      { value: 'nl', text: 'Nederlands', lang: 'nl' },
       { value: 'pl', text: 'Polski', lang: 'pl' },
       { value: 'pt-BR', text: 'Português (Brasil)', lang: 'pt-BR' },
+      { value: 'ro', text: 'Română', lang: 'ro' },
+      { value: 'sv', text: 'Svenska', lang: 'sv' },
+      { value: 'vi', text: 'Tiếng Việt', lang: 'vi' },
       { value: 'tr', text: 'Türkçe', lang: 'tr' },
+      { value: 'el', text: 'Ελληνικά', lang: 'el' },
       { value: 'ru', text: 'Русский', lang: 'ru' },
+      { value: 'uk', text: 'Українська', lang: 'uk' },
       { value: 'he', text: 'עברית', lang: 'he' },
       { value: 'ar', text: 'العربية', lang: 'ar' },
+      { value: 'hi', text: 'हिन्दी', lang: 'hi' },
+      { value: 'th', text: 'ไทย', lang: 'th' },
       { value: 'ko', text: '한국어', lang: 'ko' },
       { value: 'ja', text: '日本語', lang: 'ja' },
       { value: 'zh-Hans', text: '简体中文', lang: 'zh-Hans' },
@@ -74,7 +86,7 @@ describe('the Language select', () => {
   })
 
   it('names the language Automatic shows for a browser that asks for another', async () => {
-    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['sv-SE', 'pt-PT', 'en'])
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['sw-KE', 'pt-PT', 'en'])
     expect((await mount()).options()[0]!.text).toBe('Automatic (Português (Brasil))')
   })
 
@@ -123,6 +135,6 @@ describe('the Language select', () => {
   it('reads in the language shown, the languages still in their own names', async () => {
     await startLanguage({ language: 'de', languages: ['de-DE'] })
     const texts = (await mount()).options().map(option => option.text)
-    expect(texts.slice(0, 4)).toEqual(['Automatisch (English)', 'Deutsch', 'English', 'Español latinoamericano'])
+    expect(texts.slice(0, 4)).toEqual(['Automatisch (English)', 'Čeština', 'Deutsch', 'English'])
   })
 })

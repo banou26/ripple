@@ -55,7 +55,7 @@ test('the download page says a link it cannot read is not a valid one, and waits
 
 test('the download page says it in each of ripple\'s languages', async ({ page }) => {
   test.setTimeout(120_000)
-  expect(OFFERED).toHaveLength(15)
+  expect(OFFERED).toHaveLength(27)
   for (const language of OFFERED) {
     await page.goto(`/download?${UNREADABLE['two torrents']}&language=${language}`)
     await expect(page.locator('html')).toHaveAttribute('lang', language)

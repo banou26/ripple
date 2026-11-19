@@ -62,3 +62,22 @@ describe('the right to left catalogues', () => {
     expect([1, 2, 3, 20].map(count => bare(he.formatMessage(FILES, { count })))).toEqual(['קובץ אחד', 'שני קבצים', '3 קבצים', '20 קבצים'])
   })
 })
+
+// stub's rules for the second wave: Romanian puts de before a noun from 20, Hungarian keeps it singular after a number
+describe('the second wave\'s counts', () => {
+  afterEach(() => startLanguage({ language: 'en', languages: ['en-US'] }))
+  const FILES = { id: '{count, plural, one {{count} file} other {{count} files}}', defaultMessage: '{count, plural, one {{count} file} other {{count} files}}' }
+  const counted = async (language: string, counts: number[]) => {
+    const intl = await startLanguage({ language, languages: [language] })
+    return counts.map(count => intl.formatMessage(FILES, { count }))
+  }
+
+  test('take each form their language needs', async () => {
+    expect(await counted('ro', [1, 2, 19, 20, 101, 120])).toEqual(['1 fișier', '2 fișiere', '19 fișiere', '20 de fișiere', '101 fișiere', '120 de fișiere'])
+    expect(await counted('hu', [1, 5])).toEqual(['1 fájl', '5 fájl'])
+    expect(await counted('cs', [1, 3, 5])).toEqual(['1 soubor', '3 soubory', '5 souborů'])
+    expect(await counted('uk', [1, 3, 5, 21])).toEqual(['1 файл', '3 файли', '5 файлів', '21 файл'])
+    expect(await counted('hi', [0, 1, 2])).toEqual(['0 फ़ाइल', '1 फ़ाइल', '2 फ़ाइलें'])
+    expect(await counted('th', [1, 2])).toEqual(['1 ไฟล์', '2 ไฟล์'])
+  })
+})

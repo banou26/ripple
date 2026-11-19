@@ -1151,8 +1151,10 @@ const engineSurfaces = async (page: Page, width: number) => {
   return { words: [...row.words, ...whole.words], cut: [...row.cut, ...whole.cut] }
 }
 
+// the pseudo-language for length and a language of each script: the second wave's 12 all passed these on 2026-11-19,
+// in 22 minutes, too long for every push
 test.describe('in each language', () => {
-  for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he']) {
+  for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he', 'th', 'hi', 'el']) {
     test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
       test.setTimeout(240_000)
       await opening(page, language)
@@ -1370,7 +1372,7 @@ test.describe('the Language setting', () => {
 
     await page.goto(`${watchPage(PACK)}&language=ja`)
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja')
-    await page.goto(`${watchPage(PACK)}&language=sv`)
+    await page.goto(`${watchPage(PACK)}&language=sw`)
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
   })
 
