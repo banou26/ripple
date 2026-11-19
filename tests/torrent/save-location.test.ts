@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { intl, startLanguage } from '../../src/i18n'
 import de from '../../src/locales/de.json'
-import { currentLocation, intendedLocation, isOwnContent, isSaveLocation, moveReadiness, pendingLabel, readGlobalDefault, savePathIn, SAVE_LOCATION_KEY } from '../../src/torrent/save-location'
+import { currentLocation, intendedLocation, isOwnContent, isSaveLocation, mirrorsToFolder, moveReadiness, pendingLabel, readGlobalDefault, savePathIn, SAVE_LOCATION_KEY } from '../../src/torrent/save-location'
 import { isNativeSavePath } from '../../src/torrent/hybrid-storage'
 
 /**
@@ -251,5 +251,37 @@ describe('isOwnContent', () => {
     expect(isOwnContent({})).toBe(false)
     expect(isOwnContent(null)).toBe(false)
     expect(isOwnContent(undefined)).toBe(false)
+  })
+})
+
+/** A film opened from a link, or the sample: only watched, so auto-save leaves it in browser storage until it is kept. */
+describe('a temporary torrent', () => {
+  it('stays in browser storage whatever the global default says', () => {
+    expect(intendedLocation({ ephemeral: true }, 'folder')).toBe('browser')
+    expect(intendedLocation({ ephemeral: true }, 'browser')).toBe('browser')
+  })
+
+  it('goes where the default sends it once kept', () => {
+    expect(intendedLocation({ ephemeral: false }, 'folder')).toBe('folder')
+  })
+
+  it('goes where it was sent, and stays in the folder a move put it in', () => {
+    expect(intendedLocation({ ephemeral: true, saveTo: 'folder' }, 'browser')).toBe('folder')
+    expect(intendedLocation({ ephemeral: true, saveTo: 'folder' }, 'folder')).toBe('folder')
+  })
+
+  it('is not copied into the folder from browser storage until kept', () => {
+    expect(mirrorsToFolder({ ephemeral: true }, 'browser')).toBe(false)
+    expect(mirrorsToFolder({ ephemeral: false }, 'browser')).toBe(true)
+  })
+
+  it('has its files checked when they are already in the folder', () => {
+    expect(mirrorsToFolder({ ephemeral: true, saveTo: 'folder' }, 'folder')).toBe(true)
+  })
+
+  it('leaves the person\'s own content out, as before', () => {
+    expect(mirrorsToFolder({ saveTo: 'source' }, 'source')).toBe(false)
+    expect(mirrorsToFolder({ saveTo: 'browser', created: true }, 'browser')).toBe(false)
+    expect(mirrorsToFolder({}, 'browser')).toBe(true)
   })
 })

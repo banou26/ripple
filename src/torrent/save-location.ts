@@ -111,14 +111,29 @@ export const readGlobalDefault = (read: (key: string) => string | null): SaveLoc
  * that the ordinary default of `browser` would read as "this torrent belongs in browser storage",
  * and the effect in folder-work.tsx that carries out pending moves would copy the person's entire
  * picked folder into OPFS: the largest, least wanted copy the app could possibly make, started by nobody.
+ *
+ * A temporary torrent (a film opened from a link, the sample) takes browser storage rather than the default until the
+ * person keeps it: only a place chosen for it moves it. A move records the place it went, so one already in the folder
+ * stays there.
  */
 export const intendedLocation = (
-  entry: { saveTo?: SaveLocation } | null | undefined,
+  entry: { saveTo?: SaveLocation, ephemeral?: boolean } | null | undefined,
   globalDefault: SaveLocation,
 ): SaveLocation => {
   if (entry?.saveTo === 'source') return 'source'
-  return entry?.saveTo === 'browser' || entry?.saveTo === 'folder' ? entry.saveTo : globalDefault
+  if (entry?.saveTo === 'browser' || entry?.saveTo === 'folder') return entry.saveTo
+  return entry?.ephemeral === true ? 'browser' : globalDefault
 }
+
+/**
+ * Whether the auto-save mirror copies this finished torrent into the folder, or, with its files already there, checks
+ * them. Never the person's own content ({@link isOwnContent}), and never a temporary torrent whose files are in browser
+ * storage: it is copied once kept.
+ */
+export const mirrorsToFolder = (
+  entry: { saveTo?: SaveLocation, created?: boolean, ephemeral?: boolean } | null | undefined,
+  current: SaveLocation,
+): boolean => !isOwnContent(entry) && !(entry?.ephemeral === true && current === 'browser')
 
 /** Where the bytes are RIGHT NOW, read off the save path libtorrent was given. */
 export const currentLocation = (savePath: string | undefined): SaveLocation =>

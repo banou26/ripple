@@ -9,7 +9,7 @@ import { useLocation } from 'react-router-dom'
 
 import { runningTorrentClient } from '../torrent/client'
 import { moveTorrentFiles } from '../torrent/move-files'
-import { currentLocation, intendedLocation, isOwnContent, moveReadiness, readGlobalDefault } from '../torrent/save-location'
+import { currentLocation, intendedLocation, mirrorsToFolder, moveReadiness, readGlobalDefault } from '../torrent/save-location'
 import { copyKey, holdsChosen, syncTorrentToDirectory } from '../torrent/sync'
 import { finished, leavesFilesOut } from '../torrent/types'
 import { useFolder } from '../torrent/use-folder'
@@ -164,7 +164,7 @@ const Work = () => {
     for (const t of torrents) {
       if (!finished(t) || !holdsChosen(t)) continue
       /*
-       * A created torrent is never mirrored.
+       * A created torrent is never mirrored, and a temporary one only once it is kept.
        *
        * Its bytes ARE the user's own files, already sitting where they chose. Copying them into the
        * auto-save folder would duplicate an entire folder on their disk to produce a second copy of
@@ -177,7 +177,7 @@ const Work = () => {
        * alone stopped being enough the moment that existed, and the cost of missing it is the whole
        * pick written to their disk a third time.
        */
-      if (isOwnContent(t)) continue
+      if (!mirrorsToFolder(t, currentLocation(t.stats?.savePath))) continue
       // a move copies the files itself, and drops the ones a copy beside it would still be reading, so the copy also
       // waits out a failed move's wait: it would still be writing when the move tries again
       if (t.infoHash && (movingRef.current.has(t.infoHash) || now < (moveAtRef.current.get(t.infoHash) ?? 0))) continue
