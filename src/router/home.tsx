@@ -1751,6 +1751,11 @@ export const style = css`
             &::placeholder { color: transparent; }
           }
 
+          /* typed in the other direction than the page's, the glyph is at the input's end */
+          &:dir(rtl) input:not([type='file']):dir(ltr), &:dir(ltr) input:not([type='file']):dir(rtl) {
+            padding-inline: 0 30px;
+          }
+
           .sep {
             margin: 0 1px;
           }

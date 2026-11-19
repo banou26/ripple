@@ -2116,6 +2116,31 @@ test.describe('right to left', () => {
       expect(arabic.at(-1), 'Arabic starts at the field\'s right').toBe(0)
       expect(arabic, 'and reads right to left').toEqual(arabic.toSorted((a, b) => b - a))
     })
+
+    test(`${language}: on a phone, what the unfolded add field holds runs clear of its glyph, in either direction`, async ({ page }) => {
+      await opening(page, language)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(origin)
+      await library(page, LIST, TORRENTS)
+      const field = page.locator('header form input:not([type=file])')
+      const glyph = page.locator('header .field .glyph')
+      for (const typed of [magnetOf('3', 'Fresh'), 'بحث عربي']) {
+        await field.click()
+        await field.fill(typed)
+        await drawn(page)
+        const icon = (await glyph.boundingBox())!
+        // a field draws its text inside its padding
+        const text = await field.evaluate((input) => {
+          const { left, right } = input.getBoundingClientRect()
+          const { paddingLeft, paddingRight } = getComputedStyle(input)
+          return { left: left + parseFloat(paddingLeft), right: right - parseFloat(paddingRight) }
+        })
+        const shape = `${typed.slice(0, 12)}: text from ${text.left} to ${text.right} px, the glyph from ${icon.x} to ${icon.x + icon.width} px`
+        expect(icon.x >= text.right || icon.x + icon.width <= text.left, shape).toBe(true)
+        await field.fill('')
+        await field.blur()
+      }
+    })
   }
 })
 
