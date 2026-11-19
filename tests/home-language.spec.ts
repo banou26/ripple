@@ -1659,6 +1659,15 @@ test.describe('right to left', () => {
   })
   // the icon's own turn, which only the rule mirroring the ones that point along the line sets
   const turned = (locator: Locator) => locator.evaluate(icon => getComputedStyle(icon).scale === '-1 1')
+  /** The side a gradient fades towards, as drawn: a gradient names no logical side. */
+  const towards = (locator: Locator, pseudo?: string) => locator.evaluate((element, pseudo) =>
+    getComputedStyle(element, pseudo).backgroundImage.match(/^linear-gradient\(to (\w+)/)?.[1], pseudo)
+  /** The half of its track a switch's knob is in, along the line. */
+  const knob = (track: Locator) => track.evaluate((element) => {
+    const { left, width } = getComputedStyle(element, '::after')
+    const leftHalf = parseFloat(left) + parseFloat(width) / 2 < element.clientWidth / 2
+    return leftHalf === (getComputedStyle(element).direction === 'rtl') ? 'end' : 'start'
+  })
 
   // names somebody wrote, each opening or closing on a bracket, a dot or a slash, which have no direction of their own
   const RELEASE = '[Group] Orbital Gardeners Season Two - 01 (1080p) [ABCD1234]'
@@ -1791,6 +1800,22 @@ test.describe('right to left', () => {
       // an icon that points along the line turns, Play does not
       await expect(page.locator('.torrent .lucide-play').first()).toBeVisible()
       expect(await turned(page.locator('.torrent .lucide-play').first()), 'Play').toBe(false)
+      expect(await turned(page.locator('.list-toolbar .views .lucide-list')), 'the list view').toBe(rtl)
+      // the sort's arrow each way, the key already sorted by flipping it
+      const sort = page.locator('.list-toolbar .chip.sort')
+      const arrows: string[] = []
+      for (const flip of [false, true]) {
+        if (flip) {
+          await sort.click()
+          await menu.locator('[aria-checked=true]').click()
+        }
+        const arrow = sort.locator('svg').first()
+        arrows.push((await arrow.getAttribute('class'))!.split(' ').find(name => name.startsWith('lucide-arrow'))!)
+        expect(await turned(arrow), `the sort's ${arrows.at(-1)}`).toBe(rtl)
+      }
+      expect(arrows.sort(), 'the control: both of the sort\'s arrows').toEqual(['lucide-arrow-down-wide-narrow', 'lucide-arrow-up-narrow-wide'])
+      // a gradient has no logical side, so a group's band fades towards the line's end
+      expect(await towards(page.locator('.group-head').first()), 'a group\'s band').toBe(rtl ? 'left' : 'right')
       await toSettings(page)
       expect(await turned(page.locator('header a.back svg')), 'the way back').toBe(rtl)
 
@@ -1830,6 +1855,8 @@ test.describe('right to left', () => {
       await expect(fades).not.toHaveAttribute('data-more-start')
       const side = (pseudo: string) => fades.evaluate((element, pseudo) => getComputedStyle(element, pseudo)[getComputedStyle(element).direction === 'rtl' ? 'right' : 'left'], pseudo)
       expect(await side('::before'), 'the start\'s fade at the start').toBe('0px')
+      expect(await towards(fades, '::before'), 'the start\'s fade clears towards the end').toBe(rtl ? 'left' : 'right')
+      expect(await towards(fades, '::after'), 'the end\'s fade clears towards the start').toBe(rtl ? 'right' : 'left')
       await fades.locator('.line').evaluate((line) => { line.scrollLeft = (getComputedStyle(line).direction === 'rtl' ? -1 : 1) * line.scrollWidth })
       await expect(fades).toHaveAttribute('data-more-start')
       await expect(fades).not.toHaveAttribute('data-more-end')
@@ -1881,6 +1908,13 @@ test.describe('right to left', () => {
       await row.locator('button.more').click()
       await expect(dialog).toBeVisible()
       await expectInOrder(dialog, [GROUP], 'the options')
+      // the knob's place is the switch's state, at the track's end when on
+      const on: boolean[] = []
+      for (const each of await dialog.locator('[role=switch]').all()) {
+        on.push(await each.getAttribute('aria-checked') === 'true')
+        expect(await knob(each.locator('.switch')), `a switch ${on.at(-1) ? 'on' : 'off'}`).toBe(on.at(-1) ? 'end' : 'start')
+      }
+      expect([on.includes(false), on.includes(true)], 'the control: a switch on and one off').toEqual([true, true])
       await page.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)
 
