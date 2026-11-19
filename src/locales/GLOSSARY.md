@@ -89,7 +89,7 @@ mode and the like) have no column here and follow that language's qBittorrent th
 | `hi` | आप, the polite imperative (-ें) on buttons | टॉरेंट | मैग्नेट लिंक | सीडर, लीचर | पीयर | ट्रैकर | पीस |
 | `uk` | ви | торрент | magnet-посилання | сід, лічер | пір | трекер | частина |
 | `nl` | je, infinitive on buttons | torrent | magneetkoppeling | seeder, leecher | peer | tracker | deeltje |
-| `sv` | du, imperative on buttons | torrent | magnetlänk | distributör, leecher | jämlike | spårare | del |
+| `sv` | du, imperative on buttons | torrent | magnetlänk | seeder, leecher | jämlike | spårare | del |
 | `cs` | vy, infinitive on buttons | torrent | magnet odkaz | seeder, leecher | peer | tracker | část |
 | `el` | εσείς, the action noun on buttons | torrent | σύνδεσμος magnet | διαμοιραστής, leecher | peer | tracker | κομμάτι |
 | `ro` | dumneavoastră, the polite imperative on buttons | torrent | legătură magnet | sursă, lipitoare | partener | urmăritor | bucată |
@@ -113,10 +113,12 @@ Where this differs from qBittorrent:
   qBittorrent's `स्रोतस्वामी`, `जोंके`, `सहकर्मीं` and `टुकड़ा` read as an owner, leeches, a colleague and a scrap.
   Paused is stub's `रुका हुआ`, and `id` Paused `Dijeda`, where qBittorrent's `Ditangguhkan` reads as postponed.
 - `ro` torrent is `torrent`, where qBittorrent's `torent` is a mountain stream; Paused is stub's `În pauză`.
-- `sv` leecher is `leecher`, where qBittorrent's `reciprokör` is a word few readers know. `th` magnet link is
-  `ลิงก์แม็กเน็ต` for qBittorrent's English `Magnet link`.
-- `uk` Up is `Віддача`, as Russian's `Отдача`, where qBittorrent's `Відвантаження` leaves a peer's address no room in
-  the details panel on a phone; `el` Client keeps qBittorrent's `Client`, as `Πρόγραμμα-πελάτης` is cut there.
+- `sv` seeder and leecher are `seeder` and `leecher`, as Swedish torrent users write them, where qBittorrent's
+  `distributör` leaves a tracker's URL no room in the details panel on a phone and `reciprokör` is a word few readers
+  know; seeding keeps its `distribuerar`. `th` magnet link is `ลิงก์แม็กเน็ต` for qBittorrent's English `Magnet link`.
+- `uk` Up is `Віддача`, as Russian's `Отдача`, and Down `Прийом` in a column, where qBittorrent's `Відвантаження` and
+  `Завантаження` leave a peer's address no room in the details panel on a phone; `el` Client keeps qBittorrent's
+  `Client`, as `Πρόγραμμα-πελάτης` is cut there.
 - The options menu's names: `Download first and last pieces first` takes this table's piece where qBittorrent's
   differs (`es-419` `piezas`, `it` `parte`, `zh-Hans` `区块`, `zh-Hant` `分塊`), and `pt-BR` writes `para` for its `pra`.
   Unlimited is a box's label and a value both, so `pl` writes `Bez limitu` for `Nieograniczone` and `zh-Hans` `无限制`
@@ -128,7 +130,7 @@ A transfer's two directions, on a stat or a limit, are qBittorrent's too: `es-41
 Download, Upload; `fr` Réception, Envoi; `ru` Загрузка, Отдача; `ja` ダウンロード, アップロード; `ko` 다운로드, 업로드;
 `zh-Hans` 下载, 上传; `zh-Hant` 下載, 上傳; `tr` İndirme, Gönderme; `pl` Pobieranie, Wysyłanie; `ar` التنزيل, الرفع;
 `he` הורדה, העלאה; `id` Unduh, Unggah; `vi` Tải xuống, Tải lên; `th` ดาวน์โหลด, อัปโหลด; `hi` डाउनलोड, अपलोड;
-`uk` Завантаження, Віддача; `nl` Download, Upload; `sv` Hämtning, Sändning; `cs` Stahování, Odesílání;
+`uk` Завантаження (`Прийом` in a column), Віддача; `nl` Download, Upload; `sv` Hämtning, Sändning; `cs` Stahování, Odesílání;
 `el` Λήψη, Αποστολή; `ro` Descărcare, Încărcare; `hu` Letöltés, Feltöltés; `ms` Muat turun, Muat naik.
 
 ## Ripple's own words
