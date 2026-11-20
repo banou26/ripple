@@ -3237,11 +3237,13 @@ const Home = () => {
    *
    * The two bodies differ because the promise differs: a torrent in its own directory really is what
    * the budget pass takes, while one still on the shared save path is never auto-deleted at all, so
-   * saying it would be is a threat the app does not carry out.
+   * saying it would be is a threat the app does not carry out. A torrent in the folder is never deleted to free space
+   * either, so un-keeping one there asks nothing and says nothing.
    */
   const onSetKept = async (t: Torrent, kept: boolean) => {
     if (!t.infoHash) return
-    if (!kept) {
+    const deletable = locationOf(t).current !== 'folder'
+    if (!kept && deletable) {
       const ownsDirectory = ownsItsDirectory(t.stats?.savePath, t.infoHash)
       const ok = await confirm({
         title: intl.formatMessage({ id: 'Let Ripple delete {name}?', defaultMessage: 'Let Ripple delete {name}?' }, { name: t.name }),
@@ -3253,7 +3255,7 @@ const Home = () => {
       if (!ok) return
     }
     client.setTemporary(t.infoHash, !kept)
-    showToast(kept
+    if (kept || deletable) showToast(kept
       ? intl.formatMessage({ id: '{name} is yours to keep', defaultMessage: '{name} is yours to keep' }, { name: t.name })
       : intl.formatMessage({ id: '{name} can be deleted to free space', defaultMessage: '{name} can be deleted to free space' }, { name: t.name }))
   }
