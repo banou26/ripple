@@ -558,11 +558,15 @@ const smallParts = async (page: Page, width: number) => {
   await open()
   await read('persistent')
   await toSettings(page)
+  // Settings asks the browser again, and offers the ask until it answers: its Storage button is disabled only once
+  // the answer is in, as Persistent, Blocked or Not granted
+  await expect(page.locator('main .folder button:disabled')).toBeVisible()
   await read('persistent, Settings')
   await answer(page, { denied: true })
   await open()
   await read('blocked')
   await toSettings(page)
+  await expect(page.locator('main .folder button:disabled')).toBeVisible()
   await read('blocked, Settings')
   await answer(page, {})
 
