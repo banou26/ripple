@@ -10,10 +10,12 @@ import { snapshotState } from '../torrent/use-torrents'
 import { isFramed } from '../utils/framed'
 import { reloadingPage } from '../utils/reload'
 
-const DOWNLOADING = new Set<TorrentState>(['downloading', 'retrying'])
+// queued is unfinished and not stopped by the person, as libtorrent's queue holds it and a new magnet its first half
+// second: the person's stop reads paused, and a finished torrent completed
+const TO_DOWNLOAD = new Set<TorrentState>(['downloading', 'retrying', 'queued'])
 
 /**
- * Has the browser ask before the tab closes while its engine downloads a torrent the person added; a temporary torrent
+ * Has the browser ask before the tab closes while a torrent the person added still has to download; a temporary torrent
  * does not count, and neither does a tab whose closing leaves the engine running in another. Mounted around every page,
  * since the engine goes on downloading whichever one shows. The listener is there only while that holds, since a page
  * holding one at all is kept out of some browsers' back-forward cache. Never inside a frame, whose closing is the
@@ -29,7 +31,7 @@ export const useLeavePrompt = () => {
     let rows: TorrentSnapshot[] = []
     let temporary = new Set<string>()
     let owned = false
-    const look = () => setAsk(owned && rows.some((s) => DOWNLOADING.has(snapshotState(s)) && !temporary.has(magnetInfoHash(s.magnet) ?? '')))
+    const look = () => setAsk(owned && rows.some((s) => TO_DOWNLOAD.has(snapshotState(s)) && !temporary.has(magnetInfoHash(s.magnet) ?? '')))
     const offs = [
       client.onState((snapshots) => { rows = snapshots; look() }),
       client.onList((list) => { temporary = new Set(list.filter((e) => e.ephemeral).map((e) => e.infoHash)); look() }),

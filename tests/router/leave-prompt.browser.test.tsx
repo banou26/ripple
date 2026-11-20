@@ -110,9 +110,60 @@ describe('the prompt before the tab closes', () => {
   it('does not ask for seeding, stopped or checking torrents', async () => {
     const tab = engine()
     running.client = tab.client
-    tab.state(snap('a', { state: 5 }), snap('b', { state: 5, paused: true }), snap('c', { paused: true }, { userPaused: true }), snap('d', { paused: true }), snap('e', { state: 1 }))
+    tab.state(snap('a', { state: 5 }), snap('b', { state: 5, paused: true }), snap('c', { paused: true }, { userPaused: true }), snap('d', { state: 1 }))
     await page()
     expect(holding()).toHaveLength(0)
+  })
+
+  it('asks while a torrent the person added waits its turn in the queue', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.state(snap('a', { paused: true }), snap('b', { state: 5 }))
+    await page()
+    await expect.poll(holding, { message: 'one past the limit on active downloads' }).toHaveLength(1)
+    const leaving = new Event('beforeunload', { cancelable: true })
+    holding()[0]!(leaving)
+    expect(leaving.defaultPrevented, 'the browser is asked to confirm').toBe(true)
+
+    tab.state(snap('b', { state: 5 }))
+    await expect.poll(holding).toHaveLength(0)
+    // libtorrent's state 2 is downloading_metadata
+    tab.state(snap('a', { state: 2, paused: true }), snap('b', { state: 5 }))
+    await expect.poll(holding, { message: 'a new magnet before the queue starts it' }).toHaveLength(1)
+  })
+
+  it('does not ask for a queued torrent the person stopped, whether or not the engine has applied it yet', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.state(snap('a', { paused: true, autoManaged: false }, { userPaused: true }))
+    await page()
+    expect(holding(), 'stopped, the engine took it out of the queue').toHaveLength(0)
+    tab.state(snap('a', { paused: true }))
+    await expect.poll(holding).toHaveLength(1)
+    tab.state(snap('a', { paused: true }, { userPaused: true }))
+    await expect.poll(holding, { message: 'stopped, the queue still holding it' }).toHaveLength(0)
+  })
+
+  it('does not ask for a finished torrent the queue holds', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.state(snap('a', { paused: true }))
+    await page()
+    await expect.poll(holding).toHaveLength(1)
+    // libtorrent's state 4 is finished, every chosen file held
+    tab.state(snap('a', { state: 5, paused: true }), snap('b', { state: 4, paused: true }))
+    await expect.poll(holding).toHaveLength(0)
+  })
+
+  it('does not ask for a queued temporary torrent', async () => {
+    const tab = engine()
+    running.client = tab.client
+    tab.list(entry('a', { ephemeral: true }))
+    tab.state(snap('a', { paused: true }))
+    await page()
+    expect(holding()).toHaveLength(0)
+    tab.list(entry('a'))
+    await expect.poll(holding, { message: 'once added for good, it counts' }).toHaveLength(1)
   })
 
   it('does not ask for a temporary torrent, which the person did not add', async () => {
