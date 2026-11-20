@@ -3,6 +3,12 @@ import type { KeptButtons } from './switches'
 
 export const LABEL_MAX = 40
 export const ICON_BYTES = 4 * 1024
+/** How long a plugin gets to answer `buttons`, after which the buttons kept stay. */
+export const BUTTONS_MS = 5_000
+/** How often `ui.buttonsChanged()` counts. */
+export const BUTTONS_CHANGED_MS = 1_000
+/** How long a click waits for the plugin, while it connects and while it answers, before one line says it did not. */
+export const CLICK_MS = 10_000
 /** A plugin's buttons in each place. */
 export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = { header: 1, 'row-menu': 3, settings: 1 }
 /** The plugins whose header button is drawn in the header, in install order; the rest are in its More menu. */

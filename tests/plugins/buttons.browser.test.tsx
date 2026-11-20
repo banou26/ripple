@@ -31,7 +31,8 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { BUTTONS_CHANGED_MS, CLICK_MS, removePlugin } = await import('../../src/plugins/host')
+const { BUTTONS_CHANGED_MS, CLICK_MS } = await import('../../src/plugins/buttons')
+const { removePlugin } = await import('../../src/plugins/host')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')

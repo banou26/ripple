@@ -136,6 +136,13 @@ Leaving out `sandbox` works too.
 
 Why each part works the way it does is in [docs/embedding.md](./docs/embedding.md).
 
+## Plugins
+
+A plugin is an FKN package a person adds in Settings, under Plugins: it uses only the switches the person turned on
+for it, and puts its buttons in Ripple's header, a torrent's menu and its row in Settings. Ripple keeps no list of
+plugins of its own. [Writing a plugin](docs/plugins.md) has the contract, `ripple-plugin@1`, whose types
+`@banou/ripple` exports, and [`examples/group-by-tracker`](examples/group-by-tracker) is a whole one.
+
 ## Privacy
 
 Ripple needs no account and runs no analytics. Your list, its groups and your files stay in your

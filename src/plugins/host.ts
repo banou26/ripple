@@ -10,7 +10,7 @@ import { isRightToLeft, onLanguageShown, shownLanguage } from '../i18n'
 import { getTorrentClient, runningTorrentClient } from '../torrent/client'
 import { onVpnChange, vpnOn } from '../torrent/vpn-setting'
 import { isFramed } from '../utils/framed'
-import { cleanButtons } from './buttons'
+import { BUTTONS_CHANGED_MS, BUTTONS_MS, cleanButtons, CLICK_MS } from './buttons'
 import { rippleFor } from './calls'
 import { createFeed } from './feed'
 import { answer, answeredUris, answersOf, anyPlugin, forget, keepButtons, keptButtons, OFFERED_SWITCHES } from './switches'
@@ -21,12 +21,6 @@ export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
 export const CONNECT_MS = 30_000
 /** How long after its frame closed a plugin is connected again, once FKN still lists it. */
 export const RECONNECT_MS = 3_000
-/** How long a plugin gets to answer `buttons`, after which the buttons kept stay. */
-export const BUTTONS_MS = 5_000
-/** How often `ui.buttonsChanged()` counts. */
-export const BUTTONS_CHANGED_MS = 1_000
-/** How long a click waits for the plugin, while it connects and while it answers, before one line says it did not. */
-export const CLICK_MS = 10_000
 // FKN's list never settles when no broker answers
 const LIST_MS = 5_000
 const NOTICE_MS = 2_600
