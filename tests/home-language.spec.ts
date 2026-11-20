@@ -1661,6 +1661,7 @@ test.describe('the header', () => {
     await field(page).click()
     await expect(field(page)).toBeFocused()
     await expect(gear, 'the unfolded field covers the gear').toHaveCSS('opacity', '0')
+    expect(await field(page).evaluate(input => getComputedStyle(input, '::placeholder').color), 'the unfolded field shows its hint, muted').toBe('rgb(150, 150, 150)')
 
     await page.keyboard.type('season')
     await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
