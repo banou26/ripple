@@ -152,13 +152,14 @@ describe('the header', () => {
 })
 
 describe('the header\'s room', () => {
-  // a header laid out as the library's, 600 px wide, its plugins' buttons 38 px each
+  // a header laid out as the library's, 600 px wide, its plugins' buttons 38 px each and out of its row once wrapped
   const room = () => document.querySelector('header')!
   const own = () => room().firstElementChild as HTMLElement
   let tools: HTMLStyleElement
   beforeEach(() => {
     tools = document.createElement('style')
     tools.textContent = 'header .tool { flex: none; width: 38px; height: 38px; padding: 0 } header .word { display: inline-block; width: 200px }'
+      + ' header[data-plugins-wrapped] > .plugins { position: absolute }'
     document.head.append(tools)
   })
   afterEach(() => { tools.remove() })
