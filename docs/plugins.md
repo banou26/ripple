@@ -175,3 +175,17 @@ export default defineConfig({
   build: { target: 'esnext', lib: { entry: 'src/index.ts', formats: ['es'], fileName: () => 'index.js' } },
 })
 ```
+
+## Testing locally
+
+1. Without FKN: hand the plugin a stand-in for `@fkn/lib/packages`, as Ripple's own tests do.
+   [`tests/plugins/packages-double.ts`](../tests/plugins/packages-double.ts) connects a plugin to Ripple over a
+   `MessageChannel`, the way fkn.app's broker does, and
+   [`tests/plugins/example.browser.test.tsx`](../tests/plugins/example.browser.test.tsx) drives the example through it.
+2. In Ripple: serve the folder that holds the plugin's `package.json` and its bundle over HTTPS, and add the plugin in
+   Settings by its `https:` address, such as `https:plugins.example.com/group-by-tracker`.
+3. For each new build, raise the `version` in its `package.json` and press Update on the plugin's row. FKN runs the
+   version it pinned, so a build under the same version is not loaded.
+
+A `localhost:<port>` address, which reads a dev server on your machine, works only with an FKN that runs on your machine
+too. torrent.fkn.app refuses it.

@@ -5,6 +5,8 @@ import readme from '../../README.md?raw'
 // keyed by each message's English
 import catalogue from '../../src/locales/he.json'
 
+import { existsSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import { BUTTONS_CHANGED_MS, BUTTONS_MS, CLICK_MS, HEADER_INLINE, ICON_BYTES, LABEL_MAX, PER_PLUGIN } from '../../src/plugins/buttons'
@@ -34,6 +36,17 @@ describe('the author page', () => {
       .filter(([name]) => !['header', 'row-menu', 'settings'].includes(name!))
     expect(rows.map(([name]) => name)).toEqual([...OFFERED_SWITCHES])
     for (const [, words] of rows) expect(Object.keys(catalogue), words).toContain(words)
+  })
+
+  it('gives the steps for testing a plugin locally, and each file they name is there', () => {
+    const steps = plugins.slice(plugins.indexOf('## Testing locally'))
+    expect(plugins).toContain('## Testing locally')
+    expect(steps).toContain('by its `https:` address')
+    expect(steps).toContain('raise the `version`')
+    expect(steps).toContain('A `localhost:<port>` address')
+    const named = [...steps.matchAll(/\]\(\.\.\/([^)]+)\)/g)].map(([, path]) => path!)
+    expect(named).toEqual(['tests/plugins/packages-double.ts', 'tests/plugins/example.browser.test.tsx'])
+    for (const path of named) expect(existsSync(new URL(`../../${path}`, import.meta.url)), path).toBe(true)
   })
 
   it('is linked from the README, with the example', () => {
