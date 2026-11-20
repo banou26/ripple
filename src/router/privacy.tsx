@@ -9,7 +9,7 @@ const Privacy = () => (
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
       everything on your device, and neither Ripple nor FKN stores anything about you on a
-      server.
+      server. A plugin you add may, as its publisher decides.
     </p>
 
     <h2>What Ripple stores on your device</h2>
@@ -87,11 +87,35 @@ const Privacy = () => (
       site keeps its own.
     </p>
 
+    <h2>Plugins</h2>
+    <p>
+      A plugin you add runs apart from Ripple and can use only what you turned on for it in
+      Settings. Depending on that, it can see your torrent list, add torrents, pause, change or
+      group them, add trackers to them (which tells those trackers about the torrent), and see
+      your connection status. A plugin can send what it sees to its publisher or to any site.
+      Ripple hands it nothing of your FKN account, never the keys in private trackers&rsquo;
+      addresses, and nothing of other plugins.
+    </p>
+    <p>
+      A plugin makes its own requests to the sites it uses. Ripple tells each plugin whether the
+      VPN is on, and plugins must send their requests through the FKN relay while it is. Ripple
+      cannot check that a plugin does, so a plugin may show your IP address to the sites it
+      reaches. Torrents a plugin adds download like your own, through the relay while the VPN is
+      on, and count toward your daily FKN quota.
+    </p>
+    <p>
+      On this device, FKN keeps which plugins you added, and Ripple keeps what you turned on for
+      each one and the data each plugin asks it to keep. Removing a plugin in Settings deletes all
+      of it; the torrents it added stay in your list. What a plugin keeps elsewhere is up to its
+      publisher.
+    </p>
+
     <h2>Your control</h2>
     <p>
       Removing a torrent deletes its data from your browser&rsquo;s storage. Files in a folder
       on your disk, and the files you made a torrent from, stay where they are. Clearing this
-      site&rsquo;s data in your browser removes everything Ripple stored in your browser.
+      site&rsquo;s data in your browser removes everything Ripple stored in your browser. The
+      plugins you added are kept by FKN on this device, so remove them in Settings first.
     </p>
     <p>
       Ripple itself has no account to delete. Disconnecting your FKN account stops the sync.

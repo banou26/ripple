@@ -101,3 +101,50 @@ describe('the legal page', () => {
     expect(container.textContent).not.toMatch(/\. Peer traffic is forwarded through the FKN relay/)
   })
 })
+
+/*
+ * RIPPLE-1's words, as the owner approved them on 2026-11-20: plugins can add torrents, so the legal page no longer
+ * says every torrent is the person's own, and the privacy page says what a plugin can see while it is switched on.
+ * Slice 1's privacy words only: reading files, the folder, removing and peers come with the switches that reach them.
+ */
+const sectionOf = (container: HTMLElement, heading: string) => {
+  const h2 = [...container.querySelectorAll('h2')].find((h) => h.textContent === heading)
+  const paragraphs: string[] = []
+  for (let next = h2?.nextElementSibling; next && next.tagName === 'P'; next = next.nextElementSibling) paragraphs.push(next.textContent.replace(/\s+/g, ' ').trim())
+  return paragraphs
+}
+
+describe('the legal page, on plugins', () => {
+  it('says ripple keeps no catalog of its own, plugins are others\' work, and a concern about one goes to its publisher', async () => {
+    const { default: Legal } = await import('../../src/router/legal')
+    const { container } = await render(<MemoryRouter><Legal/></MemoryRouter>)
+    expect(sectionOf(container, 'No hosted content')).toEqual([
+      'Ripple hosts no torrents and no media. It has no search, no index, no tracker, and no catalog of its own. You supply the magnet links and .torrent files yourself, or through a plugin you added, and transfers happen between your browser and the other peers in each torrent’s swarm. Downloaded data is stored only in your browser’s storage, on your device.',
+    ])
+    expect(sectionOf(container, 'Plugins')).toEqual([
+      'You can add plugins to Ripple. The plugins in FKN’s package list, which shows packages published on npm, are published by others: Ripple and FKN do not write, review or endorse them, and are not responsible for what a plugin shows, finds, adds or does. Ripple keeps no list of its own. A plugin can use only what you turn on for it in Settings, and you can turn any of that off, or remove the plugin, at any time. You are responsible for the plugins you add and for the torrents they add for you, as for the ones you add yourself.',
+    ])
+    expect(sectionOf(container, 'Rights holders')[0]).toContain('does not pass through FKN at all. A plugin that finds or adds torrents is published by its own publisher and runs in your browser, apart from Ripple. A concern about a plugin goes to its publisher. If you have a concern about the relay itself, contact admin@fkn.app.')
+    expect(container.textContent, 'the optional sentence the owner left out').not.toContain('switch a plugin off')
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 20 November 2026')
+  })
+})
+
+describe('the privacy page, on plugins', () => {
+  it('says what a plugin can see once switched on, that the VPN rule is the plugin\'s to keep, and what is kept where', async () => {
+    const screen = await privacy()
+    const { container } = screen
+    expect(sectionOf(container, 'Plugins')).toEqual([
+      'A plugin you add runs apart from Ripple and can use only what you turned on for it in Settings. Depending on that, it can see your torrent list, add torrents, pause, change or group them, add trackers to them (which tells those trackers about the torrent), and see your connection status. A plugin can send what it sees to its publisher or to any site. Ripple hands it nothing of your FKN account, never the keys in private trackers’ addresses, and nothing of other plugins.',
+      'A plugin makes its own requests to the sites it uses. Ripple tells each plugin whether the VPN is on, and plugins must send their requests through the FKN relay while it is. Ripple cannot check that a plugin does, so a plugin may show your IP address to the sites it reaches. Torrents a plugin adds download like your own, through the relay while the VPN is on, and count toward your daily FKN quota.',
+      'On this device, FKN keeps which plugins you added, and Ripple keeps what you turned on for each one and the data each plugin asks it to keep. Removing a plugin in Settings deletes all of it; the torrents it added stay in your list. What a plugin keeps elsewhere is up to its publisher.',
+    ])
+    const text = container.textContent.replace(/\s+/g, ' ')
+    expect(text).toContain('neither Ripple nor FKN stores anything about you on a server. A plugin you add may, as its publisher decides.')
+    expect(text).toContain('removes everything Ripple stored in your browser. The plugins you added are kept by FKN on this device, so remove them in Settings first.')
+    for (const later of ['read and play your downloaded files', 'move them to and from your folder', 'remove torrents', 'addresses of the peers']) {
+      expect(text, `slice 3's words wait for slice 3: ${later}`).not.toContain(later)
+    }
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 20 November 2026')
+  })
+})
