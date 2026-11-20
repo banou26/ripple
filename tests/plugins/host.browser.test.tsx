@@ -28,11 +28,10 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { CONNECT_MS, RECONNECT_MS, addByAddress, connectPlugin, removePlugin } = await import('../../src/plugins/host')
+const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, addByAddress, connectPlugin, removePlugin } = await import('../../src/plugins/host')
 const { InstallSheet, PluginHost } = await import('../../src/plugins/plugin-host')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')
 const { answer, answersOf, storeKey } = await import('../../src/plugins/switches')
-const { PLUGIN_PROTOCOL } = await import('../../src/plugins/contract')
 const { storeVpn } = await import('../../src/torrent/vpn-setting')
 
 const A = 'a'.repeat(40)

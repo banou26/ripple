@@ -1,14 +1,11 @@
-/** The protocol tag ripple connects a plugin with. A breaking change is `ripple-plugin@2`. */
-export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
+// The ripple-plugin@1 contract, published as @banou/ripple's types: types only, importing nothing, so the published
+// declaration stands alone (scripts/check-npm-package.mjs refuses one that declares a value or imports a module).
 
 /**
  * What a plugin may ask the person for, one switch per group of calls. Each starts off and the person turns it on per
  * plugin; a call whose switch is off rejects with `not-allowed`.
  */
 export type Switch = 'read' | 'add' | 'change' | 'remove' | 'files' | 'folder' | 'peers' | 'network'
-
-/** The switches this version of ripple offers. A plugin asking for another one is not asked about it yet. */
-export const OFFERED_SWITCHES: readonly Switch[] = ['read', 'add', 'change']
 
 /** The reasons a call rejects with, as its error's message. */
 export type PluginError = 'not-allowed' | 'not-found' | 'unavailable' | 'invalid' | 'full'

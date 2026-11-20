@@ -10,10 +10,9 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, FOCUS_RING, TEXT,
   TEXT_MUTED,
 } from '../theme'
-import { OFFERED_SWITCHES } from './contract'
 import { addByAddress, browsePlugins, listPlugins, removePlugin, updatePlugin, usePlugins } from './host'
 import { switchLabel } from './plugin-host'
-import { answer, anyPlugin, useAnswers } from './switches'
+import { answer, anyPlugin, OFFERED_SWITCHES, useAnswers } from './switches'
 
 const style = css`
   display: flex;

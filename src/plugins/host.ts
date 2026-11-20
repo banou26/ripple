@@ -11,9 +11,11 @@ import { getTorrentClient, runningTorrentClient } from '../torrent/client'
 import { onVpnChange, vpnOn } from '../torrent/vpn-setting'
 import { isFramed } from '../utils/framed'
 import { rippleFor } from './calls'
-import { OFFERED_SWITCHES, PLUGIN_PROTOCOL } from './contract'
 import { createFeed } from './feed'
-import { answer, answeredUris, answersOf, anyPlugin, forget } from './switches'
+import { answer, answeredUris, answersOf, anyPlugin, forget, OFFERED_SWITCHES } from './switches'
+
+/** The protocol tag ripple connects a plugin with. A breaking change is `ripple-plugin@2`. */
+export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
 
 /** How long a plugin gets to connect before its row reads Not responding, as fkn.app's own limit. */
 export const CONNECT_MS = 30_000

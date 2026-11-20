@@ -3,6 +3,9 @@ import type { Switch } from './contract'
 import { useSyncExternalStore } from 'react'
 import { del, get, update } from 'idb-keyval'
 
+/** The switches this version of ripple offers. A plugin asking for another one is not asked about it yet. */
+export const OFFERED_SWITCHES: readonly Switch[] = ['read', 'add', 'change']
+
 /** Each plugin's answers by its uri: a switch present was answered, on or off. Absent means never asked. */
 export type Answers = Partial<Record<Switch, boolean>>
 type Stored = Record<string, Answers>
