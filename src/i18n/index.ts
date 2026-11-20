@@ -12,7 +12,7 @@ import type { Said } from './said'
 
 import { formatLocale, isRightToLeft, keepPickedLanguage, setUnitLocale, uiLanguage } from './languages'
 
-export { LANGUAGE_KEY, OFFERED, automaticLanguage, bestLanguage, formatLocale, isRightToLeft, readPickedLanguage, uiLanguage } from './languages'
+export { LANGUAGE_KEY, OFFERED, automaticLanguage, bestLanguage, formatLocale, isRightToLeft, latinDigits, readPickedLanguage, uiLanguage } from './languages'
 export type { Said } from './said'
 
 /** A language's text by message id. */

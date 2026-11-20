@@ -93,7 +93,7 @@ export const linkLanguages = (params: URLSearchParams): LinkLanguages => {
 
 /**
  * The first of the browser's languages the player has text in. With none, the player is given no language rather than
- * one it would write only its numbers in (an Arabic browser's digits inside English labels).
+ * one it would write only its numbers in (a Finnish browser's `0,5x` among English labels).
  */
 export const browserLanguage = () => navigator.languages.map(playerLanguage).find(Boolean)
 

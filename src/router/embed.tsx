@@ -13,7 +13,7 @@ import normalizerWorkletUrl from '@banou/media-player/volume-normalizer-worklet.
 import { PAGE_BG, TEXT, VIDEO_SCRIM, VIDEO_TEXT_SHADOW, WARN } from '../theme'
 import { getHumanReadableByteString, getHumanReadableSpeed } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
-import { isRightToLeft, readPickedLanguage } from '../i18n'
+import { isRightToLeft, latinDigits, readPickedLanguage } from '../i18n'
 import { downloadedByteRanges } from '../torrent/downloaded-ranges'
 import { magnetInfoHash } from '../torrent/magnet'
 import { snapshotState } from '../torrent/use-torrents'
@@ -841,6 +841,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     </div>
   )
 
+  const playerLanguage = linked.language ?? readPickedLanguage() ?? browserLanguage()
   return (
     <div css={playerStyle} ref={box} dir="ltr">
       <MediaPlayer
@@ -872,7 +873,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
         onPreferredAudioLanguageChange={(audio) => chooseLanguage({ audio })}
         onPreferredSubtitleLanguageChange={(subtitles) => chooseLanguage({ subtitles })}
         onAlwaysShowSubtitlesChange={(alwaysSubtitles) => chooseLanguage({ alwaysSubtitles })}
-        language={linked.language ?? readPickedLanguage() ?? browserLanguage()}
+        language={playerLanguage && latinDigits(playerLanguage)}
         autoplay={true}
         overlay={overlay}
         downloadedRanges={downloadedRanges}

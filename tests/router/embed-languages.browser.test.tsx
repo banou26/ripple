@@ -116,10 +116,11 @@ describe('the languages on /watch', () => {
 
 describe('the language of the player on /watch', () => {
   const browser = (...languages: string[]) => vi.spyOn(navigator, 'languages', 'get').mockReturnValue(languages)
+  /** The language handed to the player, but for the digits every one is given, which a test of its own reads. */
   const shown = async (search?: string) => {
     await mount(search)
     await expect.poll(() => seen.length).toBeGreaterThan(0)
-    return latest().language
+    return latest().language && new Intl.Locale(latest().language!).baseName
   }
 
   afterEach(() => { vi.restoreAllMocks() })
@@ -159,12 +160,20 @@ describe('the language of the player on /watch', () => {
     await shown('&language=fr')
     embedder.ask({ ripple: 'open', magnet: 'magnet:?xt=urn:btih:def', fileIndex: 2 })
     await expect.poll(() => playing[playing.length - 1]).toBe(2)
-    await expect.poll(() => latest().language).toBe('fr')
+    await expect.poll(() => latest().language).toBe('fr-u-nu-latn')
   })
 
   it('is what Intl writes, never the link\'s own spelling', async () => {
     browser('de-DE')
     expect(await shown('&language=FR-ca-u-nu-arab')).toBe('fr-CA')
+  })
+
+  it('writes its numbers in the digits 0 to 9, as the page does, whatever the browser\'s region or the link say', async () => {
+    browser('ar-EG')
+    await shown()
+    expect(latest().language).toBe('ar-EG-u-nu-latn')
+    await shown('&language=FR-ca-u-nu-arab')
+    expect(latest().language).toBe('fr-CA-u-nu-latn')
   })
 
   it('is the one picked in Ripple over the browser\'s, and the link\'s over the pick', async () => {

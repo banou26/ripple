@@ -125,3 +125,15 @@ test.describe('in a Persian browser', () => {
     await expect(page.getByText('0.5x', { exact: true })).toBeVisible()
   })
 })
+
+test.describe('in an Egyptian browser', () => {
+  test.use({ locale: 'ar-EG' })
+
+  // the labels in Arabic, their numbers in 0 to 9 rather than Egypt's own ٠٫٥
+  test('the speed menu writes its rates in the digits 0 to 9', async ({ page }) => {
+    await page.goto(watch())
+    await page.getByLabel('الإعدادات', { exact: true }).click()
+    await page.getByText('سرعة التشغيل', { exact: true }).click()
+    await expect(page.getByText('0.5x', { exact: true })).toBeVisible()
+  })
+})
