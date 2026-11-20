@@ -85,10 +85,11 @@ export interface TorrentOptionContext {
    * chose; against OPFS alone it promises to keep something that is not keepable, and quietly
    * leaves the origin quota spent on data nobody can ever open again.
    *
-   * The auto-save mirror is the signal actually available. A one-off "Save to disk" also puts the
-   * bytes somewhere real, and leaves no state to observe, so it is not counted; the cost of that is
-   * an option hidden from someone who could have used it, which is the safe direction to be wrong
-   * in.
+   * Two signals count: the engine's save path once the torrent has moved into the folder, which
+   * needs no live grant, and the auto-save mirror of a whole copy there. A one-off "Save to disk"
+   * also puts the bytes somewhere real, and leaves no state to observe, so it is not counted; the
+   * cost of that is an option hidden from someone who could have used it, which is the safe
+   * direction to be wrong in.
    */
   savedToUserStorage: boolean
   /** Where this torrent's files are meant to be, its own choice or the global default. */
