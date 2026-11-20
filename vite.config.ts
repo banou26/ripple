@@ -298,6 +298,8 @@ export default defineConfig((env) => ({
       '@banou/ponyfill/file-system',
       // Same reload, through the engine worker a browser test starts (tests/optimize-deps.test.ts).
       '@fkn/lib/net', '@fkn/lib/dgram', '@fkn/lib/dns', '@fkn/lib/websocket',
+      // the plugins' connections
+      '@fkn/lib/packages',
       // and its WebRTC half, the only importer of these two
       'libtorrent-wasm/webtorrent', 'libtorrent-wasm/webrtc',
       // And again with no build/ (CI, a fresh clone): the player's GET /build/libav-worker.js falls

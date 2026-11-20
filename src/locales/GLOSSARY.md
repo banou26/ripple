@@ -136,36 +136,37 @@ Descărcare, Încărcare; `hu` Letöltés, Feltöltés; `ms` Muat turun, Muat na
 
 The library is the list of torrents ripple keeps. A share link opens one torrent on somebody else's device. A temporary
 download is one the library does not keep. A group is a named set of torrents in the library, never the folder a
-download is saved in.
+download is saved in. A plugin is a package someone publishes for ripple and a person adds in Settings, never the FKN
+browser extension.
 
-| | library | share link | temporary download | group |
-| --- | --- | --- | --- | --- |
-| `es-419` | biblioteca | enlace para compartir | descarga temporal | grupo |
-| `pt-BR` | biblioteca | link de compartilhamento | download temporário | grupo |
-| `fr` | bibliothèque | lien de partage | téléchargement temporaire | groupe |
-| `de` | Bibliothek | Freigabelink | temporärer Download | Gruppe |
-| `it` | libreria | link di condivisione | download temporaneo | gruppo |
-| `ru` | библиотека | ссылка для общего доступа | временная загрузка | группа |
-| `ja` | ライブラリ | 共有リンク | 一時的なダウンロード | グループ |
-| `ko` | 라이브러리 | 공유 링크 | 임시 다운로드 | 그룹 |
-| `zh-Hans` | 资料库 | 分享链接 | 临时下载 | 分组 |
-| `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 | 分組 |
-| `tr` | kütüphane | paylaşım bağlantısı | geçici indirme | grup |
-| `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie | grupa |
-| `ar` | المكتبة | رابط مشاركة | تنزيل مؤقت | مجموعة |
-| `he` | ספרייה | קישור שיתוף | הורדה זמנית | קבוצה |
-| `id` | pustaka | tautan berbagi | unduhan sementara | grup |
-| `vi` | thư viện | liên kết chia sẻ | bản tải tạm thời | nhóm |
-| `th` | คลัง | ลิงก์แชร์ | การดาวน์โหลดชั่วคราว | กลุ่ม |
-| `hi` | लाइब्रेरी | शेयर लिंक | अस्थायी डाउनलोड | ग्रुप |
-| `uk` | бібліотека | посилання для спільного доступу | тимчасове завантаження | група |
-| `nl` | bibliotheek | deellink | tijdelijke download | groep |
-| `sv` | bibliotek | delningslänk | tillfällig hämtning | grupp |
-| `cs` | knihovna | odkaz ke sdílení | dočasné stahování | skupina |
-| `el` | βιβλιοθήκη | σύνδεσμος κοινοποίησης | προσωρινή λήψη | ομάδα |
-| `ro` | bibliotecă | link de partajare | descărcare temporară | grup |
-| `hu` | könyvtár | megosztási link | ideiglenes letöltés | csoport |
-| `ms` | pustaka | pautan kongsi | muat turun sementara | kumpulan |
+| | library | share link | temporary download | group | plugin |
+| --- | --- | --- | --- | --- | --- |
+| `es-419` | biblioteca | enlace para compartir | descarga temporal | grupo | complemento |
+| `pt-BR` | biblioteca | link de compartilhamento | download temporário | grupo | plugin |
+| `fr` | bibliothèque | lien de partage | téléchargement temporaire | groupe | plugin |
+| `de` | Bibliothek | Freigabelink | temporärer Download | Gruppe | Plugin |
+| `it` | libreria | link di condivisione | download temporaneo | gruppo | plugin |
+| `ru` | библиотека | ссылка для общего доступа | временная загрузка | группа | плагин |
+| `ja` | ライブラリ | 共有リンク | 一時的なダウンロード | グループ | プラグイン |
+| `ko` | 라이브러리 | 공유 링크 | 임시 다운로드 | 그룹 | 플러그인 |
+| `zh-Hans` | 资料库 | 分享链接 | 临时下载 | 分组 | 插件 |
+| `zh-Hant` | 資料庫 | 分享連結 | 暫時下載 | 分組 | 外掛 |
+| `tr` | kütüphane | paylaşım bağlantısı | geçici indirme | grup | eklenti |
+| `pl` | biblioteka | link do udostępniania | tymczasowe pobieranie | grupa | wtyczka |
+| `ar` | المكتبة | رابط مشاركة | تنزيل مؤقت | مجموعة | ملحق |
+| `he` | ספרייה | קישור שיתוף | הורדה זמנית | קבוצה | תוסף |
+| `id` | pustaka | tautan berbagi | unduhan sementara | grup | plugin |
+| `vi` | thư viện | liên kết chia sẻ | bản tải tạm thời | nhóm | plugin |
+| `th` | คลัง | ลิงก์แชร์ | การดาวน์โหลดชั่วคราว | กลุ่ม | ปลั๊กอิน |
+| `hi` | लाइब्रेरी | शेयर लिंक | अस्थायी डाउनलोड | ग्रुप | प्लगइन |
+| `uk` | бібліотека | посилання для спільного доступу | тимчасове завантаження | група | плагін |
+| `nl` | bibliotheek | deellink | tijdelijke download | groep | plug-in |
+| `sv` | bibliotek | delningslänk | tillfällig hämtning | grupp | tillägg |
+| `cs` | knihovna | odkaz ke sdílení | dočasné stahování | skupina | plugin |
+| `el` | βιβλιοθήκη | σύνδεσμος κοινοποίησης | προσωρινή λήψη | ομάδα | πρόσθετο |
+| `ro` | bibliotecă | link de partajare | descărcare temporară | grup | plugin |
+| `hu` | könyvtár | megosztási link | ideiglenes letöltés | csoport | bővítmény |
+| `ms` | pustaka | pautan kongsi | muat turun sementara | kumpulan | pemalam |
 
 ## The VPN switch
 

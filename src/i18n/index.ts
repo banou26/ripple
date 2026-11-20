@@ -68,6 +68,9 @@ const listen = (listener: () => void) => {
   return () => { listeners.delete(listener) }
 }
 
+/** Calls `listener` each time startLanguage() changes the language shown. Returns the function that stops it. */
+export const onLanguageShown = listen
+
 /** Gives every component under it the page's intl, and renders them again, in place, when startLanguage() changes it. */
 export const IntlRoot = ({ children }: { children?: ReactNode }) =>
   createElement(RawIntlProvider, { value: useSyncExternalStore(listen, () => intl) }, children)

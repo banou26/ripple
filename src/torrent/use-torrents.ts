@@ -325,6 +325,40 @@ const startingToTorrent = (e: Persisted): Torrent => ({
   state: 'starting',
 })
 
+/**
+ * The library's rows: what the engine runs, with what its library entry knows, then the entries it does not run. Its
+ * figures are counted over the files each entry chose, and its text written by `words`.
+ */
+export const libraryRows = (snaps: TorrentSnapshot[], list: Persisted[], words: IntlShape, now = Date.now()): Torrent[] => {
+  // the intent lives in the library row and the engine knows nothing about it, so it is attached
+  // here; snapshotToTorrent is given only the chosen files, which its figures are counted over
+  const entryByHash = new Map(list.map((e) => [e.infoHash, e]))
+  const live = snaps.map((s) => {
+    const hash = magnetInfoHash(s.magnet)
+    const entry = hash ? entryByHash.get(hash) : undefined
+    const t = snapshotToTorrent(s, now, words, entry?.wantedFiles)
+    return entry
+      ? {
+        ...t,
+        saveTo: entry.saveTo,
+        created: entry.created === true,
+        ephemeral: entry.ephemeral === true,
+        // the entry's clock wins over the engine's: it survives a restart, it is already in
+        // milliseconds, and it is the one a ghost row has too, so a sort on it is not comparing
+        // two different clocks depending on whether the engine has got to a row yet
+        addedAt: entry.addedAt ?? t.addedAt,
+        wantedFiles: entry.wantedFiles,
+        firstLast: entry.firstLast === true,
+        forced: entry.forced === true,
+        downloadLimit: entry.downloadLimit,
+        uploadLimit: entry.uploadLimit,
+      }
+      : t
+  })
+  const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
+  return [...live, ...rowsForEntriesNotInTheEngine(list, liveHashes)]
+}
+
 export type UseTorrents = {
   torrents: Torrent[]
   /** The library as stored, which carries entries no engine row exists for. */
@@ -437,37 +471,7 @@ export const useTorrents = (): UseTorrents => {
     return () => { offReachable(); offTransport(); offInbound(); offDht(); offUnavailable(); offWorkerError(); offReset(); offList(); offState() }
   }, [client])
 
-  const torrents = useMemo(() => {
-    // one clock for the whole list, so every retry countdown in a render agrees
-    const now = Date.now()
-    // the intent lives in the library row and the engine knows nothing about it, so it is attached
-    // here; snapshotToTorrent is given only the chosen files, which its figures are counted over
-    const entryByHash = new Map(list.map((e) => [e.infoHash, e]))
-    const live = snaps.map((s) => {
-      const hash = magnetInfoHash(s.magnet)
-      const entry = hash ? entryByHash.get(hash) : undefined
-      const t = snapshotToTorrent(s, now, words, entry?.wantedFiles)
-      return entry
-        ? {
-          ...t,
-          saveTo: entry.saveTo,
-          created: entry.created === true,
-          ephemeral: entry.ephemeral === true,
-          // the entry's clock wins over the engine's: it survives a restart, it is already in
-          // milliseconds, and it is the one a ghost row has too, so a sort on it is not comparing
-          // two different clocks depending on whether the engine has got to a row yet
-          addedAt: entry.addedAt ?? t.addedAt,
-          wantedFiles: entry.wantedFiles,
-          firstLast: entry.firstLast === true,
-          forced: entry.forced === true,
-          downloadLimit: entry.downloadLimit,
-          uploadLimit: entry.uploadLimit,
-        }
-        : t
-    })
-    const liveHashes = new Set(live.map((t) => t.infoHash).filter(Boolean))
-    return [...live, ...rowsForEntriesNotInTheEngine(list, liveHashes)]
-  }, [snaps, list, words])
+  const torrents = useMemo(() => libraryRows(snaps, list, words), [snaps, list, words])
 
   const addMagnet = useCallback((magnet: string) => { holdWhileStored(); return client.addMagnet(magnet) }, [client])
   const addTorrentFile = useCallback<TorrentClient['addTorrentFile']>((bytes, options) => { holdWhileStored(); return client.addTorrentFile(bytes, options) }, [client])

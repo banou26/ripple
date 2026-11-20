@@ -82,6 +82,23 @@ describe('the stored choice', () => {
     fire('ripple:vpn')
     expect(changed).toHaveBeenCalledTimes(2)
   })
+
+  it('tells a plugin of the change this page made as well as another page\'s, and of no refused one', async () => {
+    const { onVpnChange, storeVpn } = await setting()
+    const changed = vi.fn()
+    const stop = onVpnChange(changed)
+    storeVpn(false)
+    expect(changed).toHaveBeenCalledTimes(1)
+    for (const listener of listeners) listener({ key: 'ripple:vpn' })
+    expect(changed).toHaveBeenCalledTimes(2)
+    refuse.storage = true
+    storeVpn(true)
+    expect(changed).toHaveBeenCalledTimes(2)
+    stop()
+    refuse.storage = false
+    storeVpn(true)
+    expect(changed).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('Remember this decision', () => {

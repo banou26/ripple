@@ -15,13 +15,16 @@ export const vpnOn = (): boolean => {
   try { return localStorage.getItem(KEY) !== 'off' } catch { return true }
 }
 
+const stored = new Set<() => void>()
+
 /** Stores the choice. False when the browser refused, and the choice is then unchanged. */
 export const storeVpn = (on: boolean): boolean => {
   try {
     if (on) localStorage.removeItem(KEY)
     else localStorage.setItem(KEY, 'off')
-    return true
   } catch { return false }
+  for (const changed of stored) changed()
+  return true
 }
 
 const REMEMBERED_KEY = 'ripple:vpn-off-remembered'
@@ -52,6 +55,13 @@ export const quotaOfferAnswered = (now = Date.now()): boolean => {
 /** Stores that the offer was answered, so it is not made again before the relay's next day. */
 export const answerQuotaOffer = (now = Date.now()): void => {
   try { localStorage.setItem(QUOTA_OFFER_KEY, String(quotaDay(now))) } catch { /* a browser that refused is asked again on its next page */ }
+}
+
+/** Calls back when this page or another of this storage changes the choice. Returns the function that stops it. */
+export const onVpnChange = (changed: () => void): (() => void) => {
+  stored.add(changed)
+  const off = onVpnStored(changed)
+  return () => { stored.delete(changed); off() }
 }
 
 /** Calls back when another page of this storage changes the choice. Returns the function that stops it. */

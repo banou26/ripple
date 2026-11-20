@@ -160,7 +160,9 @@ export const subscribeGroups = (listener: () => void): (() => void) => {
 }
 
 /** The groups that are not deleted, sorted by name; undefined until this browser's copy has been read. */
-export const useGroups = (): TorrentGroup[] | undefined => useSyncExternalStore(subscribeGroups, () => shown)
+export const currentGroups = (): TorrentGroup[] | undefined => shown
+
+export const useGroups = (): TorrentGroup[] | undefined => useSyncExternalStore(subscribeGroups, currentGroups)
 
 /**
  * One edit: the changed record merged into what is stored, inside one readwrite transaction, so two

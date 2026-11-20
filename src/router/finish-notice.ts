@@ -7,23 +7,24 @@ import { finished } from '../torrent/types'
 import { isFramed } from '../utils/framed'
 
 /**
- * How many of `rows` finished since the look that returned `seen`, and the `seen` to pass to the next look.
+ * How many of `rows` finished since the look that returned `seen`, which ones (`done`), and the `seen` to pass to the
+ * next look.
  *
  * A torrent counts once it has been seen downloading and then reads finished, so a library that starts up already
  * finished counts nothing. A temporary torrent never counts: the person did not add it.
  */
-export const finishes = (seen: ReadonlySet<string>, rows: readonly Torrent[]): { count: number, seen: Set<string> } => {
+export const finishes = (seen: ReadonlySet<string>, rows: readonly Torrent[]): { count: number, seen: Set<string>, done: string[] } => {
   const next = new Set<string>()
-  let count = 0
+  const done: string[] = []
   for (const t of rows) {
     if (!t.infoHash || t.ephemeral === true) continue
     if (finished(t)) {
-      if (seen.has(t.infoHash)) count++
+      if (seen.has(t.infoHash)) done.push(t.infoHash)
     } else if (seen.has(t.infoHash) || t.state === 'downloading' || t.state === 'retrying') {
       next.add(t.infoHash)
     }
   }
-  return { count, seen: next }
+  return { count: done.length, seen: next, done }
 }
 
 const ICON_SIZE = 64
