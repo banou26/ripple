@@ -1523,9 +1523,9 @@ const headerRows = (page: Page) => page.locator('header').evaluate((header) => {
 /**
  * The add field in the header's row, measured along the line, so from the window's right edge in Arabic and Hebrew:
  * whether the line runs right to left, the room the row leaves the field, between the logo and Create less a gap each
- * side, its pill's width and how far after the logo it starts, the width its text is drawn in and its hint's, and the
- * least space between two neighbours shown (the logo, the field's pill, Create, the gear and the account) and how far
- * along the line the last of them reaches.
+ * side, its pill's width, how far after the logo it starts and how far short of the header's end it stops, the width
+ * its text is drawn in and its hint's, and the least space between two neighbours shown (the logo, the field's pill,
+ * Create, the gear and the account) and how far along the line the last of them reaches.
  */
 const fieldInRow = (page: Page) => page.locator('header').evaluate((header) => {
   const gap = parseFloat(getComputedStyle(header).columnGap)
@@ -1547,6 +1547,7 @@ const fieldInRow = (page: Page) => page.locator('header').evaluate((header) => {
     room: after[0]!.left - brand.right - 2 * gap,
     pill: pill.width,
     afterLogo: pill.left - brand.right,
+    short: along(header).right - pill.right,
     text: input.getBoundingClientRect().width,
     content: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
     hint: pen.measureText(input.placeholder).width,
@@ -1630,6 +1631,7 @@ test.describe('the header', () => {
           const unfoldedRow = await fieldInRow(page)
           expect(unfoldedRow.room, `${at}: unfolding moves nothing in the row`).toBe(row.room)
           expect(unfoldedRow.afterLogo, `${at}: the unfolded field starts a gap after the logo`).toBeGreaterThanOrEqual(least)
+          if (!fits) expect(Math.abs(unfoldedRow.short - 8), `${at}: the unfolded field ends 8 px short of the header's end, ${unfoldedRow.short} px`).toBeLessThan(1)
           if (!fits) expect(unfoldedRow.text, `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
           else expect(unfoldedRow.pill, `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
 
