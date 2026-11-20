@@ -43,13 +43,13 @@ const isHashList = (value: unknown): value is string[] => Array.isArray(value) &
 
 const kept = (t: Torrent): t is Torrent & { infoHash: string } => !!t.infoHash && t.ephemeral !== true
 
-const answerOf = (client: TorrentClient, addId: string) => new Promise<boolean>((resolve) => {
-  const timer = setTimeout(() => { off(); resolve(false) }, ADD_ANSWER_MS)
+const answerOf = (client: TorrentClient, addId: string) => new Promise<AddResult['outcome']>((resolve) => {
+  const timer = setTimeout(() => { off(); resolve('failed') }, ADD_ANSWER_MS)
   const off = client.onAddAnswer((answer) => {
     if (answer.addId !== addId) return
     clearTimeout(timer)
     off()
-    resolve(answer.added)
+    resolve(answer.already ? 'already' : answer.added ? 'added' : 'failed')
   })
 })
 
@@ -141,7 +141,7 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
         saveTo: location === 'browser' || location === 'folder' ? location : undefined,
       })
     }
-    return { ...answer, outcome: (await settled) ? 'added' : 'failed' }
+    return { ...answer, outcome: await settled }
   }
 
   const ripple: Ripple = {

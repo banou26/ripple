@@ -2290,9 +2290,30 @@ const startEntries = async (session: Session, infoHashes: unknown[]) => {
   await patchEntries(patches)
 }
 
-// an add a plugin made carries an id, and its answer names it, so the tab that asked can settle it and no tab shows it
-const answerAdd = (m: { addId?: unknown }, msg: { type: 'added' | 'add-failed', [key: string]: unknown }) =>
-  post(typeof m.addId === 'string' ? { ...msg, addId: m.addId } : msg)
+// an add a plugin made carries an id, and its answer names it, so the tab that asked can settle it and no tab shows it;
+// `already` says the library kept the torrent before this add
+const answerAdd = (m: { addId?: unknown }, msg: { type: 'added' | 'add-failed', [key: string]: unknown }, already = false) =>
+  post(typeof m.addId === 'string' ? { ...msg, addId: m.addId, ...(already && { already }) } : msg)
+
+// a deliberate re-add promotes a cache entry to a library one, which is the only gesture there is for keeping
+// something the budget pass would otherwise be free to reclaim
+const keepInLibrary = async (h: number, ih: string) => {
+  ephemeralHandles.delete(h)
+  /**
+   * And it has to START it, because a cache torrent is very likely parked.
+   *
+   * `applyViewing` idle-pauses an ephemeral torrent as soon as its last viewer leaves, and
+   * promotion cleared the flag that made it a cache entry without touching the pause that
+   * flag had already caused. So watching something in /watch, closing it, and then adding
+   * the same magnet to the library gave a row that sat at Queued for good: not user-paused,
+   * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
+   * leaves it alone.
+   */
+  wake(h)
+  // a kept download is never windowed, so what its window dropped downloads again
+  if (activeViewers(h).length) applyViewing(h)
+  await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
+}
 
 const handleMessage = async (session: Session, m: any) => {
   try {
@@ -2301,26 +2322,10 @@ const handleMessage = async (session: Session, m: any) => {
       const running = asked ? [...infoHashByHandle].find(([, hash]) => sameInfoHash(hash, asked)) : undefined
       if (running) {
         const [existing, ih] = running
-        if (!m.ephemeral) {
-          // a deliberate re-add promotes a cache entry to a library one, which is the only gesture
-          // there is for keeping something the budget pass would otherwise be free to reclaim
-          ephemeralHandles.delete(existing)
-          /**
-           * And it has to START it, because a cache torrent is very likely parked.
-           *
-           * `applyViewing` idle-pauses an ephemeral torrent as soon as its last viewer leaves, and
-           * promotion cleared the flag that made it a cache entry without touching the pause that
-           * flag had already caused. So watching something in /watch, closing it, and then adding
-           * the same magnet to the library gave a row that sat at Queued for good: not user-paused,
-           * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
-           * leaves it alone.
-           */
-          wake(existing)
-          // a kept download is never windowed, so what its window dropped downloads again
-          if (activeViewers(existing).length) applyViewing(existing)
-          await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
-        } else touchUsed(existing)
-        answerAdd(m, { type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
+        const already = !ephemeralHandles.has(existing)
+        if (!m.ephemeral) await keepInLibrary(existing, ih)
+        else touchUsed(existing)
+        answerAdd(m, { type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet }, already)
       } else {
         // bytes already on disk stay where they were written, so a re-add never moves a torrent to
         // a fresh directory and orphans the old one
@@ -2501,10 +2506,13 @@ const handleMessage = async (session: Session, m: any) => {
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
       // The engine answers a torrent it already holds with that torrent's handle, whose entry stays as it is. The page is
-      // told, since its own check cannot see a torrent whose hash the poll below has not found yet.
+      // told, since its own check cannot see a torrent whose hash the poll below has not found yet. A plugin's add keeps
+      // one the player holds, as a magnet's add does.
       if (handles.includes(h)) {
-        answerAdd(m, { type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' })
-        answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
+        const cached = typeof m.addId === 'string' && ephemeralHandles.has(h) ? infoHashByHandle.get(h) : undefined
+        if (cached) await keepInLibrary(h, cached)
+        answerAdd(m, { type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' }, !cached)
+        if (typeof m.addId !== 'string') post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
         return
       }
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may

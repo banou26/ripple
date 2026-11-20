@@ -58,8 +58,8 @@ export type TorrentClient = {
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => () => void
   /** A failed add this tab or another made without an `addId`. */
   onAddFailed: (cb: (message: string) => void) => () => void
-  /** The engine's answer, in every tab, to an add sent with an `addId`. */
-  onAddAnswer: (cb: (answer: { addId: string, added: boolean }) => void) => () => void
+  /** The engine's answer, in every tab, to an add sent with an `addId`; `already` when the library kept it before. */
+  onAddAnswer: (cb: (answer: { addId: string, added: boolean, already: boolean }) => void) => () => void
   /** Where inbound peers can reach this session. Latched, so a late subscriber gets the last value. */
   onReachable: (cb: (reachable: Reachability) => void) => () => void
   /**
@@ -425,7 +425,7 @@ export const createTorrentClient = (): EngineClient => {
   const storageFullCbs = new Set<(full: boolean) => void>()
   const workerErrorCbs = new Set<(error: { message: string, fatal: boolean }) => void>()
   const addFailedCbs = new Set<(message: string) => void>()
-  const addAnswerCbs = new Set<(answer: { addId: string, added: boolean }) => void>()
+  const addAnswerCbs = new Set<(answer: { addId: string, added: boolean, already: boolean }) => void>()
   const ownershipCbs = new Set<(owned: boolean) => void>()
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
@@ -673,7 +673,7 @@ export const createTorrentClient = (): EngineClient => {
         if (typeof m.error === 'string') pending?.reject(new Error(m.error)); else pending?.resolve(m.value)
       }
       else if ((m.type === 'added' || m.type === 'add-failed') && typeof m.addId === 'string') {
-        addAnswerCbs.forEach((cb) => cb({ addId: m.addId, added: m.type === 'added' }))
+        addAnswerCbs.forEach((cb) => cb({ addId: m.addId, added: m.type === 'added', already: m.already === true }))
       } else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(wordsOf(m.message)))
       else if (m.type === 'fatal') {
         die(new Error(m.message))

@@ -219,6 +219,17 @@ describe('an add', () => {
     expect((await kept).outcome).toBe('added')
   })
 
+  it('answers already when the engine says the library kept it before, as for one torrent added twice at once', async () => {
+    const magnet = `magnet:?xt=urn:btih:${'7'.repeat(40)}`
+    const first = made.ripple.add({ magnet })
+    const second = made.ripple.add({ magnet })
+    const sent = () => made.engine.posted.filter((m) => m.type === 'add-magnet' && m.magnet === magnet)
+    await vi.waitFor(() => expect(sent()).toHaveLength(2))
+    made.engine.say({ type: 'added', addId: sent()[0]!.addId, handle: 7, magnet })
+    made.engine.say({ type: 'added', addId: sent()[1]!.addId, handle: 7, magnet, already: true })
+    expect([(await first).outcome, (await second).outcome]).toEqual(['added', 'already'])
+  })
+
   it('adds a .torrent with its options and its own add id', async () => {
     const bytes = new Uint8Array(await (await fetch(SINTEL)).arrayBuffer())
     const settled = made.ripple.add({ torrentFile: bytes }, { files: [0], firstLast: true, sequential: true, paused: true, top: true, location: 'browser' })
