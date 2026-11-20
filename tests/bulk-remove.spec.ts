@@ -392,8 +392,8 @@ test('a removal confirmed while the engine moves to another tab leaves its torre
 
 /*
  * Copy magnets puts the ticked torrents' magnets on the clipboard, one a line in the order the list draws them, and
- * leaves out the one whose kept .torrent says it is private, as a share link does. With only that one ticked nothing is
- * written, and the clipboard keeps what it held.
+ * leaves out the one whose kept .torrent says it is private, as a share link does. With it unticked the message names
+ * no private torrent. With only that one ticked nothing is written, and the clipboard keeps what it held.
  */
 test('Copy magnets copies the ticked torrents\' magnets in list order, and leaves a private one out', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -422,6 +422,14 @@ test('Copy magnets copies the ticked torrents\' magnets in list order, and leave
   const drawn = (await page.locator('.torrent .title strong').allTextContents()).filter((name) => name !== 'Members')
   expect(copied.split('\n').map((magnet) => magnetParam(magnet, 'dn'))).toEqual(drawn)
 
+  await page.evaluate(() => navigator.clipboard.writeText('held'))
+  await tickOf(page)('Members').uncheck()
+  await expect(bar).toContainText('2 selected')
+  await bar.getByRole('button', { name: 'Copy magnets' }).click()
+  await expect(page.locator('.toast')).toHaveText('2 magnets copied')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(copied)
+
+  await tickOf(page)('Members').check()
   for (const name of drawn) await tickOf(page)(name).uncheck()
   await expect(bar).toContainText('1 selected')
   await bar.getByRole('button', { name: 'Copy magnets' }).click()
