@@ -40,7 +40,7 @@ const engineReady = async (page: Page) =>
 /**
  * Waits for libtorrent's queue to start a torrent, and for the page to draw it. Needs `probeEngine`. A magnet's first
  * state carries no status and its row reads Downloading; the next is paused until the queue starts it, and its row reads
- * Queued and has the tab close without asking.
+ * Queued.
  */
 const queueStarted = async (page: Page) => {
   await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status && !t.status.paused), undefined, { timeout: 30_000 })
@@ -186,7 +186,7 @@ test('closing the tab asks first while a torrent of one\'s own downloads, and no
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   const row = page.locator('.torrent').first()
   await expect(row.locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
-  // a close before this can come while the queue holds it, which does not ask
+  // the page's listener comes 46 to 167 ms after the state that draws the row, so a close at once can find none
   await queueStarted(page)
 
   const asked: string[] = []
