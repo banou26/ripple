@@ -21,7 +21,7 @@ vi.mock('idb-keyval', async () => {
 const { rippleFor, ADD_ANSWER_MS } = await import('../../src/plugins/calls')
 const { createFeed } = await import('../../src/plugins/feed')
 const { answer, SWITCHES_KEY } = await import('../../src/plugins/switches')
-const { createGroup, currentGroups, subscribeGroups } = await import('../../src/torrent/groups')
+const { createGroup, currentGroups, putInGroup, subscribeGroups } = await import('../../src/torrent/groups')
 
 const URI = 'npm:@someone/ripple-plugin-test'
 const A = 'a'.repeat(40)
@@ -191,6 +191,18 @@ describe('the calls that change torrents', () => {
     ]))
     expect(typeof id).toBe('string')
     expect(await refusal(made.ripple.renameGroup('no-such-group', 'x'))).toBe('not-found')
+  })
+
+  it('put only a torrent the library holds in a group, as Ripple\'s own screens do, and let one it no longer holds leave', async () => {
+    const gone = 'd'.repeat(40)
+    expect(await refusal(made.ripple.createGroup('Week 4', [A, gone]))).toBe('not-found')
+    expect(await refusal(made.ripple.putInGroup(groupId, [gone]))).toBe('not-found')
+    expect((await made.ripple.groups()).map((g) => [g.name, g.infoHashes])).toEqual([['Week 2', [A]]])
+    // the person grouped it before removing it
+    await putInGroup(groupId, [gone])
+    await vi.waitFor(async () => expect((await made.ripple.groups())[0]!.infoHashes).toEqual([A, gone]))
+    await made.ripple.takeOutOfGroup(groupId, [gone])
+    await vi.waitFor(async () => expect((await made.ripple.groups())[0]!.infoHashes).toEqual([A]))
   })
 })
 

@@ -75,14 +75,15 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
     const handle = Number(t.id)
     return { t, handle: Number.isInteger(handle) ? handle : fail('unavailable') }
   }
-  // each hash as the library writes it, so the person's own groups and a plugin's agree
-  const members = async (infoHashes: unknown): Promise<string[]> => {
+  // each hash as the library writes it, so the person's own groups and a plugin's agree; only a torrent the library
+  // holds joins a group, as on Ripple's own screens, while one it no longer holds can still leave
+  const members = async (infoHashes: unknown, joining: boolean): Promise<string[]> => {
     if (!isHashList(infoHashes)) fail('invalid')
     const library = await rows()
     return infoHashes.map((h) => {
       const hex = hexInfoHash(h)
       if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(hex)) fail('invalid')
-      return library.find((t) => sameInfoHash(t.infoHash, h))?.infoHash ?? hex
+      return library.find((t) => sameInfoHash(t.infoHash, h))?.infoHash ?? (joining ? fail('not-found') : hex)
     })
   }
   const group = async (id: unknown) => {
@@ -223,7 +224,7 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
     createGroup: async (name, infoHashes = []) => {
       await need('change')
       if (typeof name !== 'string') fail('invalid')
-      return (await createGroup(name, await members(infoHashes))) ?? fail('invalid')
+      return (await createGroup(name, await members(infoHashes, true))) ?? fail('invalid')
     },
     renameGroup: async (id, name) => {
       const known = await group(id)
@@ -231,8 +232,8 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
       await renameGroup(known, name)
     },
     deleteGroup: async (id) => { await deleteGroup(await group(id)) },
-    putInGroup: async (id, infoHashes) => { const known = await group(id); await putInGroup(known, await members(infoHashes)) },
-    takeOutOfGroup: async (id, infoHashes) => { const known = await group(id); await takeOutOfGroup(known, await members(infoHashes)) },
+    putInGroup: async (id, infoHashes) => { const known = await group(id); await putInGroup(known, await members(infoHashes, true)) },
+    takeOutOfGroup: async (id, infoHashes) => { const known = await group(id); await takeOutOfGroup(known, await members(infoHashes, false)) },
   }
 
   return { ripple, close: () => { for (const off of [...offs]) off() } }
