@@ -28,7 +28,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, addByAddress, connectPlugin, removePlugin, updatePlugin } = await import('../../src/plugins/host')
+const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, RECONNECTS, addByAddress, connectPlugin, removePlugin, updatePlugin } = await import('../../src/plugins/host')
 const { InstallSheet, PluginHost } = await import('../../src/plugins/plugin-host')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')
 const { answer, answersOf, keptButtons, storeKey } = await import('../../src/plugins/switches')
@@ -282,6 +282,18 @@ describe('the connection', () => {
     fkn.closeFrames(uri)
     await vi.waitFor(async () => expect(await answersOf(uri)).toBeUndefined(), { timeout: 3_000 })
   })
+
+  it('is made again only a few times in a row for a plugin whose frame closes as soon as it connects', async () => {
+    const uri = plugin([])
+    fkn.plugins.get(uri)!.payload = () => { setTimeout(() => fkn.closeFrames(uri), 50); return { asks: [] } }
+    install(uri)
+    await answer(uri, {})
+    await connectPlugin(uri)
+    const made = () => fkn.opened.filter((open) => open.uri === uri).length
+    await vi.waitFor(() => expect(made()).toBe(1 + RECONNECTS), { timeout: (RECONNECT_MS + 1_000) * RECONNECTS })
+    await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS + 1_000))
+    expect(made()).toBe(1 + RECONNECTS)
+  }, 30_000)
 
   it('is left closed in a tab that does not run the engine, until its next use there', async () => {
     engine.double.start([entry(A)], [], false)

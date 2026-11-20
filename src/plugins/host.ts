@@ -21,6 +21,9 @@ export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
 export const CONNECT_MS = 30_000
 /** How long after its frame closed a plugin is connected again, once FKN still lists it. */
 export const RECONNECT_MS = 3_000
+/** How many times in a row a plugin whose frame closes within {@link STEADY_MS} of connecting is connected again. */
+export const RECONNECTS = 3
+const STEADY_MS = 60_000
 // FKN's list never settles when no broker answers
 const LIST_MS = 5_000
 const NOTICE_MS = 2_600
@@ -103,6 +106,7 @@ const changes = <T>(now: () => T, watch: (heard: () => void) => () => void) => (
 
 const changedAt = new Map<string, number>()
 const changing = new Set<string>()
+const quickCloses = new Map<string, number>()
 
 // counted at most once a second, and the last call in a second is answered once it ends
 const buttonsChanged = (uri: string) => {
@@ -210,12 +214,16 @@ export const connectPlugin = async (uri: string): Promise<void> => {
     asked(live.asks)
     notify()
     void askButtons(uri)
+    const connectedAt = Date.now()
     void connection.closed.then(async () => {
       if (lives.get(uri) !== live) return
       disconnect(uri)
       const held = await listPlugins()
       if (held && !held.some((p) => p.uri === uri)) { await forget(uri); return }
-      if (tab.owns()) setTimeout(() => { void connectPlugin(uri) }, RECONNECT_MS)
+      // one that keeps closing as soon as it connects is left for its next use
+      const closes = Date.now() - connectedAt < STEADY_MS ? (quickCloses.get(uri) ?? 0) + 1 : 0
+      quickCloses.set(uri, closes)
+      if (tab.owns() && closes <= RECONNECTS) setTimeout(() => { void connectPlugin(uri) }, RECONNECT_MS)
     })
   } catch {
     asked([])
