@@ -3500,7 +3500,7 @@ const Home = () => {
   const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : [])
   const copyGroupLink = ({ link, privateLeftOut: left }: { link: string | null, privateLeftOut: number }) => {
     if (!link) {
-      showToast(intl.formatMessage({ id: 'Links hold up to {max, number} torrents', defaultMessage: 'Links hold up to {max, number} torrents' }, { max: MAX_LINK_TORRENTS }))
+      showToast(intl.formatMessage({ id: 'Links hold up to {max} torrents', defaultMessage: 'Links hold up to {max} torrents' }, { max: MAX_LINK_TORRENTS }))
       return
     }
     copy(

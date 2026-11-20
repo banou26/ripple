@@ -189,7 +189,7 @@
   "Limit to {limit}": "Hadkan kepada {limit}",
   "Limit upload rate...": "Hadkan kelajuan muat naik...",
   "Link copied": "Pautan disalin",
-  "Links hold up to {max, number} torrents": "Satu pautan memuatkan paling banyak {max, number} torrent",
+  "Links hold up to {max} torrents": "Satu pautan memuatkan paling banyak {max} torrent",
   "Loading metadata…": "Memuatkan metadata…",
   "Loading the file list...": "Memuatkan senarai fail...",
   "Loading torrent…": "Memuatkan torrent…",

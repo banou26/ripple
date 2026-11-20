@@ -189,7 +189,7 @@
   "Limit to {limit}": "Begrenzen op {limit}",
   "Limit upload rate...": "Uploadsnelheid begrenzen...",
   "Link copied": "Link gekopieerd",
-  "Links hold up to {max, number} torrents": "Een link bevat hooguit {max, number} torrents",
+  "Links hold up to {max} torrents": "Een link bevat hooguit {max} torrents",
   "Loading metadata…": "Metadata laden…",
   "Loading the file list...": "Bestandenlijst laden...",
   "Loading torrent…": "Torrent laden…",

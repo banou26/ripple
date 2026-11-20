@@ -189,7 +189,7 @@
   "Limit to {limit}": "Batasi ke {limit}",
   "Limit upload rate...": "Batasi kecepatan unggah...",
   "Link copied": "Tautan disalin",
-  "Links hold up to {max, number} torrents": "Satu tautan memuat paling banyak {max, number} torrent",
+  "Links hold up to {max} torrents": "Satu tautan memuat paling banyak {max} torrent",
   "Loading metadata…": "Memuat metadata…",
   "Loading the file list...": "Memuat daftar file...",
   "Loading torrent…": "Memuat torrent…",

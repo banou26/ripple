@@ -189,7 +189,7 @@
   "Limit to {limit}": "Limiter à {limit}",
   "Limit upload rate...": "Limiter la vitesse d’envoi...",
   "Link copied": "Lien copié",
-  "Links hold up to {max, number} torrents": "Un lien contient au plus {max, number} torrents",
+  "Links hold up to {max} torrents": "Un lien contient au plus {max} torrents",
   "Loading metadata…": "Chargement des métadonnées…",
   "Loading the file list...": "Chargement de la liste des fichiers...",
   "Loading torrent…": "Chargement du torrent…",

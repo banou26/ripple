@@ -189,7 +189,7 @@
   "Limit to {limit}": "{limit}로 제한",
   "Limit upload rate...": "업로드 속도 제한...",
   "Link copied": "링크를 복사했어요",
-  "Links hold up to {max, number} torrents": "링크에는 토렌트를 {max, number}개까지 담을 수 있어요",
+  "Links hold up to {max} torrents": "링크에는 토렌트를 {max}개까지 담을 수 있어요",
   "Loading metadata…": "메타데이터를 불러오는 중…",
   "Loading the file list...": "파일 목록을 불러오는 중...",
   "Loading torrent…": "토렌트를 불러오는 중…",

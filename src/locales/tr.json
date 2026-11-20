@@ -189,7 +189,7 @@
   "Limit to {limit}": "{limit} ile sınırla",
   "Limit upload rate...": "Gönderme hızını sınırla...",
   "Link copied": "Bağlantı kopyalandı",
-  "Links hold up to {max, number} torrents": "Bir bağlantı en fazla {max, number} torrent içerebilir",
+  "Links hold up to {max} torrents": "Bir bağlantı en fazla {max} torrent içerebilir",
   "Loading metadata…": "Meta veri yükleniyor…",
   "Loading the file list...": "Dosya listesi yükleniyor...",
   "Loading torrent…": "Torrent yükleniyor…",

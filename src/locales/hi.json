@@ -189,7 +189,7 @@
   "Limit to {limit}": "{limit} तक सीमित करें",
   "Limit upload rate...": "अपलोड स्पीड सीमित करें...",
   "Link copied": "लिंक कॉपी हो गया",
-  "Links hold up to {max, number} torrents": "एक लिंक में ज़्यादा से ज़्यादा {max, number} टॉरेंट आ सकते हैं",
+  "Links hold up to {max} torrents": "एक लिंक में ज़्यादा से ज़्यादा {max} टॉरेंट आ सकते हैं",
   "Loading metadata…": "मेटाडेटा लोड हो रहा है…",
   "Loading the file list...": "फ़ाइलों की लिस्ट लोड हो रही है...",
   "Loading torrent…": "टॉरेंट लोड हो रहा है…",

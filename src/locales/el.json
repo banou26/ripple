@@ -189,7 +189,7 @@
   "Limit to {limit}": "Όριο: {limit}",
   "Limit upload rate...": "Περιορισμός ταχύτητας αποστολής...",
   "Link copied": "Ο σύνδεσμος αντιγράφηκε",
-  "Links hold up to {max, number} torrents": "Ένας σύνδεσμος χωράει έως {max, number} torrent",
+  "Links hold up to {max} torrents": "Ένας σύνδεσμος χωράει έως {max} torrent",
   "Loading metadata…": "Φόρτωση μεταδεδομένων…",
   "Loading the file list...": "Φόρτωση της λίστας αρχείων...",
   "Loading torrent…": "Φόρτωση torrent…",

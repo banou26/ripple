@@ -189,7 +189,7 @@
   "Limit to {limit}": "Korlát: {limit}",
   "Limit upload rate...": "Feltöltési sebesség korlátozása...",
   "Link copied": "Link másolva",
-  "Links hold up to {max, number} torrents": "Egy link legfeljebb {max, number} torrentet tartalmazhat",
+  "Links hold up to {max} torrents": "Egy link legfeljebb {max} torrentet tartalmazhat",
   "Loading metadata…": "Metaadatok betöltése…",
   "Loading the file list...": "Fájllista betöltése...",
   "Loading torrent…": "Torrent betöltése…",

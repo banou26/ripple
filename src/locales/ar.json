@@ -189,7 +189,7 @@
   "Limit to {limit}": "التحديد بـ {limit}",
   "Limit upload rate...": "تحديد سرعة الرفع...",
   "Link copied": "تم نسخ الرابط",
-  "Links hold up to {max, number} torrents": "يتسع الرابط لـ {max, number} تورنت كحد أقصى",
+  "Links hold up to {max} torrents": "يتسع الرابط لـ {max} تورنت كحد أقصى",
   "Loading metadata…": "جارٍ تحميل البيانات الوصفية…",
   "Loading the file list...": "جارٍ تحميل قائمة الملفات...",
   "Loading torrent…": "جارٍ تحميل التورنت…",

@@ -189,7 +189,7 @@
   "Limit to {limit}": "Giới hạn ở {limit}",
   "Limit upload rate...": "Giới hạn tốc độ tải lên...",
   "Link copied": "Đã sao chép liên kết",
-  "Links hold up to {max, number} torrents": "Một liên kết chứa tối đa {max, number} torrent",
+  "Links hold up to {max} torrents": "Một liên kết chứa tối đa {max} torrent",
   "Loading metadata…": "Đang tải siêu dữ liệu…",
   "Loading the file list...": "Đang tải danh sách tệp...",
   "Loading torrent…": "Đang tải torrent…",

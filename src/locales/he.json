@@ -189,7 +189,7 @@
   "Limit to {limit}": "הגבלה ל-{limit}",
   "Limit upload rate...": "הגבלת קצב ההעלאה...",
   "Link copied": "הקישור הועתק",
-  "Links hold up to {max, number} torrents": "קישור מכיל עד {max, number} טורנטים",
+  "Links hold up to {max} torrents": "קישור מכיל עד {max} טורנטים",
   "Loading metadata…": "טוען מטא-נתונים…",
   "Loading the file list...": "טוען את רשימת הקבצים...",
   "Loading torrent…": "טוען את הטורנט…",

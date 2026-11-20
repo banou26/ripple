@@ -3080,7 +3080,7 @@ test('Copy link for a group past the most a link holds says so, and copies nothi
   await page.evaluate(() => navigator.clipboard.writeText('held before'))
   await chip.click()
   await menu.getByRole('menuitem', { name: 'Copy link' }).click({ timeout: 30_000 })
-  await expect(page.locator('.toast')).toHaveText('Links hold up to 1,000 torrents')
+  await expect(page.locator('.toast')).toHaveText('Links hold up to 1000 torrents')
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('held before')
 })
 

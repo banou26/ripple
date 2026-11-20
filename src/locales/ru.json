@@ -189,7 +189,7 @@
   "Limit to {limit}": "Ограничить до {limit}",
   "Limit upload rate...": "Ограничить скорость отдачи...",
   "Link copied": "Ссылка скопирована",
-  "Links hold up to {max, number} torrents": "В ссылку помещается не больше {max, number} торрентов",
+  "Links hold up to {max} torrents": "В ссылку помещается не больше {max} торрентов",
   "Loading metadata…": "Загрузка метаданных…",
   "Loading the file list...": "Загрузка списка файлов...",
   "Loading torrent…": "Загрузка торрента…",

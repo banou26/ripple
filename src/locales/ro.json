@@ -189,7 +189,7 @@
   "Limit to {limit}": "Limitați la {limit}",
   "Limit upload rate...": "Limitați viteza de încărcare...",
   "Link copied": "Linkul a fost copiat",
-  "Links hold up to {max, number} torrents": "Un link cuprinde cel mult {max, number} torrente",
+  "Links hold up to {max} torrents": "Un link cuprinde cel mult {max} torrente",
   "Loading metadata…": "Se încarcă metadatele…",
   "Loading the file list...": "Se încarcă lista de fișiere...",
   "Loading torrent…": "Se încarcă torrentul…",
