@@ -48,6 +48,7 @@ const style = css`
     min-width: 0;
     /* an address runs left to right in a right to left page, and its placeholder takes the page's side */
     unicode-bidi: plaintext;
+    text-overflow: ellipsis;
     font: inherit;
     font-size: 0.85rem;
     padding: 7px 10px;

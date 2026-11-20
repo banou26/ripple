@@ -216,6 +216,7 @@ describe('a plugin\'s row', () => {
     expect(row(uri)!.querySelector('.name')).toHaveAttribute('dir', 'auto')
     expect(row(uri)!.querySelector('.version')).toHaveAttribute('dir', 'ltr')
     expect(getComputedStyle(document.querySelector('input')!).unicodeBidi).toBe('plaintext')
+    expect(getComputedStyle(document.querySelector('input')!).textOverflow, 'a placeholder longer than its field').toBe('ellipsis')
     expect(document.querySelector('section')).toHaveTextContent(he['Plugins'])
   })
 })
@@ -232,6 +233,18 @@ describe('the connection', () => {
     fkn.installed = []
     fkn.closeFrames(uri)
     await vi.waitFor(async () => expect(await answersOf(uri)).toBeUndefined(), { timeout: 3_000 })
+  })
+
+  it('is left closed in a tab that does not run the engine, until its next use there', async () => {
+    engine.double.start([entry(A)], [], false)
+    const uri = plugin(['read'])
+    install(uri)
+    await connectPlugin(uri)
+    fkn.closeFrames(uri)
+    await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS + 1_000))
+    expect(fkn.opened.filter((open) => open.uri === uri)).toHaveLength(1)
+    await connectPlugin(uri)
+    expect(fkn.opened.filter((open) => open.uri === uri), 'its next use (control)').toHaveLength(2)
   })
 
   it('carries the calls a plugin makes, each behind its switch', async () => {

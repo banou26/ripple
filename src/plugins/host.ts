@@ -113,8 +113,8 @@ const disconnect = (uri: string) => {
 }
 
 /**
- * Connects `uri` in this tab, once: never in a frame. A plugin whose frame closes is connected again while FKN still
- * lists it, and forgotten once FKN lists it no more.
+ * Connects `uri` in this tab, once: never in a frame. A plugin whose frame closes is forgotten once FKN lists it no
+ * more, and otherwise connected again in the tab running the engine; another tab connects it on its next use.
  */
 export const connectPlugin = async (uri: string): Promise<void> => {
   const held = lives.get(uri)
@@ -141,7 +141,7 @@ export const connectPlugin = async (uri: string): Promise<void> => {
       disconnect(uri)
       const held = await listPlugins()
       if (held && !held.some((p) => p.uri === uri)) { await forget(uri); return }
-      setTimeout(() => { void connectPlugin(uri) }, RECONNECT_MS)
+      if (tab.owns()) setTimeout(() => { void connectPlugin(uri) }, RECONNECT_MS)
     })
   } catch {
     asked([])
