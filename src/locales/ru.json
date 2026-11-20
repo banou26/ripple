@@ -407,6 +407,7 @@
   "That link could not be read": "Не удалось прочитать эту ссылку",
   "That piece size is not one a torrent can use": "Торрент не может использовать такой размер части",
   "That plugin could not be added": "Не удалось добавить этот плагин",
+  "That plugin could not be updated": "Не удалось обновить этот плагин",
   "That torrent could not be created": "Не удалось создать этот торрент",
   "That torrent could not be read": "Не удалось прочитать этот торрент",
   "The .torrent could not be built": "Не удалось создать .torrent",

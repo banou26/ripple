@@ -407,6 +407,7 @@
   "That link could not be read": "Không thể đọc liên kết đó",
   "That piece size is not one a torrent can use": "Torrent không thể dùng kích thước mảnh đó",
   "That plugin could not be added": "Không thể thêm plugin đó",
+  "That plugin could not be updated": "Không thể cập nhật plugin đó",
   "That torrent could not be created": "Không thể tạo torrent đó",
   "That torrent could not be read": "Không thể đọc torrent đó",
   "The .torrent could not be built": "Không thể tạo tệp .torrent",

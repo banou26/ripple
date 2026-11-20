@@ -407,6 +407,7 @@
   "That link could not be read": "このリンクを読み取れませんでした",
   "That piece size is not one a torrent can use": "このピースサイズは Torrent で使えません",
   "That plugin could not be added": "このプラグインを追加できませんでした",
+  "That plugin could not be updated": "このプラグインを更新できませんでした",
   "That torrent could not be created": "この Torrent を作成できませんでした",
   "That torrent could not be read": "この Torrent を読み取れませんでした",
   "The .torrent could not be built": ".torrent を作成できませんでした",

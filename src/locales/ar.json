@@ -407,6 +407,7 @@
   "That link could not be read": "تعذّرت قراءة هذا الرابط",
   "That piece size is not one a torrent can use": "لا يمكن للتورنت استخدام حجم القطعة هذا",
   "That plugin could not be added": "تعذّرت إضافة هذا الملحق",
+  "That plugin could not be updated": "تعذّر تحديث هذا الملحق",
   "That torrent could not be created": "تعذّر إنشاء هذا التورنت",
   "That torrent could not be read": "تعذّرت قراءة هذا التورنت",
   "The .torrent could not be built": "تعذّر إنشاء ملف التورنت",

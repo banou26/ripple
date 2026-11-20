@@ -145,12 +145,15 @@ const Row = ({ plugin, button }: { plugin: InstalledPackage, button: Drawn | und
   const { statuses, asks } = usePlugins()
   const answers = useAnswers()?.[plugin.uri] ?? {}
   const { confirm, confirmElement } = useConfirm()
-  const [current, setCurrent] = useState(false)
+  const [updated, setUpdated] = useState<'current' | 'failed' | null>(null)
   // what it asks now, and whatever was answered before, so a switch turned on never goes out of sight
   const shown = OFFERED_SWITCHES.filter((name) => name in answers || asks[plugin.uri]?.includes(name))
   const status = statuses[plugin.uri]
   const flip = (name: Switch) => { void answer(plugin.uri, { [name]: answers[name] !== true }) }
-  const update = async () => setCurrent(!(await updatePlugin(plugin.uri)))
+  const update = async () => {
+    const outcome = await updatePlugin(plugin.uri)
+    setUpdated(outcome === 'updated' ? null : outcome)
+  }
   const remove = async () => {
     const ok = await confirm({
       title: intl.formatMessage({ id: 'Remove {name}?', defaultMessage: 'Remove {name}?' }, { name: plugin.name }),
@@ -182,7 +185,8 @@ const Row = ({ plugin, button }: { plugin: InstalledPackage, button: Drawn | und
         <button type="button" onClick={() => { void update() }}>{intl.formatMessage({ id: 'Update', defaultMessage: 'Update' })}</button>
         <button type="button" className="danger" onClick={() => { void remove() }}>{intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })}</button>
       </div>
-      {current && <p role="status">{intl.formatMessage({ id: 'Up to date', defaultMessage: 'Up to date' })}</p>}
+      {updated === 'current' && <p role="status">{intl.formatMessage({ id: 'Up to date', defaultMessage: 'Up to date' })}</p>}
+      {updated === 'failed' && <p role="alert">{intl.formatMessage({ id: 'That plugin could not be updated', defaultMessage: 'That plugin could not be updated' })}</p>}
       {confirmElement}
     </li>
   )

@@ -407,6 +407,7 @@
   "That link could not be read": "Nie udało się odczytać tego linku",
   "That piece size is not one a torrent can use": "Torrent nie może używać takiego rozmiaru części",
   "That plugin could not be added": "Nie udało się dodać tej wtyczki",
+  "That plugin could not be updated": "Nie udało się zaktualizować tej wtyczki",
   "That torrent could not be created": "Nie udało się utworzyć tego torrenta",
   "That torrent could not be read": "Nie udało się odczytać tego torrenta",
   "The .torrent could not be built": "Nie udało się utworzyć pliku .torrent",

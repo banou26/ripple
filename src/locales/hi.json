@@ -407,6 +407,7 @@
   "That link could not be read": "वह लिंक पढ़ा नहीं जा सका",
   "That piece size is not one a torrent can use": "टॉरेंट इस पीस साइज़ का इस्तेमाल नहीं कर सकता",
   "That plugin could not be added": "वह प्लगइन जोड़ा नहीं जा सका",
+  "That plugin could not be updated": "वह प्लगइन अपडेट नहीं हो सका",
   "That torrent could not be created": "वह टॉरेंट बनाया नहीं जा सका",
   "That torrent could not be read": "वह टॉरेंट पढ़ा नहीं जा सका",
   "The .torrent could not be built": ".torrent बनाया नहीं जा सका",

@@ -407,6 +407,7 @@
   "That link could not be read": "Länken gick inte att läsa",
   "That piece size is not one a torrent can use": "Den delstorleken kan en torrent inte använda",
   "That plugin could not be added": "Tillägget gick inte att lägga till",
+  "That plugin could not be updated": "Tillägget gick inte att uppdatera",
   "That torrent could not be created": "Torrenten gick inte att skapa",
   "That torrent could not be read": "Torrenten gick inte att läsa",
   "The .torrent could not be built": ".torrent-filen gick inte att skapa",

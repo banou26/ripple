@@ -407,6 +407,7 @@
   "That link could not be read": "อ่านลิงก์นั้นไม่ได้",
   "That piece size is not one a torrent can use": "ทอร์เรนต์ใช้ขนาดชิ้นส่วนนั้นไม่ได้",
   "That plugin could not be added": "เพิ่มปลั๊กอินนั้นไม่ได้",
+  "That plugin could not be updated": "อัปเดตปลั๊กอินนั้นไม่ได้",
   "That torrent could not be created": "สร้างทอร์เรนต์นั้นไม่ได้",
   "That torrent could not be read": "อ่านทอร์เรนต์นั้นไม่ได้",
   "The .torrent could not be built": "สร้าง .torrent ไม่ได้",

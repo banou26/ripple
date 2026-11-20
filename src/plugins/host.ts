@@ -328,10 +328,10 @@ export const removePlugin = async (uri: string): Promise<void> => {
   await listPlugins()
 }
 
-/** Moves `uri` to its newest version. Answers whether its version changed. */
-export const updatePlugin = async (uri: string): Promise<boolean> => {
+/** Moves `uri` to its newest version: `current` when it was on it already, `failed` when fkn.app refused. */
+export const updatePlugin = async (uri: string): Promise<'updated' | 'current' | 'failed'> => {
   const before = installed?.find((p) => p.uri === uri)?.version
   const pkg = await packages.install(uri, { latest: true }).catch(() => null)
   await listPlugins()
-  return !!pkg && pkg.version !== before
+  return !pkg ? 'failed' : pkg.version === before ? 'current' : 'updated'
 }

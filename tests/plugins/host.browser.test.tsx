@@ -196,6 +196,25 @@ describe('a plugin\'s row', () => {
     expect(row(uri)).not.toHaveTextContent('Up to date')
   })
 
+  it('says in one line when fkn.app refuses an Update, rather than Up to date', async () => {
+    const uri = plugin(['read'])
+    install(uri)
+    await answer(uri, {})
+    await settings()
+    await vi.waitFor(() => expect(row(uri)).toHaveTextContent('1.0.0'))
+    const held = row(uri)!
+    // the double's install throws for a package it does not know
+    const kept = fkn.plugins.get(uri)!
+    fkn.plugins.delete(uri)
+    await userEvent.click(button(held, 'Update')!)
+    await vi.waitFor(() => expect(held.querySelector('[role="alert"]')).toHaveTextContent('That plugin could not be updated'))
+    expect(held).not.toHaveTextContent('Up to date')
+    fkn.plugins.set(uri, kept)
+    await userEvent.click(button(held, 'Update')!)
+    await vi.waitFor(() => expect(held).toHaveTextContent('Up to date'))
+    expect(held.querySelector('[role="alert"]'), 'one fkn.app answers (control)').toBeNull()
+  })
+
   it('removes it after one sentence, deleting its switches and its store, and keeps its torrents', async () => {
     const uri = plugin(['read'])
     install(uri)

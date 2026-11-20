@@ -407,6 +407,7 @@
   "That link could not be read": "Δεν ήταν δυνατή η ανάγνωση αυτού του συνδέσμου",
   "That piece size is not one a torrent can use": "Ένα torrent δεν μπορεί να χρησιμοποιήσει αυτό το μέγεθος κομματιού",
   "That plugin could not be added": "Δεν ήταν δυνατή η προσθήκη αυτού του πρόσθετου",
+  "That plugin could not be updated": "Δεν ήταν δυνατή η ενημέρωση αυτού του πρόσθετου",
   "That torrent could not be created": "Δεν ήταν δυνατή η δημιουργία αυτού του torrent",
   "That torrent could not be read": "Δεν ήταν δυνατή η ανάγνωση αυτού του torrent",
   "The .torrent could not be built": "Δεν ήταν δυνατή η δημιουργία του .torrent",

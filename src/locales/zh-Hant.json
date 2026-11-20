@@ -407,6 +407,7 @@
   "That link could not be read": "無法讀取該連結",
   "That piece size is not one a torrent can use": "torrent 無法使用該分塊大小",
   "That plugin could not be added": "無法新增該外掛",
+  "That plugin could not be updated": "無法更新該外掛",
   "That torrent could not be created": "無法建立該 torrent",
   "That torrent could not be read": "無法讀取該 torrent",
   "The .torrent could not be built": "無法產生 .torrent",

@@ -407,6 +407,7 @@
   "That link could not be read": "Bu bağlantı okunamadı",
   "That piece size is not one a torrent can use": "Bir torrent bu parça boyutunu kullanamaz",
   "That plugin could not be added": "Bu eklenti eklenemedi",
+  "That plugin could not be updated": "Bu eklenti güncellenemedi",
   "That torrent could not be created": "Bu torrent oluşturulamadı",
   "That torrent could not be read": "Bu torrent okunamadı",
   "The .torrent could not be built": ".torrent oluşturulamadı",

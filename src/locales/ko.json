@@ -407,6 +407,7 @@
   "That link could not be read": "이 링크를 읽을 수 없어요",
   "That piece size is not one a torrent can use": "토렌트에서 쓸 수 없는 조각 크기예요",
   "That plugin could not be added": "이 플러그인을 추가할 수 없어요",
+  "That plugin could not be updated": "이 플러그인을 업데이트할 수 없어요",
   "That torrent could not be created": "이 토렌트를 만들 수 없어요",
   "That torrent could not be read": "이 토렌트를 읽을 수 없어요",
   "The .torrent could not be built": ".torrent를 만들 수 없어요",
