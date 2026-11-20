@@ -2889,7 +2889,6 @@ const Home = () => {
         title: intl.formatMessage({ id: 'Remove {name}?', defaultMessage: 'Remove {name}?' }, { name: t.name }),
         ...removalWords([t], inFolder),
         tone: 'danger',
-        rememberKey: 'ripple:confirm-remove',
       })
       if (!ok) return
     }
@@ -3469,7 +3468,6 @@ const Home = () => {
         title: intl.formatMessage({ id: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}', defaultMessage: '{count, plural, one {Remove {count} torrent?} other {Remove {count} torrents?}}' }, { count: bulk.rows.length }),
         ...removalWords(live, inFolder),
         tone: 'danger',
-        rememberKey: 'ripple:confirm-remove',
       })
       if (!ok) return
     }

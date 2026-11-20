@@ -631,8 +631,10 @@ export const buildTorrentOptions = (
 /**
  * What the confirmation before removing `rows` with their files says. Removing never deletes from the person's folder,
  * so only the bytes of the rows not `inFolder` are named as deleted, and with none of those it says the files stay.
+ * Only the deleting words carry `rememberKey`: a "Don't ask again" ticked under words saying the files stay must never
+ * skip a later deletion.
  */
-export const removalWords = (rows: readonly Torrent[], inFolder: (t: Torrent) => boolean): { body: string, confirmLabel: string } => {
+export const removalWords = (rows: readonly Torrent[], inFolder: (t: Torrent) => boolean): { body: string, confirmLabel: string, rememberKey?: string } => {
   const lost = rows.filter((t) => !inFolder(t))
   if (!lost.length) {
     return {
@@ -644,5 +646,6 @@ export const removalWords = (rows: readonly Torrent[], inFolder: (t: Torrent) =>
   return {
     body: intl.formatMessage({ id: 'This deletes the {size} already downloaded.', defaultMessage: 'This deletes the {size} already downloaded.' }, { size }),
     confirmLabel: intl.formatMessage({ id: 'Remove and delete', defaultMessage: 'Remove and delete' }),
+    rememberKey: 'ripple:confirm-remove',
   }
 }

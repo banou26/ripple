@@ -410,17 +410,16 @@ describe('the torrent option list', () => {
     })
   })
 
-  // RIPPLE-171: the confirmation of a torrent in the person's folder said it deleted the download, which stays there
   describe('what the confirmation of a removal says', () => {
     const inFolder = (t: Torrent) => t.id === 'kept'
 
-    it('says the files stay when every torrent is in the folder', () => {
+    it('says the files stay when every torrent is in the folder, and offers no box to skip it', () => {
       expect(removalWords([torrent({ id: 'kept' })], inFolder)).toEqual({ body: 'The files stay in your folder.', confirmLabel: 'Remove' })
     })
 
-    it('names what is deleted from browser storage', () => {
+    it('names what is deleted from browser storage, and offers to skip that next time', () => {
       expect(removalWords([torrent({ id: 'held', downloaded: 1_400_000_000 })], inFolder))
-        .toEqual({ body: 'This deletes the 1.4 GB already downloaded.', confirmLabel: 'Remove and delete' })
+        .toEqual({ body: 'This deletes the 1.4 GB already downloaded.', confirmLabel: 'Remove and delete', rememberKey: 'ripple:confirm-remove' })
     })
 
     it('counts only the torrents outside the folder', () => {

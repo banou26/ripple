@@ -845,10 +845,9 @@ test('a torrent moved into the folder moves back into browser storage when asked
 })
 
 /*
- * RIPPLE-171: removing never deletes from the person's folder, and the confirmation of a torrent there said it deleted
- * the download all the same. Whole is moved into the folder, Copied stays in browser storage and is copied into the
- * folder, and Spare has no bytes anywhere, so it is in browser storage alone. A reload with `ripple:test-no-grant` set
- * finds the folder without its grant, as one does until the person allows it again.
+ * Whole is moved into the folder, Copied stays in browser storage and is copied into the folder, and Spare has no
+ * bytes anywhere, so it is in browser storage alone. A reload with `ripple:test-no-grant` set finds the folder without
+ * its grant, as one does until the person allows it again.
  */
 test('removing a torrent in the folder says its files stay, and leaves them', async ({ page }) => {
   test.setTimeout(240_000)
@@ -887,18 +886,18 @@ test('removing a torrent in the folder says its files stay, and leaves them', as
   const bar = page.locator('.bulk-bar')
   const fromBar = () => bar.getByRole('button', { name: 'Remove', exact: true }).click()
   const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}` }).check()
-  /** What the confirmation `ask` raises says, and the actions it offers, once it is cancelled. */
+  /** What the confirmation `ask` raises says, its actions and how many "Don't ask again" boxes it has, once cancelled. */
   const confirmation = async (ask: () => Promise<void>) => {
     await ask()
     const dialog = page.getByRole('dialog').last()
     const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
     await cancel.waitFor({ timeout: 10_000 })
-    const said = { body: await dialog.locator('p').innerText(), actions: await dialog.getByRole('button').allInnerTexts() }
+    const said = { body: await dialog.locator('p').innerText(), actions: await dialog.getByRole('button').allInnerTexts(), remember: await dialog.getByRole('checkbox').count() }
     await cancel.click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     return said
   }
-  const STAY = { body: 'The files stay in your folder.', actions: ['Cancel', 'Remove'] }
+  const STAY = { body: 'The files stay in your folder.', actions: ['Cancel', 'Remove'], remember: 0 }
   /** Each file's size in `root`'s directory of the torrent `name`, none when it has no directory there. */
   const filesIn = (root: 'picked' | 'dl', name: string) => page.evaluate(async ({ root, name }) => {
     const sizes: Record<string, number> = {}
@@ -913,13 +912,13 @@ test('removing a torrent in the folder says its files stay, and leaves them', as
   // THE CONTROL: both copies in the folder are known whole, which is what offers to delete only Ripple's copy
   for (const name of [NAME, COPIED]) await expect.poll(() => optionsText(name), { timeout: 30_000 }).toContain('Remove and delete Ripple\'s copy')
   expect(await confirmation(fromOptions(SPARE, 'Remove and delete the files')))
-    .toEqual({ body: 'This deletes the 0 B already downloaded.', actions: ['Cancel', 'Remove and delete'] })
+    .toEqual({ body: 'This deletes the 0 B already downloaded.', actions: ['Cancel', 'Remove and delete'], remember: 1 })
   for (const name of [NAME, COPIED]) expect(await confirmation(fromOptions(name, 'Remove and delete Ripple\'s copy')), name).toEqual(STAY)
   await tick(NAME)
   expect(await confirmation(fromBar)).toEqual(STAY)
   await tick(SPARE)
   // Whole's bytes are not counted, since they stay
-  expect((await confirmation(fromBar)).body).toBe('This deletes the 0 B already downloaded.')
+  expect(await confirmation(fromBar)).toEqual({ body: 'This deletes the 0 B already downloaded.', actions: ['Cancel', 'Remove and delete'], remember: 1 })
   await bar.getByRole('button', { name: 'Clear selection' }).click()
 
   await page.evaluate(() => localStorage.setItem('ripple:test-no-grant', '1'))
