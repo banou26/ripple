@@ -59,6 +59,8 @@ export type OptionItem =
     kind: 'action'
     id: string
     label: string
+    /** A label somebody wrote, a plugin's, which takes the direction of its own words. */
+    typed?: boolean
     hint?: string
     /** Destructive, so it is separated and marked in both surfaces. */
     danger?: boolean
@@ -69,6 +71,8 @@ export type OptionItem =
 export type OptionGroup = {
   id: string
   label: string
+  /** A label somebody wrote, a plugin's name, which takes the direction of its own words. */
+  typed?: boolean
   items: OptionItem[]
 }
 

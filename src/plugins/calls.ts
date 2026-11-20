@@ -18,6 +18,8 @@ import { isOn } from './switches'
 /** What a tab gives every plugin connected in it. */
 export type PluginTab = {
   client: () => TorrentClient
+  /** The plugin's `ui.buttonsChanged()`. */
+  buttonsChanged: (uri: string) => void
   feed: () => Feed
   owns: () => boolean
   vpn: () => boolean
@@ -148,6 +150,9 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
     vpn: tab.vpn(),
     active: tab.owns(),
     on,
+    ui: {
+      buttonsChanged: async () => { tab.buttonsChanged(uri) },
+    },
     store: {
       get: (key) => storeGet(uri, key),
       set: (key, value) => storeSet(uri, key, value),

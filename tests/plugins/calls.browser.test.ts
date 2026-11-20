@@ -38,7 +38,7 @@ const setup = () => {
   )
   const feed = createFeed(engine.client)
   const tab: PluginTab = {
-    client: () => engine.client, feed: () => feed, owns: () => engine.client.owns(), vpn: () => true,
+    client: () => engine.client, buttonsChanged: () => {}, feed: () => feed, owns: () => engine.client.owns(), vpn: () => true,
     locale: () => ({ locale: 'en', dir: 'ltr' }), onActive: () => () => {}, onVpn: () => () => {}, onLocale: () => () => {},
   }
   const { ripple, close } = rippleFor(URI, tab, async () => ['read', 'add', 'change'])

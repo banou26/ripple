@@ -72,6 +72,27 @@ export type PluginEvents = {
   removed: string
 }
 
+/** Where ripple draws a button. A button in a place this ripple does not draw is left out. */
+export type ButtonPlace = 'header' | 'row-menu' | 'settings'
+
+/**
+ * A button ripple draws for a plugin. `label` is at most 40 characters, the button's tooltip and accessible name; a
+ * button with an empty or longer one is left out. `icon` is an SVG `data:` url of at most 4 KB, drawn as a mask in
+ * ripple's text colour, which `mirror` flips in a right to left language; with none, or another, the label's first
+ * letter is drawn. Each plugin gets one button in `header` and in `settings`, and three in `row-menu`.
+ */
+export type Button = {
+  /** Handed back to `click`. Unique among the plugin's buttons. */
+  id: string
+  place: ButtonPlace
+  label: string
+  icon?: string
+  mirror?: boolean
+}
+
+/** What a click hands a plugin: the torrent of a `row-menu` button by its info hash, and nothing for the others. */
+export type ClickContext = { infoHashes?: string[] }
+
 /** What ripple hands a plugin as its `remote`. Every call names torrents by info hash. */
 export type Ripple = {
   version: 1
@@ -82,6 +103,10 @@ export type Ripple = {
   /** Whether this tab runs the engine, where automatic work belongs. */
   active: boolean
   on: <E extends keyof PluginEvents>(event: E, listener: (value: PluginEvents[E]) => void) => Promise<() => void>
+  ui: {
+    /** Ripple asks `buttons` again, at most once a second. */
+    buttonsChanged: () => Promise<void>
+  }
   /** Strings this plugin keeps on this device, 256 KB in all, kept across its versions. `null` deletes one. */
   store: {
     get: (key: string) => Promise<string | null>
@@ -123,4 +148,11 @@ export type Ripple = {
 export type RipplePlugin = {
   /** The switches it would like on. The person is asked about each one, and each starts off. */
   asks: Switch[]
+  /**
+   * Its buttons in `locale`, kept by ripple per plugin and language and asked again after `ui.buttonsChanged()`.
+   * Answered within 5 s, or the buttons ripple kept stay.
+   */
+  buttons?: (locale: string) => Button[] | Promise<Button[]>
+  /** A press of the button `id`. Answered within 10 s, or ripple says the plugin is not responding. */
+  click?: (id: string, context: ClickContext) => void | Promise<void>
 }

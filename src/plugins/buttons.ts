@@ -1,0 +1,50 @@
+import type { Button, ButtonPlace } from './contract'
+import type { KeptButtons } from './switches'
+
+export const LABEL_MAX = 40
+export const ICON_BYTES = 4 * 1024
+/** A plugin's buttons in each place. */
+export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = { header: 1, 'row-menu': 3, settings: 1 }
+/** The plugins whose header button is drawn in the header, in install order; the rest are in its More menu. */
+export const HEADER_INLINE = 2
+
+const ICON = /^data:image\/svg\+xml[;,]/
+
+/** The label's length in characters, as a person counts them. */
+const characters = (text: string) => [...new Intl.Segmenter().segment(text)].length
+
+/** A plugin's answer to `buttons` as ripple draws it: each button checked, and each place held to its count. */
+export const cleanButtons = (answer: unknown): Button[] => {
+  if (!Array.isArray(answer)) return []
+  const ids = new Set<string>()
+  const counts: Partial<Record<ButtonPlace, number>> = {}
+  return answer.flatMap((raw): Button[] => {
+    const { id, place, label, icon, mirror } = (raw ?? {}) as Record<string, unknown>
+    if (typeof id !== 'string' || !id || ids.has(id) || typeof place !== 'string' || !Object.hasOwn(PER_PLUGIN, place)) return []
+    const text = typeof label === 'string' ? label.trim() : ''
+    if (!text || characters(text) > LABEL_MAX) return []
+    const at = place as ButtonPlace
+    if ((counts[at] ?? 0) >= PER_PLUGIN[at]) return []
+    counts[at] = (counts[at] ?? 0) + 1
+    ids.add(id)
+    const drawn = typeof icon === 'string' && ICON.test(icon) && new TextEncoder().encode(icon).byteLength <= ICON_BYTES
+    return [{ id, place: at, label: text, ...(drawn && { icon }), ...(mirror === true && { mirror: true }) }]
+  })
+}
+
+/** One plugin's button as a place draws it. */
+export type Drawn = { uri: string, name: string, button: Button }
+
+/** The buttons each plugin keeps for `place` in `locale`, in install order. */
+export const drawnIn = (kept: Readonly<Record<string, KeptButtons>> | undefined, locale: string, place: ButtonPlace): Drawn[] =>
+  Object.entries(kept ?? {})
+    .sort(([, a], [, b]) => a.installedAt - b.installedAt)
+    .flatMap(([uri, plugin]) => (plugin.locales[locale] ?? [])
+      .filter((button) => button.place === place)
+      .map((button) => ({ uri, name: plugin.name, button })))
+
+/** The icon as a CSS mask: a data url can carry quotes and backslashes, which would end the CSS string early. */
+export const maskOf = (icon: string) => `url("${icon.replace(/["\\\n\r]/g, encodeURIComponent)}")`
+
+/** What a button with no icon draws: its label's first letter. */
+export const letterOf = (label: string, locale: string) => [...new Intl.Segmenter(locale).segment(label)][0]?.segment.toLocaleUpperCase(locale) ?? ''

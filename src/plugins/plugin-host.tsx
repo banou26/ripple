@@ -4,11 +4,13 @@ import type { Switch } from './contract'
 import type { TorrentClient } from '../torrent/client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useIntl } from 'react-intl'
 import { useLocation } from 'react-router-dom'
 
 import { confirmStyle } from '../components/confirm-dialog'
 import { Modal } from '../components/modal'
+import { toastStyle } from '../components/toast'
 import { runningTorrentClient } from '../torrent/client'
 import { cancelAsking, connectAnswered, connectInstalled, finishAsking, usePlugins } from './host'
 import { subscribeAnswers } from './switches'
@@ -54,10 +56,21 @@ const Sheet = ({ asking }: { asking: Asking }) => {
   )
 }
 
-/** The install sheet, wherever the tab is. */
+/** The install sheet, wherever the tab is, and the line saying a plugin did not answer a click. */
 export const InstallSheet = () => {
-  const { asking } = usePlugins()
-  return asking && <Sheet key={asking.uri} asking={asking}/>
+  const intl = useIntl()
+  const { asking, unanswered } = usePlugins()
+  return (
+    <>
+      {asking && <Sheet key={asking.uri} asking={asking}/>}
+      {unanswered && createPortal(
+        <div role="status" className="toast" css={toastStyle}>
+          {intl.formatMessage({ id: '{name} is not responding', defaultMessage: '{name} is not responding' }, { name: unanswered })}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
 }
 
 // the tab running the engine connects every plugin, and each one answered for in another tab

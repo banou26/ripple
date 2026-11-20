@@ -271,7 +271,7 @@ export const TorrentOptionsDialog = ({
         <div className="body">
           {groups.map((group) => (
             <div className="group" key={group.id} role="group" aria-label={group.label}>
-              <label>{group.label}</label>
+              <label dir={group.typed ? 'auto' : undefined}>{group.label}</label>
               {group.items.map((item) => {
                 /*
                  * `key` is NOT in here, and that is the point.
@@ -329,7 +329,7 @@ export const TorrentOptionsDialog = ({
                   >
                     <span className="spacer" aria-hidden="true"/>
                     <span className="text">
-                      <span className="label">{item.label}</span>
+                      <span className="label" dir={item.typed ? 'auto' : undefined}>{item.label}</span>
                       {hint && <span className="hint">{hint}</span>}
                     </span>
                   </button>

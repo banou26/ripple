@@ -1,4 +1,5 @@
 import type { InstalledPackage } from '@fkn/lib/packages'
+import type { Drawn } from './buttons'
 import type { Switch } from './contract'
 
 import { css } from '@emotion/react'
@@ -11,6 +12,7 @@ import {
   TEXT_MUTED,
 } from '../theme'
 import { addByAddress, browsePlugins, listPlugins, removePlugin, updatePlugin, usePlugins } from './host'
+import { PluginButton, usePlaced } from './plugin-buttons'
 import { switchLabel } from './plugin-host'
 import { answer, anyPlugin, OFFERED_SWITCHES, useAnswers } from './switches'
 
@@ -86,6 +88,12 @@ const style = css`
       border-color: ${DANGER};
       color: ${DANGER};
     }
+
+    &.plugin {
+      display: inline-flex;
+      align-items: center;
+      padding-inline: 9px;
+    }
   }
 
   button, input {
@@ -132,7 +140,7 @@ const style = css`
   }
 `
 
-const Row = ({ plugin }: { plugin: InstalledPackage }) => {
+const Row = ({ plugin, button }: { plugin: InstalledPackage, button: Drawn | undefined }) => {
   const intl = useIntl()
   const { statuses, asks } = usePlugins()
   const answers = useAnswers()?.[plugin.uri] ?? {}
@@ -170,6 +178,7 @@ const Row = ({ plugin }: { plugin: InstalledPackage }) => {
         </div>
       )}
       <div className="controls">
+        {button && <PluginButton drawn={button} className="plugin"/>}
         <button type="button" onClick={() => { void update() }}>{intl.formatMessage({ id: 'Update', defaultMessage: 'Update' })}</button>
         <button type="button" className="danger" onClick={() => { void remove() }}>{intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' })}</button>
       </div>
@@ -179,10 +188,11 @@ const Row = ({ plugin }: { plugin: InstalledPackage }) => {
   )
 }
 
-/** Settings' plugins: FKN's picker, an add by address, and each plugin's switches, version, Update and Remove. */
+/** Settings' plugins: FKN's picker, an add by address, and each plugin's switches, version, button, Update and Remove. */
 export const PluginsSection = () => {
   const intl = useIntl()
   const { installed } = usePlugins()
+  const buttons = usePlaced('settings')
   const [address, setAddress] = useState('')
   const [refused, setRefused] = useState(false)
   // FKN is asked only once this device has a plugin, or on a press
@@ -207,7 +217,7 @@ export const PluginsSection = () => {
       {refused && <p role="alert">{intl.formatMessage({ id: 'That plugin could not be added', defaultMessage: 'That plugin could not be added' })}</p>}
       {!!installed?.length && (
         <ul>
-          {installed.map((plugin) => <Row key={plugin.uri} plugin={plugin}/>)}
+          {installed.map((plugin) => <Row key={plugin.uri} plugin={plugin} button={buttons.find((one) => one.uri === plugin.uri)}/>)}
         </ul>
       )}
     </section>

@@ -57,7 +57,8 @@ import { movedNews, onFolderNews, useSavedToFolder } from './folder-work'
 import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../utils/bytes'
 import { isFramed } from '../utils/framed'
 import { useConfirm } from '../components/confirm-dialog'
-import { MODAL_Z_INDEX } from '../components/modal'
+import { toastStyle } from '../components/toast'
+import { HeaderButtons, rowMenuGroups, usePlaced } from '../plugins/plugin-buttons'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
@@ -1903,33 +1904,6 @@ export const style = css`
  * above that dialog's backdrop, outside the page the dialog makes inert. A press goes through it to the dialog's
  * footer, which it lies over on a phone.
  */
-const toastStyle = css`
-  position: fixed;
-  pointer-events: none;
-  bottom: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  /* opaque, because rows of the live list would slide past under its text; the border says it floats */
-  background: ${ELEVATED_BG};
-  border: 1px solid ${BORDER_STRONG};
-  border-radius: 8px;
-  padding: 11px 20px;
-  font-size: 0.85rem;
-  z-index: ${MODAL_Z_INDEX};
-  animation: slide-up 200ms ease-out;
-
-  @keyframes slide-up {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-`
-
 const SpeedGraph = ({ history }: { history: number[] }) => {
   const w = 100
   const h = 30
@@ -2470,6 +2444,7 @@ const keepFocus = (e: ReactMouseEvent) => e.preventDefault()
 const Home = () => {
   const intl = useIntl()
   const wordless = useSyncExternalStore(onWordlessChange, () => matchMedia(WORDLESS).matches)
+  const rowPlugins = usePlaced('row-menu')
   const { torrents, list, inboundNow, dhtNodes, addMagnet, addTorrentFile, pause, resume, retry, recheck, remove, start, startMany, removeMissing, storageUnavailable, workerError, reachable, transport, sampleOffered, answerSample, client } = useTorrents()
   const [input, setInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -3663,7 +3638,7 @@ const Home = () => {
           viewport; the dialog portals to the body, one step below the broker frame. */}
       {menu && menuTorrent && shared && (
         <ContextMenu
-          groups={buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet), optionContext(menuTorrent))}
+          groups={[...buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet), optionContext(menuTorrent)), ...rowMenuGroups(rowPlugins, menuTorrent.infoHash)]}
           at={menu.at}
           label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: menuTorrent.name })}
           onClose={() => setMenu(null)}
@@ -3672,7 +3647,7 @@ const Home = () => {
       {optionsTorrent && shared && (
         <TorrentOptionsDialog
           title={optionsTorrent.name}
-          groups={buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet), optionContext(optionsTorrent))}
+          groups={[...buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet), optionContext(optionsTorrent)), ...rowMenuGroups(rowPlugins, optionsTorrent.infoHash)]}
           onClose={() => setOptionsId(null)}
         />
       )}
@@ -3793,6 +3768,7 @@ const Home = () => {
             </button>
           </div>
         </form>
+        <HeaderButtons/>
         {create.supported && (
           <button
             className="tool create"

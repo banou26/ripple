@@ -206,7 +206,7 @@ export const MenuItems = ({
     <>
       {groups.map((group) => (
         <div className="group" key={group.id} role="group" aria-label={group.label}>
-          <label>{group.label}</label>
+          <label dir={group.typed ? 'auto' : undefined}>{group.label}</label>
           {group.items.map((item) => {
             // `key` is deliberately NOT in here. React warns when a key arrives by spread, and the
             // reconciliation it drives is what keeps each row's DOM node, and therefore the focus
@@ -255,7 +255,7 @@ export const MenuItems = ({
                 onClick={() => { item.run(); onChose() }}
               >
                 <Tick on={false}/>
-                <span className="text">{item.label}</span>
+                <span className="text" dir={item.typed ? 'auto' : undefined}>{item.label}</span>
               </button>
             )
           })}

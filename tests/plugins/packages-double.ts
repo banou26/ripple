@@ -8,8 +8,8 @@ import { expose } from 'osra'
 export type FakePlugin = {
   name: string
   version: string
-  /** The plugin's payload. */
-  payload: Record<string, unknown>
+  /** The plugin's payload, or what makes it from the ripple the connection hands it. */
+  payload: Record<string, unknown> | ((ripple: Promise<Ripple>) => object)
   /** Never answers the connection when true, as a plugin whose frame hangs. */
   hangs?: boolean
 }
@@ -87,7 +87,11 @@ export const connect = async (uri: string, options: { protocol?: string, payload
   let close!: () => void
   const closed = new Promise<void>((resolve) => { close = resolve })
   const unregister = new AbortController()
-  const ripple = expose<Ripple>(plugin.payload as never, { transport: channel.port2, unregisterSignal: unregister.signal }) as Promise<Ripple>
+  let handed!: (ripple: Ripple) => void
+  const given = new Promise<Ripple>((resolve) => { handed = resolve })
+  const payload = typeof plugin.payload === 'function' ? plugin.payload(given) : plugin.payload
+  const ripple = expose<Ripple>(payload as never, { transport: channel.port2, unregisterSignal: unregister.signal }) as Promise<Ripple>
+  void ripple.then(handed, () => {})
   fkn.opened.push({ uri, ripple, protocol: options.protocol, close: () => { unregister.abort(); close() } })
   const remote = await expose(options.payload as never, { transport: channel.port1, unregisterSignal: options.signal })
   return { remote, closed, port: channel.port1 }
