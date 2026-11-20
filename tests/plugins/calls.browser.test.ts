@@ -20,7 +20,7 @@ vi.mock('idb-keyval', async () => {
 
 const { rippleFor, ADD_ANSWER_MS } = await import('../../src/plugins/calls')
 const { createFeed } = await import('../../src/plugins/feed')
-const { answer } = await import('../../src/plugins/switches')
+const { answer, SWITCHES_KEY } = await import('../../src/plugins/switches')
 const { createGroup, currentGroups, subscribeGroups } = await import('../../src/torrent/groups')
 
 const URI = 'npm:@someone/ripple-plugin-test'
@@ -104,6 +104,14 @@ describe('a call while its switch is off', () => {
     await answer(URI, { read: true })
     expect((await made.ripple.torrents()).map((t) => t.infoHash)).toEqual([A, B, GHOST])
     await answer(URI, { read: false })
+    expect(await refusal(made.ripple.torrents())).toBe('not-allowed')
+  })
+
+  // another tab's answer is in the shared storage before any message about it reaches this tab
+  it('is read from storage, so a switch another tab turned off holds here at once', async () => {
+    await answer(URI, { read: true })
+    expect((await made.ripple.torrents()).length, 'on (control)').toBe(3)
+    memory.store.set(SWITCHES_KEY, { [URI]: { read: false } })
     expect(await refusal(made.ripple.torrents())).toBe('not-allowed')
   })
 
