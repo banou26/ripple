@@ -91,6 +91,28 @@ describe('the modal shell', () => {
     await expect.poll(() => document.activeElement?.textContent).toBe('first')
   })
 
+  // the plugin install sheet points at its Done, which is disabled while the plugin connects
+  it('holds the focus itself when what it was pointed at is disabled, so Escape and Tab stay its own', async () => {
+    const onClose = vi.fn()
+    const Disabled = () => {
+      const done = useRef<HTMLButtonElement>(null)
+      return (
+        <Modal labelledBy="d" onClose={onClose} initialFocus={done}>
+          <h2 id="d">A question</h2>
+          <button type="button">cancel</button>
+          <button type="button" ref={done} disabled>done</button>
+        </Modal>
+      )
+    }
+    render(<Disabled/>)
+    await expect.poll(overlay).not.toBeNull()
+    await expect.poll(() => document.activeElement === overlay()).toBe(true)
+    await userEvent.keyboard('{Tab}')
+    expect(document.activeElement?.textContent).toBe('cancel')
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   /**
    * Without this Tab walks out of the modal into a page that looks interactive and is inert, which
    * reads as the keyboard having stopped working rather than as a trap doing its job.

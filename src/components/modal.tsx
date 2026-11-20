@@ -144,6 +144,8 @@ export const Modal = ({
     const target = initialFocus?.current ?? focusable(root)[0]
     // a card taller than its player opens at its first line, not scrolled to the control that has the focus
     target?.focus({ preventScroll: inline })
+    // a disabled control takes no focus, which would leave it on the inert page, where Escape and Tab do nothing
+    if (!root.contains(document.activeElement)) root.focus({ preventScroll: true })
     return () => {
       undo()
       // back where they were, or the next Tab starts from the top of the document

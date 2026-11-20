@@ -103,6 +103,18 @@ describe('adding a plugin by its address', () => {
     await vi.waitFor(() => expect(document.querySelector('[role="alert"]')).toHaveTextContent('That plugin could not be added'))
   })
 
+  // Done, where the sheet points the focus, is disabled while the plugin connects
+  it('takes the focus while the plugin connects, so Escape answers the sheet as Cancel', async () => {
+    const uri = plugin(['read'], { hangs: true })
+    await settings()
+    void addByAddress(uri)
+    await vi.waitFor(() => expect(sheet()).toHaveTextContent('Connecting'))
+    expect(sheet()!.contains(document.activeElement)).toBe(true)
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(fkn.calls).toContain(`uninstall ${uri}`))
+    expect(sheet()).toBeNull()
+  })
+
   it('reads Not responding on the sheet when the plugin never answers, and Done keeps it with every switch off', async () => {
     const uri = plugin(['read'], { hangs: true })
     await settings()
