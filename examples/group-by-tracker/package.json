@@ -1,0 +1,12 @@
+{
+  "name": "ripple-plugin-group-by-tracker",
+  "version": "0.0.0",
+  "description": "An example Ripple plugin: groups torrents by their tracker",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@fkn/lib": "^0.9.83"
+  }
+}
