@@ -1590,6 +1590,7 @@ const pluginRows = (page: Page) => page.locator('header').evaluate((header) => {
     rows: Math.max(...middles) - Math.min(...middles) > 12 ? 2 : 1,
     below: plugins.top >= Math.max(...own.map(box => box.bottom)),
     wrapped: header.hasAttribute('data-plugins-wrapped'),
+    shown: getComputedStyle(header.querySelector(':scope > .plugins')!).opacity !== '0',
     height: Math.round(header.getBoundingClientRect().height),
     sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   }
@@ -1730,6 +1731,7 @@ test.describe('the header', () => {
           const unfolded = await pluginRows(page)
           expect(unfolded.height, `${at}: unfolding moves nothing under the header`).toBe(folded.height)
           expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
+          if (folded.wrapped) expect(unfolded.shown, `${at}: the plugins' own row stays, below the unfolded field`).toBe(true)
           if (width < 520) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
           else expect(await open(), `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
 

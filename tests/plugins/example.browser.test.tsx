@@ -86,7 +86,7 @@ describe('the example plugin', () => {
     await added()
     const pressed = () => document.querySelector<HTMLButtonElement>('header .tool.plugin')
     await vi.waitFor(() => expect(pressed()).toHaveAccessibleName('Group by tracker'))
-    expect(pressed()!.nextElementSibling).toHaveClass('create')
+    expect(pressed()!.closest('header > .plugins')!.nextElementSibling).toHaveClass('create')
     expect(getComputedStyle(pressed()!.querySelector('.plugin-icon')!).maskImage).toContain('data:image/svg+xml')
     await userEvent.click(pressed()!)
     await vi.waitFor(() => expect(groups()).toEqual([['t.example', [SINTEL]], ['tracker.example', [SPRING]]]))
@@ -105,6 +105,8 @@ describe('the example plugin', () => {
     options('Tears.of.Steel').click()
     const dialog = () => [...document.querySelectorAll('[role="dialog"]')].at(-1)!
     await vi.waitFor(() => expect(button(dialog(), 'Put in its tracker\'s group')).toBeTruthy())
+    expect(button(dialog(), 'Put in its tracker\'s group')!.querySelector('.label'), 'a plugin\'s words take their own direction').toHaveAttribute('dir', 'auto')
+    expect([...dialog().querySelectorAll('[role="group"] > label')].find((label) => label.textContent === NAME)).toHaveAttribute('dir', 'auto')
     button(dialog(), 'Put in its tracker\'s group')!.click()
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(groups(), 'a torrent with no tracker has no group to go in').toEqual([['tracker.example', [SPRING]]])
