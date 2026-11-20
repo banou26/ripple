@@ -178,3 +178,23 @@ test('a folder chosen later leaves a temporary torrent and the sample in browser
   await expect.poll(() => inFolder(page), { timeout: 30_000, message: 'the kept sample never reached the folder' }).toEqual(SAMPLE.inFolder)
   expect(await relocates(page)).toEqual(['folder'])
 })
+
+test('a temporary torrent moved into the folder by hand is still checked there, so its options offer Remove from the library', async ({ page }) => {
+  test.setTimeout(180_000)
+  await prepare(page)
+  await page.goto('/')
+  await chooseFolder(page, false)
+  await addBoth(page)
+
+  await row(page, FILM.name).getByRole('button', { name: `Options for ${FILM.name}`, exact: true }).click()
+  await page.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
+  await page.getByRole('dialog').last().getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect.poll(() => inFolder(page), { timeout: 30_000, message: 'the film never moved' }).toEqual(FILM.inFolder)
+  expect(await relocates(page)).toEqual(['folder'])
+  await expect(row(page, FILM.name).locator('.badge')).toHaveText(/^(Seeding|Completed)$/, { timeout: 60_000 })
+  await expect(row(page, FILM.name).locator('.temp'), 'the film stopped being temporary').toHaveCount(1)
+
+  await row(page, FILM.name).getByRole('button', { name: `Options for ${FILM.name}`, exact: true }).click()
+  await expect(page.getByRole('dialog').last().getByRole('button', { name: 'Remove from the library' }), 'the moved temporary film was never checked in the folder').toBeVisible({ timeout: 30_000 })
+})
