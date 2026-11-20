@@ -10,8 +10,6 @@ import { snapshotState } from '../torrent/use-torrents'
 import { isFramed } from '../utils/framed'
 import { reloadingPage } from '../utils/reload'
 
-// queued is unfinished and not stopped by the person, as libtorrent's queue holds it and a new magnet its first half
-// second: the person's stop reads paused, and a finished torrent completed
 const TO_DOWNLOAD = new Set<TorrentState>(['downloading', 'retrying', 'queued'])
 
 /**

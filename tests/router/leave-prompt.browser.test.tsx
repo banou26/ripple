@@ -50,7 +50,7 @@ const engine = ({ owns = true }: { owns?: boolean } = {}) => {
 }
 
 const hash = (name: string) => name.repeat(40)
-// libtorrent's state_t: 1 checking, 3 downloading, 5 seeding
+// libtorrent's state_t: 1 checking, 2 metadata, 3 downloading, 4 finished, 5 seeding
 const snap = (name: string, status: object | null = {}, over: object = {}): TorrentSnapshot => ({
   handle: 1, magnet: `magnet:?xt=urn:btih:${hash(name)}`, files: null, status: status && { state: 3, paused: false, autoManaged: true, ...status },
   bitfield: null, recovery: null, userPaused: false, displayDownloadRate: 0, ...over,
@@ -127,7 +127,6 @@ describe('the prompt before the tab closes', () => {
 
     tab.state(snap('b', { state: 5 }))
     await expect.poll(holding).toHaveLength(0)
-    // libtorrent's state 2 is downloading_metadata
     tab.state(snap('a', { state: 2, paused: true }), snap('b', { state: 5 }))
     await expect.poll(holding, { message: 'a new magnet before the queue starts it' }).toHaveLength(1)
   })
@@ -150,7 +149,6 @@ describe('the prompt before the tab closes', () => {
     tab.state(snap('a', { paused: true }))
     await page()
     await expect.poll(holding).toHaveLength(1)
-    // libtorrent's state 4 is finished, every chosen file held
     tab.state(snap('a', { state: 5, paused: true }), snap('b', { state: 4, paused: true }))
     await expect.poll(holding).toHaveLength(0)
   })
