@@ -2290,6 +2290,10 @@ const startEntries = async (session: Session, infoHashes: unknown[]) => {
   await patchEntries(patches)
 }
 
+// an add a plugin made carries an id, and its answer names it, so the tab that asked can settle it and no tab shows it
+const answerAdd = (m: { addId?: unknown }, msg: { type: 'added' | 'add-failed', [key: string]: unknown }) =>
+  post(typeof m.addId === 'string' ? { ...msg, addId: m.addId } : msg)
+
 const handleMessage = async (session: Session, m: any) => {
   try {
     if (m.type === 'add-magnet') {
@@ -2316,7 +2320,7 @@ const handleMessage = async (session: Session, m: any) => {
           if (activeViewers(existing).length) applyViewing(existing)
           await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
         } else touchUsed(existing)
-        post({ type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
+        answerAdd(m, { type: 'added', handle: existing, magnet: magnetByHandle.get(existing) || m.magnet })
       } else {
         // bytes already on disk stay where they were written, so a re-add never moves a torrent to
         // a fresh directory and orphans the old one
@@ -2333,7 +2337,7 @@ const handleMessage = async (session: Session, m: any) => {
         const elsewhere = !!known && fetchesToBrowser(known)
         const savePath = m.savePath || (!elsewhere && known?.savePath) || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
         const h = addMagnet(session, magnet, savePath)
-        if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
+        if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
         track(h, magnet, ih, savePath, ephemeral)
         // before needsPriorityReset, so the pass that clears the window has the plan to write back.
         // A re-add used to lose the file selection this device already had: the restore path reads
@@ -2370,7 +2374,7 @@ const handleMessage = async (session: Session, m: any) => {
         const at = Date.now()
         // started/paused written explicitly: this add is what clears an eviction's tombstone
         if (ih) await upsertList({ infoHash: ih, magnet, savePath, addedAt: at, lastUsedAt: at, ephemeral, started: true, paused: false }, elsewhere ? { savePath, saveTo: keptSaveTo(known) } : undefined)
-        post({ type: 'added', handle: h, magnet })
+        answerAdd(m, { type: 'added', handle: h, magnet })
         // listed now rather than on the next pass: a player claims a torrent from a state, and its claim is what
         // starts the torrent past the engine's queue (494 ms of a first watch's 588 ms from the add to the first
         // connection on the swarm rig, 2026-11-17)
@@ -2495,12 +2499,12 @@ const handleMessage = async (session: Session, m: any) => {
       const savePath = m.savePath || SHARED_ROOT
       const bytes = m.bytes as Uint8Array
       const h = session.addTorrentFile(bytes, savePath)
-      if (addFailed(h)) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
+      if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
       // The engine answers a torrent it already holds with that torrent's handle, whose entry stays as it is. The page is
       // told, since its own check cannot see a torrent whose hash the poll below has not found yet.
       if (handles.includes(h)) {
-        post({ type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' })
-        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
+        answerAdd(m, { type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' })
+        answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
         return
       }
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may
@@ -2529,7 +2533,7 @@ const handleMessage = async (session: Session, m: any) => {
       if (!ih) {
         session.removeTorrent(h, true)
         untrack(h)
-        post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Could not read that torrent', defaultMessage: 'Could not read that torrent' }) })
+        answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'Could not read that torrent', defaultMessage: 'Could not read that torrent' }) })
         return
       }
       /*
@@ -2573,7 +2577,7 @@ const handleMessage = async (session: Session, m: any) => {
        * makes it claimed, so the reservation ends on the line after it and not before.
        */
       reservedHashes.delete(ih)
-      post({ type: 'added', handle: h, magnet })
+      answerAdd(m, { type: 'added', handle: h, magnet })
     } else if (m.type === 'read') {
       // The engine reuses a handle number for the same infohash, so a read that arrives after the
       // budget pass evicted its torrent would otherwise attach to whatever is added under it next.
@@ -2874,7 +2878,7 @@ const handleMessage = async (session: Session, m: any) => {
         return list
       })
       for (const e of dropped) await forgetStored(e.infoHash)
-      if (changed) post({ type: 'list', list })
+      if (changed) post({ type: 'list', list, synced: true })
     } else if (m.type === 'start' || m.type === 'start-many') {
       await startEntries(session, m.type === 'start' ? [m.infoHash] : Array.isArray(m.infoHashes) ? m.infoHashes : [])
     } else if (m.type === 'remove-missing') {
@@ -2900,7 +2904,7 @@ const handleMessage = async (session: Session, m: any) => {
         await del(torrentKey(e.infoHash)).catch(() => {})
         await del(addedTrackersKey(e.infoHash)).catch(() => {})
       }
-      post({ type: 'list', list: [] })
+      post({ type: 'list', list: [], synced: true })
     } else if (m.type === 'pause') {
       userPaused.add(m.handle)
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
@@ -3025,6 +3029,7 @@ const handleMessage = async (session: Session, m: any) => {
     }
   } catch (err: any) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: String(err?.stack ?? err) })
+    else if (typeof m.addId === 'string') answerAdd(m, { type: 'add-failed', message: String(err?.message ?? err) })
     // start-many was answered on arrival
     else if (ASKS.has(m.type) && m.type !== 'start-many') post({ type: 'answer', id: m.id, error: String(err?.message ?? err) })
     else post({ type: 'error', message: String(err?.stack ?? err) })

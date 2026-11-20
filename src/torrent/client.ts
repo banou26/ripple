@@ -50,12 +50,16 @@ const START_MANY_TIMEOUT = 5_000
 export type TorrentClient = {
   ready: Promise<void>
   onState: (cb: (torrents: TorrentSnapshot[]) => void) => () => void
-  onList: (cb: (list: Persisted[]) => void) => () => void
+  /** `synced` marks a list the account's sync wrote (an import, or another account's), rather than an edit here. */
+  onList: (cb: (list: Persisted[], synced: boolean) => void) => () => void
   onStorageUnavailable: (cb: () => void) => () => void
   /** The origin is out of room and the engine has nothing left it is allowed to reclaim. */
   onStorageFull: (cb: (full: boolean) => void) => () => void
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => () => void
+  /** A failed add this tab or another made without an `addId`. */
   onAddFailed: (cb: (message: string) => void) => () => void
+  /** The engine's answer, in every tab, to an add sent with an `addId`. */
+  onAddAnswer: (cb: (answer: { addId: string, added: boolean }) => void) => () => void
   /** Where inbound peers can reach this session. Latched, so a late subscriber gets the last value. */
   onReachable: (cb: (reachable: Reachability) => void) => () => void
   /**
@@ -132,7 +136,7 @@ export type TorrentClient = {
    * `hold` fetches the torrent's file list and then stops, transferring nothing until somebody
    * watches or reads it. For a page that offers a Download button rather than starting one.
    */
-  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean }) => void
+  addMagnet: (magnet: string, options?: { savePath?: string, ephemeral?: boolean, hold?: boolean, addId?: string }) => void
   addTorrentFile: (
     bytes: Uint8Array,
     options?: {
@@ -162,6 +166,7 @@ export type TorrentClient = {
       sequential?: boolean
       paused?: boolean
       top?: boolean
+      addId?: string
     },
   ) => void
   /**
@@ -415,11 +420,12 @@ const workerTransport: TransportFactory = (host: TransportHost): Transport => {
  */
 export const createTorrentClient = (): EngineClient => {
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
-  const listCbs = new Set<(l: Persisted[]) => void>()
+  const listCbs = new Set<(l: Persisted[], synced: boolean) => void>()
   const storageUnavailableCbs = new Set<() => void>()
   const storageFullCbs = new Set<(full: boolean) => void>()
   const workerErrorCbs = new Set<(error: { message: string, fatal: boolean }) => void>()
   const addFailedCbs = new Set<(message: string) => void>()
+  const addAnswerCbs = new Set<(answer: { addId: string, added: boolean }) => void>()
   const ownershipCbs = new Set<(owned: boolean) => void>()
   const engineResetCbs = new Set<() => void>()
   const rawCbs = new Set<(msg: any) => void>()
@@ -659,14 +665,16 @@ export const createTorrentClient = (): EngineClient => {
         recentRate.retain(handles)
         lastState = torrents
         stateCbs.forEach((cb) => cb(torrents))
-      } else if (m.type === 'list') { listed = true; lastList = m.list; listCbs.forEach((cb) => cb(m.list)) }
+      } else if (m.type === 'list') { listed = true; lastList = m.list; listCbs.forEach((cb) => cb(m.list, m.synced === true)) }
       else if (m.type === 'read-result') settleRead(m.id)?.resolve(m.data)
       else if (m.type === 'read-error') settleRead(m.id)?.reject(new Error(wordsOf(m.error)))
       else if (m.type === 'answer') {
         const pending = settleRead(m.id)
         if (typeof m.error === 'string') pending?.reject(new Error(m.error)); else pending?.resolve(m.value)
       }
-      else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(wordsOf(m.message)))
+      else if ((m.type === 'added' || m.type === 'add-failed') && typeof m.addId === 'string') {
+        addAnswerCbs.forEach((cb) => cb({ addId: m.addId, added: m.type === 'added' }))
+      } else if (m.type === 'add-failed') addFailedCbs.forEach((cb) => cb(wordsOf(m.message)))
       else if (m.type === 'fatal') {
         die(new Error(m.message))
         reportWorkerError(m.message, true)
@@ -685,11 +693,12 @@ export const createTorrentClient = (): EngineClient => {
     ready,
     // each replays its latched value to a new subscriber synchronously, which is safe only because every caller subscribes from inside a useEffect body
     onState: (cb) => { stateCbs.add(cb); if (lastState) cb(lastState); return () => { stateCbs.delete(cb) } },
-    onList: (cb) => { listCbs.add(cb); if (lastList) cb(lastList); return () => { listCbs.delete(cb) } },
+    onList: (cb) => { listCbs.add(cb); if (lastList) cb(lastList, false); return () => { listCbs.delete(cb) } },
     onStorageUnavailable: (cb) => { storageUnavailableCbs.add(cb); if (storageIsUnavailable) cb(); return () => { storageUnavailableCbs.delete(cb) } },
     onStorageFull: (cb) => { storageFullCbs.add(cb); if (storageIsFull) cb(true); return () => { storageFullCbs.delete(cb) } },
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
+    onAddAnswer: (cb) => { addAnswerCbs.add(cb); return () => { addAnswerCbs.delete(cb) } },
     onReachable: (cb) => { reachableCbs.add(cb); if (lastReachable) cb(lastReachable); return () => { reachableCbs.delete(cb) } },
     onInboundNow: (cb) => { inboundNowCbs.add(cb); cb(lastInboundNow ?? NO_INBOUND); return () => { inboundNowCbs.delete(cb) } },
     onDhtNodes: (cb) => { dhtNodesCbs.add(cb); if (lastDhtNodes !== null) cb(lastDhtNodes); return () => { dhtNodesCbs.delete(cb) } },
@@ -743,10 +752,11 @@ export const createTorrentClient = (): EngineClient => {
     }),
     importList: (list, removed = []) => send({ type: 'import-list', list, removed }),
     clearList: () => send({ type: 'clear-list' }),
-    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true }),
+    addMagnet: (magnet, options) => send({ type: 'add-magnet', magnet, savePath: options?.savePath, ephemeral: options?.ephemeral === true, hold: options?.hold === true, addId: options?.addId }),
     addTorrentFile: (bytes, options) => send({
       type: 'add-torrent-file', bytes, savePath: options?.savePath, ephemeral: options?.ephemeral === true, saveTo: options?.saveTo, created: options?.created === true,
       wanted: options?.wanted, firstLast: options?.firstLast === true, sequential: options?.sequential === true, paused: options?.paused === true, top: options?.top === true,
+      addId: options?.addId,
     }, [bytes.buffer]),
     // The bytes are NOT transferred here, unlike addTorrentFile above: the page keeps them so it can
     // offer the .torrent as a download afterwards, and a transferred buffer would be detached.

@@ -170,6 +170,25 @@ describe('the leader server', () => {
     stop()
   })
 
+  it('tells every tab the engine\'s answer to an add, so the tab whose plugin asked can settle it', async () => {
+    const { client, emit } = makeClient()
+    const stop = serveFollowers(client)
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    const heard: any[] = []
+    control.addEventListener('message', ({ data }) => { if (data.to === 'all') heard.push(data.msg) })
+    await settle()
+
+    emit({ type: 'added', addId: 'plugin-1', handle: 4, magnet: 'magnet:?xt=urn:btih:abc' })
+    emit({ type: 'add-failed', addId: 'plugin-2', message: 'That is not a valid magnet link' })
+    await settle()
+
+    expect(heard.filter((m) => m.addId)).toEqual([
+      { type: 'added', addId: 'plugin-1', handle: 4, magnet: 'magnet:?xt=urn:btih:abc' },
+      { type: 'add-failed', addId: 'plugin-2', message: 'That is not a valid magnet link' },
+    ])
+    stop()
+  })
+
   it('stays silent to a new follower until its own engine has a session', async () => {
     const { client } = makeClient(false)
     const stop = serveFollowers(client)
