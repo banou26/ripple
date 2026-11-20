@@ -1512,14 +1512,14 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
  */
 const addSource = (
   live: Session,
-  { infoHash, magnet, bytes, handles, paused }:
-  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (SourceRef | null)[], paused: boolean },
+  { infoHash, magnet, bytes, handles, paused, ephemeral = false }:
+  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (SourceRef | null)[], paused: boolean, ephemeral?: boolean },
 ): number | null => {
   const savePath = sourceSavePathFor(infoHash)
   sourceHandles.set(savePath, handles)
   const h = live.addTorrentFile(bytes, savePath)
   if (addFailed(h)) { sourceHandles.delete(savePath); return null }
-  track(h, magnet, infoHash, savePath, false)
+  track(h, magnet, infoHash, savePath, ephemeral)
   live.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
   if (paused) { userPaused.add(h); wantPause(h) }
   recovery.hold(h, Date.now())
@@ -2486,6 +2486,7 @@ const handleMessage = async (session: Session, m: any) => {
         bytes,
         handles: fileHandles,
         paused: entry?.paused === true,
+        ephemeral: entry?.ephemeral === true,
       })
       if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
       if (addedTrackers?.length) session.addTrackers(h, addedTrackers)
@@ -2564,7 +2565,7 @@ const handleMessage = async (session: Session, m: any) => {
         // `1220` is the multihash prefix, sha2-256 of 32 bytes: part of the urn, never of the id
         ...(v2 ? [`xt=urn:btmh:1220${v2}`] : []),
       ].join('&')
-      track(h, magnet, ih, savePath)
+      track(h, magnet, ih, savePath, m.ephemeral === true)
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()
       // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
