@@ -196,7 +196,7 @@ describe('an add', () => {
     const settled = made.ripple.add({ magnet })
     await vi.waitFor(() => expect(made.engine.posted.at(-1)).toMatchObject({ type: 'add-magnet', magnet, addId: expect.any(String) }))
     const addId = made.engine.posted.at(-1)?.addId
-    made.engine.say({ type: 'added', addId: 'someone-else', handle: 9, magnet })
+    made.engine.say({ type: 'add-failed', addId: 'someone-else', message: 'That is not a valid magnet link' })
     made.engine.say({ type: 'added', addId, handle: 7, magnet })
     expect(await settled).toEqual({ infoHash: 'f'.repeat(40), outcome: 'added' })
 
