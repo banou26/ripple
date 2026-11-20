@@ -2414,7 +2414,7 @@ export const CardList = ({ groups, row }: { groups: CardGroup<Torrent>[], row: (
         group && (
           <h2 className="group-head" key={'group:' + group}>
             {intl.formatMessage(GROUP_LABEL[group])}
-            <span className="count">{intl.formatNumber(rows.length)}</span>
+            <span className="count">{rows.length}</span>
           </h2>
         ),
         ...rows.map(row),

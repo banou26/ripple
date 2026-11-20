@@ -273,7 +273,7 @@ export const BulkBar = ({
           <span className="words">
             {intl.formatMessage({ id: '{count, plural, one {{count} selected} other {{count} selected}}', defaultMessage: '{count, plural, one {{count} selected} other {{count} selected}}' }, { count })}
           </span>
-          <span className="number" aria-hidden="true">{intl.formatNumber(count)}</span>
+          <span className="number" aria-hidden="true">{count}</span>
         </span>
         {canDownload && (
           <button type="button" className="icon" onClick={onDownload} aria-label={download} {...hint(download)}>

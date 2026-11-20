@@ -107,6 +107,12 @@ describe('the cards under their group headings', () => {
     }
   })
 
+  it('writes a heading\'s count as every count is written, ungrouped', async () => {
+    const { CardList } = await import('../../src/router/home')
+    const screen = await render(<IntlRoot><CardList groups={[{ group: 'active', rows: Array(1180).fill(LIBRARY[1]) }]} row={() => null}/></IntlRoot>)
+    expect(screen.container.querySelector('.group-head .count')?.textContent).toBe('1180')
+  })
+
   it('draws no heading under a filter of one state', async () => {
     const { drawn } = await mount('seeding')
     expect(drawn()).toEqual(['Seed one', 'Seed two'])

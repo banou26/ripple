@@ -42,6 +42,11 @@ describe('the bulk bar', () => {
     }
   })
 
+  it('writes its count as every count is written, ungrouped', async () => {
+    const c = (await mount({ count: 1180 }).screen).container
+    expect([c.querySelector('[role="status"] .words')?.textContent, c.querySelector('[role="status"] .number')?.textContent]).toEqual(['1180 selected', '1180'])
+  })
+
   it('disables Pause or Resume when it would change none of the ticked torrents', async () => {
     const paused = (await mount({ canPause: false }).screen).container
     expect(button(paused, 'Pause').disabled).toBe(true)
