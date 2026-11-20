@@ -845,9 +845,10 @@ test('a torrent moved into the folder moves back into browser storage when asked
 })
 
 /*
- * Whole is moved into the folder, Copied stays in browser storage and is copied into the folder, and Spare has no
- * bytes anywhere, so it is in browser storage alone. A reload with `ripple:test-no-grant` set finds the folder without
- * its grant, as one does until the person allows it again.
+ * Whole is moved into the folder, Copied stays in browser storage and is copied into the folder, and Spare is set for
+ * the folder but has no bytes anywhere, so it never finishes and its files stay in browser storage, waiting to move. A
+ * reload with `ripple:test-no-grant` set finds the folder without its grant, as one does until the person allows it
+ * again.
  */
 test('removing a torrent in the folder says its files stay, and leaves them', async ({ page }) => {
   test.setTimeout(240_000)
@@ -865,7 +866,7 @@ test('removing a torrent in the folder says its files stay, and leaves them', as
   await addToFolder(page, NAME, TORRENT)
   await expect.poll(paths, { timeout: 90_000, message: 'the torrent never moved into the folder' }).toEqual([`/native/${INFO_HASH}`])
   await addInBrowserStorage(page, COPIED, copied)
-  await addInBrowserStorage(page, SPARE, spare)
+  await addToFolder(page, SPARE, spare)
 
   const options = async (name: string) => {
     await page.getByRole('button', { name: `Options for ${name}`, exact: true }).first().click()
