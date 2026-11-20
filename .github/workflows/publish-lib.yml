@@ -175,12 +175,13 @@ jobs:
 
       # writes build/fkn.json beside build/package.json, listing every file npm pack ships from build/,
       # and refuses when the package would not ship it or the release would not fit what a device
-      # reads. ./build for the same reason the publish names it so
+      # reads. From 0.0.16 it also refuses a fkn.embed or fkn.network list fkn.app would not read.
+      # ./build for the same reason the publish names it so
       - name: Sign the package in place
         if: steps.decide.outputs.changed == 'true'
         env:
           FKN_RELEASE_KEY: ${{ secrets.FKN_RELEASE_KEY }}
-        run: npx --yes @fkn/sign@0.0.15 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"
+        run: npx --yes @fkn/sign@0.0.16 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"
 
       # No credential is passed. npm exchanges the job's OIDC identity for a short lived token against
       # the trusted publisher configured on npmjs.org for banou26/ripple + publish-lib.yml. A
@@ -252,7 +253,7 @@ jobs:
         run: |
           for attempt in $(seq 1 40); do
             set +e
-            npx --yes @fkn/sign@0.0.15 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
+            npx --yes @fkn/sign@0.0.16 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
             CODE=$?
             set -e
             if [ "$CODE" = "0" ]; then exit 0; fi

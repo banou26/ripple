@@ -161,7 +161,7 @@ describe('the in-place signature', () => {
     const sign = block('Sign the package in place')
     expect(sign).toContain('FKN_RELEASE_KEY: ${{ secrets.FKN_RELEASE_KEY }}')
     // ./build, the directory published, and never a bare name npm reads as a package spec
-    expect(sign).toContain('npx --yes @fkn/sign@0.0.15 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"')
+    expect(sign).toContain('npx --yes @fkn/sign@0.0.16 release ./build --npm --list "$RUNNER_TEMP/fkn-keys.json"')
     expect(block("Fetch Ripple's key list")).toContain('set -o pipefail; curl -fsS https://api.fkn.app/v1/apps/fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq/keys | jq .list > "$RUNNER_TEMP/fkn-keys.json"')
     for (const name of ["Fetch Ripple's key list", 'Sign the package in place', 'Confirm devices verify it']) {
       expect(block(name), name).toContain("if: steps.decide.outputs.changed == 'true'")
@@ -173,7 +173,7 @@ describe('the in-place signature', () => {
   it('checks what devices check once the registry serves it, retrying only while unpkg catches up', () => {
     expect(names().indexOf('Confirm devices verify it')).toBeGreaterThan(names().indexOf('Confirm the registry serves it'))
     const verify = block('Confirm devices verify it')
-    expect(verify).toContain('npx --yes @fkn/sign@0.0.15 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"')
+    expect(verify).toContain('npx --yes @fkn/sign@0.0.16 verify "npm:@banou/ripple@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"')
     expect(verify).toContain('if [ "$CODE" != "2" ]; then exit "$CODE"; fi')
   })
 })

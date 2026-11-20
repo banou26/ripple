@@ -12,6 +12,9 @@
     "app": "fkn:app:1c7clnsv53zt7dr7q7rcbt455hxauykaxl4gibkuoao24dfmk2eqq",
     "signed": true,
     "url": "https://torrent.fkn.app/",
+    "embed": [
+      "*"
+    ],
     "background": "store/background.webp",
     "cover": "store/cover.webp",
     "screenshots": [
