@@ -5,7 +5,7 @@ import type { OptionGroup } from '../torrent/torrent-options'
 
 import { css } from '@emotion/react'
 import { Ellipsis } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useIntl } from 'react-intl'
 
@@ -93,20 +93,63 @@ export const rowMenuGroups = (drawn: readonly Drawn[], infoHash: string | undefi
 
 const moreLabel = (intl: IntlShape) => intl.formatMessage({ id: 'More', defaultMessage: 'More' })
 
+const rowStyle = css`
+  display: flex;
+  flex: none;
+  gap: inherit;
+`
+
+/**
+ * Marks the header `data-plugins-wrapped` while `group` does not fit beside its other items: they would reach past it,
+ * or squeezed, one of them would wrap and the bar grow. Measured whenever one of them changes size, and never while a
+ * search unfolds the field over them.
+ */
+const useOwnRowWhenFull = (group: HTMLElement | null) => useLayoutEffect(() => {
+  const header = group?.parentElement
+  if (!group || !header) return
+  const heights = () => [...header.children].filter((item) => item !== group).map((item) => item.getBoundingClientRect().height)
+  const fit = () => {
+    if (header.hasAttribute('data-searching')) return
+    header.removeAttribute('data-plugins-wrapped')
+    group.style.display = 'none'
+    const alone = heights()
+    group.style.display = ''
+    if (header.scrollWidth > header.clientWidth || heights().some((height, at) => height > alone[at]! + 0.5)) header.setAttribute('data-plugins-wrapped', '')
+  }
+  const sizes = new ResizeObserver(fit)
+  const watch = () => {
+    sizes.disconnect()
+    sizes.observe(header)
+    for (const item of header.children) if (item !== group) sizes.observe(item)
+  }
+  const items = new MutationObserver(() => { watch(); fit() })
+  items.observe(header, { childList: true })
+  watch()
+  fit()
+  return () => {
+    sizes.disconnect()
+    items.disconnect()
+    header.removeAttribute('data-plugins-wrapped')
+  }
+}, [group])
+
 /**
  * The plugins' header buttons, before Create: the first {@link HEADER_INLINE} plugins' in install order, and the rest
- * in one More menu. Each is a child of the header, as its other tools are.
+ * in one More menu, on a row of their own when the header has no room for them.
  */
 export const HeaderButtons = () => {
   const intl = useIntl()
   const drawn = usePlaced('header')
   const [open, setOpen] = useState(false)
+  const [group, setGroup] = useState<HTMLDivElement | null>(null)
   const more = useRef<HTMLButtonElement>(null)
+  useOwnRowWhenFull(group)
   const inline = drawn.slice(0, HEADER_INLINE)
   const rest = drawn.slice(HEADER_INLINE)
   const label = moreLabel(intl)
+  if (!drawn.length) return null
   return (
-    <>
+    <div className="plugins" css={rowStyle} ref={setGroup}>
       {inline.map((one) => <PluginButton key={one.uri} drawn={one} className="tool plugin"/>)}
       {rest.length > 0 && (
         <button
@@ -123,6 +166,6 @@ export const HeaderButtons = () => {
         </MenuSurface>,
         document.body,
       )}
-    </>
+    </div>
   )
 }

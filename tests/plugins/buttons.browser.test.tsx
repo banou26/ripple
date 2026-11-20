@@ -148,6 +148,51 @@ describe('the header', () => {
   })
 })
 
+describe('the header\'s room', () => {
+  // a header laid out as the library's, 600 px wide, its plugins' buttons 38 px each
+  const room = () => document.querySelector('header')!
+  const own = () => room().firstElementChild as HTMLElement
+  let tools: HTMLStyleElement
+  beforeEach(() => {
+    tools = document.createElement('style')
+    tools.textContent = 'header .tool { flex: none; width: 38px; height: 38px; padding: 0 } header .word { display: inline-block; width: 200px }'
+    document.head.append(tools)
+  })
+  afterEach(() => { tools.remove() })
+  const crowded = (item: React.ReactNode, width = 600) => withHost(
+    <header style={{ display: 'flex', alignItems: 'center', gap: 12, width, padding: '0 18px', boxSizing: 'border-box', position: 'relative' }}>
+      {item}
+      <HeaderButtons/>
+    </header>,
+  )
+
+  it('gives the plugins a row of their own while they would reach past it, and none once they fit', async () => {
+    for (const at of [1, 2]) await plugin({ buttons: () => [header('go', `Sort ${at}`)] })
+    await crowded(<span style={{ flex: 'none', width: 500, height: 38 }}/>)
+    await vi.waitFor(() => expect(inline()).toHaveLength(2))
+    await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
+    own().style.width = '400px'
+    await vi.waitFor(() => expect(room(), 'the control: room enough').not.toHaveAttribute('data-plugins-wrapped'))
+    room().setAttribute('data-searching', '')
+    own().style.width = '500px'
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(room(), 'left as it was while a search unfolds the field').not.toHaveAttribute('data-plugins-wrapped')
+    room().removeAttribute('data-searching')
+    own().style.width = '510px'
+    await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
+  })
+
+  it('gives them a row of their own when, squeezed beside them, an item would wrap and the bar grow', async () => {
+    await plugin({ buttons: () => [header('go', 'Sort')] })
+    // two words of 200 px: on one line in the 424 px a 460 px bar holds, on two beside a 38 px button and a 12 px gap
+    await crowded(<span style={{ flex: '0 1 auto', minWidth: 0, width: 520 }}><span className="word">Alexandra</span> <span className="word">Lindqvist</span></span>, 460)
+    await vi.waitFor(() => expect(inline()).toHaveLength(1))
+    await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
+    room().style.width = '600px'
+    await vi.waitFor(() => expect(room(), 'the control: room for both words beside it').not.toHaveAttribute('data-plugins-wrapped'))
+  })
+})
+
 describe('a torrent\'s menu', () => {
   it('lists three of each plugin\'s items under its name, and hands a click that torrent\'s info hash alone', async () => {
     const made = await plugin({

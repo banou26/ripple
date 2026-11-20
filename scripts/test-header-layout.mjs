@@ -94,6 +94,25 @@ const measureMark = () => {
 
 const NO_PEERS = 'magnet:?xt=urn:btih:0000000000000000000000000000000000000000'
 
+// three plugins' header buttons, kept in every language as the tab running the engine keeps them, so none connects
+const keepPlugins = (languages) => new Promise((resolve, reject) => {
+  const icon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>')}`
+  const opened = indexedDB.open('keyval-store')
+  opened.onupgradeneeded = () => opened.result.createObjectStore('keyval')
+  opened.onerror = () => reject(opened.error)
+  opened.onsuccess = () => {
+    const kept = Object.fromEntries([0, 1, 2].map((i) => [`npm:layout-plugin-${i}`, {
+      name: `Layout plugin ${i}`,
+      installedAt: i,
+      locales: Object.fromEntries(languages.map((language) => [language, [{ id: 'go', place: 'header', label: `Group by tracker ${i}`, icon }]])),
+    }]))
+    const writing = opened.result.transaction('keyval', 'readwrite')
+    writing.objectStore('keyval').put(kept, 'ripple:plugin-buttons')
+    writing.oncomplete = () => { opened.result.close(); resolve() }
+    writing.onerror = () => reject(writing.error)
+  }
+})
+
 const server = serve()
 let code = 0
 try {
@@ -131,6 +150,29 @@ try {
       if (bad.length) code = 1
     }
   }
+  // with plugins' buttons before Create, in every language: the text keeps its floor, on a row of its own when need be
+  await page.evaluate(keepPlugins, offered)
+  for (const language of [...offered.filter((tag) => tag !== 'he'), 'he']) {
+    await page.evaluate((language) => localStorage.setItem('ripple:language', language), language)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector(`html[lang="${language}"] header .plugins .plugin-more`, { timeout: 30_000 })
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.waitForTimeout(150)
+      const m = await page.evaluate(measure)
+      const plugins = await page.evaluate(() => [...document.querySelectorAll('header .plugins button')].map((b) => b.getBoundingClientRect())
+        .every((box) => box.width > 0 && box.left >= 0 && box.right <= document.documentElement.clientWidth))
+      if (width === 1440 || width === 800) await page.screenshot({ path: `${OUT}/header-plugins-${language}-${width}.png`, clip: { x: 0, y: 0, width, height: 160 } })
+      const bad = []
+      if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
+      if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
+      if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
+      if (!plugins) bad.push('a plugin button is not whole in the window')
+      console.log(`plugins ${language.padEnd(7)} ${String(width).padStart(4)}px  text=${String(m.inputWidth).padStart(4)} overflowX=${m.docOverflowX}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)
+      if (bad.length) code = 1
+    }
+  }
+
   // the control: right to left too, a row wider than the window scrolls the page sideways, past its left edge
   await page.evaluate(() => { document.querySelector('header form').style.minWidth = '100vw' })
   const past = await page.evaluate(measure)

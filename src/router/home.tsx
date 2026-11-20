@@ -638,6 +638,18 @@ export const style = css`
       display: none;
     }
 
+    /* plugins' buttons that do not fit beside the rest take a row of their own below it, out of its flow, so nothing of
+       that row moves: the bar grows by one of their rows and a gap */
+    &[data-plugins-wrapped] {
+      padding-bottom: calc(12px + 38px + 12px);
+
+      > .plugins {
+        position: absolute;
+        bottom: 12px;
+        inset-inline-end: 18px;
+      }
+    }
+
     @media (width >= ${CREATE_WORDS_MIN}px) {
       .tool.create {
         width: auto;
@@ -1719,6 +1731,15 @@ export const style = css`
         --gap: 4px;
       }
 
+      &[data-plugins-wrapped] {
+        padding-bottom: calc(8px + 30px + 4px);
+
+        > .plugins {
+          bottom: 8px;
+          inset-inline-end: 8px;
+        }
+      }
+
       /* fkn.app's pill cannot narrow, since its words wrap rather than overflow, so under 360 px it is drawn smaller,
          and so is the room held for it until the broker answers */
       @media (width < 360px) {
@@ -1809,6 +1830,14 @@ export const style = css`
           > :not(.brand, form) {
             opacity: 0;
             pointer-events: none;
+          }
+
+          /* plugins on a row of their own stay there, below the field */
+          &[data-plugins-wrapped] > .plugins {
+            top: auto;
+            inset-inline-start: auto;
+            opacity: 1;
+            pointer-events: auto;
           }
         }
       }

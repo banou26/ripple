@@ -1504,6 +1504,27 @@ test.describe('a heading in Hindi keeps its letters together', () => {
 // wider than a 320 px window in any font
 const LONG_ACCOUNT = { name: 'Alexandra Maximiliane Konstantinopoulou-Lindqvist', premium: false }
 
+// a tag, as a plugin draws its icon: the mask takes ripple's text colour
+const PLUGIN_ICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11z"/></svg>')}`
+
+/** `count` plugins' header buttons, kept in every language as the tab running the engine keeps them; one of them has no icon. */
+const keepPlugins = (page: Page, count: number) => page.evaluate(([count, icon, languages]) => new Promise<void>((resolve, reject) => {
+  const opened = indexedDB.open('keyval-store')
+  opened.onupgradeneeded = () => opened.result.createObjectStore('keyval')
+  opened.onerror = () => reject(opened.error)
+  opened.onsuccess = () => {
+    const kept = Object.fromEntries(Array.from({ length: count }, (_, i) => [`npm:spec-plugin-${i}`, {
+      name: `Spec plugin ${i}`,
+      installedAt: i,
+      locales: Object.fromEntries(languages.map(language => [language, [{ id: 'go', place: 'header', label: `Group by tracker ${i}`, ...(i !== 1 && { icon, mirror: true }) }]])),
+    }]))
+    const writing = opened.result.transaction('keyval', 'readwrite')
+    writing.objectStore('keyval').put(kept, 'ripple:plugin-buttons')
+    writing.oncomplete = () => { opened.result.close(); resolve() }
+    writing.onerror = () => reject(writing.error)
+  }
+}), [count, PLUGIN_ICON, ['en', PSEUDO, ...Object.keys(catalogues())]] as const)
+
 /**
  * The header's shown items, how many rows they sit on by their middles, its height, and how far the page scrolls
  * sideways. An item the unfolded field covers is drawn with no opacity, and is not shown.
@@ -1553,6 +1574,24 @@ const fieldInRow = (page: Page) => page.locator('header').evaluate((header) => {
     hint: pen.measureText(input.placeholder).width,
     apart: Math.min(...shown.slice(1).map((box, i) => box.left - shown[i]!.right)),
     end: Math.max(...shown.map(box => box.right)),
+  }
+})
+
+/**
+ * The header with plugins: the rows its own items sit on, whether the plugins' row is below them all, whether the
+ * header put it there, its height and how far the page scrolls sideways.
+ */
+const pluginRows = (page: Page) => page.locator('header').evaluate((header) => {
+  const plugins = header.querySelector(':scope > .plugins')!.getBoundingClientRect()
+  const own = [...header.children].filter(kid => !kid.matches('.plugins') && getComputedStyle(kid).opacity !== '0')
+    .map(kid => kid.getBoundingClientRect()).filter(box => box.width > 0)
+  const middles = own.map(box => box.top + box.height / 2)
+  return {
+    rows: Math.max(...middles) - Math.min(...middles) > 12 ? 2 : 1,
+    below: plugins.top >= Math.max(...own.map(box => box.bottom)),
+    wrapped: header.hasAttribute('data-plugins-wrapped'),
+    height: Math.round(header.getBoundingClientRect().height),
+    sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   }
 })
 
@@ -1643,6 +1682,62 @@ test.describe('the header', () => {
           expect(held.height, `${at}, holding a search`).toBe(folded.height)
           expect(held.sideways, `${at}, holding a search`).toBe(0)
           if (!fits) expect((await fieldInRow(page)).text, `${at}: a search held folds with the focus elsewhere`).toBe(30)
+          await field(page).fill('')
+          await field(page).blur()
+        }
+      }
+    })
+  }
+
+  /*
+   * Plugins' buttons sit before Create: the first two plugins' in the header, the rest behind More, on a row of their
+   * own when the header has no room for them, so nothing of its first row moves. Kept by this browser as the tab
+   * running the engine keeps them, in every language, so nothing connects to fkn.app.
+   */
+  for (const language of ['en', ...Object.keys(catalogues())]) {
+    test(`${language}: three plugins' buttons, two and More, leave the header's row and its add field as they were`, async ({ page }) => {
+      test.setTimeout(180_000)
+      await opening(page, language)
+      await page.goto(origin)
+      await keepPlugins(page, 3)
+      const rtl = ['ar', 'he'].includes(language)
+      for (const account of ['out', LONG_ACCOUNT] as const) {
+        await signIn(page, null, null, account)
+        await library(page, LIST, TORRENTS)
+        await expect(page.locator('header .tool.plugin'), 'the control: two plugins\' buttons are drawn').toHaveCount(2)
+        await expect(page.locator('header .plugin-more')).toHaveCount(1)
+        expect(await page.locator('header .plugin-icon').first().evaluate(icon => getComputedStyle(icon).scale), 'a mirrored icon')
+          .toBe(rtl ? '-1 1' : 'none')
+        for (const width of [320, 360, 390, 519, 520, 700, 701, 900, 1280]) {
+          const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
+          const room = () => field(page).evaluate(input => input.getBoundingClientRect().width)
+          const open = () => page.locator('header form').evaluate(form => form.getBoundingClientRect().width)
+          await page.setViewportSize({ width, height: 844 })
+          await drawn(page)
+          const folded = await pluginRows(page)
+          expect(folded.rows, `${at}: the header's own items on one row`).toBe(1)
+          expect(folded.sideways, at).toBe(0)
+          expect(folded.below, `${at}: the plugins beside the rest, or on the row below them`).toBe(folded.wrapped)
+          if (width < 520) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
+          else expect(await open(), `${at}: the field is open`).toBeGreaterThanOrEqual(240)
+          for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings', 'header .tool.plugin >> nth=0', 'header .tool.plugin >> nth=1', 'header .plugin-more']) {
+            const box = (await page.locator(control).boundingBox())!
+            expect(box.x >= 0 && box.x + box.width <= width && box.width > 0, `${at}: ${control} at ${box.x}+${box.width}`).toBe(true)
+          }
+
+          await field(page).fill('Release')
+          await drawn(page)
+          const unfolded = await pluginRows(page)
+          expect(unfolded.height, `${at}: unfolding moves nothing under the header`).toBe(folded.height)
+          expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
+          if (width < 520) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          else expect(await open(), `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
+
+          await field(page).blur()
+          await drawn(page)
+          const held = await pluginRows(page)
+          expect(held.height, `${at}, holding a search`).toBe(folded.height)
+          expect(held.sideways, `${at}, holding a search`).toBe(0)
           await field(page).fill('')
           await field(page).blur()
         }
