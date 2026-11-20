@@ -2969,8 +2969,11 @@ const Home = () => {
   const copy = (text: string, copied: string, failed: string) => {
     navigator.clipboard.writeText(text).then(() => showToast(copied)).catch(() => showToast(failed))
   }
+  const magnetsCopied = (count: number, left: number) => (left
+    ? intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}' }, { count, left })
+    : intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}' }, { count }))
 
-  const optionActions = (t: Torrent, magnet: string | undefined): TorrentOptionActions => ({
+  const optionActions = (t: Torrent, magnet: string | undefined | null): TorrentOptionActions => ({
     setFlags: (flags, mask) => client.setFlags(Number(t.id), flags, mask),
     reannounce: () => {
       client.reannounce(Number(t.id))
@@ -2979,6 +2982,7 @@ const Home = () => {
     },
     moveInQueue: (where) => client.moveInQueue(Number(t.id), where),
     copyMagnet: () => {
+      if (magnet === null) { showToast(magnetsCopied(0, 1)); return }
       if (!magnet) return
       copy(
         magnet,
@@ -3455,9 +3459,7 @@ const Home = () => {
   const startPicked = () => startRows(toStart(pickedNow()))
   const pickedMagnets = useShareableMagnets(bulk.rows)
   const copyPicked = ({ magnets, left }: ShareableMagnets) => {
-    const copied = left
-      ? intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}' }, { count: magnets.length, left })
-      : intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}' }, { count: magnets.length })
+    const copied = magnetsCopied(magnets.length, left)
     if (magnets.length) copy(magnets.join('\n'), copied, intl.formatMessage({ id: 'Could not copy', defaultMessage: 'Could not copy' }))
     else showToast(copied)
   }

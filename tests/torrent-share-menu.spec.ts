@@ -5,6 +5,8 @@
  * torrent's settings offer the same items by construction. What this adds over the unit tests is that
  * the list is actually reachable: a right-click opens it and the item runs.
  */
+import type { Page } from '@playwright/test'
+
 import { expect, test } from './offline'
 
 import { addSample } from './sample-offer'
@@ -63,6 +65,17 @@ test('a torrent offers its magnet, name, info hash and .torrent from the right-c
   expect(magnetParams(shared, 'tr').length, 'the share link has no trackers').toBeGreaterThanOrEqual(2)
 })
 
+const KEY = '0123456789abcdef'
+const tracker = `https://tracker.invalid/${KEY}/announce`
+const torrent = (name: string, flag: string) => Buffer.from(
+  `d8:announce${tracker.length}:${tracker}4:infod6:lengthi11e4:name${name.length}:${name}`
+  + `12:piece lengthi16384e6:pieces20:${'p'.repeat(20)}${flag}ee`,
+)
+const addPacks = (page: Page) => page.locator('label.file-button input[type=file]').first().setInputFiles([
+  { name: 'Private pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Private pack', '7:privatei1e') },
+  { name: 'Public pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Public pack', '') },
+])
+
 /*
  * A private tracker's address carries the member's own key, so a torrent added from a .torrent that says it is
  * private gets no share link from its row, and still none after a reload, since what says so is the file this device
@@ -70,17 +83,8 @@ test('a torrent offers its magnet, name, info hash and .torrent from the right-c
  */
 test('a private .torrent gets no share link from its row, before a reload and after', async ({ page }) => {
   test.setTimeout(180_000)
-  const KEY = '0123456789abcdef'
-  const tracker = `https://tracker.invalid/${KEY}/announce`
-  const torrent = (name: string, flag: string) => Buffer.from(
-    `d8:announce${tracker.length}:${tracker}4:infod6:lengthi11e4:name${name.length}:${name}`
-    + `12:piece lengthi16384e6:pieces20:${'p'.repeat(20)}${flag}ee`,
-  )
   await page.goto('/')
-  await page.locator('label.file-button input[type=file]').first().setInputFiles([
-    { name: 'Private pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Private pack', '7:privatei1e') },
-    { name: 'Public pack.torrent', mimeType: 'application/x-bittorrent', buffer: torrent('Public pack', '') },
-  ])
+  await addPacks(page)
 
   const share = async (name: string) => {
     await page.locator('.torrent', { hasText: name }).click({ button: 'right' })
@@ -126,4 +130,42 @@ test('a private .torrent gets no share link from its row, before a reload and af
     await refused.getByRole('button', { name: 'Close' }).click()
     await expect(refused).toHaveCount(0)
   }
+})
+
+/*
+ * A row's Copy magnet leaves a private torrent out as the bar's Copy magnets does: nothing is written, so the clipboard
+ * keeps what it held, and the message is the bar's. The public pack is the control: its magnet is copied, key and all.
+ */
+test('a private .torrent\'s Copy magnet copies nothing, from its menu and from its options', async ({ page, context }) => {
+  test.setTimeout(180_000)
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/')
+  await addPacks(page)
+  for (const name of ['Private pack', 'Public pack']) {
+    await expect(page.locator('.torrent', { hasText: name }), `${name} is not listed`).toBeVisible({ timeout: 30_000 })
+  }
+  await expect(page.locator('.torrent.starting')).toHaveCount(0, { timeout: 40_000 })
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText())
+  const left = '0 magnets copied, 1 private torrent left out'
+
+  await page.evaluate(() => navigator.clipboard.writeText('held'))
+  await page.locator('.torrent', { hasText: 'Private pack' }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy magnet' }).click()
+  await expect(page.locator('.toast')).toHaveText(left)
+  expect(await clipboard()).toBe('held')
+
+  await page.locator('.torrent', { hasText: 'Public pack' }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy magnet' }).click()
+  await expect(page.locator('.toast')).toHaveText('Copied Public pack\'s magnet')
+  const copied = await clipboard()
+  expect(magnetParam(copied, 'dn')).toBe('Public pack')
+  expect(magnetParams(copied, 'tr'), 'the control copied no tracker key').toEqual([tracker])
+
+  // after the control's message, so this one is new
+  await page.evaluate(() => navigator.clipboard.writeText('held'))
+  await page.locator('.torrent', { hasText: 'Private pack' }).getByRole('button', { name: 'Options for Private pack' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Copy magnet' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.toast')).toHaveText(left)
+  expect(await clipboard()).toBe('held')
 })

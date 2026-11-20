@@ -6,7 +6,7 @@ import { render } from 'vitest-browser-react'
 
 import { torrentKey } from '../../src/torrent/library'
 import { magnetParam, magnetParams } from '../../src/torrent/magnet'
-import { useShareableMagnets } from '../../src/torrent/use-shareable-magnet'
+import { useShareableMagnet, useShareableMagnets } from '../../src/torrent/use-shareable-magnet'
 
 /** The `.torrent` files this device kept, by key, as idb-keyval holds them; every key read, and reads held back. */
 const kept = new Map<string, Uint8Array>()
@@ -117,5 +117,26 @@ describe('the magnets of the ticked rows', () => {
     await render(<Probe rows={[ROWS.p]}/>)
     await expect.poll(() => reads.at(-1)?.left).toBe(1)
     expect(reads.at(-1)!.magnets).toEqual([])
+  })
+})
+
+const one: ({ magnet: string | undefined | null } | null)[] = []
+const Row = ({ t }: { t: Torrent }) => { one.push(useShareableMagnet(t)); return null }
+
+describe('the magnet of one row', () => {
+  it('is null for a private torrent, as the ticked rows leave it out, and its shared magnet for any other', async () => {
+    one.length = 0
+    const screen = await render(<Row t={ROWS.p}/>)
+    expect(one[0], 'nothing to copy while it is read').toBeNull()
+    await expect.poll(() => one.at(-1)).not.toBeNull()
+    expect(one.at(-1)!.magnet, 'copied with its tracker key').toBeNull()
+
+    for (const [t, name] of [[ROWS.z, 'Open'], [ROWS.a, 'Kept']] as const) {
+      await screen.rerender(<Row t={t}/>)
+      await expect.poll(() => magnetParam(one.at(-1)?.magnet ?? '', 'dn')).toBe(name)
+    }
+    // a magnet add with no file here is not known to be private
+    await screen.rerender(<Row t={ROWS.b}/>)
+    await expect.poll(() => one.at(-1)?.magnet).toBe(ROWS.b.magnet)
   })
 })
