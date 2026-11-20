@@ -135,28 +135,45 @@ describe('the locale dates and numbers are written in', () => {
   const date = new Date(2026, 9, 26)
 
   test('the browser\'s own tag for the language shown', () => {
-    expect(formatLocale('en', ['en-GB', 'en-US'])).toBe('en-GB')
+    expect(formatLocale('en', ['en-GB', 'en-US'])).toBe('en-GB-u-nu-latn')
     expect(new Intl.DateTimeFormat(formatLocale('en', ['en-GB'])).format(date)).toBe('26/10/2026')
-    expect(formatLocale('es-419', ['es-MX'])).toBe('es-MX')
+    expect(formatLocale('es-419', ['es-MX'])).toBe('es-MX-u-nu-latn')
     expect(new Intl.NumberFormat(formatLocale('es-419', ['es-MX'])).format(1234.5)).toBe('1,234.5')
     expect(new Intl.NumberFormat(formatLocale('es-419', ['es-AR'])).format(1234.5)).toBe('1.234,5')
-    expect(formatLocale('pt-BR', ['pt-PT'])).toBe('pt-PT')
+    expect(formatLocale('pt-BR', ['pt-PT'])).toBe('pt-PT-u-nu-latn')
   })
 
   test('the same script too, so a Simplified page never takes the Traditional tag', () => {
-    expect(formatLocale('zh-Hans', ['zh-TW', 'zh-CN'])).toBe('zh-CN')
-    expect(formatLocale('zh-Hant', ['zh-CN'])).toBe('zh-Hant')
+    expect(formatLocale('zh-Hans', ['zh-TW', 'zh-CN'])).toBe('zh-CN-u-nu-latn')
+    expect(formatLocale('zh-Hant', ['zh-CN'])).toBe('zh-Hant-u-nu-latn')
   })
 
   test('else the language shown itself, which bare English writes the US way', () => {
-    expect(formatLocale('en', ['fr-FR'])).toBe('en')
+    expect(formatLocale('en', ['fr-FR'])).toBe('en-u-nu-latn')
     expect(new Intl.DateTimeFormat(formatLocale('en', [])).format(date)).toBe('10/26/2026')
-    expect(formatLocale('es-419', ['not a tag'])).toBe('es-419')
+    expect(formatLocale('es-419', ['not a tag'])).toBe('es-419-u-nu-latn')
   })
 
   test('the browser\'s languages are read when none are given', () => {
     vi.stubGlobal('navigator', { languages: ['en-AU'] })
-    expect(formatLocale()).toBe('en-AU')
+    expect(formatLocale()).toBe('en-AU-u-nu-latn')
+  })
+
+  test('in the digits 0 to 9, wherever the region has digits of its own', () => {
+    const at = new Date(2026, 9, 26, 14, 5, 9)
+    const written = (locale: string) => [
+      new Intl.NumberFormat(locale, { useGrouping: false }).format(1180),
+      new Intl.NumberFormat(locale).format(1234.5),
+      new Intl.NumberFormat(locale, { style: 'unit', unit: 'megabyte-per-second', unitDisplay: 'narrow', maximumFractionDigits: 1 }).format(10.4),
+      new Intl.NumberFormat(locale, { style: 'percent' }).format(0.42),
+      new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'medium' }).format(at),
+    ]
+    const theirOwn = /[^\P{Nd}0-9]/u
+    for (const [shown, browser] of [['ar', 'ar-EG'], ['ar', 'ar-SA'], ['ar', 'ar-EG-u-nu-arab'], ['fa', 'fa-IR'], ['bn', 'bn-BD']] as const) {
+      expect(written(browser).every(text => theirOwn.test(text)), `the control: ${browser} writes its own digits`).toBe(true)
+      expect(written(formatLocale(shown, [browser])).filter(text => theirOwn.test(text) || !/[0-9]/u.test(text)), browser).toEqual([])
+    }
+    expect(written(formatLocale('ar', ['ar-EG'])).slice(0, 2)).toEqual(['1180', '1,234.5'])
   })
 })
 

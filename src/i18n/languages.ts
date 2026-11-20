@@ -102,14 +102,18 @@ const linkedLanguage = () => {
 export const uiLanguage = (languages = browserLanguages(), offered = OFFERED, linked = linkedLanguage()) =>
   (linked ? bestLanguage([linked], offered) : undefined) ?? readPickedLanguage() ?? automaticLanguage(languages, offered)
 
+/** `tag` with its numbers in the digits 0 to 9 whatever its region writes them in: `ar-EG-u-nu-latn` for `ar-EG`. */
+export const latinDigits = (tag: string) => new Intl.Locale(tag, { numberingSystem: 'latn' }).toString()
+
 /**
  * The locale dates, numbers and lists are written in: the browser's first language in `shown`'s language and
- * script, as it writes it, so an en-GB browser keeps 26/10/2026 and es-MX keeps 1,234.5; else `shown` itself.
+ * script, as it writes it, so an en-GB browser keeps 26/10/2026 and es-MX keeps 1,234.5; else `shown` itself. Always
+ * with latinDigits(): an Egyptian browser writes 1.5 where Egypt's own digits are ١٫٥.
  */
 export const formatLocale = (shown = uiLanguage(), languages = browserLanguages()) => {
   const { language, script } = localeOf(shown)?.maximize() ?? {}
-  return languages.find(tag => {
+  return latinDigits(languages.find(tag => {
     const locale = localeOf(tag)?.maximize()
     return !!locale && locale.language === language && locale.script === script
-  }) ?? shown
+  }) ?? shown)
 }

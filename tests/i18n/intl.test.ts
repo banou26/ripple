@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { intl, LANGUAGE_KEY, pickLanguage, readPickedLanguage, shownLanguage, startLanguage, type Catalogue } from '../../src/i18n'
+import { writeDuration } from '../../src/torrent/uptime'
+import { getHumanReadableByteString, getHumanReadableSpeed, writePercent } from '../../src/utils/bytes'
 
 // plain descriptors, which the linter does not read: each message as ripple writes it, its English its id
 const message = (english: string, description?: string) =>
@@ -207,6 +209,20 @@ describe('starting a language', () => {
     expect((await start('es-419', {}, ['es-MX'])).formatNumber(1234.5)).toBe('1,234.5')
     expect((await start('es-419', {}, ['es-AR'])).formatNumber(1234.5)).toBe('1.234,5')
     expect((await start('fr', { [FILES.id]: '{count, plural, one {# fichier} other {# fichiers}}' }, ['fr-CA', 'en'])).formatMessage(FILES, { count: 1180 })).toBe('1 180 fichiers')
+  })
+
+  test('every count, size, speed, percent, time and date in the digits 0 to 9, in Egypt and Saudi Arabia too', async () => {
+    const at = new Date(2026, 9, 26, 14, 5, 9)
+    for (const region of ['ar-EG', 'ar-SA']) {
+      const ar = await start('ar', { [FILES.id]: '{count, plural, zero {لا ملفات} one {ملف واحد} two {ملفان} few {# ملفات} many {# ملفًا} other {# ملف}}' }, [region])
+      const written = [
+        ar.formatMessage(FILES, { count: 1180 }), ar.formatNumber(1234.5),
+        getHumanReadableByteString(1_500_000_000), getHumanReadableSpeed(10_400_000), writePercent(0.425, 1), writeDuration({ hours: 2, minutes: 5 }),
+        ar.formatDate(at), ar.formatTime(at),
+      ]
+      expect(written.filter(text => /[^\P{Nd}0-9]/u.test(text) || !/[0-9]/u.test(text)), region).toEqual([])
+      expect(written[0], `${region}: the plural still takes the branch its count picks`).toBe('1,180 ملفًا')
+    }
   })
 
   test('<html> takes the language and, right to left, its direction', async () => {

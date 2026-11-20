@@ -1272,6 +1272,30 @@ test.describe('in each language', () => {
   })
 })
 
+// Egypt's own digits are ٠ to ٩, which ripple never writes: every number is in 0 to 9, in every language and region
+test.describe('in an Egyptian browser', () => {
+  test('ar: every count, size, speed, percent, time and date on every surface in the digits 0 to 9', async ({ browser }) => {
+    test.setTimeout(300_000)
+    const words: string[] = []
+    // each walk from a page of its own, as each is written to start
+    for (const surfaces of [everySurface, smallParts, detailSurfaces, dialogSurfaces, downloadSurfaces, engineSurfaces, optionSurfaces, groupSurfaces]) {
+      const context = await browser.newContext({ locale: 'ar-EG' })
+      const walked = await context.newPage()
+      await prepare(walked)
+      await opening(walked, 'ar')
+      words.push(...(await surfaces(walked, 1280)).words)
+      await context.close()
+    }
+    const numbered = [...new Set(words)].filter(word => /\p{Nd}/u.test(word))
+    expect(numbered.filter(word => /[^\P{Nd}0-9]/u.test(word))).toEqual([])
+    const kinds = {
+      count: /\d\u2069 قرينًا/u, size: /\d [كمغ]\.ب(?!\/)/u, speed: /\d [كمغ]\.ب\/ث/u, percent: /\d\u200e%/u, time: /\d د \d+ ث/u,
+      date: /\d\u200f?\/\d+\u200f?\/\d{4}، \d+:\d\d:\d\d/u,
+    }
+    expect(Object.entries(kinds).filter(([, kind]) => !numbered.some(word => kind.test(word))).map(([name]) => name), 'the control: one of each was read').toEqual([])
+  })
+})
+
 // on Settings since RIPPLE-130, reached from the library's gear in the page, so the engine the library made runs on
 test.describe('the Language setting', () => {
   const select = (page: Page) => page.locator('main .folder select')
