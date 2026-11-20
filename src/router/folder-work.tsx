@@ -164,7 +164,7 @@ const Work = () => {
     for (const t of torrents) {
       if (!finished(t) || !holdsChosen(t)) continue
       /*
-       * A created torrent is never mirrored, and a temporary one only once it is kept.
+       * A created torrent is never mirrored.
        *
        * Its bytes ARE the user's own files, already sitting where they chose. Copying them into the
        * auto-save folder would duplicate an entire folder on their disk to produce a second copy of
