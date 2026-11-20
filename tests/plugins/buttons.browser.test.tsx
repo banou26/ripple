@@ -57,7 +57,8 @@ let n = 0
 /** A plugin of its own for each case, installed in this order and answered for unless `answers` is null. */
 const plugin = async ({ asks = [] as string[], buttons, click, answers = {}, hangs = false }: {
   asks?: string[]
-  buttons: (locale: string) => Button[]
+  /** None: the plugin's payload has no `buttons` at all. */
+  buttons: ((locale: string) => Button[]) | null
   click?: () => Promise<void>
   answers?: Record<string, boolean> | null
   hangs?: boolean
@@ -69,7 +70,7 @@ const plugin = async ({ asks = [] as string[], buttons, click, answers = {}, han
     hangs,
     payload: {
       asks,
-      buttons: (locale: string) => { made.asked.push(locale); return buttons(locale) },
+      ...(buttons && { buttons: (locale: string) => { made.asked.push(locale); return buttons(locale) } }),
       click: (id: string, context: ClickContext) => { made.clicks.push([id, context]); return click?.() },
     },
   })
@@ -109,23 +110,25 @@ describe('the header', () => {
     const more = document.querySelector<HTMLButtonElement>('header .tool.plugin-more')!
     expect(more).toHaveAccessibleName('More')
     await userEvent.click(inline()[0]!)
-    await vi.waitFor(() => expect(made[0]!.clicks).toEqual([['go', {}]]))
+    await vi.waitFor(() => expect(made[0]!.clicks).toStrictEqual([['go', {}]]))
     await userEvent.click(more)
     const menu = document.querySelector<HTMLElement>('[role="menu"]')!
     expect([...menu.querySelectorAll('[role="group"]')].map((g) => g.getAttribute('aria-label'))).toEqual([made[2]!.name])
     expect([...menu.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent)).toEqual(['Sort 3'])
     await userEvent.click(menu.querySelector('[role="menuitem"]')!)
-    await vi.waitFor(() => expect(made[2]!.clicks).toEqual([['go', {}]]))
-    expect(made[1]!.clicks).toEqual([])
+    await vi.waitFor(() => expect(made[2]!.clicks).toStrictEqual([['go', {}]]))
+    expect(made[1]!.clicks).toStrictEqual([])
   })
 
-  it('shows no More with two plugins, and no button for a plugin that has none', async () => {
+  it('shows no More with two plugins, and no button for a plugin that has none, which keeps none', async () => {
     await plugin({ buttons: () => [header('go', 'Sort')] })
-    await plugin({ buttons: () => [] })
+    const none = await plugin({ buttons: null })
     await plugin({ buttons: () => [header('go', 'Group')] })
     await withHost(<header><HeaderButtons/></header>)
     await vi.waitFor(() => expect(inline().map((b) => b.getAttribute('aria-label'))).toEqual(['Sort', 'Group']))
     expect(document.querySelector('header .plugin-more')).toBeNull()
+    // so no other tab connects it to ask
+    await vi.waitFor(() => expect(kept()?.[none.uri]?.locales).toEqual({ en: [] }))
   })
 
   it('draws the icon as a mask in the text colour, mirrored right to left when asked, and the first letter without one', async () => {
@@ -206,7 +209,7 @@ describe('a torrent\'s menu', () => {
     expect([...group.querySelectorAll('[role="menuitem"] .text')].map((t) => [t.textContent, t.getAttribute('dir')]))
       .toEqual([['Item 1', 'auto'], ['Item 2', 'auto'], ['Item 3', 'auto']])
     await userEvent.click(document.querySelectorAll('[role="menuitem"]')[1]!)
-    await vi.waitFor(() => expect(made.clicks).toEqual([['2', { infoHashes: [A] }]]))
+    await vi.waitFor(() => expect(made.clicks).toStrictEqual([['2', { infoHashes: [A] }]]))
   })
 })
 
@@ -218,7 +221,7 @@ describe('Settings', () => {
     await vi.waitFor(() => expect(row()?.querySelector('button.plugin')).toHaveAccessibleName('Choose trackers'))
     expect(row()!.querySelectorAll('button.plugin')).toHaveLength(1)
     await userEvent.click(row()!.querySelector('button.plugin')!)
-    await vi.waitFor(() => expect(made.clicks).toEqual([['prefs', {}]]))
+    await vi.waitFor(() => expect(made.clicks).toStrictEqual([['prefs', {}]]))
     expect(inline()).toHaveLength(1)
     await removePlugin(made.uri)
     expect(kept()?.[made.uri]).toBeUndefined()
@@ -244,6 +247,23 @@ describe('a click', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(document.querySelector('.toast')).toHaveTextContent(`${slow.name} is not responding`)
     expect(document.querySelector('.toast')).toHaveAttribute('role', 'status')
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(document.querySelector('.toast'), 'gone after a moment').toBeNull()
+  })
+
+  it('says the plugin is not responding when it does not connect in 10 s', async () => {
+    engine.double.start([entry(A)], [], false)
+    const stuck = await plugin({ buttons: () => [header('go', 'Stuck')], hangs: true })
+    await keepButtons(stuck.uri, { name: stuck.name, installedAt: 1, locales: { en: [header('go', 'Stuck')] } })
+    await withHost(<header><HeaderButtons/></header>)
+    await vi.waitFor(() => expect(inline()).toHaveLength(1))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    inline()[0]!.click()
+    await vi.advanceTimersByTimeAsync(CLICK_MS - 50)
+    expect(document.querySelector('.toast')).toBeNull()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(document.querySelector('.toast')).toHaveTextContent(`${stuck.name} is not responding`)
+    await vi.advanceTimersByTimeAsync(3_000)
   })
 
   it('asks about a switch this device never answered, goes no further on Cancel, and goes on after Done', async () => {
@@ -255,14 +275,14 @@ describe('a click', () => {
     expect([...sheet()!.querySelectorAll('label')].map((l) => l.textContent)).toEqual(['Pause, resume and organize torrents'])
     await userEvent.click(button(sheet()!, 'Cancel')!)
     await vi.waitFor(() => expect(sheet()).toBeNull())
-    expect(made.clicks).toEqual([])
+    expect(made.clicks).toStrictEqual([])
     expect(fkn.calls).not.toContain(`uninstall ${made.uri}`)
     expect(await answersOf(made.uri)).toEqual({ read: true })
     await userEvent.click(inline()[0]!)
     await vi.waitFor(() => expect(sheet()).not.toBeNull())
     await userEvent.click(sheet()!.querySelector('input[type=checkbox]')!)
     await userEvent.click(button(sheet()!, 'Done')!)
-    await vi.waitFor(() => expect(made.clicks).toEqual([['go', {}]]))
+    await vi.waitFor(() => expect(made.clicks).toStrictEqual([['go', {}]]))
     expect(await answersOf(made.uri)).toEqual({ read: true, change: true })
   })
 })
@@ -304,7 +324,7 @@ describe('what ripple keeps of a plugin\'s buttons', () => {
     expect(fkn.calls.filter((call) => call.startsWith('connect'))).toEqual([`connect ${missing.uri}`])
     expect(drawn.asked).toEqual([])
     await userEvent.click(inline()[0]!)
-    await vi.waitFor(() => expect(drawn.clicks).toEqual([['go', {}]]))
+    await vi.waitFor(() => expect(drawn.clicks).toStrictEqual([['go', {}]]))
     expect(fkn.calls).toContain(`connect ${drawn.uri}`)
   })
 
