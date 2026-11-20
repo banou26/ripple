@@ -28,10 +28,10 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, addByAddress, connectPlugin, removePlugin } = await import('../../src/plugins/host')
+const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, addByAddress, connectPlugin, removePlugin, updatePlugin } = await import('../../src/plugins/host')
 const { InstallSheet, PluginHost } = await import('../../src/plugins/plugin-host')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')
-const { answer, answersOf, storeKey } = await import('../../src/plugins/switches')
+const { answer, answersOf, keptButtons, storeKey } = await import('../../src/plugins/switches')
 const { storeVpn } = await import('../../src/torrent/vpn-setting')
 
 const A = 'a'.repeat(40)
@@ -213,6 +213,24 @@ describe('a plugin\'s row', () => {
     await userEvent.click(button(held, 'Update')!)
     await vi.waitFor(() => expect(held).toHaveTextContent('Up to date'))
     expect(held.querySelector('[role="alert"]'), 'one fkn.app answers (control)').toBeNull()
+  })
+
+  it('drops the old version\'s buttons in every language on Update, and keeps the new one\'s', async () => {
+    const uri = plugin([])
+    const version = (v: string) => ({ asks: [], buttons: (locale: string) => [{ id: 'go', place: 'header', label: `${v} ${locale}` }] })
+    fkn.plugins.get(uri)!.payload = version('v1')
+    install(uri)
+    await answer(uri, {})
+    await connectPlugin(uri)
+    await vi.waitFor(async () => expect((await keptButtons(uri))?.locales.en?.[0]?.label).toBe('v1 en'))
+    await showIn('he', he)
+    await vi.waitFor(async () => expect((await keptButtons(uri))?.locales.he?.[0]?.label).toBe('v1 he'))
+    await showEnglish()
+    fkn.plugins.set(uri, { ...fkn.plugins.get(uri)!, version: '2.0.0', payload: version('v2') })
+    expect(await updatePlugin(uri)).toBe('updated')
+    await vi.waitFor(async () => expect((await keptButtons(uri))?.locales.en?.[0]?.label).toBe('v2 en'), { timeout: RECONNECT_MS + 3_000 })
+    const labels = Object.entries((await keptButtons(uri))!.locales).map(([locale, buttons]) => [locale, buttons[0]?.label])
+    expect(labels).toEqual([['en', 'v2 en']])
   })
 
   it('removes it after one sentence, deleting its switches and its store, and keeps its torrents', async () => {

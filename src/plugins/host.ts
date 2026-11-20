@@ -332,6 +332,9 @@ export const removePlugin = async (uri: string): Promise<void> => {
 export const updatePlugin = async (uri: string): Promise<'updated' | 'current' | 'failed'> => {
   const before = installed?.find((p) => p.uri === uri)?.version
   const pkg = await packages.install(uri, { latest: true }).catch(() => null)
+  // the old version's buttons go in every language, and the new one is asked for its own on its next connection
+  const kept = pkg && pkg.version !== before ? await keptButtons(uri) : undefined
+  if (kept) await keepButtons(uri, { ...kept, locales: {} })
   await listPlugins()
   return !pkg ? 'failed' : pkg.version === before ? 'current' : 'updated'
 }
