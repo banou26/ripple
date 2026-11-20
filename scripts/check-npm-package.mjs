@@ -96,6 +96,18 @@ export const packageProblems = (pkg, repo, tree) => {
     }
   }
 
+  // a plugin's author imports ripple-plugin@1's types from here, and the package is a site rather than a library: a
+  // declaration that imports a module cannot be resolved, and a value it declares type-checks and is not there
+  if (typeof pkg.types !== 'string') problems.push('package.json declares no "types", so a plugin cannot import ripple-plugin@1\'s types')
+  else {
+    const types = tree.read(pkg.types)
+    if (types === undefined) problems.push(`"types" names ${pkg.types}, which the package does not carry`)
+    else {
+      if (/^\s*import\b|\bfrom\s*["']/m.test(types)) problems.push(`${pkg.types} imports a module, which a plugin's build cannot resolve`)
+      if (/\bdeclare\s+(?:const|let|var|function|class|enum|namespace)\b/.test(types)) problems.push(`${pkg.types} declares a value, which the package does not export: its main is the app`)
+    }
+  }
+
   for (const path of RESOLVED_AT_RUNTIME) {
     if (!tree.exists(path)) problems.push(`${path} is missing, and the entry builds its url at runtime so nothing else would notice`)
   }

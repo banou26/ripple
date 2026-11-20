@@ -21,11 +21,15 @@ import { readFileSync, writeFileSync } from 'node:fs'
 // every gate green, which is the failure this list caused before it named the field.
 const KEPT = ['name', 'version', 'type', 'repository', 'keywords', 'license', 'description', 'homepage', 'fkn']
 
+/** The plugin contract's types, ripple-plugin@1, which the npm-package script has tsc write beside the site. */
+export const TYPES = 'types/contract.d.ts'
+
 /** The manifest that ships beside the built site, given the repo's own. `main` is always the entry
  *  at the root of that directory, whatever the repo calls its build output. */
 export const npmManifest = (pkg, entry) => ({
   ...Object.fromEntries(KEPT.filter((key) => pkg[key] !== undefined).map((key) => [key, pkg[key]])),
   main: entry,
+  types: TYPES,
 })
 
 /**

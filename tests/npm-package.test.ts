@@ -12,7 +12,7 @@
  * beside it, and the check that refuses a layout the platform could not load.
  */
 import { packageProblems } from '../scripts/check-npm-package.mjs'
-import { entryIn, npmManifest as manifestFor } from '../scripts/write-npm-manifest.mjs'
+import { entryIn, npmManifest as manifestFor, TYPES } from '../scripts/write-npm-manifest.mjs'
 
 import { describe, expect, it } from 'vitest'
 
@@ -43,13 +43,22 @@ const SITE = [
   'jassub/jassub-worker-modern.js',
   'jassub/default.woff2',
   'jassub/noto-sans-jp.otf',
+  TYPES,
 ]
+
+/** ripple-plugin@1's types as tsc writes them: comments and type aliases, nothing else */
+const DECLARATION = `/** Where ripple draws a button. */
+export type ButtonPlace = 'header' | 'row-menu' | 'settings';
+export type RipplePlugin = {
+    asks: string[];
+};
+`
 
 const ENTRY = 'import"./api.js";const w=new Worker(new URL("/assets/worker-SJZDGuG-.js",import.meta.url));fetch("/libav-worker.js");navigator.serviceWorker.register("/sw.js")'
 
-/** a tree over a list of paths, with the entry's own bytes */
-const tree = (paths: string[], entry = ENTRY) => ({
-  read: (path: string) => (paths.includes(path) ? entry : undefined),
+/** a tree over a list of paths, with the entry's own bytes and the plugin types' */
+const tree = (paths: string[], entry = ENTRY, declaration = DECLARATION) => ({
+  read: (path: string) => (!paths.includes(path) ? undefined : path === TYPES ? declaration : entry),
   exists: (path: string) => paths.includes(path),
 })
 
@@ -121,7 +130,7 @@ describe('the built site as the package root', () => {
   it('refuses a path a script the entry names asks for, when the package does not carry it', () => {
     const WORKER = 'const wasm=`/assets/webrtc-DCtPDVeu.wasm`;fetch(wasm)'
     const files = (paths: string[]) => ({
-      read: (path: string) => !paths.includes(path) ? undefined : path === 'assets/worker-SJZDGuG-.js' ? WORKER : ENTRY,
+      read: (path: string) => !paths.includes(path) ? undefined : path === 'assets/worker-SJZDGuG-.js' ? WORKER : path === TYPES ? DECLARATION : ENTRY,
       exists: (path: string) => paths.includes(path),
     })
     expect(packageProblems(npmManifest(REPO), REPO, files([...SITE, 'assets/webrtc-DCtPDVeu.wasm']))).toEqual([])
@@ -151,5 +160,25 @@ describe('the built site as the package root', () => {
   it('refuses an entry that is not a module', () => {
     const problems = packageProblems(npmManifest(REPO), REPO, tree(SITE, 'console.log("hi")'))
     expect(problems.join('\n')).toContain('carries no import or export')
+  })
+})
+
+describe('the plugin types the package exports', () => {
+  it('are named in the manifest, and carried', () => {
+    expect(npmManifest(REPO).types).toBe('types/contract.d.ts')
+    expect(packageProblems(npmManifest(REPO), REPO, tree(SITE.filter((p) => p !== TYPES))).join('\n'))
+      .toContain('"types" names types/contract.d.ts, which the package does not carry')
+    const { types: _none, ...untyped } = npmManifest(REPO)
+    expect(packageProblems(untyped, REPO, tree(SITE)).join('\n')).toContain('declares no "types"')
+  })
+
+  // the package's main is the whole app, so a value a declaration names would type-check and then load ripple
+  it('declare no value and import nothing, so they stand alone', () => {
+    for (const value of ['export declare const PLUGIN_PROTOCOL = "ripple-plugin@1";', 'export declare function connect(): void;', 'declare class Host {}']) {
+      expect(packageProblems(npmManifest(REPO), REPO, tree(SITE, ENTRY, DECLARATION + value)).join('\n'), value).toContain('declares a value')
+    }
+    for (const imported of ['import type { Torrent } from "../torrent/types";', 'export type { Torrent } from "../torrent/types";']) {
+      expect(packageProblems(npmManifest(REPO), REPO, tree(SITE, ENTRY, imported + DECLARATION)).join('\n'), imported).toContain('imports a module')
+    }
   })
 })
