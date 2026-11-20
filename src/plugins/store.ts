@@ -8,7 +8,9 @@ const sizeOf = (record: Record<string, string>) => new TextEncoder().encode(JSON
 
 export const storeGet = async (uri: string, key: string): Promise<string | null> => {
   if (typeof key !== 'string') throw new Error('invalid')
-  return (await get<Record<string, string>>(storeKey(uri)))?.[key] ?? null
+  const record = await get<Record<string, string>>(storeKey(uri))
+  // own keys only: `constructor` or `toString` would answer ripple's own functions
+  return record && Object.hasOwn(record, key) ? record[key] ?? null : null
 }
 
 /** Rejects with `full` when the plugin's strings would pass {@link STORE_BYTES}, as JSON, and keeps what it had. */

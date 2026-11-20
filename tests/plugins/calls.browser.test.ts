@@ -278,4 +278,11 @@ describe('the store', () => {
     expect(await made.ripple.store.get('feed')).toBeNull()
     expect(await refusal(made.ripple.store.set('n', 4 as never))).toBe('invalid')
   })
+
+  it('answers a key the plugin never set with null, Object\'s own names included', async () => {
+    await made.ripple.store.set('cursor', '12')
+    for (const key of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) expect(await made.ripple.store.get(key), key).toBeNull()
+    await made.ripple.store.set('constructor', 'kept')
+    expect(await made.ripple.store.get('constructor'), 'one it set (control)').toBe('kept')
+  })
 })
