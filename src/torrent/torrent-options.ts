@@ -360,7 +360,8 @@ export const buildTorrentOptions = (
    * files, so forgetting the entry is the only thing removal can mean for those. A torrent living
    * only in OPFS cannot have its files "kept", because there is nowhere for them to be kept:
    * offering it would promise something the storage cannot deliver. Only once a whole copy is also
-   * in the user's own folder do both readings exist, and only then are both offered.
+   * in the user's own folder do both readings exist, and only then are both offered. One made from
+   * the person's own files and copied into browser storage deletes only that copy.
    */
   const ripplesCopy = !isGhost(t) && t.saveTo !== 'source' && context.current !== 'folder'
   if (!ripplesCopy || context.savedToUserStorage) {
@@ -376,7 +377,7 @@ export const buildTorrentOptions = (
     maintenance.push({
       kind: 'action',
       id: 'remove-files',
-      label: context.savedToUserStorage
+      label: context.savedToUserStorage || t.created === true
         ? intl.formatMessage({ id: 'Remove and delete Ripple\'s copy', defaultMessage: 'Remove and delete Ripple\'s copy' })
         : intl.formatMessage({ id: 'Remove and delete the files', defaultMessage: 'Remove and delete the files' }),
       danger: true,

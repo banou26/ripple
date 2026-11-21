@@ -417,6 +417,12 @@ describe('the torrent option list', () => {
       expect(find(torrent(), 'remove-files', actions(), true)!.label).toBe("Remove and delete Ripple's copy")
     })
 
+    /** One made from the person's own files and copied into browser storage: only that copy goes, the originals stay. */
+    it('says only Ripple\'s copy goes for a torrent made from the person\'s files and copied into browser storage', () => {
+      const made = torrent({ saveTo: 'browser', created: true })
+      expect(flat(made).filter((i) => i.id.startsWith('remove')).map((i) => i.label)).toEqual(["Remove and delete Ripple's copy"])
+    })
+
     it('separates the two, and marks both as destructive', () => {
       const a = actions()
       const keep = find(torrent(), 'remove', a, true)!
