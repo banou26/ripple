@@ -26,7 +26,7 @@ import { contentFiles } from '../torrent/types'
 import { hasPiece, heldShare } from '../torrent/downloaded-ranges'
 import { hexInfoHash } from '../torrent/magnet'
 import { hint, typedHint } from '../components/hint'
-import { DetailButtons } from '../plugins/plugin-buttons'
+import { DetailButtons, FileButtons } from '../plugins/plugin-buttons'
 
 /**
  * Everything about the selected torrent, docked along the bottom of the page.
@@ -301,6 +301,7 @@ const Files = ({
               </>
             )}
             <span className="num">{bytes(f.size)}</span>
+            {t.infoHash && <FileButtons infoHash={t.infoHash} file={f.index}/>}
             {onSave && (
               <button type="button" onClick={() => onSave(f.index)} disabled={s != null}>
                 {s != null ? writePercent(Math.round(s * 100) / 100) : intl.formatMessage({ id: 'Save', defaultMessage: 'Save' })}
@@ -883,6 +884,25 @@ export const dockStyle = css`
     &:disabled {
       opacity: 0.6;
       cursor: default;
+    }
+  }
+
+  .row button.plugin,
+  .row button.plugin-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 6px;
+    min-width: 26px;
+    color: ${TEXT_MUTED};
+
+    &:hover {
+      color: ${TEXT};
+    }
+
+    svg {
+      width: 15px;
+      height: 15px;
     }
   }
 

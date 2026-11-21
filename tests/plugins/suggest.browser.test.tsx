@@ -196,4 +196,42 @@ describe('suggest', () => {
     const fresh = await fkn.mountedOf(made.uri)!.ripple
     expect((await fresh.suggest({ magnet: magnet(HELD, 'Held') })).outcome).toBe('already')
   })
+
+  it('cleans up pending ephemeral magnets on cancel and on unmount, fails corrupt .torrent, and handles queued already', async () => {
+    const p = await plugin()
+    const view = await render(
+      <IntlRoot>
+        <MemoryRouter>
+          <Home/>
+          <PluginHost/>
+        </MemoryRouter>
+      </IntlRoot>,
+    )
+
+    await vi.waitFor(() => expect(document.querySelector('header .plugin')).not.toBeNull())
+    await userEvent.click(document.querySelector('header .plugin')!)
+    await vi.waitFor(() => expect(fkn.opened.some((o) => o.uri === p.uri)).toBe(true))
+    const remote = await fkn.rippleOf(p.uri)
+
+    // 1. Corrupt .torrent returns failed rather than sticking AddTorrentDialog
+    expect(await remote.suggest({ torrentFile: new Uint8Array([1, 2, 3]) })).toEqual({ infoHash: null, outcome: 'failed' })
+
+    // 2. Cancel BEFORE first list broadcast still removes the pending ephemeral magnet
+    const M3 = '3'.repeat(40)
+    const M4 = '4'.repeat(40)
+    const p3 = remote.suggest({ magnet: magnet(M3, 'FastCancel') })
+    await vi.waitFor(() => expect(addDialog()).not.toBeNull())
+    await userEvent.click(buttonNamed(addDialog()!, 'Cancel')!)
+    expect(await p3).toEqual({ infoHash: M3, outcome: 'declined' })
+    expect(engine.double.posted.some((m) => m.type === 'remove-missing' && m.infoHash === M3)).toBe(true)
+
+    // 3. Unmounting Home with a pending suggested magnet also removes its ephemeral entry and declines queued items
+    const p4 = remote.suggest({ magnet: magnet(M4, 'UnmountDrop') })
+    const p5 = remote.suggest({ magnet: magnet('5'.repeat(40), 'QueuedDrop') })
+    await vi.waitFor(() => expect(addDialog()).not.toBeNull())
+    await view.unmount()
+    expect(await p4).toEqual({ infoHash: M4, outcome: 'declined' })
+    expect(await p5).toEqual({ infoHash: '5'.repeat(40), outcome: 'declined' })
+    expect(engine.double.posted.some((m) => m.type === 'remove-missing' && m.infoHash === M4)).toBe(true)
+  })
 })

@@ -16,6 +16,8 @@ export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = {
   'row-menu': 3,
   'bulk-bar': 1,
   detail: 1,
+  file: 1,
+  player: 1,
   settings: 1,
 }
 /** The plugins whose header button is drawn in the header, in install order; the rest are in its More menu. */
@@ -26,6 +28,8 @@ export const PLACE_INLINE = {
   'add-field': 1,
   'bulk-bar': 2,
   detail: 2,
+  file: 1,
+  player: 1,
 } as const
 /**
  * The header's add field keeps its text this wide beside the plugins' buttons, where its hint, the page's only word on

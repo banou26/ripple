@@ -1,4 +1,4 @@
-import type { MouseEventHandler } from 'react'
+import type { KeyboardEvent, MouseEventHandler } from 'react'
 import type { IntlShape } from 'react-intl'
 import type { Button, ButtonPlace, ClickContext, DetailTab } from './contract'
 import type { Drawn } from './buttons'
@@ -12,6 +12,7 @@ import { useIntl } from 'react-intl'
 
 import { hint, typedHint } from '../components/hint'
 import { MenuItems, MenuSurface } from '../components/menu'
+import { TooltipDisplay } from '../components/tooltip-display'
 import { shownLanguage } from '../i18n'
 import { hexInfoHash } from '../torrent/magnet'
 import { drawnIn, letterOf, maskOf, PLACE_INLINE, TEXT_FLOOR } from './buttons'
@@ -56,13 +57,14 @@ export const usePlaced = (place: ButtonPlace): Drawn[] => {
   const here = usePluginsHere()
   const locale = shownLanguage()
   useEffect(() => {
-    if (!here || !kept || !answers) return
+    // a player tab connects a plugin only on a click, never on a cache miss at load
+    if (!here || !kept || !answers || place === 'player') return
     for (const uri of new Set([...Object.keys(kept), ...Object.keys(answers)])) {
       if (kept[uri]?.locales[locale] || tried.has(`${uri} ${locale}`)) continue
       tried.add(`${uri} ${locale}`)
       void connectPlugin(uri)
     }
-  }, [here, kept, answers, locale])
+  }, [here, kept, answers, locale, place])
   return here ? drawnIn(kept, locale, place) : []
 }
 
@@ -108,31 +110,34 @@ export const rowMenuGroups = (drawn: readonly Drawn[], infoHash: string | undefi
 const moreLabel = (intl: IntlShape) => intl.formatMessage({ id: 'More', defaultMessage: 'More' })
 
 const MoreButton = ({
-  rest, className, context, onMouseDown, buttonRef,
+  rest, className, context, onMouseDown, buttonRef, onOpenChange,
 }: {
   rest: readonly Drawn[]
   className: string
   context?: ClickContext
   onMouseDown?: MouseEventHandler<HTMLButtonElement>
   buttonRef?: (el: HTMLButtonElement | null) => void
+  onOpenChange?: (open: boolean) => void
 }) => {
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const more = useRef<HTMLButtonElement>(null)
   const label = moreLabel(intl)
+  const toggle = (next: boolean) => { setOpen(next); onOpenChange?.(next) }
+  useEffect(() => () => { onOpenChange?.(false) }, [onOpenChange])
   if (!rest.length) return null
   return (
     <>
       <button
         type="button" className={className} ref={(el) => { more.current = el; buttonRef?.(el) }} aria-haspopup="menu" aria-expanded={open}
-        aria-label={label} {...hint(label)} onMouseDown={onMouseDown} onClick={() => setOpen((was) => !was)}
+        aria-label={label} {...hint(label)} onMouseDown={onMouseDown} onClick={() => toggle(!open)}
       >
         <Ellipsis aria-hidden="true"/>
       </button>
       {/* in the body, as the account's menu is, so none of the bar's rules for its children reach it */}
       {open && createPortal(
-        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => setOpen(false)}>
-          <MenuItems groups={pluginGroups(rest, context)} onChose={() => setOpen(false)}/>
+        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => toggle(false)}>
+          <MenuItems groups={pluginGroups(rest, context)} onChose={() => toggle(false)}/>
         </MenuSurface>,
         document.body,
       )}
@@ -210,7 +215,13 @@ export const HeaderButtons = () => {
  * When the pill is too narrow for two extra icons to leave the text at {@link TEXT_FLOOR}, every plugin folds into the
  * single More button so the input stays readable and every plugin stays reachable.
  */
-export const AddFieldButtons = ({ text, onMouseDown }: { text: string, onMouseDown?: MouseEventHandler<HTMLButtonElement> }) => {
+export const AddFieldButtons = ({
+  text, onMouseDown, onMenuOpenChange,
+}: {
+  text: string
+  onMouseDown?: MouseEventHandler<HTMLButtonElement>
+  onMenuOpenChange?: (open: boolean) => void
+}) => {
   const drawn = usePlaced('add-field')
   const [compact, setCompact] = useState(false)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
@@ -226,6 +237,7 @@ export const AddFieldButtons = ({ text, onMouseDown }: { text: string, onMouseDo
     }
     const observer = new ResizeObserver(fit)
     observer.observe(field)
+    observer.observe(input)
     return () => observer.disconnect()
   }, [anchor, many])
   if (!drawn.length) return null
@@ -238,7 +250,7 @@ export const AddFieldButtons = ({ text, onMouseDown }: { text: string, onMouseDo
       {inline.map((one) => (
         <PluginButton key={one.uri} drawn={one} className="icon plugin" context={context} onMouseDown={onMouseDown}/>
       ))}
-      <MoreButton rest={rest} className="icon plugin-more" context={context} onMouseDown={onMouseDown} buttonRef={setAnchor}/>
+      <MoreButton rest={rest} className="icon plugin-more" context={context} onMouseDown={onMouseDown} buttonRef={setAnchor} onOpenChange={onMenuOpenChange}/>
     </>
   )
 }
@@ -269,6 +281,104 @@ export const DetailButtons = ({ infoHash, tab }: { infoHash: string, tab: Detail
         <PluginButton key={one.uri} drawn={one} className="plugin" context={context}/>
       ))}
       <MoreButton rest={drawn.slice(PLACE_INLINE.detail)} className="plugin-more" context={context}/>
+    </>
+  )
+}
+
+/** The plugins' file-row buttons, beside Save: 1 inline and the rest in More, pressed with `{ infoHash, file }`. */
+export const FileButtons = ({ infoHash, file }: { infoHash: string, file: number }) => {
+  const drawn = usePlaced('file')
+  if (!drawn.length) return null
+  const context: ClickContext = { infoHash: hexInfoHash(infoHash), file }
+  return (
+    <>
+      {drawn.slice(0, PLACE_INLINE.file).map((one) => (
+        <PluginButton key={one.uri} drawn={one} className="plugin" context={context}/>
+      ))}
+      <MoreButton rest={drawn.slice(PLACE_INLINE.file)} className="plugin-more" context={context}/>
+    </>
+  )
+}
+
+const stopSpace = (e: KeyboardEvent) => { if (e.key === ' ') e.stopPropagation() }
+
+/**
+ * The plugins' player buttons, beside Open in Ripple: 1 inline and the rest in More, drawn with `TooltipDisplay`
+ * in the player's overlay and pressed with `{ infoHash, file, time }`.
+ */
+export const PlayerButtons = ({ infoHash, file, getTime, container }: {
+  infoHash: string
+  file: number
+  getTime: () => number
+  container: HTMLElement | null
+}) => {
+  const intl = useIntl()
+  const drawn = usePlaced('player')
+  const [open, setOpen] = useState(false)
+  const more = useRef<HTMLButtonElement>(null)
+  if (!drawn.length) return null
+  const inline = drawn.slice(0, PLACE_INLINE.player)
+  const rest = drawn.slice(PLACE_INLINE.player)
+  const context = (): ClickContext => ({ infoHash: hexInfoHash(infoHash), file, time: getTime() })
+  const label = moreLabel(intl)
+  const byPlugin = new Map<string, OptionGroup>()
+  for (const one of rest) {
+    const group = byPlugin.get(one.uri) ?? { id: `plugin ${one.uri}`, label: one.name, typed: true, items: [] }
+    group.items.push({ kind: 'action', id: `plugin ${one.uri} ${one.button.id}`, label: one.button.label, typed: true, run: () => press(one, context()) })
+    byPlugin.set(one.uri, group)
+  }
+  const groups = [...byPlugin.values()]
+  return (
+    <>
+      {inline.map((one) => (
+        <TooltipDisplay
+          key={one.uri}
+          id={`plugin-player-${one.uri}`}
+          tooltipPlace="bottom-end"
+          text={(
+            <button
+              type="button"
+              className="item link plugin"
+              aria-label={one.button.label}
+              onClick={() => press(one, context())}
+              onKeyDown={stopSpace}
+            >
+              <PluginIcon button={one.button}/>
+            </button>
+          )}
+          toolTipText={<span dir="auto">{one.button.label}</span>}
+        />
+      ))}
+      {rest.length > 0 && (
+        <>
+          <TooltipDisplay
+            id="plugin-player-more"
+            tooltipPlace="bottom-end"
+            disabled={open}
+            text={(
+              <button
+                type="button"
+                ref={more}
+                className="item link plugin-more"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-label={label}
+                onClick={() => setOpen((was) => !was)}
+                onKeyDown={stopSpace}
+              >
+                <Ellipsis aria-hidden="true"/>
+              </button>
+            )}
+            toolTipText={<span>{label}</span>}
+          />
+          {open && createPortal(
+            <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => setOpen(false)}>
+              <MenuItems groups={groups} onChose={() => setOpen(false)}/>
+            </MenuSurface>,
+            container ?? document.body,
+          )}
+        </>
+      )}
     </>
   )
 }

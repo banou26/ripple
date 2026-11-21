@@ -1517,7 +1517,10 @@ const keepPlugins = (page: Page, count: number) => page.evaluate(([count, icon, 
     const kept = Object.fromEntries(Array.from({ length: count }, (_, i) => [`npm:spec-plugin-${i}`, {
       name: `Spec plugin ${i}`,
       installedAt: i,
-      locales: Object.fromEntries(languages.map(language => [language, [{ id: 'go', place: 'header', label: `Group by tracker ${i}`, ...(i !== 1 && { icon, mirror: true }) }]])),
+      locales: Object.fromEntries(languages.map(language => [language, [
+        { id: 'go', place: 'header', label: `Group by tracker ${i}`, ...(i !== 1 && { icon, mirror: true }) },
+        { id: 'search', place: 'add-field', label: `Find ${i}`, ...(i !== 1 && { icon, mirror: true }) },
+      ]])),
     }]))
     const writing = opened.result.transaction('keyval', 'readwrite')
     writing.objectStore('keyval').put(kept, 'ripple:plugin-buttons')

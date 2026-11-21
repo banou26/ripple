@@ -27,7 +27,7 @@ describe('a plugin\'s buttons', () => {
   })
 
   it('leaves out a place this ripple does not draw, a repeated id and anything that is no button', () => {
-    expect(cleanButtons([button({ place: 'player' }), button({ place: 'toString' }), button({ id: '' }), null, 'header', 4])).toEqual([])
+    expect(cleanButtons([button({ place: 'sidebar' }), button({ place: 'toString' }), button({ id: '' }), null, 'header', 4])).toEqual([])
     expect(cleanButtons([button({ place: 'row-menu' }), button({ place: 'row-menu' })])).toHaveLength(1)
     expect(cleanButtons({ length: 1, 0: button() })).toEqual([])
     expect(cleanButtons([button()]), 'the control').toEqual([{ id: 'a', place: 'header', label: 'Group by tracker' }])
@@ -48,8 +48,8 @@ describe('a plugin\'s buttons', () => {
   })
 
 
-  it('holds add-field, bulk-bar and detail to one button per plugin and cleans optional page specs', () => {
-    for (const place of ['add-field', 'bulk-bar', 'detail'] as const) {
+  it('holds add-field, bulk-bar, detail, file and player to one button per plugin and cleans optional page specs', () => {
+    for (const place of ['add-field', 'bulk-bar', 'detail', 'file', 'player'] as const) {
       expect(cleanButtons([button({ id: 'first', place }), button({ id: 'second', place })]).map((b) => b.id)).toEqual(['first'])
     }
     expect(cleanButtons([button({ id: 'p1', page: { id: 'search', size: 'large' } })])[0]!.page).toEqual({ id: 'search', size: 'large' })

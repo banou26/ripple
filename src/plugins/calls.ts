@@ -1,18 +1,30 @@
-import type { AddResult, ClickContext, FileAddOptions, PageOpen, PluginEvents, PluginGroup, PluginTorrent, Ripple, Source, Switch } from './contract'
+import type {
+  AddResult, ClickContext, FileAddOptions, PageOpen, PluginEvents, PluginFolder, PluginGroup, PluginLimits,
+  PluginNetwork, PluginPeer, PluginTorrent, PluginTracker, Ripple, Source, Switch,
+} from './contract'
 import type { Feed } from './feed'
-import type { TorrentClient } from '../torrent/client'
+import type { Reachability, TorrentClient } from '../torrent/client'
+import type { StorageFull } from '../torrent/storage-budget'
 import type { Torrent } from '../torrent/types'
+import type { EngineTransport } from '../torrent/vpn-config'
 
 import { TORRENT_FLAG } from 'libtorrent-wasm'
 
 import { describeAddRequest } from '../router/add-request'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
+import { NO_INBOUND } from '../torrent/inbound'
 import { hexInfoHash, magnetInfoHash, sameInfoHash } from '../torrent/magnet'
+import { isLimit } from '../torrent/rate-limits'
+import { isSaveCancelled, saveTorrentEntriesAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
+import { currentLocation } from '../torrent/save-location'
+import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { readTorrentFile } from '../torrent/torrent-file'
 import { keepSyncedTorrentFile } from '../torrent/torrent-file-sync'
+import { contentFiles } from '../torrent/types'
+import { watchHref } from '../torrent/watch'
 import { holdWhileStored } from '../utils/page-work'
 import { isPageSize } from './buttons'
-import { keptOf, publicTorrentFile } from './project'
+import { keptOf, publicTorrentFile, trackerOrigin } from './project'
 import { storeGet, storeSet } from './store'
 import { isOn } from './switches'
 
@@ -33,8 +45,10 @@ export type PluginTab = {
   buttonsChanged: (uri: string) => void
   /** Opens a popup page for `uri` inside Ripple's dialog. */
   openPage: (uri: string, page: PageOpen) => Promise<void>
-  /** Closes `uri`'s open popup page, if any. */
-  closePage: (uri: string) => void
+  /** Ends `uri`'s page gesture immediately and returns its page key so deferred unmount closes only that page. */
+  beginClosePage: (uri: string) => number | null
+  /** Closes `uri`'s open popup page (only matching `key` when given). */
+  closePage: (uri: string, key?: number) => void
   /** Whether `uri` is inside its gesture window (within 10 s of a click on its button, or while its page is open). */
   inGesture: (uri: string) => boolean
   /** Claims one `suggest` slot in `uri`'s current gesture window; false once the window is spent or closed. */
@@ -43,6 +57,10 @@ export type PluginTab = {
   canSuggest: () => boolean
   /** Hands a validated proposal to the library's add queue. */
   suggest: (uri: string, item: Omit<SuggestedAdd, 'from'>) => Promise<AddResult>
+  /** Navigates this tab to a Ripple route (used by `play`). */
+  navigate: (to: string) => void
+  /** The chosen download folder's name and current permission without prompting, or null. */
+  folder: () => Promise<PluginFolder | null>
   feed: () => Feed
   owns: () => boolean
   vpn: () => boolean
@@ -54,6 +72,8 @@ export type PluginTab = {
 
 /** How long an add waits for the engine's answer before it counts as failed. */
 export const ADD_ANSWER_MS = 60_000
+/** Maximum byte length a single `read` call may request. */
+export const READ_MAX_BYTES = 4 * 1024 * 1024
 
 const QUEUE_MOVES = new Set(['top', 'up', 'down', 'bottom'])
 const TORRENT_EVENTS = new Set<keyof PluginEvents>(['changed', 'added', 'finished', 'removed'])
@@ -65,6 +85,20 @@ function fail (reason: string): never { throw new Error(reason) }
 const isHashList = (value: unknown): value is string[] => Array.isArray(value) && value.every((h) => typeof h === 'string')
 
 const kept = (t: Torrent): t is Torrent & { infoHash: string } => !!t.infoHash && t.ephemeral !== true
+
+const peek = <T>(watch: (cb: (value: T) => void) => () => void, fallback: T): T => {
+  let value = fallback
+  watch((next) => { value = next })()
+  return value
+}
+
+const cleanLimits = (raw: unknown): { down?: number, up?: number } => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('invalid')
+  const { down, up } = raw as Record<string, unknown>
+  if (down !== undefined && !isLimit(down)) fail('invalid')
+  if (up !== undefined && !isLimit(up)) fail('invalid')
+  return { ...(down !== undefined ? { down } : {}), ...(up !== undefined ? { up } : {}) }
+}
 
 const answerOf = (client: TorrentClient, addId: string) => new Promise<AddResult['outcome']>((resolve) => {
   const timer = setTimeout(() => { off(); resolve('failed') }, ADD_ANSWER_MS)
@@ -188,8 +222,8 @@ export const rippleFor = (
     if ((await rows()).some((t) => sameInfoHash(t.infoHash, infoHash) && t.ephemeral !== true)) return { ...answer, outcome: 'already' }
     if (!tab.canSuggest()) fail('unavailable')
     if (request?.ok) return tab.suggest(uri, { magnet: request.magnet, infoHash: answer.infoHash, name: request.name })
-    if (!read || !bytes) return { infoHash: null, outcome: 'failed' }
-    return tab.suggest(uri, { magnet: read.magnet, infoHash: answer.infoHash, name: read.name, bytes: new Uint8Array(bytes), files: read.files ?? undefined })
+    if (!read?.files || !bytes) return { ...answer, outcome: 'failed' }
+    return tab.suggest(uri, { magnet: read.magnet, infoHash: answer.infoHash, name: read.name, bytes: new Uint8Array(bytes), files: read.files })
   }
 
   const ripple: Ripple = {
@@ -212,13 +246,15 @@ export const rippleFor = (
         await tab.openPage(uri, { id: trimmed, ...(size && { size }), context: context ? { ...(context as ClickContext) } : {} })
       },
       close: async () => {
+        const key = tab.beginClosePage(uri)
+        if (key === null) return
         // two posted-message hops guarantee osra's microtask reply is queued before hop 2 and delivered before unmount
         const hop = (next: () => void) => {
           const ch = new MessageChannel()
           ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); next() }
           ch.port2.postMessage(null)
         }
-        hop(() => hop(() => tab.closePage(uri)))
+        hop(() => hop(() => tab.closePage(uri, key)))
       },
     },
     store: {
@@ -302,6 +338,146 @@ export const rippleFor = (
     deleteGroup: async (id) => { await deleteGroup(await group(id)) },
     putInGroup: async (id, infoHashes) => { const known = await group(id); await putInGroup(known, await members(infoHashes, true)) },
     takeOutOfGroup: async (id, infoHashes) => { const known = await group(id); await takeOutOfGroup(known, await members(infoHashes, false)) },
+    remove: async (infoHash, options) => {
+      await need('remove')
+      if (options !== undefined && (!options || typeof options !== 'object')) fail('invalid')
+      const t = await find(infoHash)
+      void forgetThumbnail(t.infoHash)
+      if (t.state === 'missing') { tab.client().removeMissing(t.infoHash); return }
+      const handle = Number(t.id)
+      if (!Number.isInteger(handle)) fail('unavailable')
+      tab.client().remove(handle, options?.deleteFiles === true)
+    },
+    makeTemporary: async (infoHash) => {
+      await need('remove')
+      const t = await find(infoHash)
+      if (t.state === 'missing' || t.saveTo === 'source' || currentLocation(t.stats?.savePath) === 'source') fail('unavailable')
+      if (t.ephemeral !== true) tab.client().setTemporary(t.infoHash, true)
+    },
+    read: async (infoHash, file, offset, length, options) => {
+      const { t, handle } = await running(infoHash, 'files')
+      if (typeof file !== 'number' || !Number.isInteger(file) || file < 0) fail('invalid')
+      if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) fail('invalid')
+      if (typeof length !== 'number' || !Number.isInteger(length) || length < 0 || length > READ_MAX_BYTES) fail('invalid')
+      if (options !== undefined && (!options || typeof options !== 'object')) fail('invalid')
+      if (!t.files) fail('unavailable')
+      const target = contentFiles(t.files).find((f) => f.index === file)
+      if (!target) fail('not-found')
+      if (offset > target.size) fail('invalid')
+      const len = Math.min(length, target.size - offset)
+      if (len === 0) return new Uint8Array(0)
+      try {
+        return await tab.client().read(handle, target.index, offset, len, options?.prioritize === true, undefined, options?.signal)
+      } catch (err) {
+        if (options?.signal?.aborted || (err as Error)?.name === 'AbortError') throw err
+        fail('unavailable')
+      }
+    },
+    play: async (infoHash, file) => {
+      await need('files')
+      if (typeof file !== 'number' || !Number.isInteger(file) || file < 0) fail('invalid')
+      if (!tab.inGesture(uri)) fail('not-allowed')
+      const t = await find(infoHash)
+      if (!t.magnet || !t.files) fail('unavailable')
+      const target = contentFiles(t.files).find((f) => f.index === file)
+      if (!target) fail('not-found')
+      const href = watchHref(t, target.index)
+      if (!href) fail('unavailable')
+      if (!tab.inGesture(uri)) fail('not-allowed')
+      tab.closePage(uri)
+      tab.navigate(href)
+    },
+    save: async (infoHash, file) => {
+      await need('files')
+      if (file !== undefined && (typeof file !== 'number' || !Number.isInteger(file) || file < 0)) fail('invalid')
+      if (!tab.inGesture(uri)) fail('not-allowed')
+      const { t, handle } = await running(infoHash, 'files')
+      const files = contentFiles(t.files)
+      if (!files.length) fail('unavailable')
+      const one = file === undefined
+        ? (files.length === 1 ? files[0] : null)
+        : (files.find((f) => f.index === file) ?? fail('not-found'))
+      if (!tab.inGesture(uri)) fail('not-allowed')
+      const client = tab.client()
+      const viewer = client.newViewerId()
+      try {
+        if (one) {
+          await saveTorrentFileToDisk(client, handle, one.index, one.name, one.size, undefined, { viewer, streamOnly: true })
+        } else {
+          await saveTorrentEntriesAsZipToDisk(
+            client, handle, t.name, files.map((f) => ({ index: f.index, path: f.name, size: f.size })),
+            undefined, { viewer, streamOnly: true },
+          )
+        }
+        return true
+      } catch (err) {
+        if (isSaveCancelled(err)) return false
+        fail('unavailable')
+      } finally {
+        client.unwatch(viewer)
+      }
+    },
+    folder: async () => {
+      await need('folder')
+      return tab.folder()
+    },
+    move: async (infoHash, location) => {
+      await need('folder')
+      if (location !== 'browser' && location !== 'folder') fail('invalid')
+      const t = await find(infoHash)
+      if (t.saveTo === 'source' || currentLocation(t.stats?.savePath) === 'source') fail('unavailable')
+      if (location === 'folder' && !(await tab.folder())) fail('unavailable')
+      tab.client().setLocation(t.infoHash, location)
+    },
+    peers: async (infoHash): Promise<PluginPeer[]> => {
+      const { handle } = await running(infoHash, 'peers')
+      const detail = await tab.client().torrentDetail(handle).catch(() => fail('unavailable'))
+      if (!detail) fail('unavailable')
+      return detail.peers.map((p) => ({
+        address: p.transport === 'webrtc' ? '' : p.endpoint,
+        client: p.client,
+        down: p.downloadRate,
+        up: p.uploadRate,
+        progress: p.progress,
+      }))
+    },
+    trackers: async (infoHash): Promise<PluginTracker[]> => {
+      const { handle } = await running(infoHash, 'peers')
+      const detail = await tab.client().torrentDetail(handle).catch(() => fail('unavailable'))
+      if (!detail) fail('unavailable')
+      return detail.trackers.flatMap((tr) => {
+        const origin = trackerOrigin(tr.url)
+        return origin ? [{ origin, working: !tr.updating && tr.fails === 0 }] : []
+      })
+    },
+    setLimits: async (infoHash, limits) => {
+      const { handle } = await running(infoHash, 'peers')
+      tab.client().setLimits(handle, cleanLimits(limits))
+    },
+    sessionLimits: async (): Promise<PluginLimits> => {
+      await need('peers')
+      const client = tab.client()
+      await client.ready
+      const { down, up } = peek(client.onRateLimits, { down: 0, up: 0 })
+      return { down, up }
+    },
+    setSessionLimits: async (limits) => {
+      await need('peers')
+      tab.client().setSessionLimits(cleanLimits(limits))
+    },
+    network: async (): Promise<PluginNetwork> => {
+      await need('network')
+      const client = tab.client()
+      await client.ready
+      const transport = peek<EngineTransport>(client.onTransport, tab.vpn() ? 'relay' : 'direct')
+      const reach = peek<Reachability | null>(client.onReachable, null)
+      const direct = transport === 'direct'
+      const reachable = !direct && !!reach && reach.listenFailed.length === 0 && Boolean(reach.port) && (reach.portOpen ?? true)
+      const inbound = direct ? 0 : peek(client.onInboundNow, NO_INBOUND).total
+      const dhtNodes = direct ? 0 : peek(client.onDhtNodes, 0)
+      const storageFull = Boolean(peek<StorageFull>(client.onStorageFull, false))
+      return { transport, reachable, inbound, dhtNodes, storageFull }
+    },
   }
 
   return { ripple, close: () => { for (const off of [...offs]) off() } }

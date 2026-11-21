@@ -2484,6 +2484,7 @@ const Home = () => {
    * picker opening does, leaves it on the field, where a blur event would fold it.
    */
   const [searching, setSearching] = useState(false)
+  const [fieldMenuOpen, setFieldMenuOpen] = useState(false)
   useEffect(() => {
     const read = () => setSearching(!!formRef.current?.contains(document.activeElement))
     document.addEventListener('focusin', read)
@@ -3326,16 +3327,27 @@ const Home = () => {
     askNext()
   }, [params, setParams, askNext])
 
-  const cancelAdd = useCallback(() => {
+  const listRef = useRef(list)
+  listRef.current = list
+  const dropPendingEphemeral = useCallback((pending: PendingAdd | null) => {
+    if (!pending || pending.bytes || !pending.infoHash) return
     // Only the cache entry this flow created: anything already theirs was never ours to remove. Read off the list and
-    // removed by hash, because the list has the add up to one engine state (500 ms) before a row with its handle does.
-    const entry = pendingAdd && !pendingAdd.bytes ? list.find((e) => e.infoHash === pendingAdd.infoHash) : undefined
-    if (entry?.ephemeral) removeMissing(entry.infoHash)
+    // removed by hash, because the list has the add up to one engine state (500 ms) before a row with its handle does;
+    // when cancelled before that first list broadcast arrives, still drop it unless a non-ephemeral row already held it.
+    const entry = listRef.current.find((e) => sameInfoHash(e.infoHash, pending.infoHash))
+    if (entry ? entry.ephemeral : !torrentsRef.current.some((t) => sameInfoHash(t.infoHash, pending.infoHash) && !t.ephemeral)) {
+      removeMissing(entry?.infoHash ?? pending.infoHash)
+    }
+  }, [removeMissing])
+
+  const cancelAdd = useCallback(() => {
+    if (!pendingAdd || pendingRef.current !== pendingAdd) return
+    dropPendingEphemeral(pendingAdd)
     closeAdd('declined')
-  }, [pendingAdd, list, removeMissing, closeAdd])
+  }, [pendingAdd, dropPendingEphemeral, closeAdd])
 
   const confirmAdd = useCallback(() => {
-    if (!pendingAdd || !choices) return
+    if (!pendingAdd || pendingRef.current !== pendingAdd || !choices) return
     if (pendingAdd.bytes) {
       // the engine has nothing of it yet, so the answers go with the add
       addTorrentFile(pendingAdd.bytes, {
@@ -3363,6 +3375,8 @@ const Home = () => {
   // plugin `suggest` proposals go into the same add queue as external links, naming the plugin in the dialog
   const askNextRef = useRef(askNext)
   askNextRef.current = askNext
+  const dropPendingRef = useRef(dropPendingEphemeral)
+  dropPendingRef.current = dropPendingEphemeral
   useEffect(() => {
     const unregister = registerSuggester((proposal) => new Promise((resolve) => {
       if (torrentsRef.current.some((t) => sameInfoHash(t.infoHash, proposal.infoHash) && !t.ephemeral)) {
@@ -3377,7 +3391,9 @@ const Home = () => {
     }))
     return () => {
       unregister()
-      pendingRef.current?.settle?.('declined')
+      const current = pendingRef.current
+      if (current?.settle) dropPendingRef.current(current)
+      current?.settle?.('declined')
       for (const next of addQueue.current.splice(0)) next.settle?.('declined')
     }
   }, [])
@@ -3717,7 +3733,7 @@ const Home = () => {
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
-      <header data-searching={searching || undefined} data-folded={folded || undefined}>
+      <header data-searching={searching || fieldMenuOpen || undefined} data-folded={folded || undefined}>
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
@@ -3789,7 +3805,7 @@ const Home = () => {
             )}
 
             <span className="sep" aria-hidden="true"/>
-            <AddFieldButtons text={input} onMouseDown={keepFocus}/>
+            <AddFieldButtons text={input} onMouseDown={keepFocus} onMenuOpenChange={setFieldMenuOpen}/>
 
             {/**
               * The only way to pick a .torrent that is not a drag.

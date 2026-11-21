@@ -5,7 +5,7 @@ import type { Switch } from '../../src/plugins/contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createTorrentClient } from '../../src/torrent/client'
-import { torrentKey } from '../../src/torrent/library'
+import { thumbnailKey, torrentKey } from '../../src/torrent/library'
 import { engineDouble, entry, snapshot } from './engine-double'
 
 const SINTEL = new URL('../../src/assets/sintel.torrent', import.meta.url)
@@ -18,7 +18,7 @@ vi.mock('idb-keyval', async () => {
   return made.module
 })
 
-const { rippleFor, ADD_ANSWER_MS } = await import('../../src/plugins/calls')
+const { rippleFor, ADD_ANSWER_MS, READ_MAX_BYTES } = await import('../../src/plugins/calls')
 const { createFeed } = await import('../../src/plugins/feed')
 const { answer, SWITCHES_KEY } = await import('../../src/plugins/switches')
 const { createGroup, currentGroups, putInGroup, subscribeGroups } = await import('../../src/torrent/groups')
@@ -28,23 +28,71 @@ const A = 'a'.repeat(40)
 const B = 'b'.repeat(40)
 const GHOST = 'c'.repeat(40)
 const TEMPORARY = 'e'.repeat(40)
-
+const SOURCE_HASH = '4'.repeat(40)
 
 const setup = () => {
   const engine = engineDouble({ createTorrentClient } as never)
   engine.start(
-    [entry(A), entry(B), entry(GHOST, { started: false }), entry(TEMPORARY, { ephemeral: true })],
-    [{ handle: 1, magnet: `magnet:?xt=urn:btih:${A}` }, { handle: 2, magnet: `magnet:?xt=urn:btih:${B}` }, { handle: 3, magnet: `magnet:?xt=urn:btih:${TEMPORARY}` }],
+    [
+      entry(A),
+      entry(B),
+      entry(GHOST, { started: false }),
+      entry(TEMPORARY, { ephemeral: true }),
+      entry(SOURCE_HASH, { saveTo: 'source', savePath: `/source/${SOURCE_HASH}` }),
+    ],
+    [
+      { handle: 1, magnet: `magnet:?xt=urn:btih:${A}` },
+      { handle: 2, magnet: `magnet:?xt=urn:btih:${B}` },
+      { handle: 3, magnet: `magnet:?xt=urn:btih:${TEMPORARY}` },
+      { handle: 4, magnet: `magnet:?xt=urn:btih:${SOURCE_HASH}` },
+    ],
   )
+  // populate files for A (with a leading pad file so index !== position), B, and TEMPORARY
+  engine.say({
+    type: 'state',
+    torrents: [
+      { ...snapshot({ handle: 1, magnet: `magnet:?xt=urn:btih:${A}` }), files: { files: [{ path: '.pad/64', size: 64, offset: 0, pad: true }, { path: 'clip.mp4', size: 1024, offset: 64, pad: false }] } },
+      { ...snapshot({ handle: 2, magnet: `magnet:?xt=urn:btih:${B}` }), files: { files: [{ path: 'a.txt', size: 100, offset: 0, pad: false }, { path: 'b.txt', size: 200, offset: 100, pad: false }] } },
+      { ...snapshot({ handle: 3, magnet: `magnet:?xt=urn:btih:${TEMPORARY}` }), files: { files: [{ path: 'temp.mp4', size: 512, offset: 0, pad: false }] } },
+      { ...snapshot({ handle: 4, magnet: `magnet:?xt=urn:btih:${SOURCE_HASH}` }), savePath: `/source/${SOURCE_HASH}`, files: { files: [{ path: 'seed.bin', size: 256, offset: 0, pad: false }] } },
+    ],
+    transport: 'relay',
+    reachable: { port: 41337, portOpen: true, inbound: 4, listenFailed: [], listeners: [] },
+    inboundNow: { tcp: 2, utp: 1, webrtc: 0, total: 3 },
+    dhtNodes: 120,
+    rateLimits: { down: 500_000, up: 100_000 },
+  })
   const feed = createFeed(engine.client)
+  let gesture = false
+  let folderState: { name: string, allowed: boolean } | null = { name: 'Downloads', allowed: true }
+  const navigated: string[] = []
+  const closedPages: string[] = []
   const tab: PluginTab = {
-    client: () => engine.client, buttonsChanged: () => {}, openPage: async () => {}, closePage: () => {},
-    inGesture: () => false, takeSuggest: () => false, canSuggest: () => false, suggest: async () => ({ infoHash: null, outcome: 'failed' }),
-    feed: () => feed, owns: () => engine.client.owns(), vpn: () => true,
-    locale: () => ({ locale: 'en', dir: 'ltr' }), onActive: () => () => {}, onVpn: () => () => {}, onLocale: () => () => {},
+    client: () => engine.client,
+    buttonsChanged: () => {},
+    openPage: async () => {},
+    beginClosePage: () => 1,
+    closePage: (u) => { closedPages.push(u) },
+    inGesture: () => gesture,
+    takeSuggest: () => false,
+    canSuggest: () => false,
+    suggest: async () => ({ infoHash: null, outcome: 'failed' }),
+    navigate: (to) => { navigated.push(to) },
+    folder: async () => folderState,
+    feed: () => feed,
+    owns: () => engine.client.owns(),
+    vpn: () => true,
+    locale: () => ({ locale: 'en', dir: 'ltr' }),
+    onActive: () => () => {},
+    onVpn: () => () => {},
+    onLocale: () => () => {},
   }
-  const { ripple, close } = rippleFor(URI, tab, async () => ['read', 'add', 'change'])
-  return { engine, feed, ripple, close }
+  const { ripple, close } = rippleFor(URI, tab, async () => ['read', 'add', 'change', 'remove', 'files', 'folder', 'peers', 'network'])
+  return {
+    engine, feed, ripple, close, navigated, closedPages,
+    setGesture: (on: boolean) => { gesture = on },
+    setFolder: (next: { name: string, allowed: boolean } | null) => { folderState = next },
+  }
 }
 
 let made: ReturnType<typeof setup>
@@ -87,24 +135,39 @@ const CALLS: [Switch, string, () => Promise<unknown>][] = [
   ['change', 'putInGroup', () => made.ripple.putInGroup(groupId, [B])],
   ['change', 'takeOutOfGroup', () => made.ripple.takeOutOfGroup(groupId, [A])],
   ['change', 'deleteGroup', () => made.ripple.deleteGroup(groupId)],
+  ['remove', 'remove', () => made.ripple.remove(A)],
+  ['remove', 'makeTemporary', () => made.ripple.makeTemporary(A)],
+  ['files', 'read', () => made.ripple.read(A, 1, 0, 0)],
+  ['files', 'play', () => made.ripple.play(A, 1)],
+  ['files', 'save', () => made.ripple.save(A, 1)],
+  ['folder', 'folder', () => made.ripple.folder()],
+  ['folder', 'move', () => made.ripple.move(A, 'folder')],
+  ['peers', 'peers', () => made.ripple.peers(A)],
+  ['peers', 'trackers', () => made.ripple.trackers(A)],
+  ['peers', 'setLimits', () => made.ripple.setLimits(A, { down: 1000 })],
+  ['peers', 'sessionLimits', () => made.ripple.sessionLimits()],
+  ['peers', 'setSessionLimits', () => made.ripple.setSessionLimits({ up: 2000 })],
+  ['network', 'network', () => made.ripple.network()],
 ]
 
 describe('a call while its switch is off', () => {
   it.each(CALLS)('%s: %s is refused, and nothing reaches the engine', async (_name, _call, call) => {
-    await answer(URI, { read: false, add: false, change: false })
+    await answer(URI, { read: false, add: false, change: false, remove: false, files: false, folder: false, peers: false, network: false })
+    made.setGesture(true)
     const before = made.engine.posted.length
     expect(await refusal(call())).toBe('not-allowed')
     expect(made.engine.posted.length).toBe(before)
   })
 
-  it.each(CALLS.filter(([name]) => name !== 'add'))('%s: %s goes through once its switch is on (control)', async (name, _call, call) => {
+  it.each(CALLS.filter(([name, label]) => name !== 'add' && label !== 'peers' && label !== 'trackers'))('%s: %s goes through once its switch is on (control)', async (name, _call, call) => {
     await answer(URI, { [name]: true })
+    made.setGesture(true)
     expect(await refusal(call())).toBe('answered')
   })
 
   it('is read again on every call, so a switch turned off holds at once', async () => {
     await answer(URI, { read: true })
-    expect((await made.ripple.torrents()).map((t) => t.infoHash)).toEqual([A, B, GHOST])
+    expect((await made.ripple.torrents()).map((t) => t.infoHash)).toEqual([A, B, SOURCE_HASH, GHOST])
     await answer(URI, { read: false })
     expect(await refusal(made.ripple.torrents())).toBe('not-allowed')
   })
@@ -112,7 +175,7 @@ describe('a call while its switch is off', () => {
   // another tab's answer is in the shared storage before any message about it reaches this tab
   it('is read from storage, so a switch another tab turned off holds here at once', async () => {
     await answer(URI, { read: true })
-    expect((await made.ripple.torrents()).length, 'on (control)').toBe(3)
+    expect((await made.ripple.torrents()).length, 'on (control)').toBe(4)
     memory.store.set(SWITCHES_KEY, { [URI]: { read: false } })
     expect(await refusal(made.ripple.torrents())).toBe('not-allowed')
   })
@@ -302,9 +365,245 @@ describe('the store', () => {
 })
 
 describe('gesture-gated calls', () => {
-  it('refuses ui.open and suggest outside the gesture window directly in calls.ts', async () => {
+  it('refuses ui.open, suggest, play and save outside the gesture window directly in calls.ts', async () => {
+    await answer(URI, { files: true })
     expect(await refusal(made.ripple.ui.open({ id: 'search' }))).toBe('not-allowed')
     expect(await refusal(made.ripple.suggest({ magnet: `magnet:?xt=urn:btih:${'f'.repeat(40)}` }))).toBe('not-allowed')
+    expect(await refusal(made.ripple.play(A, 1))).toBe('not-allowed')
+    expect(await refusal(made.ripple.save(A, 1))).toBe('not-allowed')
     expect(made.ripple.page).toBeNull()
+  })
+})
+
+describe('remove and makeTemporary', () => {
+  beforeEach(() => answer(URI, { remove: true }))
+
+  it('removes a running torrent with deleteFiles, forgets its thumbnail, and calls removeMissing for a missing row', async () => {
+    memory.store.set(thumbnailKey(A), new Uint8Array([1, 2, 3]))
+    await made.ripple.remove(A, { deleteFiles: true })
+    await made.ripple.remove(B)
+    await made.ripple.remove(GHOST)
+    expect(memory.store.has(thumbnailKey(A))).toBe(false)
+    expect(made.engine.posted.slice(-3)).toEqual([
+      { type: 'remove', handle: 1, deleteFiles: true },
+      { type: 'remove', handle: 2, deleteFiles: false },
+      { type: 'remove-missing', infoHash: GHOST },
+    ])
+  })
+
+  it('marks a running torrent temporary and refuses missing or source torrents', async () => {
+    await made.ripple.makeTemporary(A)
+    await made.ripple.makeTemporary(TEMPORARY)
+    expect(made.engine.posted.filter((m) => m.type === 'set-temporary')).toEqual([
+      { type: 'set-temporary', infoHash: A, temporary: true },
+    ])
+    expect(await refusal(made.ripple.makeTemporary(GHOST))).toBe('unavailable')
+    expect(await refusal(made.ripple.makeTemporary(SOURCE_HASH))).toBe('unavailable')
+  })
+})
+
+describe('files: read, play and save', () => {
+  beforeEach(() => answer(URI, { files: true }))
+
+  it('reads up to 4 MB without prioritizing by default, supports prioritize and AbortSignal, and reads temporary torrents', async () => {
+    // default prioritize is false (must not default to client.read's true!)
+    const n0 = made.engine.posted.length
+    const quiet = made.ripple.read(A, 1, 10, 4)
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n0))
+    const req1 = made.engine.posted.at(-1)!
+    expect(req1).toMatchObject({ type: 'read', handle: 1, fileIndex: 1, offset: 10, len: 4, prioritize: false })
+    made.engine.say({ type: 'read-result', id: req1.id, data: new Uint8Array([1, 2, 3, 4]) })
+    expect(await quiet).toEqual(new Uint8Array([1, 2, 3, 4]))
+
+    // prioritize: true and temporary torrent
+    const n1 = made.engine.posted.length
+    const prio = made.ripple.read(TEMPORARY, 0, 0, 8, { prioritize: true })
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n1))
+    const req2 = made.engine.posted.at(-1)!
+    expect(req2).toMatchObject({ type: 'read', handle: 3, fileIndex: 0, offset: 0, len: 8, prioritize: true })
+    made.engine.say({ type: 'read-result', id: req2.id, data: new Uint8Array(8) })
+    expect((await prio).byteLength).toBe(8)
+
+    // clamps to remaining file bytes and returns empty on 0 length
+    expect(await made.ripple.read(A, 1, 1024, 16)).toEqual(new Uint8Array(0))
+    // rejects > 4 MB, negative, pad file, unknown file, offset past EOF
+    expect(await refusal(made.ripple.read(A, 1, 0, READ_MAX_BYTES + 1))).toBe('invalid')
+    expect(await refusal(made.ripple.read(A, 1, -1, 4))).toBe('invalid')
+    expect(await refusal(made.ripple.read(A, 1, 2000, 4))).toBe('invalid')
+    expect(await refusal(made.ripple.read(A, 0, 0, 4))).toBe('not-found')
+    expect(await refusal(made.ripple.read(A, 99, 0, 4))).toBe('not-found')
+
+    // engine "not downloaded" maps to unavailable
+    const n2 = made.engine.posted.length
+    const miss = made.ripple.read(A, 1, 0, 4)
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n2))
+    made.engine.say({ type: 'read-error', id: made.engine.posted.at(-1)!.id, error: 'not downloaded' })
+    expect(await refusal(miss)).toBe('unavailable')
+
+    // AbortSignal cancels the read
+    const n3 = made.engine.posted.length
+    const ac = new AbortController()
+    const aborted = made.ripple.read(A, 1, 0, 4, { signal: ac.signal })
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n3))
+    ac.abort()
+    await expect(aborted).rejects.toThrow()
+    expect(made.engine.posted.some((m) => m.type === 'cancel-read')).toBe(true)
+  })
+
+  it('play navigates to /watch for the chosen file (including temporary torrents) and closes the plugin page', async () => {
+    made.setGesture(true)
+    await made.ripple.play(TEMPORARY, 0)
+    expect(made.closedPages).toEqual([URI])
+    expect(made.navigated).toHaveLength(1)
+    expect(made.navigated[0]).toContain('/watch')
+    expect(made.navigated[0]).toContain('fileIndex=0')
+    expect(await refusal(made.ripple.play(A, 0))).toBe('not-found')
+  })
+
+  it('save answers false when no service worker controls the page', async () => {
+    made.setGesture(true)
+    expect(await made.ripple.save(A, 1)).toBe(false)
+    expect(await made.ripple.save(B)).toBe(false)
+    expect(await refusal(made.ripple.save(A, 0))).toBe('not-found')
+  })
+})
+
+describe('folder and move', () => {
+  beforeEach(() => answer(URI, { folder: true }))
+
+  it('reports { name, allowed } or null without leaking a handle, and records move intent via setLocation', async () => {
+    expect(await made.ripple.folder()).toEqual({ name: 'Downloads', allowed: true })
+    await made.ripple.move(A, 'folder')
+    await made.ripple.move(A, 'browser')
+    expect(made.engine.posted.slice(-2)).toEqual([
+      { type: 'set-location', infoHash: A, to: 'folder' },
+      { type: 'set-location', infoHash: A, to: 'browser' },
+    ])
+    expect(await refusal(made.ripple.move(A, 'source' as never))).toBe('invalid')
+    expect(await refusal(made.ripple.move(SOURCE_HASH, 'browser'))).toBe('unavailable')
+    made.setFolder(null)
+    expect(await made.ripple.folder()).toBeNull()
+    expect(await refusal(made.ripple.move(A, 'folder'))).toBe('unavailable')
+  })
+})
+
+describe('peers, trackers and speed limits', () => {
+  beforeEach(() => answer(URI, { peers: true }))
+
+  it('returns projected peers (blinking WebRTC internal endpoints) and strips tracker passkeys and messages', async () => {
+    const n1 = made.engine.posted.length
+    const peersP = made.ripple.peers(A)
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n1))
+    const ask1 = made.engine.posted.at(-1)!
+    expect(ask1).toMatchObject({ type: 'torrent-detail', handle: 1 })
+    made.engine.say({
+      type: 'answer',
+      id: ask1.id,
+      value: {
+        peers: [
+          { endpoint: '198.51.100.7:6881', client: 'Transmission 4', downloadRate: 2048, uploadRate: 512, totalDownload: 9999, totalUpload: 1111, progress: 0.75, flags: 3, source: 1, transport: 'tcp', localConnection: false },
+          { endpoint: 'webrtc-internal-42', client: 'WebTorrent', downloadRate: 100, uploadRate: 0, totalDownload: 0, totalUpload: 0, progress: 1, flags: 0, source: 0, transport: 'webrtc', localConnection: false },
+        ],
+        trackers: [],
+      },
+    })
+    const peers = await peersP
+    expect(peers).toEqual([
+      { address: '198.51.100.7:6881', client: 'Transmission 4', down: 2048, up: 512, progress: 0.75 },
+      { address: '', client: 'WebTorrent', down: 100, up: 0, progress: 1 },
+    ])
+    // fixed projection keys only
+    expect(Object.keys(peers[0]!).sort()).toEqual(['address', 'client', 'down', 'progress', 'up'])
+
+    const n2 = made.engine.posted.length
+    const trackersP = made.ripple.trackers(A)
+    await vi.waitFor(() => expect(made.engine.posted.length).toBeGreaterThan(n2))
+    const ask2 = made.engine.posted.at(-1)!
+    made.engine.say({
+      type: 'answer',
+      id: ask2.id,
+      value: {
+        peers: [],
+        trackers: [
+          { url: 'https://user:secret@tracker.example:8443/abc123passkey/announce?key=xyz', message: 'error at abc123passkey', tier: 0, fails: 0, updating: false, verified: true, nextAnnounceIn: 60, seeders: 2, leechers: 1, downloaded: 5 },
+          { url: 'udp://uncontacted.example:6969/announce', message: '', tier: 1, fails: -1, updating: false, verified: false, nextAnnounceIn: -1, seeders: -1, leechers: -1, downloaded: -1 },
+          { url: 'https://updating.example/announce', message: '', tier: 1, fails: 0, updating: true, verified: false, nextAnnounceIn: 0, seeders: 0, leechers: 0, downloaded: 0 },
+          { url: 'https://failing.example/announce', message: 'timeout', tier: 1, fails: 3, updating: false, verified: false, nextAnnounceIn: 30, seeders: 0, leechers: 0, downloaded: 0 },
+          { url: 'not a url', message: '', tier: 2, fails: 0, updating: false, verified: false, nextAnnounceIn: 0, seeders: 0, leechers: 0, downloaded: 0 },
+        ],
+      },
+    })
+    const trackers = await trackersP
+    expect(trackers).toEqual([
+      { origin: 'https://tracker.example:8443', working: true },
+      { origin: 'udp://uncontacted.example:6969', working: false },
+      { origin: 'https://updating.example', working: false },
+      { origin: 'https://failing.example', working: false },
+    ])
+    const serialized = JSON.stringify(trackers)
+    expect(serialized).not.toContain('abc123passkey')
+    expect(serialized).not.toContain('secret')
+    expect(serialized).not.toContain('timeout')
+    // never sent `inspect`
+    expect(made.engine.posted.some((m) => m.type === 'inspect')).toBe(false)
+  })
+
+  it('reads latched session limits and validates per-torrent and session limits', async () => {
+    expect(await made.ripple.sessionLimits()).toEqual({ down: 500_000, up: 100_000 })
+    await made.ripple.setLimits(A, { down: 250_000 })
+    await made.ripple.setSessionLimits({ down: 0, up: 50_000 })
+    expect(made.engine.posted.slice(-2)).toEqual([
+      { type: 'set-limits', handle: 1, down: 250_000 },
+      { type: 'set-session-limits', down: 0, up: 50_000 },
+    ])
+    expect(await refusal(made.ripple.setLimits(A, { down: -1 }))).toBe('invalid')
+    expect(await refusal(made.ripple.setSessionLimits({ up: Number.NaN }))).toBe('invalid')
+  })
+})
+
+describe('network', () => {
+  beforeEach(() => answer(URI, { network: true }))
+
+  it('reports relay reachability, inbound, dhtNodes and storageFull, and zeroes relay stats on direct transport', async () => {
+    expect(await made.ripple.network()).toEqual({
+      transport: 'relay',
+      reachable: true,
+      inbound: 3,
+      dhtNodes: 120,
+      storageFull: false,
+    })
+
+    made.engine.say({ type: 'storage-full', full: 'kept' })
+    made.engine.say({
+      type: 'state',
+      torrents: [],
+      transport: 'relay',
+      reachable: { port: 41337, portOpen: false, inbound: 4, listenFailed: [], listeners: [] },
+      inboundNow: { tcp: 0, utp: 0, webrtc: 0, total: 0 },
+      dhtNodes: 80,
+    })
+    expect(await made.ripple.network()).toEqual({
+      transport: 'relay',
+      reachable: false,
+      inbound: 0,
+      dhtNodes: 80,
+      storageFull: true,
+    })
+
+    made.engine.say({
+      type: 'state',
+      torrents: [],
+      transport: 'direct',
+      reachable: { port: 41337, portOpen: true, inbound: 4, listenFailed: [], listeners: [] },
+      inboundNow: { tcp: 2, utp: 0, webrtc: 0, total: 2 },
+      dhtNodes: 80,
+    })
+    expect(await made.ripple.network()).toEqual({
+      transport: 'direct',
+      reachable: false,
+      inbound: 0,
+      dhtNodes: 0,
+      storageFull: true,
+    })
   })
 })

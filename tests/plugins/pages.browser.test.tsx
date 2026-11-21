@@ -29,7 +29,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { GESTURE_MS, MOUNT_MS, closePage, removePlugin } = await import('../../src/plugins/host')
+const { GESTURE_MS, MOUNT_MS, clickButton, closePage, removePlugin } = await import('../../src/plugins/host')
 const { HeaderButtons } = await import('../../src/plugins/plugin-buttons')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { PAGE_SANDBOX } = await import('../../src/plugins/plugin-page')
@@ -372,5 +372,60 @@ describe('popup pages', () => {
     await vi.waitFor(() => expect(document.querySelector('.upper-card')).toBeNull())
     expect(rootShell.inert).toBe(false)
     expect(document.activeElement).toBe(openLower)
+  })
+
+  it('refuses ui.open while unanswered switches sheet is open, ends gesture immediately on ui.close(), and leaves pre-existing inert nodes inert', async () => {
+    const uri = 'npm:review-guards-plugin'
+    fkn.plugins.set(uri, {
+      name: 'Guarded',
+      version: '1.0.0',
+      payload: {
+        asks: ['read'],
+        buttons: () => [{ id: 'go', place: 'header', label: 'Go' }],
+        click: async () => {},
+      },
+    })
+    fkn.installed.push({ uri, name: 'Guarded', version: '1.0.0', installedAt: 1 })
+    await answer(uri, {})
+
+    // add a pre-existing inert body sibling to verify stacked Modals leave it inert
+    const alreadyInert = document.createElement('div')
+    alreadyInert.inert = true
+    document.body.append(alreadyInert)
+
+    try {
+      await render(
+        <IntlRoot>
+          <MemoryRouter>
+            <PluginHost/>
+          </MemoryRouter>
+        </IntlRoot>,
+      )
+
+      const clicking = clickButton(uri, 'Guarded', 'go', {})
+      await vi.waitFor(() => expect(document.querySelector('[aria-labelledby="plugin-sheet-title"]')).not.toBeNull())
+      // plugin is connected while sheet is open, but gesture window must NOT be open yet
+      const bg = await fkn.rippleOf(uri)
+      expect(await bg.ui.open({ id: 'sneak' }).then(() => 'ok', (e: Error) => e.message)).toBe('not-allowed')
+
+      // approve the sheet -> gesture opens and ui.open works
+      const done = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Done')!
+      await userEvent.click(done)
+      await clicking
+
+      await bg.ui.open({ id: 'panel', size: 'small' })
+      await vi.waitFor(() => expect(fkn.mountedOf(uri)).toBeDefined())
+      const pageRipple = await fkn.mountedOf(uri)!.ripple
+      // ui.close() must end the gesture window immediately before deferred unmount, so a same-turn reopen on bg rejects
+      const [, reopened] = await Promise.all([
+        pageRipple.ui.close(),
+        bg.ui.open({ id: 'reopen' }).then(() => 'ok', (e: Error) => e.message),
+      ])
+      expect(reopened).toBe('not-allowed')
+      await vi.waitFor(() => expect(document.querySelector('.plugin-page')).toBeNull())
+      expect(alreadyInert.inert).toBe(true)
+    } finally {
+      alreadyInert.remove()
+    }
   })
 })

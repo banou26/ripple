@@ -9,6 +9,7 @@ import { useSyncExternalStore } from 'react'
 
 import { isRightToLeft, onLanguageShown, shownLanguage } from '../i18n'
 import { getTorrentClient, runningTorrentClient } from '../torrent/client'
+import { storedFolder } from '../torrent/use-folder'
 import { onVpnChange, vpnOn } from '../torrent/vpn-setting'
 import { isFramed } from '../utils/framed'
 import { BUTTONS_CHANGED_MS, BUTTONS_MS, cleanButtons, CLICK_MS } from './buttons'
@@ -81,15 +82,18 @@ export type PluginsView = {
 type Queued = { pkg: InstalledPackage, only?: Switch[], onClick?: (done: boolean) => void }
 type Gesture = { until: number, suggests: number }
 export type Suggester = (proposal: SuggestedAdd) => Promise<AddResult>
+export type Navigator = (to: string) => void
 
 const lives = new Map<string, Live>()
 const gestures = new Map<string, Gesture>()
 let installed: InstalledPackage[] | null = null
 let asking: Asking | null = null
 let openPage: OpenPage | null = null
+let closingPageKey: number | null = null
 let pageSeq = 0
 let unanswered: string | null = null
 let suggester: Suggester | null = null
+let navigatorFn: Navigator | null = null
 const queue: Queued[] = []
 const listeners = new Set<() => void>()
 let view: PluginsView = { installed, statuses: {}, asks: {}, asking, openPage, unanswered }
@@ -135,6 +139,12 @@ export const registerSuggester = (handler: Suggester): (() => void) => {
   return () => { if (suggester === handler) suggester = null }
 }
 
+/** Registers the router's navigation handler for `play`, returning its teardown. */
+export const registerNavigator = (handler: Navigator): (() => void) => {
+  navigatorFn = handler
+  return () => { if (navigatorFn === handler) navigatorFn = null }
+}
+
 let feed: Feed | null = null
 
 const localeNow = () => ({ locale: shownLanguage(), dir: isRightToLeft(shownLanguage()) ? 'rtl' as const : 'ltr' as const })
@@ -166,11 +176,12 @@ const buttonsChanged = (uri: string) => {
   }
 }
 
-const inGesture = (uri: string) => openPage?.uri === uri || Date.now() < (gestures.get(uri)?.until ?? 0)
+const inGesture = (uri: string) =>
+  (openPage?.uri === uri && openPage.key !== closingPageKey) || Date.now() < (gestures.get(uri)?.until ?? 0)
 const startGesture = (uri: string) => { gestures.set(uri, { until: Date.now() + GESTURE_MS, suggests: 0 }) }
-const extendGesture = (uri: string) => {
+const endGesture = (uri: string) => {
   const g = gestures.get(uri)
-  if (g) g.until = Date.now() + GESTURE_MS
+  if (g) g.until = 0
 }
 const takeSuggest = (uri: string) => {
   if (!inGesture(uri)) return false
@@ -181,12 +192,26 @@ const takeSuggest = (uri: string) => {
   return true
 }
 
-/** Closes the open popup page (or only `byUri`'s when named) and ends its window so it cannot immediately reopen. */
-export const closePage = (byUri?: string) => {
-  if (!openPage || (byUri && openPage.uri !== byUri)) return
-  const g = gestures.get(openPage.uri)
-  if (g) g.until = 0
+const beginClosePage = (uri: string): number | null => {
+  if (openPage?.uri !== uri) return null
+  endGesture(uri)
+  closingPageKey = openPage.key
+  return openPage.key
+}
+
+/** Closes the open popup page (matching `byUri` and `byKey` when named) and ends its window so it cannot immediately reopen. */
+export const closePage = (byUri?: string, byKey?: number) => {
+  if (!openPage || (byUri && openPage.uri !== byUri) || (byKey !== undefined && openPage.key !== byKey)) return
+  endGesture(openPage.uri)
+  if (closingPageKey === openPage.key) closingPageKey = null
   openPage = null
+  notify()
+}
+
+const replaceOpenPage = (next: OpenPage) => {
+  if (openPage && openPage.uri !== next.uri) endGesture(openPage.uri)
+  closingPageKey = null
+  openPage = next
   notify()
 }
 
@@ -198,25 +223,30 @@ const openPageFor = async (uri: string, page: PageOpen) => {
   const name = await pluginName(uri)
   if (lives.get(uri)?.status !== 'connected') throw new Error('unavailable')
   if (!inGesture(uri)) throw new Error('not-allowed')
-  openPage = { key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...(page.context ?? {}) } }
-  notify()
+  replaceOpenPage({ key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...(page.context ?? {}) } })
 }
 
 const tab: PluginTab = {
   client: getTorrentClient,
   buttonsChanged,
   openPage: openPageFor,
-  closePage: (uri) => closePage(uri),
+  beginClosePage,
+  closePage: (uri, key) => closePage(uri, key),
   inGesture,
   takeSuggest,
   canSuggest: () => suggester !== null,
   suggest: async (uri, item) => {
     const active = suggester
-    if (!active) throw new Error('unavailable')
+    if (!active || lives.get(uri)?.status !== 'connected') throw new Error('unavailable')
     const from = await pluginName(uri)
-    if (suggester !== active) throw new Error('unavailable')
+    if (suggester !== active || lives.get(uri)?.status !== 'connected') throw new Error('unavailable')
     return active({ ...item, from })
   },
+  navigate: (to) => {
+    if (!navigatorFn) throw new Error('unavailable')
+    navigatorFn(to)
+  },
+  folder: storedFolder,
   feed: () => (feed ??= createFeed(getTorrentClient())),
   owns: () => runningTorrentClient()?.owns() ?? false,
   vpn: vpnOn,
@@ -277,7 +307,10 @@ const disconnect = (uri: string) => {
   lives.delete(uri)
   gestures.delete(uri)
   // the broker never sees a mounted page frame, so the page closes whenever its background connection does
-  if (openPage?.uri === uri) openPage = null
+  if (openPage?.uri === uri) {
+    if (closingPageKey === openPage.key) closingPageKey = null
+    openPage = null
+  }
   live.abort.abort()
   live.close()
   notify()
@@ -296,15 +329,28 @@ export const mountPluginPage = async (
   if (!live || live.status !== 'connected') throw new Error('unavailable')
   const calls = rippleFor(page.uri, tab, () => live.asksReady, { id: page.id, context: page.context })
   const abort = new AbortController()
-  const onAbort = () => abort.abort()
-  signal.addEventListener('abort', onAbort, { once: true })
+  let abandoned = false
   let deadline: ReturnType<typeof setTimeout> | undefined
+  let rejectAbort: (error: Error) => void = () => {}
+  const onAbort = () => {
+    abandoned = true
+    abort.abort()
+    rejectAbort(new Error('aborted'))
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  const mounting = packages.mount(page.uri, { iframe, protocol: PLUGIN_PROTOCOL, payload: calls.ripple, signal: abort.signal })
+  void mounting.then((mounted) => { if (abandoned) mounted.unmount() }, () => {})
   try {
     const mounted = await Promise.race([
-      packages.mount(page.uri, { iframe, protocol: PLUGIN_PROTOCOL, payload: calls.ripple, signal: abort.signal }),
-      new Promise<never>((_, reject) => { deadline = setTimeout(() => { abort.abort(); reject(new Error('timeout')) }, MOUNT_MS) }),
+      mounting,
+      new Promise<never>((_, reject) => {
+        rejectAbort = reject
+        if (signal.aborted) { abandoned = true; abort.abort(); reject(new Error('aborted')); return }
+        deadline = setTimeout(() => { abandoned = true; abort.abort(); reject(new Error('timeout')) }, MOUNT_MS)
+      }),
     ])
     if (signal.aborted || openPage?.key !== page.key) {
+      abandoned = true
       mounted.unmount()
       calls.close()
       return { unmount: () => {} }
@@ -318,10 +364,11 @@ export const mountPluginPage = async (
     }
     void mounted.closed.then(() => {
       calls.close()
-      if (!done && openPage?.key === page.key) closePage(page.uri)
+      if (!done && openPage?.key === page.key) closePage(page.uri, page.key)
     })
     return { unmount }
   } catch (error) {
+    abandoned = true
     calls.close()
     throw error
   } finally {
@@ -468,7 +515,6 @@ export const clickButton = async (
   page?: ButtonPage,
 ): Promise<void> => {
   if (!(await pluginsHere())) return
-  startGesture(uri)
   void connectPlugin(uri)
   const live = lives.get(uri)
   if (!live || !(await within(live.ready.then(() => true), CLICK_MS)) || live.status !== 'connected' || (!page && typeof live.remote?.click !== 'function')) {
@@ -478,18 +524,19 @@ export const clickButton = async (
   const answers = (await answersOf(uri)) ?? {}
   const never = (live.asks ?? []).filter((s) => !(s in answers))
   if (never.length && !(await new Promise<boolean>((onClick) => ask({ pkg: { uri, name, version: null, installedAt: 0 }, only: never, onClick })))) {
-    const g = gestures.get(uri)
-    if (g) g.until = 0
     return
   }
-  extendGesture(uri)
+  if (lives.get(uri) !== live || live.status !== 'connected') {
+    sayUnanswered(name)
+    return
+  }
+  startGesture(uri)
   if (page) {
-    openPage = { key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...context } }
-    notify()
+    replaceOpenPage({ key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...context } })
     return
   }
   const click = live.remote?.click
-  if (typeof click !== 'function') { sayUnanswered(name); return }
+  if (typeof click !== 'function') { endGesture(uri); sayUnanswered(name); return }
   if (!(await within(click(id, context).then(() => true, () => true), CLICK_MS))) sayUnanswered(name)
 }
 

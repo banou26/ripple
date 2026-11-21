@@ -6,21 +6,33 @@ import type { TorrentClient } from '../torrent/client'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useIntl } from 'react-intl'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { confirmStyle } from '../components/confirm-dialog'
 import { Modal } from '../components/modal'
 import { toastStyle } from '../components/toast'
 import { runningTorrentClient } from '../torrent/client'
-import { cancelAsking, connectAnswered, connectInstalled, finishAsking, pluginsHere, usePlugins, usePluginsHere } from './host'
+import {
+  cancelAsking, connectAnswered, connectInstalled, finishAsking, pluginsHere, registerNavigator, usePlugins, usePluginsHere,
+} from './host'
+import { usePlayerSlot } from './player-slot'
+import { PlayerButtons } from './plugin-buttons'
 import { PluginPage } from './plugin-page'
 import { subscribeAnswers } from './switches'
 
 /** A switch's name as the person reads it. */
-export const switchLabel = (intl: IntlShape, name: Switch): string =>
-  name === 'read' ? intl.formatMessage({ id: 'See your torrents', defaultMessage: 'See your torrents' })
-    : name === 'add' ? intl.formatMessage({ id: 'Add torrents without asking', defaultMessage: 'Add torrents without asking' })
-      : intl.formatMessage({ id: 'Pause, resume and organize torrents', defaultMessage: 'Pause, resume and organize torrents' })
+export const switchLabel = (intl: IntlShape, name: Switch): string => {
+  switch (name) {
+    case 'read': return intl.formatMessage({ id: 'See your torrents', defaultMessage: 'See your torrents' })
+    case 'add': return intl.formatMessage({ id: 'Add torrents without asking', defaultMessage: 'Add torrents without asking' })
+    case 'change': return intl.formatMessage({ id: 'Pause, resume and organize torrents', defaultMessage: 'Pause, resume and organize torrents' })
+    case 'remove': return intl.formatMessage({ id: 'Remove torrents', defaultMessage: 'Remove torrents' })
+    case 'files': return intl.formatMessage({ id: 'Open your downloaded files', defaultMessage: 'Open your downloaded files' })
+    case 'folder': return intl.formatMessage({ id: 'Move files to and from your folder', defaultMessage: 'Move files to and from your folder' })
+    case 'peers': return intl.formatMessage({ id: 'See peers and trackers, set speed limits', defaultMessage: 'See peers and trackers, set speed limits' })
+    case 'network': return intl.formatMessage({ id: 'See connection status', defaultMessage: 'See connection status' })
+  }
+}
 
 /** Asks which of a new plugin's switches to turn on, each starting off. Cancel, Escape and the backdrop uninstall it. */
 const Sheet = ({ asking }: { asking: Asking }) => {
@@ -57,13 +69,20 @@ const Sheet = ({ asking }: { asking: Asking }) => {
   )
 }
 
-/** The install sheet, open popup page, and the line saying a plugin did not answer a click. */
+/** The install sheet, open popup page, player overlay buttons, and the line saying a plugin did not answer a click. */
 export const InstallSheet = () => {
   const intl = useIntl()
   const { asking, openPage, unanswered } = usePlugins()
+  const player = usePlayerSlot()
   return (
     <>
-      {openPage && <PluginPage key={openPage.key} page={openPage}/>}
+      {player?.overlay && player.infoHash && createPortal(
+        <PlayerButtons infoHash={player.infoHash} file={player.file} getTime={player.time} container={player.box}/>,
+        player.overlay,
+      )}
+      {openPage && (player?.box
+        ? createPortal(<PluginPage key={openPage.key} page={openPage} inline/>, player.box)
+        : <PluginPage key={openPage.key} page={openPage}/>)}
       {asking && <Sheet key={asking.uri} asking={asking}/>}
       {unanswered && createPortal(
         <div role="status" className="toast" css={toastStyle}>
@@ -96,7 +115,9 @@ const EngineTab = ({ client }: { client: TorrentClient }) => {
  */
 export const PluginHost = () => {
   useLocation()
+  const navigate = useNavigate()
   useEffect(() => { void pluginsHere() }, [])
+  useEffect(() => registerNavigator((to) => { void navigate(to) }), [navigate])
   const here = usePluginsHere()
   const client = runningTorrentClient()
   if (!here) return null

@@ -69,7 +69,7 @@ const inlineStyle = css`
 
 const FOCUSABLE = [
   'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])',
-  'textarea:not([disabled])', 'iframe', '[tabindex]:not([tabindex="-1"]):not([data-focus-guard])',
+  'textarea:not([disabled])', 'iframe:not([tabindex="-1"])', '[tabindex]:not([tabindex="-1"]):not([data-focus-guard])',
 ].join(',')
 
 const focusable = (root: HTMLElement): HTMLElement[] =>
@@ -176,9 +176,14 @@ export const Modal = ({
         if (above && above.previous && root.contains(above.previous)) above.previous = layer.previous
         stack.splice(at, 1)
       }
+      inerted.delete(root)
       syncInert()
-      // back where they were, only when no modal sits above this one
-      if (wasTop) layer.previous?.focus?.()
+      // back where they were, only when no modal sits above this one; if the lower modal's focus target is gone, keep focus in it
+      if (wasTop) {
+        layer.previous?.focus?.()
+        const top = stack.at(-1)
+        if (top && !top.root.contains(document.activeElement)) top.root.focus({ preventScroll: true })
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

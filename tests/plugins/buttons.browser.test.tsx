@@ -414,4 +414,39 @@ describe('add-field, bulk-bar, detail and button.page', () => {
     expect(pageRipple.page).toEqual({ id: 'search-ui', context: { text: 'ubuntu' } })
     closePage()
   })
+
+  it('folds add-field buttons into one More when input shrinks below TEXT_FLOOR and reports More menu open state', async () => {
+    await plugin({ buttons: () => [{ id: 'f1', place: 'add-field', label: 'Find 1' }] })
+    await plugin({ buttons: () => [{ id: 'f2', place: 'add-field', label: 'Find 2' }] })
+    const opened: boolean[] = []
+    const onMenuOpenChange = (open: boolean) => { opened.push(open) }
+    const fieldStyle = { display: 'flex', width: 320, height: 36, boxSizing: 'border-box' as const }
+    const field = (hasClear: boolean) => (
+      <div className="field" style={fieldStyle}>
+        <input type="text" style={{ flex: 1, minWidth: 0, height: 32 }}/>
+        {hasClear && <button type="button" style={{ flex: 'none', width: 80, height: 32 }}>Clear</button>}
+        <AddFieldButtons text={hasClear ? 'query' : ''} onMenuOpenChange={onMenuOpenChange}/>
+      </div>
+    )
+    const view = await withHost(field(false))
+    await vi.waitFor(() => expect(document.querySelectorAll('.field .plugin')).toHaveLength(1))
+    expect(document.querySelectorAll('.field .plugin-more')).toHaveLength(1)
+
+    // Mounting a Clear button shrinks <input> below TEXT_FLOOR (210 px) without remounting AddFieldButtons or resizing .field
+    await view.rerender(
+      <IntlRoot><MemoryRouter>
+        {field(true)}
+        <PluginHost/>
+      </MemoryRouter></IntlRoot>,
+    )
+    await vi.waitFor(() => expect(document.querySelectorAll('.field .plugin')).toHaveLength(0))
+    expect(document.querySelectorAll('.field .plugin-more')).toHaveLength(1)
+
+    // Opening More notifies onMenuOpenChange(true) so a phone's folded field stays open, and contains both plugins
+    await userEvent.click(document.querySelector('.field .plugin-more')!)
+    await vi.waitFor(() => expect(opened).toContain(true))
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2)
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(opened.at(-1)).toBe(false))
+  })
 })

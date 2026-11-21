@@ -73,7 +73,7 @@ export type PluginEvents = {
 }
 
 /** Where ripple draws a button. A button in a place this ripple does not draw is left out. */
-export type ButtonPlace = 'header' | 'add-field' | 'row-menu' | 'bulk-bar' | 'detail' | 'settings'
+export type ButtonPlace = 'header' | 'add-field' | 'row-menu' | 'bulk-bar' | 'detail' | 'file' | 'player' | 'settings'
 
 /** The sizes a popup page may ask for: small 480x360, medium 760x560, large 1100x800, capped to the viewport. */
 export type PageSize = 'small' | 'medium' | 'large'
@@ -100,15 +100,33 @@ export type Button = {
   page?: ButtonPage
 }
 
-/** What a click hands a plugin: the torrents, text, or details tab it was pressed on. */
+/** What a click hands a plugin: the torrents, text, details tab, file index, or playback time it was pressed on. */
 export type ClickContext = {
   infoHashes?: string[]
   infoHash?: string
   tab?: DetailTab
   text?: string
+  file?: number
+  time?: number
 }
 
 export type PageOpen = { id: string, size?: PageSize, context?: ClickContext }
+
+export type PluginPeer = { address: string, client: string, down: number, up: number, progress: number }
+
+export type PluginTracker = { origin: string, working: boolean }
+
+export type PluginFolder = { name: string, allowed: boolean }
+
+export type PluginLimits = { down: number, up: number }
+
+export type PluginNetwork = {
+  transport: 'relay' | 'direct'
+  reachable: boolean
+  inbound: number
+  dhtNodes: number
+  storageFull: boolean
+}
 
 /** What ripple hands a plugin as its `remote`. Every call names torrents by info hash. */
 export type Ripple = {
@@ -167,6 +185,28 @@ export type Ripple = {
   deleteGroup: (id: string) => Promise<void>
   putInGroup: (id: string, infoHashes: string[]) => Promise<void>
   takeOutOfGroup: (id: string, infoHashes: string[]) => Promise<void>
+  /** Removes a torrent from the library. With `deleteFiles`, deletes its bytes from browser storage too. */
+  remove: (infoHash: string, options?: { deleteFiles?: boolean }) => Promise<void>
+  /** Marks a torrent temporary so the storage budget may reclaim its bytes when room runs short. */
+  makeTemporary: (infoHash: string) => Promise<void>
+  /** Reads up to 4 MB from a file of a torrent (temporary ones too). Does not prioritize by default. */
+  read: (infoHash: string, file: number, offset: number, length: number, options?: { prioritize?: boolean, signal?: AbortSignal }) => Promise<Uint8Array>
+  /** Opens the torrent's file in Ripple's player. Needs `files` and the gesture window. */
+  play: (infoHash: string, file: number) => Promise<void>
+  /** Saves a file (or the whole torrent when `file` is omitted) through Ripple's service worker; answers false when none controls the page or it was cancelled. Needs `files` and the gesture window. */
+  save: (infoHash: string, file?: number) => Promise<boolean>
+  /** The chosen folder's name and whether write access is granted right now, or null when none is chosen. */
+  folder: () => Promise<PluginFolder | null>
+  /** Sets where a torrent's files belong; Ripple moves them once finished and the folder is granted. */
+  move: (infoHash: string, location: 'browser' | 'folder') => Promise<void>
+  peers: (infoHash: string) => Promise<PluginPeer[]>
+  /** Each tracker's origin alone (never its passkey or message) and whether its last announce worked. */
+  trackers: (infoHash: string) => Promise<PluginTracker[]>
+  /** Bytes per second, 0 for unlimited. Omit a side to leave it alone. */
+  setLimits: (infoHash: string, limits: { down?: number, up?: number }) => Promise<void>
+  sessionLimits: () => Promise<PluginLimits>
+  setSessionLimits: (limits: { down?: number, up?: number }) => Promise<void>
+  network: () => Promise<PluginNetwork>
 }
 
 /** What a plugin hands ripple as its payload. */

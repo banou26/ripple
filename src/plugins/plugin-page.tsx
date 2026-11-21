@@ -23,7 +23,7 @@ const cardStyle = css`
   color: ${TEXT};
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
-  @media (min-width: 600px) {
+  @media (width >= 600px) {
     &[data-size='small'] {
       width: min(480px, calc(100vw - 32px));
       height: min(360px, calc(100dvh - 48px));
@@ -38,9 +38,14 @@ const cardStyle = css`
       width: min(1100px, calc(100vw - 32px));
       height: min(800px, calc(100dvh - 48px));
     }
+
+    &[data-inline] {
+      max-width: calc(100% - 32px);
+      max-height: calc(100% - 48px);
+    }
   }
 
-  @media (max-width: 599px) {
+  @media (width < 600px) {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -49,6 +54,11 @@ const cardStyle = css`
     max-height: none;
     border: 0;
     border-radius: 0;
+
+    &[data-inline] {
+      position: absolute;
+      height: 100%;
+    }
   }
 
   header {
@@ -124,7 +134,7 @@ const cardStyle = css`
  * A plugin's own page, mounted through `packages.mount` into a sandboxed iframe inside Ripple's Modal so Ripple's own
  * dialogs (such as `suggest`'s add dialog) can stack above it and FKN's prompts stay above both.
  */
-export const PluginPage = ({ page }: { page: OpenPage }) => {
+export const PluginPage = ({ page, inline }: { page: OpenPage, inline?: boolean }) => {
   const intl = useIntl()
   const frameRef = useRef<HTMLIFrameElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -152,8 +162,8 @@ export const PluginPage = ({ page }: { page: OpenPage }) => {
   }, [page])
 
   return (
-    <Modal labelledBy="plugin-page-title" onClose={() => closePage()} initialFocus={frameRef}>
-      <div css={cardStyle} className="plugin-page" data-size={page.size}>
+    <Modal labelledBy="plugin-page-title" onClose={() => closePage()} initialFocus={frameRef} inline={inline}>
+      <div css={cardStyle} className="plugin-page" data-size={page.size} data-inline={inline || undefined}>
         <span
           tabIndex={0}
           data-focus-guard=""

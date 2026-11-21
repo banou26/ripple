@@ -71,16 +71,20 @@ describe('adding a plugin by its address', () => {
     const uri = plugin(['files', 'change', 'read', 'some-switch'])
     await settings()
     await userEvent.type(document.querySelector('input')!, `  ${uri} {Enter}`)
-    await vi.waitFor(() => expect(sheet()?.querySelectorAll('input[type=checkbox]')).toHaveLength(2))
+    await vi.waitFor(() => expect(sheet()?.querySelectorAll('input[type=checkbox]')).toHaveLength(3))
     expect(fkn.calls).toContain(`install ${uri}`)
     expect(fkn.opened.at(-1)?.protocol).toBe(PLUGIN_PROTOCOL)
     expect(sheet()).toHaveAccessibleName(`Tracker sorter ${n}`)
     const boxes = [...sheet()!.querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
-    expect(boxes.map((box) => [box.parentElement!.textContent, box.checked])).toEqual([['See your torrents', false], ['Pause, resume and organize torrents', false]])
+    expect(boxes.map((box) => [box.parentElement!.textContent, box.checked])).toEqual([
+      ['See your torrents', false],
+      ['Pause, resume and organize torrents', false],
+      ['Open your downloaded files', false],
+    ])
     await userEvent.click(boxes[1]!)
     await userEvent.click(button(sheet()!, 'Done')!)
     await vi.waitFor(() => expect(sheet()).toBeNull())
-    expect(await answersOf(uri)).toEqual({ read: false, change: true })
+    expect(await answersOf(uri)).toEqual({ read: false, change: true, files: false })
   })
 
   it('uninstalls it on Cancel, and keeps nothing for it', async () => {

@@ -28,6 +28,7 @@ import { vpnLabels } from '../torrent/vpn-status'
 import { QuotaOffer } from '../components/quota-offer'
 import { TooltipDisplay } from '../components/tooltip-display'
 import { VpnWarning, useVpnSwitch, wordRoom } from '../components/vpn-switch'
+import { setPlayerSlot } from '../plugins/player-slot'
 import DownloadPage from './download'
 import { browserLanguage, embedPath, linkLanguages } from './embed-link'
 import { tellPicked, useEmbedder } from './embedder'
@@ -215,12 +216,18 @@ const playerStyle = css`
     pointer-events: auto;
     display: flex;
     align-items: center;
-    /* wide enough that the two pills below, which overhang their glyphs by 8px a side, do not touch */
-    gap: calc(2.4 * var(--mp-unit));
+    /* wide enough that the pills below, which overhang their glyphs by 8px a side, never touch even on a narrow player */
+    gap: max(16px, calc(2.4 * var(--mp-unit, 8px)));
 
     .item.link {
       display: flex;
       align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      min-height: 24px;
+      background: transparent;
+      border: 0;
+      font: inherit;
       color: inherit;
       text-decoration: none;
       cursor: pointer;
@@ -642,6 +649,21 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   // in the next engine, so a link carrying one would open whatever got that number later
   const infoHash = useMemo(() => (magnet ? magnetInfoHash(magnet) : null), [magnet])
   useGiveToRipple(infoHash)
+  const [pluginOverlay, setPluginOverlay] = useState<HTMLDivElement | null>(null)
+  const [pluginBox, setPluginBox] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    setPlayerSlot({
+      overlay: pluginOverlay,
+      box: pluginBox,
+      infoHash,
+      file: fileIndex,
+      time: () => {
+        const t = box.current?.querySelector('video')?.currentTime
+        return typeof t === 'number' && Number.isFinite(t) ? t : 0
+      },
+    })
+    return () => setPlayerSlot(null)
+  }, [pluginOverlay, pluginBox, infoHash, fileIndex])
   const libraryHref = useMemo(
     () => (magnet && infoHash && !unreadable
       ? new URL(getRoutePath(Route.HOME, { torrent: infoHash, magnet: encodeMagnetParam(magnet) }), origin).toString()
@@ -695,6 +717,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
       {/* The way back to the whole torrent, and to its files. At the head of the row, and drawn as
           glyphs alone: the tooltip carries the sentence, which is more than a one word label said. */}
       <div className="player-links">
+        <div ref={setPluginOverlay} style={{ display: 'contents' }}/>
         {libraryHref && (
           <TooltipDisplay
             id="open-in-ripple"
@@ -884,6 +907,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
       >
         {/* inside the player, which in fullscreen shows nothing outside itself */}
         {vpn.answer && <div dir={dir} style={{ display: 'contents' }}><VpnWarning inline onAnswer={vpn.answer}/></div>}
+        <div dir={dir} ref={setPluginBox} style={{ display: 'contents' }}/>
       </MediaPlayer>
     </div>
   )
