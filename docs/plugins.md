@@ -47,9 +47,11 @@ const createPlugin = (ripple: Promise<Ripple>): RipplePlugin => ({
 })
 ```
 
-`brokered` is true only for a connection fkn.app made, so refuse the others. Each Ripple tab connects on its own, and a
-connection ends when its tab closes, when the plugin is updated or removed, and when fkn.app reloads its frame. Ripple
-connects again in the tab that runs the download engine, and in another tab on its next use.
+`brokered` is true only for a background connection fkn.app made, so refuse other background connections. Popup pages
+connect with `info.brokered === false` and `remote.page` set: accept those only when you offer popup pages, and trust
+only `connection.remote` (never `info.from`). Each Ripple tab connects on its own, and a connection ends when its tab
+closes, when the plugin is updated or removed, and when fkn.app reloads its frame. Ripple connects again in the tab that
+runs the download engine, and in another tab on its next use.
 
 ## Switches
 
@@ -63,9 +65,11 @@ next click on one of the plugin's buttons.
 | `read` | See your torrents | `torrents`, `torrent`, `groups`, `torrentFile`, and the events `changed`, `added`, `finished`, `removed` |
 | `add` | Add torrents without asking | `add` |
 | `change` | Pause, resume and organize torrents | `pause`, `resume`, `forceStart`, `recheck`, `reannounce`, `retry`, `start`, `keep`, `setFiles`, `setFirstLast`, `setSequential`, `moveInQueue`, `addTrackers`, `createGroup`, `renameGroup`, `deleteGroup`, `putInGroup`, `takeOutOfGroup` |
-
-This version of Ripple offers these three. The type lists the five a later version adds (`remove`, `files`, `folder`,
-`peers`, `network`); asking for one today asks nothing, and the person is asked about it once Ripple offers it.
+| `remove` | Remove torrents | `remove`, `makeTemporary` |
+| `files` | Open your downloaded files | `read`, `play`, `save` |
+| `folder` | Move files to and from your folder | `folder`, `move` |
+| `peers` | See peers and trackers, set speed limits | `peers`, `trackers`, `setLimits`, `sessionLimits`, `setSessionLimits` |
+| `network` | See connection status | `network` |
 
 No switch is needed for `version`, `locale`, `dir`, `vpn`, `active`, `page`, `on('vpn' | 'locale' | 'active')`,
 `store`, `ui`, `suggest` and the buttons.
@@ -91,8 +95,14 @@ asks the person before adding anything. It needs no switch, works while the libr
 `{ infoHash, outcome }`: `added`, `declined` (if the person cancels or closes the library), `already` or `failed`. At
 most 10 proposals per gesture window.
 
-**The gesture window:** `ui.open` and `suggest` work only while the plugin's popup page is open, or within 10 s of a
-click on one of its buttons.
+**The gesture window:** `ui.open`, `suggest`, `play` and `save` work only while the plugin's popup page is open, or
+within 10 s of a click on one of its buttons.
+
+`read(infoHash, file, offset, length, options?)` reads at most 4 MB from a file (including on a temporary torrent). It
+does not prioritize missing pieces by default; pass `{ prioritize: true }` to download them, and `{ signal }` to cancel.
+
+`save(infoHash, file?)` streams one file, or the whole torrent as a zip when `file` is omitted, through Ripple's service
+worker. It answers `false` when no service worker controls the page or the save is cancelled, and `true` once finished.
 
 `store.get(key)` and `store.set(key, value)` keep strings on this device, 256 KB in all, across the plugin's versions,
 since the plugin's own storage starts empty at each version. `set(key, null)` deletes one. Removing the plugin deletes
@@ -101,14 +111,14 @@ them.
 ## What a plugin sees
 
 A torrent crosses as a `PluginTorrent`, a fixed list of fields. Temporary torrents (the ones the player holds) are left
-out of `torrents()` and the events; `torrent(infoHash)` answers them.
+out of `torrents()` and the events; `torrent(infoHash)`, `read` and `play` answer them.
 
 Never handed over, with every switch on:
 
 - **A private tracker's key.** `trackers` holds each tracker's origin alone (`https://t.example`, never its path, query
-  or user part). The magnet's `tr=`, `torrentFile` and `addTrackers` work only for a torrent whose .torrent this device
-  keeps and says is not private.
-- **The person's FKN account,** Ripple's settings, other plugins, and the person's folder and files.
+  or user part), and never its status message. The magnet's `tr=`, `torrentFile` and `addTrackers` work only for a
+  torrent whose .torrent this device keeps and says is not private.
+- **The person's FKN account,** Ripple's settings (apart from speed limits), other plugins, and the folder or file handles.
 
 ## Events
 
@@ -135,6 +145,8 @@ when they change, a label that says a state for instance; Ripple asks again at m
 | `row-menu` | a torrent's menu (right click, and its Options) under the plugin's name | three per plugin | `{ infoHashes: [that torrent's] }` |
 | `bulk-bar` | the selection bar, before Remove | one per plugin; the first two plugins' are inline, the rest in its More menu | `{ infoHashes }` |
 | `detail` | the details header, before Close | one per plugin; the first two plugins' are inline, the rest in its More menu | `{ infoHash, tab }` |
+| `file` | a file's row in Details, beside Save | one per plugin; the first plugin's is inline, the rest in its More menu | `{ infoHash, file }` |
+| `player` | the player's top row, beside Open in Ripple | one per plugin; the first plugin's is inline, the rest in its More menu | `{ infoHash, file, time }` |
 | `settings` | the plugin's row in Settings | one | `{}` |
 
 - `label`: 40 characters at most, the button's tooltip and accessible name. A button with an empty or longer label is
@@ -157,7 +169,8 @@ navigation and no delegated `allow` features). Inside that connection `info.brok
 `{ id, context }`, under the same switches as the background connection.
 
 - Sizes are `small` (480 by 360), `medium` (760 by 560, default) and `large` (1100 by 800), capped at the viewport less
-  32 by 48 px. Below 600 px wide the card fills the screen in `100dvh`.
+  32 by 48 px. Below 600 px wide the card fills the screen in `100dvh`. Over the player the card draws inline inside the
+  player's box.
 - One popup page is open per tab. If the frame has not loaded within 30 s, Ripple shows one line saying it is not
   responding.
 - The page closes on Close, backdrop click, Escape on Ripple's header, `ui.close()`, or when the plugin's background

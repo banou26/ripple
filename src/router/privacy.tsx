@@ -4,7 +4,7 @@ import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 21 November 2026</div>
+    <div className="updated">Last updated 22 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -92,9 +92,10 @@ const Privacy = () => (
       A plugin you add runs apart from Ripple and can use only what you turned on for it in
       Settings. Depending on that, it can see your torrent list, add torrents, pause, change or
       group them, add trackers to them (which tells those trackers about the torrent), and see
-      your connection status. A plugin can send what it sees to its publisher or to any site.
-      Ripple hands it nothing of your FKN account, never the keys in private trackers&rsquo;
-      addresses, and nothing of other plugins.
+      your connection status, read and play your downloaded files, move them to and from your
+      folder, remove torrents, and see the addresses of the peers you are connected to. A plugin
+      can send what it sees to its publisher or to any site. Ripple hands it nothing of your FKN
+      account, never the keys in private trackers&rsquo; addresses, and nothing of other plugins.
     </p>
     <p>
       A plugin makes its own requests to the sites it uses. Ripple tells each plugin whether the

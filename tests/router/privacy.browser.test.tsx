@@ -135,16 +135,13 @@ describe('the privacy page, on plugins', () => {
     const screen = await privacy()
     const { container } = screen
     expect(sectionOf(container, 'Plugins')).toEqual([
-      'A plugin you add runs apart from Ripple and can use only what you turned on for it in Settings. Depending on that, it can see your torrent list, add torrents, pause, change or group them, add trackers to them (which tells those trackers about the torrent), and see your connection status. A plugin can send what it sees to its publisher or to any site. Ripple hands it nothing of your FKN account, never the keys in private trackers’ addresses, and nothing of other plugins.',
+      'A plugin you add runs apart from Ripple and can use only what you turned on for it in Settings. Depending on that, it can see your torrent list, add torrents, pause, change or group them, add trackers to them (which tells those trackers about the torrent), and see your connection status, read and play your downloaded files, move them to and from your folder, remove torrents, and see the addresses of the peers you are connected to. A plugin can send what it sees to its publisher or to any site. Ripple hands it nothing of your FKN account, never the keys in private trackers’ addresses, and nothing of other plugins.',
       'A plugin makes its own requests to the sites it uses. Ripple tells each plugin whether the VPN is on, and plugins must send their requests through the FKN relay while it is. Ripple cannot check that a plugin does, so a plugin may show your IP address to the sites it reaches. Torrents a plugin adds download like your own, through the relay while the VPN is on, and count toward your daily FKN quota.',
       'On this device, FKN keeps which plugins you added, and Ripple keeps what you turned on for each one and the data each plugin asks it to keep. Removing a plugin in Settings deletes all of it; the torrents it added stay in your list. What a plugin keeps elsewhere is up to its publisher.',
     ])
     const text = container.textContent.replace(/\s+/g, ' ')
     expect(text).toContain('neither Ripple nor FKN stores anything about you on a server. A plugin you add may, as its publisher decides.')
     expect(text).toContain('removes everything Ripple stored in your browser. The plugins you added are kept by FKN on this device, so remove them in Settings first.')
-    for (const later of ['read and play your downloaded files', 'move them to and from your folder', 'remove torrents', 'addresses of the peers']) {
-      expect(text, `slice 3's words wait for slice 3: ${later}`).not.toContain(later)
-    }
-    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 21 November 2026')
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 22 November 2026')
   })
 })

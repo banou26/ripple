@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { BUTTONS_CHANGED_MS, BUTTONS_MS, CLICK_MS, HEADER_INLINE, ICON_BYTES, LABEL_MAX, PER_PLUGIN, PLACE_INLINE } from '../../src/plugins/buttons'
+import { READ_MAX_BYTES } from '../../src/plugins/calls'
 import { GESTURE_MS, MOUNT_MS, SUGGEST_LIMIT } from '../../src/plugins/host'
 import { STORE_BYTES } from '../../src/plugins/store'
 import { OFFERED_SWITCHES } from '../../src/plugins/switches'
@@ -28,19 +29,22 @@ describe('the author page', () => {
     expect(text).toContain(`At most ${SUGGEST_LIMIT} proposals per gesture window`)
     expect(text).toContain(`within ${GESTURE_MS / 1000} s of a click on one of its buttons`)
     expect(text).toContain(`within ${MOUNT_MS / 1000} s`)
-    expect(PER_PLUGIN).toEqual({ header: 1, 'add-field': 1, 'row-menu': 3, 'bulk-bar': 1, detail: 1, settings: 1 })
+    expect(text).toContain(`reads at most ${READ_MAX_BYTES / (1024 * 1024)} MB`)
+    expect(PER_PLUGIN).toEqual({ header: 1, 'add-field': 1, 'row-menu': 3, 'bulk-bar': 1, detail: 1, file: 1, player: 1, settings: 1 })
     expect(HEADER_INLINE).toBe(2)
-    expect(PLACE_INLINE).toEqual({ header: 2, 'add-field': 1, 'bulk-bar': 2, detail: 2 })
+    expect(PLACE_INLINE).toEqual({ header: 2, 'add-field': 1, 'bulk-bar': 2, detail: 2, file: 1, player: 1 })
     expect(text).toContain('| `header` | the library\'s header, before Create | one per plugin; the first two plugins\' are in the header, the rest in its More menu | `{}` |')
     expect(text).toContain('| `add-field` | the add field, before Open a .torrent file | one per plugin; the first plugin\'s is inline, the rest in its More menu | `{ text }` |')
     expect(text).toContain('| `row-menu` | a torrent\'s menu (right click, and its Options) under the plugin\'s name | three per plugin | `{ infoHashes: [that torrent\'s] }` |')
     expect(text).toContain('| `bulk-bar` | the selection bar, before Remove | one per plugin; the first two plugins\' are inline, the rest in its More menu | `{ infoHashes }` |')
     expect(text).toContain('| `detail` | the details header, before Close | one per plugin; the first two plugins\' are inline, the rest in its More menu | `{ infoHash, tab }` |')
+    expect(text).toContain('| `file` | a file\'s row in Details, beside Save | one per plugin; the first plugin\'s is inline, the rest in its More menu | `{ infoHash, file }` |')
+    expect(text).toContain('| `player` | the player\'s top row, beside Open in Ripple | one per plugin; the first plugin\'s is inline, the rest in its More menu | `{ infoHash, file, time }` |')
     expect(text).toContain('| `settings` | the plugin\'s row in Settings | one | `{}` |')
   })
 
   it('lists the switches ripple offers, each with the words the person reads', () => {
-    const places = new Set(['header', 'add-field', 'row-menu', 'bulk-bar', 'detail', 'settings'])
+    const places = new Set(['header', 'add-field', 'row-menu', 'bulk-bar', 'detail', 'file', 'player', 'settings'])
     const rows = [...plugins.matchAll(/^\| `([\w-]+)` \| ([^|]+) \|/gm)].map(([, name, words]) => [name, words!.trim()])
       .filter(([name]) => !places.has(name!))
     expect(rows.map(([name]) => name)).toEqual([...OFFERED_SWITCHES])
