@@ -20,6 +20,8 @@ const FILM_HASH = 'f'.repeat(40)
 
 const state = vi.hoisted(() => ({
   used: 0, floating: false, reads: 0, held: 0, refused: undefined as number | undefined,
+  // what each temporary torrent a page played seconds ago holds, by hash, and no one has played it since
+  graced: new Map<string, number>(),
   // what each storage was built to ask: the person's download is in the shared root, the film in the cache
   sharedAdmit: undefined as Admit | undefined, cacheAdmit: undefined as Admit | undefined,
   // the next estimate reads the usage, then answers only once this settles
@@ -67,7 +69,7 @@ vi.mock('libtorrent-wasm', async () => {
 vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
   createHybridStorage: () => ({
-    usageOf: async () => 0,
+    usageOf: async (savePath: string) => state.graced.get(savePath.slice(-40)) ?? 0,
     usageOfStorage: async (id: number) => (id === 1 ? state.held : 0),
     refusedFile: (id: number) => (id === 1 ? state.refused : undefined),
   }),
@@ -225,6 +227,52 @@ it('tells a temporary film playing in the reserve that only the person\'s own do
   rig.send({ type: 'unwatch', viewer: 'page' })
   state.refused = undefined
   await pass()
+})
+
+// the cache a page played seconds ago is given up once its grace ends; each case adds its own, as the grace is 15 s
+const played = (hash: string, bytes: number) => {
+  state.graced.set(hash, bytes)
+  rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + hash, ephemeral: true })
+}
+
+it('lets a download the person keeps grow into the room of cache in its grace', async () => {
+  state.used = LIMIT - RESERVE_BYTES - STEP
+  played('c'.repeat(40), 2 * STEP)
+  await pass()
+  expect(grow(1, 3 * STEP + 1)).toBe(false)
+  expect(grow(1, 3 * STEP)).toBe(true)
+  state.graced.clear()
+})
+
+it('leaves a film only the room a watched download the person keeps cannot take, cache in its grace included', async () => {
+  state.used = LIMIT - RESERVE_BYTES
+  state.held = GiB
+  rig.send({ type: 'watch', viewer: 'page', handle: 1, fileIndex: 0, fromOffset: 0, held: true })
+  rig.send({ type: 'watch', viewer: 'player', handle: 2, fileIndex: 0, fromOffset: 0 })
+  await pass()
+  await vi.waitFor(() => expect(windowed()).toBe(true), { timeout: 5_000 })
+
+  // four chunks of it, which the download may take once they are given up, leave the film 20
+  played('e'.repeat(40), 4 * 64 * MiB)
+  await pass()
+  await vi.waitFor(() => expect(windowed()).toBe(false), { timeout: 5_000 })
+  rig.send({ type: 'unwatch', viewer: 'player' })
+  rig.send({ type: 'unwatch', viewer: 'page' })
+  state.graced.clear()
+})
+
+it('owes the whole of a temporary torrent a download page holds, which the reserve never stops', async () => {
+  state.used = LIMIT - 32 * MiB
+  state.held = 0
+  rig.send({ type: 'watch', viewer: 'page', handle: 1, fileIndex: 0, fromOffset: 0, held: true })
+  await pass()
+  expect(full(), 'THE CONTROL: the person\'s own download owes only what the reserve lets it write').toBe(false)
+
+  rig.send({ type: 'unwatch', viewer: 'page' })
+  rig.send({ type: 'watch', viewer: 'page', handle: 2, fileIndex: 0, fromOffset: 0, held: true })
+  await pass()
+  expect(full()).toBe(true)
+  rig.send({ type: 'unwatch', viewer: 'page' })
 })
 
 // Chromium states 10 GiB above whatever is written and takes it all, so a 40 GiB extent was accepted (Chromium 149,
