@@ -275,6 +275,22 @@ it('owes the whole of a temporary torrent a download page holds, which the reser
   rig.send({ type: 'unwatch', viewer: 'page' })
 })
 
+it('counts a temporary film\'s growth in the cache, and stops it once the person keeps it', async () => {
+  state.used = LIMIT - RESERVE_BYTES - 2 * STEP
+  await pass()
+  // a temporary film growing between passes takes room that the person's download may not also claim
+  expect(grow(2, STEP)).toBe(true)
+  expect(grow(1, STEP + 1)).toBe(false)
+  expect(grow(1, STEP)).toBe(true)
+
+  // once the person keeps a torrent whose bytes live in the cache, the reserve stops it too
+  rig.send({ type: 'set-temporary', infoHash: FILM_HASH, temporary: false })
+  await pass()
+  expect(grow(2, 1)).toBe(false)
+  rig.send({ type: 'set-temporary', infoHash: FILM_HASH, temporary: true })
+  await pass()
+})
+
 // Chromium states 10 GiB above whatever is written and takes it all, so a 40 GiB extent was accepted (Chromium 149,
 // 2026-10-19): only the browser refuses there, once a filling disk makes the ceiling read as fixed
 it('leaves a ceiling that floats to the browser', async () => {
