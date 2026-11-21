@@ -31,7 +31,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { BUTTONS_CHANGED_MS, CLICK_MS } = await import('../../src/plugins/buttons')
+const { BUTTONS_CHANGED_MS, CLICK_MS, TEXT_FLOOR } = await import('../../src/plugins/buttons')
 const { removePlugin } = await import('../../src/plugins/host')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
@@ -194,6 +194,23 @@ describe('the header\'s room', () => {
     await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
     room().style.width = '600px'
     await vi.waitFor(() => expect(room(), 'the control: room for both words beside it').not.toHaveAttribute('data-plugins-wrapped'))
+  })
+
+  it('gives them a row of their own when the add field\'s text beside them would be under its floor, or folded', async () => {
+    await plugin({ buttons: () => [header('go', 'Sort')] })
+    // the text at its floor beside a 38 px button and a 12 px gap, in a bar padded 18 px each side
+    const floor = 36 + TEXT_FLOOR + 12 + 38
+    await crowded(<form style={{ flex: 1, display: 'flex', minWidth: 0 }}><input style={{ flex: 1, minWidth: 0, padding: 0, border: 0 }}/></form>, floor - 2)
+    await vi.waitFor(() => expect(inline()).toHaveLength(1))
+    await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
+    room().style.width = `${floor + 2}px`
+    await vi.waitFor(() => expect(room(), 'the control: room for its floor beside them').not.toHaveAttribute('data-plugins-wrapped'))
+    // folded to its glyph and unfolded as a phone's is, which leaves every item of the bar as wide as it was
+    const text = room().querySelector('input')!
+    text.style.flex = '0 0 30px'
+    await vi.waitFor(() => expect(room()).toHaveAttribute('data-plugins-wrapped'))
+    text.style.flex = '1'
+    await vi.waitFor(() => expect(room(), 'unfolded, its floor beside them again').not.toHaveAttribute('data-plugins-wrapped'))
   })
 })
 

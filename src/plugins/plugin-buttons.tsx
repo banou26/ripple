@@ -14,7 +14,7 @@ import { MenuItems, MenuSurface } from '../components/menu'
 import { shownLanguage } from '../i18n'
 import { hexInfoHash } from '../torrent/magnet'
 import { isFramed } from '../utils/framed'
-import { drawnIn, HEADER_INLINE, letterOf, maskOf } from './buttons'
+import { drawnIn, HEADER_INLINE, letterOf, maskOf, TEXT_FLOOR } from './buttons'
 import { clickButton, connectPlugin } from './host'
 import { useAnswers, useKeptButtons } from './switches'
 
@@ -99,27 +99,32 @@ const rowStyle = css`
 
 /**
  * Marks the header `data-plugins-wrapped` while `group` does not fit beside its other items: they would reach past it,
- * or squeezed, one of them would wrap and the bar grow. The header's rule for that mark takes `group` out of its row,
- * which is the row measured alone. Measured whenever one of them changes size, and never while a search unfolds the
- * field over them.
+ * or squeezed, one of them would wrap and the bar grow, or the add field's text be under {@link TEXT_FLOOR}. The
+ * header's rule for that mark takes `group` out of its row, which is the row measured alone. Measured whenever one of
+ * them changes size, and never while a search unfolds the field over them.
  */
 const useOwnRowWhenFull = (group: HTMLElement | null) => useLayoutEffect(() => {
   const header = group?.parentElement
   if (!group || !header) return
   const heights = () => [...header.children].filter((item) => item !== group).map((item) => item.getBoundingClientRect().height)
+  const text = () => header.querySelector(':scope > form input:not([type=file])')
   const fit = () => {
     if (header.hasAttribute('data-searching')) return
     header.setAttribute('data-plugins-wrapped', '')
     const alone = heights()
     header.removeAttribute('data-plugins-wrapped')
     const grown = heights().some((height, at) => height > (alone[at] ?? height) + 0.5)
-    if (header.scrollWidth > header.clientWidth || grown) header.setAttribute('data-plugins-wrapped', '')
+    const squeezed = (text()?.getBoundingClientRect().width ?? TEXT_FLOOR) < TEXT_FLOOR
+    if (header.scrollWidth > header.clientWidth || grown || squeezed) header.setAttribute('data-plugins-wrapped', '')
   }
   const sizes = new ResizeObserver(fit)
   const watch = () => {
     sizes.disconnect()
     sizes.observe(header)
     for (const item of header.children) if (item !== group) sizes.observe(item)
+    // a phone's field folds and unfolds in a form as wide as before, so the text is watched itself
+    const field = text()
+    if (field) sizes.observe(field)
   }
   const items = new MutationObserver(() => { watch(); fit() })
   items.observe(header, { childList: true })

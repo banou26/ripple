@@ -14,13 +14,11 @@ import { chromium } from 'playwright'
 import { spawn } from 'child_process'
 import { readFileSync } from 'fs'
 
+import { TEXT_FLOOR } from '../src/plugins/buttons.ts'
+
 const PORT = 4603
 const ORIGIN = `http://127.0.0.1:${PORT}`
 const OUT = process.env.SHOT_DIR ?? '/tmp/claude-1000/-home-banou-dev-ripple'
-
-// below this the placeholder stops being readable, which is the page's whole explanation of how to
-// add anything. 210px was the old floor the input carried explicitly; the pill has to beat it.
-const READABLE_PX = 210
 
 // a wide window's: on a phone the field folds only where the row leaves it under 240 px, which
 // tests/home-language.spec.ts measures
@@ -141,7 +139,7 @@ try {
       }
       const bad = []
       if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
-      if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
+      if (m.inputWidth < TEXT_FLOOR) bad.push(`the text is only ${m.inputWidth}px, under the ${TEXT_FLOOR}px floor`)
       if (m.icons !== 2 && m.icons !== 3) bad.push(`expected 2 or 3 icons, saw ${m.icons}`)
       if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
       if (m.hasAddButton) bad.push('the Add button is still there')
@@ -165,7 +163,7 @@ try {
       if (width === 1440 || width === 800) await page.screenshot({ path: `${OUT}/header-plugins-${language}-${width}.png`, clip: { x: 0, y: 0, width, height: 160 } })
       const bad = []
       if (m.docOverflowX !== 0) bad.push(`document scrolls sideways by ${m.docOverflowX}px`)
-      if (m.inputWidth < READABLE_PX) bad.push(`the text is only ${m.inputWidth}px, under the ${READABLE_PX}px floor`)
+      if (m.inputWidth < TEXT_FLOOR) bad.push(`the text is only ${m.inputWidth}px, under the ${TEXT_FLOOR}px floor`)
       if (!m.iconsInsideField) bad.push('an icon is clipped out of the pill')
       if (!plugins) bad.push('a plugin button is not whole in the window')
       console.log(`plugins ${language.padEnd(7)} ${String(width).padStart(4)}px  text=${String(m.inputWidth).padStart(4)} overflowX=${m.docOverflowX}  ${bad.length ? 'FAIL: ' + bad.join('; ') : 'PASS'}`)

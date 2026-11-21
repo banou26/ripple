@@ -13,6 +13,7 @@ import { extname, join, relative } from 'node:path'
 import { build } from 'vite-plus'
 
 import { catalogues, english, englishIn, LANGUAGE_KEY, offerEveryLanguage, PSEUDO } from './languages'
+import { TEXT_FLOOR } from '../src/plugins/buttons'
 import { buildGroupLink, GROUP_LINK_PREFIX, readGroupLink } from '../src/router/group-link'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -1692,8 +1693,9 @@ test.describe('the header', () => {
 
   /*
    * Plugins' buttons sit before Create: the first two plugins' in the header, the rest behind More, on a row of their
-   * own when the header has no room for them, so nothing of its first row moves. Kept by this browser as the tab
-   * running the engine keeps them, in every language, so nothing connects to fkn.app.
+   * own when the header has no room for them or the add field's text would be under its floor beside them, so nothing
+   * of its first row moves and a phone's field folds where it does without them, under 240 px. Kept by this browser as
+   * the tab running the engine keeps them, in every language, so nothing connects to fkn.app.
    */
   for (const language of ['en', ...Object.keys(catalogues())]) {
     test(`${language}: three plugins' buttons, two and More, leave the header's row and its add field as they were`, async ({ page }) => {
@@ -1709,7 +1711,7 @@ test.describe('the header', () => {
         await expect(page.locator('header .plugin-more')).toHaveCount(1)
         expect(await page.locator('header .plugin-icon').first().evaluate(icon => getComputedStyle(icon).scale), 'a mirrored icon')
           .toBe(rtl ? '-1 1' : 'none')
-        for (const width of [320, 360, 390, 519, 520, 700, 701, 900, 1280]) {
+        for (const width of [1280, 900, 800, 701, 700, 520, 519, 390, 360, 320]) {
           const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
           const room = () => field(page).evaluate(input => input.getBoundingClientRect().width)
           const open = () => page.locator('header form').evaluate(form => form.getBoundingClientRect().width)
@@ -1719,8 +1721,12 @@ test.describe('the header', () => {
           expect(folded.rows, `${at}: the header's own items on one row`).toBe(1)
           expect(folded.sideways, at).toBe(0)
           expect(folded.below, `${at}: the plugins beside the rest, or on the row below them`).toBe(folded.wrapped)
-          if (width < 520) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
-          else expect(await open(), `${at}: the field is open`).toBeGreaterThanOrEqual(240)
+          if (width === 1280 && account === 'out') expect(folded.wrapped, `${at}: the control, room for them beside the rest`).toBe(false)
+          if (!folded.wrapped) expect(await room(), `${at}: the field's text beside them`).toBeGreaterThanOrEqual(TEXT_FLOOR)
+          const fits = await open() >= 240
+          if (width >= 520) expect(fits, `${at}: the field is open`).toBe(true)
+          if (width < 499) expect(fits, `${at}: a phone's row has no room for the field`).toBe(false)
+          if (!fits) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
           for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings', 'header .tool.plugin >> nth=0', 'header .tool.plugin >> nth=1', 'header .plugin-more']) {
             const box = (await page.locator(control).boundingBox())!
             expect(box.x >= 0 && box.x + box.width <= width && box.width > 0, `${at}: ${control} at ${box.x}+${box.width}`).toBe(true)
@@ -1732,7 +1738,7 @@ test.describe('the header', () => {
           expect(unfolded.height, `${at}: unfolding moves nothing under the header`).toBe(folded.height)
           expect(unfolded.sideways, `${at}, unfolded`).toBe(0)
           if (folded.wrapped) expect(unfolded.shown, `${at}: the plugins' own row stays, below the unfolded field`).toBe(true)
-          if (width < 520) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
+          if (!fits) expect(await room(), `${at}: the unfolded field has room for what it holds`).toBeGreaterThanOrEqual(120)
           else expect(await open(), `${at}: the field holding a search keeps its floor`).toBeGreaterThanOrEqual(240)
 
           await field(page).blur()

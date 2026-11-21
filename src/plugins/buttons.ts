@@ -13,6 +13,12 @@ export const CLICK_MS = 10_000
 export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = { header: 1, 'row-menu': 3, settings: 1 }
 /** The plugins whose header button is drawn in the header, in install order; the rest are in its More menu. */
 export const HEADER_INLINE = 2
+/**
+ * The header's add field keeps its text this wide beside the plugins' buttons, where its hint, the page's only word on
+ * how to add anything, still reads: short of it, they take a row of their own. scripts/test-header-layout.mjs holds
+ * the header to it.
+ */
+export const TEXT_FLOOR = 210
 
 const ICON = /^data:image\/svg\+xml[;,]/
 
