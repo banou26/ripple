@@ -11,7 +11,7 @@ import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, FOCUS_RING, TEXT,
   TEXT_MUTED,
 } from '../theme'
-import { addByAddress, browsePlugins, listPlugins, removePlugin, updatePlugin, usePlugins } from './host'
+import { addByAddress, browsePlugins, listPlugins, removePlugin, updatePlugin, usePlugins, usePluginsHere } from './host'
 import { PluginButton, usePlaced } from './plugin-buttons'
 import { switchLabel } from './plugin-host'
 import { answer, anyPlugin, OFFERED_SWITCHES, useAnswers } from './switches'
@@ -192,8 +192,7 @@ const Row = ({ plugin, button }: { plugin: InstalledPackage, button: Drawn | und
   )
 }
 
-/** Settings' plugins: FKN's picker, an add by address, and each plugin's switches, version, button, Update and Remove. */
-export const PluginsSection = () => {
+const Section = () => {
   const intl = useIntl()
   const { installed } = usePlugins()
   const buttons = usePlaced('settings')
@@ -227,3 +226,9 @@ export const PluginsSection = () => {
     </section>
   )
 }
+
+/**
+ * Settings' plugins, once they are on here (`pluginsHere`, host.ts): FKN's picker, an add by address, and each plugin's
+ * switches, version, button, Update and Remove.
+ */
+export const PluginsSection = () => (usePluginsHere() ? <Section/> : null)

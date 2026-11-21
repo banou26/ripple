@@ -13,9 +13,8 @@ import { hint, typedHint } from '../components/hint'
 import { MenuItems, MenuSurface } from '../components/menu'
 import { shownLanguage } from '../i18n'
 import { hexInfoHash } from '../torrent/magnet'
-import { isFramed } from '../utils/framed'
 import { drawnIn, HEADER_INLINE, letterOf, maskOf, TEXT_FLOOR } from './buttons'
-import { clickButton, connectPlugin } from './host'
+import { clickButton, connectPlugin, usePluginsHere } from './host'
 import { useAnswers, useKeptButtons } from './switches'
 
 const iconStyle = css`
@@ -45,23 +44,25 @@ export const PluginIcon = ({ button }: { button: Button }) => (button.icon
 const tried = new Set<string>()
 
 /**
- * The buttons the plugins keep for `place` in the language shown, in install order; none in a frame. A plugin this
- * device knows that kept none in this language is connected here, once per language, to ask for them.
+ * The buttons the plugins keep for `place` in the language shown, in install order, once plugins are on here
+ * (`pluginsHere`, host.ts). A plugin this device knows that kept none in this language is connected here, once per
+ * language, to ask for them.
  */
 export const usePlaced = (place: ButtonPlace): Drawn[] => {
   useIntl()
   const kept = useKeptButtons()
   const answers = useAnswers()
+  const here = usePluginsHere()
   const locale = shownLanguage()
   useEffect(() => {
-    if (isFramed() || !kept || !answers) return
+    if (!kept || !answers) return
     for (const uri of new Set([...Object.keys(kept), ...Object.keys(answers)])) {
       if (kept[uri]?.locales[locale] || tried.has(`${uri} ${locale}`)) continue
       tried.add(`${uri} ${locale}`)
       void connectPlugin(uri)
     }
   }, [kept, answers, locale])
-  return isFramed() ? [] : drawnIn(kept, locale, place)
+  return here ? drawnIn(kept, locale, place) : []
 }
 
 const press = ({ uri, name, button }: Drawn, infoHashes?: string[]) =>

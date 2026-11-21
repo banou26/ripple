@@ -10,13 +10,18 @@ import he from '../../src/locales/he.json'
 import { showEnglish, showIn } from '../i18n/show-in'
 import { entry } from './engine-double'
 import { fkn } from './packages-double'
+import { appTab } from './shell-double'
 
 const memory = vi.hoisted(() => ({ store: new Map<string, unknown>() }))
 const engine = vi.hoisted(() => ({ double: undefined as unknown as import('./engine-double').EngineDouble }))
-const frame = vi.hoisted(() => ({ framed: false }))
 
 vi.mock('@fkn/lib/packages', () => import('./packages-double'))
-vi.mock('../../src/utils/framed', () => ({ isFramed: () => frame.framed }))
+vi.mock('@fkn/lib', async (importOriginal) => {
+  const [real, double] = await Promise.all([importOriginal<typeof import('@fkn/lib')>(), import('./shell-double')])
+  return { ...real, shell: { ...real.shell, isAppTab: double.isAppTab } }
+})
+// the test page is itself framed by vitest; frames are app-tab.browser.test.tsx's and not-app-tab.browser.test.tsx's
+vi.mock('../../src/utils/framed', () => ({ isFramed: () => false }))
 vi.mock('idb-keyval', async () => {
   const made = (await import('./engine-double')).memoryStore()
   memory.store = made.store
@@ -51,7 +56,6 @@ const button = (root: ParentNode, text: string) => [...root.querySelectorAll('bu
 beforeEach(() => {
   fkn.reset()
   memory.store.clear()
-  frame.framed = false
   engine.double.running = true
   engine.double.start([entry(A)], [{ handle: 1, magnet: `magnet:?xt=urn:btih:${A}` }])
 })
@@ -359,28 +363,15 @@ describe('the connection', () => {
   })
 })
 
-describe('inside a frame', () => {
-  it('leaves Settings without its plugins, which show where ripple is not framed (control)', async () => {
+describe('where ripple is not framed', () => {
+  it('shows Settings\' plugins at once, and asks fkn.app nothing about its tab', async () => {
     const Settings = (await import('../../src/router/settings')).default
-    const page = () => render(<IntlRoot><MemoryRouter><Settings/></MemoryRouter></IntlRoot>)
-    const shown = await page()
-    await vi.waitFor(() => expect(button(document, 'Browse')).toBeTruthy())
-    await shown.unmount()
-    frame.framed = true
-    await page()
-    await vi.waitFor(() => expect(button(document, 'Open torrents with Ripple')).toBeTruthy())
-    expect(button(document, 'Browse')).toBeUndefined()
-  })
-
-  it('connects nothing, adds nothing and shows no sheet', async () => {
-    frame.framed = true
+    await render(<IntlRoot><MemoryRouter><Settings/></MemoryRouter></IntlRoot>)
+    expect(button(document, 'Browse')).toBeTruthy()
     const uri = plugin(['read'])
     install(uri)
-    await answer(uri, { read: true })
-    await settings()
-    expect(await addByAddress(uri)).toBe(false)
     await connectPlugin(uri)
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(fkn.calls.filter((call) => call.startsWith('connect') || call.startsWith('install'))).toEqual([])
+    expect(fkn.calls).toContain(`connect ${uri}`)
+    expect(appTab.asked).toBe(0)
   })
 })

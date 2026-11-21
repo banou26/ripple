@@ -14,7 +14,6 @@ import { ADD_DIALOG_KEY, dialogEnabled } from '../torrent/add-options'
 import { readGlobalDefault, SAVE_LOCATION_KEY } from '../torrent/save-location'
 import { useFolder } from '../torrent/use-folder'
 import { usePersistentStorage } from '../torrent/use-persistent-storage'
-import { isFramed } from '../utils/framed'
 import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, FOCUS_RING, PAGE_BG,
   SURFACE_BG, TEXT, TEXT_MUTED,
@@ -215,7 +214,7 @@ const Settings = () => {
             )}
           </div>
         )}
-        {!isFramed() && <PluginsSection/>}
+        <PluginsSection/>
         <button type="button" className="install" onClick={() => { void onSetupHandlers() }}>
           <MonitorDown aria-hidden="true"/>
           {intl.formatMessage({ id: 'Open torrents with Ripple', defaultMessage: 'Open torrents with Ripple' })}

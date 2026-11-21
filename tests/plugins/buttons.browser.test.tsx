@@ -16,10 +16,10 @@ import { fkn } from './packages-double'
 
 const memory = vi.hoisted(() => ({ store: new Map<string, unknown>() }))
 const engine = vi.hoisted(() => ({ double: undefined as unknown as import('./engine-double').EngineDouble }))
-const frame = vi.hoisted(() => ({ framed: false }))
 
 vi.mock('@fkn/lib/packages', () => import('./packages-double'))
-vi.mock('../../src/utils/framed', () => ({ isFramed: () => frame.framed }))
+// the test page is itself framed by vitest; frames are app-tab.browser.test.tsx's and not-app-tab.browser.test.tsx's
+vi.mock('../../src/utils/framed', () => ({ isFramed: () => false }))
 vi.mock('idb-keyval', async () => {
   const made = (await import('./engine-double')).memoryStore()
   memory.store = made.store
@@ -91,7 +91,6 @@ const RowMenu = ({ infoHash }: { infoHash: string }) => <MenuItems groups={rowMe
 beforeEach(() => {
   fkn.reset()
   memory.store.clear()
-  frame.framed = false
   engine.double.running = true
   engine.double.start([entry(A)], [{ handle: 1, magnet: `magnet:?xt=urn:btih:${A}` }])
 })
@@ -344,15 +343,5 @@ describe('what ripple keeps of a plugin\'s buttons', () => {
     await userEvent.click(inline()[0]!)
     await vi.waitFor(() => expect(drawn.clicks).toStrictEqual([['go', {}]]))
     expect(fkn.calls).toContain(`connect ${drawn.uri}`)
-  })
-
-  it('is drawn nowhere, and asked of nobody, in a frame', async () => {
-    const made = await plugin({ buttons: () => [header('go', 'Sort')] })
-    await keepButtons(made.uri, { name: made.name, installedAt: 1, locales: { en: [header('go', 'Sort')] } })
-    frame.framed = true
-    await withHost(<header><HeaderButtons/></header>)
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(inline()).toHaveLength(0)
-    expect(fkn.calls.filter((call) => call.startsWith('connect'))).toEqual([])
   })
 })

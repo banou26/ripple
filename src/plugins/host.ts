@@ -3,6 +3,7 @@ import type { ClickContext, RipplePlugin, Switch } from './contract'
 import type { Feed } from './feed'
 import type { PluginTab } from './calls'
 
+import { shell } from '@fkn/lib'
 import * as packages from '@fkn/lib/packages'
 import { useSyncExternalStore } from 'react'
 
@@ -88,6 +89,20 @@ const subscribe = (listener: () => void) => {
 
 /** The plugins as Settings and the install sheet show them. */
 export const usePlugins = (): PluginsView => useSyncExternalStore(subscribe, () => view)
+
+// fkn.app's answer holds while the document lives
+let here: boolean | null = isFramed() ? null : true
+let hereAsked: Promise<boolean> | undefined
+
+/**
+ * Whether plugins connect and show in this page: where ripple is not framed, or in the frame fkn.app's `/app` page
+ * mounted for ripple as its tab's own page. fkn.app is asked once, and answers false by its deadline.
+ */
+export const pluginsHere = (): Promise<boolean> =>
+  (hereAsked ??= here !== null ? Promise.resolve(here) : shell.isAppTab().then((yes) => { here = yes; notify(); return yes }))
+
+/** {@link pluginsHere} as a component reads it, false until fkn.app answers. Asks nothing itself. */
+export const usePluginsHere = (): boolean => useSyncExternalStore(subscribe, () => here) === true
 
 let feed: Feed | null = null
 
@@ -187,12 +202,14 @@ const disconnect = (uri: string) => {
 }
 
 /**
- * Connects `uri` in this tab, once: never in a frame. A plugin whose frame closes is forgotten once FKN lists it no
- * more, and otherwise connected again in the tab running the engine; another tab connects it on its next use.
+ * Connects `uri` in this tab, once, where {@link pluginsHere}. A plugin whose frame closes is forgotten once FKN lists it
+ * no more, and otherwise connected again in the tab running the engine; another tab connects it on its next use.
  */
 export const connectPlugin = async (uri: string): Promise<void> => {
+  // in the same task once fkn.app answered, so a click finds the connection it started
+  if (!(here ?? await pluginsHere())) return
   const held = lives.get(uri)
-  if (isFramed() || (held && held.status !== 'failed')) return
+  if (held && held.status !== 'failed') return
   let asked!: (asks: Switch[]) => void
   const asks = new Promise<Switch[]>((resolve) => { asked = resolve })
   const calls = rippleFor(uri, tab, () => asks)
@@ -240,7 +257,7 @@ export const connectPlugin = async (uri: string): Promise<void> => {
 
 /** Connects every plugin FKN lists, where this device ever answered for one. For the tab running the engine. */
 export const connectInstalled = async (): Promise<void> => {
-  if (isFramed() || !(await anyPlugin())) return
+  if (!(await anyPlugin()) || !(await pluginsHere())) return
   for (const p of (await listPlugins()) ?? []) void connectPlugin(p.uri)
 }
 
@@ -264,7 +281,7 @@ const ask = (queued: Queued) => {
 
 /** Adds the plugin at `address` behind FKN's confirm, then asks about its switches. False when FKN refused it. */
 export const addByAddress = async (address: string): Promise<boolean> => {
-  if (isFramed()) return false
+  if (!(await pluginsHere())) return false
   const pkg = await packages.install(address.trim()).catch(() => undefined)
   if (pkg === undefined) return false
   if (pkg && !(await answersOf(pkg.uri))) ask({ pkg })
@@ -274,7 +291,7 @@ export const addByAddress = async (address: string): Promise<boolean> => {
 
 /** FKN's picker over the published ripple plugins; each one picked that this device never answered for is asked about. */
 export const browsePlugins = async (): Promise<void> => {
-  if (isFramed()) return
+  if (!(await pluginsHere())) return
   const picked = await packages.pick({ type: 'plugin', id: 'ripple' }, { multiple: true }).catch(() => [])
   const held = await listPlugins()
   for (const result of picked) {
@@ -312,10 +329,10 @@ const sayUnanswered = (name: string) => {
 /**
  * A press of `uri`'s button `id`: connects it here when it is not, asks about the switches it wants that this device
  * never answered, then hands the click on. Says the plugin is not responding when it does not connect or answer in
- * {@link CLICK_MS}. Never in a frame.
+ * {@link CLICK_MS}. Only where {@link pluginsHere}.
  */
 export const clickButton = async (uri: string, name: string, id: string, context: ClickContext): Promise<void> => {
-  if (isFramed()) return
+  if (!(await pluginsHere())) return
   void connectPlugin(uri)
   const live = lives.get(uri)
   if (!live || !(await within(live.ready.then(() => true), CLICK_MS)) || live.status !== 'connected' || typeof live.remote?.click !== 'function') {

@@ -12,7 +12,7 @@ import { confirmStyle } from '../components/confirm-dialog'
 import { Modal } from '../components/modal'
 import { toastStyle } from '../components/toast'
 import { runningTorrentClient } from '../torrent/client'
-import { cancelAsking, connectAnswered, connectInstalled, finishAsking, usePlugins } from './host'
+import { cancelAsking, connectAnswered, connectInstalled, finishAsking, pluginsHere, usePlugins } from './host'
 import { subscribeAnswers } from './switches'
 
 /** A switch's name as the person reads it. */
@@ -89,10 +89,12 @@ const EngineTab = ({ client }: { client: TorrentClient }) => {
 
 /**
  * The plugins of this tab, mounted around every page so their connections outlive a move between the library and
- * Settings. In a frame nothing connects (see host.ts). It waits for a page to make the client, as the folder's work does.
+ * Settings. It asks fkn.app once, at start, whether plugins are on here (`pluginsHere`, host.ts), and waits for a page
+ * to make the client, as the folder's work does.
  */
 export const PluginHost = () => {
   useLocation()
+  useEffect(() => { void pluginsHere() }, [])
   const client = runningTorrentClient()
   return (
     <>
