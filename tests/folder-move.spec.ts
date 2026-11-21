@@ -850,7 +850,7 @@ test('a torrent moved into the folder moves back into browser storage when asked
  * reload with `ripple:test-no-grant` set finds the folder without its grant, as one does until the person allows it
  * again.
  */
-test('removing a torrent in the folder says its files stay, and leaves them', async ({ page }) => {
+test('a torrent moved into the folder offers one removal, and removing one there says its files stay and leaves them', async ({ page }) => {
   test.setTimeout(240_000)
   const COPIED = 'Copied'
   const SPARE = 'Spare'
@@ -910,11 +910,20 @@ test('removing a torrent in the folder says its files stay, and leaves them', as
   }, { root, name })
   const placed = Object.fromEntries(FILES.map((f) => [f.path, f.size]))
 
-  // THE CONTROL: both copies in the folder are known whole, which is what offers to delete only Ripple's copy
-  for (const name of [NAME, COPIED]) await expect.poll(() => optionsText(name), { timeout: 30_000 }).toContain('Remove and delete Ripple\'s copy')
+  /** The removals options reading `text` offer, and those of `name`. */
+  const removalsIn = (text: string) => text.split('\n').filter((line) => line.startsWith('Remove'))
+  const removals = async (name: string) => removalsIn(await optionsText(name))
+
+  // THE CONTROL: Copied's copy in the folder is known whole, which is what offers to delete only Ripple's copy
+  await expect.poll(() => removals(COPIED), { timeout: 30_000 }).toEqual(['Remove from the library', 'Remove and delete Ripple\'s copy'])
+  // the move deleted Ripple's copy of Whole, so it offers nothing to delete
+  expect(await removals(NAME)).toEqual(['Remove from the library'])
+  expect(await removals(SPARE)).toEqual(['Remove and delete the files'])
   expect(await confirmation(fromOptions(SPARE, 'Remove and delete the files')))
     .toEqual({ body: 'This deletes the 0 B already downloaded.', actions: ['Cancel', 'Remove and delete'], remember: 1 })
-  for (const name of [NAME, COPIED]) expect(await confirmation(fromOptions(name, 'Remove and delete Ripple\'s copy')), name).toEqual(STAY)
+  expect(await confirmation(fromOptions(NAME, 'Remove from the library')))
+    .toEqual({ body: 'The downloaded files stay, but its progress is forgotten.', actions: ['Cancel', 'Remove'], remember: 0 })
+  expect(await confirmation(fromOptions(COPIED, 'Remove and delete Ripple\'s copy'))).toEqual(STAY)
   await tick(NAME)
   expect(await confirmation(fromBar)).toEqual(STAY)
   await tick(SPARE)
@@ -927,13 +936,16 @@ test('removing a torrent in the folder says its files stay, and leaves them', as
   // THE CONTROL: without the grant the options offer no place for the files, and no copy can be known whole
   await expect.poll(async () => {
     const text = await optionsText(NAME)
-    return !text.includes('Keep in browser storage') && text.includes('Remove and delete Ripple\'s copy')
-  }, { timeout: 60_000 }).toBe(true)
-  expect(await confirmation(fromOptions(NAME, 'Remove and delete Ripple\'s copy'))).toEqual(STAY)
+    return text.includes('Keep in browser storage') || removalsIn(text)
+  }, { timeout: 60_000 }).toEqual(['Remove from the library'])
+  await tick(NAME)
+  expect(await confirmation(fromBar)).toEqual(STAY)
+  await bar.getByRole('button', { name: 'Clear selection' }).click()
 
   await page.evaluate(() => localStorage.removeItem('ripple:test-no-grant'))
   await page.reload()
-  for (const name of [NAME, COPIED]) await expect.poll(() => optionsText(name), { timeout: 60_000 }).toContain('Remove and delete Ripple\'s copy')
+  await expect.poll(() => removals(NAME), { timeout: 60_000 }).toEqual(['Remove from the library'])
+  await expect.poll(() => removals(COPIED), { timeout: 60_000 }).toContain('Remove and delete Ripple\'s copy')
   expect(await filesIn('dl', COPIED), 'Ripple\'s copy of Copied is not where the control looks').toEqual(placed)
   await tick(NAME)
   await tick(COPIED)

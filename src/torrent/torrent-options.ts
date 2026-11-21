@@ -355,12 +355,15 @@ export const buildTorrentOptions = (
   /**
    * Which removals are real for this torrent.
    *
-   * A ghost has no files here at all, so forgetting the entry is the only thing removal can mean.
-   * A torrent living only in OPFS cannot have its files "kept", because there is nowhere for them
-   * to be kept: offering it would promise something the storage cannot deliver. Only once the
-   * bytes are in the user's own folder do both readings exist, and only then are both offered.
+   * Removing deletes only Ripple's own copy. A ghost has none here, and nor has a torrent moved into
+   * the person's folder, since the move deleted it, so forgetting the entry is the only thing
+   * removal can mean for those. A torrent living only in OPFS cannot have its files "kept", because
+   * there is nowhere for them to be kept: offering it would promise something the storage cannot
+   * deliver. Only once a whole copy is also in the user's own folder do both readings exist, and
+   * only then are both offered.
    */
-  if (isGhost(t)) {
+  const ripplesCopy = !isGhost(t) && context.current !== 'folder'
+  if (!ripplesCopy || context.savedToUserStorage) {
     maintenance.push({
       kind: 'action',
       id: 'remove',
@@ -368,16 +371,8 @@ export const buildTorrentOptions = (
       danger: true,
       run: a.remove,
     })
-  } else {
-    if (context.savedToUserStorage) {
-      maintenance.push({
-        kind: 'action',
-        id: 'remove',
-        label: intl.formatMessage({ id: 'Remove from the library', defaultMessage: 'Remove from the library' }),
-        danger: true,
-        run: a.remove,
-      })
-    }
+  }
+  if (ripplesCopy) {
     maintenance.push({
       kind: 'action',
       id: 'remove-files',

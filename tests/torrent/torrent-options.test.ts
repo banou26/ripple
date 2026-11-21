@@ -389,6 +389,21 @@ describe('the torrent option list', () => {
       expect(ids).toContain('remove-files')
     })
 
+    const removals = (t: Torrent, context: Partial<TorrentOptionContext>) =>
+      buildTorrentOptions(t, actions(), { savedToUserStorage: false, ...context }).flatMap((g) => g.items)
+        .filter((i) => i.id === 'remove' || i.id === 'remove-files').map((i) => i.label)
+
+    it('offers only Remove from the library once the torrent has moved into the folder, which deleted Ripple\'s copy', () => {
+      const moved = torrent({ progress: 1, state: 'seeding' })
+      expect(removals(moved, { current: 'folder', intended: 'folder', savedToUserStorage: true })).toEqual(['Remove from the library'])
+      // without a live grant nothing is known whole, and the engine's save path still says where the files are
+      expect(removals(moved, { current: 'folder', intended: 'folder' })).toEqual(['Remove from the library'])
+    })
+
+    it('still offers to delete the files of a torrent waiting to move into the folder, which are Ripple\'s copy', () => {
+      expect(removals(torrent(), { current: 'browser', intended: 'folder' })).toEqual(['Remove and delete the files'])
+    })
+
     /** With a copy safely elsewhere, the delete is about reclaiming space, and says so. */
     it('renames the delete once it is only removing Ripple\'s copy', () => {
       expect(find(torrent(), 'remove-files', actions(), false)!.label).toBe('Remove and delete the files')
