@@ -2537,6 +2537,8 @@ const handleMessage = async (session: Session, m: any) => {
       // the infohash lands with the add alert, popped by the 500ms loop
       let ih: string | null = null
       for (let i = 0; i < 40 && !(ih = session.infohash(h)); i++) await new Promise((r) => setTimeout(r, 250))
+      // read before the check below, as nothing may wait between that check and the track
+      const known = (await loadList()).find((e) => e.infoHash === ih)
       // a remove or an account switch during the poll already tore this handle down, and re-tracking would resurrect a torrent with no persisted entry
       if (!handles.includes(h)) return
       if (!ih) {
@@ -2565,13 +2567,12 @@ const handleMessage = async (session: Session, m: any) => {
         // `1220` is the multihash prefix, sha2-256 of 32 bytes: part of the urn, never of the id
         ...(v2 ? [`xt=urn:btmh:1220${v2}`] : []),
       ].join('&')
-      track(h, magnet, ih, savePath, m.ephemeral === true)
+      track(h, magnet, ih, savePath, staysEphemeral(known, m.ephemeral === true))
       await set(torrentKey(ih), bytes)
       const addedAt = Date.now()
       // `saveTo` here rather than through a following `set-location`: this handler is UNQUEUED, so a
       // command sent after it would run first and find no entry to patch. See client.addTorrentFile.
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
-      const known = (await loadList()).find((e) => e.infoHash === ih)
       // the session's pause, not the add's: a Pause sent during the poll above had no entry to write itself into
       await upsertList(
         { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: userPaused.has(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) },

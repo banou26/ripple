@@ -1,6 +1,6 @@
-// A temporary torrent stays temporary in the engine, as in its list entry, when the engine tracks it again: a .torrent
-// add once its hash is known, and a torrent made from the person's own files started again after a reload. Read off
-// the park a temporary torrent gets when nobody watches it, which a kept one never gets.
+// The engine marks a torrent temporary exactly when its list entry does, whenever it tracks it again: a .torrent add
+// once its hash is known, and a torrent made from the person's own files when it is made or started again after a
+// reload. Read off the park a temporary torrent gets when nobody watches it, which a kept one never gets.
 import type { Persisted } from '../../src/torrent/library'
 
 import { expect, it, vi } from 'vitest'
@@ -13,8 +13,9 @@ const KEPT = 'b'.repeat(40)
 const SOURCE = 'c'.repeat(40)
 const MADE = 'd'.repeat(40)
 const KEPT_SOURCE = 'e'.repeat(40)
+const LISTED = 'f'.repeat(40)
 // a .torrent's first byte names its hash here
-const HASHES = [TEMPORARY, KEPT, SOURCE, MADE, KEPT_SOURCE]
+const HASHES = [TEMPORARY, KEPT, SOURCE, MADE, KEPT_SOURCE, LISTED]
 
 const engine = vi.hoisted(() => ({ hashes: [] as string[], log: [] as string[] }))
 const store = vi.hoisted(() => new Map<string, unknown>())
@@ -50,6 +51,9 @@ vi.mock('idb-keyval', () => {
     ephemeral: true,
   }, {
     infoHash: KEPT_SOURCE, magnet: 'magnet:?xt=urn:btih:' + KEPT_SOURCE, savePath: '/source/' + KEPT_SOURCE, saveTo: 'source', addedAt: 1, started: true,
+  }, {
+    // kept, and not running on this device
+    infoHash: LISTED, magnet: 'magnet:?xt=urn:btih:' + LISTED, savePath: '/dl', addedAt: 1, started: false,
   }] satisfies Persisted[])
   store.set('ripple:torrent:' + SOURCE, new Uint8Array([2]))
   store.set('ripple:torrent:' + KEPT_SOURCE, new Uint8Array([4]))
@@ -69,7 +73,7 @@ const leave = (handle: number) => {
   rig.send({ type: 'unwatch', viewer: `page-${handle}` })
 }
 
-it('keeps a temporary torrent temporary in the engine when it tracks it again', async () => {
+it('gives a torrent the engine tracks again the temporary mark of its list entry', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
@@ -91,13 +95,19 @@ it('keeps a temporary torrent temporary in the engine when it tracks it again', 
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(4))
   rig.send({ type: 'start-source', infoHash: KEPT_SOURCE, handles: [{ name: 'film.mkv' }] })
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(5))
+  // a temporary add of a torrent the list keeps
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array([5]), ephemeral: true })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(6))
+  expect(entryOf(LISTED)).toMatchObject({ ephemeral: false })
   leave(4)
   leave(5)
+  leave(6)
   // THE CONTROL: the kept ones are never parked
   await new Promise((resolve) => setTimeout(resolve, 1_100))
   expect(engine.log).not.toContain(`pause ${KEPT}`)
   expect(engine.log).not.toContain(`pause ${MADE}`)
   expect(engine.log).not.toContain(`pause ${KEPT_SOURCE}`)
+  expect(engine.log).not.toContain(`pause ${LISTED}`)
   expect(entryOf(SOURCE)).toMatchObject({ ephemeral: true })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 15_000)
