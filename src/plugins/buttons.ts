@@ -1,4 +1,4 @@
-import type { Button, ButtonPlace } from './contract'
+import type { Button, ButtonPage, ButtonPlace, PageSize } from './contract'
 import type { KeptButtons } from './switches'
 
 export const LABEL_MAX = 40
@@ -10,9 +10,23 @@ export const BUTTONS_CHANGED_MS = 1_000
 /** How long a click waits for the plugin, while it connects and while it answers, before one line says it did not. */
 export const CLICK_MS = 10_000
 /** A plugin's buttons in each place. */
-export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = { header: 1, 'row-menu': 3, settings: 1 }
+export const PER_PLUGIN: Readonly<Record<ButtonPlace, number>> = {
+  header: 1,
+  'add-field': 1,
+  'row-menu': 3,
+  'bulk-bar': 1,
+  detail: 1,
+  settings: 1,
+}
 /** The plugins whose header button is drawn in the header, in install order; the rest are in its More menu. */
 export const HEADER_INLINE = 2
+/** The plugins drawn inline in each inline place, in install order; the rest are in that place's More menu. */
+export const PLACE_INLINE = {
+  header: HEADER_INLINE,
+  'add-field': 1,
+  'bulk-bar': 2,
+  detail: 2,
+} as const
 /**
  * The header's add field keeps its text this wide beside the plugins' buttons, where its hint, the page's only word on
  * how to add anything, still reads: short of it, they take a row of their own. scripts/test-header-layout.mjs holds
@@ -21,6 +35,17 @@ export const HEADER_INLINE = 2
 export const TEXT_FLOOR = 210
 
 const ICON = /^data:image\/svg\+xml[;,]/
+
+export const isPageSize = (value: unknown): value is PageSize =>
+  value === 'small' || value === 'medium' || value === 'large'
+
+const cleanPage = (raw: unknown): ButtonPage | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined
+  const { id, size } = raw as Record<string, unknown>
+  const trimmed = typeof id === 'string' ? id.trim() : ''
+  if (!trimmed) return undefined
+  return { id: trimmed, ...(isPageSize(size) && { size }) }
+}
 
 /** The label's length in characters, as a person counts them. */
 const characters = (text: string) => [...new Intl.Segmenter().segment(text)].length
@@ -31,7 +56,7 @@ export const cleanButtons = (answer: unknown): Button[] => {
   const ids = new Set<string>()
   const counts: Partial<Record<ButtonPlace, number>> = {}
   return answer.flatMap((raw): Button[] => {
-    const { id, place, label, icon, mirror } = (raw ?? {}) as Record<string, unknown>
+    const { id, place, label, icon, mirror, page } = (raw ?? {}) as Record<string, unknown>
     if (typeof id !== 'string' || !id || ids.has(id) || typeof place !== 'string' || !Object.hasOwn(PER_PLUGIN, place)) return []
     const text = typeof label === 'string' ? label.trim() : ''
     if (!text || characters(text) > LABEL_MAX) return []
@@ -40,7 +65,8 @@ export const cleanButtons = (answer: unknown): Button[] => {
     counts[at] = (counts[at] ?? 0) + 1
     ids.add(id)
     const drawn = typeof icon === 'string' && ICON.test(icon) && new TextEncoder().encode(icon).byteLength <= ICON_BYTES
-    return [{ id, place: at, label: text, ...(drawn && { icon }), ...(mirror === true && { mirror: true }) }]
+    const opens = cleanPage(page)
+    return [{ id, place: at, label: text, ...(drawn && { icon }), ...(mirror === true && { mirror: true }), ...(opens && { page: opens }) }]
   })
 }
 

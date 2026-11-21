@@ -69,33 +69,47 @@ const inlineStyle = css`
 
 const FOCUSABLE = [
   'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])',
-  'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+  'textarea:not([disabled])', 'iframe', '[tabindex]:not([tabindex="-1"]):not([data-focus-guard])',
 ].join(',')
 
 const focusable = (root: HTMLElement): HTMLElement[] =>
   [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetWidth > 0 || el.offsetHeight > 0)
 
+type Layer = { root: HTMLElement, previous: HTMLElement | null }
+
+// Stacked non-inline modals, bottom to top, and the body children we ourselves marked inert.
+const stack: Layer[] = []
+const inerted = new Set<HTMLElement>()
+
 /**
- * Make the rest of the page unreachable, the way showModal did, EXCEPT for the broker frame.
+ * Make everything behind the topmost modal unreachable, the way showModal did, EXCEPT for the broker frame.
  *
  * Skipping that frame is the point of the exercise rather than an oversight. Inerting it would put
  * back exactly what the top layer was doing: FKN's prompt visible above the modal and impossible to
  * answer. `@fkn/lib` titles its iframe "FKN", which is the only handle it offers from out here.
  *
- * Returns the undo, and only for elements this actually changed, so a page that had already marked
- * something inert for its own reasons gets it back.
+ * Tracks only elements this itself changed, so a page that had already marked something inert for
+ * its own reasons keeps it, and stacked modals (such as the add dialog over a plugin page) keep
+ * everything behind the topmost modal inert even if a lower modal closes first.
  */
-const inertBehind = (except: HTMLElement): (() => void) => {
-  const changed: HTMLElement[] = []
+const syncInert = () => {
+  const top = stack.at(-1)?.root
+  if (!top) {
+    for (const node of inerted) node.inert = false
+    inerted.clear()
+    return
+  }
   for (const node of [...document.body.children]) {
     if (!(node instanceof HTMLElement)) continue
-    if (node === except || node.contains(except)) continue
     if (node.matches('iframe[title="FKN"]')) continue
-    if (node.inert) continue
-    node.inert = true
-    changed.push(node)
+    const active = node === top || node.contains(top)
+    if (active) {
+      if (inerted.delete(node)) node.inert = false
+    } else if (!node.inert) {
+      node.inert = true
+      inerted.add(node)
+    }
   }
-  return () => { for (const node of changed) node.inert = false }
 }
 
 export const Modal = ({
@@ -123,9 +137,9 @@ export const Modal = ({
     if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return }
     if (event.key !== 'Tab' || !overlay.current) return
     const items = focusable(overlay.current)
-    if (items.length === 0) { event.preventDefault(); return }
-    const first = items[0]!
-    const last = items[items.length - 1]!
+    const first = items[0]
+    const last = items.at(-1)
+    if (!first || !last) { event.preventDefault(); return }
     const active = document.activeElement
     // wrapping by hand, because without it Tab walks out of the modal and into a page that looks
     // interactive and is inert, which reads as the keyboard having stopped working
@@ -139,17 +153,32 @@ export const Modal = ({
   useEffect(() => {
     const root = overlay.current
     if (!root) return
-    const previous = document.activeElement as HTMLElement | null
-    const undo = inline ? () => {} : inertBehind(root)
+    const layer: Layer = { root, previous: document.activeElement as HTMLElement | null }
+    if (!inline) {
+      stack.push(layer)
+      syncInert()
+    }
     const target = initialFocus?.current ?? focusable(root)[0]
     // a card taller than its player opens at its first line, not scrolled to the control that has the focus
     target?.focus({ preventScroll: inline })
     // a disabled control takes no focus, which would leave it on the inert page, where Escape and Tab do nothing
     if (!root.contains(document.activeElement)) root.focus({ preventScroll: true })
     return () => {
-      undo()
-      // back where they were, or the next Tab starts from the top of the document
-      previous?.focus?.()
+      if (inline) {
+        layer.previous?.focus?.()
+        return
+      }
+      const at = stack.lastIndexOf(layer)
+      const wasTop = at === stack.length - 1
+      if (at >= 0) {
+        // if a modal beneath another closes first, pass its return target up so the surviving modal does not restore to a detached node
+        const above = stack[at + 1]
+        if (above && above.previous && root.contains(above.previous)) above.previous = layer.previous
+        stack.splice(at, 1)
+      }
+      syncInert()
+      // back where they were, only when no modal sits above this one
+      if (wasTop) layer.previous?.focus?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

@@ -13,6 +13,7 @@ import { Modal } from '../components/modal'
 import { toastStyle } from '../components/toast'
 import { runningTorrentClient } from '../torrent/client'
 import { cancelAsking, connectAnswered, connectInstalled, finishAsking, pluginsHere, usePlugins, usePluginsHere } from './host'
+import { PluginPage } from './plugin-page'
 import { subscribeAnswers } from './switches'
 
 /** A switch's name as the person reads it. */
@@ -56,12 +57,13 @@ const Sheet = ({ asking }: { asking: Asking }) => {
   )
 }
 
-/** The install sheet, wherever the tab is, and the line saying a plugin did not answer a click. */
+/** The install sheet, open popup page, and the line saying a plugin did not answer a click. */
 export const InstallSheet = () => {
   const intl = useIntl()
-  const { asking, unanswered } = usePlugins()
+  const { asking, openPage, unanswered } = usePlugins()
   return (
     <>
+      {openPage && <PluginPage key={openPage.key} page={openPage}/>}
       {asking && <Sheet key={asking.uri} asking={asking}/>}
       {unanswered && createPortal(
         <div role="status" className="toast" css={toastStyle}>

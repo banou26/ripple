@@ -38,7 +38,9 @@ const setup = () => {
   )
   const feed = createFeed(engine.client)
   const tab: PluginTab = {
-    client: () => engine.client, buttonsChanged: () => {}, feed: () => feed, owns: () => engine.client.owns(), vpn: () => true,
+    client: () => engine.client, buttonsChanged: () => {}, openPage: async () => {}, closePage: () => {},
+    inGesture: () => false, takeSuggest: () => false, canSuggest: () => false, suggest: async () => ({ infoHash: null, outcome: 'failed' }),
+    feed: () => feed, owns: () => engine.client.owns(), vpn: () => true,
     locale: () => ({ locale: 'en', dir: 'ltr' }), onActive: () => () => {}, onVpn: () => () => {}, onLocale: () => () => {},
   }
   const { ripple, close } = rippleFor(URI, tab, async () => ['read', 'add', 'change'])
@@ -296,5 +298,13 @@ describe('the store', () => {
     for (const key of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) expect(await made.ripple.store.get(key), key).toBeNull()
     await made.ripple.store.set('constructor', 'kept')
     expect(await made.ripple.store.get('constructor'), 'one it set (control)').toBe('kept')
+  })
+})
+
+describe('gesture-gated calls', () => {
+  it('refuses ui.open and suggest outside the gesture window directly in calls.ts', async () => {
+    expect(await refusal(made.ripple.ui.open({ id: 'search' }))).toBe('not-allowed')
+    expect(await refusal(made.ripple.suggest({ magnet: `magnet:?xt=urn:btih:${'f'.repeat(40)}` }))).toBe('not-allowed')
+    expect(made.ripple.page).toBeNull()
   })
 })

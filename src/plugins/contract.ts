@@ -54,8 +54,8 @@ export type FileAddOptions = {
   location?: 'browser' | 'folder'
 }
 
-/** `already` for a torrent the library already keeps, which is left as it is. */
-export type AddResult = { infoHash: string | null, outcome: 'added' | 'already' | 'failed' }
+/** `already` for a torrent the library already keeps; `declined` when the person closed `suggest` without adding it. */
+export type AddResult = { infoHash: string | null, outcome: 'added' | 'declined' | 'already' | 'failed' }
 
 /**
  * The events `on` subscribes to. The four torrent events need the `read` switch. `changed` fires in every ripple tab,
@@ -73,13 +73,21 @@ export type PluginEvents = {
 }
 
 /** Where ripple draws a button. A button in a place this ripple does not draw is left out. */
-export type ButtonPlace = 'header' | 'row-menu' | 'settings'
+export type ButtonPlace = 'header' | 'add-field' | 'row-menu' | 'bulk-bar' | 'detail' | 'settings'
+
+/** The sizes a popup page may ask for: small 480x360, medium 760x560, large 1100x800, capped to the viewport. */
+export type PageSize = 'small' | 'medium' | 'large'
+
+export type DetailTab = 'general' | 'files' | 'peers' | 'trackers'
+
+/** A popup page opened directly when a button is pressed. */
+export type ButtonPage = { id: string, size?: PageSize }
 
 /**
  * A button ripple draws for a plugin. `label` is at most 40 characters, the button's tooltip and accessible name; a
  * button with an empty or longer one is left out. `icon` is an SVG `data:` url of at most 4 KB, drawn as a mask in
  * ripple's text colour, which `mirror` flips in a right to left language; with none, or another, the label's first
- * letter is drawn. Each plugin gets one button in `header` and in `settings`, and three in `row-menu`.
+ * letter is drawn. Each plugin gets one button in each inline place and in `settings`, and three in `row-menu`.
  */
 export type Button = {
   /** Handed back to `click`. Unique among the plugin's buttons. */
@@ -88,10 +96,19 @@ export type Button = {
   label: string
   icon?: string
   mirror?: boolean
+  /** Opens this popup page with the click's context instead of calling `click`. */
+  page?: ButtonPage
 }
 
-/** What a click hands a plugin: the torrent of a `row-menu` button by its info hash, and nothing for the others. */
-export type ClickContext = { infoHashes?: string[] }
+/** What a click hands a plugin: the torrents, text, or details tab it was pressed on. */
+export type ClickContext = {
+  infoHashes?: string[]
+  infoHash?: string
+  tab?: DetailTab
+  text?: string
+}
+
+export type PageOpen = { id: string, size?: PageSize, context?: ClickContext }
 
 /** What ripple hands a plugin as its `remote`. Every call names torrents by info hash. */
 export type Ripple = {
@@ -102,16 +119,24 @@ export type Ripple = {
   vpn: boolean
   /** Whether this tab runs the engine, where automatic work belongs. */
   active: boolean
+  /** The popup page this connection is for and its context; null on the background connection. */
+  page: { id: string, context: ClickContext } | null
   on: <E extends keyof PluginEvents>(event: E, listener: (value: PluginEvents[E]) => void) => Promise<() => void>
   ui: {
     /** Ripple asks `buttons` again, at most once a second. */
     buttonsChanged: () => Promise<void>
+    /** Opens a popup page of this plugin inside Ripple's dialog. Only in the gesture window. */
+    open: (page: PageOpen) => Promise<void>
+    /** Closes this plugin's open popup page, if any. */
+    close: () => Promise<void>
   }
   /** Strings this plugin keeps on this device, 256 KB in all, kept across its versions. `null` deletes one. */
   store: {
     get: (key: string) => Promise<string | null>
     set: (key: string, value: string | null) => Promise<void>
   }
+  /** Proposes a torrent through Ripple's add dialog, which names this plugin and asks the person. Needs no switch; only in the gesture window, at most 10 per window. */
+  suggest: (source: Source) => Promise<AddResult>
   torrents: () => Promise<PluginTorrent[]>
   /** Answers a temporary torrent too, which `torrents` and the events leave out. */
   torrent: (infoHash: string) => Promise<PluginTorrent | null>

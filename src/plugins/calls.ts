@@ -1,4 +1,4 @@
-import type { AddResult, FileAddOptions, PluginEvents, PluginGroup, PluginTorrent, Ripple, Source, Switch } from './contract'
+import type { AddResult, ClickContext, FileAddOptions, PageOpen, PluginEvents, PluginGroup, PluginTorrent, Ripple, Source, Switch } from './contract'
 import type { Feed } from './feed'
 import type { TorrentClient } from '../torrent/client'
 import type { Torrent } from '../torrent/types'
@@ -11,15 +11,38 @@ import { hexInfoHash, magnetInfoHash, sameInfoHash } from '../torrent/magnet'
 import { readTorrentFile } from '../torrent/torrent-file'
 import { keepSyncedTorrentFile } from '../torrent/torrent-file-sync'
 import { holdWhileStored } from '../utils/page-work'
+import { isPageSize } from './buttons'
 import { keptOf, publicTorrentFile } from './project'
 import { storeGet, storeSet } from './store'
 import { isOn } from './switches'
+
+/** A torrent a plugin proposed through `suggest`, ready for the library's add queue. */
+export type SuggestedAdd = {
+  magnet: string
+  infoHash: string
+  name: string
+  from: string
+  bytes?: Uint8Array
+  files?: { name: string, size: number, index: number }[]
+}
 
 /** What a tab gives every plugin connected in it. */
 export type PluginTab = {
   client: () => TorrentClient
   /** The plugin's `ui.buttonsChanged()`. */
   buttonsChanged: (uri: string) => void
+  /** Opens a popup page for `uri` inside Ripple's dialog. */
+  openPage: (uri: string, page: PageOpen) => Promise<void>
+  /** Closes `uri`'s open popup page, if any. */
+  closePage: (uri: string) => void
+  /** Whether `uri` is inside its gesture window (within 10 s of a click on its button, or while its page is open). */
+  inGesture: (uri: string) => boolean
+  /** Claims one `suggest` slot in `uri`'s current gesture window; false once the window is spent or closed. */
+  takeSuggest: (uri: string) => boolean
+  /** Whether the library page is mounted in this tab and can show the add dialog. */
+  canSuggest: () => boolean
+  /** Hands a validated proposal to the library's add queue. */
+  suggest: (uri: string, item: Omit<SuggestedAdd, 'from'>) => Promise<AddResult>
   feed: () => Feed
   owns: () => boolean
   vpn: () => boolean
@@ -58,7 +81,12 @@ const answerOf = (client: TorrentClient, addId: string) => new Promise<AddResult
  * person turned it on, read from storage as the call runs; and `close`, which drops what the plugin subscribed to once
  * its connection is gone.
  */
-export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<readonly Switch[]>): { ripple: Ripple, close: () => void } => {
+export const rippleFor = (
+  uri: string,
+  tab: PluginTab,
+  asks: () => Promise<readonly Switch[]>,
+  page: { id: string, context: ClickContext } | null = null,
+): { ripple: Ripple, close: () => void } => {
   const need = async (name: Switch) => { if (!(await asks()).includes(name) || !(await isOn(uri, name))) fail('not-allowed') }
   const offs = new Set<() => void>()
 
@@ -145,19 +173,59 @@ export const rippleFor = (uri: string, tab: PluginTab, asks: () => Promise<reado
     return { ...answer, outcome: await settled }
   }
 
+  const suggest = async (source: Source): Promise<AddResult> => {
+    if (!tab.inGesture(uri)) fail('not-allowed')
+    const magnet = typeof (source as { magnet?: unknown })?.magnet === 'string' ? (source as { magnet: string }).magnet : null
+    const bytes = (source as { torrentFile?: unknown })?.torrentFile instanceof Uint8Array ? (source as { torrentFile: Uint8Array }).torrentFile : null
+    if (!magnet && !bytes) fail('invalid')
+    if (!tab.canSuggest()) fail('unavailable')
+    if (!tab.takeSuggest(uri)) fail('not-allowed')
+    const request = magnet ? describeAddRequest({ magnet }) : null
+    const read = bytes ? await readTorrentFile(bytes) : null
+    const infoHash = request?.ok ? request.infoHash : read ? magnetInfoHash(read.magnet) : null
+    if (!infoHash) return { infoHash: null, outcome: 'failed' }
+    const answer = { infoHash: hexInfoHash(infoHash) }
+    if ((await rows()).some((t) => sameInfoHash(t.infoHash, infoHash) && t.ephemeral !== true)) return { ...answer, outcome: 'already' }
+    if (!tab.canSuggest()) fail('unavailable')
+    if (request?.ok) return tab.suggest(uri, { magnet: request.magnet, infoHash: answer.infoHash, name: request.name })
+    if (!read || !bytes) return { infoHash: null, outcome: 'failed' }
+    return tab.suggest(uri, { magnet: read.magnet, infoHash: answer.infoHash, name: read.name, bytes: new Uint8Array(bytes), files: read.files ?? undefined })
+  }
+
   const ripple: Ripple = {
     version: 1,
     ...tab.locale(),
     vpn: tab.vpn(),
     active: tab.owns(),
+    page: page ? { id: page.id, context: { ...page.context } } : null,
     on,
     ui: {
       buttonsChanged: async () => { tab.buttonsChanged(uri) },
+      open: async (arg) => {
+        if (!arg || typeof arg !== 'object') fail('invalid')
+        const { id, size, context } = arg as Record<string, unknown>
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed) fail('invalid')
+        if (size !== undefined && !isPageSize(size)) fail('invalid')
+        if (context !== undefined && (!context || typeof context !== 'object' || Array.isArray(context))) fail('invalid')
+        if (!tab.inGesture(uri)) fail('not-allowed')
+        await tab.openPage(uri, { id: trimmed, ...(size && { size }), context: context ? { ...(context as ClickContext) } : {} })
+      },
+      close: async () => {
+        // two posted-message hops guarantee osra's microtask reply is queued before hop 2 and delivered before unmount
+        const hop = (next: () => void) => {
+          const ch = new MessageChannel()
+          ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); next() }
+          ch.port2.postMessage(null)
+        }
+        hop(() => hop(() => tab.closePage(uri)))
+      },
     },
     store: {
       get: (key) => storeGet(uri, key),
       set: (key, value) => storeSet(uri, key, value),
     },
+    suggest,
     torrents: async () => {
       await need('read')
       return Promise.all((await rows()).filter(kept).map(tab.feed().project))

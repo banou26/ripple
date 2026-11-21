@@ -1,7 +1,7 @@
 import type { InstalledPackage } from '@fkn/lib/packages'
-import type { ClickContext, RipplePlugin, Switch } from './contract'
+import type { AddResult, ButtonPage, ClickContext, PageOpen, PageSize, RipplePlugin, Switch } from './contract'
 import type { Feed } from './feed'
-import type { PluginTab } from './calls'
+import type { PluginTab, SuggestedAdd } from './calls'
 
 import { shell } from '@fkn/lib'
 import * as packages from '@fkn/lib/packages'
@@ -20,6 +20,12 @@ import { answer, answeredUris, answersOf, anyPlugin, forget, keepButtons, keptBu
 export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
 /** How long a plugin gets to connect before its row reads Not responding, as fkn.app's own limit. */
 export const CONNECT_MS = 30_000
+/** How long a popup page gets to mount before its dialog reads Not responding. */
+export const MOUNT_MS = 30_000
+/** How long after a click on a plugin's button `ui.open` and `suggest` are allowed (also while its page is open). */
+export const GESTURE_MS = 10_000
+/** How many `suggest` proposals a plugin may make in one gesture window. */
+export const SUGGEST_LIMIT = 10
 /** How long after its frame closed a plugin is connected again, once FKN still lists it. */
 export const RECONNECT_MS = 3_000
 /** How many times in a row a plugin whose frame closes within {@link STEADY_MS} of connecting is connected again. */
@@ -37,6 +43,7 @@ type Live = {
   abort: AbortController
   status: PluginStatus
   asks: Switch[] | null
+  asksReady: Promise<Switch[]>
   remote: Remote | null
   /** Settles once it connected or gave up. */
   ready: Promise<void>
@@ -49,6 +56,16 @@ type Live = {
  */
 export type Asking = { uri: string, name: string, asks: Switch[] | null, failed: boolean, onClick?: (done: boolean) => void }
 
+/** The popup page currently open in this tab, one per tab. */
+export type OpenPage = {
+  key: number
+  uri: string
+  name: string
+  id: string
+  size: PageSize
+  context: ClickContext
+}
+
 export type PluginsView = {
   /** FKN's install records for ripple, null until listed. */
   installed: InstalledPackage[] | null
@@ -56,19 +73,26 @@ export type PluginsView = {
   /** What each connected plugin asks, of the switches ripple offers. */
   asks: Readonly<Record<string, Switch[]>>
   asking: Asking | null
+  openPage: OpenPage | null
   /** The name of a plugin a click is waiting on past {@link CLICK_MS}, for one short line. */
   unanswered: string | null
 }
 
 type Queued = { pkg: InstalledPackage, only?: Switch[], onClick?: (done: boolean) => void }
+type Gesture = { until: number, suggests: number }
+export type Suggester = (proposal: SuggestedAdd) => Promise<AddResult>
 
 const lives = new Map<string, Live>()
+const gestures = new Map<string, Gesture>()
 let installed: InstalledPackage[] | null = null
 let asking: Asking | null = null
+let openPage: OpenPage | null = null
+let pageSeq = 0
 let unanswered: string | null = null
+let suggester: Suggester | null = null
 const queue: Queued[] = []
 const listeners = new Set<() => void>()
-let view: PluginsView = { installed, statuses: {}, asks: {}, asking, unanswered }
+let view: PluginsView = { installed, statuses: {}, asks: {}, asking, openPage, unanswered }
 
 const notify = () => {
   const entries = [...lives]
@@ -77,6 +101,7 @@ const notify = () => {
     statuses: Object.fromEntries(entries.map(([uri, live]) => [uri, live.status])),
     asks: Object.fromEntries(entries.flatMap(([uri, live]) => (live.asks ? [[uri, live.asks]] : []))),
     asking,
+    openPage,
     unanswered,
   }
   for (const listener of listeners) listener()
@@ -87,7 +112,7 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener) }
 }
 
-/** The plugins as Settings and the install sheet show them. */
+/** The plugins as Settings, the install sheet and the popup page show them. */
 export const usePlugins = (): PluginsView => useSyncExternalStore(subscribe, () => view)
 
 // fkn.app's answer holds while the document lives
@@ -103,6 +128,12 @@ export const pluginsHere = (): Promise<boolean> =>
 
 /** {@link pluginsHere} as a component reads it, false until fkn.app answers. Asks nothing itself. */
 export const usePluginsHere = (): boolean => useSyncExternalStore(subscribe, () => here === true)
+
+/** Registers the library page's handler for `suggest`, returning its teardown. */
+export const registerSuggester = (handler: Suggester): (() => void) => {
+  suggester = handler
+  return () => { if (suggester === handler) suggester = null }
+}
 
 let feed: Feed | null = null
 
@@ -135,9 +166,57 @@ const buttonsChanged = (uri: string) => {
   }
 }
 
+const inGesture = (uri: string) => openPage?.uri === uri || Date.now() < (gestures.get(uri)?.until ?? 0)
+const startGesture = (uri: string) => { gestures.set(uri, { until: Date.now() + GESTURE_MS, suggests: 0 }) }
+const extendGesture = (uri: string) => {
+  const g = gestures.get(uri)
+  if (g) g.until = Date.now() + GESTURE_MS
+}
+const takeSuggest = (uri: string) => {
+  if (!inGesture(uri)) return false
+  const g = gestures.get(uri) ?? { until: 0, suggests: 0 }
+  if (g.suggests >= SUGGEST_LIMIT) return false
+  g.suggests += 1
+  gestures.set(uri, g)
+  return true
+}
+
+/** Closes the open popup page (or only `byUri`'s when named) and ends its window so it cannot immediately reopen. */
+export const closePage = (byUri?: string) => {
+  if (!openPage || (byUri && openPage.uri !== byUri)) return
+  const g = gestures.get(openPage.uri)
+  if (g) g.until = 0
+  openPage = null
+  notify()
+}
+
+const pluginName = async (uri: string): Promise<string> =>
+  installed?.find((p) => p.uri === uri)?.name ?? (await keptButtons(uri))?.name ?? (await nameOf(uri))?.name ?? uri
+
+const openPageFor = async (uri: string, page: PageOpen) => {
+  if (lives.get(uri)?.status !== 'connected') throw new Error('unavailable')
+  const name = await pluginName(uri)
+  if (lives.get(uri)?.status !== 'connected') throw new Error('unavailable')
+  if (!inGesture(uri)) throw new Error('not-allowed')
+  openPage = { key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...(page.context ?? {}) } }
+  notify()
+}
+
 const tab: PluginTab = {
   client: getTorrentClient,
   buttonsChanged,
+  openPage: openPageFor,
+  closePage: (uri) => closePage(uri),
+  inGesture,
+  takeSuggest,
+  canSuggest: () => suggester !== null,
+  suggest: async (uri, item) => {
+    const active = suggester
+    if (!active) throw new Error('unavailable')
+    const from = await pluginName(uri)
+    if (suggester !== active) throw new Error('unavailable')
+    return active({ ...item, from })
+  },
   feed: () => (feed ??= createFeed(getTorrentClient())),
   owns: () => runningTorrentClient()?.owns() ?? false,
   vpn: vpnOn,
@@ -196,9 +275,59 @@ const disconnect = (uri: string) => {
   const live = lives.get(uri)
   if (!live) return
   lives.delete(uri)
+  gestures.delete(uri)
+  // the broker never sees a mounted page frame, so the page closes whenever its background connection does
+  if (openPage?.uri === uri) openPage = null
   live.abort.abort()
   live.close()
   notify()
+}
+
+/**
+ * Mounts `page` into `iframe` over `packages.mount`, under the plugin's same switches, with `remote.page` carrying the
+ * page's id and context. Fails after {@link MOUNT_MS} or when the background connection is gone.
+ */
+export const mountPluginPage = async (
+  page: OpenPage,
+  iframe: HTMLIFrameElement,
+  signal: AbortSignal,
+): Promise<{ unmount: () => void }> => {
+  const live = lives.get(page.uri)
+  if (!live || live.status !== 'connected') throw new Error('unavailable')
+  const calls = rippleFor(page.uri, tab, () => live.asksReady, { id: page.id, context: page.context })
+  const abort = new AbortController()
+  const onAbort = () => abort.abort()
+  signal.addEventListener('abort', onAbort, { once: true })
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  try {
+    const mounted = await Promise.race([
+      packages.mount(page.uri, { iframe, protocol: PLUGIN_PROTOCOL, payload: calls.ripple, signal: abort.signal }),
+      new Promise<never>((_, reject) => { deadline = setTimeout(() => { abort.abort(); reject(new Error('timeout')) }, MOUNT_MS) }),
+    ])
+    if (signal.aborted || openPage?.key !== page.key) {
+      mounted.unmount()
+      calls.close()
+      return { unmount: () => {} }
+    }
+    let done = false
+    const unmount = () => {
+      if (done) return
+      done = true
+      mounted.unmount()
+      calls.close()
+    }
+    void mounted.closed.then(() => {
+      calls.close()
+      if (!done && openPage?.key === page.key) closePage(page.uri)
+    })
+    return { unmount }
+  } catch (error) {
+    calls.close()
+    throw error
+  } finally {
+    clearTimeout(deadline)
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 /**
@@ -211,11 +340,11 @@ export const connectPlugin = async (uri: string): Promise<void> => {
   const held = lives.get(uri)
   if (held && held.status !== 'failed') return
   let asked!: (asks: Switch[]) => void
-  const asks = new Promise<Switch[]>((resolve) => { asked = resolve })
-  const calls = rippleFor(uri, tab, () => asks)
+  const asksReady = new Promise<Switch[]>((resolve) => { asked = resolve })
+  const calls = rippleFor(uri, tab, () => asksReady)
   let settled!: () => void
   const ready = new Promise<void>((resolve) => { settled = resolve })
-  const live: Live = { abort: new AbortController(), status: 'connecting', asks: null, remote: null, ready, close: calls.close }
+  const live: Live = { abort: new AbortController(), status: 'connecting', asks: null, asksReady, remote: null, ready, close: calls.close }
   lives.set(uri, live)
   notify()
   let deadline: ReturnType<typeof setTimeout> | undefined
@@ -328,21 +457,40 @@ const sayUnanswered = (name: string) => {
 
 /**
  * A press of `uri`'s button `id`: connects it here when it is not, asks about the switches it wants that this device
- * never answered, then hands the click on. Says the plugin is not responding when it does not connect or answer in
- * {@link CLICK_MS}. Only where {@link pluginsHere}.
+ * never answered, then opens its popup `page` or hands the click on. Starts a fresh gesture window for `uri`. Says
+ * the plugin is not responding when it does not connect or answer in {@link CLICK_MS}. Only where {@link pluginsHere}.
  */
-export const clickButton = async (uri: string, name: string, id: string, context: ClickContext): Promise<void> => {
+export const clickButton = async (
+  uri: string,
+  name: string,
+  id: string,
+  context: ClickContext,
+  page?: ButtonPage,
+): Promise<void> => {
   if (!(await pluginsHere())) return
+  startGesture(uri)
   void connectPlugin(uri)
   const live = lives.get(uri)
-  if (!live || !(await within(live.ready.then(() => true), CLICK_MS)) || live.status !== 'connected' || typeof live.remote?.click !== 'function') {
+  if (!live || !(await within(live.ready.then(() => true), CLICK_MS)) || live.status !== 'connected' || (!page && typeof live.remote?.click !== 'function')) {
     sayUnanswered(name)
     return
   }
   const answers = (await answersOf(uri)) ?? {}
   const never = (live.asks ?? []).filter((s) => !(s in answers))
-  if (never.length && !(await new Promise<boolean>((onClick) => ask({ pkg: { uri, name, version: null, installedAt: 0 }, only: never, onClick })))) return
-  if (!(await within(live.remote.click(id, context).then(() => true, () => true), CLICK_MS))) sayUnanswered(name)
+  if (never.length && !(await new Promise<boolean>((onClick) => ask({ pkg: { uri, name, version: null, installedAt: 0 }, only: never, onClick })))) {
+    const g = gestures.get(uri)
+    if (g) g.until = 0
+    return
+  }
+  extendGesture(uri)
+  if (page) {
+    openPage = { key: ++pageSeq, uri, name, id: page.id, size: page.size ?? 'medium', context: { ...context } }
+    notify()
+    return
+  }
+  const click = live.remote?.click
+  if (typeof click !== 'function') { sayUnanswered(name); return }
+  if (!(await within(click(id, context).then(() => true, () => true), CLICK_MS))) sayUnanswered(name)
 }
 
 /** Uninstalls `uri` and deletes what ripple keeps for it. Its torrents stay. */
