@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { expect, it, vi } from 'vitest'
 
-import { LIST_KEY } from '../../src/torrent/library'
+import { LIST_KEY, torrentKey } from '../../src/torrent/library'
 import { installWorkerGlobals } from '../utils/worker-rig'
 
 /**
@@ -66,4 +66,80 @@ it('leaves a paused torrent paused, with its magnet and save path, when its .tor
   expect(rig.of('add-failed')).toEqual([{ type: 'add-failed', message: { message: 'Already in your list' } }])
   expect(entry()).toMatchObject({ magnet, savePath, started, paused })
   expect(magnet).toBe(MAGNET)
+}, 60_000)
+
+it('promotes a temporary torrent when a person adds its .torrent without addId', async () => {
+  const prevHandle = rig.of('added')[0]!.handle as number
+  rig.send({ type: 'remove', handle: prevHandle, deleteFiles: true })
+  await vi.waitFor(() => expect(entry()).toBeUndefined(), { timeout: 5_000 })
+  store.delete(torrentKey(HASH))
+
+  const beforeAdded = rig.of('added').length
+  const beforeFailed = rig.of('add-failed').length
+  rig.send({ type: 'add-magnet', magnet: MAGNET, ephemeral: true })
+  await vi.waitFor(() => expect(entry()?.ephemeral).toBe(true), { timeout: 5_000 })
+  const handle = rig.of('added')[beforeAdded]!.handle as number
+
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array(SINTEL) })
+  await vi.waitFor(() => expect(rig.of('added').length).toBeGreaterThan(beforeAdded + 1), { timeout: 15_000 })
+  await new Promise((r) => setTimeout(r, 300))
+
+  expect(rig.of('added')[beforeAdded + 1]).toEqual({ type: 'added', handle, magnet: MAGNET })
+  expect(rig.of('add-failed').slice(beforeFailed)).toEqual([])
+  expect(entry()?.ephemeral).toBe(false)
+  expect(store.get(torrentKey(HASH))).toBeInstanceOf(Uint8Array)
+}, 60_000)
+
+it('honours add-dialog options when promoting a temporary torrent from a .torrent', async () => {
+  const prevHandle = rig.of('added').at(-1)!.handle as number
+  rig.send({ type: 'remove', handle: prevHandle, deleteFiles: true })
+  await vi.waitFor(() => expect(entry()).toBeUndefined(), { timeout: 5_000 })
+
+  const beforeAdded = rig.of('added').length
+  const beforeFailed = rig.of('add-failed').length
+  rig.send({ type: 'add-magnet', magnet: MAGNET, ephemeral: true })
+  await vi.waitFor(() => expect(entry()?.ephemeral).toBe(true), { timeout: 5_000 })
+
+  rig.send({
+    type: 'add-torrent-file',
+    bytes: new Uint8Array(SINTEL),
+    wanted: [0],
+    firstLast: true,
+    paused: true,
+    saveTo: 'folder',
+  })
+  await vi.waitFor(() => expect(rig.of('added').length).toBeGreaterThan(beforeAdded + 1), { timeout: 15_000 })
+  await new Promise((r) => setTimeout(r, 300))
+
+  expect(rig.of('add-failed').slice(beforeFailed)).toEqual([])
+  expect(entry()).toMatchObject({
+    ephemeral: false,
+    paused: true,
+    wantedFiles: [0],
+    firstLast: true,
+    saveTo: 'folder',
+  })
+  await vi.waitFor(() => {
+    const snap = (rig.of('state').at(-1)?.torrents as { infoHash?: string, magnet: string, userPaused: boolean }[] | undefined)
+      ?.find((t) => t.magnet.includes(HASH))
+    expect(snap?.userPaused).toBe(true)
+  }, { timeout: 5_000 })
+}, 60_000)
+
+it('leaves a temporary torrent temporary when another temporary .torrent add arrives for it', async () => {
+  const prevHandle = rig.of('added').at(-1)!.handle as number
+  rig.send({ type: 'remove', handle: prevHandle, deleteFiles: true })
+  await vi.waitFor(() => expect(entry()).toBeUndefined(), { timeout: 5_000 })
+
+  const beforeAdded = rig.of('added').length
+  const beforeFailed = rig.of('add-failed').length
+  rig.send({ type: 'add-magnet', magnet: MAGNET, ephemeral: true })
+  await vi.waitFor(() => expect(entry()?.ephemeral).toBe(true), { timeout: 5_000 })
+
+  rig.send({ type: 'add-torrent-file', bytes: new Uint8Array(SINTEL), ephemeral: true })
+  await vi.waitFor(() => expect(rig.of('added').length).toBeGreaterThan(beforeAdded + 1), { timeout: 15_000 })
+  await new Promise((r) => setTimeout(r, 300))
+
+  expect(rig.of('add-failed').slice(beforeFailed)).toEqual([])
+  expect(entry()?.ephemeral).toBe(true)
 }, 60_000)

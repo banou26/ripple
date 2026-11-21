@@ -2297,7 +2297,11 @@ const answerAdd = (m: { addId?: unknown }, msg: { type: 'added' | 'add-failed', 
 
 // a deliberate re-add promotes a cache entry to a library one, which is the only gesture there is for keeping
 // something the budget pass would otherwise be free to reclaim
-const keepInLibrary = async (h: number, ih: string) => {
+const keepInLibrary = async (
+  h: number,
+  ih: string,
+  options?: { paused?: boolean, patch?: Partial<Persisted> },
+) => {
   ephemeralHandles.delete(h)
   /**
    * And it has to START it, because a cache torrent is very likely parked.
@@ -2309,10 +2313,15 @@ const keepInLibrary = async (h: number, ih: string) => {
    * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
    * leaves it alone.
    */
-  wake(h)
+  if (options?.paused) {
+    cacheIdle.delete(h)
+    userPaused.add(h)
+    wantPause(h)
+    session?.pauseTorrent(h)
+  } else wake(h)
   // a kept download is never windowed, so what its window dropped downloads again
   if (activeViewers(h).length) applyViewing(h)
-  await patchList(ih, { ephemeral: false, lastUsedAt: Date.now() })
+  await patchList(ih, { ephemeral: false, lastUsedAt: Date.now(), ...options?.patch })
 }
 
 const handleMessage = async (session: Session, m: any) => {
@@ -2507,13 +2516,40 @@ const handleMessage = async (session: Session, m: any) => {
       const h = session.addTorrentFile(bytes, savePath)
       if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That file is not a valid .torrent', defaultMessage: 'That file is not a valid .torrent' }) }); return }
       // The engine answers a torrent it already holds with that torrent's handle, whose entry stays as it is. The page is
-      // told, since its own check cannot see a torrent whose hash the poll below has not found yet. A plugin's add keeps
-      // one the player holds, as a magnet's add does.
+      // told, since its own check cannot see a torrent whose hash the poll below has not found yet. A non-temporary add
+      // keeps one the player holds, as a magnet's add does.
       if (handles.includes(h)) {
-        const cached = typeof m.addId === 'string' && ephemeralHandles.has(h) ? infoHashByHandle.get(h) : undefined
-        if (cached) await keepInLibrary(h, cached)
+        const cached = !m.ephemeral && ephemeralHandles.has(h) ? infoHashByHandle.get(h) : undefined
+        if (cached) {
+          const wanted = Array.isArray(m.wanted) ? m.wanted.map((n: unknown) => Number(n) | 0) : undefined
+          const firstLast = m.firstLast === true
+          const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
+          await set(torrentKey(cached), bytes)
+          if (wanted || firstLast) {
+            planByHandle.set(h, { wanted, firstLast })
+            if (!activeViewers(h).length) {
+              if (session.files(h)) applyPiecePlan(h)
+              else needsPriorityReset.add(h)
+            }
+          }
+          if (m.sequential === true) session.setFlags(h, TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload)
+          if (m.top === true) session.moveInQueue(h, 'top')
+          await keepInLibrary(h, cached, {
+            paused: m.paused === true,
+            patch: {
+              ...(wanted ? { wantedFiles: wanted } : {}),
+              ...(firstLast ? { firstLast: true } : {}),
+              ...(m.paused === true ? { paused: true } : {}),
+              ...saveTo,
+            },
+          })
+        } else if (m.ephemeral && ephemeralHandles.has(h)) {
+          touchUsed(h)
+        }
         answerAdd(m, { type: 'added', handle: h, magnet: magnetByHandle.get(h) ?? '' }, !cached)
-        if (typeof m.addId !== 'string') post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
+        if (!cached && !m.ephemeral && typeof m.addId !== 'string') {
+          post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }) })
+        }
         return
       }
       // ephemeral is passed through: the first-run sample belongs in the cache the budget pass may

@@ -2668,7 +2668,7 @@ const Home = () => {
       const bytes = new Uint8Array(await file.arrayBuffer())
       const read = await readTorrentFile(bytes)
       const ih = read && magnetInfoHash(read.magnet)
-      if (torrentsRef.current.some((t) => sameInfoHash(t.infoHash, ih))) {
+      if (torrentsRef.current.some((t) => sameInfoHash(t.infoHash, ih) && !t.ephemeral)) {
         showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
         continue
       }

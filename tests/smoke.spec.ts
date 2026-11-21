@@ -641,6 +641,48 @@ test('with Ask on, a .torrent added unstarted from the dialog is listed paused',
   await expect(row.locator('.badge')).toHaveText('Paused')
 })
 
+test('a .torrent for a film the player holds promotes it into the library', async ({ page }) => {
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  const sintelHash = '08ada5a7a6183aae1e09d831df6748d566095a10'
+  await tell(page, { type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${sintelHash}&dn=Sintel`, ephemeral: true })
+  const row = page.locator('.torrent').first()
+  await expect(row.locator('.temp')).toBeVisible({ timeout: 30_000 })
+
+  const open = page.locator('label.file-button input[type=file]').first()
+  const sintel = join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent')
+  await open.setInputFiles(sintel)
+  await expect(row.locator('.temp')).toHaveCount(0, { timeout: 15_000 })
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' })).toHaveCount(0)
+  await expect(page.locator('.torrent')).toHaveCount(1)
+
+  // once kept, adding the same .torrent again says it is already there
+  await open.setInputFiles(sintel)
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' }).first()).toBeVisible()
+})
+
+test('with Ask on, a .torrent for a held film opens the dialog and honours the choices', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ripple:add-dialog', '1'))
+  await page.addInitScript(probeEngine)
+  await page.goto('/')
+  await engineReady(page)
+  const sintelHash = '08ada5a7a6183aae1e09d831df6748d566095a10'
+  await tell(page, { type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${sintelHash}&dn=Sintel`, ephemeral: true })
+  const row = page.locator('.torrent').first()
+  await expect(row.locator('.temp')).toBeVisible({ timeout: 30_000 })
+
+  const open = page.locator('label.file-button input[type=file]').first()
+  await open.setInputFiles(join(import.meta.dirname, '..', 'src', 'assets', 'sintel.torrent'))
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('h2')).toHaveText('Sintel')
+  await dialog.getByRole('checkbox', { name: 'Start downloading' }).uncheck()
+  await dialog.getByRole('button', { name: 'Add torrent' }).click()
+  await expect(row.locator('.temp')).toHaveCount(0, { timeout: 15_000 })
+  await expect(row.locator('.badge')).toHaveText('Paused')
+  await expect(page.getByRole('status').filter({ hasText: 'Already in your list' })).toHaveCount(0)
+})
+
 // Cloudflare Pages serves the app for any path, so what an unknown one shows is the router's choice
 test('an address the app does not know ends on the library', async ({ page }) => {
   // first, while no service worker is installed, so the server answers the expired save address like any other
