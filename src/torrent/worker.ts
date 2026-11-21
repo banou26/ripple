@@ -1260,7 +1260,12 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
     const refusal = live.refusedFile(files.storageIndex)
     if (refusal !== undefined) refused.push(await measure(refusal))
   }
-  const othersOwe = watched.filter((f) => !f.cache).reduce((sum, f) => sum + owes(f), 0)
+  const owedBy = (list: typeof watched) => list.reduce((sum, f) => sum + owes(f), 0)
+  const others = watched.filter((f) => !f.cache)
+  // a download the person keeps grows no further than `admit` lets it, so it owes no more than the room past the reserve
+  const keptOwe = owedBy(others.filter((f) => !ephemeralHandles.has(f.h)))
+  const keptCap = Math.max(0, keptRoom({ ...space, candidates: [...cold.evictable, ...cold.graced] }, ceiling?.fixed))
+  const othersOwe = owedBy(others) - keptOwe + Math.min(keptOwe, keptCap)
   // what the watched cache files share: what is free, what they hold and the cache that may go, less what the rest owes
   const mine = watched.filter((f) => f.cache)
   const bytes = (list: EvictionCandidate[]) => list.reduce((sum, c) => sum + c.bytesOnDisk, 0)

@@ -133,6 +133,27 @@ it('stops a download the person keeps short of the reserve, and a temporary film
   rig.send({ type: 'unwatch', viewer: 'player' })
 })
 
+// Ripple's own player on the person's download while the film plays: the 3 GiB that download is short of will never be
+// written past the reserve, so it is no room the film has to leave
+it('keeps the film its window while a download the person keeps, stopped at the reserve, is watched too', async () => {
+  state.used = LIMIT - RESERVE_BYTES
+  state.held = GiB
+  rig.send({ type: 'watch', viewer: 'library-player', handle: 1, fileIndex: 0, fromOffset: 0 })
+  await pass()
+  await vi.waitFor(() => expect(windowed()).toBe(false), { timeout: 5_000 })
+
+  rig.send({ type: 'watch', viewer: 'player', handle: 2, fileIndex: 0, fromOffset: 0 })
+  await vi.waitFor(() => expect(windowed()).toBe(true), { timeout: 5_000 })
+  expect(full(), 'the film was called too big').toBe(false)
+
+  // a library already two chunks into the reserve leaves the film 22, too few for a window
+  state.used = LIMIT - RESERVE_BYTES + 2 * 64 * MiB
+  await pass()
+  await vi.waitFor(() => expect(windowed()).toBe(false), { timeout: 5_000 })
+  rig.send({ type: 'unwatch', viewer: 'player' })
+  rig.send({ type: 'unwatch', viewer: 'library-player' })
+})
+
 it('says a download the person keeps is out of storage space when the reserve refuses it', async () => {
   // 2 GiB free, and the download page's file owes 1 GiB of its 4
   state.used = LIMIT - 2 * GiB
