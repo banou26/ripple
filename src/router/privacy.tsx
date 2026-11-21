@@ -4,7 +4,7 @@ import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 20 November 2026</div>
+    <div className="updated">Last updated 21 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps

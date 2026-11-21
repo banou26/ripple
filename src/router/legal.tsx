@@ -6,7 +6,7 @@ import LegalDoc from '../components/legal-doc'
 const Legal = () => (
   <LegalDoc>
     <h1>Legal &amp; Terms</h1>
-    <div className="updated">Last updated 20 November 2026</div>
+    <div className="updated">Last updated 21 November 2026</div>
 
     <p>
       Ripple is a torrent client that runs in your browser, built on the{' '}

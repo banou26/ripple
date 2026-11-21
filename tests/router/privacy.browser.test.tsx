@@ -126,7 +126,7 @@ describe('the legal page, on plugins', () => {
     ])
     expect(sectionOf(container, 'Rights holders')[0]).toContain('does not pass through FKN at all. A plugin that finds or adds torrents is published by its own publisher and runs in your browser, apart from Ripple. A concern about a plugin goes to its publisher. If you have a concern about the relay itself, contact admin@fkn.app.')
     expect(container.textContent, 'the optional sentence the owner left out').not.toContain('switch a plugin off')
-    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 20 November 2026')
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 21 November 2026')
   })
 })
 
@@ -145,6 +145,6 @@ describe('the privacy page, on plugins', () => {
     for (const later of ['read and play your downloaded files', 'move them to and from your folder', 'remove torrents', 'addresses of the peers']) {
       expect(text, `slice 3's words wait for slice 3: ${later}`).not.toContain(later)
     }
-    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 20 November 2026')
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 21 November 2026')
   })
 })
