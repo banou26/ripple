@@ -24,6 +24,12 @@ test('a page starts with the VPN off, or on against a deployed origin, in the de
 test.describe('the guard', () => {
   test.skip(DEPLOYED, 'the guard is off in a run against a deployed origin')
 
+  test('an unrouted request to a host off this machine is refused before it leaves', async ({ page }) => {
+    await page.goto('/')
+    const rejected = await page.evaluate(() => fetch('https://fkn.app/api').then(() => false, () => true))
+    expect(rejected).toBe(true)
+  })
+
   test.fail('an answer from off the machine fails the test', async ({ page }) => {
     await page.route(OUTSIDE, (route) => route.fulfill({ body: 'outside' }))
     await page.goto(OUTSIDE).catch(() => {})

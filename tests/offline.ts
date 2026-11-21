@@ -4,19 +4,21 @@
  *
  * The published @fkn/lib has https://fkn.app built in as its broker, so the app under test loads fkn.app's frames
  * and reserves a port on a production relay like any visitor. A route() never sees the relay's WebTransport
- * session, so the block is Chromium's resolver: every name and address but loopback resolves to nothing, before a
- * socket opens. Measured 2026-11-15 on Chrome 156: fetch, WebSocket and WebTransport to a name, an IPv4 or an IPv6
- * literal all fail as net::ERR_NAME_NOT_RESOLVED. WebRTC sends to an address without asking the resolver, so a STUN
- * server named by its address is still reached; ripple names its STUN host, which the resolver refuses. With no
- * relay to reach, an engine with the VPN on starts only once its 8 s port reservation has given up, so every page
- * starts with the VPN off, whose engine reserves no port, except in the specs VPN_ON names.
+ * session, so Chromium blocks at its resolver and Firefox routes non-local hosts to a dead loopback SOCKS5 proxy
+ * (tests/offline-launch.ts). Measured 2026-11-15 on Chrome 156 and 2026-11-22 on Firefox 1555: fetch, WebSocket and
+ * WebTransport to a name, an IPv4 or an IPv6 literal all fail before leaving the machine. WebRTC sends to an address
+ * without asking the resolver, so a STUN server named by its address is still reached; ripple names its STUN host,
+ * which the block refuses. With no relay to reach, an engine with the VPN on starts only once its 8 s port
+ * reservation has given up, so every page starts with the VPN off, whose engine reserves no port, except in the specs
+ * VPN_ON names.
  */
 import { test as base, expect } from '@playwright/test'
 import { basename } from 'node:path'
 
+import { offlineLaunchOptions } from './offline-launch'
+
 export { expect }
 
-const OFFLINE = '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
 // a run against a deployed origin (RIPPLE_TEST_BASE_URL in playwright.config.ts) is meant to reach it
 const DEPLOYED = !!process.env.RIPPLE_TEST_BASE_URL
 
@@ -37,10 +39,10 @@ const isLocal = (url: string) => {
 const reached: string[] = []
 
 export const test = base.extend<{ onlyLocal: void }>({
-  // under whatever launchOptions a spec sets, and first, so a spec that names rules of its own replaces these
+  // under whatever launchOptions a spec sets, and first, so a spec that names rules or prefs of its own replaces these
   browser: [async ({ playwright, browserName, launchOptions }, use) => {
-    const offline = browserName === 'chromium' && !DEPLOYED
-    const browser = await playwright[browserName].launch(offline ? { args: [OFFLINE, ...(launchOptions.args ?? [])] } : {})
+    const offline = !DEPLOYED && (browserName === 'chromium' || browserName === 'firefox')
+    const browser = await playwright[browserName].launch(offlineLaunchOptions(browserName, launchOptions, DEPLOYED))
     // every context a spec opens, and the default one, which Playwright opens through this too
     const newContext = browser.newContext.bind(browser)
     browser.newContext = async (options) => {
