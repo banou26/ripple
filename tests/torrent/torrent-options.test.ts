@@ -404,6 +404,13 @@ describe('the torrent option list', () => {
       expect(removals(torrent(), { current: 'browser', intended: 'folder' })).toEqual(['Remove and delete the files'])
     })
 
+    it('offers only Remove from the library for a torrent made in place, whose files are the person\'s own', () => {
+      const made = torrent({ progress: 1, state: 'seeding', saveTo: 'source' })
+      expect(removals(made, { current: 'source', intended: 'source' })).toEqual(['Remove from the library'])
+      // a row the engine has not reported yet reads browser storage, and its entry still says where its files are
+      expect(removals(made, {})).toEqual(['Remove from the library'])
+    })
+
     /** With a copy safely elsewhere, the delete is about reclaiming space, and says so. */
     it('renames the delete once it is only removing Ripple\'s copy', () => {
       expect(find(torrent(), 'remove-files', actions(), false)!.label).toBe('Remove and delete the files')
@@ -437,9 +444,19 @@ describe('the torrent option list', () => {
         .toEqual({ body: 'This deletes the 1.4 GB already downloaded.', confirmLabel: 'Remove and delete', rememberKey: 'ripple:confirm-remove' })
     })
 
-    it('counts only the torrents outside the folder', () => {
-      const rows = [torrent({ id: 'kept', downloaded: 2_000_000_000 }), torrent({ id: 'held', downloaded: 1_400_000_000 })]
+    it('counts only the torrents outside the folder and not made in place', () => {
+      const rows = [
+        torrent({ id: 'kept', downloaded: 2_000_000_000 }),
+        torrent({ id: 'made', downloaded: 3_000_000_000, saveTo: 'source' }),
+        torrent({ id: 'held', downloaded: 1_400_000_000 }),
+      ]
       expect(removalWords(rows, inFolder).body).toBe('This deletes the 1.4 GB already downloaded.')
+    })
+
+    it('says the files stay, not where, when a torrent made in place is among them, and offers no box to skip it', () => {
+      const stay = { body: 'The downloaded files stay, but its progress is forgotten.', confirmLabel: 'Remove' }
+      expect(removalWords([torrent({ id: 'made', saveTo: 'source' })], inFolder)).toEqual(stay)
+      expect(removalWords([torrent({ id: 'kept' }), torrent({ id: 'made', saveTo: 'source' })], inFolder)).toEqual(stay)
     })
   })
 

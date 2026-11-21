@@ -287,6 +287,67 @@ test('a torrent just made is copied and shared from the dialog that made it', as
 })
 
 /*
+ * A torrent made in place reads the person's own files, so removing it deletes nothing. The bar's Remove still asks the
+ * engine to delete them, which is why the files are read after it.
+ */
+test('a torrent made in place is only removed from the library, and its files stay', async ({ page }) => {
+  test.setTimeout(240_000)
+  const NAME = 'ripple-test-source'
+  await page.addInitScript(install, PACK)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create a torrent' }).click()
+  await page.getByRole('button', { name: 'Choose a folder', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Create and start sharing' }).click()
+  await expect(dialog.getByText('is being shared')).toBeVisible({ timeout: 120_000 })
+  await expect(dialog.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'reopenable')
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(page.locator('.torrent', { hasText: NAME }).locator('.badge')).toHaveText(/^(Seeding|Completed)$/, { timeout: 150_000 })
+
+  /** Each file's size in the folder the torrent was made from, by its path there. */
+  const sources = () => page.evaluate(async (name) => {
+    const sizes: Record<string, number> = {}
+    const walk = async (dir: FileSystemDirectoryHandle, at: string): Promise<void> => {
+      for await (const [entry, handle] of (dir as any).entries() as AsyncIterable<[string, FileSystemHandle]>) {
+        if (handle.kind === 'file') sizes[at + entry] = (await (handle as FileSystemFileHandle).getFile()).size
+        else await walk(handle as FileSystemDirectoryHandle, `${at}${entry}/`)
+      }
+    }
+    await walk(await (await navigator.storage.getDirectory()).getDirectoryHandle(name), '')
+    return sizes
+  }, NAME)
+  const made = Object.fromEntries(PACK.map((f) => [f.path.join('/'), f.bytes]))
+  expect(await sources()).toEqual(made)
+
+  /** What the confirmation `ask` raises says, its actions and how many "Don't ask again" boxes it has, once cancelled. */
+  const confirmation = async (ask: () => Promise<void>) => {
+    await ask()
+    const asked = page.getByRole('dialog').last()
+    const cancel = asked.getByRole('button', { name: 'Cancel', exact: true })
+    await cancel.waitFor({ timeout: 10_000 })
+    const said = { body: await asked.locator('p').innerText(), actions: await asked.getByRole('button').allInnerTexts(), remember: await asked.getByRole('checkbox').count() }
+    await cancel.click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    return said
+  }
+  const STAY = { body: 'The downloaded files stay, but its progress is forgotten.', actions: ['Cancel', 'Remove'], remember: 0 }
+
+  await page.getByRole('button', { name: `Options for ${NAME}`, exact: true }).first().click()
+  const options = page.getByRole('dialog').last()
+  await options.waitFor({ timeout: 10_000 })
+  expect((await options.getByRole('button').allInnerTexts()).filter((text) => text.startsWith('Remove'))).toEqual(['Remove from the library'])
+  expect(await confirmation(() => options.getByRole('button', { name: 'Remove from the library', exact: true }).click())).toEqual(STAY)
+
+  await page.getByRole('checkbox', { name: `Select ${NAME}` }).check()
+  const fromBar = () => page.locator('.bulk-bar').getByRole('button', { name: 'Remove', exact: true }).click()
+  expect(await confirmation(fromBar)).toEqual(STAY)
+  await fromBar()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(page.locator('.torrent', { hasText: NAME })).toHaveCount(0, { timeout: 15_000 })
+  expect(await sources()).toEqual(made)
+})
+
+/*
  * The SAME thing on a browser with no handle pickers, which is Firefox, and the reload that used to
  * end it.
  *

@@ -355,14 +355,14 @@ export const buildTorrentOptions = (
   /**
    * Which removals are real for this torrent.
    *
-   * Removing deletes only Ripple's own copy. A ghost has none here, and nor has a torrent moved into
-   * the person's folder, since the move deleted it, so forgetting the entry is the only thing
-   * removal can mean for those. A torrent living only in OPFS cannot have its files "kept", because
-   * there is nowhere for them to be kept: offering it would promise something the storage cannot
-   * deliver. Only once a whole copy is also in the user's own folder do both readings exist, and
-   * only then are both offered.
+   * Removing deletes only Ripple's own copy. A ghost has none here, nor has a torrent moved into
+   * the person's folder, since the move deleted it, nor one made in place from the person's own
+   * files, so forgetting the entry is the only thing removal can mean for those. A torrent living
+   * only in OPFS cannot have its files "kept", because there is nowhere for them to be kept:
+   * offering it would promise something the storage cannot deliver. Only once a whole copy is also
+   * in the user's own folder do both readings exist, and only then are both offered.
    */
-  const ripplesCopy = !isGhost(t) && context.current !== 'folder'
+  const ripplesCopy = !isGhost(t) && t.saveTo !== 'source' && context.current !== 'folder'
   if (!ripplesCopy || context.savedToUserStorage) {
     maintenance.push({
       kind: 'action',
@@ -630,15 +630,17 @@ export const buildTorrentOptions = (
 
 /**
  * What the confirmation before removing `rows` with their files says. Removing never deletes from the person's folder,
- * so only the bytes of the rows not `inFolder` are named as deleted, and with none of those it says the files stay.
- * Only the deleting words carry `rememberKey`: a "Don't ask again" ticked under words saying the files stay must never
- * skip a later deletion.
+ * nor the files a torrent made in place reads, so only the bytes of the other rows are named as deleted, and with none
+ * of those it says the files stay. Only the deleting words carry `rememberKey`: a "Don't ask again" ticked under words
+ * saying the files stay must never skip a later deletion.
  */
 export const removalWords = (rows: readonly Torrent[], inFolder: (t: Torrent) => boolean): { body: string, confirmLabel: string, rememberKey?: string } => {
-  const lost = rows.filter((t) => !inFolder(t))
+  const lost = rows.filter((t) => !inFolder(t) && t.saveTo !== 'source')
   if (!lost.length) {
     return {
-      body: intl.formatMessage({ id: 'The files stay in your folder.', defaultMessage: 'The files stay in your folder.' }),
+      body: rows.every(inFolder)
+        ? intl.formatMessage({ id: 'The files stay in your folder.', defaultMessage: 'The files stay in your folder.' })
+        : intl.formatMessage({ id: 'The downloaded files stay, but its progress is forgotten.', defaultMessage: 'The downloaded files stay, but its progress is forgotten.' }),
       confirmLabel: intl.formatMessage({ id: 'Remove', defaultMessage: 'Remove' }),
     }
   }
