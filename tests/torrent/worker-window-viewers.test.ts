@@ -97,7 +97,6 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
   }),
 }))
 vi.mock('../../src/torrent/chunked-storage', () => ({
-  CHUNK_BYTES: 64 * 1024 * 1024,
   createChunkedStorage: () => ({
     chunkBytesOf: () => 64 * 1024 * 1024,
     chunksOf: (savePath: string, fileIndex: number) => (fileIndex === 0 ? [...state.chunks.get(savePath.slice(-40)) ?? []] : []),
