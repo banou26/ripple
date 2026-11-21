@@ -33,7 +33,7 @@ export const TEMPORARY_HINT = defineMessage({ id: 'May be deleted to free space.
  * added at the shared root. Only such a torrent is asked about, told about or marked as one that may be deleted.
  */
 export const reclaimable = (t: Pick<Torrent, 'infoHash' | 'stats'>): boolean =>
-  !!t.infoHash && ownsItsDirectory(t.stats?.savePath, t.infoHash)
+  ownsItsDirectory(t.stats?.savePath, t.infoHash)
 
 // -------------------------------------------------------------------------------------- the filter
 

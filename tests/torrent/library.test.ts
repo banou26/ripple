@@ -356,8 +356,10 @@ describe('a re-add does not undo what was decided', () => {
  * the demo torrent and is the reason this test exists.
  */
 describe('a temporary torrent owns the directory it can be reclaimed from', () => {
-  it('refuses the shared root, which is where a .torrent add lands by default', () => {
+  it('refuses the shared root, which is where a .torrent add lands by default, even with no infohash', () => {
     expect(ownsItsDirectory(SHARED_ROOT, 'aabbccddeeff00112233445566778899aabbccdd')).toBe(false)
+    expect(ownsItsDirectory(SHARED_ROOT, '')).toBe(false)
+    expect(ownsItsDirectory(SHARED_ROOT, undefined)).toBe(false)
   })
 
   it('accepts the per-torrent directory the demo is now given', () => {

@@ -147,8 +147,8 @@ export const cacheSavePathFor = (infoHash: string) => CACHE_ROOT + '/' + infoHas
 export const isCacheSavePath = (savePath: string | undefined): boolean => !!savePath?.startsWith(CACHE_ROOT + '/')
 
 /** Only a torrent that owns its whole directory can have that directory deleted out from under it. */
-export const ownsItsDirectory = (savePath: string | undefined, infoHash: string) =>
-  savePath === savePathFor(infoHash) || savePath === cacheSavePathFor(infoHash)
+export const ownsItsDirectory = (savePath: string | undefined, infoHash: string | undefined) =>
+  !!infoHash && (savePath === savePathFor(infoHash) || savePath === cacheSavePathFor(infoHash))
 
 /**
  * Combine an existing entry with an add of the same torrent.
