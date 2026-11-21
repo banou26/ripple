@@ -2121,7 +2121,8 @@ test.describe('right to left', () => {
       const row = page.locator('.torrent-table tbody tr').first()
       const menu = page.getByRole('menu')
       const dialog = page.getByRole('dialog')
-      const chip = page.locator('[role=tooltip]')
+      // shown, not closing: a closing chip already holds the next name and can be removed right after
+      const chip = page.locator('[role=tooltip].react-tooltip__show')
       const hinted = async (anchor: Locator, name: string, what: string) => {
         await anchor.hover()
         await expect(chip).toContainText(name)
