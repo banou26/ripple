@@ -41,8 +41,8 @@ const setSaved = (next: (prev: ReadonlySet<string>) => ReadonlySet<string>) => {
 
 /**
  * Which torrents have actually landed in the person's folder, by `copyKey`, so a file chosen since is not counted as
- * there. It decides whether "Remove from the library" is offered at all, since keeping the files is only a real choice
- * once the files are somewhere the person can open.
+ * there. It decides whether a torrent in browser storage offers "Remove from the library", since keeping the files is
+ * only a real choice once the files are somewhere the person can open.
  */
 export const useSavedToFolder = (): ReadonlySet<string> => useSyncExternalStore(
   (heard) => {
