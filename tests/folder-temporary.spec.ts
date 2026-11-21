@@ -34,7 +34,8 @@ const torrent = (name: string, dir: string, files: Placed[]) => {
   const pieces: Buffer[] = []
   for (let at = 0; at < all.length; at += PIECE) pieces.push(createHash('sha1').update(all.subarray(at, at + PIECE)).digest())
   const info = { name, 'piece length': PIECE, pieces: Buffer.concat(pieces), files: files.map((f) => ({ length: f.size, path: [f.path] })) }
-  return { name, dir, files, bytes: [...bencode({ info })], inFolder: files.map((f) => `${name}/${f.path}:${f.size}`).sort() }
+  const infoHash = createHash('sha1').update(bencode(info)).digest('hex')
+  return { name, dir, files, infoHash, bytes: [...bencode({ info })], inFolder: files.map((f) => `${name}/${f.path}:${f.size}`).sort() }
 }
 type Fixture = ReturnType<typeof torrent>
 
@@ -43,12 +44,13 @@ const FILM = torrent('Lantern', 'dl', [{ path: 'lantern.webm', size: 300_000, fi
 // the sample saves in Sintel's own directory, whatever .torrent it is given
 const SAMPLE = torrent('Sintel', 'dl/08ada5a7a6183aae1e09d831df6748d566095a10', [{ path: 'sintel.webm', size: 200_000, fill: 0x49 }])
 
-/** No folder yet, a picker that gives one, and a record of the engine and of each move it is asked for. */
+/** No folder yet, a picker that gives one, and a record of the engine, of each move it is asked for and of what it says. */
 const prepare = async (page: Page) => {
   await page.addInitScript(() => {
-    const w = window as unknown as { __engines: Worker[], __relocates: string[] }
+    const w = window as unknown as { __engines: Worker[], __relocates: string[], __said: Record<string, { savePath: string, progress: number }> }
     w.__engines = []
     w.__relocates = []
+    w.__said = {}
     Object.assign(window, { showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true }) })
     // oxlint-disable-next-line typescript/unbound-method
     Worker.prototype.postMessage = new Proxy(Worker.prototype.postMessage, {
@@ -61,7 +63,14 @@ const prepare = async (page: Page) => {
     window.Worker = class extends Original {
       constructor (url: string | URL, options?: WorkerOptions) {
         super(url, options)
-        this.addEventListener('message', (event: MessageEvent) => { if (event.data?.type === 'ready') w.__engines.push(this) })
+        this.addEventListener('message', (event: MessageEvent) => {
+          if (event.data?.type === 'ready') w.__engines.push(this)
+          if (event.data?.type !== 'state') return
+          for (const t of event.data.torrents ?? []) {
+            const hash = /xt=urn:btih:([0-9a-f]{40})/i.exec(t.magnet ?? '')?.[1]?.toLowerCase()
+            if (hash && t.status) w.__said[hash] = { savePath: t.status.savePath, progress: t.status.progress }
+          }
+        })
       }
     }
   })
@@ -92,6 +101,10 @@ const inFolder = (page: Page) => page.evaluate(async () => {
 })
 
 const relocates = (page: Page) => page.evaluate(() => (window as unknown as { __relocates: string[] }).__relocates)
+
+/** Where the engine last said the torrent is, and how much of it it holds there. */
+const said = (page: Page, t: Fixture) => page.evaluate((hash) =>
+  (window as unknown as { __said: Record<string, { savePath: string, progress: number }> }).__said[hash], t.infoHash)
 
 const row = (page: Page, name: string) => page.locator('.torrent', { hasText: name }).first()
 
@@ -179,12 +192,17 @@ test('a folder chosen later leaves a temporary torrent and the sample in browser
   expect(await relocates(page)).toEqual(['folder'])
 })
 
-test('a temporary torrent moved into the folder by hand is still checked there, so its options offer Remove from the library', async ({ page }) => {
+// the check is what marks the files as in the folder, which only the row's own save offer reads: the options offer
+// Remove from the library from the save path alone
+test('a temporary torrent moved into the folder by hand is still checked there, so its row stops offering to save it', async ({ page }) => {
   test.setTimeout(180_000)
   await prepare(page)
   await page.goto('/')
   await chooseFolder(page, false)
   await addBoth(page)
+  const save = row(page, FILM.name).getByRole('button', { name: `Save ${FILM.name} as a zip`, exact: true })
+  // THE CONTROL: in browser storage it is offered
+  await expect(save).toHaveCount(1)
 
   await row(page, FILM.name).getByRole('button', { name: `Options for ${FILM.name}`, exact: true }).click()
   await page.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
@@ -192,9 +210,10 @@ test('a temporary torrent moved into the folder by hand is still checked there, 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(() => inFolder(page), { timeout: 30_000, message: 'the film never moved' }).toEqual(FILM.inFolder)
   expect(await relocates(page)).toEqual(['folder'])
-  await expect(row(page, FILM.name).locator('.badge')).toHaveText(/^(Seeding|Completed)$/, { timeout: 60_000 })
+  // checked whole where it now is, and drawn so, since the row offers no save while a check runs either
+  await expect.poll(() => said(page, FILM), { timeout: 60_000 }).toEqual({ savePath: `/native/${FILM.infoHash}`, progress: 1 })
+  await expect(row(page, FILM.name).locator('.pct')).toHaveText('100%')
   await expect(row(page, FILM.name).locator('.temp'), 'the film stopped being temporary').toHaveCount(1)
 
-  await row(page, FILM.name).getByRole('button', { name: `Options for ${FILM.name}`, exact: true }).click()
-  await expect(page.getByRole('dialog').last().getByRole('button', { name: 'Remove from the library' }), 'the moved temporary film was never checked in the folder').toBeVisible({ timeout: 30_000 })
+  await expect(save, 'the moved temporary film was never checked in the folder').toHaveCount(0, { timeout: 30_000 })
 })
