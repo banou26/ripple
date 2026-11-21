@@ -158,7 +158,8 @@ switches, its `store` and its buttons; the torrents it added stay.
 
 ## Inside fkn.app
 
-Ripple opened inside fkn.app, and the player embedded in another site, run no plugins yet.
+Ripple opened in its own fkn.app tab runs plugins as it does on torrent.fkn.app, with switches of its own. It runs
+none in any other frame, the player another site embeds included.
 
 ## Building and publishing
 
