@@ -11,8 +11,10 @@ const MiB = 1024 * 1024
 const TEMPORARY = 'a'.repeat(40)
 const KEPT = 'b'.repeat(40)
 const SOURCE = 'c'.repeat(40)
+const MADE = 'd'.repeat(40)
+const KEPT_SOURCE = 'e'.repeat(40)
 // a .torrent's first byte names its hash here
-const HASHES = [TEMPORARY, KEPT, SOURCE]
+const HASHES = [TEMPORARY, KEPT, SOURCE, MADE, KEPT_SOURCE]
 
 const engine = vi.hoisted(() => ({ hashes: [] as string[], log: [] as string[] }))
 const store = vi.hoisted(() => new Map<string, unknown>())
@@ -46,8 +48,11 @@ vi.mock('idb-keyval', () => {
   store.set('ripple:torrents', [{
     infoHash: SOURCE, magnet: 'magnet:?xt=urn:btih:' + SOURCE, savePath: '/source/' + SOURCE, saveTo: 'source', addedAt: 1, started: true,
     ephemeral: true,
+  }, {
+    infoHash: KEPT_SOURCE, magnet: 'magnet:?xt=urn:btih:' + KEPT_SOURCE, savePath: '/source/' + KEPT_SOURCE, saveTo: 'source', addedAt: 1, started: true,
   }] satisfies Persisted[])
   store.set('ripple:torrent:' + SOURCE, new Uint8Array([2]))
+  store.set('ripple:torrent:' + KEPT_SOURCE, new Uint8Array([4]))
   return {
     get: async (key: string) => store.get(key),
     set: async (key: string, value: unknown) => { store.set(key, value) },
@@ -81,9 +86,18 @@ it('keeps a temporary torrent temporary in the engine when it tracks it again', 
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(3))
   leave(3)
   await vi.waitFor(() => expect(engine.log, 'the temporary source was not parked').toContain(`pause ${SOURCE}`), { timeout: 2_000 })
-  // THE CONTROL: the kept one is never parked
+  // a source made now, and one the person kept, started again
+  rig.send({ type: 'create-source', infoHash: MADE, magnet: 'magnet:?xt=urn:btih:' + MADE, bytes: new Uint8Array([3]), handles: [{ name: 'film.mkv' }] })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(4))
+  rig.send({ type: 'start-source', infoHash: KEPT_SOURCE, handles: [{ name: 'film.mkv' }] })
+  await vi.waitFor(() => expect(rig.of('added')).toHaveLength(5))
+  leave(4)
+  leave(5)
+  // THE CONTROL: the kept ones are never parked
   await new Promise((resolve) => setTimeout(resolve, 1_100))
   expect(engine.log).not.toContain(`pause ${KEPT}`)
+  expect(engine.log).not.toContain(`pause ${MADE}`)
+  expect(engine.log).not.toContain(`pause ${KEPT_SOURCE}`)
   expect(entryOf(SOURCE)).toMatchObject({ ephemeral: true })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 15_000)
