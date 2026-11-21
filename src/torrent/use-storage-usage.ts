@@ -4,7 +4,13 @@ import { useEffect, useState } from 'react'
 
 import { storage } from '@banou/ponyfill'
 
+import { keptReserve } from './storage-budget'
+
 export type StorageUsage = {
+  /**
+   * What the browser measured, with the room kept for temporary films ({@link keptReserve}) counted in, since downloads
+   * the person keeps cannot take it. Never past the limit, unless the measurement already is.
+   */
   usedBytes: number
   /**
    * A browser-chosen budget, and NOT a share of free disk.
@@ -69,7 +75,8 @@ export const useStorageUsage = (refreshKey: unknown): StorageUsage | null => {
           storage.persisted(),
         ])
         if (cancelled || !estimate.quota || estimate.usage === undefined) return
-        setUsage({ usedBytes: estimate.usage, limitBytes: estimate.quota, persisted })
+        const reserved = estimate.usage + keptReserve(estimate.quota)
+        setUsage({ usedBytes: Math.max(estimate.usage, Math.min(estimate.quota, reserved)), limitBytes: estimate.quota, persisted })
         /**
          * THIS POLL NO LONGER ASKS FOR ANYTHING. It used to call `storage.persist()` here the first
          * time measured usage passed zero, which on Firefox raises a permission doorhanger as a side

@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 
 import { defaultChoices, selectNone } from '../../src/torrent/add-options'
-import { RESERVE_BYTES } from '../../src/torrent/storage-budget'
 
 import { AddTorrentDialog } from '../../src/components/add-torrent-dialog'
 import { IntlRoot } from '../../src/i18n'
@@ -57,8 +56,8 @@ const mount = (over: Partial<Props> = {}) => {
       onChoices={() => {}}
       onConfirm={onConfirm}
       onCancel={() => {}}
-      // 1.2 GB of room left past the reserve, against a 4.5 GB selection unless a test says otherwise
-      storage={{ usedBytes: 8_800_000_000 - RESERVE_BYTES, limitBytes: 10_000_000_000, persisted: false }}
+      // 1.2 GB of room left, against a 4.5 GB selection unless a test says otherwise
+      storage={{ usedBytes: 8_800_000_000, limitBytes: 10_000_000_000, persisted: false }}
       persist={asking()}
       onAskPersist={onAskPersist}
       {...over}
@@ -84,12 +83,6 @@ describe('the add dialog when the selection is bigger than the room left', () =>
     mount({ files: files(900_000_000) })
     await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull()
     expect(notice()).toBeNull()
-  })
-
-  // a download the person keeps stops short of the room it leaves for a temporary film
-  it('counts the reserve out of the room left', async () => {
-    mount({ files: files(900_000_000), storage: { usedBytes: 8_800_000_000, limitBytes: 10_000_000_000, persisted: false } })
-    await expect.poll(() => notice()?.textContent).toContain('900 MB selected, 0 B free')
   })
 
   /**
@@ -191,7 +184,7 @@ const everyShape = async () => {
         onChoices={() => {}}
         onConfirm={() => {}}
         onCancel={() => {}}
-        storage={{ usedBytes: 8_800_000_000 - RESERVE_BYTES, limitBytes: 10_000_000_000, persisted: false }}
+        storage={{ usedBytes: 8_800_000_000, limitBytes: 10_000_000_000, persisted: false }}
         persist={asking()}
         onAskPersist={() => {}}
         {...over}

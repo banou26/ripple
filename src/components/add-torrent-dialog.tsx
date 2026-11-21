@@ -18,7 +18,6 @@ import type { StorageUsage } from '../torrent/use-storage-usage'
 import {
   choicesProblem, selectAll, selectedBytes, selectNone, toggleFile,
 } from '../torrent/add-options'
-import { keptReserve } from '../torrent/storage-budget'
 import { contentFiles } from '../torrent/types'
 import { getHumanReadableByteString } from '../utils/bytes'
 
@@ -311,8 +310,7 @@ export const AddTorrentDialog = ({
   const selected = selectedBytes(choices, files)
 
   /**
-   * Does what they have picked fit in what the browser is still allowing, less the reserve a download
-   * the person keeps leaves for a temporary film?
+   * Does what they have picked fit in what the browser is still allowing?
    *
    * Clamped at zero because a full origin can read back further used than its own limit: the used
    * figure is a walk of the file system (see `@banou/ponyfill`) and the limit is what the engine says it
@@ -323,7 +321,7 @@ export const AddTorrentDialog = ({
    * folder route moves finished downloads out, and on Firefox the ask beside this can raise the
    * limit itself. Someone who knows all that and adds it anyway is not making a mistake.
    */
-  const room = storage ? Math.max(0, storage.limitBytes - storage.usedBytes - keptReserve(storage.limitBytes)) : null
+  const room = storage ? Math.max(0, storage.limitBytes - storage.usedBytes) : null
   const shortfall = room !== null && selected > room ? { room } : null
 
   const set = (patch: Partial<AddChoices>) => onChoices({ ...choices, ...patch })
