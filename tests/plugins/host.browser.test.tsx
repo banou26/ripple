@@ -33,8 +33,8 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, RECONNECTS, addByAddress, connectPlugin, removePlugin, updatePlugin } = await import('../../src/plugins/host')
-const { InstallSheet, PluginHost } = await import('../../src/plugins/plugin-host')
+const { CONNECT_MS, PLUGIN_PROTOCOL, RECONNECT_MS, RECONNECTS, addByAddress, connectPlugin, pluginsHere, removePlugin, updatePlugin } = await import('../../src/plugins/host')
+const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')
 const { answer, answersOf, keptButtons, storeKey } = await import('../../src/plugins/switches')
 const { storeVpn } = await import('../../src/torrent/vpn-setting')
@@ -366,8 +366,9 @@ describe('the connection', () => {
 describe('where ripple is not framed', () => {
   it('shows Settings\' plugins at once, and asks fkn.app nothing about its tab', async () => {
     const Settings = (await import('../../src/router/settings')).default
-    await render(<IntlRoot><MemoryRouter><Settings/></MemoryRouter></IntlRoot>)
+    await render(<IntlRoot><MemoryRouter><Settings/><PluginHost/></MemoryRouter></IntlRoot>)
     expect(button(document, 'Browse')).toBeTruthy()
+    expect(await pluginsHere()).toBe(true)
     const uri = plugin(['read'])
     install(uri)
     await connectPlugin(uri)

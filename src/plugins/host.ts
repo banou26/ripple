@@ -99,10 +99,10 @@ let hereAsked: Promise<boolean> | undefined
  * mounted for ripple as its tab's own page. fkn.app is asked once, and answers false by its deadline.
  */
 export const pluginsHere = (): Promise<boolean> =>
-  (hereAsked ??= here !== null ? Promise.resolve(here) : shell.isAppTab().then((yes) => { here = yes; notify(); return yes }))
+  (hereAsked ??= here !== null ? Promise.resolve(here) : shell.isAppTab().then((yes) => { here = yes; if (yes) notify(); return yes }))
 
 /** {@link pluginsHere} as a component reads it, false until fkn.app answers. Asks nothing itself. */
-export const usePluginsHere = (): boolean => useSyncExternalStore(subscribe, () => here) === true
+export const usePluginsHere = (): boolean => useSyncExternalStore(subscribe, () => here === true)
 
 let feed: Feed | null = null
 

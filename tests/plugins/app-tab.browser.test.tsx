@@ -33,7 +33,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { removePlugin } = await import('../../src/plugins/host')
+const { pluginsHere, removePlugin } = await import('../../src/plugins/host')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
 const { answer, answersOf, keepButtons } = await import('../../src/plugins/switches')
@@ -77,17 +77,54 @@ const installed = async (made: ReturnType<typeof plugin>) => {
   await answer(made.uri, { read: true })
 }
 
-// first, while fkn.app has not answered: in a copy that knows no plugin yet, nothing but the start asks it
-it('asks fkn.app once as it starts, shows no Plugins until it answers, then adds by address and from its picker', async () => {
+// first, while fkn.app has not answered: buttons and Settings ask nothing themselves, PluginHost asks once without
+// mounting the host, and once fkn.app answers true every surface, connection and click turns on
+it('waits for fkn.app to answer once at start, mounts nothing before, then draws, connects and hands clicks on', async () => {
+  engine.double.start([entry(A)], [], false)
+  const onOwnership = vi.spyOn(engine.double.client, 'onOwnership')
+  const made = plugin(['read'])
+  await installed(made)
+  await keepButtons(made.uri, { name: made.name, installedAt: 1, locales: { en: [SORT, GROUP] } })
+  const unkept = plugin(['read'])
+  await installed(unkept)
+  const withoutHost = await render(<IntlRoot><MemoryRouter><header><HeaderButtons/></header><RowMenu/><Settings/></MemoryRouter></IntlRoot>)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  expect(button(document, 'Open torrents with Ripple'), 'Settings is drawn (control)').toBeTruthy()
+  expect(button(document, 'Browse')).toBeUndefined()
+  expect(inline()).toHaveLength(0)
+  expect(items()).toEqual([])
+  expect(fkn.calls).toEqual([])
+  expect(appTab.asked).toBe(0)
+  await withoutHost.unmount()
+
+  // without Settings, so only the already mounted HeaderButtons/RowMenu can connect `unkept` once fkn.app answers
+  await render(<IntlRoot><MemoryRouter><header><HeaderButtons/></header><RowMenu/><PluginHost/></MemoryRouter></IntlRoot>)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  expect(inline()).toHaveLength(0)
+  expect(items()).toEqual([])
+  expect(fkn.calls).toEqual([])
+  expect(onOwnership).not.toHaveBeenCalled()
+  expect(appTab.asked).toBe(1)
+  void pluginsHere()
+  expect(appTab.asked).toBe(1)
+
+  appTab.answer(true)
+  await vi.waitFor(() => expect(onOwnership).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => expect(inline().map((b) => b.getAttribute('aria-label'))).toEqual(['Sort', 'Sort']))
+  expect(items()).toEqual(['Group', 'Group'])
+  expect(fkn.calls).toContain(`connect ${unkept.uri}`)
+  await userEvent.click(inline()[0]!)
+  await vi.waitFor(() => expect(made.clicks).toStrictEqual([['go', {}]]))
+  expect(appTab.asked).toBe(1)
+  onOwnership.mockRestore()
+})
+
+it('adds by address and from fkn.app\'s picker once fkn.app answered', async () => {
+  appTab.answer(true)
   const added = plugin(['read'])
   const picked = plugin(['change'])
   fkn.picks = [picked.uri]
   await page()
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  expect(button(document, 'Open torrents with Ripple'), 'Settings is drawn (control)').toBeTruthy()
-  expect(button(document, 'Browse')).toBeUndefined()
-  expect(appTab.asked).toBe(1)
-  appTab.answer(true)
   await vi.waitFor(() => expect(button(document, 'Browse')).toBeTruthy())
   await userEvent.type(document.querySelector('input[aria-label="Plugin address"]')!, `${added.uri}{Enter}`)
   await vi.waitFor(() => expect(sheet()).toHaveAccessibleName(added.name))
@@ -101,23 +138,6 @@ it('asks fkn.app once as it starts, shows no Plugins until it answers, then adds
   await vi.waitFor(() => expect(button(sheet()!, 'Done')).toBeEnabled())
   await userEvent.click(button(sheet()!, 'Done')!)
   await vi.waitFor(() => expect(sheet()).toBeNull())
-  expect(appTab.asked).toBe(1)
-})
-
-it('draws each plugin\'s buttons, connects one that kept none, and hands a click on', async () => {
-  appTab.answer(true)
-  engine.double.start([entry(A)], [], false)
-  const made = plugin(['read'])
-  await installed(made)
-  await keepButtons(made.uri, { name: made.name, installedAt: 1, locales: { en: [SORT, GROUP] } })
-  const unkept = plugin(['read'])
-  await installed(unkept)
-  await page()
-  await vi.waitFor(() => expect(inline().map((b) => b.getAttribute('aria-label'))).toEqual(['Sort', 'Sort']))
-  expect(items()).toEqual(['Group', 'Group'])
-  expect(fkn.calls).toContain(`connect ${unkept.uri}`)
-  await userEvent.click(inline()[0]!)
-  await vi.waitFor(() => expect(made.clicks).toStrictEqual([['go', {}]]))
   expect(appTab.asked).toBe(1)
 })
 

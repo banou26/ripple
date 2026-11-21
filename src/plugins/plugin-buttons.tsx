@@ -55,13 +55,13 @@ export const usePlaced = (place: ButtonPlace): Drawn[] => {
   const here = usePluginsHere()
   const locale = shownLanguage()
   useEffect(() => {
-    if (!kept || !answers) return
+    if (!here || !kept || !answers) return
     for (const uri of new Set([...Object.keys(kept), ...Object.keys(answers)])) {
       if (kept[uri]?.locales[locale] || tried.has(`${uri} ${locale}`)) continue
       tried.add(`${uri} ${locale}`)
       void connectPlugin(uri)
     }
-  }, [kept, answers, locale])
+  }, [here, kept, answers, locale])
   return here ? drawnIn(kept, locale, place) : []
 }
 

@@ -3,6 +3,7 @@
 // stand-in here), and its plugins stay off before that answer and after it.
 import type { Button, ClickContext } from '../../src/plugins/contract'
 
+import { useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { MemoryRouter } from 'react-router-dom'
@@ -33,7 +34,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
   return { ...real, getTorrentClient: () => engine.double.client, runningTorrentClient: () => (engine.double.running ? engine.double.client : null) }
 })
 
-const { addByAddress, browsePlugins, clickButton, connectAnswered, connectInstalled, connectPlugin, pluginsHere, removePlugin } =
+const { addByAddress, browsePlugins, clickButton, connectAnswered, connectInstalled, connectPlugin, pluginsHere, removePlugin, usePlugins, usePluginsHere } =
   await import('../../src/plugins/host')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
 const { HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
@@ -59,8 +60,20 @@ afterEach(async () => {
   await removePlugin(UNKEPT)
 })
 
-it('lists, draws, connects and adds nothing while fkn.app has not answered, nor once it answers no', async () => {
+it('lists, draws, mounts, connects and adds nothing while fkn.app has not answered, nor once it answers no', async () => {
   const clicks: [string, ClickContext][] = []
+  const onOwnership = vi.spyOn(engine.double.client, 'onOwnership')
+  const state = { asking: null as unknown, unanswered: null as string | null, renders: 0 }
+  const Probe = () => {
+    const view = usePlugins()
+    usePluginsHere()
+    useEffect(() => {
+      state.asking = view.asking
+      state.unanswered = view.unanswered
+      state.renders++
+    })
+    return null
+  }
   fkn.plugins.set(URI, { name: NAME, version: '1.0.0', payload: { asks: ['read'], buttons: () => [SORT, GROUP], click: (id: string, context: ClickContext) => { clicks.push([id, context]) } } })
   fkn.plugins.set(UNKEPT, { name: 'Feed', version: '1.0.0', payload: { asks: ['read'], buttons: () => [SORT] } })
   fkn.installed.push({ uri: URI, name: NAME, version: '1.0.0', installedAt: 1 }, { uri: UNKEPT, name: 'Feed', version: '1.0.0', installedAt: 2 })
@@ -69,7 +82,7 @@ it('lists, draws, connects and adds nothing while fkn.app has not answered, nor 
   await answer(URI, { read: true })
   await answer(UNKEPT, { read: true })
   await keepButtons(URI, { name: NAME, installedAt: 1, locales: { en: [SORT, GROUP] } })
-  await render(<IntlRoot><MemoryRouter><header><HeaderButtons/></header><RowMenu/><Settings/><PluginHost/></MemoryRouter></IntlRoot>)
+  await render(<IntlRoot><MemoryRouter><header><HeaderButtons/></header><RowMenu/><Settings/><PluginHost/><Probe/></MemoryRouter></IntlRoot>)
   const nothing = async () => {
     await wait()
     expect(button('Open torrents with Ripple'), 'Settings is drawn (control)').toBeTruthy()
@@ -77,11 +90,16 @@ it('lists, draws, connects and adds nothing while fkn.app has not answered, nor 
     expect(inline()).toHaveLength(0)
     expect(items()).toHaveLength(0)
     expect(fkn.calls).toEqual([])
+    expect(onOwnership).not.toHaveBeenCalled()
   }
   await nothing()
+  void pluginsHere()
+  expect(appTab.asked).toBe(1)
+  const rendersBefore = state.renders
   appTab.answer(false)
   expect(await pluginsHere()).toBe(false)
   await nothing()
+  expect(state.renders, 'answering false causes no extra render').toBe(rendersBefore)
   expect(await addByAddress(URI)).toBe(false)
   await browsePlugins()
   await clickButton(URI, NAME, SORT.id, {})
@@ -90,8 +108,12 @@ it('lists, draws, connects and adds nothing while fkn.app has not answered, nor 
   await connectAnswered()
   await wait()
   expect(fkn.calls).toEqual([])
+  expect(onOwnership).not.toHaveBeenCalled()
+  expect(state.asking).toBeNull()
+  expect(state.unanswered).toBeNull()
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(document.body).not.toHaveTextContent('is not responding')
   expect(clicks).toEqual([])
   expect(appTab.asked).toBe(1)
+  onOwnership.mockRestore()
 })
