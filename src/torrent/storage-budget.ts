@@ -146,6 +146,16 @@ export const keptRoom = (
   return limitBytes - usedBytes + coldBytes(candidates) - keptReserve(limitBytes)
 }
 
+/**
+ * A full origin as the engine reports it: `'kept'` when only downloads the person keeps are out of room, which leave
+ * a temporary torrent its {@link keptReserve} to play in.
+ */
+export type StorageFull = boolean | 'kept'
+
+/** Whether a full origin stops a torrent, given whether it is a temporary one. Unknown is not stopped by `'kept'`. */
+export const stopsTorrent = (full: StorageFull, ephemeral: boolean | undefined): boolean =>
+  full === true || (full === 'kept' && ephemeral === false)
+
 export type EvictionCandidate = {
   infoHash: string
   /** `lastUsedAt ?? addedAt`, resolved by the caller so this module never guesses at a default. */

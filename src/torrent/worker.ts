@@ -7,7 +7,7 @@ import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, Trac
 
 import type { ObservedStatus, RecoveryState } from './recovery'
 import type { Admit, MeasurableStorage } from './opfs-storage'
-import type { EvictionCandidate, Verdict } from './storage-budget'
+import type { EvictionCandidate, StorageFull, Verdict } from './storage-budget'
 import type { Ceiling, FileGeometry, Range, WindowPlan } from './window-plan'
 import type { Persisted, Removal, SaveLocation } from './library'
 
@@ -65,6 +65,8 @@ export type TorrentSnapshot = {
   userPaused: boolean
   /** The watched file is bigger than the room here, so only a window of it is kept as it plays. */
   windowed: boolean
+  /** A torrent a page asked for rather than the person: its bytes are a cache. See `Persisted.ephemeral`. */
+  ephemeral: boolean
   /**
    * Completed downloads per the trackers, the highest any of them reports, or -1 when none has. Asked
    * for only while the torrent has a viewer. A UDP tracker never sends it.
@@ -223,6 +225,7 @@ const snapshot = (): TorrentSnapshot[] =>
       recovery: recovery.state(h),
       userPaused: userPaused.has(h),
       windowed: windows.has(h),
+      ephemeral: ephemeralHandles.has(h),
       // left out while it has nothing to say: this rides every beat, for every torrent
       ...(noPeersSince.has(h) ? { noPeersSince: noPeersSince.get(h) } : {}),
       swarmDownloads: Math.max(-1, ...(session?.lastTrackers(h).map((t) => t.downloaded) ?? [])),
@@ -1230,8 +1233,10 @@ const bandsCharge = (size: number, pieceLength: number, chunkBytes?: number) => 
  * giving up the cache cannot cover, so the cache is kept and the film never starts. `laterBytes` and
  * the refusals are judged once the cache still in its grace has gone too, so a film that gets its
  * window then is not called too big meanwhile.
+ *
+ * `keptRefusedBytes` is the share of `refusedBytes` owed by downloads the person keeps.
  */
-type Owed = { pendingBytes: number, laterBytes: number, refusedBytes: number, rooms: Map<number, number> }
+type Owed = { pendingBytes: number, laterBytes: number, refusedBytes: number, keptRefusedBytes: number, rooms: Map<number, number> }
 const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[], graced: EvictionCandidate[] } = { evictable: [], graced: [] }): Promise<Owed> => {
   const owes = (f: { size: number, held: number }) => Math.max(0, f.size - f.held)
   const watched: { h: number, size: number, held: number, cache: boolean, chunkBytes: number }[] = []
@@ -1260,7 +1265,7 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
     const refusal = live.refusedFile(files.storageIndex)
     if (refusal !== undefined) refused.push(await measure(refusal))
   }
-  const owedBy = (list: typeof watched) => list.reduce((sum, f) => sum + owes(f), 0)
+  const owedBy = (list: { size: number, held: number }[]) => list.reduce((sum, f) => sum + owes(f), 0)
   const others = watched.filter((f) => !f.cache)
   // a download the person keeps grows no further than `admit` lets it, so it owes no more than the room past the reserve
   const keptOwe = owedBy(others.filter((f) => !ephemeralHandles.has(f.h)))
@@ -1278,10 +1283,12 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
   }
   const now = owing(0)
   const later = owing(bytes(cold.graced))
-  const refusedBytes = refused.filter((f) => !later.windowed.has(f.h))
-    .reduce((sum, f) => sum + owes(f) + (ephemeralHandles.has(f.h) ? 0 : keptReserve(space.limitBytes)), 0)
+  const refusals = refused.filter((f) => !later.windowed.has(f.h))
+  const keptRefused = refusals.filter((f) => !ephemeralHandles.has(f.h))
+  const keptRefusedBytes = owedBy(keptRefused) + keptRefused.length * keptReserve(space.limitBytes)
+  const refusedBytes = owedBy(refusals.filter((f) => ephemeralHandles.has(f.h))) + keptRefusedBytes
   const rooms = new Map(mine.map((f, i) => [f.h, now.shares[i] ?? 0]))
-  return { pendingBytes: now.owed, laterBytes: later.owed, refusedBytes, rooms }
+  return { pendingBytes: now.owed, laterBytes: later.owed, refusedBytes, keptRefusedBytes, rooms }
 }
 
 const anchorSequential = (viewer: string | undefined, h: number, fileIndex: number, offset: number, len: number) => {
@@ -1574,9 +1581,9 @@ const collectCandidates = async (list: Persisted[], now: number) => {
 
 // Reported from the estimate AFTER a pass, never from the plan: a pass that just freed 10 GB
 // announcing the origin as full is worse than saying nothing.
-let storageFull = false
-const reportSpace = (verdict: Verdict) => {
-  const full = isOriginFull(verdict)
+let storageFull: StorageFull = false
+const reportSpace = (verdict: Verdict, keptRefusedBytes: number) => {
+  const full = isOriginFull(verdict) && (isOriginFull({ ...verdict, refusedBytes: verdict.refusedBytes - keptRefusedBytes }) || 'kept')
   if (full === storageFull) return
   storageFull = full
   post({ type: 'storage-full', full, usedBytes: verdict.usedBytes, limitBytes: verdict.limitBytes })
@@ -1681,7 +1688,7 @@ const runStorageBudget = async () => {
    * knows an honest figure.
    */
   let measured: Space | null = null
-  let owed: Owed = { pendingBytes: 0, laterBytes: 0, refusedBytes: 0, rooms: new Map() }
+  let owed: Owed = { pendingBytes: 0, laterBytes: 0, refusedBytes: 0, keptRefusedBytes: 0, rooms: new Map() }
   let candidates: EvictionCandidate[] = []
   let graced: EvictionCandidate[] = []
   // On a floating ceiling the numbers cannot say it: the ponyfill latches the first quota, so a
@@ -1772,7 +1779,7 @@ const runStorageBudget = async () => {
   } finally {
     budgetPassRunning = false
     if (measured) {
-      reportSpace(verdict(measured))
+      reportSpace(verdict(measured), owed.keptRefusedBytes)
       kept = { room: keptRoom(verdict(measured), ceiling?.fixed), grownAt: measured.grownAt }
     }
     if (budgetPassAgain) { budgetPassAgain = false; void runStorageBudget() }

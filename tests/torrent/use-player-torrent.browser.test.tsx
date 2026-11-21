@@ -17,6 +17,7 @@ const listeners = vi.hoisted(() => ({
   add: vi.fn(),
   unavailable: null as null | (() => void),
   failed: null as null | ((error: { message: string, fatal: boolean }) => void),
+  full: null as null | ((full: boolean | 'kept') => void),
 }))
 vi.mock('../../src/torrent/client', () => ({
   getTorrentClient: () => client,
@@ -26,7 +27,7 @@ const client = {
   addMagnet: listeners.add,
   onStorageUnavailable: (cb: () => void) => { listeners.unavailable = cb; return () => {} },
   onWorkerError: (cb: NonNullable<typeof listeners.failed>) => { listeners.failed = cb; return () => {} },
-  onStorageFull: () => () => {},
+  onStorageFull: (cb: NonNullable<typeof listeners.full>) => { listeners.full = cb; return () => {} },
   onState: (cb: typeof listeners.state) => { listeners.state = cb; return () => {} },
   onEngineReset: (cb: typeof listeners.reset) => { listeners.reset = cb; return () => {} },
   watch: listeners.watch,
@@ -90,6 +91,25 @@ it('sends the engine no link it cannot add, and says that link cannot be read', 
   await screen.rerender(<Shown magnet={MAGNET} />)
   await expect.element(screen.getByText('unreadable false')).toBeInTheDocument()
   await expect.poll(() => listeners.add.mock.calls).toEqual([[MAGNET, { ephemeral: true }]])
+  await screen.unmount()
+})
+
+// Stub plays a temporary film in the room downloads the person keeps leave, while the reserve stops one of those
+it('is out of storage space when only the person\'s own downloads are, for their torrent and not a temporary one', async () => {
+  const Full = () => <p>{`full ${usePlayerTorrent(MAGNET, 0).storageFull}`}</p>
+  const screen = await render(<Full />)
+  const kept = { handle: 7, magnet: MAGNET, files: null, ephemeral: false } as TorrentSnapshot
+  listeners.state([kept])
+  listeners.full!('kept')
+  await expect.element(screen.getByText('full true')).toBeInTheDocument()
+
+  listeners.state([{ ...kept, ephemeral: true }])
+  await expect.element(screen.getByText('full false')).toBeInTheDocument()
+
+  // THE CONTROL: a temporary torrent is stopped once it has no room either
+  listeners.full!(true)
+  await expect.element(screen.getByText('full true')).toBeInTheDocument()
+  listeners.full!(false)
   await screen.unmount()
 })
 

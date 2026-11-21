@@ -11,6 +11,7 @@ import type { TorrentFormat } from './make-torrent'
 import type { Transport, TransportFactory, TransportHost } from './engine-protocol'
 import type { SourceRef } from './walk-source'
 import type { EngineTransport } from './vpn-config'
+import type { StorageFull } from './storage-budget'
 
 import { RTCPeerConnection } from '@banou/ponyfill/webrtc'
 import { relayWorker } from '@fkn/lib'
@@ -53,8 +54,8 @@ export type TorrentClient = {
   /** `synced` marks a list the account's sync wrote (an import, or another account's), rather than an edit here. */
   onList: (cb: (list: Persisted[], synced: boolean) => void) => () => void
   onStorageUnavailable: (cb: () => void) => () => void
-  /** The origin is out of room and the engine has nothing left it is allowed to reclaim. */
-  onStorageFull: (cb: (full: boolean) => void) => () => void
+  /** The origin is out of room and the engine has nothing left it is allowed to reclaim. See `stopsTorrent`. */
+  onStorageFull: (cb: (full: StorageFull) => void) => () => void
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => () => void
   /** A failed add this tab or another made without an `addId`. */
   onAddFailed: (cb: (message: string) => void) => () => void
@@ -422,7 +423,7 @@ export const createTorrentClient = (): EngineClient => {
   const stateCbs = new Set<(t: TorrentSnapshot[]) => void>()
   const listCbs = new Set<(l: Persisted[], synced: boolean) => void>()
   const storageUnavailableCbs = new Set<() => void>()
-  const storageFullCbs = new Set<(full: boolean) => void>()
+  const storageFullCbs = new Set<(full: StorageFull) => void>()
   const workerErrorCbs = new Set<(error: { message: string, fatal: boolean }) => void>()
   const addFailedCbs = new Set<(message: string) => void>()
   const addAnswerCbs = new Set<(answer: { addId: string, added: boolean, already: boolean }) => void>()
@@ -464,7 +465,7 @@ export const createTorrentClient = (): EngineClient => {
   // the last broadcast said rather than mirroring a copy the page keeps
   let lastRateLimits: RateLimits | null = null
   let storageIsUnavailable = false
-  let storageIsFull = false
+  let storageIsFull: StorageFull = false
   let fatalMessage: string | null = null
 
   const settleRead = (id: number) => {
@@ -626,7 +627,7 @@ export const createTorrentClient = (): EngineClient => {
       } else if (m.type === 'storage-full') {
         // recoverable, unlike storage-unavailable: the engine keeps running and says so again when
         // room appears, so this must never reach die()
-        storageIsFull = !!m.full
+        storageIsFull = m.full === 'kept' ? 'kept' : !!m.full
         storageFullCbs.forEach((cb) => cb(storageIsFull))
       } else if (m.type === 'state') {
         if (m.reachable) { lastReachable = m.reachable; reachableCbs.forEach((cb) => cb(m.reachable)) }
@@ -695,7 +696,7 @@ export const createTorrentClient = (): EngineClient => {
     onState: (cb) => { stateCbs.add(cb); if (lastState) cb(lastState); return () => { stateCbs.delete(cb) } },
     onList: (cb) => { listCbs.add(cb); if (lastList) cb(lastList, false); return () => { listCbs.delete(cb) } },
     onStorageUnavailable: (cb) => { storageUnavailableCbs.add(cb); if (storageIsUnavailable) cb(); return () => { storageUnavailableCbs.delete(cb) } },
-    onStorageFull: (cb) => { storageFullCbs.add(cb); if (storageIsFull) cb(true); return () => { storageFullCbs.delete(cb) } },
+    onStorageFull: (cb) => { storageFullCbs.add(cb); if (storageIsFull) cb(storageIsFull); return () => { storageFullCbs.delete(cb) } },
     onWorkerError: (cb) => { workerErrorCbs.add(cb); if (fatalMessage) cb({ message: fatalMessage, fatal: true }); return () => { workerErrorCbs.delete(cb) } },
     onAddFailed: (cb) => { addFailedCbs.add(cb); return () => { addFailedCbs.delete(cb) } },
     onAddAnswer: (cb) => { addAnswerCbs.add(cb); return () => { addAnswerCbs.delete(cb) } },

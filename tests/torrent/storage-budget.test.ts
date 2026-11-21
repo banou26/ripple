@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, RESERVE_BYTES, cacheBudget, evictionFloor, isOriginFull, keptReserve, keptRoom, planEviction } from '../../src/torrent/storage-budget'
+import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, RESERVE_BYTES, cacheBudget, evictionFloor, isOriginFull, keptReserve, keptRoom, planEviction, stopsTorrent } from '../../src/torrent/storage-budget'
 import type { Budget, EvictionCandidate, Verdict } from '../../src/torrent/storage-budget'
 import { MIN_WINDOW_CHUNKS, isWindowed } from '../../src/torrent/window-plan'
 
@@ -376,5 +376,17 @@ describe('a 9.9 GiB film in a frame Firefox holds to 10 GiB', () => {
     const full = { usedBytes: LIMIT - 32 * MiB, limitBytes: LIMIT, candidates: [] }
     expect(isOriginFull(verdict({ ...full, refusedBytes: 0 }))).toBe(false)
     expect(isOriginFull(verdict({ ...full, refusedBytes: 1 }))).toBe(true)
+  })
+})
+
+describe('stopsTorrent', () => {
+  it('stops a torrent the person keeps when only theirs are out of room, and any torrent when every one is', () => {
+    expect([stopsTorrent('kept', false), stopsTorrent('kept', true), stopsTorrent(true, true), stopsTorrent(false, false)])
+      .toEqual([true, false, true, false])
+  })
+
+  // a player waits for its torrent's first state, and a film is no more stopped meanwhile than after
+  it('does not stop a torrent the engine has not said is the person\'s own', () => {
+    expect(stopsTorrent('kept', undefined)).toBe(false)
   })
 })

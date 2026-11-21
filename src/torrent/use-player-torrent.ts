@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 
 import { getTorrentClient } from './client'
 import type { TorrentSnapshot } from './client'
+import type { StorageFull } from './storage-budget'
 import { intl } from '../i18n'
 import { magnetInfoHash, readableMagnet, sameInfoHash } from './magnet'
 import { makeReadWindowStore } from './read-window-store'
 import { pickVideoFile } from './watch'
+import { stopsTorrent } from './storage-budget'
 
 export type PlayerTorrent = {
   snapshot: TorrentSnapshot | null
   engineError: string | null
-  /** The browser's storage budget is exhausted and the engine has nothing left it may reclaim. */
+  /** The browser's storage budget is exhausted for this torrent and the engine has nothing left it may reclaim. */
   storageFull: boolean
   /** The link names no torrent the engine can add, so none will ever be listed for it. */
   unreadable: boolean
@@ -44,7 +46,7 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
   if (!viewerRef.current) viewerRef.current = client.newViewerId()
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
   const [engineError, setEngineError] = useState<string | null>(null)
-  const [storageFull, setStorageFull] = useState(false)
+  const [storageFull, setStorageFull] = useState<StorageFull>(false)
   // playback only; the thumbnailer seeks all over the file and would evict the windows the player needs
   const readWindows = useRef(makeReadWindowStore())
   // Every read of this torrent ends with the player: a read left behind kept its pieces urgent and went on
@@ -194,5 +196,5 @@ export const usePlayerTorrent = (magnet: string | undefined, named: number | und
     if (handle != null) client.watch(viewerRef.current, handle, fileIndex, Math.max(0, Math.floor(offset)))
   }
 
-  return { snapshot, engineError, storageFull, unreadable: !magnet || !readableMagnet(magnet), fileIndex, read, readQuiet, prioritizeFrom }
+  return { snapshot, engineError, storageFull: stopsTorrent(storageFull, snapshot?.ephemeral), unreadable: !magnet || !readableMagnet(magnet), fileIndex, read, readQuiet, prioritizeFrom }
 }

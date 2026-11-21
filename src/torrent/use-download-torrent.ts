@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TorrentClient, TorrentSnapshot } from './client'
+import type { StorageFull } from './storage-budget'
 import { intl } from '../i18n'
 import { getTorrentClient } from './client'
 import { magnetInfoHash, readableMagnet, sameInfoHash } from './magnet'
+import { stopsTorrent } from './storage-budget'
 
 export type DownloadTorrent = {
   client: TorrentClient
@@ -62,7 +64,7 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
   if (!viewerRef.current) viewerRef.current = client.newViewerId()
   const [snapshot, setSnapshot] = useState<TorrentSnapshot | null>(null)
   const [engineError, setEngineError] = useState<string | null>(null)
-  const [storageFull, setStorageFull] = useState(false)
+  const [storageFull, setStorageFull] = useState<StorageFull>(false)
 
   useEffect(() => {
     if (!magnet) return
@@ -160,7 +162,7 @@ export const useDownloadTorrent = (magnet: string | undefined): DownloadTorrent 
     claim,
     release,
     engineError,
-    storageFull,
+    storageFull: stopsTorrent(storageFull, snapshot?.ephemeral),
     unreadable: !magnet || !readableMagnet(magnet),
   }
 }

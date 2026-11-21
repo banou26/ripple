@@ -26,12 +26,13 @@ let emit: ((snapshots: TorrentSnapshot[]) => void) | null = null
 const engine = {
   unavailable: null as null | (() => void),
   failed: null as null | ((error: { message: string, fatal: boolean }) => void),
+  full: null as null | ((full: boolean | 'kept') => void),
 }
 
 const client = {
   onStorageUnavailable: (cb: () => void) => { engine.unavailable = cb; return () => {} },
   onWorkerError: (cb: (error: { message: string, fatal: boolean }) => void) => { engine.failed = cb; return () => {} },
-  onStorageFull: () => () => {},
+  onStorageFull: (cb: (full: boolean | 'kept') => void) => { engine.full = cb; return () => {} },
   onEngineReset: () => () => {},
   onState: (cb: (snapshots: TorrentSnapshot[]) => void) => { emit = cb; return () => {} },
   addMagnet: (magnet: string) => { added.push(magnet) },
@@ -144,6 +145,24 @@ describe('the download page hook', () => {
     await expect.poll(() => typeof emit).toBe('function')
     emit!([{ ...snapshot(), handle: 3, magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}` }, snapshot()])
     await expect.poll(() => watched).toEqual([['viewer-1', 7, 0, 0, undefined, true]])
+    await screen.unmount()
+  })
+
+  it('is out of storage space when only the person\'s own downloads are, for their torrent and not a temporary one', async () => {
+    const Full = () => <p>{`full ${api.useDownloadTorrent(MAGNET).storageFull}`}</p>
+    const screen = await render(<Full/>)
+    await expect.poll(() => typeof emit).toBe('function')
+    emit!([{ ...snapshot(), ephemeral: false }])
+    engine.full!('kept')
+    await expect.element(screen.getByText('full true')).toBeInTheDocument()
+
+    emit!([{ ...snapshot(), ephemeral: true }])
+    await expect.element(screen.getByText('full false')).toBeInTheDocument()
+
+    // THE CONTROL: a temporary torrent is stopped once it has no room either
+    engine.full!(true)
+    await expect.element(screen.getByText('full true')).toBeInTheDocument()
+    engine.full!(false)
     await screen.unmount()
   })
 

@@ -70,7 +70,8 @@ it('reports a refused write to a file the download page does not hold as full', 
   // a hold runs no pass of its own, so the next add's pass is the one that reads it
   rig.send({ type: 'add-magnet', magnet: 'magnet:?xt=urn:btih:' + 'c'.repeat(40) })
   await vi.waitFor(() => expect(rig.of('added')).toHaveLength(2))
+  // the person's own download, so a temporary torrent is still judged by its own bytes
   await vi.waitFor(() => expect(rig.of('storage-full')).toEqual([
-    { type: 'storage-full', full: true, usedBytes: USED, limitBytes: QUOTA },
+    { type: 'storage-full', full: 'kept', usedBytes: USED, limitBytes: QUOTA },
   ]))
 })

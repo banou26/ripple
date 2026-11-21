@@ -106,7 +106,10 @@ const pass = async () => {
 const windowed = () => (rig.of('state').at(-1)?.torrents as { handle: number, windowed: boolean }[] | undefined)
   ?.find((t) => t.handle === 2)?.windowed
 
-const full = () => rig.of('storage-full').at(-1)?.full === true
+const full = () => rig.of('storage-full').at(-1)?.full ?? false
+
+const ephemeral = (handle: number) => (rig.of('state').at(-1)?.torrents as { handle: number, ephemeral: boolean }[] | undefined)
+  ?.find((t) => t.handle === handle)?.ephemeral
 
 it('stops a download the person keeps short of the reserve, and a temporary film then plays through its window', async () => {
   // room for seven steps past the reserve
@@ -164,7 +167,7 @@ it('says a download the person keeps is out of storage space when the reserve re
 
   state.refused = 0
   await pass()
-  expect(full()).toBe(true)
+  expect(full()).toBe('kept')
 
   // the person removed a download: the room is back, and so is the line
   state.used = LIMIT - 4 * GiB
@@ -190,6 +193,28 @@ it('counts a write that lands while the browser is being asked, which the figure
   const left = 5 * GiB - RESERVE_BYTES - GiB
   expect(grow(1, left + 1)).toBe(false)
   expect(grow(1, left)).toBe(true)
+})
+
+// Stub's frame shares this engine, and drops its film on a full origin: only a player of the person's own torrent stops
+it('tells a temporary film playing in the reserve that only the person\'s own downloads are out of room', async () => {
+  state.used = LIMIT - RESERVE_BYTES
+  state.held = GiB
+  rig.send({ type: 'watch', viewer: 'page', handle: 1, fileIndex: 0, fromOffset: 0, held: true })
+  rig.send({ type: 'watch', viewer: 'player', handle: 2, fileIndex: 0, fromOffset: 0 })
+  await pass()
+  await vi.waitFor(() => expect(windowed()).toBe(true), { timeout: 5_000 })
+  expect(full(), 'THE CONTROL: nothing was refused').toBe(false)
+
+  expect(grow(1, 64 * MiB)).toBe(false)
+  state.refused = 0
+  await pass()
+  expect(windowed()).toBe(true)
+  expect(full()).toBe('kept')
+  expect([ephemeral(1), ephemeral(2)]).toEqual([false, true])
+  rig.send({ type: 'unwatch', viewer: 'player' })
+  rig.send({ type: 'unwatch', viewer: 'page' })
+  state.refused = undefined
+  await pass()
 })
 
 // Chromium states 10 GiB above whatever is written and takes it all, so a 40 GiB extent was accepted (Chromium 149,
