@@ -1,5 +1,6 @@
+import type { MouseEventHandler } from 'react'
 import type { IntlShape } from 'react-intl'
-import type { Button, ButtonPlace } from './contract'
+import type { Button, ButtonPlace, ClickContext, DetailTab } from './contract'
 import type { Drawn } from './buttons'
 import type { OptionGroup } from '../torrent/torrent-options'
 
@@ -13,7 +14,7 @@ import { hint, typedHint } from '../components/hint'
 import { MenuItems, MenuSurface } from '../components/menu'
 import { shownLanguage } from '../i18n'
 import { hexInfoHash } from '../torrent/magnet'
-import { drawnIn, HEADER_INLINE, letterOf, maskOf, TEXT_FLOOR } from './buttons'
+import { drawnIn, letterOf, maskOf, PLACE_INLINE, TEXT_FLOOR } from './buttons'
 import { clickButton, connectPlugin, usePluginsHere } from './host'
 import { useAnswers, useKeptButtons } from './switches'
 
@@ -65,22 +66,36 @@ export const usePlaced = (place: ButtonPlace): Drawn[] => {
   return here ? drawnIn(kept, locale, place) : []
 }
 
-const press = ({ uri, name, button }: Drawn, infoHashes?: string[]) =>
-  void clickButton(uri, name, button.id, infoHashes ? { infoHashes } : {})
+const press = ({ uri, name, button }: Drawn, context: ClickContext = {}) =>
+  void clickButton(uri, name, button.id, context, button.page)
 
-/** A plugin's button in the header or on its Settings row: its icon, its label as tooltip and name. */
-export const PluginButton = ({ drawn, className }: { drawn: Drawn, className?: string }) => (
-  <button type="button" className={className} aria-label={drawn.button.label} {...typedHint(drawn.button.label)} onClick={() => press(drawn)}>
+/** A plugin's button in an inline place or on its Settings row: its icon, its label as tooltip and name. */
+export const PluginButton = ({
+  drawn, className, context, onMouseDown,
+}: {
+  drawn: Drawn
+  className?: string
+  context?: ClickContext
+  onMouseDown?: MouseEventHandler<HTMLButtonElement>
+}) => (
+  <button
+    type="button"
+    className={className}
+    aria-label={drawn.button.label}
+    {...typedHint(drawn.button.label)}
+    onMouseDown={onMouseDown}
+    onClick={() => press(drawn, context)}
+  >
     <PluginIcon button={drawn.button}/>
   </button>
 )
 
-/** Each plugin's buttons as menu groups, under the plugin's name, each pressed with `infoHashes` when given. */
-export const pluginGroups = (drawn: readonly Drawn[], infoHashes?: string[]): OptionGroup[] => {
+/** Each plugin's buttons as menu groups, under the plugin's name, each pressed with `context` when given. */
+export const pluginGroups = (drawn: readonly Drawn[], context: ClickContext = {}): OptionGroup[] => {
   const groups = new Map<string, OptionGroup>()
   for (const one of drawn) {
     const group = groups.get(one.uri) ?? { id: `plugin ${one.uri}`, label: one.name, typed: true, items: [] }
-    group.items.push({ kind: 'action', id: `plugin ${one.uri} ${one.button.id}`, label: one.button.label, typed: true, run: () => press(one, infoHashes) })
+    group.items.push({ kind: 'action', id: `plugin ${one.uri} ${one.button.id}`, label: one.button.label, typed: true, run: () => press(one, context) })
     groups.set(one.uri, group)
   }
   return [...groups.values()]
@@ -88,9 +103,42 @@ export const pluginGroups = (drawn: readonly Drawn[], infoHashes?: string[]): Op
 
 /** The plugins' items in a torrent's menu, each pressed with that torrent's info hash. */
 export const rowMenuGroups = (drawn: readonly Drawn[], infoHash: string | undefined): OptionGroup[] =>
-  infoHash ? pluginGroups(drawn, [hexInfoHash(infoHash)]) : []
+  infoHash ? pluginGroups(drawn, { infoHashes: [hexInfoHash(infoHash)] }) : []
 
 const moreLabel = (intl: IntlShape) => intl.formatMessage({ id: 'More', defaultMessage: 'More' })
+
+const MoreButton = ({
+  rest, className, context, onMouseDown, buttonRef,
+}: {
+  rest: readonly Drawn[]
+  className: string
+  context?: ClickContext
+  onMouseDown?: MouseEventHandler<HTMLButtonElement>
+  buttonRef?: (el: HTMLButtonElement | null) => void
+}) => {
+  const intl = useIntl()
+  const [open, setOpen] = useState(false)
+  const more = useRef<HTMLButtonElement>(null)
+  const label = moreLabel(intl)
+  if (!rest.length) return null
+  return (
+    <>
+      <button
+        type="button" className={className} ref={(el) => { more.current = el; buttonRef?.(el) }} aria-haspopup="menu" aria-expanded={open}
+        aria-label={label} {...hint(label)} onMouseDown={onMouseDown} onClick={() => setOpen((was) => !was)}
+      >
+        <Ellipsis aria-hidden="true"/>
+      </button>
+      {/* in the body, as the account's menu is, so none of the bar's rules for its children reach it */}
+      {open && createPortal(
+        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => setOpen(false)}>
+          <MenuItems groups={pluginGroups(rest, context)} onChose={() => setOpen(false)}/>
+        </MenuSurface>,
+        document.body,
+      )}
+    </>
+  )
+}
 
 const rowStyle = css`
   display: flex;
@@ -139,38 +187,88 @@ const useOwnRowWhenFull = (group: HTMLElement | null) => useLayoutEffect(() => {
 }, [group])
 
 /**
- * The plugins' header buttons, before Create: the first {@link HEADER_INLINE} plugins' in install order, and the rest
- * in one More menu, on a row of their own when the header has no room for them.
+ * The plugins' header buttons, before Create: the first {@link PLACE_INLINE.header} plugins' in install order, and the
+ * rest in one More menu, on a row of their own when the header has no room for them.
  */
 export const HeaderButtons = () => {
-  const intl = useIntl()
   const drawn = usePlaced('header')
-  const [open, setOpen] = useState(false)
   const [group, setGroup] = useState<HTMLDivElement | null>(null)
-  const more = useRef<HTMLButtonElement>(null)
   useOwnRowWhenFull(group)
-  const inline = drawn.slice(0, HEADER_INLINE)
-  const rest = drawn.slice(HEADER_INLINE)
-  const label = moreLabel(intl)
   if (!drawn.length) return null
+  const inline = drawn.slice(0, PLACE_INLINE.header)
+  const rest = drawn.slice(PLACE_INLINE.header)
   return (
     <div className="plugins" css={rowStyle} ref={setGroup}>
       {inline.map((one) => <PluginButton key={one.uri} drawn={one} className="tool plugin"/>)}
-      {rest.length > 0 && (
-        <button
-          type="button" className="tool plugin-more" ref={more} aria-haspopup="menu" aria-expanded={open}
-          aria-label={label} {...hint(label)} onClick={() => setOpen((was) => !was)}
-        >
-          <Ellipsis aria-hidden="true"/>
-        </button>
-      )}
-      {/* in the body, as the account's menu is, so none of the header's rules for its children reach it */}
-      {open && rest.length > 0 && createPortal(
-        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => setOpen(false)}>
-          <MenuItems groups={pluginGroups(rest)} onChose={() => setOpen(false)}/>
-        </MenuSurface>,
-        document.body,
-      )}
+      <MoreButton rest={rest} className="tool plugin-more"/>
     </div>
+  )
+}
+
+/**
+ * The plugins' add-field buttons, before Open a .torrent file: 1 inline and the rest in More, pressed with `{ text }`.
+ * When the pill is too narrow for two extra icons to leave the text at {@link TEXT_FLOOR}, every plugin folds into the
+ * single More button so the input stays readable and every plugin stays reachable.
+ */
+export const AddFieldButtons = ({ text, onMouseDown }: { text: string, onMouseDown?: MouseEventHandler<HTMLButtonElement> }) => {
+  const drawn = usePlaced('add-field')
+  const [compact, setCompact] = useState(false)
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const many = drawn.length > PLACE_INLINE['add-field']
+  useLayoutEffect(() => {
+    const field = anchor?.closest<HTMLElement>('.field')
+    const input = field?.querySelector<HTMLElement>('input:not([type=file])')
+    if (!many || !field || !input) return
+    const fit = () => {
+      const width = input.getBoundingClientRect().width
+      // 38 px hysteresis (34 px button + 2 px gap + 2 px margin) keeps this from oscillating across the threshold
+      setCompact((was) => (was ? width < TEXT_FLOOR + 38 : width < TEXT_FLOOR))
+    }
+    const observer = new ResizeObserver(fit)
+    observer.observe(field)
+    return () => observer.disconnect()
+  }, [anchor, many])
+  if (!drawn.length) return null
+  const fold = many && compact
+  const context: ClickContext = { text }
+  const inline = fold ? [] : drawn.slice(0, PLACE_INLINE['add-field'])
+  const rest = fold ? drawn : drawn.slice(PLACE_INLINE['add-field'])
+  return (
+    <>
+      {inline.map((one) => (
+        <PluginButton key={one.uri} drawn={one} className="icon plugin" context={context} onMouseDown={onMouseDown}/>
+      ))}
+      <MoreButton rest={rest} className="icon plugin-more" context={context} onMouseDown={onMouseDown} buttonRef={setAnchor}/>
+    </>
+  )
+}
+
+/** The plugins' bulk-bar buttons, before Remove: 2 inline and the rest in More, pressed with `{ infoHashes }`. */
+export const BulkBarButtons = ({ infoHashes }: { infoHashes: string[] }) => {
+  const drawn = usePlaced('bulk-bar')
+  if (!drawn.length) return null
+  const context: ClickContext = { infoHashes: infoHashes.map(hexInfoHash) }
+  return (
+    <>
+      {drawn.slice(0, PLACE_INLINE['bulk-bar']).map((one) => (
+        <PluginButton key={one.uri} drawn={one} className="icon plugin" context={context}/>
+      ))}
+      <MoreButton rest={drawn.slice(PLACE_INLINE['bulk-bar'])} className="icon plugin-more" context={context}/>
+    </>
+  )
+}
+
+/** The plugins' details-header buttons, before Close: 2 inline and the rest in More, pressed with `{ infoHash, tab }`. */
+export const DetailButtons = ({ infoHash, tab }: { infoHash: string, tab: DetailTab }) => {
+  const drawn = usePlaced('detail')
+  if (!drawn.length) return null
+  const context: ClickContext = { infoHash: hexInfoHash(infoHash), tab }
+  return (
+    <>
+      {drawn.slice(0, PLACE_INLINE.detail).map((one) => (
+        <PluginButton key={one.uri} drawn={one} className="plugin" context={context}/>
+      ))}
+      <MoreButton rest={drawn.slice(PLACE_INLINE.detail)} className="plugin-more" context={context}/>
+    </>
   )
 }

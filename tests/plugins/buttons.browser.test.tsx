@@ -32,9 +32,9 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
 })
 
 const { BUTTONS_CHANGED_MS, CLICK_MS, TEXT_FLOOR } = await import('../../src/plugins/buttons')
-const { removePlugin } = await import('../../src/plugins/host')
+const { closePage, removePlugin } = await import('../../src/plugins/host')
 const { PluginHost } = await import('../../src/plugins/plugin-host')
-const { HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
+const { AddFieldButtons, BulkBarButtons, DetailButtons, HeaderButtons, rowMenuGroups, usePlaced } = await import('../../src/plugins/plugin-buttons')
 const { PluginsSection } = await import('../../src/plugins/plugins-section')
 const { answer, answersOf, BUTTONS_KEY, keepButtons } = await import('../../src/plugins/switches')
 
@@ -343,5 +343,75 @@ describe('what ripple keeps of a plugin\'s buttons', () => {
     await userEvent.click(inline()[0]!)
     await vi.waitFor(() => expect(drawn.clicks).toStrictEqual([['go', {}]]))
     expect(fkn.calls).toContain(`connect ${drawn.uri}`)
+  })
+})
+
+describe('add-field, bulk-bar, detail and button.page', () => {
+  it('draws 1 inline add-field button and the rest in More, handing { text } on press', async () => {
+    const first = await plugin({ buttons: () => [{ id: 'find', place: 'add-field', label: 'Find 1' }, { id: 'extra', place: 'add-field', label: 'Extra 1' }] })
+    const second = await plugin({ buttons: () => [{ id: 'find', place: 'add-field', label: 'Find 2' }] })
+    const view = await withHost(<div className="field"><AddFieldButtons text="sintel 4k"/></div>)
+    await vi.waitFor(() => expect(document.querySelectorAll('.field .plugin')).toHaveLength(1))
+    expect(document.querySelector('.field .plugin')).toHaveAccessibleName('Find 1')
+    await userEvent.click(document.querySelector('.field .plugin')!)
+    await vi.waitFor(() => expect(first.clicks).toStrictEqual([['find', { text: 'sintel 4k' }]]))
+    await view.rerender(<IntlRoot><MemoryRouter><div className="field"><AddFieldButtons text="spring"/></div><PluginHost/></MemoryRouter></IntlRoot>)
+    await userEvent.click(document.querySelector('.field .plugin-more')!)
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    await userEvent.click(menu.querySelector('[role="menuitem"]')!)
+    await vi.waitFor(() => expect(second.clicks).toStrictEqual([['find', { text: 'spring' }]]))
+  })
+
+  it('draws 2 inline bulk-bar buttons and the rest in More, handing hex { infoHashes }', async () => {
+    const made = [] as Fake[]
+    for (const at of [1, 2, 3]) made.push(await plugin({ buttons: () => [{ id: 'act', place: 'bulk-bar', label: `Bulk ${at}` }] }))
+    const hashes = [A.toUpperCase(), 'b'.repeat(40)]
+    await withHost(<div className="bulk-bar"><BulkBarButtons infoHashes={hashes}/></div>)
+    await vi.waitFor(() => expect(document.querySelectorAll('.bulk-bar .plugin')).toHaveLength(2))
+    await userEvent.click(document.querySelectorAll('.bulk-bar .plugin')[1]!)
+    await vi.waitFor(() => expect(made[1]!.clicks).toStrictEqual([['act', { infoHashes: [A, 'b'.repeat(40)] }]]))
+    await userEvent.click(document.querySelector('.bulk-bar .plugin-more')!)
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    await userEvent.click(menu.querySelector('[role="menuitem"]')!)
+    await vi.waitFor(() => expect(made[2]!.clicks).toStrictEqual([['act', { infoHashes: [A, 'b'.repeat(40)] }]]))
+  })
+
+  it('draws 2 inline detail buttons and the rest in More, handing { infoHash, tab } across tab changes', async () => {
+    const made = [] as Fake[]
+    for (const at of [1, 2, 3]) made.push(await plugin({ buttons: () => [{ id: 'inspect', place: 'detail', label: `Inspect ${at}` }] }))
+    const view = await withHost(<header className="detail-head"><DetailButtons infoHash={A} tab="files"/></header>)
+    await vi.waitFor(() => expect(document.querySelectorAll('.detail-head .plugin')).toHaveLength(2))
+    await userEvent.click(document.querySelectorAll('.detail-head .plugin')[0]!)
+    await vi.waitFor(() => expect(made[0]!.clicks).toStrictEqual([['inspect', { infoHash: A, tab: 'files' }]]))
+    await view.rerender(<IntlRoot><MemoryRouter><header className="detail-head"><DetailButtons infoHash={A} tab="trackers"/> </header><PluginHost/></MemoryRouter></IntlRoot>)
+    await userEvent.click(document.querySelector('.detail-head .plugin-more')!)
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    await userEvent.click(menu.querySelector('[role="menuitem"]')!)
+    await vi.waitFor(() => expect(made[2]!.clicks).toStrictEqual([['inspect', { infoHash: A, tab: 'trackers' }]]))
+  })
+
+  it('opens button.page directly with click context without requiring remote.click, after unanswered switches', async () => {
+    const uri = 'npm:page-only-plugin'
+    fkn.plugins.set(uri, {
+      name: 'Search plugin',
+      version: '1.0.0',
+      payload: {
+        asks: ['read'],
+        buttons: () => [{ id: 'search', place: 'add-field', label: 'Search', page: { id: 'search-ui', size: 'large' } }],
+      },
+    })
+    fkn.installed.push({ uri, name: 'Search plugin', version: '1.0.0', installedAt: 1 })
+    await answer(uri, {})
+    await withHost(<div className="field"><AddFieldButtons text="ubuntu"/></div>)
+    await vi.waitFor(() => expect(document.querySelector('.field .plugin')).not.toBeNull())
+    await userEvent.click(document.querySelector('.field .plugin')!)
+    await vi.waitFor(() => expect(sheet()?.querySelector('h2')?.textContent).toBe('Search plugin'))
+    await userEvent.click(button(sheet()!, 'Done')!)
+    await vi.waitFor(() => expect(document.querySelector('.plugin-page')).not.toBeNull())
+    expect(document.querySelector('.plugin-page')).toHaveAttribute('data-size', 'large')
+    await vi.waitFor(() => expect(fkn.mountedOf(uri)).toBeDefined())
+    const pageRipple = await fkn.mountedOf(uri)!.ripple
+    expect(pageRipple.page).toEqual({ id: 'search-ui', context: { text: 'ubuntu' } })
+    closePage()
   })
 })

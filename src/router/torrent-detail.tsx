@@ -26,6 +26,7 @@ import { contentFiles } from '../torrent/types'
 import { hasPiece, heldShare } from '../torrent/downloaded-ranges'
 import { hexInfoHash } from '../torrent/magnet'
 import { hint, typedHint } from '../components/hint'
+import { DetailButtons } from '../plugins/plugin-buttons'
 
 /**
  * Everything about the selected torrent, docked along the bottom of the page.
@@ -518,6 +519,36 @@ export const dockStyle = css`
       color: ${TEXT};
     }
 
+    .plugin,
+    .plugin-more {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid ${BORDER};
+      border-radius: 4px;
+      background: ${CONTROL_BG};
+      color: ${TEXT_MUTED};
+
+      svg { width: 14px; height: 14px; }
+      .plugin-icon { width: 14px; height: 14px; }
+      .plugin-letter { font-size: 0.78rem; }
+
+      &:hover {
+        background: ${CONTROL_HOVER_BG};
+        border-color: ${BORDER_STRONG};
+        color: ${TEXT};
+      }
+
+      &:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px ${FOCUS_RING};
+      }
+    }
+
     .close {
       flex: none;
       border: 1px solid ${BORDER};
@@ -991,6 +1022,7 @@ export const TorrentDetailDock = ({
       />
       <header>
         <span className="title" dir="auto" {...typedHint(t.name)}>{t.name}</span>
+        {t.infoHash && <DetailButtons infoHash={hexInfoHash(t.infoHash)} tab={tab}/>}
         <button type="button" className="close" onClick={onClose}>{intl.formatMessage({ id: 'Close', defaultMessage: 'Close' })}</button>
       </header>
       <div className="tabs" role="group" aria-label={intl.formatMessage({ id: 'Torrent details', defaultMessage: 'Torrent details' })}>

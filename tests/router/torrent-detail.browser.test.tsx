@@ -32,7 +32,7 @@ vi.mock('../../src/torrent/client', () => {
     setPlan: (handle: number, plan: { wanted?: number[], firstLast?: boolean }) => { planned.push([handle, plan]) },
     addTrackers: (handle: number, urls: string[]) => { trackersAdded.push([handle, urls]); return refusing(urls) },
   }
-  return { getTorrentClient: () => client }
+  return { getTorrentClient: () => client, runningTorrentClient: () => null }
 })
 
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')

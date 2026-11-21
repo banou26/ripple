@@ -57,7 +57,8 @@ import { getHumanReadableByteString, getRoundedSpeed, writePercent } from '../ut
 import { isFramed } from '../utils/framed'
 import { useConfirm } from '../components/confirm-dialog'
 import { toastStyle } from '../components/toast'
-import { HeaderButtons, rowMenuGroups, usePlaced } from '../plugins/plugin-buttons'
+import { AddFieldButtons, HeaderButtons, rowMenuGroups, usePlaced } from '../plugins/plugin-buttons'
+import { registerSuggester } from '../plugins/host'
 import { ShareLinkDialog } from '../components/share-link-dialog'
 import { CreateTorrentDialog } from '../components/create-torrent-dialog'
 import { useCreateTorrent, useCreatedSources } from '../torrent/use-create-torrent'
@@ -143,6 +144,8 @@ const droppable = (data: DataTransfer | null): boolean => {
 }
 
 /** What the add dialog asks about: a magnet, whose files the engine fetches, or a .torrent the page read, with its bytes. */
+type AddOutcome = 'added' | 'declined' | 'already'
+
 type PendingAdd = {
   magnet: string
   infoHash: string
@@ -151,10 +154,11 @@ type PendingAdd = {
   from: string | null
   bytes?: Uint8Array
   files?: { name: string, size: number, index: number }[]
+  settle?: (outcome: AddOutcome) => void
 }
 
 /** A magnet waiting for the add dialog, which reads its name and info hash when its turn comes. */
-type QueuedMagnet = Pick<PendingAdd, 'magnet' | 'external' | 'from'>
+type QueuedMagnet = Pick<PendingAdd, 'magnet' | 'external' | 'from' | 'settle'>
 
 
 const QuotaStat = ({ quota }: { quota: QuotaStatus }) => {
@@ -1792,7 +1796,7 @@ export const style = css`
 
         /* folded, the glyph is a button beside the others, with no text to set them apart from */
         &:not([data-searching]) .field {
-          .clear, .sep { display: none; }
+          .clear, .sep, .plugin, .plugin-more { display: none; }
 
           &[data-held] {
             .glyph { color: ${TEXT}; }
@@ -2599,13 +2603,19 @@ const Home = () => {
   const heldRef = useRef<number | null>(null)
 
   /** Whether the dialog now asks about this magnet. */
-  const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null): boolean => {
+  const beginAdd = useCallback((magnet: string, external: boolean, from: string | null = null, settle?: (outcome: AddOutcome) => void): boolean => {
     const request = describeAddRequest({ magnet })
     if (!request.ok) { showToast(request.problem); return false }
-    const existing = torrentsRef.current.find((t) => sameInfoHash(t.infoHash, request.infoHash) && !t.ephemeral && t.state !== 'missing')
-    if (existing) { showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' })); return false }
+    const existing = torrentsRef.current.find((t) => sameInfoHash(t.infoHash, request.infoHash) && !t.ephemeral && (settle || t.state !== 'missing'))
+    if (existing) {
+      if (settle) settle('already')
+      else showToast(intl.formatMessage({ id: 'Already in your list', defaultMessage: 'Already in your list' }))
+      return false
+    }
     client.addMagnet(request.magnet, { ephemeral: true, hold: true })
-    setPendingAdd({ magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from })
+    const next: PendingAdd = { magnet: request.magnet, infoHash: request.infoHash, name: request.name, external, from, settle }
+    pendingRef.current = next
+    setPendingAdd(next)
     setChoices(null)
     return true
   }, [client, showToast, intl])
@@ -2614,8 +2624,17 @@ const Home = () => {
   const addQueue = useRef<(QueuedMagnet | PendingAdd)[]>([])
   const askNext = useCallback(() => {
     for (let next = addQueue.current.shift(); next; next = addQueue.current.shift()) {
-      if ('infoHash' in next) { setPendingAdd(next); setChoices(null); return }
-      if (beginAdd(next.magnet, next.external, next.from)) return
+      if ('infoHash' in next) {
+        if (next.settle && torrentsRef.current.some((t) => sameInfoHash(t.infoHash, next.infoHash) && !t.ephemeral)) {
+          next.settle('already')
+          continue
+        }
+        pendingRef.current = next
+        setPendingAdd(next)
+        setChoices(null)
+        return
+      }
+      if (beginAdd(next.magnet, next.external, next.from, next.settle)) return
     }
   }, [beginAdd])
 
@@ -3285,11 +3304,20 @@ const Home = () => {
     pause(Number(pendingTorrent.id))
   }, [pendingAdd, choices, pendingTorrent, defaultLocation, pause])
 
-  const closeAdd = useCallback(() => {
+  const closeAdd = useCallback((outcome: AddOutcome) => {
     // this answer is for its copies still waiting too: an Add has not reached the list yet, so asking one would hold
     // the torrent just added
-    const answered = pendingRef.current?.infoHash
-    addQueue.current = addQueue.current.filter((next) => !sameInfoHash('infoHash' in next ? next.infoHash : magnetInfoHash(next.magnet), answered))
+    const current = pendingRef.current
+    const answered = current?.infoHash
+    current?.settle?.(outcome)
+    const remaining: (QueuedMagnet | PendingAdd)[] = []
+    for (const next of addQueue.current) {
+      const ih = 'infoHash' in next ? next.infoHash : magnetInfoHash(next.magnet)
+      if (sameInfoHash(ih, answered)) next.settle?.(outcome)
+      else remaining.push(next)
+    }
+    addQueue.current = remaining
+    pendingRef.current = null
     setPendingAdd(null)
     setChoices(null)
     heldRef.current = null
@@ -3303,7 +3331,7 @@ const Home = () => {
     // removed by hash, because the list has the add up to one engine state (500 ms) before a row with its handle does.
     const entry = pendingAdd && !pendingAdd.bytes ? list.find((e) => e.infoHash === pendingAdd.infoHash) : undefined
     if (entry?.ephemeral) removeMissing(entry.infoHash)
-    closeAdd()
+    closeAdd('declined')
   }, [pendingAdd, list, removeMissing, closeAdd])
 
   const confirmAdd = useCallback(() => {
@@ -3329,8 +3357,30 @@ const Home = () => {
     showToast(choices.start
       ? intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: pendingAdd.name })
       : intl.formatMessage({ id: '{name} added, paused', defaultMessage: '{name} added, paused' }, { name: pendingAdd.name }))
-    closeAdd()
+    closeAdd('added')
   }, [pendingAdd, choices, pendingTorrent, addMagnet, addTorrentFile, client, resume, showToast, closeAdd, intl])
+
+  // plugin `suggest` proposals go into the same add queue as external links, naming the plugin in the dialog
+  const askNextRef = useRef(askNext)
+  askNextRef.current = askNext
+  useEffect(() => {
+    const unregister = registerSuggester((proposal) => new Promise((resolve) => {
+      if (torrentsRef.current.some((t) => sameInfoHash(t.infoHash, proposal.infoHash) && !t.ephemeral)) {
+        resolve({ infoHash: proposal.infoHash, outcome: 'already' })
+        return
+      }
+      const settle = (outcome: AddOutcome) => resolve({ infoHash: proposal.infoHash, outcome })
+      addQueue.current.push(proposal.bytes
+        ? { magnet: proposal.magnet, infoHash: proposal.infoHash, name: proposal.name, external: true, from: proposal.from, bytes: proposal.bytes, files: proposal.files, settle }
+        : { magnet: proposal.magnet, external: true, from: proposal.from, settle })
+      if (!pendingRef.current) askNextRef.current()
+    }))
+    return () => {
+      unregister()
+      pendingRef.current?.settle?.('declined')
+      for (const next of addQueue.current.splice(0)) next.settle?.('declined')
+    }
+  }, [])
 
   /**
    * A torrent handed over by another site, through `/add`.
@@ -3739,6 +3789,7 @@ const Home = () => {
             )}
 
             <span className="sep" aria-hidden="true"/>
+            <AddFieldButtons text={input} onMouseDown={keepFocus}/>
 
             {/**
               * The only way to pick a .torrent that is not a drag.
@@ -4016,6 +4067,7 @@ const Home = () => {
       {anyPicked && (
         <BulkBar
           count={bulk.rows.length}
+          infoHashes={pickedHashes()}
           canPause={toPause(bulk.rows).length > 0}
           canResume={toResume(bulk.rows).length > 0}
           finished={bulk.rows.every(finished)}

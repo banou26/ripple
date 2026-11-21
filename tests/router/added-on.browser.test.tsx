@@ -9,7 +9,7 @@ const client = new Proxy({}, {
     ? (cb: (value?: unknown) => void) => { subscribed[key] = cb; return () => { delete subscribed[key] } }
     : key === 'owns' ? () => false : () => Promise.resolve(),
 })
-vi.mock('../../src/torrent/client', () => ({ getTorrentClient: () => client }))
+vi.mock('../../src/torrent/client', () => ({ getTorrentClient: () => client, runningTorrentClient: () => null }))
 
 const { useTorrents } = await import('../../src/torrent/use-torrents')
 const { TorrentDetailDock } = await import('../../src/router/torrent-detail')

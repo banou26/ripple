@@ -47,6 +47,17 @@ describe('a plugin\'s buttons', () => {
     expect(letterOf('\u05e7\u05d1\u05d5\u05e6\u05d5\u05ea', 'he')).toBe('\u05e7')
   })
 
+
+  it('holds add-field, bulk-bar and detail to one button per plugin and cleans optional page specs', () => {
+    for (const place of ['add-field', 'bulk-bar', 'detail'] as const) {
+      expect(cleanButtons([button({ id: 'first', place }), button({ id: 'second', place })]).map((b) => b.id)).toEqual(['first'])
+    }
+    expect(cleanButtons([button({ id: 'p1', page: { id: 'search', size: 'large' } })])[0]!.page).toEqual({ id: 'search', size: 'large' })
+    expect(cleanButtons([button({ id: 'p2', page: { id: ' search ', size: 'huge' } })])[0]!.page).toEqual({ id: 'search' })
+    expect(cleanButtons([button({ id: 'p3', page: { id: '   ' } })])[0]!.page).toBeUndefined()
+    expect(cleanButtons([button({ id: 'p4', page: 'search' })])[0]!.page).toBeUndefined()
+  })
+
   it('writes an icon into CSS whole, quotes and backslashes included', () => {
     const icon = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0\\"/></svg>'
     const mask = maskOf(icon)

@@ -7,6 +7,7 @@ import { useIntl } from 'react-intl'
 
 import { hint } from './hint'
 import { MenuItems, MenuSurface } from './menu'
+import { BulkBarButtons } from '../plugins/plugin-buttons'
 import {
   BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, DANGER, ELEVATED_BG, EMPHASIS,
   FOCUS_RING, PICKED_WASH, PICTURE_SHADE, TEXT, TEXT_ON_LIGHT,
@@ -199,6 +200,7 @@ const barStyle = css`
      since its width depends on the language and the font */
   @media (max-width: 700px) {
     flex-wrap: nowrap;
+    &:has(.plugin) { flex-wrap: wrap; }
     gap: 4px;
     padding-inline-start: 8px;
 
@@ -231,6 +233,8 @@ const barStyle = css`
 
 export type BulkBarProps = {
   count: number
+  /** Hex info hashes of the selected torrents, handed to bulk-bar plugin buttons. */
+  infoHashes?: string[]
   /** Whether Pause or Resume would change anything for the ticked rows; each is disabled otherwise. */
   canPause: boolean
   canResume: boolean
@@ -254,7 +258,7 @@ export type BulkBarProps = {
 
 /** What can be done to every ticked torrent at once, shown while any is ticked. */
 export const BulkBar = ({
-  count, canPause, canResume, finished, canDownload, onDownload, onCopyMagnets, groups, onGroup, onNewGroup, onPause, onResume, onRemove, onClear,
+  count, infoHashes = [], canPause, canResume, finished, canDownload, onDownload, onCopyMagnets, groups, onGroup, onNewGroup, onPause, onResume, onRemove, onClear,
 }: BulkBarProps) => {
   const intl = useIntl()
   const [grouping, setGrouping] = useState(false)
@@ -295,6 +299,7 @@ export const BulkBar = ({
         >
           <Layers aria-hidden="true"/>
         </button>
+        <BulkBarButtons infoHashes={infoHashes}/>
         <button type="button" className="danger" onClick={onRemove} aria-label={remove}>
           <Trash2 aria-hidden="true"/><span>{remove}</span>
         </button>

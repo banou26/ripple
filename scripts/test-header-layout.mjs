@@ -102,7 +102,10 @@ const keepPlugins = (languages) => new Promise((resolve, reject) => {
     const kept = Object.fromEntries([0, 1, 2].map((i) => [`npm:layout-plugin-${i}`, {
       name: `Layout plugin ${i}`,
       installedAt: i,
-      locales: Object.fromEntries(languages.map((language) => [language, [{ id: 'go', place: 'header', label: `Group by tracker ${i}`, icon }]])),
+      locales: Object.fromEntries(languages.map((language) => [language, [
+        { id: 'go', place: 'header', label: `Group by tracker ${i}`, icon },
+        { id: 'find', place: 'add-field', label: `Find ${i}`, icon },
+      ]])),
     }]))
     const writing = opened.result.transaction('keyval', 'readwrite')
     writing.objectStore('keyval').put(kept, 'ripple:plugin-buttons')
@@ -171,7 +174,21 @@ try {
     }
   }
 
-  // the control: right to left too, a row wider than the window scrolls the page sideways, past its left edge
+  // clear plugins before the bare-field typed/cleared icon count check below
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const opened = indexedDB.open('keyval-store')
+    opened.onerror = () => reject(opened.error)
+    opened.onsuccess = () => {
+      const tx = opened.result.transaction('keyval', 'readwrite')
+      tx.objectStore('keyval').delete('ripple:plugin-buttons')
+      tx.oncomplete = () => { opened.result.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    }
+  }))
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('header .field', { timeout: 30_000 })
+
+    // the control: right to left too, a row wider than the window scrolls the page sideways, past its left edge
   await page.evaluate(() => { document.querySelector('header form').style.minWidth = '100vw' })
   const past = await page.evaluate(measure)
   await page.evaluate(() => { document.querySelector('header form').style.minWidth = '' })
