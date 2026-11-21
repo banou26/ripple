@@ -10,6 +10,17 @@ const RETRY_DELAYS = [50, 150, 400, 900, 1_500]
 
 export const isFatal = (error: unknown) => (error as { name?: string })?.name === 'QuotaExceededError'
 
+/**
+ * Asked before a write grows what libtorrent's storage `id` is charged, by `growth` bytes. False refuses the write as
+ * the browser refuses one for want of room, so the engine stops the torrent the same way.
+ */
+export type Admit = (id: number, growth: number) => boolean
+
+/** Throws the browser's own refusal when `admit` declines what a write grows its file by. */
+export const admitWrite = (admit: Admit | undefined, id: number, growth: number) => {
+  if (growth > 0 && admit && !admit(id, growth)) throw new DOMException('kept for temporary films', 'QuotaExceededError')
+}
+
 // a worker-only call the DOM typings do not carry
 type SyncAccessible = { createSyncAccessHandle: () => Promise<FileSystemSyncAccessHandle> }
 
@@ -81,7 +92,7 @@ export type MeasurableStorage = StorageBackend & {
   refusedFile: (id: number) => number | undefined
 }
 
-export const createResilientStorage = (): MeasurableStorage => {
+export const createResilientStorage = (admit?: Admit): MeasurableStorage => {
   const storage = new OPFSStorage()
   // a retry re-opens with create:true, so it must not run inside a delete or it orphans the file
   const dying = new Set<number>()
@@ -146,6 +157,7 @@ export const createResilientStorage = (): MeasurableStorage => {
   const writeAt = (id: number, fileIndex: number, offset: number, bytes: Uint8Array) => {
     const put = (handle: FileSystemSyncAccessHandle) => {
       try {
+        admitWrite(admit, id, offset + bytes.length - handle.getSize())
         write(handle, bytes, { at: offset })
       } catch (error) {
         if (isFatal(error)) refused.set(id, fileIndex)

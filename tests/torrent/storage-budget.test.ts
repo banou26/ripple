@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, cacheBudget, evictionFloor, isOriginFull, planEviction } from '../../src/torrent/storage-budget'
+import { CACHE_SHARE, MAX_CACHE_BYTES, MIN_FREE_BYTES, RESERVE_BYTES, cacheBudget, evictionFloor, isOriginFull, keptReserve, keptRoom, planEviction } from '../../src/torrent/storage-budget'
 import type { Budget, EvictionCandidate, Verdict } from '../../src/torrent/storage-budget'
+import { MIN_WINDOW_CHUNKS, isWindowed } from '../../src/torrent/window-plan'
 
 const GB = 1_000_000_000
 const MiB = 1024 * 1024
@@ -32,6 +33,53 @@ describe('evictionFloor', () => {
     expect(evictionFloor(0)).toBe(0)
     expect(evictionFloor(Number.NaN)).toBe(0)
     expect(evictionFloor(-1)).toBe(0)
+  })
+})
+
+describe('the reserve downloads the person keeps leave for a temporary film', () => {
+  const CHUNK = 64 * MiB
+
+  it('is about 1.5 GB: the least a film bigger than it needs to play through its window, and a chunk more', () => {
+    expect(RESERVE_BYTES).toBe(1.5 * GiB + 64 * MiB)
+    expect(MIN_WINDOW_CHUNKS).toBe(23)
+    // a window's room leaves the margin out; the chunk more is for whatever else the origin comes to hold
+    const room = RESERVE_BYTES - 64 * MiB
+    expect(isWindowed(10 * GiB, room - CHUNK, CHUNK)).toBe(true)
+    expect(isWindowed(10 * GiB, room - CHUNK - 1, CHUNK)).toBe(false)
+  })
+
+  it('is the whole of it on Firefox\'s 10 GiB, and never less than the eviction floor', () => {
+    expect(keptReserve(10 * GiB)).toBe(RESERVE_BYTES)
+    expect(keptReserve(200 * GB)).toBe(RESERVE_BYTES)
+    for (const limit of [512 * MiB, 2 * GiB, 3_340_836_180, 10 * GiB, 200 * GB]) expect(keptReserve(limit)).toBeGreaterThanOrEqual(evictionFloor(limit))
+  })
+
+  it('is half of a budget under twice it, so a small device\'s library still downloads', () => {
+    expect(keptReserve(2 * GiB)).toBe(GiB)
+    expect(keptReserve(3 * GiB)).toBe(1.5 * GiB)
+    expect(keptReserve(2 * RESERVE_BYTES)).toBe(RESERVE_BYTES)
+    expect(keptReserve(0)).toBe(0)
+    expect(keptReserve(Number.NaN)).toBe(0)
+  })
+})
+
+describe('keptRoom', () => {
+  it('is what is free and the cold cache, less the reserve, on a ceiling known to be fixed', () => {
+    const cold = [candidate('a', 1, 2 * GiB), candidate('b', 2, GiB)]
+    expect(keptRoom({ usedBytes: 6 * GiB, limitBytes: 10 * GiB, candidates: cold }, true)).toBe(7 * GiB - RESERVE_BYTES)
+    // past the reserve already, as a library filled before it existed leaves it
+    expect(keptRoom({ usedBytes: 9.5 * GiB, limitBytes: 10 * GiB, candidates: [] }, true)).toBe(0.5 * GiB - RESERVE_BYTES)
+  })
+
+  // Chromium states 10 GiB above whatever is written, so a 40 GiB extent is accepted (Chromium 149, 2026-10-19)
+  it('is unbounded on a ceiling that floats, or that no growth has shown yet', () => {
+    expect(keptRoom({ usedBytes: 9.5 * GiB, limitBytes: 10 * GiB, candidates: [] }, false)).toBe(Infinity)
+    expect(keptRoom({ usedBytes: 9.5 * GiB, limitBytes: 10 * GiB, candidates: [] }, undefined)).toBe(Infinity)
+  })
+
+  it('is unbounded for a quota the browser will not report', () => {
+    expect(keptRoom({ usedBytes: 0, limitBytes: 0, candidates: [] }, true)).toBe(Infinity)
+    expect(keptRoom({ usedBytes: Number.NaN, limitBytes: 10 * GiB, candidates: [] }, true)).toBe(Infinity)
   })
 })
 

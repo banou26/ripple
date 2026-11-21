@@ -2,7 +2,7 @@ import type { Built } from './create-source'
 import type { SourceRef } from './walk-source'
 
 import { storage } from '@banou/ponyfill'
-import { evictionFloor } from './storage-budget'
+import { keptReserve } from './storage-budget'
 import { fileFrom } from './walk-source'
 import { readTorrentFile } from './torrent-file'
 import { savePathFor } from './library'
@@ -90,19 +90,15 @@ export type CopyRoom =
   | { kind: 'unknown' }
 
 /**
- * Whether the copy fits, keeping the same floor free that the eviction budget keeps.
- *
- * The floor rather than the whole quota, because filling the origin to the brim would leave the
- * budget pass immediately trying to reclaim the very torrent that was just created, and it cannot:
- * a created torrent is not a cache entry, so it is not an eviction candidate, and the origin would
- * simply be stuck full with nothing to give.
+ * Whether the copy fits, keeping free the reserve every download the person keeps leaves for a
+ * temporary film: a created torrent is theirs, not a cache entry the budget pass could give up.
  */
 export const roomForCopy = (
   { totalBytes, usedBytes, limitBytes }: { totalBytes: number, usedBytes: number, limitBytes: number },
 ): CopyRoom => {
   if (!Number.isFinite(limitBytes) || limitBytes <= 0) return { kind: 'unknown' }
   if (!Number.isFinite(usedBytes) || usedBytes < 0) return { kind: 'unknown' }
-  const spare = limitBytes - usedBytes - evictionFloor(limitBytes)
+  const spare = limitBytes - usedBytes - keptReserve(limitBytes)
   return totalBytes <= spare ? { kind: 'fits' } : { kind: 'short', shortBy: totalBytes - spare }
 }
 

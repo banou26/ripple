@@ -9,6 +9,17 @@
  * room allows, behind the reader or wherever a seek left it.
  */
 
+/**
+ * The size of one chunk file of a cache torrent.
+ *
+ * OPFS charges a file its extent, so a file the length of the torrent's file is charged all of it
+ * once the demuxer reads the index at its end, and only the end of a file can ever be given back. A
+ * chunk is charged on its own and deleting one gives its room back at once (measured in the stub
+ * frame, 2026-10-19: Firefox 157 at the first poll, Chromium 149 within 1 ms). Delete, never
+ * truncate: Chromium had not given a truncate's room back 5 s later.
+ */
+export const CHUNK_BYTES = 64 * 1024 * 1024
+
 /** Room for the reader moving between two passes (2), and for a piece across a chunk edge (1). */
 export const ALLOWANCE_CHUNKS = 3
 

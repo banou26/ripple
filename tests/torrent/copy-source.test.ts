@@ -3,7 +3,7 @@ import type { PickedFile } from '../../src/torrent/walk-source'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_TRACKERS, buildTorrent } from '../../src/torrent/create-source'
-import { MIN_FREE_BYTES } from '../../src/torrent/storage-budget'
+import { RESERVE_BYTES } from '../../src/torrent/storage-budget'
 import { PIECE_HASH_BYTES, contentFiles, plan } from '../../src/torrent/make-torrent'
 import { MAX_PATH_ELEMENT_BYTES, layoutFor, measureRoomForCopy, roomForCopy, unsafePathElement } from '../../src/torrent/copy-source'
 
@@ -64,18 +64,11 @@ const build = async (files: PickedFile[], name: string, over: { single?: boolean
 }
 
 describe('whether the copy fits', () => {
-  it('leaves the eviction floor free rather than filling the origin to the brim', () => {
-    /*
-     * 100 GB quota, nothing used, so 99 GB is usable and the last 1 GB is the floor.
-     *
-     * Filling an origin to the brim would leave the budget pass trying to reclaim a torrent it is
-     * not allowed to touch, because a created one is not a cache entry. So the boundary is exactly
-     * at the floor, and both sides of it are pinned rather than only the comfortable one.
-     */
-    expect(roomForCopy({ totalBytes: 99 * GB, usedBytes: 0, limitBytes: 100 * GB })).toEqual({ kind: 'fits' })
-    expect(roomForCopy({ totalBytes: 99 * GB + 1, usedBytes: 0, limitBytes: 100 * GB }))
+  // a created torrent is the person's own, so it leaves the reserve for a temporary film as a download they keep does
+  it('leaves the reserve free rather than filling the origin to the brim', () => {
+    expect(roomForCopy({ totalBytes: 100 * GB - RESERVE_BYTES, usedBytes: 0, limitBytes: 100 * GB })).toEqual({ kind: 'fits' })
+    expect(roomForCopy({ totalBytes: 100 * GB - RESERVE_BYTES + 1, usedBytes: 0, limitBytes: 100 * GB }))
       .toEqual({ kind: 'short', shortBy: 1 })
-    expect(100 * GB - MIN_FREE_BYTES, 'the boundary above IS the floor').toBe(99 * GB)
   })
 
   it('counts what is already there', () => {
@@ -85,8 +78,8 @@ describe('whether the copy fits', () => {
 
   it('says how far short it is, because the dialog quotes the number', () => {
     const room = roomForCopy({ totalBytes: 10 * GB, usedBytes: 95 * GB, limitBytes: 100 * GB })
-    // 100 - 95 = 5 GB spare, less the 1 GB floor, so 4 GB usable against a 10 GB pick
-    expect(room).toEqual({ kind: 'short', shortBy: 6 * GB })
+    // 100 - 95 = 5 GB spare, less the reserve, against a 10 GB pick
+    expect(room).toEqual({ kind: 'short', shortBy: 5 * GB + RESERVE_BYTES })
   })
 
   /**
@@ -251,7 +244,7 @@ describe('measuring the room before promising a copy', () => {
     stubStorage({ estimate: REPORTED, getDirectory: async () => ORIGIN })
 
     const room = await measureRoomForCopy(9 * GB)
-    expect(room).toEqual({ kind: 'short', shortBy: 1_045_988_085 })
+    expect(room).toEqual({ kind: 'short', shortBy: 1_723_709_685 })
 
     // THE CONTROL: the same numbers, believing the browser, say there is room for all nine gigabytes
     expect(

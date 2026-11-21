@@ -1,3 +1,4 @@
+import type { Admit } from '../../src/torrent/opfs-storage'
 import type { MemoryDir, MemoryFile } from '../utils/memory-opfs'
 
 import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
@@ -14,11 +15,11 @@ const FILES = [{ path: 'Pack/film.mkv', size: 40 * C }, { path: 'Pack/extras.mkv
 const bytes = (length: number, seed = 1) => Uint8Array.from({ length }, (_, i) => (i * 31 + seed) % 251)
 
 // the chunks sit in a directory named by their size, inside the torrent's own
-const mounted = async (chunks: MemoryFile[] = [], room = { bytes: Infinity }, { written = C, size = C } = {}) => {
+const mounted = async (chunks: MemoryFile[] = [], room = { bytes: Infinity }, { written = C, size = C } = {}, admit?: Admit) => {
   const dir = memoryDir(String(written), chunks, room)
   const root = memoryDir('', [memoryDir('cache', [memoryDir(HASH, [dir], room)], room)], room)
   installOpfs(root)
-  const storage = createChunkedStorage(size)
+  const storage = createChunkedStorage(size, admit)
   await storage.onNewStorage(1, SAVE_PATH, FILES)
   return { storage, dir, root }
 }
@@ -142,6 +143,22 @@ describe('the chunked storage', () => {
     await storage.deleteFiles!(1, 0)
     expect([...(root.children.get('cache') as MemoryDir).children.keys()]).toEqual([])
     expect(storage.footprint()).toBe(0)
+  })
+
+  it('asks what a write grows each chunk by, and refuses it as the browser refuses one, before a byte lands', async () => {
+    const asked: number[][] = []
+    const { storage, dir } = await mounted([], undefined, undefined, (id, growth) => { asked.push([id, growth]); return growth < C })
+    await storage.write(1, 0, 0, bytes(100))
+    // across a chunk edge: the rest of chunk 0, then a whole new chunk 1, which is refused
+    await expect(Promise.resolve().then(() => storage.write(1, 0, 100, bytes(2 * C - 100))))
+      .rejects.toMatchObject({ name: 'QuotaExceededError' })
+    expect(asked).toEqual([[1, 100], [1, C - 100], [1, C]])
+    expect(chunk(dir, '0-1')?.bytes.length).toBe(0)
+    expect(storage.footprint()).toBe(C)
+    expect(storage.refusedFile(1)).toBe(0)
+    // inside what is already charged it grows nothing, so nothing is asked
+    await storage.write(1, 0, 10, bytes(10))
+    expect(asked).toHaveLength(3)
   })
 
   it('names the file whose write was refused for want of room, at once and without retrying', async () => {

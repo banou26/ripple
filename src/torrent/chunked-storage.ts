@@ -1,20 +1,10 @@
-import type { MeasurableStorage } from './opfs-storage'
+import type { Admit, MeasurableStorage } from './opfs-storage'
 
 import { STORAGE_NEED_FULL_CHECK, STORAGE_NO_ERROR } from 'libtorrent-wasm/opfs'
 import { write } from '@banou/ponyfill/file-system'
 
-import { createSyncAccessHandle, isFatal, retrying } from './opfs-storage'
-
-/**
- * The size of one chunk file of a cache torrent.
- *
- * OPFS charges a file its extent, so a file the length of the torrent's file is charged all of it
- * once the demuxer reads the index at its end, and only the end of a file can ever be given back. A
- * chunk is charged on its own and deleting one gives its room back at once (measured in the stub
- * frame, 2026-10-19: Firefox 157 at the first poll, Chromium 149 within 1 ms). Delete, never
- * truncate: Chromium had not given a truncate's room back 5 s later.
- */
-export const CHUNK_BYTES = 64 * 1024 * 1024
+import { admitWrite, createSyncAccessHandle, isFatal, retrying } from './opfs-storage'
+import { CHUNK_BYTES } from './window-plan'
 
 /** What the window over a cache torrent needs from its storage, on top of the engine's own calls. */
 export type ChunkedStorage = MeasurableStorage & {
@@ -60,7 +50,7 @@ const SIZE_NAME = /^\d+$/
  * written with, which its directory names: a restore trusts the resume blob without reading the
  * files, so chunks read at another size would be served as the pieces they claim to be.
  */
-export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage => {
+export const createChunkedStorage = (chunkBytes = CHUNK_BYTES, admit?: Admit): ChunkedStorage => {
   const mounts = new Map<number, Mount>()
   const mounting = new Map<number, Promise<Mount>>()
   const idBySavePath = new Map<string, number>()
@@ -288,6 +278,7 @@ export const createChunkedStorage = (chunkBytes = CHUNK_BYTES): ChunkedStorage =
         for (const seg of segments(m, fileIndex, offset, bytes.length)) {
           const put = (handle: FileSystemSyncAccessHandle) => {
             try {
+              admitWrite(admit, id, seg.at + seg.to - seg.from - (m.extents.get(seg.name) ?? 0))
               write(handle, bytes.subarray(seg.from, seg.to), { at: seg.at })
             } catch (error) {
               if (isFatal(error)) refused.set(id, fileIndex)

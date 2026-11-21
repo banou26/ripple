@@ -16,6 +16,8 @@
  * caller re-measures between evictions rather than trusting this arithmetic to be complete.
  */
 
+import { CHUNK_BYTES, MIN_WINDOW_CHUNKS } from './window-plan'
+
 /** Free space kept in hand beyond what the torrents being watched still have to write. */
 export const MIN_FREE_BYTES = 1_000_000_000
 
@@ -27,6 +29,18 @@ export const MIN_FREE_BYTES = 1_000_000_000
  * it from ever playing.
  */
 export const MARGIN_BYTES = 64 * 1024 * 1024
+
+/**
+ * The room downloads the person keeps leave for a temporary film, in Ripple's player or embedded by a page on the
+ * same site, so any film can still play through its window: the least a window takes, the margin its room leaves
+ * out, and a chunk more, 1.56 GiB. The window counts whole chunks, so with no chunk more the room falls short of one
+ * as soon as the origin holds a byte more (the library's records, the app's own files after an update).
+ */
+export const RESERVE_BYTES = (MIN_WINDOW_CHUNKS + 1) * CHUNK_BYTES + MARGIN_BYTES
+
+/** {@link RESERVE_BYTES}, or half of a budget under twice it, so a small device's library still downloads. */
+export const keptReserve = (limitBytes: number): number =>
+  (limitBytes > 0 ? Math.min(RESERVE_BYTES, Math.floor(limitBytes / 2)) : 0)
 
 /** Ceiling on cold cache, so a busy embedding page cannot quietly fill a large disk. */
 export const MAX_CACHE_BYTES = 20_000_000_000
@@ -108,9 +122,28 @@ export const isOriginFull = ({ usedBytes, limitBytes, pendingBytes, refusedBytes
   if (!Number.isFinite(limitBytes) || limitBytes <= 0) return false
   if (!Number.isFinite(usedBytes) || usedBytes < 0) return false
   const free = limitBytes - usedBytes
-  const cache = candidates.reduce((sum, c) => sum + Math.max(0, c.bytesOnDisk), 0)
+  const cache = coldBytes(candidates)
   if (free < Math.min(pendingBytes, MARGIN_BYTES) && pendingBytes > free + cache) return true
   return refusedBytes > 0 && refusedBytes + MARGIN_BYTES > free + cache
+}
+
+const coldBytes = (candidates: EvictionCandidate[]) => candidates.reduce((sum, c) => sum + Math.max(0, c.bytesOnDisk), 0)
+
+/**
+ * What downloads the person keeps may still grow browser storage by: what is free and the cold cache that may be
+ * given up, as {@link isOriginFull} counts them, less {@link keptReserve}.
+ *
+ * Unbounded unless the ceiling is known to be fixed. Chromium's floats 10 GiB above whatever is written and takes it
+ * all, so its figures say nothing of what is left until a filling disk makes the headroom fall, which `watchCeiling`
+ * reads as fixed. Unknown is unbounded too: a first kept write bigger than a floating headroom would otherwise be
+ * refused before any growth could show which kind of ceiling it is.
+ */
+export const keptRoom = (
+  { usedBytes, limitBytes, candidates }: Pick<Budget, 'usedBytes' | 'limitBytes' | 'candidates'>,
+  fixed: boolean | undefined,
+): number => {
+  if (!fixed || !(limitBytes > 0) || !(usedBytes >= 0)) return Infinity
+  return limitBytes - usedBytes + coldBytes(candidates) - keptReserve(limitBytes)
 }
 
 export type EvictionCandidate = {
@@ -141,7 +174,8 @@ export type Budget = {
 export type Verdict = Budget & {
   /**
    * What the files the browser refused a write to for want of room still owe, in torrents someone
-   * is watching. Not necessarily part of `pendingBytes`: a download page holds one file of a pack
+   * is watching, with {@link keptReserve} on top for a torrent the person keeps, which is refused
+   * short of it. Not necessarily part of `pendingBytes`: a download page holds one file of a pack
    * and writes the others.
    */
   refusedBytes: number

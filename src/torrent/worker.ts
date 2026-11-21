@@ -6,7 +6,7 @@ import { createSession, offlineHost, PRIORITY, TORRENT_FLAG } from 'libtorrent-w
 import type { PeerInfo, Reachability, Session, TorrentFiles, TorrentStatus, TrackerInfo } from 'libtorrent-wasm'
 
 import type { ObservedStatus, RecoveryState } from './recovery'
-import type { MeasurableStorage } from './opfs-storage'
+import type { Admit, MeasurableStorage } from './opfs-storage'
 import type { EvictionCandidate, Verdict } from './storage-budget'
 import type { Ceiling, FileGeometry, Range, WindowPlan } from './window-plan'
 import type { Persisted, Removal, SaveLocation } from './library'
@@ -14,14 +14,14 @@ import type { Persisted, Removal, SaveLocation } from './library'
 import { magnetInfoHash, sameInfoHash } from './magnet'
 import { READ_SIZE, deadlineStepMsFor, shouldReanchor, windowBytes, windowPiecesFor } from './stream-plan'
 import { createResilientStorage, createSyncAccessHandle } from './opfs-storage'
-import { CHUNK_BYTES, createChunkedStorage } from './chunked-storage'
+import { createChunkedStorage } from './chunked-storage'
 import { ACTIVE_STATES, CHECKING_STATES, pauseLanded, createRecoveryTracker } from './recovery'
 import { NO_INBOUND, countInbound } from './inbound'
 import type { Totals, Uptime } from './uptime'
 
 import { NO_TOTALS, NO_UPTIME, TOTAL_KEYS, accumulate, mergeTotals, sessionUptime, totalUptime, worthWriting } from './uptime'
-import { MARGIN_BYTES, isOriginFull, planEviction } from './storage-budget'
-import { TRICKLE_BYTES_PER_SECOND, chunksReached, isWindowed, piecesOf, piecesOfChunk, planWindow, shareRoom, shouldTrickle, watchCeiling } from './window-plan'
+import { MARGIN_BYTES, isOriginFull, keptReserve, keptRoom, planEviction } from './storage-budget'
+import { CHUNK_BYTES, TRICKLE_BYTES_PER_SECOND, chunksReached, isWindowed, piecesOf, piecesOfChunk, planWindow, shareRoom, shouldTrickle, watchCeiling } from './window-plan'
 // aliased: `storage` at module scope here is the hybrid backend, and the ponyfill's is
 // navigator.storage. Two different things that would otherwise want the same name.
 import { storage as originStorage } from '@banou/ponyfill'
@@ -130,8 +130,20 @@ const relay = transport === 'relay' ? relaySockets() : null
 let session: Session | null = null
 let webrtc: WebrtcPeers | null = null
 let storage: MeasurableStorage | null = null
+/*
+ * What downloads the person keeps may grow browser storage by, as the last budget pass measured it, against every
+ * write's growth since: one write into a sparse file can take gigabytes. A temporary torrent's is never refused.
+ */
+let kept = { room: Infinity, grownAt: 0 }
+let grown = 0
+const admit: Admit = (id, growth) => {
+  const refused = grown - kept.grownAt + growth > kept.room
+    && handles.some((h) => !ephemeralHandles.has(h) && session?.files(h)?.storageIndex === id)
+  if (!refused) grown += growth
+  return !refused
+}
 // a build-time knob, for the end to end test of a file bigger than a small room
-const cache = createChunkedStorage(Number(import.meta.env.VITE_RIPPLE_CHUNK_BYTES) || CHUNK_BYTES)
+const cache = createChunkedStorage(Number(import.meta.env.VITE_RIPPLE_CHUNK_BYTES) || CHUNK_BYTES, admit)
 /**
  * The directory the user granted, as handed over by a page.
  *
@@ -1261,7 +1273,8 @@ const owedByViewers = async (space: Space, cold: { evictable: EvictionCandidate[
   }
   const now = owing(0)
   const later = owing(bytes(cold.graced))
-  const refusedBytes = refused.filter((f) => !later.windowed.has(f.h)).reduce((sum, f) => sum + owes(f), 0)
+  const refusedBytes = refused.filter((f) => !later.windowed.has(f.h))
+    .reduce((sum, f) => sum + owes(f) + (ephemeralHandles.has(f.h) ? 0 : keptReserve(space.limitBytes)), 0)
   const rooms = new Map(mine.map((f, i) => [f.h, now.shares[i] ?? 0]))
   return { pendingBytes: now.owed, laterBytes: later.owed, refusedBytes, rooms }
 }
@@ -1357,9 +1370,11 @@ const RECENT_USE_MS = 15_000
 const RECLAIM_POLL_MS = 250
 const RECLAIM_WAIT_MS = 4_000
 
-type Space = { usedBytes: number, limitBytes: number }
+// `grownAt`: what `admit` had let writes grow by before the estimate was asked for
+type Space = { usedBytes: number, limitBytes: number, grownAt: number }
 
 const measureSpace = async (): Promise<Space | null> => {
+  const grownAt = grown
   try {
     /**
      * `@banou/ponyfill` rather than `navigator.storage`, and this is the reader that matters most:
@@ -1371,7 +1386,7 @@ const measureSpace = async (): Promise<Space | null> => {
     const { usage, quota } = await originStorage.estimate()
     // an unknown quota is not a full disk; use-storage-usage.ts guards the page side the same way
     if (!quota || usage === undefined) return null
-    return { usedBytes: usage, limitBytes: quota }
+    return { usedBytes: usage, limitBytes: quota, grownAt }
   } catch { return null }
 }
 
@@ -1751,7 +1766,10 @@ const runStorageBudget = async () => {
     console.error('[worker] storage budget pass failed', String(err))
   } finally {
     budgetPassRunning = false
-    if (measured) reportSpace(verdict(measured))
+    if (measured) {
+      reportSpace(verdict(measured))
+      kept = { room: keptRoom(verdict(measured), ceiling?.fixed), grownAt: measured.grownAt }
+    }
     if (budgetPassAgain) { budgetPassAgain = false; void runStorageBudget() }
   }
 }
@@ -1832,7 +1850,7 @@ const init = async () => {
   ])
 
   // persistent storage is asked for on the main thread, in use-storage-usage.ts: a worker's StorageManager has no persist
-  storage = createHybridStorage(createResilientStorage(), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
+  storage = createHybridStorage(createResilientStorage(admit), () => folderHandle, (savePath) => sourceHandles.get(savePath) ?? null, cache)
   session = await createSession(relay
     // the relay looks names up: with no `dnsLookup` the engine asks 1.1.1.1 itself, from the person's own address
     ? { net: relay.net, dgram: relay.dgram, dnsLookup: lookup, storage, utpReceiveBufferBytes: 4_194_304 }

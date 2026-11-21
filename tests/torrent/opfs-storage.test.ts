@@ -72,6 +72,29 @@ describe('a write the browser refuses for want of room', () => {
   })
 })
 
+describe('a write the reserve refuses', () => {
+  it('asks what the write grows the file by, and refuses it as the browser refuses one, before a byte lands', async () => {
+    const film = syncHandle({ bytes: Infinity })
+    mount([file('film.mkv', film)])
+    const asked: number[][] = []
+    const storage = createResilientStorage((id, growth) => { asked.push([id, growth]); return growth <= PIECE })
+    await storage.onNewStorage(1, SAVE_PATH, [{ path: 'film.mkv', size: 100 * PIECE }])
+
+    // the tail: OPFS charges the extent, so the write is charged the whole file
+    await expect(Promise.resolve().then(() => storage.write(1, 0, 99 * PIECE, new Uint8Array(PIECE))))
+      .rejects.toMatchObject({ name: 'QuotaExceededError' })
+    expect(film.getSize()).toBe(0)
+    expect(storage.refusedFile(1)).toBe(0)
+    expect(asked).toEqual([[1, 100 * PIECE]])
+
+    await storage.write(1, 0, 0, new Uint8Array(PIECE))
+    expect(film.getSize()).toBe(PIECE)
+    // inside what is already charged it grows nothing, so nothing is asked
+    await storage.write(1, 0, PIECE / 2, new Uint8Array(PIECE / 2))
+    expect(asked).toEqual([[1, 100 * PIECE], [1, PIECE]])
+  })
+})
+
 describe('usageOfStorage', () => {
   it('measures one file of a torrent when asked for one', async () => {
     const room = { bytes: Infinity }

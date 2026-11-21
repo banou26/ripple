@@ -1,7 +1,11 @@
+import { STORAGE_NEED_FULL_CHECK } from 'libtorrent-wasm/opfs'
 import { describe, expect, it, vi } from 'vitest'
 
+import { createChunkedStorage } from '../../src/torrent/chunked-storage'
 import { createHybridStorage, folderLacks, isNativeSavePath, nativeSavePathFor, NATIVE_ROOT, sourceSavePathFor } from '../../src/torrent/hybrid-storage'
-import type { MeasurableStorage } from '../../src/torrent/opfs-storage'
+import { createResilientStorage } from '../../src/torrent/opfs-storage'
+import type { Admit, MeasurableStorage } from '../../src/torrent/opfs-storage'
+import { installOpfs, memoryDir } from '../utils/memory-opfs'
 
 /**
  * Serving a torrent out of the user's own folder.
@@ -346,5 +350,26 @@ describe('the cache root', () => {
     expect(toOpfs!.read).toHaveBeenCalledWith(2, 0, 0, 4)
     expect(toOpfs!.read).toHaveBeenCalledTimes(1)
     expect(toOpfs!.write).not.toHaveBeenCalled()
+  })
+})
+
+describe('the reserve downloads the person keeps leave for a temporary film', () => {
+  // a folder torrent is the person's own and kept, so only its storage keeps it out of the reserve's reach
+  it('never reaches a torrent in their folder, whose bytes are not in browser storage', async () => {
+    installOpfs(memoryDir(''))
+    const asked: number[] = []
+    const refuseAll: Admit = (id) => { asked.push(id); return false }
+    const storage = createHybridStorage(createResilientStorage(refuseAll), () => fakeFolder({ 'film.mkv': bytes(1000, 5) }), undefined, createChunkedStorage(1024, refuseAll))
+    storage.onNewStorage(1, nativeSavePathFor('abc'), [{ path: 'film.mkv', size: 1000 }])
+    await storage.onNewStorage(2, '/dl/' + 'b'.repeat(40), [{ path: 'own.mkv', size: 1000 }])
+
+    expect(await storage.read(1, 0, 0, 16)).toEqual(bytes(16, 5))
+    expect(await storage.check!(1)).toBe(STORAGE_NEED_FULL_CHECK)
+    expect(storage.refusedFile(1)).toBeUndefined()
+    expect(await storage.usageOf(nativeSavePathFor('abc'))).toBe(0)
+
+    // THE CONTROL: the reserve is live in this storage, and refuses a download kept in browser storage beside it
+    await expect(Promise.resolve().then(() => storage.write(2, 0, 0, bytes(16, 1)))).rejects.toMatchObject({ name: 'QuotaExceededError' })
+    expect(asked).toEqual([2])
   })
 })
