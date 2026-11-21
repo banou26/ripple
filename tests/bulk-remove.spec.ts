@@ -141,6 +141,8 @@ test('two of three torrents removed in one action stay removed after a reload, a
 
   // the third made temporary, so a filter can hide it: Select all then takes only what the filter shows
   await page.locator('.torrent', { hasText: three }).getByRole('button', { name: `Options for ${three}` }).click()
+  // copied from the person's own file into browser storage, so removal names Ripple's copy rather than the originals
+  await expect(page.getByRole('button', { name: "Remove and delete Ripple's copy", exact: true })).toBeVisible()
   await page.getByRole('switch', { name: 'Keep this download' }).click()
   await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
   await page.getByRole('button', { name: 'Done' }).click()

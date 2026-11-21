@@ -160,26 +160,56 @@ test('turning Keep off asks and says Ripple may delete a torrent only in its own
     expect(await shown()).not.toContain(told(name))
   }
 
-  // THE CONTROL, in its own directory: asked, told after, and its mark says it may be deleted
-  await options(OWN.name)
-  await keep.click()
-  await expect(asked(OWN.name)).toBeVisible()
-  await expect(page.getByRole('dialog').last()).toContainText('Ripple may delete its files when storage runs low.')
-  await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
-  await expect.poll(shown).toContain(told(OWN.name))
-  await expect.poll(() => temporary(page, OWN.infoHash), { timeout: 10_000 }).toBe(true)
-  await done()
-  await expect(mark(OWN.name)).toHaveAttribute('data-tooltip-content', HINT)
+  const askOff = async (name: string, infoHash: string) => {
+    await page.evaluate(() => { (window as unknown as { __toasts: string[] }).__toasts.length = 0 })
+    await options(name)
+    await keep.click()
+    await expect(asked(name)).toBeVisible()
+    await expect(page.getByRole('dialog').last()).toContainText('Ripple may delete its files when storage runs low.')
+    await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
+    await expect.poll(shown).toContain(told(name))
+    await expect.poll(() => temporary(page, infoHash), { timeout: 10_000 }).toBe(true)
+    await done()
+    await expect(mark(name)).toHaveAttribute('data-tooltip-content', HINT)
+  }
 
+  // THE CONTROL, in its own directory: asked, told after, and its mark says it may be deleted
+  await askOff(OWN.name, OWN.infoHash)
   await neverAsked(AT_ROOT.name, AT_ROOT.infoHash)
   await neverAsked(MADE.name, made)
 
-  // the same torrent kept again and moved into the folder
+  // table view carries the same rule on every row
+  await page.getByRole('button', { name: 'Table', exact: true }).click()
+  const tableMark = (name: string) => page.locator('.torrent-table tbody tr', { hasText: name }).locator('.temp')
+  await expect(tableMark(OWN.name)).toHaveAttribute('data-tooltip-content', HINT)
+  await expect(tableMark(AT_ROOT.name)).not.toHaveAttribute('data-tooltip-content')
+  await expect(tableMark(MADE.name)).not.toHaveAttribute('data-tooltip-content')
+  await page.getByRole('button', { name: 'Cards', exact: true }).click()
+
+  // moved into the folder while still temporary: the mark stays and stops saying it may be deleted
   await options(OWN.name)
-  await keep.click()
-  await expect.poll(() => temporary(page, OWN.infoHash), { timeout: 10_000 }).toBe(false)
   await page.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
   await done()
   await expect.poll(() => at(page, OWN.infoHash), { timeout: 60_000, message: 'it never moved into the folder' }).toBe(`/native/${OWN.infoHash}`)
+  await expect(mark(OWN.name)).toHaveCount(1)
+  await expect(mark(OWN.name)).not.toHaveAttribute('data-tooltip-content')
+
+  // kept in the folder, then un-kept there: still never asked or told
+  await options(OWN.name)
+  await keep.click()
+  await expect.poll(() => temporary(page, OWN.infoHash), { timeout: 10_000 }).toBe(false)
+  await done()
   await neverAsked(OWN.name, OWN.infoHash)
+
+  // moved back to browser storage while temporary: owns its directory again, so the mark and Keep off say so again
+  await options(OWN.name)
+  await page.getByRole('dialog').last().getByRole('radio', { name: 'Keep in browser storage' }).click({ timeout: 10_000 })
+  await done()
+  await expect.poll(() => at(page, OWN.infoHash), { timeout: 60_000, message: 'it never moved back to browser storage' }).toBe(`/dl/${OWN.infoHash}`)
+  await expect(mark(OWN.name)).toHaveAttribute('data-tooltip-content', HINT)
+  await options(OWN.name)
+  await keep.click()
+  await expect.poll(() => temporary(page, OWN.infoHash), { timeout: 10_000 }).toBe(false)
+  await done()
+  await askOff(OWN.name, OWN.infoHash)
 })

@@ -208,7 +208,7 @@ const snapshot = (handle: number, hash: string, name: string, status: object, ov
   handle,
   magnet: magnetOf(hash, name),
   files: { files: [{ path: `${name}.mkv`, size: 4.5 * GB }], contentSize: 4.5 * GB, pieceLength: 16_384 },
-  status: { state: 3, paused: false, progress: 0.5, totalDone: 2.25 * GB, totalWanted: 4.5 * GB, downloadRate: 8_700_000, uploadRate: 120_000, numPeers: 82, numSeeds: 12, ...status },
+  status: { state: 3, paused: false, progress: 0.5, totalDone: 2.25 * GB, totalWanted: 4.5 * GB, downloadRate: 8_700_000, uploadRate: 120_000, numPeers: 82, numSeeds: 12, savePath: `/dl/${hash.repeat(40)}`, ...status },
   bitfield: null,
   recovery: null,
   userPaused: false,
