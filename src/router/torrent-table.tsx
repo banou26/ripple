@@ -9,7 +9,7 @@ import { css } from '@emotion/react'
 import { Clock, Ellipsis } from 'lucide-react'
 import { defineMessage, useIntl } from 'react-intl'
 
-import { NATURAL_DIR, SORT_LABEL, TEMPORARY_GONE_HINT, TEMPORARY_HINT } from '../torrent/list-view'
+import { NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT, reclaimable } from '../torrent/list-view'
 import { noPeersLine } from '../torrent/no-peers'
 import { badgeRules, stateHues } from './badge-style'
 import { pickable } from './bulk-selection'
@@ -336,7 +336,7 @@ export const TorrentTable = (
               {t.ephemeral === true && (
                 <span
                   className="temp" role="img" aria-label={intl.formatMessage({ id: 'Temporary download', defaultMessage: 'Temporary download' })}
-                  {...hint(intl.formatMessage(t.state === 'missing' ? TEMPORARY_GONE_HINT : TEMPORARY_HINT))}
+                  {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
                 >
                   <Clock size={13} aria-hidden="true"/>
                 </span>

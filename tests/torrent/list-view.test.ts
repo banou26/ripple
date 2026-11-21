@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_GROUPS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
   cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readGroup,
-  readSort, readView, shouldReorder, sortTorrents, visibleTorrents, writeSort,
+  readSort, readView, reclaimable, shouldReorder, sortTorrents, visibleTorrents, writeSort,
 } from '../../src/torrent/list-view'
 
 /**
@@ -71,6 +71,23 @@ describe('the temporary filter', () => {
     const input = [mine, temp]
     visibleTorrents(input, 'library')
     expect(input).toHaveLength(2)
+  })
+})
+
+// the budget pass's rule, read off where the engine says the files are: only a torrent in its own directory there
+describe('which torrents Ripple may delete to free space once temporary', () => {
+  const hash = 'ab'.repeat(20)
+  const at = (savePath: string) => t({ infoHash: hash, stats: { savePath } as Torrent['stats'] })
+
+  it('is one in its own directory in browser storage', () => {
+    expect(reclaimable(at(`/dl/${hash}`))).toBe(true)
+    expect(reclaimable(at(`/cache/${hash}`))).toBe(true)
+  })
+
+  it('is never one in the folder, at the shared root, made from the person\'s files, or not reported yet', () => {
+    expect([`/native/${hash}`, '/dl', `/source/${hash}`, `/dl/${'cd'.repeat(20)}`].map((path) => reclaimable(at(path)))).toEqual([false, false, false, false])
+    expect(reclaimable(t({ infoHash: hash }))).toBe(false)
+    expect(reclaimable(t({ stats: { savePath: `/dl/${hash}` } as Torrent['stats'] }))).toBe(false)
   })
 })
 

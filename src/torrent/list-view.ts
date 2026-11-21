@@ -2,6 +2,7 @@ import type { Torrent } from './types'
 
 import { defineMessage, defineMessages } from 'react-intl'
 
+import { ownsItsDirectory } from './library'
 import { hexInfoHash } from './magnet'
 import { chosenFiles, contentFiles } from './types'
 
@@ -26,8 +27,13 @@ import { chosenFiles, contentFiles } from './types'
  */
 export const TEMPORARY_HINT = defineMessage({ id: 'May be deleted to free space. Open options to keep it.', defaultMessage: 'May be deleted to free space. Open options to keep it.' })
 
-/** The same fact once the bytes are already gone. */
-export const TEMPORARY_GONE_HINT = defineMessage({ id: 'Deleted to free space.', defaultMessage: 'Deleted to free space.' })
+/**
+ * Whether Ripple may delete this torrent's files to free space once it is temporary: the budget pass's own rule
+ * ({@link ownsItsDirectory}), so never a torrent in the person's folder, one made from their own files, or a .torrent
+ * added at the shared root. Only such a torrent is asked about, told about or marked as one that may be deleted.
+ */
+export const reclaimable = (t: Pick<Torrent, 'infoHash' | 'stats'>): boolean =>
+  !!t.infoHash && ownsItsDirectory(t.stats?.savePath, t.infoHash)
 
 // -------------------------------------------------------------------------------------- the filter
 

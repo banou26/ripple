@@ -91,7 +91,6 @@ const addWhole = async (page: Page) => {
 const makeTemporary = async (page: Page) => {
   await row(page).getByRole('button', { name: `Options for ${NAME}` }).click()
   await page.getByRole('switch', { name: 'Keep this download' }).click()
-  await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
   await page.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(async () => (await entry(page))?.ephemeral, { timeout: 10_000 }).toBe(true)
@@ -160,51 +159,4 @@ test('a temporary torrent moved into the folder with nobody watching reads Compl
   const moved = `/native/${INFO_HASH}`
   await expect.poll(async () => (await reports(page)).some((r) => r.savePath === moved), { timeout: 60_000, message: 'the torrent never moved into the folder' }).toBe(true)
   await parkedWhole(page)
-})
-
-// Ripple never deletes a torrent in the folder to free space, so turning Keep off there asks nothing and says nothing of it
-test('a torrent in the folder is made temporary without a question about deleting it', async ({ page }) => {
-  test.setTimeout(180_000)
-  await prepare(page)
-  await page.goto('/settings')
-  await page.getByRole('button', { name: 'Choose folder', exact: true }).click({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'picked', exact: true }).waitFor({ timeout: 10_000 })
-  await page.locator('header a.back').click()
-  await addWhole(page)
-  const options = () => row(page).getByRole('button', { name: `Options for ${NAME}`, exact: true }).click()
-  const keep = page.getByRole('switch', { name: 'Keep this download' })
-  const asked = page.getByRole('heading', { name: `Let Ripple delete ${NAME}?` })
-  const told = `${NAME} can be deleted to free space`
-  // every toast shown from here, since one is gone within seconds
-  const toasts = () => page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts)
-  await page.evaluate(() => {
-    const w = window as unknown as { __toasts: string[] }
-    w.__toasts = []
-    new MutationObserver(() => {
-      for (const { textContent } of document.querySelectorAll('.toast')) if (textContent && !w.__toasts.includes(textContent)) w.__toasts.push(textContent)
-    }).observe(document.body, { childList: true, subtree: true, characterData: true })
-  })
-
-  // THE CONTROL: in browser storage it is asked about and told after, then kept again
-  await options()
-  await keep.click()
-  await expect(asked).toBeVisible()
-  await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
-  await expect.poll(toasts).toContain(told)
-  await expect.poll(async () => (await entry(page))?.ephemeral, { timeout: 10_000 }).toBe(true)
-  await keep.click()
-  await expect.poll(async () => (await entry(page))?.ephemeral, { timeout: 10_000 }).toBe(false)
-  await page.getByRole('dialog').last().getByRole('radio', { name: 'Move to picked' }).click({ timeout: 10_000 })
-  await page.getByRole('dialog').last().getByRole('button', { name: 'Done', exact: true }).click()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(async () => (await reports(page)).at(-1)?.savePath, { timeout: 60_000, message: 'the torrent never moved into the folder' })
-    .toBe(`/native/${INFO_HASH}`)
-
-  await page.evaluate(() => { (window as unknown as { __toasts: string[] }).__toasts.length = 0 })
-  await options()
-  await keep.click()
-  await expect.poll(async () => (await entry(page))?.ephemeral, { timeout: 10_000 }).toBe(true)
-  await expect(keep).not.toBeChecked()
-  await expect(asked).toHaveCount(0)
-  expect(await toasts()).not.toContain(told)
 })

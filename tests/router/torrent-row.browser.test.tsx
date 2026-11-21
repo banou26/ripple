@@ -485,6 +485,21 @@ describe('a library row', () => {
     expect(stalled.container.querySelector('.meta')?.textContent).not.toContain('queued left')
   })
 
+  // only where the engine may take it back: a torrent in its own directory in browser storage
+  it('says a temporary download may be deleted only where Ripple may delete it', async () => {
+    thumbnail.current = null
+    const hash = 'ab'.repeat(20)
+    const markAt = async (savePath: string) => {
+      const screen = await mount(torrent({ ephemeral: true, infoHash: hash, stats: { ...torrent().stats!, savePath } }))
+      const mark = screen.container.querySelector('.temp')
+      const said = [mark?.textContent, mark?.getAttribute('data-tooltip-content') ?? null]
+      await screen.unmount()
+      return said
+    }
+    expect(await markAt(`/dl/${hash}`)).toEqual(['Temporary', 'May be deleted to free space. Open options to keep it.'])
+    for (const path of [`/native/${hash}`, '/dl', `/source/${hash}`]) expect(await markAt(path), path).toEqual(['Temporary', null])
+  })
+
   it('reads the chosen files with the whole in brackets once files are left out, and as before while none is', async () => {
     thumbnail.current = null
     // a hybrid's 16 KiB pieces: a pad pushes b onto piece 2; pieces 0, 1 and 4 are held

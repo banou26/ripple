@@ -37,7 +37,6 @@ import {
 } from '../torrent/save-location'
 import type { InboundNow } from '../torrent/inbound'
 import type { SaveLocation } from '../torrent/library'
-import { ownsItsDirectory } from '../torrent/library'
 import { RateLimitDialog } from '../components/rate-limit-dialog'
 import { NO_LIMITS, formatLimit, isLimit, limitNote } from '../torrent/rate-limits'
 import type { RateLimits } from '../torrent/rate-limits'
@@ -95,8 +94,8 @@ import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
 import type { TorrentGroup } from '../torrent/groups'
 import {
-  GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_GONE_HINT, TEMPORARY_HINT,
-  cardGroups, filterCounts, readFilter, readSort, readView, visibleTorrents, writeSort,
+  GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_HINT,
+  cardGroups, filterCounts, readFilter, readSort, readView, reclaimable, visibleTorrents, writeSort,
 } from '../torrent/list-view'
 import type { CardGroup, ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
@@ -2091,16 +2090,6 @@ const MissingRow = ({
           <div className="body">
             <div className="title"><Name name={t.name}/></div>
             <div className="meta">
-              {t.ephemeral === true && (
-                <button
-                  type="button" className="temp"
-                  onClick={() => onOptions(t, null)}
-                  aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
-                  {...hint(intl.formatMessage(TEMPORARY_GONE_HINT))}
-                >
-                  <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
-                </button>
-              )}
               {/* A created source is the one ghost whose files were never in a swarm: this device was
                   the only seed, so there is nobody to fetch them from and the line has to say what
                   actually happened instead of offering a download that cannot work. */}
@@ -2280,15 +2269,15 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
               <Name name={t.name}/>
             </div>
             <div className="meta">
-              {/* First, before the numbers, because it changes what all of them mean: these bytes
-                  are ones Ripple may take back. A button rather than a chip, so a touch device can
-                  reach the explanation at all; `title` alone is invisible without a pointer. */}
+              {/* First, before the numbers, because it changes what all of them mean. A button rather
+                  than a chip, so a touch device can reach the options at all; `title` alone is
+                  invisible without a pointer. */}
               {t.ephemeral === true && (
                 <button
                   type="button" className="temp"
                   onClick={() => onOptions(t, null)}
                   aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
-                  {...hint(intl.formatMessage(TEMPORARY_HINT))}
+                  {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
                 >
                   <Clock aria-hidden="true"/>{intl.formatMessage({ id: 'Temporary', defaultMessage: 'Temporary' })}
                 </button>
@@ -3235,21 +3224,16 @@ const Home = () => {
    * anything now, it makes the bytes deletable LATER, without warning and without another click,
    * which is the kind of consequence a person cannot see coming from the switch itself.
    *
-   * The two bodies differ because the promise differs: a torrent in its own directory really is what
-   * the budget pass takes, while one still on the shared save path is never auto-deleted at all, so
-   * saying it would be is a threat the app does not carry out. A torrent in the folder is never deleted to free space
-   * either, so un-keeping one there asks nothing and says nothing.
+   * And only for a torrent the budget pass may then take ({@link reclaimable}): un-keeping any other changes its mark,
+   * the Show filter and the pause once a player stops watching, so it asks nothing and says nothing.
    */
   const onSetKept = async (t: Torrent, kept: boolean) => {
     if (!t.infoHash) return
-    const deletable = locationOf(t).current !== 'folder'
+    const deletable = reclaimable(t)
     if (!kept && deletable) {
-      const ownsDirectory = ownsItsDirectory(t.stats?.savePath, t.infoHash)
       const ok = await confirm({
         title: intl.formatMessage({ id: 'Let Ripple delete {name}?', defaultMessage: 'Let Ripple delete {name}?' }, { name: t.name }),
-        body: ownsDirectory
-          ? intl.formatMessage({ id: 'Ripple may delete its files when storage runs low.', defaultMessage: 'Ripple may delete its files when storage runs low.' })
-          : intl.formatMessage({ id: 'It leaves your library, but its files stay until you remove it.', defaultMessage: 'It leaves your library, but its files stay until you remove it.' }),
+        body: intl.formatMessage({ id: 'Ripple may delete its files when storage runs low.', defaultMessage: 'Ripple may delete its files when storage runs low.' }),
         confirmLabel: intl.formatMessage({ id: 'Let Ripple delete it', defaultMessage: 'Let Ripple delete it' }),
       })
       if (!ok) return

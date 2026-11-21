@@ -37,6 +37,10 @@ const t = (over: Partial<Torrent> = {}): Torrent => ({
   ...over,
 })
 
+const HASH = 'ab'.repeat(20)
+/** A temporary row the engine reports at `savePath`. */
+const temporaryAt = (savePath: string, over: Partial<Torrent> = {}) => t({ ephemeral: true, infoHash: HASH, stats: { savePath } as Torrent['stats'], ...over })
+
 const mount = (over: Partial<Parameters<typeof TorrentTable>[0]> = {}) => {
   const props = {
     torrents: [t()],
@@ -102,11 +106,19 @@ describe('the torrent table', () => {
   })
 
   it('marks a temporary download here too, with the same explanation', async () => {
-    const { screen } = mount({ torrents: [t({ ephemeral: true, name: 'cached one' })] })
+    const { screen } = mount({ torrents: [temporaryAt(`/cache/${HASH}`, { name: 'cached one' })] })
     const marker = (await screen).container.querySelector('.temp')
     expect(marker).not.toBeNull()
     expect(marker?.getAttribute('data-tooltip-content')).toMatch(/deleted to free space/)
     expect(marker?.getAttribute('aria-label')).toBe('Temporary download')
+  })
+
+  it('marks a temporary download Ripple never deletes without saying it may be deleted', async () => {
+    const { screen } = mount({ torrents: [`/native/${HASH}`, '/dl', `/source/${HASH}`].map((path) => temporaryAt(path)) })
+    const markers = [...(await screen).container.querySelectorAll('.temp')]
+    expect(markers.map((marker) => [marker.getAttribute('aria-label'), marker.hasAttribute('data-tooltip-content')])).toEqual([
+      ['Temporary download', false], ['Temporary download', false], ['Temporary download', false],
+    ])
   })
 
   it('leaves an ordinary download unmarked', async () => {
@@ -259,7 +271,7 @@ describe('the torrent table', () => {
 
     it('words every column, its sort and its row', async () => {
       await showIn('de', de)
-      const { screen } = mount({ sortKey: 'size', sortDir: 'asc', torrents: [t({ ephemeral: true, state: 'seeding' })] })
+      const { screen } = mount({ sortKey: 'size', sortDir: 'asc', torrents: [temporaryAt(`/dl/${HASH}`, { state: 'seeding' })] })
       const c = (await screen).container
       expect([...c.querySelectorAll('thead th button')].map((b) => b.textContent)).toEqual([
         'Name', 'Größe↑', 'Fortschritt', 'Zustand', 'Download', 'Upload', 'Peers', 'Hinzugefügt',
@@ -269,14 +281,6 @@ describe('the torrent table', () => {
       expect(c.querySelector('.pct')?.textContent).toMatch(/^50\s%$/u)
       expect(c.querySelector('.temp')?.getAttribute('aria-label')).toBe('Temporärer Download')
       expect(c.querySelector('.temp')?.getAttribute('data-tooltip-content')).toBe('Kann gelöscht werden, um Platz freizugeben. Öffne die Optionen, um ihn zu behalten.')
-    })
-
-    it('says a temporary download is gone once it is', async () => {
-      await showIn('de', de)
-      const { screen } = mount({ torrents: [t({ ephemeral: true, state: 'missing' })] })
-      const c = (await screen).container
-      expect(c.querySelector('.temp')?.getAttribute('data-tooltip-content')).toBe('Gelöscht, um Platz freizugeben.')
-      expect(c.querySelector('.badge')?.textContent).toBe('Dateien fehlen')
     })
   })
 
