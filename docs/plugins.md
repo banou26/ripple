@@ -67,17 +67,17 @@ next click on one of the plugin's buttons.
 This version of Ripple offers these three. The type lists the five a later version adds (`remove`, `files`, `folder`,
 `peers`, `network`); asking for one today asks nothing, and the person is asked about it once Ripple offers it.
 
-No switch is needed for `version`, `locale`, `dir`, `vpn`, `active`, `on('vpn' | 'locale' | 'active')`, `store`,
-`ui.buttonsChanged` and the buttons.
+No switch is needed for `version`, `locale`, `dir`, `vpn`, `active`, `page`, `on('vpn' | 'locale' | 'active')`,
+`store`, `ui`, `suggest` and the buttons.
 
 ## Calls
 
 Every call names a torrent by its info hash, in hex, and returns a promise. A call rejects with one of these as its
 error's message:
 
-- `not-allowed`: its switch is off, or not asked for.
+- `not-allowed`: its switch is off, not asked for, or the call is outside the gesture window (or past the `suggest` limit).
 - `not-found`: no torrent or group by that id.
-- `unavailable`: the torrent is not running on this device, so it cannot be acted on now.
+- `unavailable`: the torrent is not running on this device, or the library page is not open for `suggest`.
 - `invalid`: an argument is not what the call takes.
 - `full`: `store` would pass its 256 KB.
 
@@ -85,6 +85,14 @@ error's message:
 for a torrent the library keeps (left as it is), or `failed`. Its options work on a .torrent only; for a magnet, choose
 its files once `changed` lists them. There is no limit on adds, and everything they download counts toward the
 person's daily FKN quota while the VPN is on.
+
+`suggest(source)` proposes a `{ magnet }` or `{ torrentFile }` through Ripple's add dialog, which names the plugin and
+asks the person before adding anything. It needs no switch, works while the library page is open, and settles with
+`{ infoHash, outcome }`: `added`, `declined` (if the person cancels or closes the library), `already` or `failed`. At
+most 10 proposals per gesture window.
+
+**The gesture window:** `ui.open` and `suggest` work only while the plugin's popup page is open, or within 10 s of a
+click on one of its buttons.
 
 `store.get(key)` and `store.set(key, value)` keep strings on this device, 256 KB in all, across the plugin's versions,
 since the plugin's own storage starts empty at each version. `set(key, null)` deletes one. Removing the plugin deletes
@@ -123,7 +131,10 @@ when they change, a label that says a state for instance; Ripple asks again at m
 | Place | Where | How many | A click's context |
 | --- | --- | --- | --- |
 | `header` | the library's header, before Create | one per plugin; the first two plugins' are in the header, the rest in its More menu | `{}` |
+| `add-field` | the add field, before Open a .torrent file | one per plugin; the first plugin's is inline, the rest in its More menu | `{ text }` |
 | `row-menu` | a torrent's menu (right click, and its Options) under the plugin's name | three per plugin | `{ infoHashes: [that torrent's] }` |
+| `bulk-bar` | the selection bar, before Remove | one per plugin; the first two plugins' are inline, the rest in its More menu | `{ infoHashes }` |
+| `detail` | the details header, before Close | one per plugin; the first two plugins' are inline, the rest in its More menu | `{ infoHash, tab }` |
 | `settings` | the plugin's row in Settings | one | `{}` |
 
 - `label`: 40 characters at most, the button's tooltip and accessible name. A button with an empty or longer label is
@@ -134,7 +145,24 @@ when they change, a label that says a state for instance; Ripple asks again at m
 - `click(id, context)` should answer within 10 s, or Ripple says the plugin is not responding. Answer once the work is
   done.
 - `buttons` should answer within 5 s, or Ripple keeps drawing the buttons it had.
+- `page`: `{ id, size? }` opens that popup page directly with the click's context instead of calling `click`.
 - A button in a place this Ripple does not draw yet is left out.
+
+## Popup pages
+
+A plugin can show its own UI inside Ripple's dialog, either from a button with `page: { id, size? }` or by calling
+`ui.open({ id, size?, context? })` during its gesture window. Ripple mounts the plugin into a sandboxed iframe with
+`packages.mount` (`allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox`, no top
+navigation and no delegated `allow` features). Inside that connection `info.brokered` is `false` and `remote.page` holds
+`{ id, context }`, under the same switches as the background connection.
+
+- Sizes are `small` (480 by 360), `medium` (760 by 560, default) and `large` (1100 by 800), capped at the viewport less
+  32 by 48 px. Below 600 px wide the card fills the screen in `100dvh`.
+- One popup page is open per tab. If the frame has not loaded within 30 s, Ripple shows one line saying it is not
+  responding.
+- The page closes on Close, backdrop click, Escape on Ripple's header, `ui.close()`, or when the plugin's background
+  connection closes in this tab. Escape inside the frame never reaches Ripple, so listen for Escape in your page and
+  call `remote.ui.close()`.
 
 ## Languages
 
