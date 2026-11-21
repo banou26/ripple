@@ -444,7 +444,7 @@ export const buildTorrentOptions = (
    *
    * Positive direction on purpose: promoting is the safe, common action and reads as switching
    * something on. The off direction is the one that can lose data, and it loses it LATER, silently,
-   * with no further interaction, so the caller confirms it.
+   * with no further interaction, so the caller confirms it where Ripple may delete the files.
    *
    * Shown for every torrent, not only temporary ones. A control that appears the moment a torrent
    * becomes deletable would be a control nobody ever finds, and the state it reports is worth
