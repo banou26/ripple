@@ -1290,7 +1290,8 @@ test.describe('in an Egyptian browser', () => {
     expect(numbered.filter(word => /[^\P{Nd}0-9]/u.test(word))).toEqual([])
     const kinds = {
       count: /\d\u2069 قرينًا/u, size: /\d [كمغ]\.ب(?!\/)/u, speed: /\d [كمغ]\.ب\/ث/u, percent: /\d\u200e%/u, time: /\d د \d+ ث/u,
-      date: /\d\u200f?\/\d+\u200f?\/\d{4}، \d+:\d\d:\d\d/u,
+      // Chromium 145 writes no comma before the time, later ones do
+      date: /\d\u200f?\/\d+\u200f?\/\d{4}،? \d+:\d\d:\d\d/u,
     }
     expect(Object.entries(kinds).filter(([, kind]) => !numbered.some(word => kind.test(word))).map(([name]) => name), 'the control: one of each was read').toEqual([])
   })
