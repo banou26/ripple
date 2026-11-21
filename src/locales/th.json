@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "ไฟล์ที่ดาวน์โหลดแล้วยังอยู่ แต่ความคืบหน้าจะถูกลืม",
   "The engine refused that torrent": "เอนจินปฏิเสธทอร์เรนต์นั้น",
   "The engine refused the torrent that was just built": "เอนจินปฏิเสธทอร์เรนต์ที่เพิ่งสร้าง",
+  "The files stay in your folder.": "ไฟล์ยังอยู่ในโฟลเดอร์ของคุณ",
   "The link": "ลิงก์",
   "The metadata has not arrived yet": "ข้อมูลเมตายังมาไม่ถึง",
   "The torrent this was built from is no longer stored": "ทอร์เรนต์ต้นทางของรายการนี้ไม่ได้จัดเก็บไว้แล้ว",

@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "Stažené soubory zůstanou, ale jeho postup se zapomene.",
   "The engine refused that torrent": "Jádro ten torrent odmítlo",
   "The engine refused the torrent that was just built": "Jádro odmítlo právě vytvořený torrent",
+  "The files stay in your folder.": "Soubory zůstanou ve vaší složce.",
   "The link": "Odkaz",
   "The metadata has not arrived yet": "Metadata zatím nedorazila",
   "The torrent this was built from is no longer stored": "Torrent, ze kterého to vzniklo, už není uložen",

@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "Завантажені файли залишаться, але прогрес буде забуто.",
   "The engine refused that torrent": "Рушій відхилив цей торрент",
   "The engine refused the torrent that was just built": "Рушій відхилив щойно створений торрент",
+  "The files stay in your folder.": "Файли залишаться у вашій теці.",
   "The link": "Посилання",
   "The metadata has not arrived yet": "Метадані ще не отримано",
   "The torrent this was built from is no longer stored": "Торрент, з якого це створено, більше не збережений",

@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "De hämtade filerna finns kvar, men förloppet glöms bort.",
   "The engine refused that torrent": "Motorn vägrade ta emot torrenten",
   "The engine refused the torrent that was just built": "Motorn vägrade ta emot torrenten som just skapades",
+  "The files stay in your folder.": "Filerna finns kvar i din mapp.",
   "The link": "Länken",
   "The metadata has not arrived yet": "Metadatan har inte kommit än",
   "The torrent this was built from is no longer stored": "Torrenten som det här skapades från finns inte längre sparad",

@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "Các tệp đã tải xuống vẫn còn, nhưng tiến độ của nó bị quên.",
   "The engine refused that torrent": "Trình tải đã từ chối torrent đó",
   "The engine refused the torrent that was just built": "Trình tải đã từ chối torrent vừa được tạo",
+  "The files stay in your folder.": "Các tệp vẫn còn trong thư mục của bạn.",
   "The link": "Liên kết",
   "The metadata has not arrived yet": "Siêu dữ liệu chưa đến",
   "The torrent this was built from is no longer stored": "Torrent dùng để tạo cái này không còn được lưu",

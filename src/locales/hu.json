@@ -410,6 +410,7 @@
   "The downloaded files stay, but its progress is forgotten.": "A letöltött fájlok megmaradnak, de az állapota elvész.",
   "The engine refused that torrent": "A motor elutasította azt a torrentet",
   "The engine refused the torrent that was just built": "A motor elutasította az imént létrehozott torrentet",
+  "The files stay in your folder.": "A fájlok a mappádban maradnak.",
   "The link": "A link",
   "The metadata has not arrived yet": "A metaadatok még nem érkeztek meg",
   "The torrent this was built from is no longer stored": "Az a torrent, amelyből ez készült, már nincs tárolva",
