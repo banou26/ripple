@@ -19,7 +19,9 @@ const KEPT_HASH = 'a'.repeat(40)
 const FILM_HASH = 'f'.repeat(40)
 
 const state = vi.hoisted(() => ({
-  used: 0, floating: false, reads: 0, held: 0, refused: undefined as number | undefined, admit: undefined as Admit | undefined,
+  used: 0, floating: false, reads: 0, held: 0, refused: undefined as number | undefined,
+  // what each storage was built to ask: the person's download is in the shared root, the film in the cache
+  sharedAdmit: undefined as Admit | undefined, cacheAdmit: undefined as Admit | undefined,
   // the next estimate reads the usage, then answers only once this settles
   slow: null as Promise<void> | null,
 }))
@@ -70,9 +72,16 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
     refusedFile: (id: number) => (id === 1 ? state.refused : undefined),
   }),
 }))
+vi.mock('../../src/torrent/opfs-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/opfs-storage')>()),
+  createResilientStorage: (admit?: Admit) => {
+    state.sharedAdmit = admit
+    return {}
+  },
+}))
 vi.mock('../../src/torrent/chunked-storage', () => ({
-  createChunkedStorage: (_chunkBytes: number, admit: Admit) => {
-    state.admit = admit
+  createChunkedStorage: (_chunkBytes: number, admit?: Admit) => {
+    state.cacheAdmit = admit
     return { chunkBytesOf: () => 64 * 1024 * 1024, chunksOf: () => [], footprint: () => 0, drop: async () => {} }
   },
 }))
@@ -87,9 +96,10 @@ vi.mock('idb-keyval', () => {
   }
 })
 
-// a write as it lands: the engine is asked first, then the browser refuses what is past its limit
+// a write as it lands: the storage holding it asks the engine first, then the browser refuses what is past its limit
 const grow = (id: number, bytes: number) => {
-  if (!state.admit!(id, bytes) || state.used + bytes > quota()) return false
+  const admit = id === 1 ? state.sharedAdmit : state.cacheAdmit
+  if ((admit && !admit(id, bytes)) || state.used + bytes > quota()) return false
   state.used += bytes
   return true
 }
