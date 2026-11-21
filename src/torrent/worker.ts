@@ -47,7 +47,7 @@ import { relaySockets } from './relay-sockets'
 import { forPage } from '../i18n/said'
 
 // the message channel is shared with @fkn/lib's socket relay, so a type missing here is dropped in silence
-const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'start-many', 'retry', 'retry-now', 'flush-resume', 'inspect', 'set-flags', 'reannounce', 'add-trackers', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
+const OWN = new Set(['add-magnet', 'add-torrent-file', 'create-source', 'reserve-storage', 'start-source', 'read', 'cancel-read', 'remove', 'relocate', 'set-location', 'set-folder', 'set-plan', 'remove-missing', 'watch', 'unwatch', 'unwatch-owner', 'pause', 'resume', 'force-start', 'recheck', 'import-list', 'clear-list', 'start', 'start-many', 'retry', 'retry-now', 'flush-resume', 'inspect', 'torrent-detail', 'set-flags', 'reannounce', 'add-trackers', 'queue-move', 'set-limits', 'set-session-limits', 'set-temporary', 'export-start', 'export-chunk', 'export-end', 'import-start', 'import', 'close-sockets'])
 
 export type TorrentSnapshot = {
   handle: number
@@ -3099,6 +3099,15 @@ const handleMessage = async (session: Session, m: any) => {
         // the new subject's trackers are wanted immediately rather than up to TRACKER_POLL_MS later
         trackersPolledAt = 0
       }
+    } else if (m.type === 'torrent-detail') {
+      // Per-asker peers and trackers, without touching `inspecting` so an open details panel keeps its own torrent.
+      if (typeof m.handle !== 'number' || !handles.includes(m.handle)) {
+        post({ type: 'answer', id: m.id, value: null })
+      } else {
+        const [peers, own] = await Promise.all([session.peers(m.handle), session.trackers(m.handle)])
+        const trackers = [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(m.handle) ?? []]
+        post({ type: 'answer', id: m.id, value: { peers, trackers } })
+      }
     } else if (m.type === 'unwatch-owner') {
       // viewer ids are prefixed with the id of the tab that handed them out
       unwatch((viewer) => viewer.startsWith(m.owner + ':'))
@@ -3114,8 +3123,8 @@ const handleMessage = async (session: Session, m: any) => {
 
 // command handlers read, modify and write one shared IndexedDB list across awaits, so two of them interleaving can drop an entry or post a stale list
 // add-torrent-file is unqueued because its infohash poll can hold the lane for ten seconds; it guards itself instead, with the handle re-check after the poll
-// read and export-chunk are unqueued because reads are pure, and playback must never wait behind a list mutation
-const UNQUEUED = new Set(['read', 'add-torrent-file', 'export-chunk'])
+// read, export-chunk and torrent-detail are unqueued because reads are pure, and playback must never wait behind a list mutation
+const UNQUEUED = new Set(['read', 'add-torrent-file', 'export-chunk', 'torrent-detail'])
 let commands: Promise<void> = Promise.resolve()
 
 self.addEventListener('message', (e: MessageEvent) => {
@@ -3132,6 +3141,7 @@ self.addEventListener('message', (e: MessageEvent) => {
   const live = session
   if (!live) {
     if (m.type === 'read') post({ type: 'read-error', id: m.id, error: 'the engine is still starting' })
+    else if (ASKS.has(m.type)) post({ type: 'answer', id: m.id, error: 'worker not initialized' })
     else post({ type: 'error', message: 'worker not initialized' })
     return
   }

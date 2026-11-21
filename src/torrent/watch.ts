@@ -47,7 +47,7 @@ export const pickVideoFile = (files?: readonly { name: string, size: number, pad
 export const hasPlayableFile = (t: Torrent): boolean =>
   !!t.magnet && !!contentFiles(t.files).some((f) => VIDEO_RE.test(f.name))
 
-export const watchHref = (t: Torrent): string | null => {
+export const watchHref = (t: Torrent, fileIndex?: number): string | null => {
   if (!t.magnet || !contentFiles(t.files).length) return null
   // runs once per row inside a render, which is why the codec is synchronous, and returns null
   // rather than throwing on a magnet no encoding can hold
@@ -56,5 +56,5 @@ export const watchHref = (t: Torrent): string | null => {
   const source = encoded.key === 'm' ? { m: encoded.value } : { magnet: encoded.value }
   // the file leads the packed torrent for the same reason embedPath orders them that way: this URL
   // is what sits in the address bar while somebody watches, so the readable half goes in front
-  return getRoutePath(Route.WATCH, { fileIndex: String(pickVideoFile(t.files)), ...source })
+  return getRoutePath(Route.WATCH, { fileIndex: String(fileIndex ?? pickVideoFile(t.files)), ...source })
 }

@@ -1,4 +1,5 @@
 import type { Persisted, Reachability, TorrentDetail, TorrentSnapshot as WorkerTorrentSnapshot } from './worker'
+import type { PeerInfo, TrackerInfo } from 'libtorrent-wasm'
 import type { RateLimits } from './rate-limits'
 import type { InboundNow } from './inbound'
 
@@ -93,6 +94,11 @@ export type TorrentClient = {
    * nobody is reading.
    */
   inspect: (handle: number | null) => void
+  /**
+   * One-shot peers and trackers for `handle`, answered to this caller alone without disturbing {@link inspect}.
+   * Resolves to null when `handle` is not running in this session.
+   */
+  torrentDetail: (handle: number) => Promise<{ peers: PeerInfo[], trackers: TrackerInfo[] } | null>
   /**
    * Turn libtorrent flags on and off: `mask` names the bits to touch, `flags` their new value.
    *
@@ -706,6 +712,7 @@ export const createTorrentClient = (): EngineClient => {
     onTransport: (cb) => { transportCbs.add(cb); if (lastTransport) cb(lastTransport); return () => { transportCbs.delete(cb) } },
     onDetail: (cb) => { detailCbs.add(cb); return () => { detailCbs.delete(cb) } },
     inspect: (handle) => send({ type: 'inspect', handle }),
+    torrentDetail: (handle) => ask({ type: 'torrent-detail', handle }) as Promise<{ peers: PeerInfo[], trackers: TrackerInfo[] } | null>,
     setFlags: (handle, flags, mask) => send({ type: 'set-flags', handle, flags, mask }),
     reannounce: (handle) => send({ type: 'reannounce', handle }),
     addTrackers: (handle, urls) => ask({ type: 'add-trackers', handle, urls }) as Promise<string[]>,

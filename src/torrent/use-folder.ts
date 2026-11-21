@@ -51,6 +51,14 @@ const queryPermission = async (handle: FileSystemDirectoryHandle): Promise<Permi
   return await queryPermission?.call(handle, { mode: 'readwrite' }) ?? 'granted'
 }
 
+/** The chosen folder's name and whether write access is granted right now, without prompting; null when none is chosen. */
+export const storedFolder = async (): Promise<{ name: string, allowed: boolean } | null> => {
+  const handle = await get<FileSystemDirectoryHandle>(KEY).catch(() => undefined)
+  if (!handle) return null
+  const allowed = await queryPermission(handle).then((state) => state === 'granted').catch(() => false)
+  return { name: handle.name, allowed }
+}
+
 const ensurePermission = async (handle: FileSystemDirectoryHandle): Promise<boolean> => {
   if (await queryPermission(handle) === 'granted') return true
   const { requestPermission } = handle as PermissionCapableHandle
