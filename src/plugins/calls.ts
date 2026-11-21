@@ -92,6 +92,30 @@ const peek = <T>(watch: (cb: (value: T) => void) => () => void, fallback: T): T 
   return value
 }
 
+const STATE_WAIT_MS = 5_000
+
+const waitForState = (client: TorrentClient): Promise<void> => new Promise((resolve) => {
+  let done = false
+  let offState: (() => void) | undefined
+  let offError: (() => void) | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const finish = () => {
+    if (done) return
+    done = true
+    clearTimeout(timer)
+    timer = undefined
+    offState?.()
+    offState = undefined
+    offError?.()
+    offError = undefined
+    resolve()
+  }
+  timer = setTimeout(finish, STATE_WAIT_MS)
+  offError = client.onWorkerError(({ fatal }) => { if (fatal) finish() })
+  if (!done) offState = client.onState(finish)
+  if (done) { offState?.(); offState = undefined; offError?.(); offError = undefined }
+})
+
 const cleanLimits = (raw: unknown): { down?: number, up?: number } => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('invalid')
   const { down, up } = raw as Record<string, unknown>
@@ -340,12 +364,12 @@ export const rippleFor = (
     takeOutOfGroup: async (id, infoHashes) => { const known = await group(id); await takeOutOfGroup(known, await members(infoHashes, false)) },
     remove: async (infoHash, options) => {
       await need('remove')
-      if (options !== undefined && (!options || typeof options !== 'object')) fail('invalid')
+      if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) fail('invalid')
       const t = await find(infoHash)
-      void forgetThumbnail(t.infoHash)
-      if (t.state === 'missing') { tab.client().removeMissing(t.infoHash); return }
+      if (t.state === 'missing') { void forgetThumbnail(t.infoHash); tab.client().removeMissing(t.infoHash); return }
       const handle = Number(t.id)
       if (!Number.isInteger(handle)) fail('unavailable')
+      void forgetThumbnail(t.infoHash)
       tab.client().remove(handle, options?.deleteFiles === true)
     },
     makeTemporary: async (infoHash) => {
@@ -359,7 +383,8 @@ export const rippleFor = (
       if (typeof file !== 'number' || !Number.isInteger(file) || file < 0) fail('invalid')
       if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) fail('invalid')
       if (typeof length !== 'number' || !Number.isInteger(length) || length < 0 || length > READ_MAX_BYTES) fail('invalid')
-      if (options !== undefined && (!options || typeof options !== 'object')) fail('invalid')
+      if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) fail('invalid')
+      if (options?.signal !== undefined && !(options.signal instanceof AbortSignal)) fail('invalid')
       if (!t.files) fail('unavailable')
       const target = contentFiles(t.files).find((f) => f.index === file)
       if (!target) fail('not-found')
@@ -458,6 +483,7 @@ export const rippleFor = (
       await need('peers')
       const client = tab.client()
       await client.ready
+      await waitForState(client)
       const { down, up } = peek(client.onRateLimits, { down: 0, up: 0 })
       return { down, up }
     },
@@ -469,6 +495,7 @@ export const rippleFor = (
       await need('network')
       const client = tab.client()
       await client.ready
+      await waitForState(client)
       const transport = peek<EngineTransport>(client.onTransport, tab.vpn() ? 'relay' : 'direct')
       const reach = peek<Reachability | null>(client.onReachable, null)
       const direct = transport === 'direct'

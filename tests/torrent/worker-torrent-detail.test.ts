@@ -96,6 +96,13 @@ it('answers per-asker torrent-detail for another torrent while keeping the inspe
   await vi.waitFor(() => expect(rig.of('answer').find((a) => a.id === 43)).toBeDefined())
   expect(rig.of('answer').find((a) => a.id === 43)!.value).toBeNull()
 
+  // a handle removed before torrent-detail answers returns null
+  rig.send({ type: 'remove', handle: 2, deleteFiles: false })
+  await vi.waitFor(() => expect(rig.of('state').at(-1)?.torrents).toHaveLength(1))
+  rig.send({ type: 'torrent-detail', id: 44, handle: 2 })
+  await vi.waitFor(() => expect(rig.of('answer').find((a) => a.id === 44)).toBeDefined())
+  expect(rig.of('answer').find((a) => a.id === 44)!.value).toBeNull()
+
   // subsequent state ticks still carry handle 1's detail for the open details panel
   await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(beforeStates))
   for (const state of rig.of('state').slice(beforeStates)) {

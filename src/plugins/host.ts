@@ -23,7 +23,7 @@ export const PLUGIN_PROTOCOL = 'ripple-plugin@1'
 export const CONNECT_MS = 30_000
 /** How long a popup page gets to mount before its dialog reads Not responding. */
 export const MOUNT_MS = 30_000
-/** How long after a click on a plugin's button `ui.open` and `suggest` are allowed (also while its page is open). */
+/** How long after a click on a plugin's button `ui.open`, `suggest`, `play` and `save` are allowed (also while its page is open). */
 export const GESTURE_MS = 10_000
 /** How many `suggest` proposals a plugin may make in one gesture window. */
 export const SUGGEST_LIMIT = 10
@@ -325,6 +325,7 @@ export const mountPluginPage = async (
   iframe: HTMLIFrameElement,
   signal: AbortSignal,
 ): Promise<{ unmount: () => void }> => {
+  if (signal.aborted) throw new Error('aborted')
   const live = lives.get(page.uri)
   if (!live || live.status !== 'connected') throw new Error('unavailable')
   const calls = rippleFor(page.uri, tab, () => live.asksReady, { id: page.id, context: page.context })

@@ -426,10 +426,12 @@ describe('files: read, play and save', () => {
 
     // clamps to remaining file bytes and returns empty on 0 length
     expect(await made.ripple.read(A, 1, 1024, 16)).toEqual(new Uint8Array(0))
-    // rejects > 4 MB, negative, pad file, unknown file, offset past EOF
+    // rejects > 4 MB, negative, pad file, unknown file, offset past EOF, array options, non-AbortSignal signal
     expect(await refusal(made.ripple.read(A, 1, 0, READ_MAX_BYTES + 1))).toBe('invalid')
     expect(await refusal(made.ripple.read(A, 1, -1, 4))).toBe('invalid')
     expect(await refusal(made.ripple.read(A, 1, 2000, 4))).toBe('invalid')
+    expect(await refusal(made.ripple.read(A, 1, 0, 4, [] as never))).toBe('invalid')
+    expect(await refusal(made.ripple.read(A, 1, 0, 4, { signal: {} as never }))).toBe('invalid')
     expect(await refusal(made.ripple.read(A, 0, 0, 4))).toBe('not-found')
     expect(await refusal(made.ripple.read(A, 99, 0, 4))).toBe('not-found')
 
@@ -605,5 +607,78 @@ describe('network', () => {
       dhtNodes: 0,
       storageFull: true,
     })
+  })
+
+  it('waits for the first state broadcast after ready and after engine reset in sessionLimits and network', async () => {
+    await answer(URI, { peers: true, network: true })
+    const fresh = engineDouble({ createTorrentClient } as never)
+    const feed = createFeed(fresh.client)
+    const tab: PluginTab = {
+      client: () => fresh.client,
+      buttonsChanged: () => {},
+      openPage: async () => {},
+      beginClosePage: () => null,
+      closePage: () => {},
+      inGesture: () => false,
+      takeSuggest: () => false,
+      canSuggest: () => false,
+      suggest: async () => ({ infoHash: null, outcome: 'failed' }),
+      navigate: () => {},
+      folder: async () => null,
+      feed: () => feed,
+      owns: () => true,
+      vpn: () => true,
+      locale: () => ({ locale: 'en', dir: 'ltr' }),
+      onActive: () => () => {},
+      onVpn: () => () => {},
+      onLocale: () => () => {},
+    }
+    const { ripple, close } = rippleFor(URI, tab, async () => ['peers', 'network'])
+    try {
+      // attach transport without sending state yet, then emit ready BEFORE state arrives
+      fresh.attach(true)
+      fresh.say({ type: 'ready' })
+      await fresh.client.ready
+
+      let settledLimits = false
+      let settledNet = false
+      const limitsP = ripple.sessionLimits().then((v) => { settledLimits = true; return v })
+      const netP = ripple.network().then((v) => { settledNet = true; return v })
+      await new Promise((r) => setTimeout(r, 30))
+      expect(settledLimits).toBe(false)
+      expect(settledNet).toBe(false)
+
+      fresh.say({
+        type: 'state',
+        torrents: [],
+        transport: 'relay',
+        reachable: { port: 51000, portOpen: true, inbound: 2, listenFailed: [], listeners: [] },
+        inboundNow: { tcp: 1, utp: 1, webrtc: 0, total: 2 },
+        dhtNodes: 64,
+        rateLimits: { down: 123_000, up: 45_000 },
+      })
+      expect(await limitsP).toEqual({ down: 123_000, up: 45_000 })
+      expect(await netP).toEqual({ transport: 'relay', reachable: true, inbound: 2, dhtNodes: 64, storageFull: false })
+
+      // after a handover / VPN reset clears lastState, calls wait for the new engine's state
+      fresh.say({ type: 'engine-reset' })
+      let settledAfterReset = false
+      const afterReset = ripple.network().then((v) => { settledAfterReset = true; return v })
+      await new Promise((r) => setTimeout(r, 30))
+      expect(settledAfterReset).toBe(false)
+      fresh.say({
+        type: 'state',
+        torrents: [],
+        transport: 'direct',
+        reachable: { port: null, portOpen: false, inbound: 0, listenFailed: [], listeners: [] },
+        inboundNow: { tcp: 0, utp: 0, webrtc: 0, total: 0 },
+        dhtNodes: 0,
+      })
+      expect(await afterReset).toEqual({ transport: 'direct', reachable: false, inbound: 0, dhtNodes: 0, storageFull: false })
+    } finally {
+      close()
+      feed.destroy()
+      fresh.client.destroy()
+    }
   })
 })

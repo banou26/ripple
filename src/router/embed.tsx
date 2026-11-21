@@ -223,8 +223,9 @@ const playerStyle = css`
       display: flex;
       align-items: center;
       justify-content: center;
-      min-width: 24px;
-      min-height: 24px;
+      /* border-box under the player's reset, so 40px keeps a 40x40 hit target and hover pill around a 24px glyph */
+      min-width: 40px;
+      min-height: 40px;
       background: transparent;
       border: 0;
       font: inherit;
@@ -655,7 +656,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
     setPlayerSlot({
       overlay: pluginOverlay,
       box: pluginBox,
-      infoHash,
+      infoHash: unreadable ? null : infoHash,
       file: fileIndex,
       time: () => {
         const t = box.current?.querySelector('video')?.currentTime
@@ -663,7 +664,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
       },
     })
     return () => setPlayerSlot(null)
-  }, [pluginOverlay, pluginBox, infoHash, fileIndex])
+  }, [pluginOverlay, pluginBox, infoHash, unreadable, fileIndex])
   const libraryHref = useMemo(
     () => (magnet && infoHash && !unreadable
       ? new URL(getRoutePath(Route.HOME, { torrent: infoHash, magnet: encodeMagnetParam(magnet) }), origin).toString()

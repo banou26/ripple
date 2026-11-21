@@ -35,14 +35,14 @@ export const switchLabel = (intl: IntlShape, name: Switch): string => {
 }
 
 /** Asks which of a new plugin's switches to turn on, each starting off. Cancel, Escape and the backdrop uninstall it. */
-const Sheet = ({ asking }: { asking: Asking }) => {
+const Sheet = ({ asking, inline }: { asking: Asking, inline?: boolean }) => {
   const intl = useIntl()
   const [on, setOn] = useState<Switch[]>([])
   const done = useRef<HTMLButtonElement>(null)
   const ready = asking.asks !== null || asking.failed
   const flip = (name: Switch, value: boolean) => setOn((was) => (value ? [...was, name] : was.filter((n) => n !== name)))
   return (
-    <Modal labelledBy="plugin-sheet-title" onClose={() => { void cancelAsking() }} initialFocus={done}>
+    <Modal labelledBy="plugin-sheet-title" onClose={() => { void cancelAsking() }} initialFocus={done} inline={inline}>
       <div css={confirmStyle}>
         <div className="card">
           <h2 id="plugin-sheet-title" dir="auto">{asking.name}</h2>
@@ -83,7 +83,9 @@ export const InstallSheet = () => {
       {openPage && (player?.box
         ? createPortal(<PluginPage key={openPage.key} page={openPage} inline/>, player.box)
         : <PluginPage key={openPage.key} page={openPage}/>)}
-      {asking && <Sheet key={asking.uri} asking={asking}/>}
+      {asking && (player?.box && document.fullscreenElement?.contains(player.box)
+        ? createPortal(<Sheet key={asking.uri} asking={asking} inline/>, player.box)
+        : <Sheet key={asking.uri} asking={asking}/>)}
       {unanswered && createPortal(
         <div role="status" className="toast" css={toastStyle}>
           {intl.formatMessage({ id: '{name} is not responding', defaultMessage: '{name} is not responding' }, { name: unanswered })}

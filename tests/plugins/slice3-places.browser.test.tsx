@@ -14,6 +14,7 @@ import { fkn } from './packages-double'
 
 const memory = vi.hoisted(() => ({ store: new Map<string, unknown>() }))
 const engine = vi.hoisted(() => ({ double: undefined as unknown as import('./engine-double').EngineDouble }))
+const playerMock = vi.hoisted(() => ({ unreadable: false }))
 
 vi.mock('@fkn/lib/packages', () => import('./packages-double'))
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => false }))
@@ -30,6 +31,7 @@ vi.mock('../../src/torrent/client', async (importOriginal) => {
 vi.mock('@banou/media-player', () => ({
   MediaPlayer: ({ overlay, children }: { overlay?: React.ReactNode, children?: React.ReactNode }) => (
     <div className="mock-media-player" data-testid="media-player">
+      <style>{'.mock-media-player, .mock-media-player * { box-sizing: border-box; }'}</style>
       <video/>
       {overlay}
       {children}
@@ -38,7 +40,7 @@ vi.mock('@banou/media-player', () => ({
 }))
 vi.mock('../../src/torrent/use-player-torrent', () => ({
   usePlayerTorrent: () => ({
-    snapshot: {
+    snapshot: playerMock.unreadable ? null : {
       handle: 1,
       magnet: `magnet:?xt=urn:btih:${'a'.repeat(40)}`,
       files: { files: [{ path: 'clip.mp4', size: 1024, offset: 0, pad: false }] },
@@ -54,7 +56,7 @@ vi.mock('../../src/torrent/use-player-torrent', () => ({
     prioritizeFrom: () => {},
     fileIndex: 0,
     engineError: null,
-    unreadable: false,
+    unreadable: playerMock.unreadable,
     storageFull: false,
   }),
 }))
@@ -94,6 +96,7 @@ const register = async (buttons: Button[], opts: { asks?: ('read' | 'add' | 'cha
 beforeEach(() => {
   fkn.reset()
   memory.store.clear()
+  playerMock.unreadable = false
   closePage()
   engine.double.running = true
   engine.double.posted.length = 0
@@ -253,6 +256,10 @@ describe('player button place and inline popup page on /watch', () => {
 
     await vi.waitFor(() => expect(document.querySelectorAll('.player-links .plugin')).toHaveLength(1))
     expect(document.querySelectorAll('.player-links .plugin-more')).toHaveLength(1)
+    // under @banou/media-player's border-box reset, plugin buttons keep the full 40x40 target
+    const btnRect = document.querySelector<HTMLButtonElement>('.player-links .plugin')!.getBoundingClientRect()
+    expect(btnRect.width).toBeGreaterThanOrEqual(40)
+    expect(btnRect.height).toBeGreaterThanOrEqual(40)
     // no plugin was auto-connected on the player tab before a click
     expect(fkn.opened.some((o) => o.uri === p1.uri)).toBe(false)
     expect(fkn.opened.some((o) => o.uri === p2.uri)).toBe(false)
@@ -263,14 +270,14 @@ describe('player button place and inline popup page on /watch', () => {
     Object.defineProperty(video, 'currentTime', { value: 42.5, configurable: true })
 
     // Space key on the plugin button does not reach the window (which would pause the player)
-    const spaceEvents: KeyboardEvent[] = []
-    const onKey = (e: KeyboardEvent) => { if (e.key === ' ') spaceEvents.push(e) }
+    const leakedKeys: string[] = []
+    const onKey = (e: KeyboardEvent) => { leakedKeys.push(e.key) }
     window.addEventListener('keydown', onKey)
     try {
       const btn = document.querySelector<HTMLButtonElement>('.player-links .plugin')!
       btn.focus()
       btn.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
-      expect(spaceEvents).toHaveLength(0)
+      expect(leakedKeys).toEqual([])
     } finally {
       window.removeEventListener('keydown', onKey)
     }
@@ -279,16 +286,61 @@ describe('player button place and inline popup page on /watch', () => {
     await userEvent.click(document.querySelector('.player-links .plugin')!)
     await vi.waitFor(() => expect(p1.clicks).toEqual([['mark', { infoHash: HASH_A, file: 0, time: 42.5 }]]))
 
-    // clicking More -> p2 opens its popup page INLINE inside the player box
+    // opening player More menu: navigating and player shortcut keys must NOT reach window
     Object.defineProperty(video, 'currentTime', { value: 99, configurable: true })
     await userEvent.click(document.querySelector('.player-links .plugin-more')!)
     await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')).not.toBeNull())
-    await userEvent.click(document.querySelector('[role="menuitem"]')!)
+    leakedKeys.length = 0
+    window.addEventListener('keydown', onKey)
+    try {
+      const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+      menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      const item = document.querySelector<HTMLElement>('[role="menuitem"]')!
+      for (const key of ['ArrowUp', 'ArrowDown', 'f', 'k', 'm', 'ArrowRight']) {
+        item.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      }
+      expect(leakedKeys).toEqual([])
+      // Space on the focused menuitem activates it without bubbling to window
+      item.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+      expect(leakedKeys).toEqual([])
+    } finally {
+      window.removeEventListener('keydown', onKey)
+    }
 
     await vi.waitFor(() => expect(document.querySelector('[data-testid="media-player"] .plugin-page[data-inline]')).not.toBeNull())
     await vi.waitFor(() => expect(fkn.mountedOf(p2.uri)).toBeDefined())
     const pageRipple = await fkn.mountedOf(p2.uri)!.ripple
     expect(pageRipple.page).toEqual({ id: 'subs-panel', context: { infoHash: HASH_A, file: 0, time: 99 } })
+
+    // keys on inline PluginPage chrome (Close button / modal) must NOT leak to window
+    leakedKeys.length = 0
+    window.addEventListener('keydown', onKey)
+    try {
+      const closeBtn = document.querySelector<HTMLButtonElement>('.plugin-page[data-inline] .close')!
+      closeBtn.focus()
+      for (const key of ['f', 'k', 'm', 'ArrowDown', ' ']) {
+        closeBtn.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      }
+      expect(leakedKeys).toEqual([])
+    } finally {
+      window.removeEventListener('keydown', onKey)
+    }
+  })
+
+  it('does not mount player plugin buttons when the magnet is unreadable', async () => {
+    await register([{ id: 'mark', place: 'player', label: 'Bookmark' }])
+    playerMock.unreadable = true
+    await render(
+      <IntlRoot>
+        <MemoryRouter initialEntries={[`/watch?fileIndex=0&magnet=${encodeURIComponent(btoa('magnet:?xt=urn:btih:bad'))}`]}>
+          <Embed/>
+          <PluginHost/>
+        </MemoryRouter>
+      </IntlRoot>,
+    )
+    await new Promise((r) => setTimeout(r, 50))
+    expect(document.querySelectorAll('.player-links .plugin')).toHaveLength(0)
+    expect(document.querySelectorAll('.player-links .plugin-more')).toHaveLength(0)
   })
 })
 

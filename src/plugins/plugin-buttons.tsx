@@ -122,22 +122,28 @@ const MoreButton = ({
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const more = useRef<HTMLButtonElement>(null)
+  const openChange = useRef(onOpenChange)
+  useEffect(() => { openChange.current = onOpenChange })
   const label = moreLabel(intl)
-  const toggle = (next: boolean) => { setOpen(next); onOpenChange?.(next) }
-  useEffect(() => () => { onOpenChange?.(false) }, [onOpenChange])
+  // report open state from an effect so MenuSurface returns focus to the trigger before a folded field hides it
+  useEffect(() => {
+    if (!open) return
+    openChange.current?.(true)
+    return () => { openChange.current?.(false) }
+  }, [open])
   if (!rest.length) return null
   return (
     <>
       <button
         type="button" className={className} ref={(el) => { more.current = el; buttonRef?.(el) }} aria-haspopup="menu" aria-expanded={open}
-        aria-label={label} {...hint(label)} onMouseDown={onMouseDown} onClick={() => toggle(!open)}
+        aria-label={label} {...hint(label)} onMouseDown={onMouseDown} onClick={() => setOpen((was) => !was)}
       >
         <Ellipsis aria-hidden="true"/>
       </button>
       {/* in the body, as the account's menu is, so none of the bar's rules for its children reach it */}
       {open && createPortal(
-        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => toggle(false)}>
-          <MenuItems groups={pluginGroups(rest, context)} onChose={() => toggle(false)}/>
+        <MenuSurface placement={{ kind: 'under', of: more, align: 'end' }} label={label} onClose={() => setOpen(false)}>
+          <MenuItems groups={pluginGroups(rest, context)} onChose={() => setOpen(false)}/>
         </MenuSurface>,
         document.body,
       )}
@@ -238,6 +244,7 @@ export const AddFieldButtons = ({
     const observer = new ResizeObserver(fit)
     observer.observe(field)
     observer.observe(input)
+    fit()
     return () => observer.disconnect()
   }, [anchor, many])
   if (!drawn.length) return null

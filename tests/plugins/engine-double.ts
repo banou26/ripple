@@ -9,22 +9,28 @@ export type EngineDouble = {
   say: (msg: object) => void
   /** Whether a page made the client, which `runningTorrentClient` answers. */
   running: boolean
+  /** Attaches the fake transport without emitting ready, list or state yet. */
+  attach: (owns?: boolean) => void
   /** Starts a fresh engine in this tab, owning it or not, with `list` and a state of `live`. */
   start: (list: Persisted[], live?: { handle: number, magnet: string }[], owns?: boolean) => void
 }
 
 export const engineDouble = (real: Real): EngineDouble => {
   const client = real.createTorrentClient()
+  const attach = (owns = true) => {
+    client.useTransport((host) => {
+      engine.say = (msg) => host.message(msg)
+      return { post: (msg) => { engine.posted.push(msg) }, destroy: () => {}, pending: () => [] }
+    }, owns)
+  }
   const engine: EngineDouble = {
     client,
     posted: [],
     say: () => {},
     running: true,
+    attach,
     start: (list, live = [], owns = true) => {
-      client.useTransport((host) => {
-        engine.say = (msg) => host.message(msg)
-        return { post: (msg) => { engine.posted.push(msg) }, destroy: () => {}, pending: () => [] }
-      }, owns)
+      attach(owns)
       engine.say({ type: 'ready' })
       engine.say({ type: 'list', list })
       engine.say({ type: 'state', torrents: live.map(snapshot) })

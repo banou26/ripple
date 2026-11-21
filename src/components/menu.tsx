@@ -386,10 +386,11 @@ export const MenuSurface = ({
     const onKey = (e: KeyboardEvent) => {
       const list = enabled()
       const here = list.indexOf(document.activeElement as HTMLElement)
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return }
       if (e.key === 'Tab') { onClose(); return }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
+        e.stopPropagation()
         if (!list.length) return
         // -1 is the container still holding focus, where down means the first row and up means the
         // last. Falling through to the wrap arithmetic would send up to the second-to-last instead.
@@ -399,8 +400,8 @@ export const MenuSurface = ({
         focusItem(list[(here + step + list.length) % list.length])
         return
       }
-      if (e.key === 'Home') { e.preventDefault(); focusItem(list[0]); return }
-      if (e.key === 'End') { e.preventDefault(); focusItem(list[list.length - 1]); return }
+      if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); focusItem(list[0]); return }
+      if (e.key === 'End') { e.preventDefault(); e.stopPropagation(); focusItem(list[list.length - 1]); return }
       /*
        * Space, on whatever row holds focus.
        *
@@ -413,8 +414,14 @@ export const MenuSurface = ({
         const el = document.activeElement
         if (el instanceof HTMLElement && ref.current?.contains(el) && el.matches('[role^="menuitem"]')) {
           e.preventDefault()
+          e.stopPropagation()
           el.click()
+          return
         }
+      }
+      // keep keys pressed inside an open menu from reaching window-level shortcuts such as the player's
+      if ((e.target instanceof Node && ref.current?.contains(e.target)) || ref.current?.contains(document.activeElement)) {
+        e.stopPropagation()
       }
     }
 

@@ -449,4 +449,52 @@ describe('add-field, bulk-bar, detail and button.page', () => {
     await userEvent.keyboard('{Escape}')
     await vi.waitFor(() => expect(opened.at(-1)).toBe(false))
   })
+
+  it('returns focus to the folded add-field More button on Escape instead of dropping focus to document.body', async () => {
+    const { useEffect, useRef, useState } = await import('react')
+    await plugin({ buttons: () => [{ id: 'f1', place: 'add-field', label: 'Find 1' }] })
+    await plugin({ buttons: () => [{ id: 'f2', place: 'add-field', label: 'Find 2' }] })
+    const FoldedHeader = () => {
+      const formRef = useRef<HTMLFormElement>(null)
+      const [searching, setSearching] = useState(false)
+      const [menuOpen, setMenuOpen] = useState(false)
+      useEffect(() => {
+        const read = () => setSearching(!!formRef.current?.contains(document.activeElement))
+        document.addEventListener('focusin', read)
+        document.addEventListener('focusout', read)
+        return () => {
+          document.removeEventListener('focusin', read)
+          document.removeEventListener('focusout', read)
+        }
+      }, [])
+      return (
+        <header data-folded="" data-searching={searching || menuOpen || undefined}>
+          <style>{'header[data-folded]:not([data-searching]) .field .plugin-more { display: none; }'}</style>
+          <form ref={formRef}>
+            <div className="field" style={{ display: 'flex', width: 220, height: 36 }}>
+              <input type="text" style={{ flex: 1, minWidth: 0, height: 32 }}/>
+              <AddFieldButtons text="" onMouseDown={(e) => e.preventDefault()} onMenuOpenChange={setMenuOpen}/>
+            </div>
+          </form>
+        </header>
+      )
+    }
+    await withHost(<FoldedHeader/>)
+    const input = document.querySelector<HTMLInputElement>('header .field input')!
+    await userEvent.click(input)
+    await vi.waitFor(() => expect(document.querySelector('header[data-searching] .field .plugin-more')).not.toBeNull())
+    const more = document.querySelector<HTMLButtonElement>('header .field .plugin-more')!
+    // keyboard user focuses More inside the expanded folded field and opens it with Enter
+    more.focus()
+    expect(document.activeElement).toBe(more)
+    await userEvent.keyboard('{Enter}')
+    await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull())
+    // menu took focus out of formRef (searching is false), yet header stays expanded via menuOpen
+    expect(document.querySelector('header')?.hasAttribute('data-searching')).toBe(true)
+
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull())
+    expect(document.activeElement).toBe(more)
+    expect(document.querySelector('header')?.hasAttribute('data-searching')).toBe(true)
+  })
 })

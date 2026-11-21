@@ -3105,8 +3105,12 @@ const handleMessage = async (session: Session, m: any) => {
         post({ type: 'answer', id: m.id, value: null })
       } else {
         const [peers, own] = await Promise.all([session.peers(m.handle), session.trackers(m.handle)])
-        const trackers = [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(m.handle) ?? []]
-        post({ type: 'answer', id: m.id, value: { peers, trackers } })
+        if (!handles.includes(m.handle)) {
+          post({ type: 'answer', id: m.id, value: null })
+        } else {
+          const trackers = [...(relay ? own : own.map(notContacted)), ...webrtc?.trackers(m.handle) ?? []]
+          post({ type: 'answer', id: m.id, value: { peers, trackers } })
+        }
       }
     } else if (m.type === 'unwatch-owner') {
       // viewer ids are prefixed with the id of the tab that handed them out
