@@ -1,5 +1,6 @@
 import { css } from '@emotion/react'
-import { Tooltip } from 'react-tooltip'
+import { useRef } from 'react'
+import { Tooltip, TooltipRefProps } from 'react-tooltip'
 
 import { BORDER_STRONG, ELEVATED_BG, TEXT } from '../theme'
 
@@ -89,31 +90,41 @@ const style = css`
  * `overflow: hidden` ancestor; and a route that forgot to mount its own would silently show no hints
  * at all, which looks exactly like hints not being wired up.
  */
-export const Hints = () => (
-  <Tooltip
-    id={HINT_ID}
-    css={style}
-    /*
-     * INSTANT, which is the other half. The native delay is around a second and is not adjustable;
-     * this is the whole reason for replacing it, so it is stated rather than left to a default that
-     * could change.
-     */
-    delayShow={0}
-    delayHide={0}
-    /*
-     * Fixed positioning, so the chip is placed against the VIEWPORT rather than against whatever
-     * positioned ancestor it happens to land in. Absolute positioning inside a transformed or
-     * scrolled container puts the chip in the wrong place, and Ripple has both.
-     */
-    positionStrategy="fixed"
-    place="top"
-    /*
-     * The anchors are named EXPLICITLY, rather than left to the id alone.
-     *
-     * Every hint in the app is rendered by a route, which mounts after this does and re-renders
-     * constantly. The id on its own is enough for anchors that already exist; naming the selector is
-     * what keeps a tooltip attached to anchors that arrive later, which here is all of them.
-     */
-    anchorSelect={`[data-tooltip-id='${HINT_ID}']`}
-  />
-)
+export const Hints = () => {
+  const tooltip = useRef<TooltipRefProps>(null)
+  return (
+    <Tooltip
+      ref={tooltip}
+      id={HINT_ID}
+      css={style}
+      /*
+       * INSTANT, which is the other half. The native delay is around a second and is not adjustable;
+       * this is the whole reason for replacing it, so it is stated rather than left to a default that
+       * could change.
+       */
+      delayShow={0}
+      delayHide={0}
+      /*
+       * Fixed positioning, so the chip is placed against the VIEWPORT rather than against whatever
+       * positioned ancestor it happens to land in. Absolute positioning inside a transformed or
+       * scrolled container puts the chip in the wrong place, and Ripple has both.
+       */
+      positionStrategy="fixed"
+      place="top"
+      /*
+       * The anchors are named EXPLICITLY, rather than left to the id alone.
+       *
+       * Every hint in the app is rendered by a route, which mounts after this does and re-renders
+       * constantly. The id on its own is enough for anchors that already exist; naming the selector is
+       * what keeps a tooltip attached to anchors that arrive later, which here is all of them.
+       */
+      anchorSelect={`[data-tooltip-id='${HINT_ID}']`}
+      /*
+       * react-tooltip 5 can remove the chip as its fade out ends, or as the timer kept for that fade fires, while a
+       * hover is asking for it again, and then shows nothing. Asking once more after each show, while the anchor is
+       * still hovered or focused, lands after any such removal. Fixed upstream in 6.0.12.
+       */
+      afterShow={() => { if (tooltip.current?.activeAnchor?.matches(':hover, :focus')) tooltip.current.open() }}
+    />
+  )
+}

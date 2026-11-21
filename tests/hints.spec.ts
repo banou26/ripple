@@ -19,6 +19,8 @@ import { addSample } from './sample-offer'
 const INSTANT_MS = 500
 
 const CHIP = '.react-tooltip'
+const MAGNET = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
+const DOWNLOAD_PAGE = `/download?magnet=${Buffer.from(MAGNET).toString('base64')}`
 
 test.use({ viewport: { width: 720, height: 620 } })
 
@@ -103,8 +105,7 @@ test('a hint appears at once, and never leaves the page', async ({ page }) => {
  */
 test('hints work on the download page too, which mounts none of its own', async ({ page }) => {
   test.setTimeout(120_000)
-  const magnet = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel'
-  await page.goto(`/download?magnet=${Buffer.from(magnet).toString('base64')}`)
+  await page.goto(DOWNLOAD_PAGE)
 
   const anchor = page.locator('[data-tooltip-id="ripple-hint"]').first()
   await expect(anchor).toBeVisible({ timeout: 60_000 })
@@ -122,3 +123,36 @@ test('hints work on the download page too, which mounts none of its own', async 
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1)
 })
 
+/*
+ * A hover that lands as the chip ends its fade out. Measured 2026-11-21 under load: the fade's end, or the timer
+ * react-tooltip keeps beside it, removed the chip while the hover's show waited on its own 10 ms timer, and no chip
+ * came at all. The fade is drawn out and the clock held, as a busy page holds those timers, so every run lands there.
+ */
+for (const [removal, ending] of [['fade', 'its fade out ends'], ['timer', 'its fade out\'s timer goes off']] as const) {
+  test(`a hint hovered again as ${ending} comes back`, async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install()
+    await page.goto(DOWNLOAD_PAGE)
+    const anchor = page.locator('[data-tooltip-id="ripple-hint"]').first()
+    await expect(anchor).toBeVisible({ timeout: 60_000 })
+    const chip = page.locator(CHIP)
+    await anchor.hover()
+    await expect(chip).toHaveClass(/react-tooltip__show/)
+
+    await page.addStyleTag({ content: ':root { --rt-transition-closing-delay: 5s }' })
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000))
+    await page.mouse.move(0, 0)
+    await page.clock.runFor(10)
+    await expect(chip).toHaveClass(/react-tooltip__closing/)
+    // the timer goes off 175 ms into the fade, before a show asked for at 170 ms
+    if (removal === 'timer') await page.clock.runFor(170)
+    const faded = removal === 'fade' && chip.evaluate(element =>
+      new Promise(resolve => element.addEventListener('transitionend', resolve, { once: true })))
+    await anchor.hover()
+    await expect(chip, 'the control: the hover lands inside the fade').toHaveClass(/react-tooltip__closing/)
+    if (faded) await faded
+    else await page.clock.runFor(10)
+    await page.clock.resume()
+    await expect(chip).toHaveClass(/react-tooltip__show/)
+  })
+}
