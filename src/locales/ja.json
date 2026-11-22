@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "このリンクには Torrent が含まれていません。",
   "This magnet link has no info hash.": "このマグネットリンクには情報ハッシュがありません。",
   "This magnet link's info hash is malformed.": "このマグネットリンクの情報ハッシュは形式が正しくありません。",
+  "This private torrent needs its .torrent file. Add it again.": "このプライベート Torrent には .torrent ファイルが必要です。もう一度追加してください。",
   "Throttled · {speed}": "制限中 · {speed}",
   "Tier": "ティア",
   "Time active": "稼働時間",

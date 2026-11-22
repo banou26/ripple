@@ -2764,7 +2764,7 @@ const Home = () => {
     // numbering a filtered list 0..n-1 and emitting positions, which pointed at the wrong files.
     files: t.files ? contentFiles(t.files).map((f) => ({ name: f.name, size: f.size, index: f.index })) : null,
     fileCount: t.files?.length ?? 0,
-    private: await knownPrivate(t.infoHash),
+    private: t.private === true || await knownPrivate(t.infoHash),
   }), [])
 
   useEffect(() => {

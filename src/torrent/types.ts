@@ -144,6 +144,8 @@ export type Torrent = {
   saveTo?: SaveLocation
   /** True for a torrent made on this device from the person's own files. See `Persisted.created`. */
   created?: boolean
+  /** True when the torrent is known to be private (BEP 27). See `Persisted.private`. */
+  private?: boolean
   /**
    * True for a torrent a PAGE asked for rather than the person: its bytes are a cache the engine may
    * reclaim, and it is not part of the library.

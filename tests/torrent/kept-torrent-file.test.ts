@@ -123,3 +123,10 @@ describe('a torrent added from a .torrent file', () => {
     expect(await knownPrivate(addedHash), 'a private tracker\'s torrent would be shared with its key').toBe(true)
   })
 })
+
+it('magnetToCopy withholds a private entry even before its .torrent file lands on this device', async () => {
+  const { magnetToCopy } = await import('../../src/torrent/torrent-export')
+  const hash = 'f'.repeat(40)
+  const result = await magnetToCopy({ infoHash: hash, magnet: `magnet:?xt=urn:btih:${hash}`, private: true })
+  expect(result).toEqual({ magnet: null, kept: true })
+})

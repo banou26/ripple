@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "ลิงก์นี้ไม่มีทอร์เรนต์",
   "This magnet link has no info hash.": "ลิงก์แม็กเน็ตนี้ไม่มีแฮชข้อมูล",
   "This magnet link's info hash is malformed.": "แฮชข้อมูลของลิงก์แม็กเน็ตนี้ผิดรูปแบบ",
+  "This private torrent needs its .torrent file. Add it again.": "ทอร์เรนต์ส่วนตัวนี้ต้องใช้ไฟล์ .torrent ของตัวเอง กรุณาเพิ่มอีกครั้ง",
   "Throttled · {speed}": "ถูกจำกัด · {speed}",
   "Tier": "ระดับ",
   "Time active": "เวลาที่ทำงาน",

@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "لا يحتوي هذا الرابط على أي تورنت.",
   "This magnet link has no info hash.": "لا يحتوي هذا الرابط المغناطيسي على تجزئة معلومات.",
   "This magnet link's info hash is malformed.": "تجزئة المعلومات في هذا الرابط المغناطيسي غير صالحة.",
+  "This private torrent needs its .torrent file. Add it again.": "يحتاج هذا التورنت الخاص إلى ملف التورنت الخاص به. أضفه مرة أخرى.",
   "Throttled · {speed}": "مُقيَّد · {speed}",
   "Tier": "المستوى",
   "Time active": "مدة النشاط",

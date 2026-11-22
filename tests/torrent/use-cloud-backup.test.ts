@@ -172,6 +172,19 @@ describe('the list a write publishes', () => {
     expect(Object.keys(published!).filter((key) => ['started', 'paused', 'ephemeral', 'lastUsedAt', 'saveTo'].includes(key))).toEqual([])
   })
 
+  it('mirrors private: true across devices and preserves it monotonically on merge', () => {
+    const [localOnly] = backupOf([entry(HASH, { private: true })], null, [])
+    expect(localOnly!.private).toBe(true)
+    const [cloudOnly] = backupOf([], [entry(HASH, { private: true })], [])
+    expect(cloudOnly!.private).toBe(true)
+    const [fromLocal] = backupOf([entry(HASH, { private: true })], [entry(HASH)], [])
+    expect(fromLocal!.private).toBe(true)
+    const [fromCloud] = backupOf([entry(HASH)], [entry(HASH, { private: true })], [])
+    expect(fromCloud!.private).toBe(true)
+    const [pub] = backupOf([entry(HASH)], null, [])
+    expect(pub!.private).toBeUndefined()
+  })
+
   it('still agrees the byte counters by maximum', () => {
     const [published] = backupOf([entry(HASH, { uploaded: 5 })], [entry(HASH, { uploaded: 9 })], [])
     expect(published!.uploaded).toBe(9)

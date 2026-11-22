@@ -32,6 +32,7 @@ import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyR
 import { createHybridStorage, folderLacks, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
 import { buildTorrentFile, infoFromResume, magnetExtras } from './torrent-export'
+import { isPrivateTorrent } from './torrent-file'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
 import type { RateLimits } from './rate-limits'
@@ -1493,19 +1494,32 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   const wasStarted = userStarted.has(h)
   const wasForced = forced.has(h)
   const plan = planByHandle.get(h)
+  const entry = (await loadList()).find((e) => e.infoHash === ih)
+  const isPriv = entry?.private === true || live.isPrivate?.(h) === true
+
+  // A private torrent must never fall back to a bare magnet (which announces its infohash on the
+  // public DHT), and must not tear down the running handle or browser files before a .torrent copy
+  // is confirmed on disk.
+  const resume = await get(resumeKey(ih)).catch(() => undefined)
+  if (resume?.byteLength) await keepTorrentFile(ih, resume, magnet).catch(() => {})
+  const bytes = await get(torrentKey(ih)).catch(() => undefined)
+  if (isPriv && !bytes?.byteLength) {
+    post({ type: 'add-failed', message: forPage.formatMessage({ id: 'This private torrent needs its .torrent file. Add it again.', defaultMessage: 'This private torrent needs its .torrent file. Add it again.' }) })
+    return
+  }
 
   failReads(h, forPage.formatMessage({ id: 'files moved', defaultMessage: 'files moved' }))
   live.removeTorrent(h, from === 'browser')
   untrack(h)
-  // a saved state with the metadata and no .torrent kept from it yet, as one saved before they were kept, gives one now
-  const resume = await get(resumeKey(ih)).catch(() => undefined)
-  if (resume?.byteLength) await keepTorrentFile(ih, resume, magnet).catch(() => {})
   await del(resumeKey(ih)).catch(() => {})
 
   // from the kept .torrent when there is one, as the restore does: a magnet, or a .torrent add's bare hash, gives the
   // engine no file list until a peer sends it
-  const bytes = await get(torrentKey(ih)).catch(() => undefined)
-  const next = bytes?.byteLength ? live.addTorrentFile(bytes, savePath) : addMagnet(live, magnet, savePath)
+  const next = bytes?.byteLength
+    ? live.addTorrentFile(bytes, savePath)
+    : isPriv
+      ? -2 >>> 0
+      : addMagnet(live, magnet, savePath)
   if (addFailed(next)) {
     post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Moving the files left the torrent unaddable', defaultMessage: 'Moving the files left the torrent unaddable' }) })
     await patchList(ih, { savePath, saveTo: to, started: false })
@@ -1906,12 +1920,23 @@ const init = async () => {
         await del(resumeKey(e.infoHash)).catch(() => {})
         e.started = false; changed = true; continue
       }
+      const isPriv = e.private === true
       const h = resume && resume.byteLength
         ? session.addTorrentWithResume(resume, savePath)
         : bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
-          : addMagnet(session, e.magnet, savePath)
-      if (addFailed(h)) continue
+          : isPriv
+            ? -2 >>> 0
+            : addMagnet(session, e.magnet, savePath)
+      if (addFailed(h)) {
+        // A private torrent whose resume blob and .torrent file are both gone cannot be added from
+        // its bare magnet (that would announce its infohash on the public DHT); leave it as a ghost.
+        if (isPriv && !resume?.byteLength && !bytes?.byteLength) {
+          e.started = false
+          changed = true
+        }
+        continue
+      }
       track(h, e.magnet, e.infoHash, savePath, e.ephemeral === true)
       if (resume?.byteLength && isNativeSavePath(savePath)) folderUnchecked.add(h)
       // before needsPriorityReset, so the pass that clears the window has the plan to write back
@@ -2059,6 +2084,7 @@ const init = async () => {
          */
         // pads excluded: this list is read by people and by other devices, never by index
         files: files?.files.filter((f) => !f.pad).slice(0, SYNCED_FILE_CAP).map((f) => ({ name: f.path, size: f.size })),
+        ...(session.isPrivate?.(h) === true ? { private: true } : {}),
         // Announced, not quiet. It was quiet while this wrote only rootEntry, which nothing renders
         // and no other device reads. It now carries the name, size and file list, and the cloud
         // write is scheduled off this broadcast: without it the metadata sits on disk until the
@@ -2295,6 +2321,10 @@ const startEntries = async (session: Session, infoHashes: unknown[]) => {
     }
     const savePath = fetchesToBrowser(e) ? savePathFor(e.infoHash) : e.savePath || SHARED_ROOT
     const bytes = (await get(torrentKey(e.infoHash)))
+    if (e.private === true && !bytes?.byteLength) {
+      post({ type: 'add-failed', message: forPage.formatMessage({ id: 'This private torrent needs its .torrent file. Add it again.', defaultMessage: 'This private torrent needs its .torrent file. Add it again.' }) })
+      continue
+    }
     const h = bytes && bytes.byteLength
       ? session.addTorrentFile(bytes, savePath)
       : addMagnet(session, e.magnet, savePath)
@@ -2488,6 +2518,7 @@ const handleMessage = async (session: Session, m: any) => {
         format: m.format ?? 'v1',
         pieceLength: typeof m.pieceLength === 'number' ? m.pieceLength : undefined,
         ...syncedMetadata({ name: m.name, size: m.size, files: m.files }),
+        ...(isPrivateTorrent(bytes) || session.isPrivate?.(h) === true ? { private: true } : {}),
       })
       post({ type: 'added', handle: h, magnet: m.magnet })
     } else if (m.type === 'start-source') {
@@ -2570,6 +2601,7 @@ const handleMessage = async (session: Session, m: any) => {
               ...(wanted ? { wantedFiles: wanted } : {}),
               ...(firstLast ? { firstLast: true } : {}),
               ...(m.paused === true ? { paused: true } : {}),
+              ...(isPrivateTorrent(bytes) || session.isPrivate?.(h) === true ? { private: true } : {}),
               ...saveTo,
             },
           })
@@ -2641,7 +2673,7 @@ const handleMessage = async (session: Session, m: any) => {
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
       // the session's pause, not the add's: a Pause sent during the poll above had no entry to write itself into
       await upsertList(
-        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: userPaused.has(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}) },
+        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: userPaused.has(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}), ...(isPrivateTorrent(bytes) || session.isPrivate?.(h) === true ? { private: true } : {}) },
         known && fetchesToBrowser(known) ? { savePath, saveTo: keptSaveTo(known), ...saveTo } : undefined,
       )
       /*
@@ -2922,6 +2954,7 @@ const handleMessage = async (session: Session, m: any) => {
             if (mine.name === undefined && meta.name !== undefined) { mine.name = meta.name; changed = true }
             if (mine.size === undefined && meta.size !== undefined) { mine.size = meta.size; changed = true }
             if (mine.files === undefined && meta.files !== undefined) { mine.files = meta.files; changed = true }
+            if (e.private === true && mine.private !== true) { mine.private = true; changed = true }
             /*
              * THE COUNTERS ARE THE SECOND EXCEPTION, and they are merged rather than filled.
              *
@@ -2946,7 +2979,7 @@ const handleMessage = async (session: Session, m: any) => {
           // a library entry from another device, never a cache one: the cache is device-local and is not backed up
           // ...including the counters it arrives with: this device has never run it, so the other
           // machine's totals are the whole of what is known about it
-          const entry: Persisted = { infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false, ...meta, ...storedTotals(e) }
+          const entry: Persisted = { infoHash: e.infoHash, magnet: e.magnet, savePath: e.savePath || SHARED_ROOT, addedAt: e.addedAt || Date.now(), started: false, ephemeral: false, ...meta, ...storedTotals(e), ...(e.private === true ? { private: true } : {}) }
           list.push(entry)
           byHash.set(entry.infoHash, entry)
           changed = true

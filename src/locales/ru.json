@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "В этой ссылке нет торрента.",
   "This magnet link has no info hash.": "В этой магнит-ссылке нет инфохеша.",
   "This magnet link's info hash is malformed.": "Инфохеш этой магнит-ссылки повреждён.",
+  "This private torrent needs its .torrent file. Add it again.": "Для этого частного торрента нужен его файл .torrent. Добавьте его снова.",
   "Throttled · {speed}": "Замедлено · {speed}",
   "Tier": "Уровень",
   "Time active": "Время работы",

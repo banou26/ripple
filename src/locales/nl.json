@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Deze link bevat geen torrent.",
   "This magnet link has no info hash.": "Deze magneetkoppeling heeft geen info-hash.",
   "This magnet link's info hash is malformed.": "De info-hash van deze magneetkoppeling is ongeldig.",
+  "This private torrent needs its .torrent file. Add it again.": "Deze privétorrent heeft zijn .torrent-bestand nodig. Voeg hem opnieuw toe.",
   "Throttled · {speed}": "Afgeremd · {speed}",
   "Tier": "Niveau",
   "Time active": "Tijd actief",

@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Αυτός ο σύνδεσμος δεν περιέχει torrent.",
   "This magnet link has no info hash.": "Αυτός ο σύνδεσμος magnet δεν έχει info hash.",
   "This magnet link's info hash is malformed.": "Το info hash αυτού του συνδέσμου magnet είναι αλλοιωμένο.",
+  "This private torrent needs its .torrent file. Add it again.": "Αυτό το ιδιωτικό torrent χρειάζεται το αρχείο .torrent του. Προσθέστε το ξανά.",
   "Throttled · {speed}": "Περιορισμένο · {speed}",
   "Tier": "Επίπεδο",
   "Time active": "Χρόνος δραστηριότητας",

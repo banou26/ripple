@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Tautan ini tidak berisi torrent.",
   "This magnet link has no info hash.": "Tautan magnet ini tidak punya info hash.",
   "This magnet link's info hash is malformed.": "Info hash tautan magnet ini rusak.",
+  "This private torrent needs its .torrent file. Add it again.": "Torrent pribadi ini memerlukan file .torrent miliknya. Tambahkan lagi.",
   "Throttled · {speed}": "Diperlambat · {speed}",
   "Tier": "Tingkat",
   "Time active": "Lama aktif",

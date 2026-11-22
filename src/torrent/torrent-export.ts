@@ -138,8 +138,9 @@ export const knownPrivate = async (infoHash: string | undefined): Promise<boolea
  * here yet may be given one, as its metadata lands or its file comes from the account, and answer otherwise.
  */
 export const magnetToCopy = async (
-  { infoHash, magnet }: { infoHash?: string, magnet?: string },
+  { infoHash, magnet, private: isPrivate }: { infoHash?: string, magnet?: string, private?: boolean },
 ): Promise<{ magnet: string | undefined | null, kept: boolean }> => {
+  if (isPrivate === true) return { magnet: null, kept: true }
   const kept = infoHash ? await keptTorrentFile(infoHash) : null
   if (!kept) return { magnet, kept: false }
   return { magnet: isPrivateTorrent(kept) ? null : await shareableMagnet({ infoHash, magnet }), kept: true }

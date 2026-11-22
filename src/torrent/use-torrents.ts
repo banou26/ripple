@@ -306,6 +306,7 @@ export const ghostToTorrent = (e: Persisted): Torrent => ({
   stats: null,
   saveTo: e.saveTo,
   created: e.created === true,
+  ...(e.private === true ? { private: true } : {}),
   // a ghost's list came from `Persisted`, which the writer already stripped of pads, so every entry
   // here is content and its position is its index
   files: e.files?.map((f, index) => ({ name: f.name, size: f.size, index })),
@@ -342,6 +343,7 @@ export const libraryRows = (snaps: TorrentSnapshot[], list: Persisted[], words: 
         ...t,
         saveTo: entry.saveTo,
         created: entry.created === true,
+        ...(entry.private === true ? { private: true } : {}),
         ephemeral: entry.ephemeral === true,
         // the entry's clock wins over the engine's: it survives a restart, it is already in
         // milliseconds, and it is the one a ghost row has too, so a sort on it is not comparing

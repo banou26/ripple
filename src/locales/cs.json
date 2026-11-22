@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "V tomto odkazu není žádný torrent.",
   "This magnet link has no info hash.": "Tento magnet odkaz nemá info hash.",
   "This magnet link's info hash is malformed.": "Info hash tohoto magnet odkazu je poškozený.",
+  "This private torrent needs its .torrent file. Add it again.": "Tento soukromý torrent potřebuje svůj soubor .torrent. Přidejte ho znovu.",
   "Throttled · {speed}": "Zpomaleno · {speed}",
   "Tier": "Úroveň",
   "Time active": "Aktivní po dobu",

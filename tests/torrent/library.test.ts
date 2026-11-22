@@ -464,6 +464,13 @@ describe('removals', () => {
     expect(list).toEqual([mine])
   })
 
+  it('preserves private: true monotonically across mergeEntry', () => {
+    expect(mergeEntry(entry({ private: true }), entry({ private: undefined })).private).toBe(true)
+    expect(mergeEntry(entry({ private: undefined }), entry({ private: true })).private).toBe(true)
+    expect(mergeEntry(entry({ private: true }), entry({ private: false })).private).toBe(true)
+    expect(mergeEntry(entry(), entry()).private).toBeUndefined()
+  })
+
   it('leaves everything alone when nothing was removed', () => {
     const mine = ghost()
     const theirs = ghost({ infoHash: OTHER, magnet: 'magnet:?xt=urn:btih:' + OTHER })

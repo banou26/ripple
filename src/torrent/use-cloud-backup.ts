@@ -194,6 +194,7 @@ const portableOf = (e: Persisted) => ({
   name: e.name, size: e.size, files: e.files,
   activeSeconds: e.activeSeconds, seedingSeconds: e.seedingSeconds,
   downloaded: e.downloaded, uploaded: e.uploaded, wasted: e.wasted,
+  ...(e.private === true ? { private: true } : {}),
 })
 
 /**
@@ -217,7 +218,7 @@ export const backupOf = (local: Persisted[], cloud: Persisted[] | null, removals
     .map((e) => {
       const other = theirs.get(e.infoHash)
       return other
-        ? { ...portableOf(e), ...mergeTotals(e, other), addedAt: Math.max(e.addedAt ?? 0, other.addedAt ?? 0) }
+        ? { ...portableOf(e), ...mergeTotals(e, other), addedAt: Math.max(e.addedAt ?? 0, other.addedAt ?? 0), ...(e.private === true || other.private === true ? { private: true } : {}) }
         : portableOf(e)
     })
   const mine = new Set(merged.map((e) => e.infoHash))

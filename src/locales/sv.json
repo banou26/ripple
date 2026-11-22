@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Länken innehåller ingen torrent.",
   "This magnet link has no info hash.": "Magnetlänken har ingen info-hash.",
   "This magnet link's info hash is malformed.": "Magnetlänkens info-hash är felaktig.",
+  "This private torrent needs its .torrent file. Add it again.": "Den här privata torrenten behöver sin .torrent-fil. Lägg till den igen.",
   "Throttled · {speed}": "Strypt · {speed}",
   "Tier": "Nivå",
   "Time active": "Tid aktiv",

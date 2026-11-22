@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "הקישור הזה לא מכיל טורנט.",
   "This magnet link has no info hash.": "לקישור המגנט הזה אין גיבוב מידע.",
   "This magnet link's info hash is malformed.": "גיבוב המידע של קישור המגנט הזה פגום.",
+  "This private torrent needs its .torrent file. Add it again.": "הטורנט הפרטי הזה צריך את קובץ הטורנט שלו. הוסיפו אותו שוב.",
   "Throttled · {speed}": "מוגבל · {speed}",
   "Tier": "נדבך",
   "Time active": "זמן פעילות",

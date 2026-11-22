@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "此链接中没有 torrent。",
   "This magnet link has no info hash.": "此磁力链接没有信息哈希值。",
   "This magnet link's info hash is malformed.": "此磁力链接的信息哈希值格式不正确。",
+  "This private torrent needs its .torrent file. Add it again.": "此私有 torrent 需要其 .torrent 文件。请重新添加。",
   "Throttled · {speed}": "已限速 · {speed}",
   "Tier": "层级",
   "Time active": "活动时间",

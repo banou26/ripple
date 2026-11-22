@@ -18,12 +18,13 @@ export const useShareableMagnet = (t: Torrent | undefined): { magnet: string | u
   const id = t?.id
   const infoHash = t?.infoHash
   const from = t?.magnet
+  const isPrivate = t?.private === true
   useEffect(() => {
     if (id === undefined) return
     let live = true
-    void magnetToCopy({ infoHash, magnet: from }).then(({ magnet }) => { if (live) setRead({ id, from, magnet }) })
+    void magnetToCopy({ infoHash, magnet: from, private: isPrivate }).then(({ magnet }) => { if (live) setRead({ id, from, magnet }) })
     return () => { live = false }
-  }, [id, infoHash, from])
+  }, [id, infoHash, from, isPrivate])
   return t && read?.id === t.id && read.from === t.magnet ? read : null
 }
 
@@ -39,8 +40,8 @@ const copies = new Map<string, Promise<string | undefined | null>>()
 const copyOf = (row: string): Promise<string | undefined | null> => {
   let copy = copies.get(row)
   if (!copy) {
-    const [infoHash, magnet] = (JSON.parse(row) as (string | null)[]).map((value) => value ?? undefined)
-    copy = magnetToCopy({ infoHash, magnet }).then((found) => {
+    const [infoHash, magnet, , priv] = JSON.parse(row) as [string | null, string | null, number | null, boolean?]
+    copy = magnetToCopy({ infoHash: infoHash ?? undefined, magnet: magnet ?? undefined, private: priv === true }).then((found) => {
       if (!found.kept) copies.delete(row)
       return found.magnet
     })
@@ -55,7 +56,7 @@ const copyOf = (row: string): Promise<string | undefined | null> => {
  * `useShareableMagnet` gives.
  */
 export const useShareableMagnets = (rows: readonly Torrent[]): ShareableMagnets | null => {
-  const key = rows.map((t) => JSON.stringify([t.infoHash ?? null, t.magnet ?? null, t.addedAt ?? null])).join('\n')
+  const key = rows.map((t) => JSON.stringify([t.infoHash ?? null, t.magnet ?? null, t.addedAt ?? null, t.private === true])).join('\n')
   const [read, setRead] = useState<ShareableMagnets & { key: string } | null>(null)
   useEffect(() => {
     let live = true

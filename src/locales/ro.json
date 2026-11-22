@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Acest link nu conține niciun torrent.",
   "This magnet link has no info hash.": "Această legătură magnet nu are hash info.",
   "This magnet link's info hash is malformed.": "Hash-ul info al acestei legături magnet este greșit.",
+  "This private torrent needs its .torrent file. Add it again.": "Acest torrent privat are nevoie de fișierul lui .torrent. Adăugați-l din nou.",
   "Throttled · {speed}": "Limitat · {speed}",
   "Tier": "Nivel",
   "Time active": "Timp activ",

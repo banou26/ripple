@@ -95,6 +95,17 @@ export type Persisted = {
    * be run in any order, any number of times, without moving a number backwards.
    */
   downloaded?: number, uploaded?: number, wasted?: number,
+  /**
+   * True when this torrent's info dictionary carries BEP 27's `private` flag.
+   *
+   * Device-portable like `name`, `size` and `files`: it is a property of the torrent itself, not
+   * of this browser. Keeping it on the persisted entry and mirroring it to the account lets
+   * `restore`, `relocate` and `startEntries` refuse to fall back to a bare magnet when the kept
+   * `.torrent` is absent (a bare magnet has no info dict, so libtorrent would announce a private
+   * infohash on the public DHT), and lets a second device withhold Copy magnet and share links
+   * before the `.torrent` file has been pulled.
+   */
+  private?: boolean,
 }
 
 /**
@@ -243,6 +254,8 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
        * connecting the two.
        */
       created: next.created ?? was.created,
+      // Monotonic: once a torrent is known to be private, a later add or merge never clears it.
+      ...(next.private === true || was.private === true ? { private: true } : {}),
     }
     : next
 

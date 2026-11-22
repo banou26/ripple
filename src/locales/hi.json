@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "इस लिंक में कोई टॉरेंट नहीं है।",
   "This magnet link has no info hash.": "इस मैग्नेट लिंक में इन्फ़ो हैश नहीं है।",
   "This magnet link's info hash is malformed.": "इस मैग्नेट लिंक का इन्फ़ो हैश खराब है।",
+  "This private torrent needs its .torrent file. Add it again.": "इस प्राइवेट टॉरेंट को अपनी .torrent फ़ाइल चाहिए। इसे फिर से जोड़ें।",
   "Throttled · {speed}": "धीमा किया गया · {speed}",
   "Tier": "टियर",
   "Time active": "सक्रिय समय",

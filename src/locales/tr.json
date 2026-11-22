@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Bu bağlantıda torrent yok.",
   "This magnet link has no info hash.": "Bu magnet bağlantısında bilgi adreslemesi yok.",
   "This magnet link's info hash is malformed.": "Bu magnet bağlantısının bilgi adreslemesi hatalı.",
+  "This private torrent needs its .torrent file. Add it again.": "Bu özel torrent için .torrent dosyası gerekiyor. Yeniden ekleyin.",
   "Throttled · {speed}": "Kısıtlı · {speed}",
   "Tier": "Kademe",
   "Time active": "Etkin süre",

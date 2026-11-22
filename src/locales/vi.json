@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Liên kết này không chứa torrent nào.",
   "This magnet link has no info hash.": "Liên kết magnet này không có mã băm.",
   "This magnet link's info hash is malformed.": "Mã băm của liên kết magnet này bị lỗi.",
+  "This private torrent needs its .torrent file. Add it again.": "Torrent riêng tư này cần tệp .torrent của nó. Hãy thêm lại.",
   "Throttled · {speed}": "Bị giới hạn · {speed}",
   "Tier": "Cấp",
   "Time active": "Thời gian hoạt động",

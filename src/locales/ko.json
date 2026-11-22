@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "이 링크에는 토렌트가 없어요.",
   "This magnet link has no info hash.": "이 마그넷 링크에는 정보 해시가 없어요.",
   "This magnet link's info hash is malformed.": "이 마그넷 링크의 정보 해시 형식이 올바르지 않아요.",
+  "This private torrent needs its .torrent file. Add it again.": "이 비공개 토렌트에는 .torrent 파일이 필요해요. 다시 추가하세요.",
   "Throttled · {speed}": "제한됨 · {speed}",
   "Tier": "티어",
   "Time active": "활성 시간",

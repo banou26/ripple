@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Pautan ini tidak mengandungi torrent.",
   "This magnet link has no info hash.": "Pautan magnet ini tiada cincangan maklumat.",
   "This magnet link's info hash is malformed.": "Cincangan maklumat pautan magnet ini rosak.",
+  "This private torrent needs its .torrent file. Add it again.": "Torrent persendirian ini memerlukan fail .torrent miliknya. Tambah semula.",
   "Throttled · {speed}": "Diperlahankan · {speed}",
   "Tier": "Peringkat",
   "Time active": "Masa aktif",

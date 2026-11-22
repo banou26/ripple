@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Ebben a linkben nincs torrent.",
   "This magnet link has no info hash.": "Ennek a magnetlinknek nincs info hash-e.",
   "This magnet link's info hash is malformed.": "Ennek a magnetlinknek hibás az info hash-e.",
+  "This private torrent needs its .torrent file. Add it again.": "Ehhez a privát torrenthez szükség van a .torrent fájljára. Add hozzá újra.",
   "Throttled · {speed}": "Lassítva · {speed}",
   "Tier": "Szint",
   "Time active": "Aktív idő",

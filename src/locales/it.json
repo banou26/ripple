@@ -435,6 +435,7 @@
   "This link has no torrent in it.": "Questo link non contiene alcun torrent.",
   "This magnet link has no info hash.": "Questo collegamento magnet non ha un hash informazioni.",
   "This magnet link's info hash is malformed.": "L’hash informazioni di questo collegamento magnet non è valido.",
+  "This private torrent needs its .torrent file. Add it again.": "Questo torrent privato ha bisogno del suo file .torrent. Aggiungilo di nuovo.",
   "Throttled · {speed}": "Limitato · {speed}",
   "Tier": "Livello",
   "Time active": "Tempo attivo",
