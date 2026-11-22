@@ -92,8 +92,13 @@ const inFolder = (page: Page) => page.evaluate(async () => {
   const walk = async (dir: FileSystemDirectoryHandle, at: string): Promise<string[]> => {
     const found: string[] = []
     for await (const [name, handle] of (dir as unknown as { entries: () => AsyncIterable<[string, FileSystemHandle]> }).entries()) {
-      if (handle.kind === 'directory') found.push(...await walk(handle as FileSystemDirectoryHandle, `${at}${name}/`))
-      else found.push(`${at}${name}:${(await (handle as FileSystemFileHandle).getFile()).size}`)
+      try {
+        if (handle.kind === 'directory') found.push(...await walk(handle as FileSystemDirectoryHandle, `${at}${name}/`))
+        else found.push(`${at}${name}:${(await (handle as FileSystemFileHandle).getFile()).size}`)
+      } catch (e) {
+        if ((e as { name?: string })?.name !== 'NotFoundError') throw e
+        found.push(`${at}${name}:gone`)
+      }
     }
     return found
   }
