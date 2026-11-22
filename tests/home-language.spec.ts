@@ -1711,8 +1711,9 @@ test.describe('the header', () => {
         await signIn(page, null, null, account)
         await library(page, LIST, TORRENTS)
         await expect(page.locator('header .tool.plugin'), 'the control: two plugins\' buttons are drawn').toHaveCount(2)
-        await expect(page.locator('header .plugin-more')).toHaveCount(1)
-        expect(await page.locator('header .plugin-icon').first().evaluate(icon => getComputedStyle(icon).scale), 'a mirrored icon')
+        await expect(page.locator('header .tool.plugin-more')).toHaveCount(1)
+        await expect(page.locator('header .field .plugin-more')).toHaveCount(1)
+        expect(await page.locator('header .tool.plugin .plugin-icon').first().evaluate(icon => getComputedStyle(icon).scale), 'a mirrored icon')
           .toBe(rtl ? '-1 1' : 'none')
         for (const width of [1280, 900, 800, 701, 700, 520, 519, 390, 360, 320]) {
           const at = `${typeof account === 'string' ? 'signed out' : 'signed in'} at ${width} px`
@@ -1730,7 +1731,7 @@ test.describe('the header', () => {
           if (width >= 520) expect(fits, `${at}: the field is open`).toBe(true)
           if (width < 499) expect(fits, `${at}: a phone's row has no room for the field`).toBe(false)
           if (!fits) expect(await room(), `${at}: the field is folded to its glyph`).toBe(30)
-          for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings', 'header .tool.plugin >> nth=0', 'header .tool.plugin >> nth=1', 'header .plugin-more']) {
+          for (const control of ['header .file-button', 'header button.go', 'header button.create', 'header a.settings', 'header .tool.plugin >> nth=0', 'header .tool.plugin >> nth=1', 'header .tool.plugin-more']) {
             const box = (await page.locator(control).boundingBox())!
             expect(box.x >= 0 && box.x + box.width <= width && box.width > 0, `${at}: ${control} at ${box.x}+${box.width}`).toBe(true)
           }
