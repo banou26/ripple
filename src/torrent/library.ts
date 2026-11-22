@@ -198,10 +198,12 @@ export const ownsItsDirectory = (savePath: string | undefined, infoHash: string 
 export const staysEphemeral = (was: Persisted | null | undefined, adding: boolean): boolean =>
   adding && (was ? was.ephemeral === true : true)
 
-export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): Persisted =>
-  was
+export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): Persisted => {
+  const { private: nextPrivate, ...rest } = next
+  const priv = nextPrivate === true || was?.private === true
+  return was
     ? {
-      ...next,
+      ...rest,
       ephemeral: staysEphemeral(was, next.ephemeral === true),
       addedAt: Math.min(was.addedAt, next.addedAt),
       lastUsedAt: Math.max(was.lastUsedAt ?? 0, next.lastUsedAt ?? next.addedAt),
@@ -255,9 +257,10 @@ export const mergeEntry = (was: Persisted | null | undefined, next: Persisted): 
        */
       created: next.created ?? was.created,
       // Monotonic: once a torrent is known to be private, a later add or merge never clears it.
-      ...(next.private === true || was.private === true ? { private: true } : {}),
+      ...(priv ? { private: true } : {}),
     }
-    : next
+    : (priv ? { ...rest, private: true } : rest)
+}
 
 /**
  * How many file entries travel with a torrent in the library list.

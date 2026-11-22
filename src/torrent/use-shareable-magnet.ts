@@ -14,7 +14,7 @@ import { magnetToCopy } from './torrent-export'
  * once this answers, one read later, and the click writes a string it already holds.
  */
 export const useShareableMagnet = (t: Torrent | undefined): { magnet: string | undefined | null } | null => {
-  const [read, setRead] = useState<{ id: string, from: string | undefined, magnet: string | undefined | null } | null>(null)
+  const [read, setRead] = useState<{ id: string, from: string | undefined, isPrivate: boolean, magnet: string | undefined | null } | null>(null)
   const id = t?.id
   const infoHash = t?.infoHash
   const from = t?.magnet
@@ -22,10 +22,10 @@ export const useShareableMagnet = (t: Torrent | undefined): { magnet: string | u
   useEffect(() => {
     if (id === undefined) return
     let live = true
-    void magnetToCopy({ infoHash, magnet: from, private: isPrivate }).then(({ magnet }) => { if (live) setRead({ id, from, magnet }) })
+    void magnetToCopy({ infoHash, magnet: from, private: isPrivate }).then(({ magnet }) => { if (live) setRead({ id, from, isPrivate, magnet }) })
     return () => { live = false }
   }, [id, infoHash, from, isPrivate])
-  return t && read?.id === t.id && read.from === t.magnet ? read : null
+  return t && read?.id === t.id && read.from === t.magnet && read.isPrivate === isPrivate ? read : null
 }
 
 export type ShareableMagnets = { magnets: string[], left: number }

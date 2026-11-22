@@ -464,11 +464,18 @@ describe('removals', () => {
     expect(list).toEqual([mine])
   })
 
-  it('preserves private: true monotonically across mergeEntry', () => {
+  it('preserves private: true monotonically across mergeEntry and strips non-true keys', () => {
     expect(mergeEntry(entry({ private: true }), entry({ private: undefined })).private).toBe(true)
     expect(mergeEntry(entry({ private: undefined }), entry({ private: true })).private).toBe(true)
     expect(mergeEntry(entry({ private: true }), entry({ private: false })).private).toBe(true)
-    expect(mergeEntry(entry(), entry()).private).toBeUndefined()
+    const mergedUndef = mergeEntry(entry(), entry({ private: undefined }))
+    const mergedFalse = mergeEntry(entry(), entry({ private: false }))
+    const initialUndef = mergeEntry(null, entry({ private: undefined }))
+    const initialFalse = mergeEntry(null, entry({ private: false }))
+    expect(Object.hasOwn(mergedUndef, 'private')).toBe(false)
+    expect(Object.hasOwn(mergedFalse, 'private')).toBe(false)
+    expect(Object.hasOwn(initialUndef, 'private')).toBe(false)
+    expect(Object.hasOwn(initialFalse, 'private')).toBe(false)
   })
 
   it('leaves everything alone when nothing was removed', () => {

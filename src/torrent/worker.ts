@@ -2410,8 +2410,19 @@ const handleMessage = async (session: Session, m: any) => {
         const ephemeral = staysEphemeral(known, m.ephemeral === true)
         const elsewhere = !!known && fetchesToBrowser(known)
         const savePath = m.savePath || (!elsewhere && known?.savePath) || (ephemeral && ih ? cacheSavePathFor(ih) : savePathFor(ih))
-        const h = addMagnet(session, magnet, savePath)
-        if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
+        let h: number
+        if (known?.private === true) {
+          const bytes = ih ? await get(torrentKey(ih)).catch(() => undefined) : undefined
+          if (!bytes?.byteLength) {
+            answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'This private torrent needs its .torrent file. Add it again.', defaultMessage: 'This private torrent needs its .torrent file. Add it again.' }) })
+            return
+          }
+          h = session.addTorrentFile(bytes, savePath)
+          if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That torrent could not be read', defaultMessage: 'That torrent could not be read' }) }); return }
+        } else {
+          h = addMagnet(session, magnet, savePath)
+          if (addFailed(h)) { answerAdd(m, { type: 'add-failed', message: forPage.formatMessage({ id: 'That is not a valid magnet link', defaultMessage: 'That is not a valid magnet link' }) }); return }
+        }
         track(h, magnet, ih, savePath, ephemeral)
         // before needsPriorityReset, so the pass that clears the window has the plan to write back.
         // A re-add used to lose the file selection this device already had: the restore path reads

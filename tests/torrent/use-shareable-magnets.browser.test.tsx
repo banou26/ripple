@@ -139,4 +139,16 @@ describe('the magnet of one row', () => {
     await screen.rerender(<Row t={ROWS.b}/>)
     await expect.poll(() => one.at(-1)?.magnet).toBe(ROWS.b.magnet)
   })
+
+  it('returns null rather than a stale public magnet while private transitions from undefined to true', async () => {
+    one.length = 0
+    const screen = await render(<Row t={ROWS.b}/>)
+    await expect.poll(() => one.at(-1)?.magnet).toBe(ROWS.b.magnet)
+
+    const before = one.length
+    await screen.rerender(<Row t={{ ...ROWS.b, private: true }}/>)
+    expect(one[before], 'returned stale public magnet on first render after private became true').toBeNull()
+    await expect.poll(() => one.at(-1)).not.toBeNull()
+    expect(one.at(-1)!.magnet).toBeNull()
+  })
 })
