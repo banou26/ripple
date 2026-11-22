@@ -91,7 +91,7 @@ const addWhole = async (page: Page) => {
 const makeTemporary = async (page: Page) => {
   await row(page).getByRole('button', { name: `Options for ${NAME}` }).click()
   await page.getByRole('switch', { name: 'Keep this download' }).click()
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('dialog').last().getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(async () => (await entry(page))?.ephemeral, { timeout: 10_000 }).toBe(true)
 }

@@ -145,7 +145,7 @@ test('two of three torrents removed in one action stay removed after a reload, a
   await expect(page.getByRole('button', { name: "Remove and delete Ripple's copy", exact: true })).toBeVisible()
   await page.getByRole('switch', { name: 'Keep this download' }).click()
   await page.getByRole('button', { name: 'Let Ripple delete it' }).click()
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('dialog').last().getByRole('button', { name: 'Done', exact: true }).click()
   await fromChip(page, /^Show: /u, /^Kept /u)
   await expect(page.locator('.torrent', { hasText: three })).toHaveCount(0)
   await page.getByRole('checkbox', { name: 'Select all' }).check()
