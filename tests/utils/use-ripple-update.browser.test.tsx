@@ -321,6 +321,26 @@ describe('an update that arrives while the page sits open', () => {
     await expect.poll(() => reloaded.count).toBe(1)
   })
 
+  it.each(['/watch#m=abc', '/watch/?magnet=abc', '/WATCH//'])('waits on a top-level %s page even when paused, and goes once the viewer leaves it', async (watchPath) => {
+    const startPath = location.pathname + location.search + location.hash
+    try {
+      history.replaceState(null, '', watchPath)
+      const video = document.body.appendChild(document.createElement('video'))
+      Object.defineProperty(video, 'paused', { configurable: true, value: true })
+      const { sw, worker } = await openWithUpdate()
+      await sleep(250)
+      expect(worker.takeOvers(), `reloaded a paused ${watchPath} page`).toBe(0)
+      expect(reloaded.count).toBe(0)
+
+      history.replaceState(null, '', '/')
+      await expect.poll(() => worker.takeOvers()).toBe(1)
+      sw.controllerChange()
+      await expect.poll(() => reloaded.count).toBe(1)
+    } finally {
+      history.replaceState(null, '', startPath)
+    }
+  })
+
   /** An embedded /watch or /download reloads with the page around it, never on its own. */
   it('never reloads a framed page', async () => {
     framed.value = true

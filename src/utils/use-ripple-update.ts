@@ -15,8 +15,10 @@ import { reloadPage } from './reload'
  * fkn.app's update was taken, which leaves this document on the old build under the new shell.
  *
  * SAFE at top level only (an embedded /watch or /download is reloaded by the page around it, never by
- * itself), online (the document is never cached, so a reload offline is the browser's error page),
- * with no video playing, no text typed in the focused field and no dialog open, and no page work
+ * itself), off /watch (reloading a standalone /watch page drops the viewer's position and autoplays
+ * from 0:00 even when paused or ended), online (the document is never cached, so a reload offline is
+ * the browser's error page), with no video playing, no text typed in the focused field and no dialog
+ * open, and no page work
  * (page-work.ts) running in ANY Ripple page: taking the new worker over is what ends another page's
  * save, since Firefox ends the old worker's download streams the moment the new one activates. A due
  * update looks for that moment again every `recheckMs`. A worker found inside the adopt window is
@@ -79,11 +81,12 @@ const mayReload = (): boolean => {
 const NOT_TYPED = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'])
 
 /**
- * A video playing, a dialog open or text typed in the focused field: what a reload would throw away in
- * this page. An empty or read-only field holds nothing, so the field left focused after an add does
- * not hold a background tab.
+ * A /watch page, a video playing, a dialog open or text typed in the focused field: what a reload
+ * would throw away in this page. An empty or read-only field holds nothing, so the field left focused
+ * after an add does not hold a background tab.
  */
 const busy = (): boolean => {
+  if (/^\/watch\/*$/i.test(location.pathname)) return true
   if ([...document.querySelectorAll('video')].some((video) => !video.paused && !video.ended)) return true
   if (document.querySelector('[role="dialog"][aria-modal="true"]')) return true
   const focused = document.activeElement
