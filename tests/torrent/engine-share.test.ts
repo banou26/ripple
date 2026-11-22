@@ -149,7 +149,60 @@ describe('the leader server', () => {
 
     expect(heard).toContainEqual({ type: 'read-result', id: 3, data: new Uint8Array([1, 2, 3]) })
     // a follower's player takes a short answer as its own engine's would give it
-    expect(client.read).toHaveBeenCalledWith(1, 0, 0, 3, true, 'player', undefined, true)
+    expect(client.read).toHaveBeenCalledWith(1, 0, 0, 3, true, 'player', expect.any(AbortSignal), true)
+    stop()
+  })
+
+  it('aborts a follower read on cancel-read without forwarding the follower read id', async () => {
+    const signals = new Map<number, AbortSignal>()
+    const { client, sent } = makeClient()
+    client.read = vi.fn((handle: number, _file: number, _offset: number, _len: number, _prio: boolean, _viewer: string, signal?: AbortSignal) => {
+      if (signal) signals.set(handle, signal)
+      return new Promise(() => {})
+    })
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    let gen: string | undefined
+    control.addEventListener('message', ({ data }) => { if (data?.to === 'all') gen = data.gen })
+    const stop = serveFollowers(client)
+    await settle()
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 31, handle: 1, fileIndex: 0, offset: 0, len: 3, prioritize: true, viewer: 'player' } })
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 32, handle: 2, fileIndex: 0, offset: 0, len: 3, prioritize: true, viewer: 'player' } })
+    await settle()
+    expect(signals.get(1)?.aborted).toBe(false)
+    expect(signals.get(2)?.aborted).toBe(false)
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'cancel-read', id: 31, handle: 1 } })
+    await settle()
+
+    expect(signals.get(1)?.aborted).toBe(true)
+    expect(signals.get(2)?.aborted).toBe(false)
+    expect(sent.filter((m) => m.type === 'cancel-read')).toEqual([])
+    stop()
+  })
+
+  it('aborts in-flight follower reads when a departing follower says bye', async () => {
+    const signals: AbortSignal[] = []
+    const { client, sent } = makeClient()
+    client.read = vi.fn((_h: number, _file: number, _offset: number, _len: number, _prio: boolean, _viewer: string, signal?: AbortSignal) => {
+      if (signal) signals.push(signal)
+      return new Promise(() => {})
+    })
+    const control = track(new BroadcastChannel(CONTROL_CHANNEL))
+    let gen: string | undefined
+    control.addEventListener('message', ({ data }) => { if (data?.to === 'all') gen = data.gen })
+    const stop = serveFollowers(client)
+    await settle()
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen, msg: { type: 'read', id: 41, handle: 1, fileIndex: 0, offset: 0, len: 3, prioritize: true, viewer: 'player' } })
+    await settle()
+    expect(signals[0]?.aborted).toBe(false)
+
+    control.postMessage({ to: 'leader', from: 'tab-b', gen: null, msg: { type: 'bye' } })
+    await settle()
+
+    expect(signals[0]?.aborted).toBe(true)
+    expect(sent).toContainEqual({ type: 'unwatch-owner', owner: 'tab-b' })
     stop()
   })
 

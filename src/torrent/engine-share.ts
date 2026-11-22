@@ -101,6 +101,7 @@ export const createChannelTransport = (host: TransportHost, clientId: string): T
 export const serveFollowers = (client: EngineClient): () => void => {
   const control = new BroadcastChannel(CONTROL_CHANNEL)
   const followers = new Map<string, BroadcastChannel>()
+  const followerReads = new Map<string, Map<unknown, AbortController>>()
   const gen = newGeneration()
 
   const broadcast = (msg: any) => {
@@ -114,7 +115,15 @@ export const serveFollowers = (client: EngineClient): () => void => {
     try { channel.postMessage({ gen, msg }) } catch { /* follower went away */ }
   }
 
+  const abortFollowerReads = (clientId: string) => {
+    const active = followerReads.get(clientId)
+    if (!active) return
+    followerReads.delete(clientId)
+    for (const controller of active.values()) controller.abort()
+  }
+
   const drop = (clientId: string) => {
+    abortFollowerReads(clientId)
     const channel = followers.get(clientId)
     if (!channel) return
     followers.delete(clientId)
@@ -167,10 +176,32 @@ export const serveFollowers = (client: EngineClient): () => void => {
     if (env.gen !== gen) return
 
     if (msg.type === 'read') {
+      const controller = new AbortController()
+      let active = followerReads.get(from)
+      if (!active) followerReads.set(from, active = new Map())
+      active.set(msg.id, controller)
       client
-        .read(msg.handle, msg.fileIndex, msg.offset, msg.len, msg.prioritize, msg.viewer, undefined, msg.partial)
-        .then((data) => reply(from, { type: 'read-result', id: msg.id, data }))
-        .catch((error) => reply(from, { type: 'read-error', id: msg.id, error: String(error?.message ?? error) }))
+        .read(msg.handle, msg.fileIndex, msg.offset, msg.len, msg.prioritize, msg.viewer, controller.signal, msg.partial)
+        .then((data) => { if (!controller.signal.aborted) reply(from, { type: 'read-result', id: msg.id, data }) })
+        .catch((error) => { if (!controller.signal.aborted) reply(from, { type: 'read-error', id: msg.id, error: String(error?.message ?? error) }) })
+        .finally(() => {
+          const current = followerReads.get(from)
+          if (current?.get(msg.id) === controller) {
+            current.delete(msg.id)
+            if (!current.size) followerReads.delete(from)
+          }
+        })
+      return
+    }
+
+    if (msg.type === 'cancel-read') {
+      const active = followerReads.get(from)
+      const controller = active?.get(msg.id)
+      if (controller) {
+        active!.delete(msg.id)
+        if (!active!.size) followerReads.delete(from)
+        controller.abort()
+      }
       return
     }
 
@@ -198,6 +229,7 @@ export const serveFollowers = (client: EngineClient): () => void => {
     offRaw()
     control.removeEventListener('message', onControl)
     for (const clientId of [...followers.keys()]) drop(clientId)
+    for (const clientId of [...followerReads.keys()]) abortFollowerReads(clientId)
     try { control.close() } catch { /* already closed */ }
   }
 }

@@ -791,7 +791,7 @@ let lastMeasured: { space: Space, footprint: number } | null = null
 const pinnedOf = (h: number, fileIndex: number, file: FileGeometry): Range[] => [
   ...activeViewers(h).filter((v) => v.fileIndex === fileIndex)
     .map((v) => piecesOf(file, v.fromOffset, v.fromOffset + windowBytes(file.pieceLength))),
-  ...[...readsByHandle.get(h)?.values() ?? []].filter((r) => r.fileIndex === fileIndex)
+  ...[...readsByHandle.get(h)?.values() ?? []].filter((r) => r.fileIndex === fileIndex && (!r.viewer || viewers.get(h)?.has(r.viewer)))
     .map((r) => piecesOf(file, r.offset, r.offset + r.len)),
 ]
 
@@ -841,7 +841,7 @@ const exported = (h: number) => (exporting.get(h)?.until ?? 0) > Date.now()
 // stall rescue takes its requests back every attempt, so it would never arrive at all
 const trickle = (h: number) => {
   const w = windows.get(h)
-  const on = !!w && !readsByHandle.get(h)?.size && shouldTrickle(allHeld(h, w.ahead), roomLeft(), w.chunkBytes)
+  const on = !!w && !waitedOn(h) && shouldTrickle(allHeld(h, w.ahead), roomLeft(), w.chunkBytes)
   if (on === trickling.has(h)) return
   if (on) trickling.add(h); else trickling.delete(h)
   session?.setDownloadLimit(h, downloadLimitOf(h) ?? 0)
@@ -913,6 +913,7 @@ const dropOutside = async (h: number) => {
       removals.push(cache.drop(savePath, fileIndex, chunk))
     }
     await Promise.all(removals)
+    if (removals.length) recovery.retry(h, Date.now())
   } catch (err) {
     console.error('[worker] dropping chunks failed', String(err))
   } finally {
@@ -1152,13 +1153,15 @@ const watch = (viewer: string, h: number, fileIndex: number, fromOffset: number,
 }
 
 const unwatch = (matches: (viewer: string) => boolean) => {
-  for (const [h, watching] of viewers) {
+  let released = false
+  for (const [h, watching] of [...viewers]) {
     let changed = false
     for (const viewer of [...watching.keys()]) if (matches(viewer)) { watching.delete(viewer); changed = true }
     // when it stopped being watched is the truest thing to order the cache by
-    if (!watching.size) { viewers.delete(h); if (changed) touchUsed(h) }
+    if (!watching.size) { viewers.delete(h); if (changed) { touchUsed(h); released = true } }
     if (changed) applyViewing(h)
   }
+  if (released && storageFull) void runStorageBudget()
 }
 
 const hasBytes = (h: number, fileIndex: number, offset: number, len: number) => {
@@ -1582,7 +1585,7 @@ const collectCandidates = async (list: Persisted[], now: number) => {
     const entry = byHash.get(ih)
     // only what the player asked for, and only where deleting a directory can reach nothing else
     if (!entry?.ephemeral || !ownsItsDirectory(entry.savePath, ih)) continue
-    if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
+    if (viewers.get(h)?.size || waitedOn(h)) continue
     const usedAt = entry.lastUsedAt ?? entry.addedAt
     const bytesOnDisk = (await storage?.usageOf(entry.savePath)) ?? 0
     if (bytesOnDisk <= 0) continue
@@ -1750,7 +1753,7 @@ const runStorageBudget = async () => {
       // Re-checked at the moment of deletion, not only when the list was collected: measuring every
       // candidate and waiting out each previous delete takes seconds, and a player can attach inside
       // that window. Commands do not queue behind this pass, so nothing else would notice.
-      if (viewers.get(h)?.size || readsByHandle.get(h)?.size) continue
+      if (viewers.get(h)?.size || waitedOn(h)) continue
       const before = space.usedBytes
       /*
        * From HERE until the delete is read back, nothing knows the origin's state, so there is no
@@ -1786,6 +1789,12 @@ const runStorageBudget = async () => {
     // what an account switch leaves behind, so sweep before calling the origin full.
     if (isOriginFull(verdict(space)) && await runOrphanSweep()) {
       space = (await settleAfterDelete(space.usedBytes)) ?? space
+      await seen(space)
+      owed = await owedByViewers(space, { evictable: candidates, graced })
+      for (const h of viewers.keys()) recovery.retry(h, Date.now())
+      roomByHandle.clear()
+      for (const [h, room] of owed.rooms) roomByHandle.set(h, room)
+      for (const h of new Set([...roomByHandle.keys(), ...windows.keys()])) replan(h)
     }
     measured = space
   } catch (err) {
@@ -2757,6 +2766,7 @@ const handleMessage = async (session: Session, m: any) => {
           } catch (err) {
             if (!inFlight.has(m.id)) return
             if (!/did not arrive/.test(String(err))) throw err
+            if (m.viewer && !viewers.get(m.handle)?.has(m.viewer)) throw err
             // a relay outage stops every piece at once, and the readout already says Reconnecting
             if (healing(session) && reconnecting < READ_RECONNECTING_ATTEMPTS) reconnecting++
             else if (attempt + 1 - reconnecting >= READ_ATTEMPTS) throw err
@@ -2809,7 +2819,11 @@ const handleMessage = async (session: Session, m: any) => {
        * viewer id, so an abandoned read promoted the page's held claim back to an active one and the
        * torrent carried on downloading a file somebody had already cancelled.
        */
-      readsByHandle.get(m.handle)?.delete(m.id)
+      const inFlight = readsByHandle.get(m.handle)
+      if (inFlight) {
+        inFlight.delete(m.id)
+        if (!inFlight.size) readsByHandle.delete(m.handle)
+      }
     } else if (m.type === 'remove') {
       const ih = infoHashByHandle.get(m.handle)
       failReads(m.handle, TORRENT_REMOVED)
@@ -3172,7 +3186,7 @@ const handleMessage = async (session: Session, m: any) => {
 // command handlers read, modify and write one shared IndexedDB list across awaits, so two of them interleaving can drop an entry or post a stale list
 // add-torrent-file is unqueued because its infohash poll can hold the lane for ten seconds; it guards itself instead, with the handle re-check after the poll
 // read, export-chunk and torrent-detail are unqueued because reads are pure, and playback must never wait behind a list mutation
-const UNQUEUED = new Set(['read', 'add-torrent-file', 'export-chunk', 'torrent-detail'])
+const UNQUEUED = new Set(['read', 'cancel-read', 'add-torrent-file', 'export-chunk', 'torrent-detail'])
 let commands: Promise<void> = Promise.resolve()
 
 self.addEventListener('message', (e: MessageEvent) => {
