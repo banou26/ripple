@@ -73,7 +73,7 @@
     "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
   },
   "dependencies": {
-    "@banou/media-player": "^0.10.52",
+    "@banou/media-player": "^0.10.53",
     "@banou/ponyfill": "^0.0.15",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.84",
@@ -81,7 +81,7 @@
     "ass-compiler": "^0.1.15",
     "fflate": "^0.8.3",
     "idb-keyval": "^6.2.1",
-    "libav-wasm": "^0.8.16",
+    "libav-wasm": "^0.8.17",
     "libtorrent-wasm": "^0.3.30",
     "lucide-react": "^0.536.0",
     "osra": "^0.6.4",
