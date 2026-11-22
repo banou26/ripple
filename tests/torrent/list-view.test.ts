@@ -3,9 +3,10 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 import { describe, expect, it } from 'vitest'
 
 import {
-  DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_GROUPS, NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT,
-  cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile, offeredFilters, readFilter, readGroup,
-  readSort, readView, reclaimable, shouldReorder, sortTorrents, visibleTorrents, writeSort,
+  DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_GROUPS, NATURAL_DIR, NO_COLLAPSED, SORT_LABEL,
+  TEMPORARY_HINT, cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile,
+  offeredFilters, readCollapsed, readFilter, readGroup, readSort, readView, reclaimable, shouldReorder, sortTorrents,
+  toggleCollapsed, visibleGroupRows, visibleTorrents, writeCollapsed, writeSort,
 } from '../../src/torrent/list-view'
 
 /**
@@ -182,6 +183,25 @@ describe('the groups the cards stack under', () => {
     for (const filter of FILTERS.filter((f) => f !== 'all' && f !== 'library' && f !== 'temporary')) {
       expect(cardGroups(rows, filter).map((g) => [g.group, names(g.rows)]), filter).toEqual([[null, ['seed', 'down']]])
     }
+  })
+
+  it('toggles collapsed categories cleanly and omits only folded groups from visible rows', () => {
+    const afterDone = toggleCollapsed(NO_COLLAPSED, 'done')
+    expect([...afterDone]).toEqual(['done'])
+    expect(NO_COLLAPSED.size).toBe(0)
+    const afterMissing = toggleCollapsed(afterDone, 'missing')
+    expect([...afterMissing]).toEqual(['done', 'missing'])
+    expect([...toggleCollapsed(afterMissing, 'done')]).toEqual(['missing'])
+
+    const rows = [
+      t({ name: 'down', state: 'downloading' }),
+      t({ name: 'held', state: 'paused' }),
+      t({ name: 'seed', state: 'seeding' }),
+      t({ name: 'gone', state: 'missing' }),
+    ]
+    const grouped = cardGroups(rows, 'all')
+    expect(names(visibleGroupRows(grouped, afterMissing))).toEqual(['down', 'held'])
+    expect(names(visibleGroupRows(cardGroups(rows, 'seeding'), afterDone))).toEqual(['down', 'held', 'seed', 'gone'])
   })
 })
 
@@ -376,6 +396,14 @@ describe('the stored preferences', () => {
     expect(readGroup(from({ 'ripple:list-group': 'q9X-_0aZ12345678' }))).toBe('q9X-_0aZ12345678')
     expect(readGroup(from({}))).toBeNull()
     expect(readGroup(from({ 'ripple:list-group': '' }))).toBeNull()
+  })
+
+  it('reads, validates, and serializes collapsed categories in canonical order', () => {
+    expect([...readCollapsed(from({}))]).toEqual([])
+    expect([...readCollapsed(throws)]).toEqual([])
+    expect([...readCollapsed(from({ [LIST_COLLAPSED_KEY]: 'done,bogus,missing,,done' }))]).toEqual(['done', 'missing'])
+    expect(writeCollapsed(new Set(['missing', 'active']))).toBe('active,missing')
+    expect(writeCollapsed(NO_COLLAPSED)).toBe('')
   })
 })
 

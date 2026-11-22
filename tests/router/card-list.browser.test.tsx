@@ -1,6 +1,7 @@
 import type { Torrent } from '../../src/torrent/types'
-import type { ListFilter } from '../../src/torrent/list-view'
+import type { CollapsedGroups, ListFilter } from '../../src/torrent/list-view'
 
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from '@vitest/browser/context'
@@ -14,7 +15,7 @@ import ptBR from '../../src/locales/pt-BR.json'
 import tr from '../../src/locales/tr.json'
 import { useBulkSelection } from '../../src/router/bulk-selection'
 import { useOrderedTorrents } from '../../src/router/use-ordered-torrents'
-import { cardGroups } from '../../src/torrent/list-view'
+import { NO_COLLAPSED, cardGroups, readCollapsed, toggleCollapsed, visibleGroupRows, writeCollapsed } from '../../src/torrent/list-view'
 import { showEnglish, showIn } from '../i18n/show-in'
 
 vi.mock('../../src/torrent/use-thumbnails', () => ({
@@ -47,20 +48,26 @@ const handlers = {
   selected: false, onSelect: vi.fn(), savedToUserStorage: false,
 }
 
-const mount = async (filter: ListFilter = 'all', first: Torrent[] = LIBRARY) => {
+const mount = async (filter: ListFilter = 'all', first: Torrent[] = LIBRARY, initialCollapsed: CollapsedGroups = NO_COLLAPSED) => {
   const { CardList, TorrentRow, style } = await import('../../src/router/home')
   const clock = { now: 1_000_000 }
   const Library = ({ torrents }: { torrents: Torrent[] }) => {
+    const [collapsed, setCollapsed] = useState<CollapsedGroups>(initialCollapsed)
     const { rows, groupOf, interaction } = useOrderedTorrents(torrents, filter, 'added', 'desc', () => clock.now)
     const groups = cardGroups(rows, filter, groupOf)
-    const bulk = useBulkSelection(groups.flatMap((g) => g.rows))
+    const bulk = useBulkSelection(visibleGroupRows(groups, collapsed))
     return (
-      <div css={style}><main {...interaction}>
-        <CardList
-          groups={groups}
-          row={(x) => <TorrentRow key={x.id} t={x} {...handlers} checked={bulk.picked.has(x.infoHash!)} onPick={bulk.toggle}/>}
-        />
-      </main></div>
+      <div css={style}>
+        <main {...interaction}>
+          <CardList
+            groups={groups}
+            collapsed={collapsed}
+            onToggleGroup={(group) => setCollapsed((was) => toggleCollapsed(was, group))}
+            row={(x) => <TorrentRow key={x.id} t={x} {...handlers} checked={bulk.picked.has(x.infoHash!)} onPick={bulk.toggle}/>}
+          />
+        </main>
+        <output data-testid="picked" hidden>{bulk.rows.map((x) => x.name).join(',')}</output>
+      </div>
     )
   }
   const container = document.createElement('div')
@@ -211,5 +218,86 @@ describe('the cards under their group headings', () => {
     clock.now += 3_000
     await rerender(paused.map((x) => ({ ...x })))
     expect(drawn().slice(0, 5)).toEqual(['# Downloading 1', 'Down two', '# Paused 2', 'Down one', 'Held'])
+  })
+
+  it('collapses and expands a category on click and keeps its heading and count', async () => {
+    const { screen, drawn } = await mount()
+    const doneButton = screen.getByRole('button', { name: 'Done 2' })
+    await expect.element(doneButton).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(doneButton)
+    await expect.element(doneButton).toHaveAttribute('aria-expanded', 'false')
+    expect(drawn()).toEqual([
+      '# Downloading 2', 'Down one', 'Down two',
+      '# Paused 1', 'Held',
+      '# Done 2',
+      '# Not on this device 1', 'Ghost',
+    ])
+
+    await userEvent.click(doneButton)
+    await expect.element(doneButton).toHaveAttribute('aria-expanded', 'true')
+    expect(drawn()).toEqual([
+      '# Downloading 2', 'Down one', 'Down two',
+      '# Paused 1', 'Held',
+      '# Done 2', 'Seed one', 'Seed two',
+      '# Not on this device 1', 'Ghost',
+    ])
+  })
+
+  it('toggles a category from the keyboard', async () => {
+    const { screen, drawn } = await mount()
+    const missingButton = screen.getByRole('button', { name: 'Not on this device 1' })
+    await missingButton.element().focus()
+    await userEvent.keyboard('{Enter}')
+    await expect.element(missingButton).toHaveAttribute('aria-expanded', 'false')
+    expect(drawn()).not.toContain('Ghost')
+
+    await userEvent.keyboard(' ')
+    await expect.element(missingButton).toHaveAttribute('aria-expanded', 'true')
+    expect(drawn()).toContain('Ghost')
+  })
+
+  it('skips folded categories in shift+click runs and unticks rows hidden by collapsing', async () => {
+    const { screen } = await mount('all', LIBRARY, new Set(['paused']))
+    const box = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
+    await userEvent.click(box('Down two'))
+    await userEvent.click(box('Seed one'), { modifiers: ['Shift'] })
+    expect(screen.container.querySelector('[data-testid="picked"]')?.textContent).toBe('Down two,Seed one')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done 2' }))
+    expect(screen.container.querySelector('[data-testid="picked"]')?.textContent).toBe('Down two')
+  })
+
+  it('rotates a folded chevron towards the line end in LTR and RTL', async () => {
+    const { screen } = await mount('all', LIBRARY, new Set(['done']))
+    const chev = screen.getByRole('button', { name: 'Done 2' }).element().querySelector('.chev')!
+    const wasDir = document.documentElement.dir
+    try {
+      document.documentElement.dir = 'ltr'
+      await expect.poll(() => getComputedStyle(chev).transform).toBe('matrix(0, -1, 1, 0, 0, 0)')
+      document.documentElement.dir = 'rtl'
+      await expect.poll(() => getComputedStyle(chev).transform).toBe('matrix(0, 1, -1, 0, 0, 0)')
+    } finally {
+      document.documentElement.dir = wasDir
+    }
+  })
+
+  it('persists and restores folded categories across storage round-trip', async () => {
+    localStorage.clear()
+    try {
+      localStorage.setItem('ripple:list-collapsed', writeCollapsed(new Set(['done', 'missing'])))
+      const restored = readCollapsed((k) => localStorage.getItem(k))
+      const { screen, drawn } = await mount('all', LIBRARY, restored)
+      await expect.element(screen.getByRole('button', { name: 'Done 2' })).toHaveAttribute('aria-expanded', 'false')
+      await expect.element(screen.getByRole('button', { name: 'Not on this device 1' })).toHaveAttribute('aria-expanded', 'false')
+      expect(drawn()).toEqual([
+        '# Downloading 2', 'Down one', 'Down two',
+        '# Paused 1', 'Held',
+        '# Done 2',
+        '# Not on this device 1',
+      ])
+    } finally {
+      localStorage.clear()
+    }
   })
 })

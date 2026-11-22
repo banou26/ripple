@@ -114,6 +114,22 @@ export const cardGroups = <T extends Pick<Torrent, 'state'>>(
 ): CardGroup<T>[] =>
   filter === 'all' || filter === 'library' || filter === 'temporary' ? groupTorrents(rows, group) : [{ group: null, rows: [...rows] }]
 
+/** Categories folded by the person in cards view, keyed by {@link ListGroup}. */
+export type CollapsedGroups = ReadonlySet<ListGroup>
+
+export const NO_COLLAPSED: CollapsedGroups = new Set()
+
+/** Toggles `group` in `collapsed`, returning a fresh set. */
+export const toggleCollapsed = (collapsed: CollapsedGroups, group: ListGroup): CollapsedGroups => {
+  const next = new Set(collapsed)
+  if (!next.delete(group)) next.add(group)
+  return next
+}
+
+/** Rows currently drawn in cards view, skipping categories folded by `collapsed`. */
+export const visibleGroupRows = <T>(groups: readonly CardGroup<T>[], collapsed: CollapsedGroups): T[] =>
+  groups.flatMap((g) => (g.group && collapsed.has(g.group) ? [] : g.rows))
+
 const shows = (filter: ListFilter, t: Torrent): boolean =>
   filter === 'all' || (filter === 'library' ? !isTemporary(t) : filter === 'temporary' ? isTemporary(t) : t.state === filter)
 
@@ -269,6 +285,8 @@ export const LIST_SORT_KEY = 'ripple:list-sort'
 export const LIST_VIEW_KEY = 'ripple:list-view'
 /** The group shown, by its id. One that names no group, deleted here or on another device, shows every torrent. */
 export const LIST_GROUP_KEY = 'ripple:list-group'
+/** Categories folded in cards view, comma-separated in {@link LIST_GROUPS} order. */
+export const LIST_COLLAPSED_KEY = 'ripple:list-collapsed'
 
 export type ViewMode = 'cards' | 'table'
 
@@ -284,6 +302,19 @@ const isFilter = (v: unknown): v is ListFilter => (FILTERS as readonly unknown[]
 const isView = (v: unknown): v is ViewMode => v === 'cards' || v === 'table'
 const isKey = (v: unknown): v is SortKey => typeof v === 'string' && v in SORT_LABEL
 const isDir = (v: unknown): v is SortDir => v === 'asc' || v === 'desc'
+const isListGroup = (v: unknown): v is ListGroup => (LIST_GROUPS as readonly unknown[]).includes(v)
+
+/** Reads folded card categories from storage, dropping unknown tokens and failing closed to none on error. */
+export const readCollapsed = (read: (key: string) => string | null): CollapsedGroups => {
+  try {
+    const picked = (read(LIST_COLLAPSED_KEY) ?? '').split(',').filter(isListGroup)
+    return picked.length ? new Set(picked) : NO_COLLAPSED
+  } catch { return NO_COLLAPSED }
+}
+
+/** Serializes folded card categories in canonical {@link LIST_GROUPS} order. */
+export const writeCollapsed = (collapsed: CollapsedGroups): string =>
+  LIST_GROUPS.filter((g) => collapsed.has(g)).join(',')
 
 export const readFilter = (read: (key: string) => string | null): ListFilter => {
   try { const v = read(LIST_FILTER_KEY); return isFilter(v) ? v : 'all' } catch { return 'all' }

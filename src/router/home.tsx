@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
+import { ChevronDown, CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
@@ -95,10 +95,11 @@ import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
 import type { TorrentGroup } from '../torrent/groups'
 import {
-  GROUP_LABEL, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, TEMPORARY_HINT,
-  cardGroups, filterCounts, readFilter, readSort, readView, reclaimable, visibleTorrents, writeSort,
+  GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, NO_COLLAPSED, TEMPORARY_HINT,
+  cardGroups, filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
+  visibleGroupRows, visibleTorrents, writeCollapsed, writeSort,
 } from '../torrent/list-view'
-import type { CardGroup, ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
+import type { CardGroup, CollapsedGroups, ListFilter, ListGroup, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
@@ -904,17 +905,45 @@ export const style = css`
   /* a group's heading and count, a sibling of the cards under it */
   .group-head {
     flex: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
     margin: 4px 0 0;
-    padding: 6px 10px;
+    padding: 0;
     border-radius: 6px;
     background: ${GROUP_BAND};
     color: ${GROUP_TEXT};
     font-size: 1.05rem;
     font-weight: 600;
     letter-spacing: 0.01em;
+
+    button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: inherit;
+      background: none;
+      color: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+      text-align: start;
+      cursor: pointer;
+      transition: background 120ms ease;
+
+      &:hover { background: ${HOVER_WASH}; }
+
+      &:focus-visible { outline: none; box-shadow: inset 0 0 0 2px ${FOCUS_RING}; }
+
+      &[aria-expanded='false'] .chev { transform: rotate(-90deg); }
+
+      &[aria-expanded='false']:dir(rtl) .chev { transform: rotate(90deg); }
+    }
+
+    .chev {
+      flex: none;
+      color: ${TEXT_MUTED};
+      transition: transform 120ms ease;
+    }
 
     .count {
       flex: none;
@@ -2410,19 +2439,39 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
  * The cards, each run under its group's heading and count where it has one. Headings and cards are siblings in one
  * list, so a card that changes group is moved rather than mounted again. Exported for its own test, like the row.
  */
-export const CardList = ({ groups, row }: { groups: CardGroup<Torrent>[], row: (t: Torrent) => ReactNode }) => {
+export const CardList = ({
+  groups,
+  row,
+  collapsed = NO_COLLAPSED,
+  onToggleGroup,
+}: {
+  groups: CardGroup<Torrent>[]
+  row: (t: Torrent) => ReactNode
+  collapsed?: CollapsedGroups
+  onToggleGroup?: (group: ListGroup) => void
+}) => {
   const intl = useIntl()
   return (
     <>
-      {groups.flatMap(({ group, rows }) => [
-        group && (
-          <h2 className="group-head" key={'group:' + group}>
-            {intl.formatMessage(GROUP_LABEL[group])}
-            <span className="count">{rows.length}</span>
-          </h2>
-        ),
-        ...rows.map(row),
-      ])}
+      {groups.flatMap(({ group, rows }) => {
+        const folded = !!group && collapsed.has(group)
+        return [
+          group && (
+            <h2 className="group-head" key={'group:' + group} data-collapsed={folded || undefined}>
+              <button
+                type="button"
+                aria-expanded={!folded}
+                onClick={onToggleGroup ? () => onToggleGroup(group) : undefined}
+              >
+                <ChevronDown className="chev" size={16} aria-hidden="true"/>
+                <span>{intl.formatMessage(GROUP_LABEL[group])}</span>
+                <span className="count">{rows.length}</span>
+              </button>
+            </h2>
+          ),
+          ...(folded ? [] : rows.map(row)),
+        ]
+      })}
     </>
   )
 }
@@ -3113,6 +3162,9 @@ const Home = () => {
   const [listFilter, setListFilter] = useState<ListFilter>(() => readFilter((k) => localStorage.getItem(k)))
   const [listView, setListView] = useState<ViewMode>(() => readView((k) => localStorage.getItem(k)))
   const [listSort, setListSort] = useState(() => readSort((k) => localStorage.getItem(k)))
+  const [collapsedGroups, setCollapsedGroups] = useState<CollapsedGroups>(() => readCollapsed((k) => localStorage.getItem(k)))
+  const [searchCollapsed, setSearchCollapsed] = useState<CollapsedGroups>(NO_COLLAPSED)
+  const prevSearch = useRef('')
 
   const chooseFilter = (filter: ListFilter) => {
     setListFilter(filter)
@@ -3503,7 +3555,29 @@ const Home = () => {
 
   // the cards stand under their group headings, so a shift-click run follows the order they are drawn in
   const stateGroups = cardGroups(shown, listFilter, groupOf)
-  const bulk = useBulkSelection(listView === 'table' ? shown : stateGroups.flatMap((g) => g.rows))
+  // Searching opens every category transiently without overwriting saved folded categories; a new search query resets
+  // any manual folds made during the previous query.
+  if (prevSearch.current !== search) {
+    prevSearch.current = search
+    if (searchCollapsed.size > 0) setSearchCollapsed(NO_COLLAPSED)
+  }
+  const collapsed = search ? searchCollapsed : collapsedGroups
+  const toggleGroup = useCallback((group: ListGroup) => {
+    if (search) {
+      setSearchCollapsed((was) => toggleCollapsed(was, group))
+      return
+    }
+    setCollapsedGroups((was) => {
+      const next = toggleCollapsed(was, group)
+      try {
+        const serialized = writeCollapsed(next)
+        if (serialized) localStorage.setItem(LIST_COLLAPSED_KEY, serialized)
+        else localStorage.removeItem(LIST_COLLAPSED_KEY)
+      } catch {}
+      return next
+    })
+  }, [search])
+  const bulk = useBulkSelection(listView === 'table' ? shown : visibleGroupRows(stateGroups, collapsed))
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
@@ -4043,6 +4117,8 @@ const Home = () => {
             : (
               <CardList
                 groups={stateGroups}
+                collapsed={collapsed}
+                onToggleGroup={toggleGroup}
                 row={(t) => (
                   // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
                   <TorrentRow
