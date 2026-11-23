@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { page } from '@vitest/browser/context'
 
-import type { GroupChoice } from '../../src/components/list-toolbar'
-
 import { ListToolbar } from '../../src/components/list-toolbar'
 import { IntlRoot } from '../../src/i18n'
 import de from '../../src/locales/de.json'
@@ -18,17 +16,12 @@ import { showEnglish, showIn } from '../i18n/show-in'
  * question it was chosen to ask rather than whatever was set last.
  */
 const COUNTS = { all: 6, library: 4, temporary: 2, downloading: 2, seeding: 2, completed: 1, paused: 0, missing: 1, retrying: 0 }
-const GROUPS = [{ id: 'g1', name: 'Week 2', count: 3 }, { id: 'g2', name: 'Weekend watch list', count: 0 }]
-
-const grouping = (over: Partial<GroupChoice> = {}): GroupChoice => ({
-  list: GROUPS, shown: null, all: 6, onShow: vi.fn(), onNew: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), ...over,
-})
 
 const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
   const props = {
     filter: 'all' as const,
     onFilter: vi.fn(),
-    group: grouping(),
+    onNewGroup: vi.fn(),
     sortKey: 'added' as const,
     sortDir: 'desc' as const,
     onSort: vi.fn(),
@@ -46,10 +39,10 @@ const mount = (over: Partial<Parameters<typeof ListToolbar>[0]> = {}) => {
 const pressed = (c: HTMLElement, name: string) =>
   [...c.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(name))?.getAttribute('aria-pressed')
 
-const chip = (c: HTMLElement, which: 'show' | 'group' | 'sort') => c.querySelector<HTMLButtonElement>(`.chip.${which}`)!
+const chip = (c: HTMLElement, which: 'show' | 'new-group' | 'sort') => c.querySelector<HTMLButtonElement>(`.chip.${which}`)!
 
 /** Opens the chip's menu and returns its rows. */
-const opened = async (c: HTMLElement, which: 'show' | 'group' | 'sort') => {
+const opened = async (c: HTMLElement, which: 'show' | 'sort') => {
   chip(c, which).click()
   await expect.poll(() => c.querySelector('[role="menu"]')).not.toBeNull()
   return [...c.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitemradio"]')]
@@ -152,7 +145,7 @@ describe('the list toolbar', () => {
     const c = (await mount().screen).container
     const box = (element: Element) => element.getBoundingClientRect()
     expect(box(c.querySelector('.views')!).right).toBeCloseTo(box(c.querySelector('.list-toolbar')!).right, 0)
-    for (const which of ['show', 'group', 'sort'] as const) {
+    for (const which of ['show', 'sort'] as const) {
       await opened(c, which)
       await expect.poll(() => box(c.querySelector('[role="menu"]')!).left, { message: which }).toBeCloseTo(box(chip(c, which)).left, 0)
       chip(c, which).click()
@@ -162,91 +155,34 @@ describe('the list toolbar', () => {
 
   it('offers every sort key the rules define', async () => {
     const { screen } = mount()
-    expect(names(await opened((await screen).container, 'sort'))).toEqual(['Date added', 'Name', 'Size', 'Progress', 'Download speed', 'Upload speed', 'Peers', 'Time left'])
+    expect(names(await opened((await screen).container, 'sort'))).toEqual([
+      'Date added', 'Custom', 'Name', 'Size', 'Progress', 'Download speed', 'Upload speed', 'Peers', 'Time left',
+    ])
   })
 
-  describe('the Group chip', () => {
-    const actions = (c: HTMLElement) => [...c.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')]
-    const labels = (c: HTMLElement) => [...c.querySelectorAll('[role="menu"] .group > label')].map((label) => label.textContent)
-
-    it('names the group shown, or says Group while every torrent is, between Show and Sort', async () => {
-      const c = (await mount().screen).container
-      expect([...c.querySelectorAll('.chip')].map((b) => b.classList[1])).toEqual(['show', 'group', 'sort'])
-      expect(chip(c, 'group').innerText.trim()).toBe('Group')
-      expect(chip(c, 'group')).toHaveAccessibleName('Group: All torrents (6)')
-      expect(chip(c, 'group').querySelector('svg')).toHaveClass('lucide-layers')
-      const shown = (await mount({ group: grouping({ shown: 'g1' }) }).screen).container
-      expect(chip(shown, 'group').innerText.trim()).toBe('Week 2')
-      expect(chip(shown, 'group')).toHaveAccessibleName('Group: Week 2 (3)')
-      expect(chip(shown, 'group').querySelector('.value')!.getAttribute('dir')).toBe('auto')
-    })
-
-    it('checks All torrents while no group is shown', async () => {
-      const c = (await mount().screen).container
-      expect(checked(await opened(c, 'group'))).toEqual(['All torrents (6)'])
-    })
-
-    // the direction decides where a name's punctuation is drawn: the ! of this one at its left end, after its words
-    it('draws a group\'s name in the direction of its own words, in its row and over its actions', async () => {
-      const name = 'סדרה!'
-      const c = (await mount({ group: grouping({ list: [...GROUPS, { id: 'g3', name, count: 1 }], shown: 'g3' }) }).screen).container
-      const direction = (element: Element) => getComputedStyle(element).direction
-      const rows = await opened(c, 'group')
-      expect(rows.map((row) => direction(row.querySelector('.text')!)), 'All torrents and two English names left to right, the Hebrew one right to left').toEqual(['ltr', 'ltr', 'ltr', 'rtl'])
-      expect(labels(c)).toEqual(['Group', name])
-      expect([...c.querySelectorAll('[role="menu"] .group > label')].map(direction)).toEqual(['ltr', 'rtl'])
-    })
-
-    it('offers every torrent and each group with its count, the one shown checked, and New group...', async () => {
-      const { props, screen } = mount({ group: grouping({ shown: 'g2' }) })
+  describe('the New group button', () => {
+    it('sits between Show and Sort and invokes onNewGroup when clicked', async () => {
+      const { props, screen } = mount()
       const c = (await screen).container
-      const rows = await opened(c, 'group')
-      expect(c.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Group')
-      expect(names(rows)).toEqual(['All torrents (6)', 'Week 2 (3)', 'Weekend watch list (0)'])
-      expect(checked(rows)).toEqual(['Weekend watch list (0)'])
-      rows[1]!.click()
-      expect(props.group.onShow).toHaveBeenCalledWith('g1')
-      await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
-      ;(await opened(c, 'group'))[0]!.click()
-      expect(props.group.onShow).toHaveBeenLastCalledWith(null)
-      await opened(c, 'group')
-      actions(c).find((row) => row.textContent === 'New group...')!.click()
-      expect(props.group.onNew).toHaveBeenCalledTimes(1)
+      expect([...c.querySelectorAll('.chip')].map((b) => b.classList[1])).toEqual(['show', 'new-group', 'sort'])
+      const btn = chip(c, 'new-group')
+      expect(btn.innerText.trim()).toBe('New group')
+      expect(btn).toHaveAccessibleName('New group')
+      expect(btn.querySelector('svg')).toHaveClass('lucide-folder-plus')
+      btn.click()
+      expect(props.onNewGroup).toHaveBeenCalledTimes(1)
     })
 
-    it('offers Rename... and Delete group for the group shown, and Download all only while it can fetch one', async () => {
-      const none = (await mount().screen).container
-      await opened(none, 'group')
-      expect(actions(none).map((row) => row.textContent), 'every torrent shown: nothing to rename').toEqual(['New group...'])
-      expect(labels(none)).toEqual(['Group'])
-      chip(none, 'group').click()
-
-      const held = (await mount({ group: grouping({ shown: 'g1' }) }).screen).container
-      await opened(held, 'group')
-      expect(actions(held).map((row) => row.textContent)).toEqual(['New group...', 'Rename...', 'Delete group'])
-      expect(labels(held)).toEqual(['Group', 'Week 2'])
-      chip(held, 'group').click()
-
-      const { props, screen } = mount({ group: grouping({ shown: 'g1', onDownloadAll: vi.fn() }) })
-      const c = (await screen).container
-      for (const [name, call] of [['Download all', props.group.onDownloadAll], ['Rename...', props.group.onRename], ['Delete group', props.group.onDelete]] as const) {
-        await opened(c, 'group')
-        const row = actions(c).find((one) => one.textContent === name)!
-        if (name === 'Delete group') expect(row).toHaveClass('danger')
-        row.click()
-        expect(call, name).toHaveBeenCalledTimes(1)
-        await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
+    it('keeps only its icon visible at phone widths while staying accessible', async () => {
+      await page.viewport(390, 844)
+      try {
+        const c = (await mount().screen).container
+        const btn = chip(c, 'new-group')
+        expect(getComputedStyle(btn.querySelector('.value')!).display).toBe('none')
+        expect(btn).toHaveAccessibleName('New group')
+      } finally {
+        await page.viewport(1280, 720)
       }
-    })
-
-    it('offers Copy link for the group shown once its link is built, after Download all', async () => {
-      const { props, screen } = mount({ group: grouping({ shown: 'g1', onDownloadAll: vi.fn(), onCopyLink: vi.fn() }) })
-      const c = (await screen).container
-      await opened(c, 'group')
-      expect(actions(c).map((row) => row.textContent)).toEqual(['New group...', 'Download all', 'Copy link', 'Rename...', 'Delete group'])
-      actions(c).find((one) => one.textContent === 'Copy link')!.click()
-      expect(props.group.onCopyLink).toHaveBeenCalledTimes(1)
-      await expect.poll(() => c.querySelector('[role="menu"]')).toBeNull()
     })
   })
 
@@ -287,7 +223,7 @@ describe('the list toolbar', () => {
       const sorts = await opened(c, 'sort')
       expect(c.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Sortieren')
       expect(names(sorts)).toEqual([
-        'Hinzugefügt am', 'Name', 'Größe', 'Fortschritt', 'Download-Geschwindigkeit', 'Upload-Geschwindigkeit', 'Peers', 'Restzeit',
+        'Hinzugefügt am', 'Benutzerdefiniert', 'Name', 'Größe', 'Fortschritt', 'Download-Geschwindigkeit', 'Upload-Geschwindigkeit', 'Peers', 'Restzeit',
       ])
       expect(sorts[0]).toHaveAccessibleDescription('Aufsteigend sortiert, klicken für absteigend')
     })

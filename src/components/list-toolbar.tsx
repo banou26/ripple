@@ -1,7 +1,7 @@
 import type { ListFilter, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 
 import { css } from '@emotion/react'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, LayoutGrid, Layers, List as ListIcon } from 'lucide-react'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, FolderPlus, LayoutGrid, List as ListIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 
@@ -158,26 +158,24 @@ const style = css`
     min-width: 60px;
   }
 
-  .chip.group {
-    flex-shrink: 100000;
-    min-width: 60px;
-
-    .value { max-width: 15em; }
+  .chip.new-group {
+    flex: none;
   }
 
   @media (max-width: 560px) {
+    .chip.new-group { padding-inline: 8px; }
+    .chip.new-group .value { display: none; }
     .views span { display: none; }
     .views button { padding: 5px 9px; }
   }
 
-  /* at their least, the three chips, the box and the views take 307 px with 8 px gaps, past the 288 px a 320 px window
-     leaves. Narrower gaps alone left a filter such as Temporaires 3 to 10 px short at 390 px in DejaVu Sans (es-419, fr,
-     it, pl, pt-BR, ru), so the chips narrow inside too, and the sort and the group stop at 52 px */
+  /* at their least, the chips, the box and the views stay on one line cleanly even down to a 320 px window */
   @media (max-width: 400px) {
     gap: 4px;
 
     .chip { gap: 4px; padding-inline: 8px 6px; }
-    .chip.sort, .chip.group { min-width: 52px; }
+    .chip.new-group { padding-inline: 7px; }
+    .chip.sort { min-width: 52px; }
     .views button { padding: 5px 7px; }
   }
 `
@@ -265,28 +263,10 @@ const useMenu = () => {
   }
 }
 
-/** The Group chip: which group the list shows, and what can be done to it. */
-export type GroupChoice = {
-  /** Each group, in the order offered, with how many rows it shows under the filter. */
-  list: { id: string, name: string, count: number }[]
-  /** The group shown, or null for every torrent. */
-  shown: string | null
-  /** How many rows every torrent shows under the filter. */
-  all: number
-  onShow: (id: string | null) => void
-  onNew: () => void
-  /** Fetches the shown group's torrents not on this device; absent while it has none that can be fetched. */
-  onDownloadAll?: () => void
-  /** Copies the shown group's link; absent while it is built, and while no torrent of it can go in one. */
-  onCopyLink?: () => void
-  onRename: () => void
-  onDelete: () => void
-}
-
 export type ListToolbarProps = {
   filter: ListFilter
   onFilter: (filter: ListFilter) => void
-  group: GroupChoice
+  onNewGroup: () => void
   sortKey: SortKey
   sortDir: SortDir
   onSort: (key: SortKey, dir: SortDir) => void
@@ -302,32 +282,17 @@ export type ListToolbarProps = {
 }
 
 export const ListToolbar = (
-  { filter, onFilter, group, sortKey, sortDir, onSort, view, onView, counts, picked, canPick, onPickAll }: ListToolbarProps,
+  { filter, onFilter, onNewGroup, sortKey, sortDir, onSort, view, onView, counts, picked, canPick, onPickAll }: ListToolbarProps,
 ) => {
   const intl = useIntl()
   const showMenu = useMenu()
-  const groupMenu = useMenu()
   const sortMenu = useMenu()
   const show = intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })
-  const groupWord = intl.formatMessage({ id: 'Group', defaultMessage: 'Group' })
   const sort = intl.formatMessage({ id: 'Sort', defaultMessage: 'Sort' })
+  const newGroupLabel = intl.formatMessage({ id: 'New group', defaultMessage: 'New group' })
   const counted = (label: string, count: number) =>
     intl.formatMessage({ id: '{filter} ({count})', defaultMessage: '{filter} ({count})' }, { filter: label, count })
   const shown = (f: ListFilter) => counted(intl.formatMessage(FILTER_LABEL[f]), counts[f])
-  const everything = intl.formatMessage({ id: 'All torrents', defaultMessage: 'All torrents' })
-  const shownGroup = group.list.find((g) => g.id === group.shown)
-  const groups: Choice[] = [
-    { id: '', label: everything, name: counted(everything, group.all), count: group.all, on: !shownGroup, pick: () => group.onShow(null) },
-    ...group.list.map((g) => ({
-      id: g.id, label: g.name, name: counted(g.name, g.count), count: g.count, on: g === shownGroup, typed: true, pick: () => group.onShow(g.id),
-    })),
-  ]
-  const groupActions: Action[] = [
-    ...group.onDownloadAll ? [{ id: 'download-all', label: intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }), run: group.onDownloadAll }] : [],
-    ...group.onCopyLink ? [{ id: 'copy-link', label: intl.formatMessage({ id: 'Copy link', defaultMessage: 'Copy link' }), run: group.onCopyLink }] : [],
-    { id: 'rename', label: intl.formatMessage({ id: 'Rename...', defaultMessage: 'Rename...' }), run: group.onRename },
-    { id: 'delete', label: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }), danger: true, run: group.onDelete },
-  ]
   const filters: Choice[] = offeredFilters(counts, filter).map((f) => ({
     id: f,
     label: intl.formatMessage(FILTER_LABEL[f]),
@@ -361,14 +326,12 @@ export const ListToolbar = (
         <ChevronDown className="chev" aria-hidden="true"/>
       </button>
       <button
-        type="button" className="chip group" {...groupMenu.trigger}
-        aria-label={intl.formatMessage({ id: 'Group: {group}', defaultMessage: 'Group: {group}' }, {
-          group: shownGroup ? counted(shownGroup.name, shownGroup.count) : counted(everything, group.all),
-        })}
+        type="button" className="chip new-group" onClick={onNewGroup}
+        aria-label={newGroupLabel}
+        {...hint(newGroupLabel)}
       >
-        <Layers aria-hidden="true"/>
-        <span className="value" dir={shownGroup ? 'auto' : undefined}>{shownGroup ? shownGroup.name : groupWord}</span>
-        <ChevronDown className="chev" aria-hidden="true"/>
+        <FolderPlus aria-hidden="true"/>
+        <span className="value">{newGroupLabel}</span>
       </button>
       <button
         type="button" className="chip sort" {...sortMenu.trigger}
@@ -387,17 +350,6 @@ export const ListToolbar = (
       {showMenu.open && (
         <MenuSurface placement={{ kind: 'under', of: showMenu.anchor, align: 'start' }} label={show} onClose={showMenu.close}>
           <Choices label={show} choices={filters} onChose={showMenu.close}/>
-        </MenuSurface>
-      )}
-      {groupMenu.open && (
-        <MenuSurface placement={{ kind: 'under', of: groupMenu.anchor, align: 'start' }} label={groupWord} onClose={groupMenu.close}>
-          <Choices
-            label={groupWord}
-            choices={groups}
-            actions={[{ id: 'new', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: group.onNew }]}
-            onChose={groupMenu.close}
-          />
-          {shownGroup && <Choices label={shownGroup.name} typed actions={groupActions} onChose={groupMenu.close}/>}
         </MenuSurface>
       )}
       {sortMenu.open && (

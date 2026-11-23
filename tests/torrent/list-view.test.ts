@@ -3,10 +3,11 @@ import type { Torrent, TorrentState } from '../../src/torrent/types'
 import { describe, expect, it } from 'vitest'
 
 import {
-  DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_GROUPS, NATURAL_DIR, NO_COLLAPSED, SORT_LABEL,
-  TEMPORARY_HINT, cardGroups, compareTorrents, filterCounts, groupOf, groupTorrents, isTemporary, isVolatile,
-  offeredFilters, readCollapsed, readFilter, readGroup, readSort, readView, reclaimable, shouldReorder, sortTorrents,
-  toggleCollapsed, visibleGroupRows, visibleTorrents, writeCollapsed, writeSort,
+  DEFAULT_SORT, FILTERS, GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_EXPANDED_GROUPS_KEY, LIST_GROUPS, NATURAL_DIR,
+  NO_COLLAPSED, NO_EXPANDED, SORT_LABEL, TEMPORARY_HINT, cardGroups, compareTorrents, filterCounts, groupOf,
+  groupTorrents, isTemporary, isVolatile, offeredFilters, readCollapsed, readExpandedGroups, readFilter, readSort,
+  readView, reclaimable, shouldReorder, sortTorrents, toggleCollapsed, toggleExpandedGroup, visibleGroupRows,
+  visibleTorrents, writeCollapsed, writeExpandedGroups, writeSort,
 } from '../../src/torrent/list-view'
 
 /**
@@ -388,14 +389,32 @@ describe('the stored preferences', () => {
     expect(readFilter(throws)).toBe('all')
     expect(readView(throws)).toBe('cards')
     expect(readSort(throws)).toEqual(DEFAULT_SORT)
-    expect(readGroup(throws)).toBeNull()
+    expect([...readExpandedGroups(throws)]).toEqual([])
   })
 
-  /** any id: whether it names a group is the page's to say, once the groups are read */
-  it('reads the group shown by its id, and none when nothing is stored', () => {
-    expect(readGroup(from({ 'ripple:list-group': 'q9X-_0aZ12345678' }))).toBe('q9X-_0aZ12345678')
-    expect(readGroup(from({}))).toBeNull()
-    expect(readGroup(from({ 'ripple:list-group': '' }))).toBeNull()
+  it('reads, toggles, and serializes expanded group ids while rejecting corrupt values', () => {
+    expect([...readExpandedGroups(from({}))]).toEqual([])
+    expect([...readExpandedGroups(from({ [LIST_EXPANDED_GROUPS_KEY]: '{not-json' }))]).toEqual([])
+    expect([...readExpandedGroups(from({ [LIST_EXPANDED_GROUPS_KEY]: '["b",123,"","a"]' }))].sort()).toEqual(['a', 'b'])
+    const toggled = toggleExpandedGroup(toggleExpandedGroup(NO_EXPANDED, 'g2'), 'g1')
+    expect(writeExpandedGroups(toggled)).toBe('["g1","g2"]')
+    expect([...toggleExpandedGroup(toggled, 'g1')]).toEqual(['g2'])
+  })
+
+  it('orders by custom rank ascending and places unplaced rows after placed ones newest first', () => {
+    const a = t({ id: 'a', infoHash: 'a'.repeat(40), addedAt: 10 })
+    const b = t({ id: 'b', infoHash: 'b'.repeat(40), addedAt: 30 })
+    const c = t({ id: 'c', infoHash: 'c'.repeat(40), addedAt: 20 })
+    const unplacedNew = t({ id: 'un', infoHash: 'd'.repeat(40), addedAt: 500 })
+    const unplacedOld = t({ id: 'uo', infoHash: 'e'.repeat(40), addedAt: 100 })
+    const customRank = new Map([
+      [`t:${c.infoHash}`, 0],
+      [`t:${a.infoHash}`, 1],
+      [`t:${b.infoHash}`, 2],
+    ])
+    expect(sortTorrents([a, unplacedOld, b, unplacedNew, c], 'custom', 'asc', customRank).map((row) => row.id)).toEqual([
+      'c', 'a', 'b', 'un', 'uo',
+    ])
   })
 
   it('reads, validates, and serializes collapsed categories in canonical order', () => {

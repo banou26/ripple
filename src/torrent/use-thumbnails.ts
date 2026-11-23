@@ -1,10 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
-
 import { get } from 'idb-keyval'
 
 import type { TorrentClient } from './client'
 import type { Persisted } from './library'
 
+import { GROUP_APPEARANCE_KEY, type StoredAppearance, currentGroupAppearances, groupImageKey, mergeAppearance, subscribeGroupAppearance } from './group-appearance'
 import { LIST_KEY } from './library'
 import { magnetInfoHash } from './magnet'
 import {
@@ -43,36 +43,30 @@ export const useThumbnailGeneration = (
   /** Which files may supply the picture; see pickThumbnailSource. The library passes nothing. */
   eligible?: (index: number) => boolean,
 ) => {
-  /**
-   * Show the pictures already on this device WITHOUT waiting for the engine.
-   *
-   * They used to be loaded from `client.onState`, which does not fire until a worker has spawned,
-   * compiled several megabytes of wasm, opened OPFS, created a session and restored the library.
-   * That is seconds, and it made every reload look as though the thumbnails had been lost and were
-   * being remade, when in fact they were sitting in IndexedDB the whole time: measured on the
-   * owner's browser at 8 kB and 0.1 ms to read.
-   *
-   * Nothing about a stored picture needs the engine. The library list is in the same database, so
-   * this reads it directly and paints whatever is already there, and the state-driven path below
-   * still covers torrents added while the page is open.
-   */
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      /*
-       * `only` narrows this to one torrent, for the download page.
-       *
-       * That page is usually an embed on somebody else's site showing a single release, and the
-       * visitor's library is none of its business: reading the whole list there would load and hold
-       * an object URL for every picture on the device to draw one. The library page passes nothing
-       * and still gets all of them.
-       */
       const hashes = only
         ? [only]
         : ((await get<Persisted[]>(LIST_KEY).catch(() => undefined)) ?? []).map((e) => e.infoHash).filter(Boolean)
-      if (!cancelled && hashes.length) await loadCachedThumbnails(hashes).catch(() => {})
+      const groupKeys = only
+        ? []
+        : mergeAppearance((await get<StoredAppearance>(GROUP_APPEARANCE_KEY).catch(() => undefined))?.items)
+          .flatMap((item) => (item.icon.kind === 'image' ? [groupImageKey(item.id, item.icon.hash)] : []))
+      const keys = [...hashes, ...groupKeys]
+      if (!cancelled && keys.length) await loadCachedThumbnails(keys).catch(() => {})
     })()
     return () => { cancelled = true }
+  }, [only])
+
+  useEffect(() => {
+    if (only) return
+    const loadGroupImages = () => {
+      const keys = currentGroupAppearances().flatMap((item) => (item.icon.kind === 'image' ? [groupImageKey(item.id, item.icon.hash)] : []))
+      if (keys.length) void loadCachedThumbnails(keys).catch(() => {})
+    }
+    loadGroupImages()
+    return subscribeGroupAppearance(loadGroupImages)
   }, [only])
 
   useEffect(() => {
@@ -93,6 +87,6 @@ export const useThumbnailGeneration = (
   }, [client, only, eligible])
 }
 
-/** The object URL for a torrent's picture, or null while there is not one. */
+/** The object URL for a torrent's or custom group's picture, or null while there is not one. */
 export const useThumbnail = (infoHash: string | undefined): string | null =>
   useSyncExternalStore(subscribeThumbnails, () => thumbnailFor(infoHash))

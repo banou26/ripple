@@ -1,49 +1,72 @@
 import type { Persisted } from '../torrent/library'
 import type { TorrentGroup } from '../torrent/groups'
+import type { ExpandedGroups } from '../torrent/list-view'
 import type { Torrent } from '../torrent/types'
 import type { LinkedGroup } from './group-link'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { createGroup, groupName, putInGroup, torrentsIn, useGroups } from '../torrent/groups'
 import { savePathFor } from '../torrent/library'
-import { LIST_GROUP_KEY, isTemporary, readGroup } from '../torrent/list-view'
+import { LIST_EXPANDED_GROUPS_KEY, NO_EXPANDED, readExpandedGroups, toggleExpandedGroup, writeExpandedGroups } from '../torrent/list-view'
 import { useShareableMagnets } from '../torrent/use-shareable-magnet'
 import { buildGroupLink } from './group-link'
 
-/**
- * The groups, and the one the list shows, remembered in this browser. `group` is undefined for every torrent, and while
- * the stored id names no group: one deleted here or on another device, or before this browser's copy has been read.
- *
- * A torrent added while a group is shown joins it: kept, on this device, added after this tab showed the group, and
- * never in it or taken out of it before. So rows from sync, a player's temporary torrent and a torrent taken out on
- * purpose stay out, as does every torrent the list held already.
- */
-export const useGroupView = (torrents: readonly Torrent[]) => {
-  const groups = useGroups()
-  const [chosen, setChosen] = useState(() => readGroup((key) => localStorage.getItem(key)))
-  const shownAt = useRef(0)
-  const group = chosen ? groups?.find((g) => g.id === chosen) : undefined
-  useEffect(() => { shownAt.current = Date.now() }, [])
+const persistExpanded = (next: ExpandedGroups) => {
+  try {
+    if (next.size) localStorage.setItem(LIST_EXPANDED_GROUPS_KEY, writeExpandedGroups(next))
+    else localStorage.removeItem(LIST_EXPANDED_GROUPS_KEY)
+  } catch {}
+}
 
-  const choose = (id: string | null) => {
-    setChosen(id)
-    shownAt.current = Date.now()
-    try {
-      if (id) localStorage.setItem(LIST_GROUP_KEY, id)
-      else localStorage.removeItem(LIST_GROUP_KEY)
-    } catch {}
-  }
+/**
+ * The synced groups and the ids of inline group rows currently expanded in this browser.
+ *
+ * Unknown group ids are pruned once the stored group list has been read, matching how stale selections
+ * are dropped without wiping preferences before IndexedDB resolves.
+ */
+export const useExpandedGroups = (givenGroups?: readonly TorrentGroup[]) => {
+  const syncedGroups = useGroups()
+  const groups = givenGroups ?? syncedGroups
+  const [stored, setStored] = useState<ExpandedGroups>(() => readExpandedGroups((key) => localStorage.getItem(key)))
+
+  const validIds = useMemo(() => (groups ? new Set(groups.map((g) => g.id)) : undefined), [groups])
+  const expanded = useMemo(() => {
+    if (!validIds) return stored
+    let allValid = true
+    for (const id of stored) {
+      if (!validIds.has(id)) { allValid = false; break }
+    }
+    if (allValid) return stored
+    const next = new Set([...stored].filter((id) => validIds.has(id)))
+    return next.size ? next : NO_EXPANDED
+  }, [stored, validIds])
 
   useEffect(() => {
-    if (!group) return
-    const known = new Set(group.members.map((m) => m.infoHash))
-    const joining = torrents.flatMap((t) => t.infoHash && !known.has(t.infoHash) && t.state !== 'missing' && !isTemporary(t)
-      && (t.addedAt ?? 0) >= shownAt.current ? [t.infoHash] : [])
-    if (joining.length) putInGroup(group.id, joining).catch(() => {})
-  }, [group, torrents])
+    if (!validIds || expanded === stored) return
+    setStored(expanded)
+    persistExpanded(expanded)
+  }, [validIds, expanded, stored])
 
-  return { groups, group, members: group ? torrentsIn(group) : undefined, choose }
+  const toggle = useCallback((groupId: string) => {
+    setStored((prev) => {
+      const next = toggleExpandedGroup(prev, groupId)
+      persistExpanded(next)
+      return next
+    })
+  }, [])
+
+  const expand = useCallback((groupId: string) => {
+    setStored((prev) => {
+      if (prev.has(groupId)) return prev
+      const next = new Set(prev)
+      next.add(groupId)
+      persistExpanded(next)
+      return next
+    })
+  }, [])
+
+  return { groups, expanded, toggle, expand }
 }
 
 /**

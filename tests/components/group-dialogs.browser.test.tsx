@@ -30,7 +30,7 @@ describe('naming a group', () => {
     await userEvent.type(field, '   ')
     expect(save.disabled, 'a name of spaces').toBe(true)
     await userEvent.type(field, ' Week 2 {Enter}')
-    expect(props.onSave).toHaveBeenCalledWith('Week 2')
+    expect(props.onSave).toHaveBeenCalledWith({ name: 'Week 2', icon: { kind: 'default' }, imageFile: null })
     expect(field.getAttribute('dir')).toBe('auto')
   })
 
@@ -44,7 +44,18 @@ describe('naming a group', () => {
     await userEvent.type(field, 'b')
     expect(save.disabled).toBe(false)
     save.click()
-    expect(props.onSave).toHaveBeenCalledWith('Week 2 b')
+    expect(props.onSave).toHaveBeenCalledWith({ name: 'Week 2 b', icon: { kind: 'default' }, imageFile: null })
+  })
+
+  it('enables Save when picking a preset icon without changing the name', async () => {
+    const { props, dialog, save } = await open('Week 2')
+    expect(save.disabled).toBe(true)
+    const filmButton = dialog.querySelector<HTMLButtonElement>('button[aria-label="Film icon"]')!
+    filmButton.click()
+    await expect.poll(() => save.disabled).toBe(false)
+    expect(filmButton.getAttribute('aria-pressed')).toBe('true')
+    save.click()
+    expect(props.onSave).toHaveBeenCalledWith({ name: 'Week 2', icon: { kind: 'preset', icon: 'film' }, imageFile: null })
   })
 
   it('titles a rename in the direction of the name\'s own words', async () => {

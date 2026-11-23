@@ -147,11 +147,12 @@ export const offeredFilters = (counts: Record<ListFilter, number>, chosen: ListF
 
 // ---------------------------------------------------------------------------------------- the sort
 
-export type SortKey = 'added' | 'name' | 'size' | 'progress' | 'down' | 'up' | 'peers' | 'eta'
+export type SortKey = 'added' | 'custom' | 'name' | 'size' | 'progress' | 'down' | 'up' | 'peers' | 'eta'
 export type SortDir = 'asc' | 'desc'
 
 export const SORT_LABEL = defineMessages<SortKey>({
   added: { id: 'Date added', defaultMessage: 'Date added' },
+  custom: { id: 'Custom', defaultMessage: 'Custom' },
   name: { id: 'Name', defaultMessage: 'Name' },
   size: { id: 'Size', defaultMessage: 'Size' },
   progress: { id: 'Progress', defaultMessage: 'Progress' },
@@ -167,6 +168,7 @@ export const SORT_LABEL = defineMessages<SortKey>({
  */
 export const NATURAL_DIR: Record<SortKey, SortDir> = {
   added: 'desc',
+  custom: 'asc',
   name: 'asc',
   size: 'desc',
   progress: 'desc',
@@ -194,14 +196,20 @@ const rank = (t: Torrent): number => (t.state === 'missing' ? 2 : t.state === 's
  * route exactly when the list is at its longest. Keeping the key list to flat fields removes that
  * whole class rather than guarding against it.
  */
-const valueOf = (t: Torrent, key: SortKey): number | string | null => {
+/** Effective download size of `t`: chosen content files if deselected partially, else total `t.size`. */
+export const torrentSize = (t: Torrent): number => {
+  const chosen = chosenFiles(t)
+  return chosen.length < contentFiles(t.files).length ? chosen.reduce((sum, f) => sum + f.size, 0) : t.size
+}
+
+const valueOf = (t: Torrent, key: SortKey, customRank?: ReadonlyMap<string, number>): number | string | null => {
+  if (key === 'custom') return (t.infoHash ? customRank?.get(`t:${t.infoHash}`) : undefined) ?? customRank?.get(`t:${t.id}`) ?? null
   const pending = t.state === 'starting' || t.state === 'missing'
   switch (key) {
     case 'name': return t.name
     case 'added': return t.addedAt ?? null
     case 'size': {
-      const chosen = chosenFiles(t)
-      const size = chosen.length < contentFiles(t.files).length ? chosen.reduce((sum, f) => sum + f.size, 0) : t.size
+      const size = torrentSize(t)
       return size > 0 ? size : null
     }
     case 'eta': return t.etaSeconds ?? null
@@ -219,10 +227,10 @@ const valueOf = (t: Torrent, key: SortKey): number | string | null => {
 const tiebreak = (a: Torrent, b: Torrent): number =>
   (b.addedAt ?? 0) - (a.addedAt ?? 0) || a.id.localeCompare(b.id)
 
-export const compareTorrents = (key: SortKey, dir: SortDir) => (a: Torrent, b: Torrent): number => {
+export const compareTorrents = (key: SortKey, dir: SortDir, customRank?: ReadonlyMap<string, number>) => (a: Torrent, b: Torrent): number => {
   if (rank(a) !== rank(b)) return rank(a) - rank(b)
-  const va = valueOf(a, key)
-  const vb = valueOf(b, key)
+  const va = valueOf(a, key, customRank)
+  const vb = valueOf(b, key, customRank)
   // BEFORE the direction flip, so unknown sits last both ways round. Reversing the list must not
   // promote every torrent nobody has measured to the top.
   if (va === null && vb === null) return tiebreak(a, b)
@@ -234,8 +242,8 @@ export const compareTorrents = (key: SortKey, dir: SortDir) => (a: Torrent, b: T
   return c !== 0 ? (dir === 'asc' ? c : -c) : tiebreak(a, b)
 }
 
-export const sortTorrents = (all: readonly Torrent[], key: SortKey, dir: SortDir): Torrent[] =>
-  [...all].sort(compareTorrents(key, dir))
+export const sortTorrents = (all: readonly Torrent[], key: SortKey, dir: SortDir, customRank?: ReadonlyMap<string, number>): Torrent[] =>
+  [...all].sort(compareTorrents(key, dir, customRank))
 
 // ------------------------------------------------------------------------------------ the throttle
 
@@ -283,8 +291,8 @@ export const shouldReorder = (
 export const LIST_FILTER_KEY = 'ripple:list-filter'
 export const LIST_SORT_KEY = 'ripple:list-sort'
 export const LIST_VIEW_KEY = 'ripple:list-view'
-/** The group shown, by its id. One that names no group, deleted here or on another device, shows every torrent. */
-export const LIST_GROUP_KEY = 'ripple:list-group'
+/** Ids of expanded inline groups in the list. */
+export const LIST_EXPANDED_GROUPS_KEY = 'ripple:list-expanded-groups'
 /** Categories folded in cards view, comma-separated in {@link LIST_GROUPS} order. */
 export const LIST_COLLAPSED_KEY = 'ripple:list-collapsed'
 
@@ -320,9 +328,29 @@ export const readFilter = (read: (key: string) => string | null): ListFilter => 
   try { const v = read(LIST_FILTER_KEY); return isFilter(v) ? v : 'all' } catch { return 'all' }
 }
 
-export const readGroup = (read: (key: string) => string | null): string | null => {
-  try { return read(LIST_GROUP_KEY) || null } catch { return null }
+export type ExpandedGroups = ReadonlySet<string>
+
+export const NO_EXPANDED: ExpandedGroups = new Set()
+
+export const toggleExpandedGroup = (expanded: ExpandedGroups, groupId: string): ExpandedGroups => {
+  const next = new Set(expanded)
+  if (!next.delete(groupId)) next.add(groupId)
+  return next
 }
+
+export const readExpandedGroups = (read: (key: string) => string | null): ExpandedGroups => {
+  try {
+    const raw = read(LIST_EXPANDED_GROUPS_KEY)
+    if (!raw) return NO_EXPANDED
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return NO_EXPANDED
+    const ids = parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    return ids.length ? new Set(ids) : NO_EXPANDED
+  } catch { return NO_EXPANDED }
+}
+
+export const writeExpandedGroups = (expanded: ExpandedGroups): string =>
+  JSON.stringify([...expanded].sort())
 
 export const readView = (read: (key: string) => string | null): ViewMode => {
   try { const v = read(LIST_VIEW_KEY); return isView(v) ? v : 'cards' } catch { return 'cards' }

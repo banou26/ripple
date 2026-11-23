@@ -180,7 +180,7 @@ const THUMB_WIDTH = 320
  * Failure here is not failure: the original is a perfectly good picture, just a larger one, so every
  * arm falls back to it rather than losing the thumbnail over an encoder.
  */
-const shrink = async (blob: Blob): Promise<Blob> => {
+export const shrinkThumbnail = async (blob: Blob): Promise<Blob> => {
   try {
     if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return blob
     const bitmap = await createImageBitmap(blob)
@@ -216,7 +216,7 @@ const run = async (client: TorrentClient, paths: LibavPaths, job: Job) => {
     const raw = job.source.kind === 'image'
       ? await imageBlob(client, job.handle, job.source, job.ranges)
       : await frameFromVideo(client, job.handle, job.source, job.ranges, paths)
-    const blob = raw ? await shrink(raw) : null
+    const blob = raw ? await shrinkThumbnail(raw) : null
     remember(job.infoHash, blob, job.fraction)
     // A miss is not cached: it usually means the bytes are not there YET, and the next attempt is
     // gated on the file having grown rather than on nothing having been written down.
@@ -275,6 +275,15 @@ export const considerThumbnails = (
  *
  * Deliberately not awaited by the caller: a missing cache is a slower first paint, never an error.
  */
+
+/** Stores an already-prepared or user-uploaded image under `cacheKey` and updates live subscribers. */
+export const saveCustomThumbnail = async (cacheKey: string, blob: Blob): Promise<Blob> => {
+  const shrunk = await shrinkThumbnail(blob)
+  remember(cacheKey, shrunk, 1)
+  await set(key(cacheKey), shrunk).catch(() => {})
+  return shrunk
+}
+
 export const loadCachedThumbnails = async (infoHashes: string[]) => {
   for (const infoHash of infoHashes) {
     if (entries.has(infoHash)) continue

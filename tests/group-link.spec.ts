@@ -24,9 +24,10 @@ const prepare = (context: BrowserContext) => context.addInitScript(() => {
   try { localStorage.setItem('ripple:demo-seeded', '1') } catch { /* private mode */ }
 })
 
-const fromGroupChip = async (page: Page, row: string) => {
-  await page.locator('.list-toolbar .chip.group').click()
-  await page.getByRole('menu').getByRole(row === 'Copy link' ? 'menuitem' : 'menuitemradio', { name: row, exact: true }).click()
+const openGroupMenu = async (page: Page, name: string) => {
+  const row = page.locator('.group-row', { hasText: name })
+  await row.locator('button.more').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
 }
 
 test('a group copied by its link opens in another browser as the same group, its torrents not on that device', async ({ page, context, browser }) => {
@@ -39,15 +40,16 @@ test('a group copied by its link opens in another browser as the same group, its
     await page.getByRole('button', { name: 'Add', exact: true }).click()
   }
   await page.locator('input[type=file][accept*=".torrent"]').setInputFiles({ name: 'Members.torrent', mimeType: 'application/x-bittorrent', buffer: MEMBERS })
-  await expect(page.locator('.torrent .row-check')).toHaveCount(3, { timeout: 30_000 })
+  await expect(page.locator('.torrent:not(.group-row) .row-check')).toHaveCount(3, { timeout: 30_000 })
   await page.getByRole('checkbox', { name: 'Select all' }).check()
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await page.getByRole('menu').getByRole('menuitem', { name: 'New group...' }).click()
-  await page.getByRole('dialog').locator('input').fill('Week 2')
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('dialog').locator('label.name input').fill('Week 2')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click()
   await page.keyboard.press('Escape')
-  await fromGroupChip(page, 'Week 2 (3)')
-  await fromGroupChip(page, 'Copy link')
+  await expect(page.locator('.group-row', { hasText: 'Week 2' })).toBeVisible()
+  await openGroupMenu(page, 'Week 2')
+  await page.getByRole('dialog').getByRole('button', { name: 'Copy link' }).click()
   await expect(page.locator('.toast')).toHaveText('Link copied, 1 private torrent left out')
   const link = await page.evaluate(() => navigator.clipboard.readText())
   expect(link.startsWith(GROUP_LINK_PREFIX)).toBe(true)
@@ -61,15 +63,15 @@ test('a group copied by its link opens in another browser as the same group, its
   await expect(dialog.locator('p')).toHaveText('2 torrents')
   await expect(receiver).toHaveURL(/\/$/u)
   await dialog.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(receiver.locator('.list-toolbar .chip.group')).toHaveText('Week 2')
-  const rows = receiver.locator('.torrent')
+  await expect(receiver.locator('.group-row', { hasText: 'Week 2' })).toBeVisible()
+  const rows = receiver.locator('.group-children .torrent')
   await expect(rows).toHaveCount(2, { timeout: 30_000 })
   for (const row of await rows.all()) await expect(row).toHaveAttribute('data-state', 'missing')
-  await expect(receiver.getByRole('heading', { name: 'Not on this device 2' })).toBeVisible()
+  await expect(receiver.getByRole('heading', { name: 'Not on this device 1' })).toBeVisible()
 
   await receiver.reload()
+  await expect(receiver.locator('.group-row', { hasText: 'Week 2' })).toBeVisible({ timeout: 30_000 })
   await expect(rows).toHaveCount(2, { timeout: 30_000 })
-  await expect(receiver.locator('.list-toolbar .chip.group')).toHaveText('Week 2')
   await expect(dialog).toHaveCount(0)
   await other.close()
 })

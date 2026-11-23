@@ -34,8 +34,8 @@ const Privacy = () => (
       that is its magnet link, name, size and file list, where it is saved, when you added it,
       and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
       torrents you removed and when, so other devices remove them too, your groups (each
-      group&rsquo;s name, and which torrents were put in it or taken out and when), and one
-      thumbnail picture per torrent. Each torrent&rsquo;s .torrent file syncs too, with its
+      group&rsquo;s name, and which torrents were put in it or taken out and when), one
+      thumbnail picture per torrent, plus your group icons and custom list order. Each torrent&rsquo;s .torrent file syncs too, with its
       tracker addresses. It never syncs the downloaded files themselves.
     </p>
     <p>

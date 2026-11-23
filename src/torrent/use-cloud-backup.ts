@@ -9,6 +9,11 @@ import { account, cloud } from '@fkn/lib'
 import { getTorrentClient } from './client'
 import { DEMO_MAGNET, DEMO_SEEDED_KEY, SYNC_ACCOUNT_KEY } from './constants'
 import { accountTag, subscribeGroups, takeGroups } from './groups'
+import {
+  GROUP_APPEARANCE_PATH, type GroupAppearance, currentGroupAppearances, groupImageKey,
+  subscribeGroupAppearance, takeGroupAppearance,
+} from './group-appearance'
+import { EMPTY_LIST_ORDER, LIST_ORDER_PATH, subscribeListOrder, takeListOrder } from './list-order'
 import { REMOVED_KEY, mergeRemovals, survivesRemovals } from './library'
 import { magnetInfoHash } from './magnet'
 import { forgetSyncedThumbnails, resetThumbnailSync, syncThumbnails } from './thumbnail-sync'
@@ -281,16 +286,38 @@ export const publishLibrary = async (local: Persisted[]) => {
   return list
 }
 
-/** The account's groups as written, `'[]'` when there are none yet, and null when they could not be read. */
-const readGroups = async (): Promise<string | null> => {
+const readAccountJson = async (path: string, emptyFallback: string): Promise<string | null> => {
   try {
-    return await bounded<string | null>(cloud.fs.promises.readFile(GROUPS_PATH, 'utf8').then(String), null)
+    return await bounded<string | null>(cloud.fs.promises.readFile(path, 'utf8').then(String), null)
   } catch (err) {
-    return isAbsent(err, (err as { message?: string })?.message ?? String(err)) ? '[]' : null
+    return isAbsent(err, (err as { message?: string })?.message ?? String(err)) ? emptyFallback : null
   }
 }
 
-const parsed = (text: string): unknown => { try { return JSON.parse(text) } catch { return [] } }
+const parsedJson = <T>(text: string, fallback: T): unknown => { try { return JSON.parse(text) } catch { return fallback } }
+
+const publishSynced = async <T>(
+  path: string,
+  emptyFallback: string,
+  fallbackValue: T,
+  account: string | null,
+  fresh: boolean,
+  live: () => boolean,
+  take: (tag: string | null, incoming: unknown, fresh: boolean) => Promise<T>,
+): Promise<T | null> => {
+  const text = await readAccountJson(path, emptyFallback)
+  const tag = await accountTag(account)
+  if (!live()) return null
+  const result = await take(tag, text === null ? fallbackValue : parsedJson(text, fallbackValue), fresh)
+  const merged = JSON.stringify(result)
+  if (text !== null && merged !== text) {
+    await cloud.fs.promises.writeFile(path, merged, { contentType: 'application/json' })
+  }
+  return result
+}
+
+const activeGroupImageKeys = (items: readonly GroupAppearance[]): string[] =>
+  items.flatMap((item) => (item.icon.kind === 'image' ? [groupImageKey(item.id, item.icon.hash)] : []))
 
 /**
  * Merges the account's groups into this browser's copy, which becomes that account's, then writes the file
@@ -299,13 +326,14 @@ const parsed = (text: string): unknown => { try { return JSON.parse(text) } catc
  * file is read, so a restore pass gone stale keeps nothing.
  */
 export const publishGroups = async (account: string | null, fresh = false, live = () => true) => {
-  const text = await readGroups()
-  const tag = await accountTag(account)
-  if (!live()) return
-  const merged = JSON.stringify(await takeGroups(tag, text === null ? [] : parsed(text), fresh))
-  if (text !== null && merged !== text) {
-    await cloud.fs.promises.writeFile(GROUPS_PATH, merged, { contentType: 'application/json' })
-  }
+  await publishSynced(GROUPS_PATH, '[]', [], account, fresh, live, takeGroups)
+}
+
+export const publishGroupAppearance = async (account: string | null, fresh = false, live = () => true): Promise<GroupAppearance[] | null> =>
+  publishSynced(GROUP_APPEARANCE_PATH, '[]', [] as GroupAppearance[], account, fresh, live, takeGroupAppearance)
+
+export const publishListOrder = async (account: string | null, fresh = false, live = () => true) => {
+  await publishSynced(LIST_ORDER_PATH, JSON.stringify(EMPTY_LIST_ORDER), EMPTY_LIST_ORDER, account, fresh, live, takeListOrder)
 }
 
 export const useCloudBackup = (): SyncState => {
@@ -351,15 +379,18 @@ export const useCloudBackup = (): SyncState => {
       // a switch during the list write nulls `writesFor`, and the groups step must not then go to the new account
       const forAccount = writesFor
       const published = await publishLibrary(latest)
-      await publishGroups(forAccount, false, () => writesFor === forAccount)
-      return published
+      const isLive = () => writesFor === forAccount
+      await publishGroups(forAccount, false, isLive)
+      const appearances = await publishGroupAppearance(forAccount, false, isLive)
+      await publishListOrder(forAccount, false, isLive)
+      return { published, appearances }
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return
       if (writesFor !== currentAccount()) return
       setStatus('syncing')
       try {
-        const published = await writeNow()
+        const { published, appearances } = await writeNow()
         if (!cancelled) setStatus('synced')
         /*
          * Pictures and .torrent files ride alongside the list, not inside it.
@@ -370,7 +401,8 @@ export const useCloudBackup = (): SyncState => {
          * a smaller problem than anything worth risking to avoid it. Both follow the list as
          * published, so a torrent removed elsewhere, or the unclaimed demo, uploads none.
          */
-        void syncThumbnails(published.map((e) => e.infoHash)).catch(() => {})
+        const groupKeys = activeGroupImageKeys(appearances ?? currentGroupAppearances())
+        void syncThumbnails([...published.map((e) => e.infoHash), ...groupKeys]).catch(() => {})
         void syncTorrentFiles(published.map((e) => e.infoHash)).catch(() => {})
       }
       catch (err) {
@@ -399,8 +431,10 @@ export const useCloudBackup = (): SyncState => {
     }
 
     const offList = client.onList((list) => { latest = list; if (connected) schedule() })
-    // a group edit, in this tab or another, arms the same write
+    // a group, icon, or custom-order edit, in this tab or another, arms the same write
     const offGroups = subscribeGroups(() => { if (connected) schedule() })
+    const offAppearance = subscribeGroupAppearance(() => { if (connected) schedule() })
+    const offOrder = subscribeListOrder(() => { if (connected) schedule() })
 
     const retryLater = (attempt: number) => {
       window.clearTimeout(restoreTimer)
@@ -487,9 +521,13 @@ export const useCloudBackup = (): SyncState => {
       // this pass's account, read or known empty: the torrent files follow it until the next restore begins
       if (text !== null || missing) followAccount(() => !stale())
       // after the list, like the removals; a failure waits for the next write, which publishes the groups again
-      const restoreGroups = async () => {
-        try { await publishGroups(name, switched, () => !stale()) } catch {}
-        return !stale()
+      const restoreGroups = async (): Promise<{ ok: boolean, appearances: GroupAppearance[] }> => {
+        const isLive = () => !stale()
+        let appearances: GroupAppearance[] = []
+        try { await publishGroups(name, switched, isLive) } catch {}
+        try { appearances = await publishGroupAppearance(name, switched, isLive) ?? [] } catch {}
+        try { await publishListOrder(name, switched, isLive) } catch {}
+        return { ok: !stale(), appearances }
       }
 
       if (text !== null) {
@@ -504,17 +542,25 @@ export const useCloudBackup = (): SyncState => {
           if (stale()) return
           if (list.length || removed.length) client.importList(list, removed)
         }
-        if (!await restoreGroups()) return
+        const groupSync = await restoreGroups()
+        if (!groupSync.ok) return
         restored = true
         setStatus('synced')
         // the case this exists for: a device that just adopted a library it has no files for, and
         // therefore no way to picture any of it
-        if (Array.isArray(list)) {
-          void syncThumbnails(list.map((e: Persisted) => e.infoHash).filter(Boolean)).catch(() => {})
+        const torrentHashes = Array.isArray(list) ? list.map((e: Persisted) => e.infoHash).filter(Boolean) : []
+        const allThumbKeys = [...torrentHashes, ...activeGroupImageKeys(groupSync.appearances)]
+        if (allThumbKeys.length) {
+          void syncThumbnails(allThumbKeys).catch(() => {})
         }
         if (latest.length) schedule()
       } else if (missing) {
-        if (!await restoreGroups()) return
+        const groupSync = await restoreGroups()
+        if (!groupSync.ok) return
+        const groupThumbKeys = activeGroupImageKeys(groupSync.appearances)
+        if (groupThumbKeys.length) {
+          void syncThumbnails(groupThumbKeys).catch(() => {})
+        }
         restored = true
         setStatus('synced')
         if (latest.length) schedule()
@@ -543,6 +589,8 @@ export const useCloudBackup = (): SyncState => {
       window.clearTimeout(restoreTimer)
       offList()
       offGroups()
+      offAppearance()
+      offOrder()
       offAccount?.()
     }
   }, [client, owned])

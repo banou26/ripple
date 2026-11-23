@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, matchPath, useNavigate, useSearchParams } from 'react-router-dom'
@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { ChevronDown, CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
@@ -50,6 +50,7 @@ import {
 } from '../theme'
 import { pickVideoFile, watchHref } from '../torrent/watch'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
+import { forgetSyncedThumbnails } from '../torrent/thumbnail-sync'
 import { useThumbnail, useThumbnailGeneration } from '../torrent/use-thumbnails'
 import { useFinishNotice } from './finish-notice'
 import { movedNews, onFolderNews, useSavedToFolder } from './folder-work'
@@ -78,29 +79,33 @@ import { AccountWidget } from '../components/account-widget'
 import { ContextMenu } from '../components/menu'
 import type { MenuPosition } from '../components/menu'
 import { TorrentOptionsDialog } from '../components/torrent-options-dialog'
+import type { OptionGroup } from '../torrent/torrent-options'
 import { dropTarget } from './drop-target'
 import { FileGlyph } from './file-glyph'
 import { badgeRules, stateHues } from './badge-style'
 import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent-format'
 import { TorrentTable } from './torrent-table'
-import { useOrderedTorrents } from './use-ordered-torrents'
+import { useOrderedEntries } from './use-ordered-entries'
+import { computeDropPlace, decodeDrag, encodeDrag, ROW_DRAG_MIME, type DragPayload, type DropIndicator, type DropPlace } from './list-drag'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
-import type { GroupChoice } from '../components/list-toolbar'
-import { GroupLinkDialog, GroupNameDialog } from '../components/group-dialogs'
+import { GroupPoster } from '../components/group-icon'
+import { GroupLinkDialog, GroupNameDialog, type GroupSaveResult } from '../components/group-dialogs'
 import { pickable, toPause, toResume, toStart, useBulkSelection } from './bulk-selection'
-import { addLinkedGroup, receivable, useGroupLink, useGroupView } from './use-group-view'
+import { addLinkedGroup, receivable, useExpandedGroups, useGroupLink } from './use-group-view'
 import { MAX_LINK_TORRENTS, readGroupLink } from './group-link'
 import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
 import type { TorrentGroup } from '../torrent/groups'
+import { DEFAULT_ICON, type GroupIcon, clearGroupAppearance, saveGroupImage, setGroupIcon, useGroupAppearance } from '../torrent/group-appearance'
+import { reorderKeys, saveGroupMemberOrder, saveTopOrder, useListOrder } from '../torrent/list-order'
+import { cardEntryGroups, groupMemberKeys, summarizeGroup, visibleEntryTorrents, visibleTopKeys, type GroupEntry, type GroupSummary, type LibraryEntry } from '../torrent/group-rows'
 import {
   GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, NO_COLLAPSED, TEMPORARY_HINT,
-  cardGroups, filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
-  visibleGroupRows, visibleTorrents, writeCollapsed, writeSort,
+  filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
+  writeCollapsed, writeSort,
 } from '../torrent/list-view'
 import type { CardGroup, CollapsedGroups, ListFilter, ListGroup, SortDir, SortKey, ViewMode } from '../torrent/list-view'
-import { matchesSearch } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
 import { readMagnet, readTorrentFile } from '../torrent/torrent-file'
 import { buildTorrentOptions, removalWords } from '../torrent/torrent-options'
@@ -954,6 +959,68 @@ export const style = css`
       font-weight: 700;
       font-variant-numeric: tabular-nums;
     }
+  }
+
+  .torrent[data-dragging='true'], .group-row[data-dragging='true'] { opacity: 0.55; }
+  .torrent[data-drop='before'], .group-row[data-drop='before'] { box-shadow: 0 -2px 0 0 ${FOCUS_RING}; }
+  .torrent[data-drop='after'], .group-row[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
+  .group-row[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+
+  .group-row {
+    cursor: pointer;
+
+    .expand-btn {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: none;
+      color: ${TEXT_MUTED};
+      cursor: pointer;
+      align-self: center;
+
+      &:hover { color: ${TEXT}; background: ${CONTROL_HOVER_BG}; }
+      &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 1px; }
+
+      svg { transition: transform 120ms ease; }
+    }
+
+    &[data-expanded='true'] .expand-btn svg {
+      transform: rotate(90deg);
+    }
+
+    .group-count {
+      flex: none;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: ${GROUP_COUNT_BG};
+      color: ${TEXT_MUTED};
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .group-children {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-inline-start: 20px;
+    padding-inline-start: 12px;
+    border-inline-start: 2px solid ${BORDER};
+  }
+
+  .group-empty {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed ${BORDER};
+    color: ${TEXT_MUTED};
+    font-size: 0.82rem;
   }
 
   .torrent, .sample {
@@ -1957,6 +2024,11 @@ export const style = css`
       width: 96px;
       min-height: 64px;
     }
+
+    .group-children {
+      margin-inline-start: 10px;
+      padding-inline-start: 8px;
+    }
   }
 `
 
@@ -2051,6 +2123,15 @@ type RowProps = {
   rates?: { down: number[], up: number[] }
   /** What carries the engine's peers, which the line of a download that found nobody names. */
   transport?: EngineTransport | null
+  dragKey?: string
+  parentGroupId?: string
+  dropPlace?: DropPlace
+  isDragging?: boolean
+  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
+  onRowDragEnd?: () => void
+  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  onRowDragLeave?: (targetKey: string) => void
+  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
 }
 
 /** A torrent's name with a break chance after each dot, underscore and dash, so a release name wraps between its parts. */
@@ -2097,13 +2178,30 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
 
 const MissingRow = ({
   t, poster, onStart, onOptions, selected, onSelect, checked, onPick,
-}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick'> & { poster: string | null }) => {
+  dragKey, parentGroupId, dropPlace, isDragging,
+  onRowDragStart, onRowDragEnd, onRowDragOver, onRowDragLeave, onRowDrop,
+}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick' | 'dragKey' | 'parentGroupId' | 'dropPlace' | 'isDragging' | 'onRowDragStart' | 'onRowDragEnd' | 'onRowDragOver' | 'onRowDragLeave' | 'onRowDrop'> & { poster: string | null }) => {
   const intl = useIntl()
+  const dragProps = dragKey && onRowDragStart
+    ? {
+      draggable: !!t.infoHash,
+      'data-dragging': isDragging || undefined,
+      'data-drop': dropPlace || undefined,
+      onDragStart: (e: ReactDragEvent) => {
+        if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
+      },
+      onDragEnd: onRowDragEnd,
+      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, false, e),
+      onDragLeave: () => onRowDragLeave?.(dragKey),
+      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, false, e),
+    }
+    : {}
   return (
     <div
       className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       data-state={t.state}
       aria-current={selected || undefined}
+      {...dragProps}
       {...rowClicks((shift) => onPick(t, shift), (e) => {
         if ((e.target as HTMLElement).closest('button, a')) return
         onSelect(t)
@@ -2220,7 +2318,12 @@ const same = (a: unknown, b: unknown): boolean => {
 }
 
 /** Exported for its own test: the page around it needs the whole engine, and the row does not. */
-export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick, savedToUserStorage, rates, transport }: RowProps) => {
+export const TorrentRow = memo(({
+  t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick,
+  savedToUserStorage, rates, transport,
+  dragKey, parentGroupId, dropPlace, isDragging,
+  onRowDragStart, onRowDragEnd, onRowDragOver, onRowDragLeave, onRowDrop,
+}: RowProps) => {
   const intl = useIntl()
   /**
    * Before the missing branch, not after it.
@@ -2239,6 +2342,9 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
         t={t} poster={poster} onStart={onStart}
         onOptions={onOptions} selected={selected} onSelect={onSelect}
         checked={checked} onPick={onPick}
+        dragKey={dragKey} parentGroupId={parentGroupId} dropPlace={dropPlace} isDragging={isDragging}
+        onRowDragStart={onRowDragStart} onRowDragEnd={onRowDragEnd} onRowDragOver={onRowDragOver}
+        onRowDragLeave={onRowDragLeave} onRowDrop={onRowDrop}
       />
     )
   }
@@ -2256,11 +2362,26 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
     const s = saving[savingKey(t.id, i)]
     if (s != null) fileSaving[i] = s
   })
+  const dragProps = dragKey && onRowDragStart
+    ? {
+      draggable: !!t.infoHash,
+      'data-dragging': isDragging || undefined,
+      'data-drop': dropPlace || undefined,
+      onDragStart: (e: ReactDragEvent) => {
+        if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
+      },
+      onDragEnd: onRowDragEnd,
+      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, false, e),
+      onDragLeave: () => onRowDragLeave?.(dragKey),
+      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, false, e),
+    }
+    : {}
   return (
     <div
       className={'torrent surface' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
       data-state={t.state}
       aria-current={selected || undefined}
+      {...dragProps}
       // Selecting is what fills the dock, so it has to be the ordinary click on the card. Anything
       // that already does something of its own keeps doing it: the buttons, the Watch link, the
       // file list, and any text the user is trying to select rather than click.
@@ -2435,18 +2556,168 @@ export const TorrentRow = memo(({ t, saving, onToggle, onSave, onSaveZip, onStar
   )
 }, same)
 
+const GroupRow = ({
+  group,
+  summary,
+  icon,
+  expanded,
+  onToggleExpand,
+  onStartMany,
+  onOptions,
+  dropPlace,
+  isDragging,
+  onRowDragStart,
+  onRowDragEnd,
+  onRowDragOver,
+  onRowDragLeave,
+  onRowDrop,
+  children,
+}: {
+  group: TorrentGroup
+  summary: GroupSummary
+  icon: GroupIcon
+  expanded: boolean
+  onToggleExpand: (groupId: string) => void
+  onStartMany: (rows: readonly Torrent[]) => void
+  onOptions: (group: TorrentGroup, at: MenuPosition | null) => void
+  dropPlace?: DropPlace
+  isDragging?: boolean
+  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
+  onRowDragEnd?: () => void
+  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  onRowDragLeave?: (targetKey: string) => void
+  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  children?: ReactNode
+}) => {
+  const intl = useIntl()
+  const entryKey = `g:${group.id}` as const
+  const active = summary.state !== 'missing' && summary.state !== 'starting'
+  const showBar = summary.count > 0 && (summary.progress < 1 || summary.state === 'checking')
+  return (
+    <>
+      <div
+        className="torrent surface group-row"
+        data-state={summary.state}
+        data-expanded={expanded || undefined}
+        data-dragging={isDragging || undefined}
+        data-drop={dropPlace || undefined}
+        draggable={!!onRowDragStart}
+        onDragStart={onRowDragStart ? (e) => onRowDragStart({ kind: 'top', key: entryKey }, entryKey, e) : undefined}
+        onDragEnd={onRowDragEnd}
+        onDragOver={onRowDragOver ? (e) => onRowDragOver(entryKey, true, e) : undefined}
+        onDragLeave={onRowDragLeave ? () => onRowDragLeave(entryKey) : undefined}
+        onDrop={onRowDrop ? (e) => onRowDrop(entryKey, true, e) : undefined}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('button, a, input, summary')) return
+          if (window.getSelection()?.toString()) return
+          onToggleExpand(group.id)
+        }}
+        onContextMenu={(e) => {
+          if (e.shiftKey || e.ctrlKey) return
+          e.preventDefault()
+          onOptions(group, { x: e.clientX, y: e.clientY })
+        }}
+      >
+        <GroupPoster groupId={group.id} icon={icon} previewHashes={summary.previewHashes}/>
+        <div className="content">
+          <div className="main">
+            <div className="body">
+              <div className="title">
+                <button
+                  type="button"
+                  className="expand-btn"
+                  aria-expanded={expanded}
+                  aria-label={expanded
+                    ? intl.formatMessage({ id: 'Collapse {name}', defaultMessage: 'Collapse {name}' }, { name: group.name })
+                    : intl.formatMessage({ id: 'Expand {name}', defaultMessage: 'Expand {name}' }, { name: group.name })}
+                  onClick={(e) => { e.stopPropagation(); onToggleExpand(group.id) }}
+                >
+                  <ChevronRight size={16} aria-hidden="true"/>
+                </button>
+                <Name name={group.name}/>
+                <span className="group-count">{summary.count}</span>
+              </div>
+              <div className="meta">
+                <span>{intl.formatMessage({ id: '{count, plural, one {{count} torrent} other {{count} torrents}}', defaultMessage: '{count, plural, one {{count} torrent} other {{count} torrents}}' }, { count: summary.count })}</span>
+                {summary.size > 0 && <span>{getHumanReadableByteString(summary.size, true)}</span>}
+                {active && (
+                  <>
+                    <span className={'rate down' + (summary.down > 0 ? ' live' : '')}>
+                      {intl.formatMessage({ id: '↓ {speed}', defaultMessage: '↓ {speed}' }, { speed: speed(summary.down) })}
+                    </span>
+                    <span className={'rate up' + (summary.up > 0 ? ' live' : '')}>
+                      {intl.formatMessage({ id: '↑ {speed}', defaultMessage: '↑ {speed}' }, { speed: speed(summary.up) })}
+                    </span>
+                    <span>
+                      {intl.formatMessage({ id: '{count, plural, one {{count} peer} other {{count} peers}}', defaultMessage: '{count, plural, one {{count} peer} other {{count} peers}}' }, { count: summary.peers })}
+                    </span>
+                    {summary.state === 'downloading' && summary.etaSeconds !== undefined && (
+                      <span>
+                        {intl.formatMessage({ id: '{eta} left', defaultMessage: '{eta} left' }, { eta: formatDuration(summary.etaSeconds) })}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              {showBar && (
+                <div className="bar">
+                  <div className="fill" style={{ width: `${Math.min(100, summary.progress * 100)}%` }}/>
+                </div>
+              )}
+            </div>
+            <div className="side">
+              <span className={`badge ${summary.state}`}>{intl.formatMessage(STATE_LABEL[summary.state])}</span>
+              {summary.count > 0 && <span className="pct">{writePercent(summary.progress, summary.progress < 1 ? 1 : 0)}</span>}
+              <div className="actions">
+                {summary.fetchable.length > 0 && (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => onStartMany(summary.fetchable)}
+                    {...hint(intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }))}
+                    aria-label={intl.formatMessage({ id: 'Download all in {name}', defaultMessage: 'Download all in {name}' }, { name: group.name })}
+                  >
+                    <Download size={16} aria-hidden="true"/>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="more"
+                  aria-haspopup="dialog"
+                  aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: group.name })}
+                  {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
+                  onClick={() => onOptions(group, null)}
+                >
+                  <Ellipsis size={16} aria-hidden="true"/>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {expanded && (
+        <div className="group-children">
+          {summary.members.length > 0
+            ? children
+            : <div className="group-empty">{intl.formatMessage({ id: 'No torrents in this group', defaultMessage: 'No torrents in this group' })}</div>}
+        </div>
+      )}
+    </>
+  )
+}
+
 /**
  * The cards, each run under its group's heading and count where it has one. Headings and cards are siblings in one
  * list, so a card that changes group is moved rather than mounted again. Exported for its own test, like the row.
  */
-export const CardList = ({
+export const CardList = <T,>({
   groups,
   row,
   collapsed = NO_COLLAPSED,
   onToggleGroup,
 }: {
-  groups: CardGroup<Torrent>[]
-  row: (t: Torrent) => ReactNode
+  groups: CardGroup<T>[]
+  row: (item: T) => ReactNode
   collapsed?: CollapsedGroups
   onToggleGroup?: (group: ListGroup) => void
 }) => {
@@ -2592,8 +2863,8 @@ const Home = () => {
   const [rateEdit, setRateEdit] = useState<
     { scope: 'session' | { torrent: string }, direction: 'down' | 'up' } | null
   >(null)
-  /** A group being named, new or renamed, for the same reason as `rateEdit`. */
-  const [naming, setNaming] = useState<{ title: string, name?: string, save: (name: string) => void } | null>(null)
+  /** A group being created or edited, for the same reason as `rateEdit`. */
+  const [naming, setNaming] = useState<{ title: string, groupId?: string, name?: string, icon?: GroupIcon, save: (result: GroupSaveResult) => void } | null>(null)
   /** A group sent by a link, being asked about; up here for the same reason. */
   const [received, setReceived] = useState<LinkedGroup | null>(null)
   /**
@@ -2998,6 +3269,8 @@ const Home = () => {
    */
   const [menu, setMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
   const [optionsId, setOptionsId] = useState<string | null>(null)
+  const [groupMenu, setGroupMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
+  const [groupOptionsId, setGroupOptionsId] = useState<string | null>(null)
   /**
    * The torrent the dock is showing. One at a time.
    *
@@ -3024,8 +3297,17 @@ const Home = () => {
   const onSelect = useCallback((t: Torrent) => setSelectedId(t.id), [])
 
   const onOptions = useCallback((t: Torrent, at: MenuPosition | null) => {
+    setGroupMenu(null)
+    setGroupOptionsId(null)
     if (at) { setOptionsId(null); setMenu({ id: t.id, at }) }
     else { setMenu(null); setOptionsId(t.id) }
+  }, [])
+
+  const onGroupOptions = useCallback((g: TorrentGroup, at: MenuPosition | null) => {
+    setMenu(null)
+    setOptionsId(null)
+    if (at) { setGroupOptionsId(null); setGroupMenu({ id: g.id, at }) }
+    else { setGroupMenu(null); setGroupOptionsId(g.id) }
   }, [])
 
   const copy = (text: string, copied: string, failed: string) => {
@@ -3540,21 +3822,21 @@ const Home = () => {
    * the second one, and letting it silence the first would make the app report 0 B/s while it is
    * plainly downloading.
    */
-  const { groups, group: shownGroup, members, choose: chooseGroup } = useGroupView(torrents)
-  /**
-   * The group narrows the list and the filter narrows it again, so a group and a state combine. The count beside each
-   * choice is what picking it would show: the filter's within the group, a group's under the filter.
-   */
-  const groupRows = members ? torrents.filter((t) => !!t.infoHash && members.has(t.infoHash)) : torrents
-  const filterCount = filterCounts(groupRows)
-  const { rows: visibleRows, groupOf, interaction } = useOrderedTorrents(groupRows, listFilter, listSort.key, listSort.dir)
+  const { groups, expanded: storedExpanded, toggle: toggleExpandGroup, expand: expandGroup } = useExpandedGroups()
+  const groupIconMap = useGroupAppearance()
+  const listOrder = useListOrder()
+  const filterCount = filterCounts(torrents)
   // the add field, when what it holds adds nothing, narrows the list instead
   const adds = readMagnets(input).length > 0
   const search = adds ? '' : input.trim()
-  const shown = search ? visibleRows.filter((t) => matchesSearch(t, search)) : visibleRows
-
-  // the cards stand under their group headings, so a shift-click run follows the order they are drawn in
-  const stateGroups = cardGroups(shown, listFilter, groupOf)
+  const { entries, groupOf: groupOfEntry, interaction } = useOrderedEntries(
+    torrents, groups ?? [], listFilter, search, listSort.key, listSort.dir, listOrder,
+  )
+  const effectiveExpanded = useMemo(
+    () => (search ? new Set(entries.flatMap((e) => (e.kind === 'group' ? [e.group.id] : []))) : storedExpanded),
+    [search, entries, storedExpanded],
+  )
+  const entryGroups = cardEntryGroups(entries, listFilter, groupOfEntry)
   // Searching opens every category transiently without overwriting saved folded categories; a new search query resets
   // any manual folds made during the previous query.
   if (prevSearch.current !== search) {
@@ -3577,7 +3859,12 @@ const Home = () => {
       return next
     })
   }, [search])
-  const bulk = useBulkSelection(listView === 'table' ? shown : visibleGroupRows(stateGroups, collapsed))
+  const visibleRows = useMemo(() => visibleEntryTorrents(entryGroups, collapsed, effectiveExpanded), [entryGroups, collapsed, effectiveExpanded])
+  const tableBulkRows = useMemo(
+    () => visibleEntryTorrents([{ group: null, rows: entries }], NO_COLLAPSED, effectiveExpanded),
+    [entries, effectiveExpanded],
+  )
+  const bulk = useBulkSelection(listView === 'table' ? tableBulkRows : visibleRows)
   /**
    * The ticked torrents as the engine knows them NOW, read again after a confirmation: a handover
    * while it was open gives every row a new handle, and the ones picked are found by info hash.
@@ -3585,7 +3872,7 @@ const Home = () => {
   const pickedNow = () => torrentsRef.current.filter((t) => pickable(t) && bulk.picked.has(t.infoHash))
   const pausePicked = () => { for (const t of toPause(pickedNow())) pause(Number(t.id)) }
   const resumePicked = () => { for (const t of toResume(pickedNow())) resume(Number(t.id)) }
-  const startRows = (rows: readonly Torrent[]) => startMany(rows.flatMap((t) => (t.infoHash ? [t.infoHash] : [])))
+  const startRows = useCallback((rows: readonly Torrent[]) => startMany(rows.flatMap((t) => (t.infoHash ? [t.infoHash] : []))), [startMany])
   const startPicked = () => startRows(toStart(pickedNow()))
   const pickedMagnets = useShareableMagnets(bulk.rows)
   const copyPicked = ({ magnets, left }: ShareableMagnets) => {
@@ -3610,45 +3897,76 @@ const Home = () => {
 
   const anyPicked = bulk.rows.length > 0
 
-  const putIn = (g: TorrentGroup, hashes: string[], put: boolean) => {
+  const putIn = useCallback((g: TorrentGroup, hashes: string[], put: boolean) => {
     void (put ? putInGroup : takeOutOfGroup)(g.id, hashes).then(() => showToast(put
       ? intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(g.name) })
       : intl.formatMessage({ id: 'Taken out of {name}', defaultMessage: 'Taken out of {name}' }, { name: isolated(g.name) })))
-  }
-  /** Asks for a name and makes a group of `hashes`, read when it is saved. With none, the new group is shown. */
-  const newGroup = (hashes: () => string[]) => setNaming({
+  }, [intl, showToast])
+  /** Asks for a name and icon and creates a group holding `hashes`, expanding it immediately. */
+  const newGroup = useCallback((hashes: () => string[]) => setNaming({
     title: intl.formatMessage({ id: 'New group', defaultMessage: 'New group' }),
-    save: (name) => {
+    save: ({ name, icon, imageFile }) => {
       const held = hashes()
-      void createGroup(name, held).then((id) => {
+      void (async () => {
+        const id = await createGroup(name, held, expandGroup)
         if (!id) return
+        if (imageFile) await saveGroupImage(id, imageFile)
+        else if (icon.kind === 'preset') await setGroupIcon(id, icon)
+        expandGroup(id)
         if (held.length) showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(name) }))
-        else chooseGroup(id)
-      })
+      })()
     },
-  })
+  }), [expandGroup, intl, showToast])
+  const openEditGroup = useCallback((g: TorrentGroup) => setNaming({
+    title: g.name,
+    groupId: g.id,
+    name: g.name,
+    icon: groupIconMap.get(g.id) ?? DEFAULT_ICON,
+    save: ({ name, icon, imageFile }) => {
+      void (async () => {
+        if (name !== g.name) await renameGroup(g.id, name)
+        let staleKey: string | null = null
+        if (imageFile) staleKey = (await saveGroupImage(g.id, imageFile)).previousKey
+        else staleKey = await setGroupIcon(g.id, icon)
+        if (staleKey) void forgetSyncedThumbnails([staleKey]).catch(() => {})
+      })()
+    },
+  }), [groupIconMap])
   const holding = (hashes: string[]) => (groups ?? []).map((g) => {
     const held = torrentsIn(g)
     return { id: g.id, name: g.name, holds: hashes.every((hash) => held.has(hash)) }
   })
-  const deleteShown = async (g: TorrentGroup) => {
+  const deleteShown = useCallback(async (g: TorrentGroup) => {
     const ok = await confirm({
       title: intl.formatMessage({ id: 'Delete {name}?', defaultMessage: 'Delete {name}?' }, { name: isolated(g.name) }),
       body: intl.formatMessage({ id: 'Its torrents stay in your list.', defaultMessage: 'Its torrents stay in your list.' }),
       confirmLabel: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
       tone: 'danger',
     })
-    if (ok) await deleteGroup(g.id)
-  }
+    if (!ok) return
+    const staleKey = await clearGroupAppearance(g.id)
+    if (staleKey) void forgetSyncedThumbnails([staleKey]).catch(() => {})
+    await deleteGroup(g.id)
+  }, [confirm, intl])
   const addReceived = (linked: LinkedGroup) => {
     setReceived(null)
     void addLinkedGroup(linked, groups ?? [], client.importList).then((id) => {
       // its rows are not on this device, which a remembered state such as Downloading would hide
-      if (id) { chooseFilter('all'); chooseGroup(id) }
+      if (id) { chooseFilter('all'); expandGroup(id) }
       showToast(intl.formatMessage({ id: '{name} added', defaultMessage: '{name} added' }, { name: isolated(linked.name) }))
     }, () => showToast(intl.formatMessage({ id: 'Could not add the group', defaultMessage: 'Could not add the group' })))
   }
-  const groupLink = useGroupLink(shownGroup?.name ?? '', shownGroup ? groupRows : [])
+  const activeGroupEntry = useMemo((): GroupEntry | undefined => {
+    const gid = groupMenu?.id ?? groupOptionsId
+    if (!gid) return undefined
+    const g = groups?.find((one) => one.id === gid)
+    if (!g) return undefined
+    const held = torrentsIn(g)
+    const raw = torrents.filter((t) => !!t.infoHash && held.has(t.infoHash))
+    return { kind: 'group', key: `g:${g.id}`, group: g, summary: summarizeGroup(g, raw, listSort.key, listSort.dir) }
+  }, [groupMenu?.id, groupOptionsId, groups, torrents, listSort.key, listSort.dir])
+  const emptyMembers = useMemo<Torrent[]>(() => [], [])
+  const activeGroupLink = useGroupLink(activeGroupEntry?.group.name ?? '', activeGroupEntry?.summary.members ?? emptyMembers)
   const copyGroupLink = ({ link, privateLeftOut: left }: { link: string | null, privateLeftOut: number }) => {
     if (!link) {
       showToast(intl.formatMessage({ id: 'Links hold up to {max} torrents', defaultMessage: 'Links hold up to {max} torrents' }, { max: MAX_LINK_TORRENTS }))
@@ -3662,29 +3980,201 @@ const Home = () => {
       intl.formatMessage({ id: 'Could not copy the link', defaultMessage: 'Could not copy the link' }),
     )
   }
-  const stateRows = visibleTorrents(torrents, listFilter)
-  const fetchable = toStart(groupRows)
-  const group: GroupChoice = {
-    list: (groups ?? []).map((g) => {
-      const held = torrentsIn(g)
-      return { id: g.id, name: g.name, count: stateRows.filter((t) => !!t.infoHash && held.has(t.infoHash)).length }
-    }),
-    shown: shownGroup?.id ?? null,
-    all: stateRows.length,
-    onShow: chooseGroup,
-    onNew: () => newGroup(() => []),
-    onDownloadAll: shownGroup && fetchable.length ? () => startRows(fetchable) : undefined,
-    onCopyLink: shownGroup && groupLink?.count ? () => copyGroupLink(groupLink) : undefined,
-    onRename: () => {
-      if (shownGroup) setNaming({ title: shownGroup.name, name: shownGroup.name, save: (name) => { void renameGroup(shownGroup.id, name) } })
-    },
-    onDelete: () => { if (shownGroup) void deleteShown(shownGroup) },
-  }
+  const buildGroupOptions = (entry: GroupEntry): OptionGroup[] => [{
+    id: 'group',
+    label: entry.group.name,
+    typed: true,
+    items: [
+      ...(entry.summary.fetchable.length > 0 ? [{
+        kind: 'action' as const,
+        id: 'download-all',
+        label: intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }),
+        run: () => startRows(entry.summary.fetchable),
+      }] : []),
+      ...(activeGroupLink?.count ? [{
+        kind: 'action' as const,
+        id: 'copy-link',
+        label: intl.formatMessage({ id: 'Copy link', defaultMessage: 'Copy link' }),
+        run: () => copyGroupLink(activeGroupLink),
+      }] : []),
+      {
+        kind: 'action' as const,
+        id: 'edit',
+        label: intl.formatMessage({ id: 'Edit...', defaultMessage: 'Edit...' }),
+        run: () => openEditGroup(entry.group),
+      },
+      {
+        kind: 'action' as const,
+        id: 'delete',
+        label: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
+        danger: true,
+        run: () => { void deleteShown(entry.group) },
+      },
+    ],
+  }]
+
+  const activeDragRef = useRef<{ payload: DragPayload, key: string } | null>(null)
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null)
+  const dragCtxRef = useRef({ entries, listOrder, groups, chooseSort, expandGroup, putIn })
+  dragCtxRef.current = { entries, listOrder, groups, chooseSort, expandGroup, putIn }
+
+  const onRowDragStart = useCallback((payload: DragPayload, key: string, e: ReactDragEvent) => {
+    activeDragRef.current = { payload, key }
+    setDraggingKey(key)
+    setDropIndicator(null)
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData(ROW_DRAG_MIME, encodeDrag(payload))
+    }
+  }, [])
+
+  const onRowDragEnd = useCallback(() => {
+    activeDragRef.current = null
+    setDraggingKey(null)
+    setDropIndicator(null)
+  }, [])
+
+  const onRowDragOver = useCallback((targetKey: string, allowInto: boolean, e: ReactDragEvent) => {
+    const active = activeDragRef.current
+    const hasMime = !!e.dataTransfer?.types && [...e.dataTransfer.types].includes(ROW_DRAG_MIME)
+    if (!active && !hasMime) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    if (active && active.key === targetKey) {
+      setDropIndicator((prev) => (prev ? null : prev))
+      return
+    }
+    const canInto = allowInto && (
+      !active
+      || (active.payload.kind === 'top' && active.payload.key.startsWith('t:'))
+      || (active.payload.kind === 'member' && targetKey !== `g:${active.payload.groupId}`)
+    )
+    const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
+    setDropIndicator((prev) => (prev?.targetKey === targetKey && prev.place === place ? prev : { targetKey, place }))
+  }, [])
+
+  const onRowDragLeave = useCallback((targetKey: string) => {
+    setDropIndicator((prev) => (prev?.targetKey === targetKey ? null : prev))
+  }, [])
+
+  const onRowDrop = useCallback((targetKey: string, allowInto: boolean, e: ReactDragEvent) => {
+    const payload = decodeDrag(e.dataTransfer?.getData(ROW_DRAG_MIME)) ?? activeDragRef.current?.payload
+    if (!payload) return
+    e.preventDefault()
+    e.stopPropagation()
+    activeDragRef.current = null
+    setDraggingKey(null)
+    setDropIndicator(null)
+
+    const { entries: curEntries, listOrder: curOrder, groups: curGroups, chooseSort: setSort, expandGroup: expand, putIn: moveIn } = dragCtxRef.current
+    const canInto = allowInto && (
+      (payload.kind === 'top' && payload.key.startsWith('t:'))
+      || (payload.kind === 'member' && targetKey !== `g:${payload.groupId}`)
+    )
+    const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
+
+    if (payload.kind === 'top') {
+      if (targetKey.startsWith('g:') && place === 'into' && payload.key.startsWith('t:')) {
+        const groupId = targetKey.slice(2)
+        const targetGroup = curGroups?.find((g) => g.id === groupId)
+        if (targetGroup) {
+          moveIn(targetGroup, [payload.key.slice(2)], true)
+          expand(groupId)
+        }
+        return
+      }
+      if (targetKey.startsWith('child:') && payload.key.startsWith('t:')) {
+        const rest = targetKey.slice('child:'.length)
+        const sep = rest.indexOf(':')
+        const targetGroupId = sep > 0 ? rest.slice(0, sep) : ''
+        const targetChildHash = sep > 0 ? rest.slice(sep + 1) : ''
+        const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
+        const draggedHash = payload.key.slice(2)
+        if (targetGroup && targetChildHash) {
+          const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === targetGroupId)
+          const visibleMembers = parent ? groupMemberKeys(parent.summary) : []
+          const existingMembers = curOrder.groups[targetGroupId]?.members ?? []
+          const nextMembers = reorderKeys([...visibleMembers, draggedHash], existingMembers, draggedHash, targetChildHash, place === 'before' ? 'before' : 'after')
+          moveIn(targetGroup, [draggedHash], true)
+          expand(targetGroupId)
+          void saveGroupMemberOrder(targetGroupId, nextMembers)
+          setSort('custom', 'asc')
+        }
+        return
+      }
+      if ((targetKey.startsWith('g:') || targetKey.startsWith('t:')) && targetKey !== payload.key) {
+        const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, payload.key, targetKey as `g:${string}` | `t:${string}`, place === 'before' ? 'before' : 'after')
+        void saveTopOrder(nextTop)
+        setSort('custom', 'asc')
+      }
+      return
+    }
+
+    // payload.kind === 'member'
+    if (targetKey.startsWith(`child:${payload.groupId}:`)) {
+      const targetHash = targetKey.slice(`child:${payload.groupId}:`.length)
+      if (targetHash === payload.infoHash) return
+      const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === payload.groupId)
+      if (!parent) return
+      const visibleMembers = groupMemberKeys(parent.summary)
+      const existingMembers = curOrder.groups[payload.groupId]?.members ?? []
+      const nextMembers = reorderKeys(visibleMembers, existingMembers, payload.infoHash, targetHash, place === 'before' ? 'before' : 'after')
+      void saveGroupMemberOrder(payload.groupId, nextMembers)
+      setSort('custom', 'asc')
+      return
+    }
+    if (targetKey.startsWith('child:')) {
+      const rest = targetKey.slice('child:'.length)
+      const sep = rest.indexOf(':')
+      const targetGroupId = sep > 0 ? rest.slice(0, sep) : ''
+      const targetChildHash = sep > 0 ? rest.slice(sep + 1) : ''
+      const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
+      if (targetGroup && targetChildHash) {
+        const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === targetGroupId)
+        const visibleMembers = parent ? groupMemberKeys(parent.summary) : []
+        const existingMembers = curOrder.groups[targetGroupId]?.members ?? []
+        const nextMembers = reorderKeys([...visibleMembers, payload.infoHash], existingMembers, payload.infoHash, targetChildHash, place === 'before' ? 'before' : 'after')
+        moveIn(targetGroup, [payload.infoHash], true)
+        expand(targetGroupId)
+        void saveGroupMemberOrder(targetGroupId, nextMembers)
+        setSort('custom', 'asc')
+      }
+      return
+    }
+    if (targetKey.startsWith('g:')) {
+      const targetGroupId = targetKey.slice(2)
+      if (targetGroupId === payload.groupId) return
+      if (place === 'into') {
+        const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
+        if (targetGroup) {
+          moveIn(targetGroup, [payload.infoHash], true)
+          expand(targetGroupId)
+        }
+        return
+      }
+      const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
+      if (fromGroup) moveIn(fromGroup, [payload.infoHash], false)
+      const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, `t:${payload.infoHash}`, targetKey as `g:${string}`, place)
+      void saveTopOrder(nextTop)
+      setSort('custom', 'asc')
+      return
+    }
+    if (targetKey.startsWith('t:')) {
+      const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
+      if (fromGroup) moveIn(fromGroup, [payload.infoHash], false)
+      const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, `t:${payload.infoHash}`, targetKey as `t:${string}`, place === 'before' ? 'before' : 'after')
+      void saveTopOrder(nextTop)
+      setSort('custom', 'asc')
+    }
+  }, [])
+
   const pickedHashes = () => pickedNow().flatMap((t) => (t.infoHash ? [t.infoHash] : []))
 
   const toolbar = {
     filter: listFilter, onFilter: chooseFilter,
-    group,
+    onNewGroup: () => newGroup(() => []),
     sortKey: listSort.key, sortDir: listSort.dir, onSort: chooseSort,
     view: listView, onView: chooseView,
     counts: filterCount,
@@ -3708,7 +4198,15 @@ const Home = () => {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [anyPicked, clearPicked])
-  const hiddenByFilter = groupRows.length - visibleRows.length
+  const shownUniqueCount = useMemo(() => {
+    const seen = new Set<string>()
+    for (const e of entries) {
+      if (e.kind === 'torrent') seen.add(e.torrent.infoHash ?? e.torrent.id)
+      else for (const m of e.summary.members) seen.add(m.infoHash ?? m.id)
+    }
+    return seen.size
+  }, [entries])
+  const hiddenByFilter = Math.max(0, torrents.length - shownUniqueCount)
 
   const hasLive = torrents.some((t) => t.state !== 'missing')
   const quota = useQuota(hasLive)
@@ -3804,6 +4302,21 @@ const Home = () => {
           title={optionsTorrent.name}
           groups={[...buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet), optionContext(optionsTorrent)), ...rowMenuGroups(rowPlugins, optionsTorrent.infoHash)]}
           onClose={() => setOptionsId(null)}
+        />
+      )}
+      {groupMenu && activeGroupEntry && (activeGroupEntry.summary.members.length === 0 || activeGroupLink) && (
+        <ContextMenu
+          groups={buildGroupOptions(activeGroupEntry)}
+          at={groupMenu.at}
+          label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: activeGroupEntry.group.name })}
+          onClose={() => setGroupMenu(null)}
+        />
+      )}
+      {groupOptionsId && activeGroupEntry && (activeGroupEntry.summary.members.length === 0 || activeGroupLink) && (
+        <TorrentOptionsDialog
+          title={activeGroupEntry.group.name}
+          groups={buildGroupOptions(activeGroupEntry)}
+          onClose={() => setGroupOptionsId(null)}
         />
       )}
       <div className="drop"><span>{intl.formatMessage({ id: 'Drop a .torrent or a magnet link to add it', defaultMessage: 'Drop a .torrent or a magnet link to add it' })}</span></div>
@@ -4076,7 +4589,7 @@ const Home = () => {
               </div>
             </div>
           )
-          : shown.length === 0
+          : entries.length === 0
             ? (
               /**
                * A filter matched nothing. Emphatically NOT the hero above, which says "Ripple is a
@@ -4091,11 +4604,9 @@ const Home = () => {
                * starting after it may never start, and must not blank the list for the session.
                */
               (reachable || !torrents.some((t) => t.state === 'starting')) && <div className="empty">
-                {shownGroup && !groupRows.length
-                  ? intl.formatMessage({ id: 'Nothing in {name}.', defaultMessage: 'Nothing in {name}.' }, { name: isolated(shownGroup.name) })
-                  : intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
+                {intl.formatMessage({ id: 'Nothing matches this filter.', defaultMessage: 'Nothing matches this filter.' })}
                 <div className="hints">
-                  <button type="button" className="link" onClick={() => { chooseFilter('all'); chooseGroup(null); setInput('') }}>
+                  <button type="button" className="link" onClick={() => { chooseFilter('all'); setInput('') }}>
                     {intl.formatMessage({ id: 'Show everything', defaultMessage: 'Show everything' })}
                   </button>
                 </div>
@@ -4104,7 +4615,11 @@ const Home = () => {
           : listView === 'table'
             ? (
               <TorrentTable
-                torrents={shown}
+                entries={entries}
+                expandedGroups={effectiveExpanded}
+                groupIcons={groupIconMap}
+                onToggleExpand={toggleExpandGroup}
+                onGroupOptions={onGroupOptions}
                 transport={transport}
                 sortKey={listSort.key} sortDir={listSort.dir} onSort={chooseSort}
                 selectedId={selectedId}
@@ -4112,33 +4627,74 @@ const Home = () => {
                 onOptions={onOptions}
                 picked={bulk.picked}
                 onPick={bulk.toggle}
+                draggingKey={draggingKey}
+                dropIndicator={dropIndicator}
+                onRowDragStart={onRowDragStart}
+                onRowDragEnd={onRowDragEnd}
+                onRowDragOver={onRowDragOver}
+                onRowDragLeave={onRowDragLeave}
+                onRowDrop={onRowDrop}
               />
             )
             : (
               <CardList
-                groups={stateGroups}
+                groups={entryGroups}
                 collapsed={collapsed}
                 onToggleGroup={toggleGroup}
-                row={(t) => (
-                  // a function handed to the row must keep its identity across renders, or every row renders on every tick: see `same`
-                  <TorrentRow
-                    key={t.id}
-                    t={t}
-                    saving={saving}
-                    onToggle={onToggle}
-                    onSave={onSave}
-                    onSaveZip={onSaveZip}
-                    onStart={onStart}
-                    onOptions={onOptions}
-                    selected={t.id === selectedId}
-                    onSelect={onSelect}
-                    checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
-                    onPick={bulk.toggle}
-                    savedToUserStorage={!!folder && permitted && savedToFolder.has(copyKey(t))}
-                    rates={rowRates[t.id]}
-                    transport={transport}
-                  />
-                )}
+                row={(entry) => {
+                  const renderRow = (t: Torrent, key: string, dragKey: string, parentGroupId?: string) => (
+                    <TorrentRow
+                      key={key}
+                      t={t}
+                      saving={saving}
+                      onToggle={onToggle}
+                      onSave={onSave}
+                      onSaveZip={onSaveZip}
+                      onStart={onStart}
+                      onOptions={onOptions}
+                      selected={t.id === selectedId}
+                      onSelect={onSelect}
+                      checked={!!t.infoHash && bulk.picked.has(t.infoHash)}
+                      onPick={bulk.toggle}
+                      savedToUserStorage={!!folder && permitted && savedToFolder.has(copyKey(t))}
+                      rates={rowRates[t.id]}
+                      transport={transport}
+                      dragKey={dragKey}
+                      parentGroupId={parentGroupId}
+                      dropPlace={dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined}
+                      isDragging={draggingKey === dragKey}
+                      onRowDragStart={onRowDragStart}
+                      onRowDragEnd={onRowDragEnd}
+                      onRowDragOver={onRowDragOver}
+                      onRowDragLeave={onRowDragLeave}
+                      onRowDrop={onRowDrop}
+                    />
+                  )
+                  if (entry.kind === 'torrent') return renderRow(entry.torrent, entry.torrent.id, entry.key)
+                  const { group: g, summary } = entry
+                  const expanded = effectiveExpanded.has(g.id)
+                  return (
+                    <GroupRow
+                      key={entry.key}
+                      group={g}
+                      summary={summary}
+                      icon={groupIconMap.get(g.id) ?? DEFAULT_ICON}
+                      expanded={expanded}
+                      onToggleExpand={toggleExpandGroup}
+                      onStartMany={startRows}
+                      onOptions={onGroupOptions}
+                      dropPlace={dropIndicator?.targetKey === entry.key ? dropIndicator.place : undefined}
+                      isDragging={draggingKey === entry.key}
+                      onRowDragStart={onRowDragStart}
+                      onRowDragEnd={onRowDragEnd}
+                      onRowDragOver={onRowDragOver}
+                      onRowDragLeave={onRowDragLeave}
+                      onRowDrop={onRowDrop}
+                    >
+                      {expanded && summary.members.map((m) => renderRow(m, `group:${g.id}:${m.id}`, `child:${g.id}:${m.infoHash ?? m.id}`, g.id))}
+                    </GroupRow>
+                  )
+                }}
               />
             )}
         {/**
@@ -4148,7 +4704,7 @@ const Home = () => {
           */}
         {/* not while the list is empty: the empty state above already explains it and offers the
             same way back, and two Show buttons is one too many */}
-        {hiddenByFilter > 0 && shown.length > 0 && (
+        {hiddenByFilter > 0 && entries.length > 0 && (
           <div className="hidden-note" role="status">
             {intl.formatMessage({ id: '{count, plural, one {{count} torrent hidden} other {{count} torrents hidden}}', defaultMessage: '{count, plural, one {{count} torrent hidden} other {{count} torrents hidden}}' }, { count: hiddenByFilter })}
             <button type="button" className="link" onClick={() => chooseFilter('all')}>{intl.formatMessage({ id: 'Show#verb', defaultMessage: 'Show', description: 'verb' })}</button>
@@ -4224,9 +4780,11 @@ const Home = () => {
       {naming && (
         <GroupNameDialog
           title={naming.title}
+          groupId={naming.groupId}
           name={naming.name}
+          icon={naming.icon}
           onCancel={() => setNaming(null)}
-          onSave={(name) => { setNaming(null); naming.save(name) }}
+          onSave={(result) => { setNaming(null); naming.save(result) }}
         />
       )}
 

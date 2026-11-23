@@ -322,11 +322,9 @@ const cutOff = (page: Shown, root = 'body') => page.evaluate((root) => {
   const width = document.documentElement.clientWidth
   const named = (element: Element) => `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''} ${element.textContent?.slice(0, 40)}`
   // always to an ellipsis, which is drawn only where the overflow is cut: on a phone the sort chip's word, which gives
-  // way first, then the group chip's (the toolbar test checks the order), and the footer's Speed; a group's name, as
-  // long as somebody typed it, at any width; and at 390 px the pseudo-language's filter, whose words run longer than
+  // way first, and the footer's Speed; and at 390 px the pseudo-language's filter, whose words run longer than
   // any language's (the Temporary test holds every language's whole)
-  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip.sort .value, .list-toolbar .chip.group .value, footer .folder > span')
-    || element.matches('.list-toolbar .chip.group .value[dir=auto]')
+  const givesWay = (element: Element) => (width <= 560 && element.matches('.list-toolbar .chip.sort .value, footer .folder > span')
     || width <= 400 && document.documentElement.lang === 'en-XA' && element.matches('.list-toolbar .chip.show .value'))
     && getComputedStyle(element).textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(getComputedStyle(element).overflowX)
   return [
@@ -665,29 +663,26 @@ const linkTo = (name: string, magnets: string[]) => buildGroupLink(name, magnets
 const groupTicked = async (page: Page, name: string) => {
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await page.getByRole('menu').getByRole('menuitem').last().click()
-  await page.getByRole('dialog').locator('input').fill(name)
+  await page.getByRole('dialog').locator('label.name input').fill(name)
   await page.getByRole('dialog').locator('button[type=submit]').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
 
-/** Draws the Group chip and its menu, the bar's Groups menu, a group's dialogs and an empty group, at `width`. */
+/** Draws the New group button, inline group rows, menus, dialogs and a group sent by link, at `width`. */
 const groupSurfaces = async (page: Page, width: number) => {
   const { words, cut, read } = walk(page, width)
   const menu = page.getByRole('menu')
   const dialog = page.getByRole('dialog')
-  const chip = page.locator('.list-toolbar .chip.group')
+  const newBtn = page.locator('.list-toolbar .chip.new-group')
   await page.setViewportSize({ width, height: 1500 })
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
 
-  await chip.click()
-  await expect(menu).toBeVisible()
-  await read('group menu, every torrent shown')
-  await menu.getByRole('menuitem').click()
+  await newBtn.click()
   await expect(dialog).toBeVisible()
   await read('new group')
-  await dialog.locator('button:not([type=submit])').click()
+  await dialog.locator('.actions button:not([type=submit])').click()
 
   for (const name of ['A.Season.Pack', 'Elsewhere', 'Kept.Paused']) await page.locator('.torrent', { hasText: name }).locator('.row-check input').check()
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
@@ -696,42 +691,41 @@ const groupSurfaces = async (page: Page, width: number) => {
   await page.keyboard.press('Escape')
   await groupTicked(page, 'Orbital Gardeners')
   await expect(page.locator('.toast')).toBeVisible()
+  const groupCard = page.locator('.group-row', { hasText: 'Orbital Gardeners' })
+  await expect(groupCard).toBeVisible()
   await read('ticked rows put in a group')
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await expect(menu.getByRole('menuitemcheckbox')).toHaveAttribute('aria-checked', 'true')
   await read('groups of the ticked rows')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
 
-  await chip.click()
-  await menu.getByRole('menuitemradio').last().click()
-  await expect(page.locator('.torrent')).toHaveCount(3)
-  await read('a group shown')
-  await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveCount(5)
-  await read('menu of a group shown')
-  await menu.getByRole('menuitem').nth(2).click()
+  await groupCard.locator('button.more').click()
+  await expect(dialog.locator('button.opt')).toHaveCount(4)
+  await read('menu of a group')
+  await dialog.locator('button.opt').nth(1).click()
   await expect(page.locator('.toast')).toBeVisible()
   await read('its link copied')
-  await chip.click()
-  await menu.getByRole('menuitem').nth(3).click()
-  await expect(dialog.locator('input')).toHaveValue('Orbital Gardeners')
-  await read('rename')
-  await dialog.locator('button:not([type=submit])').click()
-  await chip.click()
-  await menu.locator('button.danger').click()
+  await groupCard.locator('button.more').click()
+  await dialog.locator('button.opt').nth(2).click()
+  await expect(dialog.locator('label.name input')).toHaveValue('Orbital Gardeners')
+  await read('edit group')
+  await dialog.locator('.actions button:not([type=submit])').click()
+  await groupCard.locator('button.more').click()
+  await dialog.locator('button.danger').click()
   await expect(dialog.locator('.actions button.danger')).toBeVisible()
   await read('deletion confirmed first')
   await dialog.locator('.actions button').first().click()
 
-  await page.locator('.torrent', { hasText: 'Elsewhere' }).click({ button: 'right' })
+  await page.locator('.group-children .torrent', { hasText: 'Elsewhere' }).click({ button: 'right' })
   await expect(menu.getByRole('menuitemcheckbox').last()).toHaveAttribute('aria-checked', 'true')
   await read('menu of a torrent in a group')
   await page.keyboard.press('Escape')
 
-  await page.locator('.list-toolbar .pick-all input').check()
-  await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
-  await menu.getByRole('menuitemcheckbox').click()
-  await expect(page.locator('.empty')).toBeVisible()
+  await newBtn.click()
+  await dialog.locator('label.name input').fill('Later')
+  await dialog.locator('button[type=submit]').click()
+  await expect(page.locator('.group-empty')).toBeVisible()
   await read('an empty group')
 
   const sent = linkTo('Weekend watch list', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')])
@@ -2122,7 +2116,7 @@ test.describe('right to left', () => {
       await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(origin)
       await library(page, NAMED_LIST, [NAMED])
-      const row = page.locator('.torrent-table tbody tr').first()
+      const row = page.locator('.torrent-table tbody tr:not(.group-row)').first()
       const menu = page.getByRole('menu')
       const dialog = page.getByRole('dialog')
       // shown, not closing: a closing chip already holds the next name and can be removed right after
@@ -2562,7 +2556,7 @@ test.describe('on a phone', () => {
   })
 
   for (const language of ['en', ...Object.keys(catalogues())]) {
-    test(`${language}: the toolbar keeps to one row from 390 to 320 px with the longest filter and sort and a long group name, chevrons whole, the sort cut first, then the group`, async ({ page }) => {
+    test(`${language}: the toolbar keeps to one row from 390 to 320 px with the longest filter and sort, chevrons whole, the sort cut first`, async ({ page }) => {
       await opened(page, language, LIST.map(item => ({ ...item, ephemeral: false })))
       const menu = page.getByRole('menu')
       // the widest word of the chip's menu, as the chip draws it, chosen
@@ -2581,63 +2575,44 @@ test.describe('on a phone', () => {
         await expect(word).toHaveText(words[widest]!)
         return words[widest]!
       }
-      // the width the sort and the group chips stop at below 400 px, their icon and chevron alone
+      // the width the sort chip stops at below 400 px, its icon and chevron alone
       const FLOOR = 52.5
       const fitOf = () => page.locator('.list-toolbar').evaluate((bar) => {
         const box = (shown: Element) => shown.getBoundingClientRect()
-        const [show, group, sort] = ['show', 'group', 'sort'].map(chip => bar.querySelector(`.chip.${chip}`)!)
+        const [show, sort] = ['show', 'sort'].map(chip => bar.querySelector(`.chip.${chip}`)!)
         const cut = (chip: Element) => { const word = chip.querySelector('.value')!; return word.scrollWidth > word.clientWidth }
         // how far the toolbar's end, its right or, right to left, its left, is passed
         const rtl = getComputedStyle(bar).direction === 'rtl'
         const end = (shown: Element) => (rtl ? -box(shown).left : box(shown).right)
         return {
           past: Math.max(...[...bar.children].map(end)) - end(bar),
-          chevrons: [show!, group!, sort!].map((chip) => { const chevron = chip.querySelector('.chev')!; return box(chevron).width > 13.5 && end(chevron) <= end(chip) }),
+          chevrons: [show!, sort!].map((chip) => { const chevron = chip.querySelector('.chev')!; return box(chevron).width > 13.5 && end(chevron) <= end(chip) }),
           showCut: cut(show!),
-          groupCut: cut(group!),
-          groupWidth: box(group!).width,
           sortWidth: box(sort!).width,
         }
       })
-      // as it opens, with every torrent shown: the Group chip's word gives way only once the sort has given its own, and
-      // the filter's once both have
       for (const width of [390, 360, 320]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const fit = await fitOf()
-        if (fit.groupCut) expect(fit.sortWidth, `${width} px: the word Group is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
-        if (fit.showCut) expect(Math.max(fit.sortWidth, fit.groupWidth), `${width} px: the filter is cut while another chip has room to give`).toBeLessThanOrEqual(FLOOR)
+        if (fit.showCut) expect(fit.sortWidth, `${width} px: the filter is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
       }
       await page.setViewportSize({ width: 390, height: 844 })
       await page.locator('.list-toolbar .chip.show').click()
       await expect(menu.getByRole('menuitemradio'), 'the control: every filter but Kept and Temporary, as nothing is temporary').toHaveCount(7)
       await page.locator('.list-toolbar .chip.show').click()
       const chosen = [await chooseLongest('show'), await chooseLongest('sort')].join(', ')
-      // every row in a group with a long name, shown
-      await page.locator('.list-toolbar .pick-all input').check()
-      await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
-      await menu.getByRole('menuitem').last().click()
-      await page.getByRole('dialog').locator('input').fill(LONG_GROUP)
-      await page.getByRole('dialog').locator('button[type=submit]').click()
-      await expect(page.getByRole('dialog')).toHaveCount(0)
-      await page.locator('.list-toolbar .chip.group').click()
-      await menu.getByRole('menuitemradio').last().click()
-      await expect(page.locator('.list-toolbar .chip.group .value')).toHaveText(LONG_GROUP)
-      await page.keyboard.press('Escape')
       for (const width of [390, 360, 320]) {
         await page.setViewportSize({ width, height: 844 })
         await drawn(page)
         const at = `${width} px, ${chosen} chosen`
         const { rows, kids, height } = await rowsOf(page, '.list-toolbar')
-        expect(kids, 'the control: the box, Show, Group, Sort and the views were read').toBe(5)
+        expect(kids, 'the control: the box, Show, New group, Sort and the views were read').toBe(5)
         expect(rows, `${at}, ${height} px tall`).toBe(1)
         const fit = await fitOf()
         expect(fit.past, `${at}: the views end inside the toolbar`).toBeLessThanOrEqual(0.5)
-        expect(fit.chevrons, `${at}: each chevron whole inside its chip`).toEqual([true, true, true])
-        expect(fit.groupCut, `${at}: the control: the name is longer than any phone has room for`).toBe(true)
-        // the sort gives its word's room first, then the group, and the filter, which says which rows are listed, last
-        expect(fit.sortWidth, `${at}: the group is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
-        if (fit.showCut) expect(fit.groupWidth, `${at}: the filter is cut while the group has room to give`).toBeLessThanOrEqual(FLOOR)
+        expect(fit.chevrons, `${at}: each chevron whole inside its chip`).toEqual([true, true])
+        if (fit.showCut) expect(fit.sortWidth, `${at}: the filter is cut while the sort has room to give`).toBeLessThanOrEqual(FLOOR)
       }
     })
   }
@@ -2844,28 +2819,32 @@ test('the Show menu shows the rows of the state picked, counts each, offers none
   expect(await offered()).toEqual(['All (2)', 'Downloading (1)', 'Seeding (1)'])
 })
 
-test('a group made of ticked rows is shown alone, with a state on top, counted under it, downloaded, renamed, filled, emptied and deleted', async ({ page }) => {
+test('a group made of ticked rows appears inline, hides grouped rows from root, downloads missing members, edits, fills, empties and deletes', async ({ page }) => {
   // two torrents not on this device in the group, both of which its Download all fetches, and one outside it, left alone
   const list = [...LIST, entry('7', 'Elsewhere.Too', { started: false }), entry('8', 'Elsewhere.Also', { started: false })]
   await page.goto(origin)
   await library(page, list, TORRENTS)
-  const chip = page.locator('.list-toolbar .chip.group')
+  const newBtn = page.locator('.list-toolbar .chip.new-group')
   const menu = page.getByRole('menu')
-  const titles = page.locator('.torrent .title')
+  const rootTorrents = page.locator('main > .torrent:not(.group-row)')
+  const childTorrents = page.locator('.group-children .torrent')
   const tick = (name: string) => page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
   const names = () => menu.getByRole('menuitemradio').evaluateAll(all => all.map(row => row.getAttribute('aria-label')))
-  const fromChip = async (which: string, row: string | RegExp) => {
-    await page.locator(`.list-toolbar .chip.${which}`).click()
+  const fromShow = async (row: string | RegExp) => {
+    await page.locator('.list-toolbar .chip.show').click()
     await menu.getByRole('menuitemradio', { name: row, exact: true }).click()
     await expect(menu).toHaveCount(0)
   }
-  await expect(chip).toHaveAccessibleName('Group: All torrents (13)')
-  await expect(chip).toHaveText('Group')
+  await expect(newBtn).toHaveAccessibleName('New group')
 
   for (const name of ['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here']) await tick(name)
   await groupTicked(page, 'Week 2')
   await expect(page.locator('.toast')).toHaveText(`Added to ${isolated('Week 2')}`)
-  await expect(titles, 'making a group shows nothing else').toHaveCount(13)
+  const week2 = page.locator('.group-row', { hasText: 'Week 2' })
+  await expect(week2).toBeVisible()
+  await expect(week2.locator('.group-count')).toHaveText('5')
+  await expect(rootTorrents, 'grouped rows leave the loose top level').toHaveCount(8)
+  await expect(childTorrents, 'new group expands inline to show its 5 members').toHaveCount(5)
   await page.keyboard.press('Escape')
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
@@ -2877,28 +2856,23 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await page.keyboard.press('Escape')
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
-  // a state none of the group's rows is in says so, rather than that the group is empty
-  await fromChip('show', /^Downloading \(/u)
-  await fromChip('group', 'Week 2 (0)')
+  // filtering narrows inside groups while omitting groups with no match
+  await fromShow(/^Downloading \(/u)
+  await expect(week2, 'group with no matching members is omitted underDownloading').toHaveCount(0)
+  await page.getByPlaceholder('Add a magnet link, or search').fill('no-such-release-zzz')
   await expect(page.locator('.empty')).toContainText('Nothing matches this filter.')
-  await fromChip('show', 'All (5)')
-  await expect.poll(async () => (await titles.allTextContents()).sort()).toEqual(['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here'])
-  await expect(chip).toHaveAccessibleName('Group: Week 2 (5)')
-  await page.locator('.list-toolbar .chip.show').click()
-  await expect.poll(names, 'the filter counts within the group').toEqual([
-    'All (5)', 'Kept (4)', 'Temporary (1)', 'Seeding (1)', 'Paused (1)', 'Not on this device (3)',
+  await page.locator('.empty').getByRole('button', { name: 'Show everything' }).click()
+  await expect.poll(async () => (await childTorrents.locator('.title').allTextContents()).sort()).toEqual([
+    'A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here',
   ])
-  await menu.getByRole('menuitemradio', { name: 'Paused (1)' }).click()
-  await expect(titles).toHaveText(['Kept.Paused'])
-  await expect(page.locator('.hidden-note'), 'the filter hides four of the group').toContainText('4 torrents hidden')
-  await chip.click()
-  await expect.poll(names, 'a group counts under the filter').toEqual(['All torrents (1)', 'Week 2 (1)'])
-  await page.keyboard.press('Escape')
-  await fromChip('show', 'All (5)')
+  await fromShow(/^Paused \(/u)
+  await expect(childTorrents.locator('.title')).toHaveText(['Kept.Paused'])
+  await expect(page.locator('.hidden-note')).toContainText('12 torrents hidden')
+  await fromShow('All (13)')
 
   // Made.Here is a created source, whose own row offers no download either
-  await chip.click()
-  await menu.getByRole('menuitem', { name: 'Download all' }).click()
+  await week2.locator('button.more').click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Download all' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
   await expect.poll(started).toEqual(['8'.repeat(40), 'f'.repeat(40)])
   expect(await startCommands(page), 'one command for the whole group').toEqual(['start-many'])
@@ -2906,100 +2880,146 @@ test('a group made of ticked rows is shown alone, with a state on top, counted u
   await post(page, { type: 'list', list: list.map(item => ['Elsewhere', 'Elsewhere.Also'].includes(item.name!) ? { ...item, started: true } : item) }, {
     type: 'state', torrents: [...TORRENTS, snapshot(12, 'f', 'Elsewhere', {}), snapshot(13, '8', 'Elsewhere.Also', {})],
   })
-  await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveText(['New group...', 'Copy link', 'Rename...', 'Delete group'])
+  await week2.locator('button.more').click()
+  const dlg = page.getByRole('dialog')
+  await expect(dlg.locator('button.opt .label')).toHaveText(['Copy link', 'Edit...', 'Delete group'])
 
-  await menu.getByRole('menuitem', { name: 'Rename...' }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toHaveAccessibleName('Week 2')
-  await dialog.locator('input').fill('Week 3')
-  await dialog.locator('input').press('Enter')
-  await expect(chip).toHaveText('Week 3')
+  await dlg.locator('button.opt .label', { hasText: 'Edit...' }).click()
+  await expect(dlg).toHaveAccessibleName('Week 2')
+  await dlg.locator('label.name input').fill('Week 3')
+  await dlg.locator('label.name input').press('Enter')
+  const week3 = page.locator('.group-row', { hasText: 'Week 3' })
+  await expect(week3).toBeVisible()
 
-  await expect(page.locator('.torrent', { hasText: 'Watched.Film' })).toHaveCount(0)
-  await fromChip('group', /^All torrents /u)
-  // the state headings above it put it under the fold, and a scroll still on its way closes the menu it opens
-  const film = page.locator('.torrent', { hasText: 'Watched.Film' })
+  const film = page.locator('main > .torrent:not(.group-row)', { hasText: 'Watched.Film' })
   await film.scrollIntoViewIfNeeded()
   await drawn(page)
   await film.click({ button: 'right' })
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
   await expect(page.locator('.toast')).toHaveText(`Added to ${isolated('Week 3')}`)
-  await fromChip('group', 'Week 3 (6)')
+  await expect(childTorrents).toHaveCount(6)
   await page.goto(origin)
   await library(page, list, TORRENTS)
-  await expect(chip, 'the group shown is remembered').toHaveText('Week 3')
-  await expect(titles).toHaveCount(6)
+  await expect(week3, 'the expanded inline group is remembered').toBeVisible()
+  await expect(childTorrents).toHaveCount(6)
 
-  // the same scroll as above, after the reload (it closed the menu on CI, 0.0.78)
-  await film.scrollIntoViewIfNeeded()
+  const childFilm = page.locator('.group-children .torrent', { hasText: 'Watched.Film' })
+  await childFilm.scrollIntoViewIfNeeded()
   await drawn(page)
-  await film.click({ button: 'right' })
+  await childFilm.click({ button: 'right' })
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
   await expect(page.locator('.toast')).toHaveText(`Taken out of ${isolated('Week 3')}`)
-  await expect(titles).toHaveCount(5)
-  await expect(page.locator('.torrent', { hasText: 'Watched.Film' })).toHaveCount(0)
+  await expect(childTorrents).toHaveCount(5)
 
-  await page.locator('.list-toolbar .pick-all input').check()
+  for (const name of ['A.Season.Pack', 'Elsewhere', 'Elsewhere.Also', 'Kept.Paused', 'Made.Here']) await tick(name)
   await page.locator('.bulk-bar button[aria-haspopup=menu]').click()
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Week 3' })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('menuitemcheckbox', { name: 'Week 3' }).click()
-  await expect(page.locator('.empty')).toContainText(`Nothing in ${isolated('Week 3')}.`)
+  await expect(page.locator('.group-empty')).toHaveText('No torrents in this group')
+  await expect(rootTorrents).toHaveCount(13)
+  await expect(page.locator('.bulk-bar')).toContainText('5 selected')
+  await page.locator('.bulk-bar').getByRole('button', { name: 'Clear selection' }).click()
   await expect(page.locator('.bulk-bar')).toHaveCount(0)
 
-  await chip.click()
-  await menu.getByRole('menuitem', { name: 'Delete group' }).click()
-  await expect(dialog).toHaveAccessibleName(`Delete ${isolated('Week 3')}?`)
-  await expect(dialog).toContainText('Its torrents stay in your list.')
-  await dialog.getByRole('button', { name: 'Delete group' }).click()
-  await expect(chip).toHaveText('Group')
-  await expect(titles).toHaveCount(13)
-  await chip.click()
-  await expect.poll(names).toEqual(['All torrents (13)'])
+  await week3.locator('button.more').click()
+  await dlg.getByRole('button', { name: 'Delete group' }).click()
+  await expect(dlg).toHaveAccessibleName(`Delete ${isolated('Week 3')}?`)
+  await expect(dlg).toContainText('Its torrents stay in your list.')
+  await dlg.getByRole('button', { name: 'Delete group' }).click()
+  await expect(week3).toHaveCount(0)
+  await expect(rootTorrents).toHaveCount(13)
 })
 
-test('a group\'s name stops short on a wide window, so the sort keeps its word', async ({ page }) => {
+test('a long group name wraps cleanly on narrow viewports without cutting the toolbar sort button', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 844 })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
   await page.locator('.list-toolbar .pick-all input').check()
   const name = `${LONG_GROUP}, ${LONG_GROUP}, ${LONG_GROUP}`
   await groupTicked(page, name)
-  await page.locator('.list-toolbar .chip.group').click()
-  await page.getByRole('menu').getByRole('menuitemradio').last().click()
-  const word = page.locator('.list-toolbar .chip.group .value')
-  await expect(word).toHaveText(name)
-  expect(await word.evaluate(shown => shown.scrollWidth > shown.clientWidth), 'the control: the name is cut').toBe(true)
+  await expect(page.locator('.group-row .title strong')).toHaveText(name)
   const sort = page.locator('.list-toolbar .chip.sort .value')
   expect(await sort.evaluate(shown => shown.scrollWidth - shown.clientWidth)).toBe(0)
 })
 
-test('a group made from the Group chip is empty and shown, and Show everything shows every torrent again', async ({ page }) => {
+test('a group made from the New group button starts empty and expanded with Edit and Delete options', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
   const sent = await sending(page, ['add-magnet'])
-  await page.locator('.list-toolbar .chip.group').click()
-  await page.getByRole('menu').getByRole('menuitem', { name: 'New group...' }).click()
+  await page.locator('.list-toolbar .chip.new-group').click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled()
-  await dialog.locator('input').fill('Later')
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  await dialog.locator('label.name input').fill('Later')
   // a paste behind the dialog adds nothing, as behind any other
   await paste(page, magnetOf('3', 'Pasted'))
-  await dialog.getByRole('button', { name: 'Save' }).click()
-  await expect(page.locator('.list-toolbar .chip.group')).toHaveText('Later')
-  await expect(page.locator('.empty')).toContainText(`Nothing in ${isolated('Later')}.`)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  const later = page.locator('.group-row', { hasText: 'Later' })
+  await expect(later).toBeVisible()
+  await expect(page.locator('.group-empty')).toHaveText('No torrents in this group')
   // nothing to put in a link, so no Copy link
   await drawn(page)
-  await page.locator('.list-toolbar .chip.group').click()
-  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['New group...', 'Rename...', 'Delete group'])
+  await later.locator('button.more').click()
+  await expect(dialog.locator('button.opt .label')).toHaveText(['Edit...', 'Delete group'])
   await page.keyboard.press('Escape')
   expect(await sent()).toEqual([])
   await paste(page, magnetOf('3', 'Pasted'))
   await expect.poll(async () => (await sent()).length, 'the control: the same paste with no dialog adds it').toBe(1)
-  await page.locator('.empty').getByRole('button', { name: 'Show everything' }).click()
-  await expect(page.locator('.list-toolbar .chip.group')).toHaveText('Group')
-  await expect(page.locator('.torrent')).toHaveCount(11)
+  await later.locator('button.more').click()
+  await dialog.getByRole('button', { name: 'Delete group' }).click()
+  await dialog.getByRole('button', { name: 'Delete group' }).click()
+  await expect(page.locator('main > .torrent:not(.group-row)')).toHaveCount(11)
+})
+
+test('dragging reorders top-level and nested rows to Custom sort, drops torrents into groups, and saves preset icons', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await page.locator('.list-toolbar .chip.new-group').click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('label.name input').fill('Shelf')
+  await dialog.getByRole('button', { name: 'Film icon' }).click()
+  await dialog.locator('button[type=submit]').click()
+
+  const shelf = page.locator('.group-row', { hasText: 'Shelf' })
+  await expect(shelf).toBeVisible()
+  await expect(shelf.locator('svg.lucide-film')).toBeVisible()
+
+  await page.locator('.list-toolbar .chip.new-group').click()
+  await dialog.locator('label.name input').fill('Backup')
+  await dialog.locator('button[type=submit]').click()
+  const backup = page.locator('.group-row', { hasText: 'Backup' })
+  await expect(backup).toBeVisible()
+
+  const film = page.locator('main > .torrent:not(.group-row)', { hasText: 'Watched.Film' })
+  const pack = page.locator('main > .torrent:not(.group-row)', { hasText: 'A.Season.Pack' })
+
+  // Dragging a loose torrent into the middle of Shelf adds it without activating the file-drop overlay.
+  await film.dragTo(shelf)
+  await expect(page.locator('[data-drag]')).toHaveCount(0)
+  await expect(page.locator('.group-children .torrent .title')).toHaveText(['Watched.Film'])
+
+  await pack.dragTo(shelf)
+  await expect(page.locator('.group-children .torrent')).toHaveCount(2)
+  const beforeNested = await page.locator('.group-children .torrent .title').allTextContents()
+  const firstChild = page.locator('.group-children .torrent').nth(0)
+  const secondChild = page.locator('.group-children .torrent').nth(1)
+  const secondBox = (await secondChild.boundingBox())!
+  await firstChild.dragTo(secondChild, { targetPosition: { x: secondBox.width / 2, y: secondBox.height * 0.85 } })
+  await expect(page.locator('.list-toolbar .chip.sort .value')).toHaveText('Custom')
+  await expect.poll(() => page.locator('.group-children .torrent .title').allTextContents()).toEqual([...beforeNested].reverse())
+
+  // Reorder top-level Shelf below Backup in Done category, then reload to confirm Custom order persists.
+  const beforeTop = await page.locator('.group-row .title strong').allTextContents()
+  expect(beforeTop).toEqual(['Backup', 'Shelf'])
+  await backup.scrollIntoViewIfNeeded()
+  const backupBox = (await backup.boundingBox())!
+  await shelf.dragTo(backup, { targetPosition: { x: backupBox.width / 2, y: backupBox.height * 0.1 } })
+  await expect.poll(() => page.locator('.group-row .title strong').allTextContents()).toEqual(['Shelf', 'Backup'])
+
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+  await expect(page.locator('.list-toolbar .chip.sort .value')).toHaveText('Custom')
+  await expect(page.locator('.group-row .title strong')).toHaveText(['Shelf', 'Backup'])
 })
 
 /** The link of a group of Seven and Eight, which the list does not hold. */
@@ -3040,13 +3060,12 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   // as the engine lists them: not started, so not on this device
   const listed = [...LIST, ...list.map(item => ({ ...item, started: false, ephemeral: false }))]
   await post(page, { type: 'list', list: listed })
-  const chip = page.locator('.list-toolbar .chip.group')
-  await expect(chip).toHaveText('Week 9')
-  await expect(chip).toHaveAccessibleName('Group: Week 9 (2)')
+  const week9 = page.locator('.group-row', { hasText: 'Week 9' })
+  await expect(week9).toBeVisible()
   await expect(page.locator('.list-toolbar .chip.show')).toHaveAccessibleName(/^Show: All /u)
-  await expect(page.locator('.torrent')).toHaveCount(2)
-  await chip.click()
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Download all' }).click()
+  await expect(page.locator('.group-children .torrent')).toHaveCount(2)
+  await week9.locator('button.more').click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Download all' }).click()
   const started = () => page.evaluate(() => (window as unknown as { started: () => string[] }).started().sort())
   await expect.poll(started).toEqual(['7'.repeat(40), '8'.repeat(40)])
   expect(await startCommands(page), 'one command for the whole group').toEqual(['start-many'])
@@ -3068,11 +3087,10 @@ test('a group link asks first, adds its torrents as rows not on this device in a
   // the same link again adds nothing twice
   await page.goto(link.replace('https://torrent.fkn.app', origin))
   await library(page, listed, TORRENTS)
-  await expect(chip, 'the groups are read before Add').toHaveText('Week 9')
+  await expect(week9, 'the groups are read before Add').toBeVisible()
   await dialog.getByRole('button', { name: 'Add', exact: true }).click()
   await expect(page.locator('.toast')).toHaveText(`${isolated('Week 9')} added`)
-  await chip.click()
-  await expect(page.getByRole('menu').getByRole('menuitemradio', { name: /^Week 9 /u })).toHaveCount(1)
+  await expect(page.locator('.group-row', { hasText: 'Week 9' })).toHaveCount(1)
 })
 
 test('an /add link holding a magnet asks about the magnet, whatever follows the #', async ({ page }) => {
@@ -3201,17 +3219,16 @@ test('Copy link copies the shown group\'s link inside the click, leaves a privat
   // Elsewhere's kept .torrent says private
   await keepTorrentFile(page, 'f'.repeat(40), PRIVATE_TORRENT)
   await library(page, LIST, TORRENTS)
-  const chip = page.locator('.list-toolbar .chip.group')
   const menu = page.getByRole('menu')
   for (const name of ['A.Season.Pack', 'Elsewhere', 'Kept.Paused']) await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
   await groupTicked(page, 'Week 2')
   await page.keyboard.press('Escape')
-  await chip.click()
-  await menu.getByRole('menuitemradio', { name: 'Week 2 (3)' }).click()
+  const week2 = page.locator('.group-row', { hasText: 'Week 2' })
+  await expect(week2).toBeVisible()
   // the link holds the whole group, whatever the Show chip lets through
   await page.locator('.list-toolbar .chip.show').click()
   await menu.getByRole('menuitemradio', { name: /^Seeding \(/u }).click()
-  await expect(page.locator('.torrent .title')).toHaveText(['A.Season.Pack'])
+  await expect(page.locator('.group-children .torrent .title')).toHaveText(['A.Season.Pack'])
   // where the click wrote to the clipboard: WebKit refuses a write once the click has awaited anything
   await page.evaluate(() => {
     let clicking = false
@@ -3223,7 +3240,7 @@ test('Copy link copies the shown group\'s link inside the click, leaves a privat
       return write(text)
     }
   })
-  await chip.click()
+  await week2.click({ button: 'right' })
   await menu.getByRole('menuitem', { name: 'Copy link' }).click()
   await expect(page.locator('.toast')).toHaveText('Link copied, 1 private torrent left out')
   expect(await page.evaluate(() => (window as unknown as { inClick: boolean }).inClick)).toBe(true)
@@ -3245,13 +3262,11 @@ test('Copy link for a group past the most a link holds says so, and copies nothi
   await page.locator('.list-toolbar .pick-all input').check()
   await groupTicked(page, 'All of them')
   await page.keyboard.press('Escape')
-  const chip = page.locator('.list-toolbar .chip.group')
-  const menu = page.getByRole('menu')
-  await chip.click()
-  await menu.getByRole('menuitemradio', { name: 'All of them (1001)' }).click()
+  const groupRow = page.locator('.torrent-table tbody tr.group-row', { hasText: 'All of them' })
+  await expect(groupRow).toBeVisible()
   await page.evaluate(() => navigator.clipboard.writeText('held before'))
-  await chip.click()
-  await menu.getByRole('menuitem', { name: 'Copy link' }).click({ timeout: 30_000 })
+  await groupRow.locator('button.more').click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Copy link' }).click({ timeout: 30_000 })
   await expect(page.locator('.toast')).toHaveText('Links hold up to 1000 torrents')
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('held before')
 })
@@ -3817,5 +3832,5 @@ test('the control: in English the groups\' surfaces and a group sent by link are
   test.setTimeout(120_000)
   const { words, cut } = await groupSurfaces(page, 1280)
   expect(cut).toEqual([])
-  for (const text of ['New group...', 'Download all', 'Copy link', 'Link copied', 'Weekend watch list', '2 torrents', 'Add', 'That link could not be read']) expect(words).toContain(text)
+  for (const text of ['Icon', 'Auto', 'Image', 'Download all', 'Copy link', 'Edit...', 'Link copied', 'Weekend watch list', '2 torrents', 'No torrents in this group', 'Add', 'That link could not be read']) expect(words).toContain(text)
 })

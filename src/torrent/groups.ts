@@ -127,10 +127,11 @@ const byName = (a: TorrentGroup, b: TorrentGroup) =>
   a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
 
 // no read sequence needed: IndexedDB orders a write between two reads after the first and before the second
-const reread = async () => {
+const reread = async (beforeNotify?: () => void) => {
   const tag = await syncedTag()
   const stored = await get<StoredGroups>(GROUPS_KEY).catch(() => undefined)
   shown = mergeGroups(heldFor(stored, tag)).filter((g) => g.deletedAt === undefined).sort(byName)
+  beforeNotify?.()
   listeners.forEach((listener) => listener())
 }
 
@@ -142,9 +143,9 @@ const channelOf = () => {
   return channel
 }
 
-const announce = async () => {
+const announce = async (beforeNotify?: () => void) => {
   channelOf().postMessage(null)
-  await reread()
+  await reread(beforeNotify)
 }
 
 /**
@@ -168,7 +169,7 @@ export const useGroups = (): TorrentGroup[] | undefined => useSyncExternalStore(
  * One edit: the changed record merged into what is stored, inside one readwrite transaction, so two
  * tabs editing at once cannot lose each other's change.
  */
-const write = async (change: (groups: TorrentGroup[]) => TorrentGroup | undefined): Promise<void> => {
+const write = async (change: (groups: TorrentGroup[]) => TorrentGroup | undefined, beforeAnnounce?: () => void): Promise<void> => {
   const tag = await syncedTag()
   let changed = false
   await update<StoredGroups | undefined>(GROUPS_KEY, (stored) => {
@@ -178,7 +179,9 @@ const write = async (change: (groups: TorrentGroup[]) => TorrentGroup | undefine
     changed = true
     return { account: tag ?? stored?.account ?? null, groups: mergeGroups(groups, [next]) }
   })
-  if (changed) await announce()
+  if (changed) {
+    await announce(beforeAnnounce)
+  }
 }
 
 /**
@@ -223,12 +226,19 @@ const newId = () =>
 export const groupName = (name: string): string => name.trim().replace(/^([\s\S]{200})[\s\S]+/u, '$1').trimEnd()
 
 /** Makes a group of these torrents. Resolves to its id once stored, or null for a name that is empty once trimmed. */
-export const createGroup = async (name: string, infoHashes: readonly string[]): Promise<string | null> => {
+export const createGroup = async (
+  name: string,
+  infoHashes: readonly string[],
+  onId?: (id: string) => void,
+): Promise<string | null> => {
   const clean = groupName(name)
   if (!clean) return null
   const id = newId()
   const at = Date.now()
-  await write(() => ({ id, name: clean, namedAt: at, members: infoHashes.map((infoHash) => ({ infoHash, at })) }))
+  await write(
+    () => ({ id, name: clean, namedAt: at, members: infoHashes.map((infoHash) => ({ infoHash, at })) }),
+    () => onId?.(id),
+  )
   return id
 }
 

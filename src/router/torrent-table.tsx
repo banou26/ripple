@@ -1,16 +1,24 @@
+import type { DragEvent as ReactDragEvent } from 'react'
 import type { IntlShape, MessageDescriptor } from 'react-intl'
 
+import type { GroupIcon } from '../torrent/group-appearance'
+import type { LibraryEntry } from '../torrent/group-rows'
+import type { TorrentGroup } from '../torrent/groups'
 import type { Torrent } from '../torrent/types'
-import type { SortDir, SortKey } from '../torrent/list-view'
+import type { ExpandedGroups, SortDir, SortKey } from '../torrent/list-view'
 import type { EngineTransport } from '../torrent/vpn-config'
+import type { MenuPosition } from '../components/menu'
+import type { DragPayload, DropIndicator } from './list-drag'
 import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
-import { Clock, Ellipsis } from 'lucide-react'
+import { ChevronRight, Clock, Ellipsis } from 'lucide-react'
 import { defineMessage, useIntl } from 'react-intl'
 
+import { DEFAULT_ICON } from '../torrent/group-appearance'
 import { NATURAL_DIR, SORT_LABEL, TEMPORARY_HINT, reclaimable } from '../torrent/list-view'
 import { noPeersLine } from '../torrent/no-peers'
+import { GroupMiniIcon } from '../components/group-icon'
 import { badgeRules, stateHues } from './badge-style'
 import { pickable } from './bulk-selection'
 import { STATE_LABEL, chosenBytes, relativeDay, speed, withWhole } from './torrent-format'
@@ -18,7 +26,7 @@ import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint, typedHint } from '../components/hint'
 import { RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import {
-  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
+  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, GROUP_COUNT_BG, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
 } from '../theme'
 
@@ -109,6 +117,56 @@ const style = css`
 
       td:first-of-type { box-shadow: none; }
     }
+
+    &[data-dragging='true'] { opacity: 0.55; }
+    &[data-drop='before'] td { box-shadow: inset 0 2px 0 0 ${FOCUS_RING}; }
+    &[data-drop='after'] td { box-shadow: inset 0 -2px 0 0 ${FOCUS_RING}; }
+    &[data-drop='into'] {
+      background: ${CONTROL_BG};
+      td { box-shadow: inset 0 1px 0 0 ${FOCUS_RING}, inset 0 -1px 0 0 ${FOCUS_RING}; }
+    }
+  }
+
+  tr.group-row {
+    cursor: pointer;
+
+    td.check button.expand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: none;
+      color: ${TEXT_MUTED};
+      cursor: pointer;
+
+      &:hover { color: ${TEXT}; }
+      &:focus-visible { outline: none; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+
+      svg { transition: transform 120ms ease; }
+    }
+
+    &[data-expanded='true'] td.check button.expand svg {
+      transform: rotate(90deg);
+    }
+
+    .group-count {
+      flex: none;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: ${GROUP_COUNT_BG};
+      color: ${TEXT_MUTED};
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  tr.group-child .cell-name {
+    padding-inline-start: 22px;
   }
 
   /* The box's label is its hit area, and its ::before spreads that over the whole cell, or a click just above or
@@ -257,25 +315,141 @@ const sizeOf = (intl: IntlShape, t: Torrent): string => {
 }
 
 export type TorrentTableProps = {
-  torrents: readonly Torrent[]
+  torrents?: readonly Torrent[]
+  entries?: readonly LibraryEntry[]
+  expandedGroups?: ExpandedGroups
+  groupIcons?: ReadonlyMap<string, GroupIcon>
+  onToggleExpand?: (groupId: string) => void
+  onGroupOptions?: (group: TorrentGroup, at: MenuPosition | null) => void
   sortKey: SortKey
   sortDir: SortDir
   onSort: (key: SortKey, dir: SortDir) => void
   selectedId: string | null
   onSelect: (t: Torrent) => void
-  onOptions: (t: Torrent, at: { x: number, y: number } | null) => void
+  onOptions: (t: Torrent, at: MenuPosition | null) => void
   /** The ticked rows, by info hash, which are not the one row the dock shows. */
   picked: Picked
   /** Ticks or unticks `t`, or with `shift` the run from the box clicked before, and ignores a row that cannot be ticked. */
   onPick: (t: Torrent, shift: boolean) => void
   /** What the engine reaches its peers through: with the VPN off a download that found nobody says so on its state. */
   transport?: EngineTransport | null
+  draggingKey?: string | null
+  dropIndicator?: DropIndicator
+  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
+  onRowDragEnd?: () => void
+  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  onRowDragLeave?: (targetKey: string) => void
+  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
 }
 
-export const TorrentTable = (
-  { torrents, sortKey, sortDir, onSort, selectedId, onSelect, onOptions, picked, onPick, transport }: TorrentTableProps,
-) => {
+export const TorrentTable = ({
+  torrents,
+  entries,
+  expandedGroups,
+  groupIcons,
+  onToggleExpand,
+  onGroupOptions,
+  sortKey,
+  sortDir,
+  onSort,
+  selectedId,
+  onSelect,
+  onOptions,
+  picked,
+  onPick,
+  transport,
+  draggingKey,
+  dropIndicator,
+  onRowDragStart,
+  onRowDragEnd,
+  onRowDragOver,
+  onRowDragLeave,
+  onRowDrop,
+}: TorrentTableProps) => {
   const intl = useIntl()
+  const rows: readonly LibraryEntry[] = entries ?? (torrents ?? []).map((t) => ({ kind: 'torrent', key: `t:${t.id}`, torrent: t }))
+
+  const dragPropsFor = (dragKey: string, payload: DragPayload | null, allowInto: boolean) => (
+    onRowDragStart
+      ? {
+        draggable: payload !== null,
+        onDragStart: payload ? (e: ReactDragEvent) => onRowDragStart(payload, dragKey, e) : undefined,
+        onDragEnd: onRowDragEnd,
+        onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
+        onDragLeave: () => onRowDragLeave?.(dragKey),
+        onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
+        'data-dragging': draggingKey === dragKey || undefined,
+        'data-drop': dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined,
+      }
+      : {}
+  )
+
+  const renderTorrentRow = (t: Torrent, key: string, dragKey: string, dragPayload: DragPayload | null, child = false) => (
+    <tr
+      key={key}
+      className={child ? 'group-child' : undefined}
+      data-state={t.state}
+      data-selected={t.id === selectedId || undefined}
+      data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
+      {...dragPropsFor(dragKey, dragPayload, false)}
+      {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
+      onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
+    >
+      <td className="check">
+        {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
+      </td>
+      <td className="name" {...typedHint(t.name)}>
+        <div className="cell-name">
+          {/*
+            * A span rather than a button here, unlike the card view. A button per row would add
+            * one tab stop in front of every row in a hundred row list, and by the time somebody
+            * is in the table they have already met this marker on a card.
+            */}
+          {t.ephemeral === true && (
+            <span
+              className="temp" role="img" aria-label={intl.formatMessage({ id: 'Temporary download', defaultMessage: 'Temporary download' })}
+              {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
+            >
+              <Clock size={13} aria-hidden="true"/>
+            </span>
+          )}
+          <span className="title" dir="auto">{t.name}</span>
+        </div>
+      </td>
+      <td className="c-size num">{sizeOf(intl, t)}</td>
+      <td className="c-progress">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="bar"><div className="fill" style={{ width: `${Math.round(t.progress * 100)}%` }}/></div>
+          {/* rounded as the bar is: Intl reads 0.285 as written and shows 29%, where the bar's 28.499... is 28% */}
+          <span className="pct">{writePercent(Math.round(t.progress * 100) / 100)}</span>
+        </div>
+      </td>
+      <td className="c-status">
+        {/* the cards have a line for it, and a row here has its state alone: with the VPN off nothing else tells
+            a download nobody serves from one that has just begun */}
+        <span className={'badge ' + t.state} {...hint(t.noPeers && transport === 'direct' ? noPeersLine(transport) : null)}>
+          {intl.formatMessage(STATE_LABEL[t.state])}
+        </span>
+      </td>
+      <td className={'c-down num' + (t.down > 0 ? ' live' : '')}>{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
+      <td className={'c-up num' + (t.up > 0 ? ' live' : '')}>{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
+      <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
+      <td className="c-added num">{relativeDay(t.addedAt)}</td>
+      <td className="more">
+        <button
+          type="button"
+          className="more"
+          aria-haspopup="dialog"
+          aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
+          {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
+          onClick={(e) => { e.stopPropagation(); onOptions(t, null) }}
+        >
+          <Ellipsis size={16} aria-hidden="true"/>
+        </button>
+      </td>
+    </tr>
+  )
+
   return <table css={style} className="torrent-table">
     <thead>
       <tr>
@@ -314,69 +488,88 @@ export const TorrentTable = (
       </tr>
     </thead>
     <tbody>
-      {torrents.map((t) => (
-        <tr
-          key={t.id}
-          data-state={t.state}
-          data-selected={t.id === selectedId || undefined}
-          data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-          {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
-          onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
-        >
-          <td className="check">
-            {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
-          </td>
-          <td className="name" {...typedHint(t.name)}>
-            <div className="cell-name">
-              {/*
-                * A span rather than a button here, unlike the card view. A button per row would add
-                * one tab stop in front of every row in a hundred row list, and by the time somebody
-                * is in the table they have already met this marker on a card.
-                */}
-              {t.ephemeral === true && (
-                <span
-                  className="temp" role="img" aria-label={intl.formatMessage({ id: 'Temporary download', defaultMessage: 'Temporary download' })}
-                  {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
-                >
-                  <Clock size={13} aria-hidden="true"/>
-                </span>
-              )}
-              <span className="title" dir="auto">{t.name}</span>
-            </div>
-          </td>
-          <td className="c-size num">{sizeOf(intl, t)}</td>
-          <td className="c-progress">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="bar"><div className="fill" style={{ width: `${Math.round(t.progress * 100)}%` }}/></div>
-              {/* rounded as the bar is: Intl reads 0.285 as written and shows 29%, where the bar's 28.499... is 28% */}
-              <span className="pct">{writePercent(Math.round(t.progress * 100) / 100)}</span>
-            </div>
-          </td>
-          <td className="c-status">
-            {/* the cards have a line for it, and a row here has its state alone: with the VPN off nothing else tells
-                a download nobody serves from one that has just begun */}
-            <span className={'badge ' + t.state} {...hint(t.noPeers && transport === 'direct' ? noPeersLine(transport) : null)}>
-              {intl.formatMessage(STATE_LABEL[t.state])}
-            </span>
-          </td>
-          <td className={'c-down num' + (t.down > 0 ? ' live' : '')}>{t.down > 0 ? speed(t.down) : UNKNOWN}</td>
-          <td className={'c-up num' + (t.up > 0 ? ' live' : '')}>{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
-          <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
-          <td className="c-added num">{relativeDay(t.addedAt)}</td>
-          <td className="more">
-            <button
-              type="button"
-              className="more"
-              aria-haspopup="dialog"
-              aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
-              {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-              onClick={(e) => { e.stopPropagation(); onOptions(t, null) }}
-            >
-              <Ellipsis size={16} aria-hidden="true"/>
-            </button>
-          </td>
-        </tr>
-      ))}
+      {rows.flatMap((entry) => {
+        if (entry.kind === 'torrent') {
+          return [renderTorrentRow(entry.torrent, entry.torrent.id, entry.key, { kind: 'top', key: entry.key })]
+        }
+        const { group, summary } = entry
+        const expanded = !!expandedGroups?.has(group.id)
+        const icon = groupIcons?.get(group.id) ?? DEFAULT_ICON
+        return [
+          <tr
+            key={entry.key}
+            className="group-row"
+            data-state={summary.state}
+            data-expanded={expanded || undefined}
+            {...dragPropsFor(entry.key, { kind: 'top', key: entry.key }, true)}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return
+              onToggleExpand?.(group.id)
+            }}
+            onContextMenu={(e) => {
+              if (e.shiftKey || e.ctrlKey) return
+              e.preventDefault()
+              onGroupOptions?.(group, { x: e.clientX, y: e.clientY })
+            }}
+          >
+            <td className="check">
+              <button
+                type="button"
+                className="expand"
+                aria-expanded={expanded}
+                aria-label={expanded
+                  ? intl.formatMessage({ id: 'Collapse {name}', defaultMessage: 'Collapse {name}' }, { name: group.name })
+                  : intl.formatMessage({ id: 'Expand {name}', defaultMessage: 'Expand {name}' }, { name: group.name })}
+                onClick={(e) => { e.stopPropagation(); onToggleExpand?.(group.id) }}
+              >
+                <ChevronRight size={14} aria-hidden="true"/>
+              </button>
+            </td>
+            <td className="name" {...typedHint(group.name)}>
+              <div className="cell-name">
+                <GroupMiniIcon groupId={group.id} icon={icon} previewHashes={summary.previewHashes}/>
+                <span className="title" dir="auto">{group.name}</span>
+                <span className="group-count">{summary.count}</span>
+              </div>
+            </td>
+            <td className="c-size num">{summary.size > 0 ? getHumanReadableByteString(summary.size) : UNKNOWN}</td>
+            <td className="c-progress">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="bar"><div className="fill" style={{ width: `${Math.round(summary.progress * 100)}%` }}/></div>
+                <span className="pct">{writePercent(Math.round(summary.progress * 100) / 100)}</span>
+              </div>
+            </td>
+            <td className="c-status">
+              <span className={'badge ' + summary.state}>{intl.formatMessage(STATE_LABEL[summary.state])}</span>
+            </td>
+            <td className={'c-down num' + (summary.down > 0 ? ' live' : '')}>{summary.down > 0 ? speed(summary.down) : UNKNOWN}</td>
+            <td className={'c-up num' + (summary.up > 0 ? ' live' : '')}>{summary.up > 0 ? speed(summary.up) : UNKNOWN}</td>
+            <td className="c-peers num">{summary.state === 'missing' ? UNKNOWN : summary.peers}</td>
+            <td className="c-added num">{relativeDay(summary.addedAt)}</td>
+            <td className="more">
+              <button
+                type="button"
+                className="more"
+                aria-haspopup="dialog"
+                aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: group.name })}
+                {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
+                onClick={(e) => { e.stopPropagation(); onGroupOptions?.(group, null) }}
+              >
+                <Ellipsis size={16} aria-hidden="true"/>
+              </button>
+            </td>
+          </tr>,
+          ...(expanded
+            ? summary.members.map((m) => renderTorrentRow(
+              m,
+              `group:${group.id}:${m.id}`,
+              `child:${group.id}:${m.infoHash ?? m.id}`,
+              m.infoHash ? { kind: 'member', groupId: group.id, infoHash: m.infoHash } : null,
+              true,
+            ))
+            : []),
+        ]
+      })}
     </tbody>
   </table>
 }

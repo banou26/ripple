@@ -5,12 +5,12 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
 import { del, get, set } from 'idb-keyval'
 
-import { GROUPS_KEY, createGroup, takeOutOfGroup, torrentsIn } from '../../src/torrent/groups'
+import { GROUPS_KEY, createGroup, deleteGroup, torrentsIn } from '../../src/torrent/groups'
 import type { StoredGroups } from '../../src/torrent/groups'
 import { torrentKey } from '../../src/torrent/library'
-import { LIST_GROUP_KEY } from '../../src/torrent/list-view'
+import { LIST_EXPANDED_GROUPS_KEY } from '../../src/torrent/list-view'
 import { GROUP_LINK_PREFIX, MAX_LINK_TORRENTS, readGroupLink } from '../../src/router/group-link'
-import { addLinkedGroup, receivable, useGroupLink, useGroupView } from '../../src/router/use-group-view'
+import { addLinkedGroup, receivable, useExpandedGroups, useGroupLink } from '../../src/router/use-group-view'
 
 const hash = (c: string) => c.repeat(40)
 
@@ -26,83 +26,34 @@ const heldBy = async (id: string) => {
 }
 
 beforeEach(async () => {
-  localStorage.removeItem(LIST_GROUP_KEY)
+  localStorage.removeItem(LIST_EXPANDED_GROUPS_KEY)
   await del(GROUPS_KEY)
 })
 afterAll(async () => {
-  localStorage.removeItem(LIST_GROUP_KEY)
+  localStorage.removeItem(LIST_EXPANDED_GROUPS_KEY)
   await del(GROUPS_KEY)
 })
 
-describe('the group shown', () => {
-  it('is remembered by its id, and a stored id that names no group shows every torrent', async () => {
-    const id = (await createGroup('Week 2', [hash('a')]))!
-    const { result } = await renderHook(() => useGroupView([]))
-    await expect.poll(() => result.current.groups?.length).toBe(1)
-    expect(result.current.group).toBeUndefined()
-    result.current.choose(id)
-    await expect.poll(() => result.current.group?.name).toBe('Week 2')
-    expect([...result.current.members!]).toEqual([hash('a')])
-    expect(localStorage.getItem(LIST_GROUP_KEY)).toBe(id)
+describe('expanded inline groups', () => {
+  it('toggles, expands, persists across reloads, and prunes deleted group ids once loaded', async () => {
+    const id1 = (await createGroup('Week 2', [hash('a')]))!
+    const id2 = (await createGroup('Week 3', [hash('b')]))!
+    localStorage.setItem(LIST_EXPANDED_GROUPS_KEY, JSON.stringify([id1, 'stale-group-id']))
 
-    const again = await renderHook(() => useGroupView([]))
-    await expect.poll(() => again.result.current.group?.id).toBe(id)
-    result.current.choose(null)
-    expect(localStorage.getItem(LIST_GROUP_KEY)).toBeNull()
+    const { result } = await renderHook(() => useExpandedGroups())
+    await expect.poll(() => result.current.groups?.length).toBe(2)
+    await expect.poll(() => result.current.expanded.has('stale-group-id')).toBe(false)
+    expect(result.current.expanded.has(id1)).toBe(true)
+    await expect.poll(() => localStorage.getItem(LIST_EXPANDED_GROUPS_KEY)).toBe(JSON.stringify([id1]))
 
-    localStorage.setItem(LIST_GROUP_KEY, 'a group deleted elsewhere')
-    const gone = await renderHook(() => useGroupView([]))
-    await expect.poll(() => gone.result.current.groups?.length).toBe(1)
-    expect(gone.result.current.group).toBeUndefined()
-    expect(gone.result.current.members).toBeUndefined()
-  })
+    result.current.expand(id2)
+    await expect.poll(() => [...result.current.expanded].sort()).toEqual([id1, id2].sort())
+    result.current.toggle(id1)
+    await expect.poll(() => [...result.current.expanded]).toEqual([id2])
 
-  /**
-   * Only a torrent a person adds here while the group is shown: never one the list held already, one from sync, a
-   * player's temporary one, or one taken out of the group on purpose.
-   */
-  it('takes in a kept torrent added on this device while it is shown, and no other', async () => {
-    const id = (await createGroup('Week 2', [hash('a'), hash('f')]))!
-    await takeOutOfGroup(id, [hash('f')])
-    const { result, rerender } = await renderHook((props?: { torrents: Torrent[] }) => useGroupView(props!.torrents), { initialProps: { torrents: [torrent('a')] } })
-    await expect.poll(() => result.current.groups?.length).toBe(1)
-    // added after this tab opened, before the group was shown
-    const before = [torrent('a'), torrent('b', { addedAt: Date.now() })]
-    await rerender({ torrents: before })
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    result.current.choose(id)
-    await expect.poll(() => result.current.group?.id).toBe(id)
-
-    const now = Date.now() + 1
-    await rerender({
-      torrents: [
-        ...before,
-        torrent('c', { addedAt: now }),
-        torrent('d', { addedAt: now, state: 'missing' }),
-        torrent('e', { addedAt: now, ephemeral: true }),
-        torrent('f', { addedAt: now }),
-        torrent('9', { addedAt: now, infoHash: undefined }),
-      ],
-    })
-    await expect.poll(() => heldBy(id)).toEqual([hash('a'), hash('c')])
-  })
-
-  it('takes in nothing the list held when a tab opened already showing the group', async () => {
-    const id = (await createGroup('Week 2', []))!
-    localStorage.setItem(LIST_GROUP_KEY, id)
-    const { result, rerender } = await renderHook((props?: { torrents: Torrent[] }) => useGroupView(props!.torrents), { initialProps: { torrents: [torrent('b')] } })
-    await expect.poll(() => result.current.group?.id).toBe(id)
-    await rerender({ torrents: [torrent('b'), torrent('c', { addedAt: Date.now() + 1 })] })
-    await expect.poll(() => heldBy(id)).toEqual([hash('c')])
-  })
-
-  it('takes in nothing while every torrent is shown', async () => {
-    const id = (await createGroup('Week 2', []))!
-    const { result, rerender } = await renderHook((props?: { torrents: Torrent[] }) => useGroupView(props!.torrents), { initialProps: { torrents: [] as Torrent[] } })
-    await expect.poll(() => result.current.groups?.length).toBe(1)
-    await rerender({ torrents: [torrent('c', { addedAt: Date.now() + 1 })] })
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(await heldBy(id)).toEqual([])
+    await deleteGroup(id2)
+    await expect.poll(() => result.current.expanded.size).toBe(0)
+    expect(localStorage.getItem(LIST_EXPANDED_GROUPS_KEY)).toBeNull()
   })
 })
 

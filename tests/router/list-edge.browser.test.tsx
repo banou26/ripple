@@ -53,7 +53,7 @@ const mount = async (view: 'cards' | 'table', { above = 0, dock = 0 } = {}) => {
       <div css={style}>
         {above > 0 && <div style={{ flex: 'none', height: above }}/>}
         <ListToolbar
-          filter="all" onFilter={noop} group={{ list: [], shown: null, all: 30, onShow: noop, onNew: noop, onRename: noop, onDelete: noop }} sortKey="added" sortDir="desc" onSort={noop}
+          filter="all" onFilter={noop} onNewGroup={noop} sortKey="added" sortDir="desc" onSort={noop}
           view={view} onView={noop} counts={{ all: 30, library: 30, temporary: 0, downloading: 30, seeding: 0, completed: 0, paused: 0, missing: 0, retrying: 0 }} picked="none" canPick onPickAll={noop}
         />
         <main>
