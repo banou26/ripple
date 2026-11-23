@@ -905,6 +905,10 @@ export const style = css`
     /* a card's name and numbers, or the column names and two rows, when the details take the rest
        of a short window; with less the list is a sliver of half drawn column names */
     min-height: 8rem;
+
+    &:has(> .torrent-table) {
+      scroll-padding-top: 38px;
+    }
   }
 
   /* a group's heading and count, a sibling of the cards under it */

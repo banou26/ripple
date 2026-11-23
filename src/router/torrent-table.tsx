@@ -102,6 +102,7 @@ const style = css`
   td.c-up.live { color: ${STATE_UP}; }
 
   tbody tr {
+    scroll-margin-top: 38px;
     border-bottom: 1px solid ${BORDER};
     cursor: default;
 

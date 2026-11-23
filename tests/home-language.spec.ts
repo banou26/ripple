@@ -2971,6 +2971,18 @@ test('a group made from the New group button starts empty and expanded with Edit
   await expect(page.locator('main > .torrent:not(.group-row)')).toHaveCount(11)
 })
 
+const dragRow = async (page: Page, source: Locator, target: Locator, yRatio = 0.5) => {
+  await source.scrollIntoViewIfNeeded()
+  const srcBox = (await source.boundingBox())!
+  await page.mouse.move(srcBox.x + srcBox.width / 2, srcBox.y + srcBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(srcBox.x + srcBox.width / 2 + 8, srcBox.y + srcBox.height / 2, { steps: 2 })
+  await target.scrollIntoViewIfNeeded()
+  const dstBox = (await target.boundingBox())!
+  await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height * yRatio, { steps: 4 })
+  await page.mouse.up()
+}
+
 test('dragging reorders top-level and nested rows to Custom sort, drops torrents into groups, and saves preset icons', async ({ page }) => {
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
@@ -2994,26 +3006,23 @@ test('dragging reorders top-level and nested rows to Custom sort, drops torrents
   const pack = page.locator('main > .torrent:not(.group-row)', { hasText: 'A.Season.Pack' })
 
   // Dragging a loose torrent into the middle of Shelf adds it without activating the file-drop overlay.
-  await film.dragTo(shelf)
+  await dragRow(page, film, shelf)
   await expect(page.locator('[data-drag]')).toHaveCount(0)
   await expect(page.locator('.group-children .torrent .title')).toHaveText(['Watched.Film'])
 
-  await pack.dragTo(shelf)
+  await dragRow(page, pack, shelf)
   await expect(page.locator('.group-children .torrent')).toHaveCount(2)
   const beforeNested = await page.locator('.group-children .torrent .title').allTextContents()
   const firstChild = page.locator('.group-children .torrent').nth(0)
   const secondChild = page.locator('.group-children .torrent').nth(1)
-  const secondBox = (await secondChild.boundingBox())!
-  await firstChild.dragTo(secondChild, { targetPosition: { x: secondBox.width / 2, y: secondBox.height * 0.85 } })
+  await dragRow(page, firstChild, secondChild, 0.85)
   await expect(page.locator('.list-toolbar .chip.sort .value')).toHaveText('Custom')
   await expect.poll(() => page.locator('.group-children .torrent .title').allTextContents()).toEqual([...beforeNested].reverse())
 
   // Reorder top-level Shelf below Backup in Done category, then reload to confirm Custom order persists.
   const beforeTop = await page.locator('.group-row .title strong').allTextContents()
   expect(beforeTop).toEqual(['Backup', 'Shelf'])
-  await backup.scrollIntoViewIfNeeded()
-  const backupBox = (await backup.boundingBox())!
-  await shelf.dragTo(backup, { targetPosition: { x: backupBox.width / 2, y: backupBox.height * 0.1 } })
+  await dragRow(page, shelf, backup, 0.15)
   await expect.poll(() => page.locator('.group-row .title strong').allTextContents()).toEqual(['Shelf', 'Backup'])
 
   await page.goto(origin)
@@ -3036,9 +3045,7 @@ test('dragging a loose torrent onto another creates a folder on accept, moves be
   const film = page.locator('main > .torrent:not(.group-row)', { hasText: 'Watched.Film' })
   const pack = page.locator('main > .torrent:not(.group-row)', { hasText: 'A.Season.Pack' })
 
-  await film.scrollIntoViewIfNeeded()
-  await pack.scrollIntoViewIfNeeded()
-  await pack.dragTo(film)
+  await dragRow(page, pack, film)
   await expect(page.locator('[data-drag]')).toHaveCount(0)
   await expect(dialog).toHaveAccessibleName('New group')
   await page.keyboard.press('Escape')
@@ -3046,9 +3053,7 @@ test('dragging a loose torrent onto another creates a folder on accept, moves be
   await expect(film).toBeVisible()
   await expect(pack).toBeVisible()
 
-  await film.scrollIntoViewIfNeeded()
-  await pack.scrollIntoViewIfNeeded()
-  await pack.dragTo(film)
+  await dragRow(page, pack, film)
   await expect(dialog).toHaveAccessibleName('New group')
   await dialog.locator('label.name input').fill('Dropped')
   await dialog.locator('button[type=submit]').click()
@@ -3061,9 +3066,7 @@ test('dragging a loose torrent onto another creates a folder on accept, moves be
   await expect.poll(() => page.locator('.group-children .torrent .title').allTextContents()).toEqual(['Watched.Film', 'A.Season.Pack'])
 
   const childPack = page.locator('.group-children .torrent', { hasText: 'A.Season.Pack' })
-  await shelf.scrollIntoViewIfNeeded()
-  await childPack.scrollIntoViewIfNeeded()
-  await childPack.dragTo(shelf)
+  await dragRow(page, childPack, shelf)
   await expect(dropped.locator('.group-count')).toHaveText('1')
   await expect(shelf.locator('.group-count')).toHaveText('1')
   await expect(film).toHaveCount(0)
@@ -3073,9 +3076,7 @@ test('dragging a loose torrent onto another creates a folder on accept, moves be
   await expect(page.locator('.torrent-table')).toBeVisible()
   const stalledRow = page.locator('.torrent-table tbody tr:not(.group-row):not(.group-child)', { hasText: 'Stalled' })
   const troubleRow = page.locator('.torrent-table tbody tr:not(.group-row):not(.group-child)', { hasText: 'Having.Trouble' })
-  await stalledRow.scrollIntoViewIfNeeded()
-  await troubleRow.scrollIntoViewIfNeeded()
-  await troubleRow.dragTo(stalledRow)
+  await dragRow(page, troubleRow, stalledRow)
   await expect(dialog).toHaveAccessibleName('New group')
   await dialog.locator('label.name input').fill('Table Group')
   await dialog.locator('button[type=submit]').click()
