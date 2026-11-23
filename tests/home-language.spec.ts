@@ -3022,6 +3022,73 @@ test('dragging reorders top-level and nested rows to Custom sort, drops torrents
   await expect(page.locator('.group-row .title strong')).toHaveText(['Shelf', 'Backup'])
 })
 
+test('dragging a loose torrent onto another creates a folder on accept, moves between folders, and works in table view', async ({ page }) => {
+  await page.goto(origin)
+  await library(page, LIST, TORRENTS)
+
+  const dialog = page.getByRole('dialog')
+  await page.locator('.list-toolbar .chip.new-group').click()
+  await dialog.locator('label.name input').fill('Shelf')
+  await dialog.locator('button[type=submit]').click()
+  const shelf = page.locator('.group-row', { hasText: 'Shelf' })
+  await expect(shelf).toBeVisible()
+
+  const film = page.locator('main > .torrent:not(.group-row)', { hasText: 'Watched.Film' })
+  const pack = page.locator('main > .torrent:not(.group-row)', { hasText: 'A.Season.Pack' })
+
+  await film.scrollIntoViewIfNeeded()
+  await pack.scrollIntoViewIfNeeded()
+  await pack.dragTo(film)
+  await expect(page.locator('[data-drag]')).toHaveCount(0)
+  await expect(dialog).toHaveAccessibleName('New group')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(film).toBeVisible()
+  await expect(pack).toBeVisible()
+
+  await film.scrollIntoViewIfNeeded()
+  await pack.scrollIntoViewIfNeeded()
+  await pack.dragTo(film)
+  await expect(dialog).toHaveAccessibleName('New group')
+  await dialog.locator('label.name input').fill('Dropped')
+  await dialog.locator('button[type=submit]').click()
+
+  const dropped = page.locator('.group-row', { hasText: 'Dropped' })
+  await expect(dropped).toBeVisible()
+  await expect(dropped.locator('.group-count')).toHaveText('2')
+  await expect(film).toHaveCount(0)
+  await expect(pack).toHaveCount(0)
+  await expect.poll(() => page.locator('.group-children .torrent .title').allTextContents()).toEqual(['Watched.Film', 'A.Season.Pack'])
+
+  const childPack = page.locator('.group-children .torrent', { hasText: 'A.Season.Pack' })
+  await shelf.scrollIntoViewIfNeeded()
+  await childPack.scrollIntoViewIfNeeded()
+  await childPack.dragTo(shelf)
+  await expect(dropped.locator('.group-count')).toHaveText('1')
+  await expect(shelf.locator('.group-count')).toHaveText('1')
+  await expect(film).toHaveCount(0)
+  await expect(pack).toHaveCount(0)
+
+  await page.locator('.list-toolbar').getByRole('button', { name: 'Table' }).click()
+  await expect(page.locator('.torrent-table')).toBeVisible()
+  const stalledRow = page.locator('.torrent-table tbody tr:not(.group-row):not(.group-child)', { hasText: 'Stalled' })
+  const troubleRow = page.locator('.torrent-table tbody tr:not(.group-row):not(.group-child)', { hasText: 'Having.Trouble' })
+  await stalledRow.scrollIntoViewIfNeeded()
+  await troubleRow.scrollIntoViewIfNeeded()
+  await troubleRow.dragTo(stalledRow)
+  await expect(dialog).toHaveAccessibleName('New group')
+  await dialog.locator('label.name input').fill('Table Group')
+  await dialog.locator('button[type=submit]').click()
+
+  const tableGroup = page.locator('.torrent-table tbody tr.group-row', { hasText: 'Table Group' })
+  await expect(tableGroup).toBeVisible()
+  await expect(tableGroup.locator('.group-count')).toHaveText('2')
+  await expect(stalledRow).toHaveCount(0)
+  await expect(troubleRow).toHaveCount(0)
+  await expect(page.locator('.torrent-table tbody tr.group-child .title', { hasText: 'Stalled' })).toBeVisible()
+  await expect(page.locator('.torrent-table tbody tr.group-child .title', { hasText: 'Having.Trouble' })).toBeVisible()
+})
+
 /** The link of a group of Seven and Eight, which the list does not hold. */
 const SENT = () => linkTo('Week 9', [magnetOf('7', 'Seven'), magnetOf('8', 'Eight')])
 

@@ -391,7 +391,7 @@ export const TorrentTable = ({
       data-state={t.state}
       data-selected={t.id === selectedId || undefined}
       data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-      {...dragPropsFor(dragKey, dragPayload, false)}
+      {...dragPropsFor(dragKey, dragPayload, !child && !!t.infoHash)}
       {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
       onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
     >
@@ -490,7 +490,7 @@ export const TorrentTable = ({
     <tbody>
       {rows.flatMap((entry) => {
         if (entry.kind === 'torrent') {
-          return [renderTorrentRow(entry.torrent, entry.torrent.id, entry.key, { kind: 'top', key: entry.key })]
+          return [renderTorrentRow(entry.torrent, entry.torrent.id, entry.key, entry.torrent.infoHash ? { kind: 'top', key: entry.key } : null)]
         }
         const { group, summary } = entry
         const expanded = !!expandedGroups?.has(group.id)

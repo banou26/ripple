@@ -86,7 +86,7 @@ import { badgeRules, stateHues } from './badge-style'
 import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedEntries } from './use-ordered-entries'
-import { computeDropPlace, decodeDrag, encodeDrag, ROW_DRAG_MIME, type DragPayload, type DropIndicator, type DropPlace } from './list-drag'
+import { canDropInto, computeDropPlace, decodeDrag, encodeDrag, ROW_DRAG_MIME, type DragPayload, type DropIndicator, type DropPlace } from './list-drag'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import { GroupPoster } from '../components/group-icon'
@@ -964,7 +964,7 @@ export const style = css`
   .torrent[data-dragging='true'], .group-row[data-dragging='true'] { opacity: 0.55; }
   .torrent[data-drop='before'], .group-row[data-drop='before'] { box-shadow: 0 -2px 0 0 ${FOCUS_RING}; }
   .torrent[data-drop='after'], .group-row[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
-  .group-row[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+  .torrent[data-drop='into'], .group-row[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
 
   .group-row {
     cursor: pointer;
@@ -2182,6 +2182,7 @@ const MissingRow = ({
   onRowDragStart, onRowDragEnd, onRowDragOver, onRowDragLeave, onRowDrop,
 }: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick' | 'dragKey' | 'parentGroupId' | 'dropPlace' | 'isDragging' | 'onRowDragStart' | 'onRowDragEnd' | 'onRowDragOver' | 'onRowDragLeave' | 'onRowDrop'> & { poster: string | null }) => {
   const intl = useIntl()
+  const allowInto = !parentGroupId && !!t.infoHash
   const dragProps = dragKey && onRowDragStart
     ? {
       draggable: !!t.infoHash,
@@ -2191,9 +2192,9 @@ const MissingRow = ({
         if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
       },
       onDragEnd: onRowDragEnd,
-      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, false, e),
+      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
       onDragLeave: () => onRowDragLeave?.(dragKey),
-      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, false, e),
+      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
     }
     : {}
   return (
@@ -2362,6 +2363,7 @@ export const TorrentRow = memo(({
     const s = saving[savingKey(t.id, i)]
     if (s != null) fileSaving[i] = s
   })
+  const allowInto = !parentGroupId && !!t.infoHash
   const dragProps = dragKey && onRowDragStart
     ? {
       draggable: !!t.infoHash,
@@ -2371,9 +2373,9 @@ export const TorrentRow = memo(({
         if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
       },
       onDragEnd: onRowDragEnd,
-      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, false, e),
+      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
       onDragLeave: () => onRowDragLeave?.(dragKey),
-      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, false, e),
+      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
     }
     : {}
   return (
@@ -3902,8 +3904,16 @@ const Home = () => {
       ? intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(g.name) })
       : intl.formatMessage({ id: 'Taken out of {name}', defaultMessage: 'Taken out of {name}' }, { name: isolated(g.name) })))
   }, [intl, showToast])
+  const moveBetweenGroups = useCallback((from: TorrentGroup | undefined, to: TorrentGroup, hash: string) => {
+    void (async () => {
+      await putInGroup(to.id, [hash])
+      if (from && from.id !== to.id) await takeOutOfGroup(from.id, [hash])
+      expandGroup(to.id)
+      showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(to.name) }))
+    })()
+  }, [expandGroup, intl, showToast])
   /** Asks for a name and icon and creates a group holding `hashes`, expanding it immediately. */
-  const newGroup = useCallback((hashes: () => string[]) => setNaming({
+  const newGroup = useCallback((hashes: () => string[], afterCreate?: (id: string) => Promise<void> | void) => setNaming({
     title: intl.formatMessage({ id: 'New group', defaultMessage: 'New group' }),
     save: ({ name, icon, imageFile }) => {
       const held = hashes()
@@ -3912,6 +3922,7 @@ const Home = () => {
         if (!id) return
         if (imageFile) await saveGroupImage(id, imageFile)
         else if (icon.kind === 'preset') await setGroupIcon(id, icon)
+        await afterCreate?.(id)
         expandGroup(id)
         if (held.length) showToast(intl.formatMessage({ id: 'Added to {name}', defaultMessage: 'Added to {name}' }, { name: isolated(name) }))
       })()
@@ -4016,8 +4027,8 @@ const Home = () => {
   const activeDragRef = useRef<{ payload: DragPayload, key: string } | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null)
-  const dragCtxRef = useRef({ entries, listOrder, groups, chooseSort, expandGroup, putIn })
-  dragCtxRef.current = { entries, listOrder, groups, chooseSort, expandGroup, putIn }
+  const dragCtxRef = useRef({ entries, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup })
+  dragCtxRef.current = { entries, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup }
 
   const onRowDragStart = useCallback((payload: DragPayload, key: string, e: ReactDragEvent) => {
     activeDragRef.current = { payload, key }
@@ -4046,11 +4057,7 @@ const Home = () => {
       setDropIndicator((prev) => (prev ? null : prev))
       return
     }
-    const canInto = allowInto && (
-      !active
-      || (active.payload.kind === 'top' && active.payload.key.startsWith('t:'))
-      || (active.payload.kind === 'member' && targetKey !== `g:${active.payload.groupId}`)
-    )
+    const canInto = canDropInto(active?.payload ?? null, targetKey, allowInto)
     const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
     setDropIndicator((prev) => (prev?.targetKey === targetKey && prev.place === place ? prev : { targetKey, place }))
   }, [])
@@ -4068,14 +4075,26 @@ const Home = () => {
     setDraggingKey(null)
     setDropIndicator(null)
 
-    const { entries: curEntries, listOrder: curOrder, groups: curGroups, chooseSort: setSort, expandGroup: expand, putIn: moveIn } = dragCtxRef.current
-    const canInto = allowInto && (
-      (payload.kind === 'top' && payload.key.startsWith('t:'))
-      || (payload.kind === 'member' && targetKey !== `g:${payload.groupId}`)
-    )
+    const { entries: curEntries, listOrder: curOrder, groups: curGroups, chooseSort: setSort, expandGroup: expand, putIn: moveIn, moveBetweenGroups: transferGroup, newGroup: openNewGroup } = dragCtxRef.current
+    const canInto = canDropInto(payload, targetKey, allowInto)
     const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
+    const hasLooseHash = (hash: string) => curEntries.some((entry) => entry.kind === 'torrent' && entry.torrent.infoHash === hash)
+    const placeNewGroup = async (targetHash: string, draggedHash: string, groupId: string) => {
+      if (curOrder.top.length > 0) {
+        const base = curOrder.top.includes(`t:${targetHash}`) ? curOrder.top : visibleTopKeys(curEntries)
+        const nextTop = base.flatMap((key) => (key === `t:${targetHash}` ? [`g:${groupId}` as const] : key === `t:${draggedHash}` ? [] : [key]))
+        await saveTopOrder(nextTop)
+      }
+      await saveGroupMemberOrder(groupId, [targetHash, draggedHash])
+    }
 
     if (payload.kind === 'top') {
+      if (targetKey.startsWith('t:') && place === 'into' && payload.key.startsWith('t:') && targetKey !== payload.key) {
+        const draggedHash = payload.key.slice(2)
+        const targetHash = targetKey.slice(2)
+        if (hasLooseHash(targetHash)) openNewGroup(() => [targetHash, draggedHash], (id) => placeNewGroup(targetHash, draggedHash, id))
+        return
+      }
       if (targetKey.startsWith('g:') && place === 'into' && payload.key.startsWith('t:')) {
         const groupId = targetKey.slice(2)
         const targetGroup = curGroups?.find((g) => g.id === groupId)
@@ -4136,8 +4155,8 @@ const Home = () => {
         const visibleMembers = parent ? groupMemberKeys(parent.summary) : []
         const existingMembers = curOrder.groups[targetGroupId]?.members ?? []
         const nextMembers = reorderKeys([...visibleMembers, payload.infoHash], existingMembers, payload.infoHash, targetChildHash, place === 'before' ? 'before' : 'after')
-        moveIn(targetGroup, [payload.infoHash], true)
-        expand(targetGroupId)
+        const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
+        transferGroup(fromGroup, targetGroup, payload.infoHash)
         void saveGroupMemberOrder(targetGroupId, nextMembers)
         setSort('custom', 'asc')
       }
@@ -4149,8 +4168,8 @@ const Home = () => {
       if (place === 'into') {
         const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
         if (targetGroup) {
-          moveIn(targetGroup, [payload.infoHash], true)
-          expand(targetGroupId)
+          const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
+          transferGroup(fromGroup, targetGroup, payload.infoHash)
         }
         return
       }
@@ -4162,6 +4181,17 @@ const Home = () => {
       return
     }
     if (targetKey.startsWith('t:')) {
+      if (place === 'into') {
+        const targetHash = targetKey.slice(2)
+        if (targetHash !== payload.infoHash && hasLooseHash(targetHash)) {
+          const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
+          openNewGroup(() => [targetHash, payload.infoHash], async (id) => {
+            if (fromGroup) await takeOutOfGroup(fromGroup.id, [payload.infoHash])
+            await placeNewGroup(targetHash, payload.infoHash, id)
+          })
+        }
+        return
+      }
       const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
       if (fromGroup) moveIn(fromGroup, [payload.infoHash], false)
       const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, `t:${payload.infoHash}`, targetKey as `t:${string}`, place === 'before' ? 'before' : 'after')

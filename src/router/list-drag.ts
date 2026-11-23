@@ -33,6 +33,13 @@ export const decodeDrag = (raw: string | null | undefined): DragPayload | null =
   }
 }
 
+export const canDropInto = (payload: DragPayload | null, targetKey: string, allowInto: boolean): boolean => {
+  if (!allowInto) return false
+  if (!payload) return true
+  if (payload.kind === 'top') return payload.key.startsWith('t:') && payload.key !== targetKey
+  return targetKey !== `g:${payload.groupId}` && targetKey !== `t:${payload.infoHash}`
+}
+
 export const computeDropPlace = (clientY: number, rect: Pick<DOMRect, 'top' | 'height'>, allowInto: boolean): DropPlace => {
   const height = Math.max(1, rect.height)
   const ratio = (clientY - rect.top) / height
