@@ -353,6 +353,72 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     await expect(trackRow(ripple, 'English')).toContainText('✓')
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
 
+    // Subtitle settings: Simple mode, offset, text size, background opacity, and pointer drag + reset
+    await ripple.locator('.subtitle-options-btn').click()
+    const settingsMenu = ripple.locator('.popover.subtitle-settings')
+    await expect(settingsMenu).toBeVisible()
+    await settingsMenu.getByRole('switch').click()
+    await expect(settingsMenu.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    await expect(ripple.locator('.subtitles canvas')).toHaveCSS('display', 'none')
+    await expect(ripple.locator('.subtitle-cue-line')).toContainText('HHHHHHHH')
+
+    await settingsMenu.getByRole('button', { name: 'Text size +' }).click()
+    await settingsMenu.locator('.bg-row button.sub-pill', { hasText: '50%' }).click()
+    const cueBox = ripple.locator('.subtitle-cues-box')
+    await expect(cueBox).toHaveCSS('--mp-sub-scale', '1.1')
+    await expect(cueBox).toHaveCSS('--mp-sub-bg-opacity', '0.5')
+
+    const beforeDrag = await cueBox.boundingBox()
+    expect(beforeDrag).not.toBeNull()
+    await page.mouse.move(beforeDrag!.x + beforeDrag!.width / 2, beforeDrag!.y + beforeDrag!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(beforeDrag!.x + beforeDrag!.width / 2, beforeDrag!.y - 80, { steps: 6 })
+    await page.mouse.up()
+    const afterDrag = await cueBox.boundingBox()
+    expect(afterDrag!.y).toBeLessThan(beforeDrag!.y - 30)
+    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).player.paused)).toBe(true)
+
+    const resetPosBtn = settingsMenu.getByRole('button', { name: 'Reset position' })
+    await expect(resetPosBtn).toBeVisible()
+    await resetPosBtn.click()
+    await expect(resetPosBtn).toHaveCount(0)
+    await expect.poll(async () => (await cueBox.boundingBox())!.y).toBeGreaterThan(afterDrag!.y + 30)
+
+    await settingsMenu.locator('.step-row button.sub-pill', { hasText: '+0.5s' }).click()
+    await expect(settingsMenu.locator('.offset-readout')).toHaveText('+0.5s')
+    await settingsMenu.locator('.sub-reset-btn').click()
+    await expect(settingsMenu.locator('.offset-readout')).toHaveText('0.0s')
+
+    await settingsMenu.getByRole('switch').click()
+    await expect(settingsMenu.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
+    await settingsMenu.locator('.back').click()
+    await expect(trackMenu(ripple)).toBeVisible()
+    await ripple.locator('button.subtitles').click()
+    await expect(trackMenu(ripple)).toHaveCount(0)
+
+    // Drag and drop a .srt file onto /watch player: auto-selects External track
+    const droppedSrt = [
+      '1',
+      '00:00:00,000 --> 00:00:30,000',
+      '<font color="#00ff00">HHHHHHHH</font>',
+      '',
+    ].join('\n')
+    const dropTransfer = await watchFrame.evaluateHandle((text) => {
+      const dt = new DataTransfer()
+      dt.items.add(new File([text], 'Dropped.French.fr.srt', { type: 'application/x-subrip' }))
+      return dt
+    }, droppedSrt)
+    await ripple.locator('.video').dispatchEvent('dragenter', { dataTransfer: dropTransfer })
+    await expect(ripple.locator('.subtitle-drop-hint')).toBeVisible()
+    await ripple.locator('.video').dispatchEvent('drop', { dataTransfer: dropTransfer })
+    await expect(ripple.locator('.subtitle-drop-hint')).toHaveCount(0)
+    await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('green')
+    await openSubtitles(page, ripple)
+    await expect(trackRow(ripple, 'Dropped.French.fr')).toBeVisible()
+    await expect(trackRow(ripple, 'Dropped.French.fr').locator('.track-kind--external')).toHaveText('External')
+    await expect(trackRow(ripple, 'Dropped.French.fr')).toContainText('✓')
+
     const violations = await watchFrame.evaluate(() => (window as unknown as { __violations: string[] }).__violations)
     expect(violations.filter((violation) => !violation.endsWith(' blob')), 'only the probe is refused').toEqual([])
   } finally {
