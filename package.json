@@ -1,6 +1,6 @@
 {
   "name": "@banou/ripple",
-  "version": "0.0.95",
+  "version": "0.0.96",
   "description": "Download and stream torrents in your browser",
   "license": "MIT",
   "type": "module",
@@ -73,7 +73,7 @@
     "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
   },
   "dependencies": {
-    "@banou/media-player": "^0.10.55",
+    "@banou/media-player": "^0.10.56",
     "@banou/ponyfill": "^0.0.15",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.84",

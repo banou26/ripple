@@ -120,7 +120,7 @@ const colourOf = (frame: Frame) => frame.evaluate(() => {
 
 const trackMenu = (root: Root) => root.locator('.popover.track-list')
 const trackRows = (root: Root) => trackMenu(root).locator(':scope > div.description')
-const trackRow = (root: Root, label: string) => trackRows(root).filter({ has: root.locator('span').filter({ hasText: new RegExp(`^${label}$`) }) })
+const trackRow = (root: Root, label: string) => trackRows(root).filter({ has: root.locator('span.track-label').filter({ hasText: new RegExp(`^${label}$`) }) })
 
 let hoverOffset = 0
 const openSubtitles = async (page: Page, ripple: FrameLocator) => {
@@ -314,9 +314,13 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     const ripple = page.frameLocator('#ripple')
     await openSubtitles(page, ripple)
     await expect(trackRow(ripple, 'External French SRT')).toBeVisible()
+    await expect(trackRow(ripple, 'External French SRT').locator('.track-kind--external')).toHaveText('External')
     await expect(trackRow(ripple, 'External Japanese ASS')).toBeVisible()
+    await expect(trackRow(ripple, 'External Japanese ASS').locator('.track-kind--external')).toHaveText('External')
     await expect(trackRow(ripple, 'Broken External')).toBeVisible()
+    await expect(trackRow(ripple, 'Broken External').locator('.track-kind--external')).toHaveText('External')
     await expect(trackRow(ripple, 'English')).toBeVisible()
+    await expect(trackRow(ripple, 'English').locator('.track-kind--native')).toHaveText('Native')
 
     await trackRow(ripple, 'Broken External').click()
     await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).requested)).toEqual(['ext-fail'])
