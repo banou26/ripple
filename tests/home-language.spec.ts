@@ -1635,6 +1635,12 @@ test.describe('the header', () => {
           expect(folded.items, `${at}: the control, the logo, the field, Create, the gear and the account were read`).toBe(5)
           expect(folded.rows, `${at}, ${folded.height} px tall`).toBe(1)
           expect(folded.sideways, at).toBe(0)
+          if (width >= 800) {
+            await expect(page.locator('header .wordmark'), `${at}: desktop header shows wordmark`).toBeVisible()
+            await expect(page.locator('header .wordmark')).toHaveText('Ripple')
+          } else {
+            await expect(page.locator('header .wordmark'), `${at}: mobile/narrow header keeps wordmark hidden`).toBeHidden()
+          }
           const row = await fieldInRow(page)
           expect(row.rtl, `${at}: the control, the row is measured along its own direction`).toBe(language === 'ar' || language === 'he')
           const least = width > 700 ? 12 : width < 375 ? 4 : 8

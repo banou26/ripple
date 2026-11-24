@@ -121,10 +121,12 @@ const LOGO = new URL('../assets/logo.svg', import.meta.url).href
 
 /** Up to this width the header is a phone's: one row, Create an icon. */
 const PHONE_MAX = 700
+/** From this width the header shows the Ripple wordmark beside the logo; narrower screens show the logo alone. */
+const WORDMARK_MIN = 800
 /** The add field's floor wherever it is open: a phone's row that leaves it less folds it to its glyph until it is used. */
 const FIELD_FLOOR = 240
 /** From this width Create a torrent shows its words; under it, its icon, with the words as its hint. */
-const CREATE_WORDS_MIN = 900
+const CREATE_WORDS_MIN = 960
 const BUILD = `v${__APP_VERSION__} · ${__COMMIT_HASH__.slice(0, 7)}`
 /**
  * A group's name inside a sentence, between a first strong isolate and its end (U+2068, U+2069), so a right-to-left
@@ -445,14 +447,27 @@ export const style = css`
     }
 
     .logo {
-      display: flex;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
       transition: opacity 120ms ease;
+
+      .wordmark {
+        display: none;
+        font-size: 1.2rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        color: ${TEXT};
+        white-space: nowrap;
+      }
 
       /* The file's own slate blues measure 1.8:1 on this bar, so they are drawn inverted with the hue kept, which is
          the light blue they become in a dark reader. */
       img {
         height: 30px;
         width: auto;
+        flex: none;
         filter: invert(1) hue-rotate(180deg);
       }
 
@@ -462,6 +477,30 @@ export const style = css`
         outline: none;
         border-radius: 4px;
         box-shadow: 0 0 0 2px ${FOCUS_RING};
+      }
+    }
+
+    @media (width >= ${WORDMARK_MIN}px) {
+      .brand {
+        align-items: baseline;
+        gap: 8px;
+      }
+
+      .powered {
+        font-size: 1.2rem;
+      }
+
+      .logo {
+        align-items: baseline;
+
+        img {
+          height: 26px;
+          align-self: center;
+        }
+
+        .wordmark {
+          display: inline;
+        }
       }
     }
 
@@ -4407,7 +4446,10 @@ const Home = () => {
         {/* the way home from every other page, so it is one here too rather than a word that is a
             link on the download page and dead text on this one */}
         <span className="brand">
-          <Link className="logo" to="/"><img src={LOGO} alt={WORDMARK} width={553} height={561}/></Link>
+          <Link className="logo" to="/" aria-label={WORDMARK}>
+            <img src={LOGO} alt="" width={553} height={561}/>
+            <span className="wordmark">{WORDMARK}</span>
+          </Link>
           <PoweredByFkn
             className="powered"
             label={intl.formatMessage({ id: 'Powered by FKN', defaultMessage: 'Powered by FKN' })}
