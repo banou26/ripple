@@ -59,8 +59,8 @@ const measure = () => {
   }
 }
 
-// FKN's mark beside the wordmark (HOR-1066): on its baseline, as tall as its capitals, and clear of what follows. Beside
-// the library's logo, which has no baseline, it is centred on the logo's height instead.
+// FKN's mark beside the wordmark (HOR-1066): on its baseline, as tall as its capitals, and clear of what follows. When
+// the wordmark is hidden on narrow viewports (logo only), the mark is centred on the logo's height instead.
 const measureMark = () => {
   const brand = document.querySelector('header .brand')
   const svg = brand?.querySelector('.powered svg')
@@ -73,7 +73,7 @@ const measureMark = () => {
     docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   }
   const word = brand.querySelector('.wordmark')
-  if (!word) {
+  if (!word || getComputedStyle(word).display === 'none') {
     const logo = brand.querySelector('.logo img')?.getBoundingClientRect()
     return logo ? { offCentre: Math.round((mark.top + mark.bottom - logo.top - logo.bottom) * 5) / 10, ...around } : null
   }

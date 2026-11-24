@@ -1012,8 +1012,6 @@ export const style = css`
   .torrent.group-row {
     cursor: pointer;
 
-    &[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
-
     .poster.group-poster {
       background: none;
       border: none;

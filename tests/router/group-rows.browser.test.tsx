@@ -88,6 +88,7 @@ describe('group poster and icons', () => {
     expect(tab).not.toBeNull()
     expect(getComputedStyle(tab).borderTopStyle).toBe('solid')
     expect(getComputedStyle(tab).borderTopWidth).toBe('1px')
+    expect(getComputedStyle(tab).borderTopColor).toBe('rgb(117, 117, 117)')
     expect(single.container.querySelectorAll('.group-poster .folder-grid .slot')).toHaveLength(3)
     expect(single.container.querySelector('img.poster')).toBeNull()
     await single.unmount()

@@ -137,7 +137,7 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  * The header wraps, and an item more is paid by every language at once: with the VPN's switch in it the account
  * button stood alone on a second row at 1366 px in 9 of the 13 languages, and at 1280 px in 12. The switch is in
  * the strip under it, which is there before the first torrent too. Settings is a square icon button. Create keeps its
- * words from 900 px and is a square under it; any other header button with words keeps them at 1440 px and on a phone.
+ * words from 960 px and is a square under it; any other header button with words keeps them at 1440 px and on a phone.
  */
 test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
   test.setTimeout(420_000)

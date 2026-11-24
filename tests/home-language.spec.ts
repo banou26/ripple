@@ -1825,7 +1825,17 @@ test.describe('the header', () => {
     await expect(home).toHaveAttribute('href', '/')
     await expect(home.locator('img')).toHaveJSProperty('complete', true)
     expect(await home.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth), 'the logo is drawn').toBeGreaterThan(0)
-    await expect(page.locator('header')).not.toContainText('Ripple')
+    const wordmark = home.locator('.wordmark')
+    for (const width of [390, 799]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(wordmark, `${width} px: logo only`).toBeHidden()
+      await expect(home, `${width} px: link stays named Ripple`).toBeVisible()
+    }
+    for (const width of [800, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(wordmark, `${width} px: wordmark shown beside logo`).toBeVisible()
+      await expect(wordmark).toHaveText('Ripple')
+    }
   })
 
   test('Open torrents with Ripple is on Settings alone, at every width', async ({ page }) => {
