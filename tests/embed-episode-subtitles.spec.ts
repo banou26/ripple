@@ -409,12 +409,15 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
 
     await page.evaluate(() => {
-      (window as unknown as EmbedderWindow).player.selectExternalSubtitle('ext-ass')
+      const w = window as unknown as EmbedderWindow
+      w.picked = []
+      w.player.selectExternalSubtitle('ext-ass')
     })
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('blue')
     await openSubtitles(page, ripple)
     await expect(trackRow(ripple, 'External Japanese ASS')).toContainText('✓')
-    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).picked)).toContainEqual({ ripple: 'picked', subtitles: 'ja' })
+    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).picked)).toEqual([{ ripple: 'picked', subtitles: 'ja' }])
+    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).requested)).toEqual(['ext-fail', 'ext-srt', 'ext-ass'])
     await trackRow(ripple, 'English').click()
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
 
