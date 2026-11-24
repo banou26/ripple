@@ -10,7 +10,7 @@ import type { GroupIcon, PresetIconId } from '../torrent/group-appearance'
 
 import { groupImageKey, useGroupPreviewThumbnails } from '../torrent/group-appearance'
 import { useThumbnail } from '../torrent/use-thumbnails'
-import { BORDER, BORDER_STRONG, CONTROL_BG, GROUP_TEXT, SUNKEN_BG } from '../theme'
+import { BORDER, BORDER_INTERACTIVE, CONTROL_BG, GROUP_TEXT, SUNKEN_BG } from '../theme'
 
 export const PRESET_ICON_COMPONENTS: Record<PresetIconId, ComponentType<{ size?: number, strokeWidth?: number, 'aria-hidden'?: boolean }>> = {
   folder: Folder,
@@ -53,9 +53,6 @@ const groupPosterStyle = css`
   min-height: 84px;
   box-sizing: border-box;
   padding-top: 7px;
-  background: none;
-  border: none;
-  border-radius: 0;
 
   /* Overlaps .folder-body by 1px so the tab and folder frame read as one unbroken container. */
   .folder-tab {
@@ -67,7 +64,7 @@ const groupPosterStyle = css`
     z-index: 1;
     box-sizing: border-box;
     background: ${CONTROL_BG};
-    border: 1px solid ${BORDER_STRONG};
+    border: 1px solid ${BORDER_INTERACTIVE};
     border-bottom: none;
     border-start-start-radius: 6px;
     border-start-end-radius: 6px;
@@ -81,7 +78,7 @@ const groupPosterStyle = css`
     box-sizing: border-box;
     overflow: hidden;
     background: ${CONTROL_BG};
-    border: 1px solid ${BORDER_STRONG};
+    border: 1px solid ${BORDER_INTERACTIVE};
     border-start-start-radius: 0;
     border-start-end-radius: 7px;
     border-end-start-radius: 7px;
@@ -142,11 +139,7 @@ const groupPosterStyle = css`
   }
 `
 
-/**
- * Renders a group row's poster inside an unbroken OS-folder frame: custom uploaded image, chosen
- * preset icon, a 2x2 folder grid of up to four member thumbnails (so even 1-torrent groups do not
- * masquerade as single full-bleed torrent posters), or a Folder fallback when no preview exists.
- */
+/** Renders a group row's poster inside a tabbed folder frame: custom image, preset icon, 2x2 thumbnail grid (for 1 to 4 thumbnails), or a Folder fallback. */
 export const GroupPoster = ({
   groupId,
   icon,
@@ -209,12 +202,12 @@ const miniIconStyle = css`
 
   &.framed {
     background: ${CONTROL_BG};
-    border: 1px solid ${BORDER_STRONG};
+    border: 1px solid ${BORDER_INTERACTIVE};
   }
 
   &.cover {
     background: ${CONTROL_BG};
-    border: 1px solid ${BORDER_STRONG};
+    border: 1px solid ${BORDER_INTERACTIVE};
     padding: 1px;
 
     img {
@@ -234,7 +227,7 @@ const miniGridStyle = css`
   gap: 1px;
   padding: 2px;
   background: ${CONTROL_BG};
-  border: 1px solid ${BORDER_STRONG};
+  border: 1px solid ${BORDER_INTERACTIVE};
 
   img {
     width: 100%;

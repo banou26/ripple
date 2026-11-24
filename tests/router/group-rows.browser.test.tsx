@@ -84,7 +84,10 @@ describe('group poster and icons', () => {
 
     const single = await render(<IntlRoot><GroupPoster groupId="g1" icon={DEFAULT_ICON} previewHashes={[hashes[0]!]}/></IntlRoot>)
     await expect.poll(() => single.container.querySelectorAll('.group-poster .folder-grid img').length).toBe(1)
-    expect(single.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
+    const tab = single.container.querySelector('.group-poster .folder-tab')!
+    expect(tab).not.toBeNull()
+    expect(getComputedStyle(tab).borderTopStyle).toBe('solid')
+    expect(getComputedStyle(tab).borderTopWidth).toBe('1px')
     expect(single.container.querySelectorAll('.group-poster .folder-grid .slot')).toHaveLength(3)
     expect(single.container.querySelector('img.poster')).toBeNull()
     await single.unmount()
@@ -240,7 +243,9 @@ describe('TorrentTable inline groups', () => {
 
     const groupTr = screen.container.querySelector('tbody tr.group-row')!
     const looseTr = screen.container.querySelector('tbody tr:not(.group-row)')!
-    expect(getComputedStyle(groupTr).backgroundColor).not.toBe(getComputedStyle(looseTr).backgroundColor)
+    expect(groupTr.querySelector('td.check button.expand')).not.toBeNull()
+    expect(looseTr.querySelector('td.check button.expand')).toBeNull()
+    expect(getComputedStyle(groupTr.querySelector('.cell-name span.title')!).fontWeight).toBe('600')
     await expect.poll(() => groupTr.querySelectorAll('.cell-name img').length).toBe(1)
     expect(groupTr.querySelectorAll('.cell-name .slot')).toHaveLength(3)
     expect(groupTr.querySelector('.group-count svg.lucide-folder')).not.toBeNull()

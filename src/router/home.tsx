@@ -972,13 +972,7 @@ export const style = css`
 
   .torrent.group-row {
     cursor: pointer;
-    background: ${ELEVATED_BG};
-    border-color: ${BORDER_STRONG};
 
-    &:hover { border-color: ${BORDER_INTERACTIVE}; }
-    &[data-dragging='true'] { opacity: 0.55; }
-    &[data-drop='before'] { box-shadow: 0 -2px 0 0 ${FOCUS_RING}; }
-    &[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
     &[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
 
     .poster.group-poster {
@@ -987,12 +981,8 @@ export const style = css`
       border-radius: 0;
     }
 
-    &:not([data-expanded='true']) {
-      margin-bottom: 2px;
-    }
-
     /* Stacked under-card lip signals a closed container holding rows even when count is 1. */
-    &:not([data-expanded='true']):not([data-drop])::after {
+    &:not([data-expanded='true']):not([data-drop='after']):not([data-drop='into'])::after {
       content: '';
       position: absolute;
       inset-inline: 10px;

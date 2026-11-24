@@ -3069,11 +3069,10 @@ test('dragging a loose torrent onto another creates a folder on accept, moves be
   await dragRow(page, childPack, shelf)
   await expect(dropped.locator('.group-count')).toHaveText('1')
   await expect(dropped.locator('.group-poster .folder-tab')).toBeVisible()
+  await expect(dropped.locator('.group-poster img.poster')).toHaveCount(0)
   await expect(dropped.locator('.group-count svg.lucide-folder')).toBeVisible()
+  await expect(dropped.locator('button.expand-btn')).toBeVisible()
   await expect(shelf.locator('.group-count')).toHaveText('1')
-  const collapsedGroupBg = await dropped.evaluate((el) => getComputedStyle(el).backgroundColor)
-  const looseRowBg = await page.locator('main > .torrent:not(.group-row)').first().evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(collapsedGroupBg).not.toBe(looseRowBg)
   await expect(film).toHaveCount(0)
   await expect(pack).toHaveCount(0)
 

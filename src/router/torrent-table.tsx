@@ -26,7 +26,7 @@ import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint, typedHint } from '../components/hint'
 import { RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import {
-  BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, ELEVATED_BG, EMPHASIS, FOCUS_RING, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
+  BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
 } from '../theme'
 
@@ -130,21 +130,9 @@ const style = css`
 
   tr.group-row {
     cursor: pointer;
-    background: ${ELEVATED_BG};
-
-    &:hover { background: ${CONTROL_BG}; }
-
-    &[data-drop='into'] {
-      background: ${CONTROL_BG};
-      td { box-shadow: inset 0 1px 0 0 ${FOCUS_RING}, inset 0 -1px 0 0 ${FOCUS_RING}; }
-    }
 
     .cell-name span.title {
       font-weight: 600;
-    }
-
-    .pct {
-      color: var(--hue, ${TEXT_MUTED});
     }
 
     td.check button.expand {
