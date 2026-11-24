@@ -13,7 +13,7 @@ import type { QuotaStatus } from '../torrent/use-quota'
 import type { StorageUsage } from '../torrent/use-storage-usage'
 import type { SyncState } from '../torrent/use-cloud-backup'
 
-import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FilePlus, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FilePlus, Folder, Pause, Play, Plus, Search, Settings as Gear, Square, SquarePen, X } from 'lucide-react'
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
@@ -970,8 +970,46 @@ export const style = css`
   .torrent[data-drop='after'], .group-row[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
   .torrent[data-drop='into'], .group-row[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
 
-  .group-row {
+  .torrent.group-row {
     cursor: pointer;
+    background: ${ELEVATED_BG};
+    border-color: ${BORDER_STRONG};
+
+    &:hover { border-color: ${BORDER_INTERACTIVE}; }
+    &[data-dragging='true'] { opacity: 0.55; }
+    &[data-drop='before'] { box-shadow: 0 -2px 0 0 ${FOCUS_RING}; }
+    &[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
+    &[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
+
+    .poster.group-poster {
+      background: none;
+      border: none;
+      border-radius: 0;
+    }
+
+    &:not([data-expanded='true']) {
+      margin-bottom: 2px;
+    }
+
+    /* Stacked under-card lip signals a closed container holding rows even when count is 1. */
+    &:not([data-expanded='true']):not([data-drop])::after {
+      content: '';
+      position: absolute;
+      inset-inline: 10px;
+      bottom: -5px;
+      height: 4px;
+      border-end-start-radius: 6px;
+      border-end-end-radius: 6px;
+      background: ${SURFACE_BG};
+      border: 1px solid ${BORDER_STRONG};
+      border-top: none;
+      pointer-events: none;
+    }
+
+    .title {
+      align-items: center;
+      gap: 8px;
+    }
 
     .expand-btn {
       flex: none;
@@ -981,17 +1019,21 @@ export const style = css`
       width: 22px;
       height: 22px;
       padding: 0;
-      border: none;
-      border-radius: 4px;
-      background: none;
+      border: 1px solid ${BORDER};
+      border-radius: 5px;
+      background: ${CONTROL_BG};
       color: ${TEXT_MUTED};
       cursor: pointer;
       align-self: center;
 
-      &:hover { color: ${TEXT}; background: ${CONTROL_HOVER_BG}; }
+      &:hover { color: ${TEXT}; background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_STRONG}; }
       &:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: 1px; }
 
-      svg { transition: transform 120ms ease; }
+      svg { flex: none; transition: transform 120ms ease; }
+    }
+
+    &:not([data-expanded='true']):dir(rtl) .expand-btn svg {
+      transform: rotate(180deg);
     }
 
     &[data-expanded='true'] .expand-btn svg {
@@ -1000,13 +1042,19 @@ export const style = css`
 
     .group-count {
       flex: none;
-      padding: 1px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
       border-radius: 999px;
       background: ${GROUP_COUNT_BG};
-      color: ${TEXT_MUTED};
+      color: ${GROUP_TEXT};
       font-size: 0.75rem;
       font-weight: 700;
+      line-height: 1.2;
       font-variant-numeric: tabular-nums;
+
+      svg { flex: none; }
     }
   }
 
@@ -1016,7 +1064,7 @@ export const style = css`
     gap: 8px;
     margin-inline-start: 20px;
     padding-inline-start: 12px;
-    border-inline-start: 2px solid ${BORDER};
+    border-inline-start: 2px solid ${BORDER_STRONG};
   }
 
   .group-empty {
@@ -2029,6 +2077,14 @@ export const style = css`
       min-height: 64px;
     }
 
+    .torrent.group-row .poster.group-poster {
+      padding-top: 6px;
+
+      .folder-tab {
+        height: 7px;
+      }
+    }
+
     .group-children {
       margin-inline-start: 10px;
       padding-inline-start: 8px;
@@ -2641,7 +2697,10 @@ const GroupRow = ({
                   <ChevronRight size={16} aria-hidden="true"/>
                 </button>
                 <Name name={group.name}/>
-                <span className="group-count">{summary.count}</span>
+                <span className="group-count">
+                  <Folder size={12} strokeWidth={2} aria-hidden="true"/>
+                  {summary.count}
+                </span>
               </div>
               <div className="meta">
                 <span>{intl.formatMessage({ id: '{count, plural, one {{count} torrent} other {{count} torrents}}', defaultMessage: '{count, plural, one {{count} torrent} other {{count} torrents}}' }, { count: summary.count })}</span>

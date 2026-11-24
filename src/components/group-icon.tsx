@@ -10,7 +10,7 @@ import type { GroupIcon, PresetIconId } from '../torrent/group-appearance'
 
 import { groupImageKey, useGroupPreviewThumbnails } from '../torrent/group-appearance'
 import { useThumbnail } from '../torrent/use-thumbnails'
-import { BORDER, CONTROL_BG, SUNKEN_BG, TEXT_MUTED } from '../theme'
+import { BORDER, BORDER_STRONG, CONTROL_BG, GROUP_TEXT, SUNKEN_BG } from '../theme'
 
 export const PRESET_ICON_COMPONENTS: Record<PresetIconId, ComponentType<{ size?: number, strokeWidth?: number, 'aria-hidden'?: boolean }>> = {
   folder: Folder,
@@ -44,39 +44,108 @@ export const presetIconLabel = (icon: PresetIconId, intl: ReturnType<typeof useI
   }
 }
 
-const collageStyle = css`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 1px;
-  padding: 0;
-  overflow: hidden;
-  background: ${BORDER};
+const groupPosterStyle = css`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 150px;
+  min-height: 84px;
+  box-sizing: border-box;
+  padding-top: 7px;
+  background: none;
+  border: none;
+  border-radius: 0;
 
-  img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+  /* Overlaps .folder-body by 1px so the tab and folder frame read as one unbroken container. */
+  .folder-tab {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    width: 44%;
+    height: 8px;
+    z-index: 1;
+    box-sizing: border-box;
+    background: ${CONTROL_BG};
+    border: 1px solid ${BORDER_STRONG};
+    border-bottom: none;
+    border-start-start-radius: 6px;
+    border-start-end-radius: 6px;
   }
 
-  .slot {
-    background: ${SUNKEN_BG};
-    min-width: 0;
+  .folder-body {
+    position: relative;
+    flex: 1;
     min-height: 0;
-  }
-`
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: ${CONTROL_BG};
+    border: 1px solid ${BORDER_STRONG};
+    border-start-start-radius: 0;
+    border-start-end-radius: 7px;
+    border-end-start-radius: 7px;
+    border-end-end-radius: 7px;
+    display: grid;
+    place-items: center;
+    color: ${GROUP_TEXT};
 
-const presetPosterStyle = css`
-  display: grid;
-  place-items: center;
-  background: ${CONTROL_BG};
-  color: ${TEXT_MUTED};
+    svg { flex: none; }
+  }
+
+  /* Absolute inset decouples intrinsic thumbnail dimensions from the card row height. */
+  .folder-cover {
+    position: absolute;
+    inset: 0;
+    padding: 4px;
+    box-sizing: border-box;
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 4px;
+      min-width: 0;
+      min-height: 0;
+    }
+  }
+
+  .folder-grid {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px;
+    padding: 5px;
+    box-sizing: border-box;
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 3px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .slot {
+      background: ${SUNKEN_BG};
+      border: 1px solid ${BORDER};
+      border-radius: 3px;
+      box-sizing: border-box;
+      min-width: 0;
+      min-height: 0;
+    }
+  }
 `
 
 /**
- * Renders a group row's poster: custom uploaded image, chosen preset icon, a 2x2 collage of up to four
- * member torrent thumbnails, or a Folder fallback when no preview image exists yet.
+ * Renders a group row's poster inside an unbroken OS-folder frame: custom uploaded image, chosen
+ * preset icon, a 2x2 folder grid of up to four member thumbnails (so even 1-torrent groups do not
+ * masquerade as single full-bleed torrent posters), or a Folder fallback when no preview exists.
  */
 export const GroupPoster = ({
   groupId,
@@ -90,26 +159,19 @@ export const GroupPoster = ({
   const customUrl = useThumbnail(icon.kind === 'image' ? groupImageKey(groupId, icon.hash) : undefined)
   const collageUrls = useGroupPreviewThumbnails(icon.kind === 'default' ? previewHashes : EMPTY_HASHES)
 
+  let body
   if (icon.kind === 'image' && customUrl) {
-    return <img className="poster" src={customUrl} alt="" loading="lazy"/>
-  }
-
-  if (icon.kind === 'preset') {
-    const Icon = PRESET_ICON_COMPONENTS[icon.icon]
-    return (
-      <div css={presetPosterStyle} className="poster placeholder" aria-hidden="true">
-        <Icon size={22} strokeWidth={1.75} aria-hidden/>
+    body = (
+      <div className="folder-cover">
+        <img src={customUrl} alt="" loading="lazy"/>
       </div>
     )
-  }
-
-  if (collageUrls.length === 1) {
-    return <img className="poster" src={collageUrls[0]} alt="" loading="lazy"/>
-  }
-
-  if (collageUrls.length >= 2) {
-    return (
-      <div css={collageStyle} className="poster" aria-hidden="true">
+  } else if (icon.kind === 'preset') {
+    const Icon = PRESET_ICON_COMPONENTS[icon.icon]
+    body = <Icon size={24} strokeWidth={1.75} aria-hidden/>
+  } else if (collageUrls.length >= 1) {
+    body = (
+      <div className="folder-grid">
         {[0, 1, 2, 3].map((slot) => (
           collageUrls[slot]
             ? <img key={slot} src={collageUrls[slot]} alt="" loading="lazy"/>
@@ -117,11 +179,14 @@ export const GroupPoster = ({
         ))}
       </div>
     )
+  } else {
+    body = <Folder size={24} strokeWidth={1.75} aria-hidden/>
   }
 
   return (
-    <div css={presetPosterStyle} className="poster placeholder" aria-hidden="true">
-      <Folder size={22} strokeWidth={1.75} aria-hidden/>
+    <div css={groupPosterStyle} className="poster group-poster" aria-hidden="true">
+      <span className="folder-tab"/>
+      <div className="folder-body">{body}</div>
     </div>
   )
 }
@@ -133,17 +198,62 @@ const miniIconStyle = css`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: 4px;
   overflow: hidden;
-  color: ${TEXT_MUTED};
+  color: ${GROUP_TEXT};
+
+  svg { flex: none; }
+
+  &.framed {
+    background: ${CONTROL_BG};
+    border: 1px solid ${BORDER_STRONG};
+  }
+
+  &.cover {
+    background: ${CONTROL_BG};
+    border: 1px solid ${BORDER_STRONG};
+    padding: 1px;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 2px;
+      display: block;
+    }
+  }
+`
+
+const miniGridStyle = css`
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  padding: 2px;
+  background: ${CONTROL_BG};
+  border: 1px solid ${BORDER_STRONG};
 
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    border-radius: 1px;
     display: block;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .slot {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: ${SUNKEN_BG};
+    border-radius: 1px;
+    min-width: 0;
+    min-height: 0;
   }
 `
 
@@ -161,14 +271,22 @@ export const GroupMiniIcon = ({
   const collageUrls = useGroupPreviewThumbnails(icon.kind === 'default' ? previewHashes : EMPTY_HASHES)
 
   if (icon.kind === 'image' && customUrl) {
-    return <span css={miniIconStyle} aria-hidden="true"><img src={customUrl} alt=""/></span>
+    return <span css={miniIconStyle} className="cover" aria-hidden="true"><img src={customUrl} alt=""/></span>
   }
   if (icon.kind === 'preset') {
     const Icon = PRESET_ICON_COMPONENTS[icon.icon]
-    return <span css={miniIconStyle} aria-hidden="true"><Icon size={14} strokeWidth={1.85} aria-hidden/></span>
+    return <span css={miniIconStyle} className="framed" aria-hidden="true"><Icon size={13} strokeWidth={1.9} aria-hidden/></span>
   }
-  if (collageUrls.length > 0) {
-    return <span css={miniIconStyle} aria-hidden="true"><img src={collageUrls[0]} alt=""/></span>
+  if (collageUrls.length >= 1) {
+    return (
+      <span css={[miniIconStyle, miniGridStyle]} aria-hidden="true">
+        {[0, 1, 2, 3].map((slot) => (
+          collageUrls[slot]
+            ? <img key={slot} src={collageUrls[slot]} alt=""/>
+            : <span key={slot} className="slot"/>
+        ))}
+      </span>
+    )
   }
-  return <span css={miniIconStyle} aria-hidden="true"><Folder size={14} strokeWidth={1.85} aria-hidden/></span>
+  return <span css={miniIconStyle} aria-hidden="true"><Folder size={15} strokeWidth={1.9} aria-hidden/></span>
 }

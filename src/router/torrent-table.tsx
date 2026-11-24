@@ -12,7 +12,7 @@ import type { DragPayload, DropIndicator } from './list-drag'
 import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
-import { ChevronRight, Clock, Ellipsis } from 'lucide-react'
+import { ChevronRight, Clock, Ellipsis, Folder } from 'lucide-react'
 import { defineMessage, useIntl } from 'react-intl'
 
 import { DEFAULT_ICON } from '../torrent/group-appearance'
@@ -26,7 +26,7 @@ import { getHumanReadableByteString, writePercent } from '../utils/bytes'
 import { hint, typedHint } from '../components/hint'
 import { RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import {
-  BORDER, CONTROL_BG, CONTROL_HOVER_BG, EMPHASIS, FOCUS_RING, GROUP_COUNT_BG, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
+  BORDER, BORDER_STRONG, CONTROL_BG, CONTROL_HOVER_BG, ELEVATED_BG, EMPHASIS, FOCUS_RING, GROUP_COUNT_BG, GROUP_TEXT, HOVER_WASH, STATE_DOWN, STATE_UP, SUNKEN_BG,
   SURFACE_BG, TEXT, TEXT_FAINT, TEXT_MUTED,
 } from '../theme'
 
@@ -130,6 +130,22 @@ const style = css`
 
   tr.group-row {
     cursor: pointer;
+    background: ${ELEVATED_BG};
+
+    &:hover { background: ${CONTROL_BG}; }
+
+    &[data-drop='into'] {
+      background: ${CONTROL_BG};
+      td { box-shadow: inset 0 1px 0 0 ${FOCUS_RING}, inset 0 -1px 0 0 ${FOCUS_RING}; }
+    }
+
+    .cell-name span.title {
+      font-weight: 600;
+    }
+
+    .pct {
+      color: var(--hue, ${TEXT_MUTED});
+    }
 
     td.check button.expand {
       display: flex;
@@ -147,7 +163,11 @@ const style = css`
       &:hover { color: ${TEXT}; }
       &:focus-visible { outline: none; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
 
-      svg { transition: transform 120ms ease; }
+      svg { flex: none; transition: transform 120ms ease; }
+    }
+
+    &:not([data-expanded='true']):dir(rtl) td.check button.expand svg {
+      transform: rotate(180deg);
     }
 
     &[data-expanded='true'] td.check button.expand svg {
@@ -156,18 +176,34 @@ const style = css`
 
     .group-count {
       flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       padding: 1px 7px;
       border-radius: 999px;
       background: ${GROUP_COUNT_BG};
-      color: ${TEXT_MUTED};
+      color: ${GROUP_TEXT};
       font-size: 0.72rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
+
+      svg { flex: none; }
     }
   }
 
   tr.group-child .cell-name {
+    position: relative;
     padding-inline-start: 22px;
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset-inline-start: 8px;
+      top: -9px;
+      bottom: -9px;
+      width: 2px;
+      background: ${BORDER_STRONG};
+    }
   }
 
   /* The box's label is its hit area, and its ::before spreads that over the whole cell, or a click just above or
@@ -223,6 +259,7 @@ const style = css`
     min-width: 0;
 
     span.title {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -530,7 +567,10 @@ export const TorrentTable = ({
               <div className="cell-name">
                 <GroupMiniIcon groupId={group.id} icon={icon} previewHashes={summary.previewHashes}/>
                 <span className="title" dir="auto">{group.name}</span>
-                <span className="group-count">{summary.count}</span>
+                <span className="group-count">
+                  <Folder size={11} strokeWidth={2} aria-hidden="true"/>
+                  {summary.count}
+                </span>
               </div>
             </td>
             <td className="c-size num">{summary.size > 0 ? getHumanReadableByteString(summary.size) : UNKNOWN}</td>

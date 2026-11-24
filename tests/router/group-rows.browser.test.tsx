@@ -66,25 +66,39 @@ afterAll(async () => {
 })
 
 describe('group poster and icons', () => {
-  it('renders a Folder fallback when default has no thumbnails, a 2x2 collage with member thumbnails, a preset icon, and an uploaded image', async () => {
+  it('always wraps group posters in a folder silhouette, including a 1-torrent group with a thumbnail', async () => {
     const empty = await render(<IntlRoot><GroupPoster groupId="g1" icon={DEFAULT_ICON} previewHashes={[]}/></IntlRoot>)
-    expect(empty.container.querySelector('svg.lucide-folder')).not.toBeNull()
+    expect(empty.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
+    expect(empty.container.querySelector('.group-poster .folder-body svg.lucide-folder')).not.toBeNull()
+    await empty.unmount()
 
     const preset = await render(<IntlRoot><GroupPoster groupId="g1" icon={{ kind: 'preset', icon: 'film' }} previewHashes={[]}/></IntlRoot>)
-    expect(preset.container.querySelector('svg.lucide-film')).not.toBeNull()
+    expect(preset.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
+    expect(preset.container.querySelector('.group-poster .folder-body svg.lucide-film')).not.toBeNull()
+    await preset.unmount()
 
     const pngBlob = new Blob([PNG_2X2], { type: 'image/png' })
     const hashes = ['a', 'b', 'c', 'd'].map(hash)
     for (const h of hashes) await saveCustomThumbnail(h, pngBlob)
     await loadCachedThumbnails(hashes)
 
+    const single = await render(<IntlRoot><GroupPoster groupId="g1" icon={DEFAULT_ICON} previewHashes={[hashes[0]!]}/></IntlRoot>)
+    await expect.poll(() => single.container.querySelectorAll('.group-poster .folder-grid img').length).toBe(1)
+    expect(single.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
+    expect(single.container.querySelectorAll('.group-poster .folder-grid .slot')).toHaveLength(3)
+    expect(single.container.querySelector('img.poster')).toBeNull()
+    await single.unmount()
+
     const collage = await render(<IntlRoot><GroupPoster groupId="g1" icon={DEFAULT_ICON} previewHashes={hashes}/></IntlRoot>)
-    await expect.poll(() => collage.container.querySelectorAll('img').length).toBe(4)
+    await expect.poll(() => collage.container.querySelectorAll('.group-poster .folder-grid img').length).toBe(4)
+    expect(collage.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
+    await collage.unmount()
 
     const { hash: customHash } = await saveGroupImage('g2', pngBlob)
     await loadCachedThumbnails([groupImageKey('g2', customHash)])
     const custom = await render(<IntlRoot><GroupPoster groupId="g2" icon={{ kind: 'image', hash: customHash }} previewHashes={[]}/></IntlRoot>)
-    await expect.poll(() => custom.container.querySelector('img.poster')?.getAttribute('src')).toMatch(/^blob:/)
+    await expect.poll(() => custom.container.querySelector('.group-poster .folder-cover img')?.getAttribute('src')).toMatch(/^blob:/)
+    expect(custom.container.querySelector('.group-poster .folder-tab')).not.toBeNull()
 
     await setGroupIcon('g2', { kind: 'preset', icon: 'star' })
     const previousKey = await clearGroupAppearance('g2')
@@ -191,5 +205,45 @@ describe('TorrentTable inline groups', () => {
     await saveTopOrder(['g:g1'])
     await saveGroupMemberOrder('g1', [hash('b'), hash('a')])
     expect(EMPTY_LIST_ORDER.top).toEqual([])
+  })
+
+  it('styles a 1-torrent group row in TorrentTable with folder surface, 2x2 mini icon, and folder count badge', async () => {
+    const t1 = mkTorrent('a')
+    const loose = mkTorrent('c')
+    const pngBlob = new Blob([PNG_2X2], { type: 'image/png' })
+    await saveCustomThumbnail(hash('a'), pngBlob)
+    await loadCachedThumbnails([hash('a')])
+
+    const group = mkGroup('g1', 'Single Folder', [hash('a')])
+    const summary = summarizeGroup(group, [t1], 'added', 'desc')
+    const screen = await render(
+      <IntlRoot>
+        <TorrentTable
+          entries={[
+            { kind: 'group', key: 'g:g1', group, summary },
+            { kind: 'torrent', key: `t:${loose.id}`, torrent: loose },
+          ]}
+          expandedGroups={new Set()}
+          onToggleExpand={vi.fn()}
+          onGroupOptions={vi.fn()}
+          sortKey="custom"
+          sortDir="asc"
+          onSort={vi.fn()}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onOptions={vi.fn()}
+          picked={new Set()}
+          onPick={vi.fn()}
+        />
+      </IntlRoot>,
+    )
+
+    const groupTr = screen.container.querySelector('tbody tr.group-row')!
+    const looseTr = screen.container.querySelector('tbody tr:not(.group-row)')!
+    expect(getComputedStyle(groupTr).backgroundColor).not.toBe(getComputedStyle(looseTr).backgroundColor)
+    await expect.poll(() => groupTr.querySelectorAll('.cell-name img').length).toBe(1)
+    expect(groupTr.querySelectorAll('.cell-name .slot')).toHaveLength(3)
+    expect(groupTr.querySelector('.group-count svg.lucide-folder')).not.toBeNull()
+    expect(groupTr.querySelector('.group-count')?.textContent).toBe('1')
   })
 })
