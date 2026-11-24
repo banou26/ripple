@@ -1,4 +1,4 @@
-// Remote episode previous/next controls and external subtitle tracks
+// Remote episode previous/next controls, source switch, subtitle browsing, and external subtitle tracks
 // over @banou/media-player/remote on Ripple's /watch embed route.
 import type { Frame, FrameLocator, Page } from '@playwright/test'
 
@@ -223,11 +223,77 @@ test('an embedder sets previousEpisode and nextEpisode and receives step request
   await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).requests)).toEqual(['previous', 'next', 'next'])
 })
 
-test('/watch opened directly renders no previous or next episode buttons', async ({ page }) => {
+test('an embedder sets sourceSwitch and browseSubtitles and receives requests over @banou/media-player/remote', async ({ page }) => {
+  await page.goto('/legal')
+  await loadHarness(page)
+  await page.evaluate(async (src) => {
+    const frame = Object.assign(document.createElement('iframe'), { id: 'ripple', src, allow: 'autoplay' })
+    Object.assign(frame.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', border: 'none' })
+    document.body.append(frame)
+    const w = window as unknown as EmbedderWindow
+    w.requests = []
+    w.player = window.mediaPlayer(frame, { origin: location.origin })
+    w.player.addEventListener('sourceswitchrequest', () => w.requests.push('sourceSwitch'))
+    w.player.addEventListener('subtitlesbrowserequest', () => w.requests.push('browseSubtitles'))
+    await w.player.ready
+  }, SRC)
+
+  const ripple = page.frameLocator('#ripple')
+  await expect(ripple.locator('button.play')).toBeVisible()
+  await expect(ripple.locator('button.source-switch')).toHaveCount(0)
+  await expect(ripple.locator('button.subtitles')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.sourceSwitch = 'Switch release'
+  })
+  await expect(ripple.locator('button.source-switch')).toBeVisible()
+  await expect(ripple.locator('button.source-switch')).toHaveAttribute('aria-label', 'Switch release')
+  await expect(ripple.locator('button.source-switch svg')).toBeVisible()
+  await ripple.locator('button.source-switch').click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).requests)).toEqual(['sourceSwitch'])
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.sourceSwitch = true
+  })
+  await expect(ripple.locator('button.source-switch')).toHaveAttribute('aria-label', 'Switch source')
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.sourceSwitch = false
+  })
+  await expect(ripple.locator('button.source-switch')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.browseSubtitles = true
+  })
+  await expect(ripple.locator('button.subtitles')).toBeVisible()
+  await openSubtitles(page, ripple)
+  const browseBtn = trackMenu(ripple).locator('.track-footer-action.browse-subtitles')
+  await expect(browseBtn).toBeVisible()
+  await expect(browseBtn).toHaveText('Look for more')
+  await browseBtn.click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).requests)).toEqual(['sourceSwitch', 'browseSubtitles'])
+  await expect(trackMenu(ripple)).toHaveCount(0)
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.browseSubtitles = 'Search subtitles'
+  })
+  await openSubtitles(page, ripple)
+  await expect(browseBtn).toHaveText('Search subtitles')
+  await ripple.locator('button.subtitles').click()
+  await expect(trackMenu(ripple)).toHaveCount(0)
+
+  await page.evaluate(() => {
+    (window as unknown as EmbedderWindow).player.browseSubtitles = false
+  })
+  await expect(ripple.locator('button.subtitles')).toHaveCount(0)
+})
+
+test('/watch opened directly renders no previous, next, or source-switch buttons', async ({ page }) => {
   await page.goto(SRC)
   await expect(page.locator('button.play')).toBeVisible()
   await expect(page.locator('button.previous')).toHaveCount(0)
   await expect(page.locator('button.next')).toHaveCount(0)
+  await expect(page.locator('button.source-switch')).toHaveCount(0)
 })
 
 test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequest, and keeps container tracks working', async ({ browser, baseURL }) => {
@@ -339,6 +405,16 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).picked)).toContainEqual({ ripple: 'picked', subtitles: 'ja' })
 
     await openSubtitles(page, ripple)
+    await trackRow(ripple, 'English').click()
+    await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
+
+    await page.evaluate(() => {
+      (window as unknown as EmbedderWindow).player.selectExternalSubtitle('ext-ass')
+    })
+    await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('blue')
+    await openSubtitles(page, ripple)
+    await expect(trackRow(ripple, 'External Japanese ASS')).toContainText('✓')
+    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).picked)).toContainEqual({ ripple: 'picked', subtitles: 'ja' })
     await trackRow(ripple, 'English').click()
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
 
