@@ -407,6 +407,7 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     await openSubtitles(page, ripple)
     await trackRow(ripple, 'English').click()
     await expect.poll(() => colourOf(watchFrame), { timeout: 20_000, intervals: [250] }).toBe('white')
+    await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).picked)).toContainEqual({ ripple: 'picked', subtitles: 'eng' })
 
     await page.evaluate(() => {
       const w = window as unknown as EmbedderWindow
