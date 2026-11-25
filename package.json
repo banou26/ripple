@@ -1,6 +1,6 @@
 {
   "name": "@banou/ripple",
-  "version": "0.0.104",
+  "version": "0.0.105",
   "description": "Download and stream torrents in your browser",
   "license": "MIT",
   "type": "module",
