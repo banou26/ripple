@@ -17,7 +17,7 @@ import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FileP
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
-import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
+import { onSettingApplied, recordRateLimitsPatch, recordSetting } from '../torrent/settings-sync'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
@@ -3629,10 +3629,8 @@ const Home = () => {
     if (!rateEdit) return
     const side = rateEdit.direction === 'down' ? 'down' : 'up'
     if (rateEdit.scope === 'session') {
-      const next = { ...sessionLimits, [side]: bytesPerSecond }
-      setSessionLimits(next)
       client.setSessionLimits({ [side]: bytesPerSecond })
-      void recordSetting('rateLimits', next)
+      void recordRateLimitsPatch({ [side]: bytesPerSecond }, sessionLimits)
     } else if (rateEditTorrent) client.setLimits(Number(rateEditTorrent.id), { [side]: bytesPerSecond })
     setRateEdit(null)
   }

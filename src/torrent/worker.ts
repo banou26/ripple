@@ -3243,10 +3243,16 @@ const handleMessage = async (session: Session, m: any) => {
       // The worker is the only writer of this key, deliberately. It runs on the same serialized
       // command lane as every other list mutation, so applying and persisting are one act and two
       // tabs cannot interleave a read-modify-write of it.
-      if (isLimit(m.down)) sessionLimits.down = m.down
-      if (isLimit(m.up)) sessionLimits.up = m.up
-      session.setRateLimits({ download: sessionLimits.down, upload: sessionLimits.up })
-      await set(RATE_LIMITS_KEY, { ...sessionLimits })
+      // Persist to IndexedDB before updating `sessionLimits` and push `postState()` right after,
+      // so neither periodic 500 ms state ticks nor the UI label advance past what a reload will read.
+      const next = {
+        down: isLimit(m.down) ? m.down : sessionLimits.down,
+        up: isLimit(m.up) ? m.up : sessionLimits.up,
+      }
+      await set(RATE_LIMITS_KEY, { ...next })
+      sessionLimits = next
+      session.setRateLimits({ download: next.down, upload: next.up })
+      postState()
     } else if (m.type === 'set-seeding-policy') {
       const next = normalizeSeedingPolicy(m.policy)
       if (!sameSeedingPolicy(seedingPolicy, next)) seedBypass.clear()

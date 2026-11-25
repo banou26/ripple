@@ -1,0 +1,92 @@
+import { expect, it, vi } from 'vitest'
+
+import { RATE_LIMITS_KEY } from '../../src/torrent/rate-limits'
+import { installWorkerGlobals } from '../utils/worker-rig'
+
+/**
+ * The worker must not report a new session rate limit through periodic `state` ticks before the
+ * IndexedDB write has committed, and once that write commits it must push `state` immediately so
+ * UI labels update without waiting up to 500 ms for the next timer tick.
+ */
+
+const store = vi.hoisted(() => new Map<string, unknown>())
+const engine = vi.hoisted(() => ({
+  rateCalls: [] as { download: number, upload: number }[],
+}))
+const gate = vi.hoisted(() => ({
+  blockKey: null as string | null,
+  entered: [] as unknown[],
+  resolve: null as (() => void) | null,
+}))
+
+const rig = installWorkerGlobals({ estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }) })
+
+vi.mock('@fkn/lib/net', () => ({}))
+vi.mock('@fkn/lib/dgram', () => ({}))
+vi.mock('libtorrent-wasm', async () => {
+  const { fakeSession } = await import('../utils/worker-rig')
+  return {
+    createSession: async () => fakeSession({
+      setRateLimits: (limits: { download: number, upload: number }) => {
+        engine.rateCalls.push(limits)
+      },
+    }),
+    PRIORITY: { skip: 0 },
+    TORRENT_FLAG: { uploadMode: 1 },
+  }
+})
+vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/torrent/hybrid-storage')>()),
+  createHybridStorage: () => ({ usageOf: async () => 0, usageOfStorage: async () => 0, refusedFile: () => undefined }),
+}))
+vi.mock('idb-keyval', () => ({
+  get: async (key: string) => store.get(key),
+  set: async (key: string, value: unknown) => {
+    if (gate.blockKey === key) {
+      gate.entered.push(value)
+      await new Promise<void>((resolve) => { gate.resolve = resolve })
+    }
+    store.set(key, value)
+  },
+  del: async (key: string) => { store.delete(key) },
+  update: async (key: string, fn: (prev: unknown) => unknown) => { store.set(key, fn(store.get(key))) },
+}))
+
+it('keeps broadcasting the old limit while IDB persists, then pushes the new limit right after', async () => {
+  await import('../../src/torrent/worker')
+  await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
+
+  gate.blockKey = RATE_LIMITS_KEY
+  const stateStart = rig.of('state').length
+
+  rig.send({ type: 'set-session-limits', down: 1_500_000 })
+  await vi.waitFor(() => expect(gate.entered).toHaveLength(1))
+  expect(engine.rateCalls.at(-1)).toEqual({ download: 0, upload: 0 })
+
+  // Two+ periodic 500 ms ticks run while IndexedDB is still writing: none may leak the unpersisted ceiling.
+  await new Promise((resolve) => setTimeout(resolve, 1_100))
+  const stalledStates = rig.of('state').slice(stateStart)
+  expect(stalledStates.length).toBeGreaterThanOrEqual(2)
+  for (const state of stalledStates) expect(state.rateLimits).toEqual({ down: 0, up: 0 })
+  expect(store.get(RATE_LIMITS_KEY)).toBeUndefined()
+
+  // Align right after a periodic tick so only an explicit postState() can land inside the 250 ms window.
+  const tickCount = rig.of('state').length
+  await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(tickCount), { timeout: 1_500 })
+  const countBeforeResolve = rig.of('state').length
+
+  gate.resolve!()
+  await vi.waitFor(() => {
+    const fresh = rig.of('state').slice(countBeforeResolve)
+    expect(fresh.some((s) => {
+      const limits = s.rateLimits as { down: number, up: number } | undefined
+      return limits?.down === 1_500_000 && limits?.up === 0
+    })).toBe(true)
+  }, { timeout: 250 })
+
+  expect(engine.rateCalls.at(-1)).toEqual({ download: 1_500_000, upload: 0 })
+
+  expect(store.get(RATE_LIMITS_KEY)).toEqual({ down: 1_500_000, up: 0 })
+  expect(rig.of('state').at(-1)?.rateLimits).toEqual({ down: 1_500_000, up: 0 })
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 15_000)
