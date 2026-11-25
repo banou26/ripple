@@ -18,6 +18,7 @@ const engine = vi.hoisted(() => ({
   log: [] as string[],
   flagLog: [] as { handle: number, flags: number, mask: number }[],
   setStreamWindowCalls: [] as { handle: number, claims: unknown[] }[],
+  readDelayMs: 0,
   added: 0,
 }))
 
@@ -85,7 +86,10 @@ vi.mock('libtorrent-wasm', async () => {
         for (const p of engine.held.get(h) ?? []) pieces[p >> 3]! |= 0x80 >> (p & 7)
         return { pieces, numPieces: layout.numPieces, pieceLength: MiB, length: layout.totalSize }
       },
-      read: async (_h: number, _file: number, _offset: number, len: number) => new Uint8Array(len),
+      read: async (_h: number, _file: number, _offset: number, len: number) => {
+        if (engine.readDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, engine.readDelayMs))
+        return new Uint8Array(len)
+      },
       setStreamWindow: (h: number, claims: unknown[]) => {
         engine.setStreamWindowCalls.push({ handle: h, claims })
         return true
@@ -258,5 +262,32 @@ it('leaves user-started, force-started, and demo sample ephemeral torrents seedi
   await pumps()
   expect(engine.paused.has(sample)).toBe(false)
   rig.send({ type: 'unwatch', viewer: 'player:6' })
+  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+}, 20_000)
+
+it('stays parked during a slow OPFS read of already-held bytes and a concurrent re-anchor', async () => {
+  const h = await addEphemeral('7', [{ size: 32 * MiB, path: 'film.mp4' }])
+  engine.held.set(h, range(0, 32))
+  engine.states.set(h, 5)
+  rig.send({ type: 'watch', viewer: 'player:7', handle: h, fileIndex: 0, fromOffset: 0 })
+  await vi.waitFor(() => expect(engine.paused.has(h)).toBe(true), { timeout: 2_000 })
+
+  const logStart = engine.log.length
+  engine.readDelayMs = 600
+  try {
+    rig.send({ type: 'read', id: 'slow-held-1', handle: h, fileIndex: 0, offset: 0, len: 64 * 1024, prioritize: false, viewer: 'player:7' })
+    // Yield so the worker enters session.read with readsByHandle populated, then send a re-anchoring watch mid-read
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    rig.send({ type: 'watch', viewer: 'player:7', handle: h, fileIndex: 0, fromOffset: 16 * MiB, readLen: 64 * 1024 })
+    await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'slow-held-1')).toMatchObject({ type: 'read-result' }), { timeout: 5_000 })
+    await pumps()
+  } finally {
+    engine.readDelayMs = 0
+  }
+
+  expect(engine.paused.has(h)).toBe(true)
+  const cycles = engine.log.slice(logStart).filter((entry) => entry.startsWith('resume ') || entry.startsWith('pause '))
+  expect(cycles).toEqual([])
+  rig.send({ type: 'unwatch', viewer: 'player:7' })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)

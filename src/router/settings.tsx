@@ -16,7 +16,8 @@ import { ADD_DIALOG_KEY, dialogEnabled } from '../torrent/add-options'
 import { readGlobalDefault, SAVE_LOCATION_KEY } from '../torrent/save-location'
 import {
   DEFAULT_SEED_MINUTES, DEFAULT_SEED_RATIO, MAX_SEED_MINUTES, MAX_SEED_RATIO, MIN_SEED_MINUTES, MIN_SEED_RATIO,
-  SEEDING_POLICY_KEY, onSeedingPolicyStored, parseSeedMinutes, parseSeedRatio, readSeedingPolicy, writeSeedingPolicy,
+  SEEDING_POLICY_KEY, onSeedingPolicyStored, parseSeedMinutes, parseSeedRatio, readSeedingPolicy, sameSeedingPolicy,
+  writeSeedingPolicy,
 } from '../torrent/seeding-policy'
 import type { SeedingPolicy, SeedingPolicyMode } from '../torrent/seeding-policy'
 import { useFolder } from '../torrent/use-folder'
@@ -193,10 +194,25 @@ const Settings = () => {
     if (next.mode === 'duration') setMinutesText(String(next.minutes))
   }), [])
   const applySeedingPolicy = (next: SeedingPolicy) => {
+    if (sameSeedingPolicy(seedingPolicy, next)) return
     const saved = writeSeedingPolicy(next)
     setSeedingPolicy(saved)
     void set(SEEDING_POLICY_KEY, saved).catch(() => {})
     runningTorrentClient()?.setSeedingPolicy(saved)
+  }
+  const commitRatio = () => {
+    const fallback = String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO)
+    const parsed = parseSeedRatio(ratioText)
+    if (parsed === null) { setRatioText(fallback); return }
+    setRatioText(String(parsed))
+    applySeedingPolicy({ mode: 'ratio', ratio: parsed })
+  }
+  const commitMinutes = () => {
+    const fallback = String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES)
+    const parsed = parseSeedMinutes(minutesText)
+    if (parsed === null) { setMinutesText(fallback); return }
+    setMinutesText(String(parsed))
+    applySeedingPolicy({ mode: 'duration', minutes: parsed })
   }
   const chooseSeedingMode = (mode: SeedingPolicyMode) => {
     if (mode === 'keep') { applySeedingPolicy({ mode: 'keep' }); return }
@@ -221,7 +237,7 @@ const Settings = () => {
   }
 
   const library = intl.formatMessage({ id: 'Library', defaultMessage: 'Library' })
-  const seedingLabel = intl.formatMessage({ id: 'Seeding', defaultMessage: 'Seeding' })
+  const seedingLabel = intl.formatMessage({ id: 'Seeding#a setting', defaultMessage: 'Seeding', description: 'a setting' })
   const shareRatioLabel = intl.formatMessage({ id: 'Share ratio', defaultMessage: 'Share ratio' })
   const minutesLabel = intl.formatMessage({ id: 'Minutes', defaultMessage: 'Minutes' })
   const onSetupHandlers = async () => {
@@ -273,15 +289,14 @@ const Settings = () => {
                 step="0.1"
                 aria-label={shareRatioLabel}
                 value={ratioText}
-                onChange={(event) => {
-                  const value = event.target.value
-                  setRatioText(value)
-                  const parsed = parseSeedRatio(value)
-                  if (parsed !== null) applySeedingPolicy({ mode: 'ratio', ratio: parsed })
-                }}
-                onBlur={() => {
-                  const parsed = parseSeedRatio(ratioText)
-                  setRatioText(String(parsed ?? (seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO)))
+                onChange={(event) => { setRatioText(event.target.value) }}
+                onBlur={commitRatio}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') { commitRatio(); event.currentTarget.blur() }
+                  else if (event.key === 'Escape') {
+                    setRatioText(String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO))
+                    event.currentTarget.blur()
+                  }
                 }}
               />
             </div>
@@ -296,15 +311,14 @@ const Settings = () => {
                 step="1"
                 aria-label={minutesLabel}
                 value={minutesText}
-                onChange={(event) => {
-                  const value = event.target.value
-                  setMinutesText(value)
-                  const parsed = parseSeedMinutes(value)
-                  if (parsed !== null) applySeedingPolicy({ mode: 'duration', minutes: parsed })
-                }}
-                onBlur={() => {
-                  const parsed = parseSeedMinutes(minutesText)
-                  setMinutesText(String(parsed ?? (seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES)))
+                onChange={(event) => { setMinutesText(event.target.value) }}
+                onBlur={commitMinutes}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') { commitMinutes(); event.currentTarget.blur() }
+                  else if (event.key === 'Escape') {
+                    setMinutesText(String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES))
+                    event.currentTarget.blur()
+                  }
                 }}
               />
               <span className="unit">{intl.formatMessage({ id: 'min', defaultMessage: 'min' })}</span>

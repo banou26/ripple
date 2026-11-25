@@ -650,6 +650,8 @@ const TORRENT_PAUSED = forPage.formatMessage({ id: 'torrent paused', defaultMess
 const readsByHandle = new Map<number, Map<number, { fileIndex: number, offset: number, len: number, viewer?: string }>>()
 // a player that closes cancels none of its reads, so a read whose viewer has left waits for nobody
 const waitedOn = (h: number) => [...readsByHandle.get(h)?.values() ?? []].some((r) => !r.viewer || viewers.get(h)?.has(r.viewer))
+const waitedOnMissing = (h: number) => [...readsByHandle.get(h)?.values() ?? []]
+  .some((r) => (!r.viewer || viewers.get(h)?.has(r.viewer)) && !hasBytes(h, r.fileIndex, r.offset, r.len))
 const failReads = (h: number, error: Said) => {
   const ids = readsByHandle.get(h)
   if (!ids?.size) return
@@ -1026,7 +1028,7 @@ const activeWantedHeld = (h: number, files: TorrentFiles, active: Viewer[]) =>
   active.every((v) => viewerWantedRanges(files, v).every((r) => allHeld(h, r)))
 
 const canParkCompletedEphemeral = (h: number, files: TorrentFiles | null, active: Viewer[]) => {
-  if (!canAutoParkEphemeral(h) || !files || !active.length || waitedOn(h)) return false
+  if (!canAutoParkEphemeral(h) || !files || !active.length || waitedOnMissing(h)) return false
   const st = session?.status(h)
   if (!st || !COMPLETE_STATES.has(st.state)) return false
   // When every player has finished its own files, any prepared claim on this handle also wants its bands held before parking.
@@ -1063,6 +1065,7 @@ const resumeFromPolicy = (h: number) => {
 
 const applySeedingPolicy = () => {
   if (!session) return
+  if (seedingPolicy.mode === 'keep' && seedStopped.size === 0) return
   for (const h of handles) {
     if (ephemeralHandles.has(h)) continue
     if (userPaused.has(h)) { seedStopped.delete(h); continue }
@@ -1089,7 +1092,7 @@ const applySeedingPolicy = () => {
       })
     if (stop) {
       const active = activeViewers(h)
-      if (waitedOn(h) || (active.length > 0 && (!files || !activeWantedHeld(h, files, active)))) continue
+      if (waitedOnMissing(h) || (active.length > 0 && (!files || !activeWantedHeld(h, files, active)))) continue
       if (!seedStopped.has(h)) stopForSeedingPolicy(h)
     } else if (seedStopped.delete(h)) {
       resumeFromPolicy(h)

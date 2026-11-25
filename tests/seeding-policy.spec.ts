@@ -172,6 +172,9 @@ test('Settings Seeding policy defaults to Keep seeding, persists ratio and durat
   const ratioInput = row.getByLabel('Share ratio')
   await expect(ratioInput).toBeVisible()
   await ratioInput.fill('1.75')
+  // edits stay local until committed by Enter or blur so intermediate keystrokes never trigger engine churn
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 2 })
+  await ratioInput.press('Enter')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1.75 })
   // invalid input does not corrupt stored policy and restores last valid value on blur
   await ratioInput.fill('0')
@@ -183,6 +186,8 @@ test('Settings Seeding policy defaults to Keep seeding, persists ratio and durat
   const minutesInput = row.getByLabel('Minutes')
   await expect(minutesInput).toBeVisible()
   await minutesInput.fill('45')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'duration', minutes: 60 })
+  await minutesInput.blur()
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'duration', minutes: 45 })
 
   await page.reload()
