@@ -167,6 +167,7 @@ const makePartition = ({ cloud, account, clock, readGate }: FakePartitionOptions
     fsAvailable: async () => account.available,
     readCloud: async () => {
       readCalls += 1
+      if (readCalls > 10) throw new Error('sync loop exceeded 10 reads')
       if (readGate) await readGate()
       if (cloud.value === null) return 'absent'
       return cloud.value
@@ -308,5 +309,79 @@ describe('createVpnSyncController', () => {
     expect(await part.controller.sync()).toBe('retry')
     expect(part.counts()).toEqual({ readCalls: 2, writeCalls: 0 })
     expect(part.isOn()).toBe(false)
+  })
+
+  it('converges without looping when switching accounts to an account with no cloud record', async () => {
+    let tick = 9_000
+    const cloud: { value: VpnSyncRecord | null } = { value: null }
+    const account = { name: 'alice', available: true }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    expect(await part.press(false)).toBe('synced')
+    expect(part.stored()).toEqual({ account: 'tag:alice', on: false, updatedAt: 9_001 })
+    const readsBefore = part.counts().readCalls
+
+    account.name = 'bob'
+    cloud.value = null
+    part.controller.noteAccountSwitch()
+    expect(await part.controller.sync()).toBe('synced')
+
+    expect(part.counts().readCalls - readsBefore).toBeLessThanOrEqual(2)
+    expect(part.isOn()).toBe(true)
+    expect(part.setVpnCalls).toEqual([true])
+    expect(part.stored()).toEqual({ account: 'tag:bob', on: true, updatedAt: 0 })
+  })
+
+  it('converges without looping when switching accounts to an older cloud record', async () => {
+    let tick = 9_000
+    const cloud: { value: VpnSyncRecord | null } = { value: null }
+    const account = { name: 'alice', available: true }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    expect(await part.press(false)).toBe('synced')
+    const readsBefore = part.counts().readCalls
+
+    account.name = 'bob'
+    cloud.value = { on: true, updatedAt: 3_000 }
+    part.controller.noteAccountSwitch()
+    expect(await part.controller.sync()).toBe('synced')
+
+    expect(part.counts().readCalls - readsBefore).toBeLessThanOrEqual(2)
+    expect(part.isOn()).toBe(true)
+    expect(part.setVpnCalls).toEqual([true])
+    expect(part.stored()).toEqual({ account: 'tag:bob', on: true, updatedAt: 3_000 })
+
+    // Also when Bob's older cloud record happens to have VPN off
+    account.name = 'alice'
+    part.controller.noteAccountSwitch()
+    await part.controller.sync()
+    await part.press(false)
+    const readsBeforeSecond = part.counts().readCalls
+    account.name = 'bob'
+    cloud.value = { on: false, updatedAt: 3_000 }
+    part.controller.noteAccountSwitch()
+    expect(await part.controller.sync()).toBe('synced')
+    expect(part.counts().readCalls - readsBeforeSecond).toBeLessThanOrEqual(2)
+    expect(part.isOn()).toBe(false)
+    expect(part.stored()).toEqual({ account: 'tag:bob', on: false, updatedAt: 3_000 })
+  })
+
+  it('converges without looping when localStorage mismatches IDB and cloud is older than IDB', async () => {
+    let tick = 9_000
+    const cloud: { value: VpnSyncRecord | null } = { value: null }
+    const account = { name: 'alice', available: true }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    expect(await part.press(false)).toBe('synced')
+    const readsBefore = part.counts().readCalls
+
+    // Simulate localStorage reset to On and an older cloud record from another session
+    part.setLocalOn(true)
+    cloud.value = { on: false, updatedAt: 3_000 }
+    expect(await part.controller.sync()).toBe('synced')
+
+    expect(part.counts().readCalls - readsBefore).toBeLessThanOrEqual(2)
+    expect(part.isOn()).toBe(false)
+    expect(part.stored()).toEqual({ account: 'tag:alice', on: false, updatedAt: 3_000 })
   })
 })

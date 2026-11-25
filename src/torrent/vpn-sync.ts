@@ -15,6 +15,10 @@ const FOCUS_COOLDOWN_MS = 1_500
 const SIGNED_OUT_COOLDOWN_MS = 30_000
 const POLL_INTERVAL_MS = 30_000
 const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000]
+const MAX_RERUNS = 3
+
+const sameStored = (a: StoredVpnSync | undefined, b: StoredVpnSync | undefined): boolean =>
+  a === b || (!!a && !!b && a.account === b.account && a.on === b.on && a.updatedAt === b.updatedAt)
 
 export type VpnSyncRecord = { on: boolean, updatedAt: number }
 export type StoredVpnSync = { account: string | null, on: boolean, updatedAt: number }
@@ -211,8 +215,15 @@ export const createVpnSyncController = (deps: VpnSyncDeps) => {
     // A deliberate user click made while this cloud read was in flight must beat any skewed remote clock
     if (clickedDuringRead && stored && remote && stored.updatedAt <= lastSeenRemoteAt) {
       const bumped: StoredVpnSync = { ...stored, updatedAt: lastSeenRemoteAt + 1 }
-      await deps.writeStored((current) => (current && current.updatedAt > bumped.updatedAt ? current : bumped)).catch(() => {})
-      if (gen !== accountGen || seqBeforeLocal !== choiceSeq) { rerun = true; return 'stale' }
+      let bumpOvertaken = false
+      await deps.writeStored((current) => {
+        if (!sameStored(current, stored)) {
+          bumpOvertaken = true
+          return current
+        }
+        return bumped
+      }).catch(() => {})
+      if (bumpOvertaken || gen !== accountGen || seqBeforeLocal !== choiceSeq) { rerun = true; return 'stale' }
       stored = bumped
     }
 
@@ -232,7 +243,7 @@ export const createVpnSyncController = (deps: VpnSyncDeps) => {
     let overtaken = seqBeforeLocal !== choiceSeq
     if (!overtaken && (stored !== undefined || res.record.updatedAt > 0 || !res.record.on || res.applyLocal)) {
       await deps.writeStored((current) => {
-        if (seqBeforeLocal !== choiceSeq || (current && current.updatedAt > res.record.updatedAt)) {
+        if (seqBeforeLocal !== choiceSeq || !sameStored(current, stored)) {
           overtaken = true
           return current
         }
@@ -255,10 +266,12 @@ export const createVpnSyncController = (deps: VpnSyncDeps) => {
     }
     const run = (async (): Promise<VpnSyncOutcome> => {
       let last: VpnSyncOutcome = 'synced'
+      let attempts = 0
       do {
         rerun = false
         last = await runOnce()
-      } while (rerun)
+        attempts += 1
+      } while (rerun && attempts < MAX_RERUNS)
       return last
     })().finally(() => { inFlight = null })
     inFlight = run
@@ -335,6 +348,7 @@ export const useVpnCloudSync = (): void => {
     let lastCheckAt = 0
     let lastSignedOut = false
     let retryAttempt = 0
+    let retryPending = false
     let retryTimer: number | undefined
     let offAccount: (() => void) | undefined
 
@@ -352,16 +366,33 @@ export const useVpnCloudSync = (): void => {
           const delay = RETRY_BACKOFF_MS[Math.min(retryAttempt, RETRY_BACKOFF_MS.length - 1)] ?? 30_000
           retryAttempt += 1
           window.clearTimeout(retryTimer)
-          retryTimer = window.setTimeout(() => { trigger(true) }, delay)
+          if (document.visibilityState === 'hidden') {
+            retryPending = true
+            return
+          }
+          retryPending = false
+          retryTimer = window.setTimeout(() => {
+            if (cancelled) return
+            if (document.visibilityState === 'hidden') {
+              retryPending = true
+              return
+            }
+            trigger(true)
+          }, delay)
           return
         }
         retryAttempt = 0
+        retryPending = false
         lastSignedOut = outcome === 'signed-out'
       })
     }
 
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') trigger(false)
+      if (document.visibilityState === 'visible') {
+        const due = retryPending
+        retryPending = false
+        trigger(due)
+      }
     }
     const onFocus = () => { trigger(false) }
     const onOnline = () => { trigger(true) }

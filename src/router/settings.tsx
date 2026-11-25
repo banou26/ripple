@@ -3,7 +3,7 @@ import type { SaveLocation } from '../torrent/library'
 import { css } from '@emotion/react'
 import { ArrowLeft, MonitorDown } from 'lucide-react'
 import { set } from 'idb-keyval'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
 
@@ -188,6 +188,8 @@ const Settings = () => {
   const [seedingPolicy, setSeedingPolicy] = useState<SeedingPolicy>(() => readSeedingPolicy())
   const [ratioText, setRatioText] = useState(() => String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO))
   const [minutesText, setMinutesText] = useState(() => String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES))
+  const skipRatioCommit = useRef(false)
+  const skipMinutesCommit = useRef(false)
   useEffect(() => onSeedingPolicyStored((next) => {
     setSeedingPolicy(next)
     if (next.mode === 'ratio') setRatioText(String(next.ratio))
@@ -201,6 +203,7 @@ const Settings = () => {
     runningTorrentClient()?.setSeedingPolicy(saved)
   }
   const commitRatio = () => {
+    if (skipRatioCommit.current) { skipRatioCommit.current = false; return }
     const fallback = String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO)
     const parsed = parseSeedRatio(ratioText)
     if (parsed === null) { setRatioText(fallback); return }
@@ -208,6 +211,7 @@ const Settings = () => {
     applySeedingPolicy({ mode: 'ratio', ratio: parsed })
   }
   const commitMinutes = () => {
+    if (skipMinutesCommit.current) { skipMinutesCommit.current = false; return }
     const fallback = String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES)
     const parsed = parseSeedMinutes(minutesText)
     if (parsed === null) { setMinutesText(fallback); return }
@@ -292,8 +296,9 @@ const Settings = () => {
                 onChange={(event) => { setRatioText(event.target.value) }}
                 onBlur={commitRatio}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') { commitRatio(); event.currentTarget.blur() }
+                  if (event.key === 'Enter') { event.currentTarget.blur() }
                   else if (event.key === 'Escape') {
+                    skipRatioCommit.current = true
                     setRatioText(String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO))
                     event.currentTarget.blur()
                   }
@@ -314,8 +319,9 @@ const Settings = () => {
                 onChange={(event) => { setMinutesText(event.target.value) }}
                 onBlur={commitMinutes}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') { commitMinutes(); event.currentTarget.blur() }
+                  if (event.key === 'Enter') { event.currentTarget.blur() }
                   else if (event.key === 'Escape') {
+                    skipMinutesCommit.current = true
                     setMinutesText(String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES))
                     event.currentTarget.blur()
                   }

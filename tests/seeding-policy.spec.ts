@@ -171,10 +171,26 @@ test('Settings Seeding policy defaults to Keep seeding, persists ratio and durat
   await modeSelect.selectOption('ratio')
   const ratioInput = row.getByLabel('Share ratio')
   await expect(ratioInput).toBeVisible()
+  await page.evaluate(() => {
+    const w = window as unknown as { __policyWrites: number }
+    w.__policyWrites = 0
+    const proto = Storage.prototype as unknown as { setItem: (key: string, value: string) => void }
+    const orig = Object.getOwnPropertyDescriptor(Storage.prototype, 'setItem')?.value as (key: string, value: string) => void
+    proto.setItem = function (key: string, value: string) {
+      if (key === 'ripple:seeding-policy') w.__policyWrites += 1
+      orig.call(this, key, value)
+    }
+  })
   await ratioInput.fill('1.75')
   // edits stay local until committed by Enter or blur so intermediate keystrokes never trigger engine churn
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1 })
   await ratioInput.press('Enter')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1.75 })
+  expect(await page.evaluate(() => (window as unknown as { __policyWrites: number }).__policyWrites)).toBe(1)
+  // Escape reverts the draft without saving
+  await ratioInput.fill('2.5')
+  await ratioInput.press('Escape')
+  await expect(ratioInput).toHaveValue('1.75')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1.75 })
   // invalid input does not corrupt stored policy and restores last valid value on blur
   await ratioInput.fill('0')
@@ -188,6 +204,10 @@ test('Settings Seeding policy defaults to Keep seeding, persists ratio and durat
   await minutesInput.fill('45')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'duration', minutes: 60 })
   await minutesInput.blur()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'duration', minutes: 45 })
+  await minutesInput.fill('90')
+  await minutesInput.press('Escape')
+  await expect(minutesInput).toHaveValue('45')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'duration', minutes: 45 })
 
   await page.reload()
