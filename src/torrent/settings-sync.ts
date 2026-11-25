@@ -644,7 +644,7 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     )
     await recordQueue
     const outcome = await sync()
-    if (outcome === 'stale' && !inFlight) return sync()
+    if (outcome === 'stale') return sync()
     return outcome
   }
 

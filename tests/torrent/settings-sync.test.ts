@@ -174,11 +174,13 @@ const makePartition = ({
   account,
   clock,
   readGate,
+  writeGate,
 }: {
   cloud: { payload: Record<string, SyncedEntry> | null, state?: 'ok' | 'locked' | 'error', migrated?: boolean }
   account: { name: string | null, available: boolean | null }
   clock: () => number
   readGate?: () => Promise<void>
+  writeGate?: () => Promise<void>
 }) => {
   let local = baseLocal()
   let stored: StoredSettingsSync | undefined
@@ -208,6 +210,7 @@ const makePartition = ({
     },
     writeCloud: async (payload) => {
       writeCalls += 1
+      if (writeGate) await writeGate()
       if (cloud.state === 'locked') return 'locked'
       cloud.payload = payload
       cloud.migrated = false
@@ -355,40 +358,38 @@ describe('createSettingsSyncController', () => {
 
   it('uploads a choice recorded during the final MAX_RERUNS attempt immediately', async () => {
     const gates: (() => void)[] = []
-    let holdReads = true
+    let holdWrites = true
     let tick = 1_000
-    const cloud: { payload: Record<string, SyncedEntry> | null } = {
-      payload: { dockHeight: { value: 300, updatedAt: 500 } },
-    }
+    const cloud: { payload: Record<string, SyncedEntry> | null } = { payload: null }
     const account = { name: 'alice', available: true }
     const part = makePartition({
       cloud,
       account,
       clock: () => ++tick,
-      readGate: () => (holdReads ? new Promise<void>((resolve) => { gates.push(resolve) }) : Promise.resolve()),
+      writeGate: () => (holdWrites ? new Promise<void>((resolve) => { gates.push(resolve) }) : Promise.resolve()),
     })
 
-    // Attempt 1 enters readGate, second sync sets rerun -> Attempt 2
-    const first = part.controller.sync()
+    // Attempt 1 enters writeCloud; p2 lands mid-write -> overtaken rerun -> Attempt 2
+    const p1 = part.setSetting('vpn', false)
     await vi.waitFor(() => expect(gates).toHaveLength(1))
-    part.controller.sync()
-    gates.shift()!()
-
-    // Attempt 2 enters readGate, recordChoice('vpn', false) sets rerun -> Attempt 3 (MAX_RERUNS)
-    await vi.waitFor(() => expect(gates).toHaveLength(1))
-    const midEdit = part.setSetting('vpn', false)
-    gates.shift()!()
-
-    // Attempt 3 enters readGate, trailing edit arrives during this final MAX_RERUNS attempt
-    await vi.waitFor(() => expect(gates).toHaveLength(1))
-    holdReads = false
-    const trailing = part.setSetting('listView', 'table')
+    const p2 = part.setSetting('addDialog', true)
     await new Promise((resolve) => setTimeout(resolve, 10))
     gates.shift()!()
 
-    await first
-    await midEdit
-    expect(await trailing).toBe('synced')
+    // Attempt 2 enters writeCloud; p3 lands mid-write -> overtaken rerun -> Attempt 3 (MAX_RERUNS)
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    const p3 = part.setSetting('dockHeight', 400)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    gates.shift()!()
+
+    // Attempt 3 enters writeCloud (final MAX_RERUNS iteration); p4 lands mid-write -> exits stale -> fresh follow-up sync
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    holdWrites = false
+    const p4 = part.setSetting('listView', 'table')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    gates.shift()!()
+
+    expect(await Promise.all([p1, p2, p3, p4])).toEqual(['synced', 'synced', 'synced', 'synced'])
     expect(cloud.payload?.listView?.value).toBe('table')
     expect(part.getLocal().listView).toBe('table')
   })

@@ -5,6 +5,7 @@ import type { StorageFull } from '../../src/torrent/storage-budget'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { del } from 'idb-keyval'
 
 const MAGNET = 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film'
 const FILE = { path: 'Film.mkv', size: 3_000_000_000, offset: 0, pad: false }
@@ -21,6 +22,30 @@ const env = vi.hoisted(() => ({
   framed: true,
   state: null as null | ((snaps: TorrentSnapshot[]) => void),
   full: null as null | ((full: StorageFull) => void),
+  available: false,
+  account: null as string | null,
+  files: new Map<string, string>(),
+}))
+
+vi.mock('@fkn/lib', () => ({
+  account: {
+    info: async () => (env.account ? { name: env.account, image: null, premium: false, premiumUntil: null } : null),
+    onChange: async () => () => {},
+  },
+  cloud: {
+    fs: {
+      available: async () => env.available,
+      isNotFound: (err: unknown) => (err as { code?: string } | null)?.code === 'FKN_STORAGE_NOT_FOUND',
+      promises: {
+        readFile: async (path: string) => {
+          const hit = env.files.get(path)
+          if (hit === undefined) throw Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
+          return hit
+        },
+        writeFile: async (path: string, data: string) => { env.files.set(path, data) },
+      },
+    },
+  },
 }))
 
 vi.mock('../../src/utils/framed', () => ({ isFramed: () => env.framed }))
@@ -71,7 +96,15 @@ const mount = async () => {
 
 const latest = () => seen[seen.length - 1]!
 
-afterEach(() => { env.framed = true })
+afterEach(async () => {
+  env.framed = true
+  env.available = false
+  env.account = null
+  env.files.clear()
+  localStorage.clear()
+  const { SETTINGS_SYNC_KEY } = await import('../../src/torrent/settings-sync')
+  await del(SETTINGS_SYNC_KEY).catch(() => {})
+})
 
 it('keeps a framed temporary film\'s source when only the person\'s own downloads are out of room', async () => {
   const screen = await mount()
@@ -104,4 +137,28 @@ it('keeps a framed temporary film\'s source when only the person\'s own download
   env.full!('kept')
   await expect.element(tab.getByText('Out of storage space. Remove a download in Ripple to free room.')).toBeInTheDocument()
   await tab.unmount()
+})
+
+it('keeps session alwaysShowSubtitles when a remote subtitleLanguage update arrives', async () => {
+  const screen = await mount()
+  try {
+    await expect.poll(() => typeof env.state).toBe('function')
+    env.state!([film(true)])
+    await expect.poll(() => typeof latest()?.onAlwaysShowSubtitlesChange).toBe('function')
+    latest().onAlwaysShowSubtitlesChange!(false)
+    await expect.poll(() => latest().alwaysShowSubtitles).toBe(false)
+
+    const { SETTINGS_SYNC_PATH, syncSettings } = await import('../../src/torrent/settings-sync')
+    env.available = true
+    env.account = 'alice'
+    env.files.set(SETTINGS_SYNC_PATH, JSON.stringify({
+      subtitleLanguage: { value: 'ja', updatedAt: Date.now() + 10_000 },
+    }))
+    expect(await syncSettings()).toBe('synced')
+
+    await expect.poll(() => latest().preferredSubtitleLanguage).toBe('ja')
+    expect(latest().alwaysShowSubtitles).toBe(false)
+  } finally {
+    await screen.unmount()
+  }
 })

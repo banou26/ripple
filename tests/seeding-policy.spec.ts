@@ -142,6 +142,7 @@ test('Settings Seeding limits default unchecked, persist ratio & time across rel
   page.on('pageerror', (error) => errors.push(String(error)))
 
   await page.goto(`${baseURL}/settings`)
+  await expect(page.getByRole('group', { name: 'Seeding' })).toBeVisible()
   const row = page.locator('main .folder', { hasText: 'Seeding' })
   const ratioCheck = row.getByRole('checkbox', { name: 'When ratio reaches' })
   const minutesCheck = row.getByRole('checkbox', { name: 'When seeding time reaches' })
