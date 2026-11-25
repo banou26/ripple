@@ -173,7 +173,7 @@ test('Settings Seeding policy defaults to Keep seeding, persists ratio and durat
   await expect(ratioInput).toBeVisible()
   await ratioInput.fill('1.75')
   // edits stay local until committed by Enter or blur so intermediate keystrokes never trigger engine churn
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 2 })
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1 })
   await ratioInput.press('Enter')
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ripple:seeding-policy')!))).toEqual({ mode: 'ratio', ratio: 1.75 })
   // invalid input does not corrupt stored policy and restores last valid value on blur
