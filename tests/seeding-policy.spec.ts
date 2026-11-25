@@ -36,10 +36,7 @@ const install = (file: typeof FILE) => {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>
   }
   const seen: Seen = w.__seen = { rows: [], fatal: [], pausedChanges: [] }
-  try {
-    localStorage.setItem('ripple:demo-seeded', '1')
-    localStorage.setItem('ripple:vpn', 'off')
-  } catch {}
+  try { localStorage.setItem('ripple:demo-seeded', '1') } catch {}
 
   const lastPaused = new Map<number, boolean>()
   const pendingReads = new Map<number, (data: Uint8Array) => void>()
