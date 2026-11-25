@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 
-import { automaticLanguage, OFFERED, pickLanguage, readPickedLanguage } from '../i18n'
+import { automaticLanguage, OFFERED, onLanguageShown, pickLanguage, readPickedLanguage } from '../i18n'
+import { recordSetting } from '../torrent/settings-sync'
 
 /**
  * `tag`'s name in `locale`, its own by default, as a menu row writes it: CLDR names a language as written mid-sentence
@@ -19,6 +20,7 @@ export const languageName = (tag: string, locale = tag) => {
 export const LanguageSelect = () => {
   const intl = useIntl()
   const [picked, setPicked] = useState(() => readPickedLanguage() ?? '')
+  useEffect(() => onLanguageShown(() => setPicked(readPickedLanguage() ?? '')), [])
   const byName = useMemo(() => {
     const collator = new Intl.Collator(intl.locale)
     return OFFERED.map(tag => ({ tag, name: languageName(tag) })).sort((a, b) => collator.compare(a.name, b.name))
@@ -27,8 +29,10 @@ export const LanguageSelect = () => {
     <select
       value={picked}
       onChange={(event) => {
-        setPicked(event.currentTarget.value)
-        void pickLanguage(event.currentTarget.value || undefined)
+        const next = event.currentTarget.value
+        setPicked(next)
+        void pickLanguage(next || undefined)
+        void recordSetting('language', next || null)
       }}
     >
       <option value="">{intl.formatMessage({ id: 'Automatic ({language})', defaultMessage: 'Automatic ({language})' }, { language: languageName(automaticLanguage()) })}</option>

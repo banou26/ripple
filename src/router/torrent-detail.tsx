@@ -17,6 +17,10 @@ import { isInbound, peerTransport } from '../torrent/inbound'
 
 import { getTorrentClient } from '../torrent/client'
 import { isGrantedSavePath } from '../torrent/hybrid-storage'
+import {
+  DEFAULT_DOCK_HEIGHT, DOCK_HEIGHT_KEY, MAX_DOCK_HEIGHT, MIN_DOCK_HEIGHT, clampDockHeight,
+  onSettingApplied, recordSetting,
+} from '../torrent/settings-sync'
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { unitLocale } from '../i18n/languages'
 import { getHumanReadableByteString, numberFormat, writePercent } from '../utils/bytes'
@@ -50,11 +54,6 @@ const TAB_LABEL = defineMessages<Tab>({
   peers: { id: 'Peers', defaultMessage: 'Peers' },
   trackers: { id: 'Trackers', defaultMessage: 'Trackers' },
 })
-
-const HEIGHT_KEY = 'ripple:dock-height'
-const MIN_HEIGHT = 140
-const MAX_HEIGHT = 720
-const DEFAULT_HEIGHT = 300
 
 const UNKNOWN = '-'
 
@@ -451,10 +450,10 @@ const AddTrackers = ({ onAdd }: { onAdd: (urls: string[]) => Promise<string[]> }
 
 const readHeight = (): number => {
   try {
-    const stored = Number(localStorage.getItem(HEIGHT_KEY))
-    if (Number.isFinite(stored) && stored >= MIN_HEIGHT && stored <= MAX_HEIGHT) return stored
+    const stored = Number(localStorage.getItem(DOCK_HEIGHT_KEY))
+    if (Number.isFinite(stored) && stored >= MIN_DOCK_HEIGHT && stored <= MAX_DOCK_HEIGHT) return Math.round(stored)
   } catch { /* private mode, or storage blocked */ }
-  return DEFAULT_HEIGHT
+  return DEFAULT_DOCK_HEIGHT
 }
 
 export const dockStyle = css`
@@ -980,6 +979,7 @@ export const TorrentDetailDock = ({
   const intl = useIntl()
   const [tab, setTab] = useState<Tab>('general')
   const [height, setHeight] = useState(readHeight)
+  useEffect(() => onSettingApplied('dockHeight', setHeight), [])
   const dragging = useRef(false)
   const detail = useTorrentDetail(handle)
   const client = getTorrentClient()
@@ -996,19 +996,19 @@ export const TorrentDetailDock = ({
     dragging.current = true
     const startY = e.clientY
     const startHeight = height
+    let latestHeight = startHeight
     const move = (ev: PointerEvent) => {
       // dragging UP grows the dock, since it is anchored to the bottom of the page
-      const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startHeight + (startY - ev.clientY)))
-      setHeight(next)
+      latestHeight = clampDockHeight(startHeight + (startY - ev.clientY))
+      setHeight(latestHeight)
     }
     const up = () => {
       dragging.current = false
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
-      setHeight((h) => {
-        try { localStorage.setItem(HEIGHT_KEY, String(h)) } catch { /* storage blocked */ }
-        return h
-      })
+      setHeight(latestHeight)
+      try { localStorage.setItem(DOCK_HEIGHT_KEY, String(latestHeight)) } catch { /* storage blocked */ }
+      void recordSetting('dockHeight', latestHeight)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)

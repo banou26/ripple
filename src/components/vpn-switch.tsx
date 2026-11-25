@@ -12,7 +12,7 @@ import { COUNTRY_LINE, inListedCountry } from '../torrent/country-line'
 import {
   answerQuotaOffer, onVpnChange, quotaDay, quotaOfferAnswered, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered,
 } from '../torrent/vpn-setting'
-import { recordVpnChoice } from '../torrent/vpn-sync'
+import { recordSetting } from '../torrent/settings-sync'
 import { vpnLabels, vpnStatus } from '../torrent/vpn-status'
 import { BORDER_INTERACTIVE, EMPHASIS, FOCUS_RING, HOVER_WASH, OK, SUNKEN_BG, TEXT, TEXT_MUTED, TEXT_ON_LIGHT, WARN } from '../theme'
 import { confirmStyle } from './confirm-dialog'
@@ -70,7 +70,7 @@ export const useVpnSwitch = (
     // read back: a browser that refused to store it keeps the choice it had
     const actual = vpnOn()
     setChosen(actual)
-    if (actual === next) void recordVpnChoice(next)
+    if (actual === next) void recordSetting('vpn', next)
   }
   const status = vpnStatus(reachable, transport, available ? chosen : undefined)
   const press = () => {
@@ -89,7 +89,10 @@ export const useVpnSwitch = (
       ? (off, remember) => {
         setWarning(false)
         if (!off) return
-        if (remember) rememberVpnWarning()
+        if (remember) {
+          rememberVpnWarning()
+          void recordSetting('vpnWarningRemembered', true)
+        }
         choose(false)
       }
       : null,

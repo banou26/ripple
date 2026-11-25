@@ -17,6 +17,7 @@ import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FileP
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
+import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
@@ -101,7 +102,7 @@ import { DEFAULT_ICON, type GroupIcon, clearGroupAppearance, saveGroupImage, set
 import { reorderKeys, saveGroupMemberOrder, saveTopOrder, useListOrder } from '../torrent/list-order'
 import { cardEntryGroups, groupMemberKeys, summarizeGroup, visibleEntryTorrents, visibleTopKeys, type GroupEntry, type GroupSummary, type LibraryEntry } from '../torrent/group-rows'
 import {
-  GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_FILTER_KEY, LIST_SORT_KEY, LIST_VIEW_KEY, NO_COLLAPSED, TEMPORARY_HINT,
+  GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_FILTER_KEY, LIST_GROUPS, LIST_SORT_KEY, LIST_VIEW_KEY, NO_COLLAPSED, TEMPORARY_HINT,
   filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
   writeCollapsed, writeSort,
 } from '../torrent/list-view'
@@ -3007,6 +3008,7 @@ const Home = () => {
   const chooseAddDialog = (on: boolean) => {
     setAddDialog(on)
     try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
+    void recordSetting('addDialog', on)
   }
 
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
@@ -3543,14 +3545,17 @@ const Home = () => {
   const chooseFilter = (filter: ListFilter) => {
     setListFilter(filter)
     try { localStorage.setItem(LIST_FILTER_KEY, filter) } catch {}
+    void recordSetting('listFilter', filter)
   }
   const chooseView = (view: ViewMode) => {
     setListView(view)
     try { localStorage.setItem(LIST_VIEW_KEY, view) } catch {}
+    void recordSetting('listView', view)
   }
   const chooseSort = (key: SortKey, dir: SortDir) => {
     setListSort({ key, dir })
     try { localStorage.setItem(LIST_SORT_KEY, writeSort(key, dir)) } catch {}
+    void recordSetting('listSort', { key, dir })
   }
 
   const [params, setParams] = useSearchParams()
@@ -3594,8 +3599,9 @@ const Home = () => {
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
     try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
+    if (location === 'browser' || location === 'folder') void recordSetting('saveLocation', location)
   }
-  // a default chosen in another tab is this one's too
+  // a default chosen in another tab or cloud sync updates this one too
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       // a null key is the whole storage cleared
@@ -3603,7 +3609,16 @@ const Home = () => {
       try { setDefaultLocation(readGlobalDefault((k) => localStorage.getItem(k))) } catch {}
     }
     window.addEventListener('storage', changed)
-    return () => window.removeEventListener('storage', changed)
+    const offAdd = onSettingApplied('addDialog', setAddDialog)
+    const offLoc = onSettingApplied('saveLocation', setDefaultLocation)
+    const offFilter = onSettingApplied('listFilter', setListFilter)
+    const offView = onSettingApplied('listView', setListView)
+    const offSort = onSettingApplied('listSort', setListSort)
+    const offCollapsed = onSettingApplied('listCollapsed', (groups) => setCollapsedGroups(new Set(groups)))
+    return () => {
+      window.removeEventListener('storage', changed)
+      offAdd(); offLoc(); offFilter(); offView(); offSort(); offCollapsed()
+    }
   }, [])
 
   const rateEditTorrent = rateEdit && typeof rateEdit.scope === 'object'
@@ -3613,8 +3628,12 @@ const Home = () => {
   const applyRateEdit = (bytesPerSecond: number) => {
     if (!rateEdit) return
     const side = rateEdit.direction === 'down' ? 'down' : 'up'
-    if (rateEdit.scope === 'session') client.setSessionLimits({ [side]: bytesPerSecond })
-    else if (rateEditTorrent) client.setLimits(Number(rateEditTorrent.id), { [side]: bytesPerSecond })
+    if (rateEdit.scope === 'session') {
+      const next = { ...sessionLimits, [side]: bytesPerSecond }
+      setSessionLimits(next)
+      client.setSessionLimits({ [side]: bytesPerSecond })
+      void recordSetting('rateLimits', next)
+    } else if (rateEditTorrent) client.setLimits(Number(rateEditTorrent.id), { [side]: bytesPerSecond })
     setRateEdit(null)
   }
 
@@ -3948,6 +3967,7 @@ const Home = () => {
         if (serialized) localStorage.setItem(LIST_COLLAPSED_KEY, serialized)
         else localStorage.removeItem(LIST_COLLAPSED_KEY)
       } catch {}
+      void recordSetting('listCollapsed', LIST_GROUPS.filter((g) => next.has(g)))
       return next
     })
   }, [search])

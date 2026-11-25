@@ -131,6 +131,7 @@ export type TorrentClient = {
   setSeedingPolicy: (policy: SeedingPolicy) => void
   /** The session ceilings in force, replayed immediately to a new subscriber once anything is known. */
   onRateLimits: (cb: (limits: RateLimits) => void) => () => void
+  latestRateLimits: () => RateLimits | null
   onOwnership: (cb: (owned: boolean) => void) => () => void
   owns: () => boolean
   onEngineReset: (cb: () => void) => () => void

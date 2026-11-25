@@ -62,7 +62,7 @@ describe('the privacy page, signed in', () => {
   it('says each torrent\'s .torrent file syncs with its tracker addresses, and goes with the torrent\'s removal', async () => {
     const screen = await privacy()
     const text = screen.container.textContent
-    expect(text).toContain('custom list order and VPN setting.')
+    expect(text).toContain('custom list order and settings (such as language, speed and seeding limits, list view and whether the VPN is on).')
     expect(text).toContain('Each torrent’s .torrent file syncs too, with its tracker addresses.')
     expect(text).toContain('deletes its synced thumbnail and .torrent file;')
     expect(text).toContain('each torrent’s resume data, .torrent file and thumbnail')

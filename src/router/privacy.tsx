@@ -35,8 +35,9 @@ const Privacy = () => (
       and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
       torrents you removed and when, so other devices remove them too, your groups (each
       group&rsquo;s name, and which torrents were put in it or taken out and when), one
-      thumbnail picture per torrent, plus your group icons, custom list order and VPN setting. Each torrent&rsquo;s .torrent file syncs too, with its
-      tracker addresses. It never syncs the downloaded files themselves.
+      thumbnail picture per torrent, plus your group icons, custom list order and settings (such as
+      language, speed and seeding limits, list view and whether the VPN is on). Each torrent&rsquo;s
+      .torrent file syncs too, with its tracker addresses. It never syncs the downloaded files themselves.
     </p>
     <p>
       All of it is encrypted in your browser before it is uploaded, so FKN stores it without

@@ -17,6 +17,7 @@ import { css } from '@emotion/react'
 import { useCallback, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 
+import { CONFIRM_REMOVE_KEY, recordSetting } from '../torrent/settings-sync'
 import { Modal } from './modal'
 import {
   BORDER,
@@ -186,7 +187,10 @@ export const useConfirm = () => {
   }, [])
 
   const close = useCallback((ok: boolean) => {
-    if (ok && dontAsk) remember(request?.rememberKey)
+    if (ok && dontAsk) {
+      remember(request?.rememberKey)
+      if (request?.rememberKey === CONFIRM_REMOVE_KEY) void recordSetting('confirmRemove', true)
+    }
     setRequest(null)
     // never leave a caller awaiting forever: every exit path runs through here
     settle.current?.(ok)

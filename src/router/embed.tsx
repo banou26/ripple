@@ -37,8 +37,9 @@ import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
 import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
 import { usePlayingTitle } from './playing-title'
-import { saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
+import { OFF, saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
 import { Route, getRoutePath, linkParams, linkPath } from './path'
+import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
 import { STATE_LABEL } from './torrent-format'
 
 const playerStyle = css`
@@ -488,11 +489,21 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   const chooseNormalizeVolume = (on: boolean) => {
     setNormalizeVolume(on)
     try { localStorage.setItem(NORMALIZE_VOLUME_KEY, on ? '1' : '0') } catch {}
+    void recordSetting('normalizeVolume', on)
   }
   const [languages, setLanguages] = useState(() => startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
+  useEffect(() => {
+    const offNorm = onSettingApplied('normalizeVolume', setNormalizeVolume)
+    const syncLangs = () => setLanguages(startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
+    const offAudio = onSettingApplied('audioLanguage', syncLangs)
+    const offSub = onSettingApplied('subtitleLanguage', syncLangs)
+    return () => { offNorm(); offAudio(); offSub() }
+  }, [linked])
   const chooseLanguage = (picked: TrackLanguages) => {
     setLanguages((current) => ({ ...current, ...picked }))
     saveLanguages((k, v) => localStorage.setItem(k, v), picked)
+    if (picked.audio !== undefined) void recordSetting('audioLanguage', picked.audio ?? null)
+    if (picked.subtitles !== undefined) void recordSetting('subtitleLanguage', picked.subtitles === null ? OFF : picked.subtitles)
     tellPicked(picked)
   }
   // The player keeps no volume of its own: it writes it onto its <video> and reads it back from there, and in

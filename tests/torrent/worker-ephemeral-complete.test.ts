@@ -1,10 +1,17 @@
-// An ephemeral playback torrent stops seeding as soon as its wanted bytes finish, while keeping OPFS reads and seeks paused and waking only when missing pieces are requested.
+// An ephemeral playback torrent keeps seeding by default while watching (qBittorrent parity), pauses on viewer close, and stops early only when a configured seeding limit is met.
 import { expect, it, vi } from 'vitest'
 
 import { DEMO_SAVE_PATH } from '../../src/torrent/constants'
+import { DEFAULT_SEEDING_POLICY } from '../../src/torrent/seeding-policy'
 import { installWorkerGlobals } from '../utils/worker-rig'
 
 const MiB = 1024 * 1024
+
+type MockStatus = {
+  state: number
+  allTimeUpload: number
+  seedingSeconds: number
+}
 
 const engine = vi.hoisted(() => ({
   queued: new Set<number>(),
@@ -12,7 +19,7 @@ const engine = vi.hoisted(() => ({
   registered: new Set<number>(),
   paused: new Set<number>(),
   autoManaged: new Set<number>(),
-  states: new Map<number, number>(),
+  stats: new Map<number, MockStatus>(),
   held: new Map<number, Set<number>>(),
   filesByHandle: new Map<number, { size: number, path: string }[]>(),
   log: [] as string[],
@@ -47,14 +54,14 @@ vi.mock('libtorrent-wasm', async () => {
       addMagnet: () => {
         const h = ++engine.added
         engine.queued.add(h)
-        engine.states.set(h, 3)
+        engine.stats.set(h, { state: 3, allTimeUpload: 0, seedingSeconds: 0 })
         engine.autoManaged.add(h)
         return h
       },
       addTorrentFile: () => {
         const h = ++engine.added
         engine.queued.add(h)
-        engine.states.set(h, 3)
+        engine.stats.set(h, { state: 3, allTimeUpload: 0, seedingSeconds: 0 })
         engine.autoManaged.add(h)
         return h
       },
@@ -62,18 +69,20 @@ vi.mock('libtorrent-wasm', async () => {
       status: (h: number) => {
         if (!engine.registered.has(h)) return null
         const layout = buildLayout(h)
+        const s = engine.stats.get(h) ?? { state: 3, allTimeUpload: 0, seedingSeconds: 0 }
+        const done = (engine.held.get(h)?.size ?? 0) * MiB
         return {
-          state: engine.states.get(h) ?? 3,
+          state: s.state,
           paused: engine.paused.has(h),
           autoManaged: engine.autoManaged.has(h),
           errorCode: 0,
-          totalDone: (engine.held.get(h)?.size ?? 0) * MiB,
+          totalDone: done,
           downloadRate: 0,
           numPeers: 0,
-          activeSeconds: 0,
-          seedingSeconds: 0,
-          allTimeDownload: (engine.held.get(h)?.size ?? 0) * MiB,
-          allTimeUpload: 0,
+          activeSeconds: s.seedingSeconds,
+          seedingSeconds: s.seedingSeconds,
+          allTimeDownload: done,
+          allTimeUpload: s.allTimeUpload,
           wasted: 0,
           storageIndex: layout.storageIndex,
         }
@@ -152,7 +161,7 @@ const addEphemeral = async (c: string, files: { size: number, path: string }[], 
 
 const pumps = () => new Promise((resolve) => setTimeout(resolve, 1_100))
 
-it('pauses a completed ephemeral playback torrent immediately and keeps OPFS reads and seeks paused', async () => {
+it('keeps a completed ephemeral playback torrent seeding by default while watching, and pauses once viewing ends', async () => {
   await import('../../src/torrent/worker')
   await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
@@ -162,123 +171,72 @@ it('pauses a completed ephemeral playback torrent immediately and keeps OPFS rea
   await vi.waitFor(() => expect(engine.setStreamWindowCalls.some((c) => c.handle === h)).toBe(true))
   expect(engine.paused.has(h)).toBe(false)
 
-  // torrent finishes while the player is still open
+  // torrent finishes while the player is still open -> stays seeding under default (limits off)
   engine.held.set(h, range(0, 4))
-  engine.states.set(h, 5)
-  await vi.waitFor(() => expect(engine.paused.has(h)).toBe(true), { timeout: 2_000 })
-  const logCountAfterPark = engine.log.length
-
-  // OPFS reads, sequential re-anchors, and in-file seeks continue serving without waking/seeding
-  rig.send({ type: 'read', id: 'opfs-1', handle: h, fileIndex: 0, offset: MiB, len: 64 * 1024, prioritize: true, viewer: 'player:1' })
-  await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'opfs-1')).toMatchObject({ type: 'read-result' }))
-  rig.send({ type: 'watch', viewer: 'player:1', handle: h, fileIndex: 0, fromOffset: 2 * MiB, readLen: 64 * 1024 })
-  rig.send({ type: 'watch', viewer: 'player:1', handle: h, fileIndex: 0, fromOffset: 3 * MiB })
+  engine.stats.set(h, { state: 5, allTimeUpload: 16 * MiB, seedingSeconds: 36_000 })
   await pumps()
-  expect(engine.paused.has(h)).toBe(true)
-  expect(engine.log.length).toBe(logCountAfterPark)
+  expect(engine.paused.has(h)).toBe(false)
 
-  // closing the viewer must not turn autoManaged back on and unpark the torrent
-  const flagsBefore = engine.flagLog.length
+  // closing the viewer parks the idle ephemeral torrent
   rig.send({ type: 'unwatch', viewer: 'player:1' })
-  await pumps()
-  expect(engine.paused.has(h)).toBe(true)
-  expect(engine.flagLog.slice(flagsBefore).some((f) => (f.mask & 32) !== 0 && (f.flags & 32) !== 0)).toBe(false)
+  await vi.waitFor(() => expect(engine.paused.has(h)).toBe(true), { timeout: 2_000 })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)
 
-it('wakes a completion-parked pack when switching to an unheld episode, then re-parks once it finishes', async () => {
+it('stops an ephemeral playback torrent when a seeding limit hits while keeping OPFS reads paused, and wakes on an unheld episode', async () => {
+  rig.send({ type: 'set-seeding-policy', policy: { ratio: 1, minutes: null } })
   const pack = await addEphemeral('2', [
     { size: 4 * MiB, path: 'e1.mkv' },
     { size: 4 * MiB, path: 'e2.mkv' },
   ])
   engine.held.set(pack, range(0, 4))
-  engine.states.set(pack, 4)
+  engine.stats.set(pack, { state: 4, allTimeUpload: 4 * MiB, seedingSeconds: 0 })
   rig.send({ type: 'watch', viewer: 'player:2', handle: pack, fileIndex: 0, fromOffset: 0 })
   await vi.waitFor(() => expect(engine.paused.has(pack)).toBe(true), { timeout: 2_000 })
+  const logCountAfterStop = engine.log.length
 
-  // switching to episode 2 whose pieces (4..7) are not held wakes the torrent and plans the window
+  // OPFS reads and seeks within held episode continue serving without waking/seeding
+  rig.send({ type: 'read', id: 'opfs-2', handle: pack, fileIndex: 0, offset: MiB, len: 64 * 1024, prioritize: true, viewer: 'player:2' })
+  await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'opfs-2')).toMatchObject({ type: 'read-result' }))
+  rig.send({ type: 'watch', viewer: 'player:2', handle: pack, fileIndex: 0, fromOffset: 2 * MiB, readLen: 64 * 1024 })
+  await pumps()
+  expect(engine.paused.has(pack)).toBe(true)
+  expect(engine.log.length).toBe(logCountAfterStop)
+
+  // switching to episode 2 whose pieces (4..7) are not held wakes the torrent and plans its window
   const windowsBefore = engine.setStreamWindowCalls.filter((c) => c.handle === pack).length
   rig.send({ type: 'watch', viewer: 'player:2', handle: pack, fileIndex: 1, fromOffset: 0 })
   await vi.waitFor(() => expect(engine.paused.has(pack)).toBe(false), { timeout: 2_000 })
   expect(engine.setStreamWindowCalls.filter((c) => c.handle === pack).length).toBeGreaterThan(windowsBefore)
 
-  // once episode 2 finishes, the pack stops seeding again while playback stays open
+  // once episode 2 finishes and meets the limit, it stops seeding again
   engine.held.set(pack, range(0, 8))
-  engine.states.set(pack, 5)
+  engine.stats.set(pack, { state: 5, allTimeUpload: 8 * MiB, seedingSeconds: 0 })
   await vi.waitFor(() => expect(engine.paused.has(pack)).toBe(true), { timeout: 2_000 })
+
+  // closing the viewer keeps it parked even if seeding limits are cleared afterward
   rig.send({ type: 'unwatch', viewer: 'player:2' })
+  await pumps()
+  rig.send({ type: 'set-seeding-policy', policy: DEFAULT_SEEDING_POLICY })
+  await pumps()
+  expect(engine.paused.has(pack)).toBe(true)
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)
 
-it('waits for prepared next-episode bands in a pack before auto-pausing', async () => {
-  const pack = await addEphemeral('3', [
-    { size: 10 * MiB, path: 'e1.mkv' },
-    { size: 20 * MiB, path: 'e2.mkv' },
-  ])
-  // file 0 (pieces 0..9) complete, file 1 (pieces 10..29) has only head (10..13) and lacks tail (27..29)
-  engine.held.set(pack, range(0, 14))
-  engine.states.set(pack, 4)
-  rig.send({ type: 'watch', viewer: 'player:3', handle: pack, fileIndex: 0, fromOffset: 0 })
-  rig.send({ type: 'watch', viewer: 'next:3', handle: pack, fileIndex: 1, fromOffset: 0, prepare: true })
-  await pumps()
-  // prepare turned on because player file is held; tail pieces 27..29 of file 1 are still needed
-  expect(engine.paused.has(pack)).toBe(false)
-
-  // once tail band (27..29) lands while middle pieces 14..26 remain skipped, it stops seeding
-  engine.held.set(pack, new Set([...range(0, 14), 27, 28, 29]))
-  await vi.waitFor(() => expect(engine.paused.has(pack)).toBe(true), { timeout: 2_000 })
-  rig.send({ type: 'unwatch', viewer: 'player:3' })
-  rig.send({ type: 'unwatch', viewer: 'next:3' })
-  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
-}, 20_000)
-
-it('leaves user-started, force-started, and demo sample ephemeral torrents seeding on completion', async () => {
-  const started = await addEphemeral('4', [{ size: 4 * MiB, path: 'film.mp4' }])
-  engine.held.set(started, range(0, 4))
-  engine.states.set(started, 5)
-  rig.send({ type: 'watch', viewer: 'player:4', handle: started, fileIndex: 0, fromOffset: 0 })
-  await vi.waitFor(() => expect(engine.paused.has(started)).toBe(true), { timeout: 2_000 })
-  rig.send({ type: 'resume', handle: started })
-  await vi.waitFor(() => expect(engine.paused.has(started)).toBe(false), { timeout: 2_000 })
-  await pumps()
-  expect(engine.paused.has(started)).toBe(false)
-  rig.send({ type: 'unwatch', viewer: 'player:4' })
-
-  const forcedH = await addEphemeral('5', [{ size: 4 * MiB, path: 'film.mp4' }])
-  engine.held.set(forcedH, range(0, 4))
-  engine.states.set(forcedH, 5)
-  rig.send({ type: 'watch', viewer: 'player:5', handle: forcedH, fileIndex: 0, fromOffset: 0 })
-  await vi.waitFor(() => expect(engine.paused.has(forcedH)).toBe(true), { timeout: 2_000 })
-  rig.send({ type: 'force-start', handle: forcedH })
-  await vi.waitFor(() => expect(engine.paused.has(forcedH)).toBe(false), { timeout: 2_000 })
-  await pumps()
-  expect(engine.paused.has(forcedH)).toBe(false)
-  rig.send({ type: 'unwatch', viewer: 'player:5' })
-
-  const sample = await addEphemeral('6', [{ size: 4 * MiB, path: 'sintel.mp4' }], DEMO_SAVE_PATH)
-  engine.held.set(sample, range(0, 4))
-  engine.states.set(sample, 5)
-  rig.send({ type: 'watch', viewer: 'player:6', handle: sample, fileIndex: 0, fromOffset: 0 })
-  await pumps()
-  expect(engine.paused.has(sample)).toBe(false)
-  rig.send({ type: 'unwatch', viewer: 'player:6' })
-  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
-}, 20_000)
-
-it('stays parked during a slow OPFS read of already-held bytes and a concurrent re-anchor', async () => {
-  const h = await addEphemeral('7', [{ size: 32 * MiB, path: 'film.mp4' }])
+it('stays parked during a slow OPFS read of already-held bytes and a concurrent re-anchor under an active limit', async () => {
+  rig.send({ type: 'set-seeding-policy', policy: { ratio: null, minutes: 1 } })
+  const h = await addEphemeral('3', [{ size: 32 * MiB, path: 'film.mp4' }])
   engine.held.set(h, range(0, 32))
-  engine.states.set(h, 5)
-  rig.send({ type: 'watch', viewer: 'player:7', handle: h, fileIndex: 0, fromOffset: 0 })
+  engine.stats.set(h, { state: 5, allTimeUpload: 0, seedingSeconds: 60 })
+  rig.send({ type: 'watch', viewer: 'player:3', handle: h, fileIndex: 0, fromOffset: 0 })
   await vi.waitFor(() => expect(engine.paused.has(h)).toBe(true), { timeout: 2_000 })
 
   const logStart = engine.log.length
   engine.readDelayMs = 600
   try {
-    rig.send({ type: 'read', id: 'slow-held-1', handle: h, fileIndex: 0, offset: 0, len: 64 * 1024, prioritize: false, viewer: 'player:7' })
-    // Yield so the worker enters session.read with readsByHandle populated, then send a re-anchoring watch mid-read
+    rig.send({ type: 'read', id: 'slow-held-1', handle: h, fileIndex: 0, offset: 0, len: 64 * 1024, prioritize: false, viewer: 'player:3' })
     await new Promise((resolve) => setTimeout(resolve, 40))
-    rig.send({ type: 'watch', viewer: 'player:7', handle: h, fileIndex: 0, fromOffset: 16 * MiB, readLen: 64 * 1024 })
+    rig.send({ type: 'watch', viewer: 'player:3', handle: h, fileIndex: 0, fromOffset: 16 * MiB, readLen: 64 * 1024 })
     await vi.waitFor(() => expect(rig.posted.find((m) => m.id === 'slow-held-1')).toMatchObject({ type: 'read-result' }), { timeout: 5_000 })
     await pumps()
   } finally {
@@ -288,6 +246,21 @@ it('stays parked during a slow OPFS read of already-held bytes and a concurrent 
   expect(engine.paused.has(h)).toBe(true)
   const cycles = engine.log.slice(logStart).filter((entry) => entry.startsWith('resume ') || entry.startsWith('pause '))
   expect(cycles).toEqual([])
-  rig.send({ type: 'unwatch', viewer: 'player:7' })
+
+  // Manual Start, Force start, and the demo sample override active limits while watching
+  rig.send({ type: 'resume', handle: h })
+  await vi.waitFor(() => expect(engine.paused.has(h)).toBe(false), { timeout: 2_000 })
+  await pumps()
+  expect(engine.paused.has(h)).toBe(false)
+  rig.send({ type: 'unwatch', viewer: 'player:3' })
+
+  const sample = await addEphemeral('4', [{ size: 4 * MiB, path: 'sintel.mp4' }], DEMO_SAVE_PATH)
+  engine.held.set(sample, range(0, 4))
+  engine.stats.set(sample, { state: 5, allTimeUpload: 8 * MiB, seedingSeconds: 120 })
+  rig.send({ type: 'watch', viewer: 'player:4', handle: sample, fileIndex: 0, fromOffset: 0 })
+  await pumps()
+  expect(engine.paused.has(sample)).toBe(false)
+  rig.send({ type: 'unwatch', viewer: 'player:4' })
+  rig.send({ type: 'set-seeding-policy', policy: DEFAULT_SEEDING_POLICY })
   expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
 }, 20_000)

@@ -6,6 +6,8 @@ export const DEMO_SEEDED_KEY = 'ripple:demo-seeded'
 export const SYNC_ACCOUNT_KEY = 'ripple:sync-account'
 /** Whether a torrent that has landed in the user's folder should give up Ripple's own OPFS copy. */
 export const FREE_AFTER_SAVE_KEY = 'ripple:free-after-save'
+/** The volume and mute last set on the player's video element. */
+export const PLAYER_VOLUME_KEY = 'ripple:player-volume'
 
 /**
  * The bundled demo torrent, and the directory it must be given.

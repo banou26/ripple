@@ -1,23 +1,19 @@
 /**
- * Rules for when a completed library torrent stops seeding.
+ * Rules for when a completed torrent stops seeding (qBittorrent-style opt-in limits).
  *
- * Nothing here reads IndexedDB or touches the engine, so the rules and parsers can be tested on
- * their own. The page keeps the chosen policy in `localStorage` for instant Settings rendering and
- * mirrors it to IndexedDB (`SEEDING_POLICY_KEY`) + the engine worker so background playback and
- * reloading tabs start with the active policy.
+ * Limits are off by default so finished torrents keep seeding unless the user opts into a share
+ * ratio and/or seeding-time threshold. Nothing here reads IndexedDB or touches the engine, so the
+ * rules and parsers can be tested on their own.
  */
 
 export const SEEDING_POLICY_KEY = 'ripple:seeding-policy'
 
-export type SeedingPolicyMode = 'keep' | 'stop' | 'ratio' | 'duration'
+export type SeedingPolicy = {
+  ratio: number | null
+  minutes: number | null
+}
 
-export type SeedingPolicy =
-  | { mode: 'keep' }
-  | { mode: 'stop' }
-  | { mode: 'ratio', ratio: number }
-  | { mode: 'duration', minutes: number }
-
-export const DEFAULT_SEEDING_POLICY: SeedingPolicy = { mode: 'keep' }
+export const DEFAULT_SEEDING_POLICY: SeedingPolicy = { ratio: null, minutes: null }
 
 export const DEFAULT_SEED_RATIO = 1
 export const MIN_SEED_RATIO = 0.01
@@ -33,27 +29,32 @@ export const isSeedRatio = (value: unknown): value is number =>
 export const isSeedMinutes = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= MIN_SEED_MINUTES && value <= MAX_SEED_MINUTES
 
-export const normalizeSeedingPolicy = (raw: unknown): SeedingPolicy => {
-  if (!raw || typeof raw !== 'object') return DEFAULT_SEEDING_POLICY
-  const source = raw as Partial<Record<string, unknown>>
-  if (source.mode === 'stop') return { mode: 'stop' }
-  if (source.mode === 'ratio') {
-    const ratio = isSeedRatio(source.ratio) ? Math.round(source.ratio * 10_000) / 10_000 : DEFAULT_SEED_RATIO
-    return { mode: 'ratio', ratio: isSeedRatio(ratio) ? ratio : DEFAULT_SEED_RATIO }
-  }
-  if (source.mode === 'duration') {
-    const minutes = isSeedMinutes(source.minutes) ? source.minutes : DEFAULT_SEED_MINUTES
-    return { mode: 'duration', minutes }
-  }
-  return DEFAULT_SEEDING_POLICY
+export const hasSeedingLimit = (policy: SeedingPolicy): boolean =>
+  policy.ratio !== null || policy.minutes !== null
+
+const cleanRatio = (value: unknown): number | null => {
+  if (!isSeedRatio(value)) return null
+  const rounded = Math.round(value * 10_000) / 10_000
+  return isSeedRatio(rounded) ? rounded : null
 }
 
-export const sameSeedingPolicy = (a: SeedingPolicy, b: SeedingPolicy): boolean => {
-  if (a.mode !== b.mode) return false
-  if (a.mode === 'ratio' && b.mode === 'ratio') return a.ratio === b.ratio
-  if (a.mode === 'duration' && b.mode === 'duration') return a.minutes === b.minutes
-  return true
+export const normalizeSeedingPolicy = (raw: unknown): SeedingPolicy => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_SEEDING_POLICY
+  const source = raw as Partial<Record<string, unknown>>
+  // Migrate 0.0.104 discriminated policies into opt-in limits, dropping the removed stop-immediately mode.
+  if ('mode' in source) {
+    if (source.mode === 'ratio') return { ratio: cleanRatio(source.ratio) ?? DEFAULT_SEED_RATIO, minutes: null }
+    if (source.mode === 'duration') return { ratio: null, minutes: isSeedMinutes(source.minutes) ? source.minutes : DEFAULT_SEED_MINUTES }
+    return DEFAULT_SEEDING_POLICY
+  }
+  const ratio = cleanRatio(source.ratio)
+  const minutes = isSeedMinutes(source.minutes) ? source.minutes : null
+  if (ratio === null && minutes === null) return DEFAULT_SEEDING_POLICY
+  return { ratio, minutes }
 }
+
+export const sameSeedingPolicy = (a: SeedingPolicy, b: SeedingPolicy): boolean =>
+  a.ratio === b.ratio && a.minutes === b.minutes
 
 /**
  * Parse a share-ratio input string (accepting `.` or `,` decimal separators).
@@ -82,6 +83,8 @@ export const parseSeedMinutes = (text: string): number | null => {
 const defaultGetItem = (key: string): string | null => localStorage.getItem(key)
 const defaultSetItem = (key: string, value: string): void => { localStorage.setItem(key, value) }
 
+const listeners = new Set<(policy: SeedingPolicy) => void>()
+
 export const hasStoredSeedingPolicy = (getItem: (key: string) => string | null = defaultGetItem): boolean => {
   try {
     return getItem(SEEDING_POLICY_KEY) !== null
@@ -108,6 +111,9 @@ export const writeSeedingPolicy = (
   try {
     setItem(SEEDING_POLICY_KEY, JSON.stringify(normalized))
   } catch {}
+  if (setItem === defaultSetItem) {
+    for (const listener of listeners) listener(normalized)
+  }
   return normalized
 }
 
@@ -121,16 +127,25 @@ export const onSeedingPolicyStored = (changed: (policy: SeedingPolicy) => void):
   return () => window.removeEventListener('storage', listener)
 }
 
-/** Whether a completed library torrent has satisfied the active seeding policy and should stop seeding. */
+/** Calls back when this page or another tab of this storage changes `ripple:seeding-policy`. */
+export const onSeedingPolicyChange = (changed: (policy: SeedingPolicy) => void): (() => void) => {
+  listeners.add(changed)
+  const offStored = onSeedingPolicyStored(changed)
+  return () => {
+    listeners.delete(changed)
+    offStored()
+  }
+}
+
+/** Whether a completed torrent has reached any enabled seeding limit and should stop seeding. */
 export const shouldStopSeeding = (
   policy: SeedingPolicy,
   stats: { uploaded: number, downloaded: number, size: number, seedingSeconds: number },
 ): boolean => {
-  if (policy.mode === 'keep') return false
-  if (policy.mode === 'stop') return true
-  if (policy.mode === 'ratio') {
+  if (policy.ratio !== null) {
     const base = stats.downloaded > 0 ? stats.downloaded : stats.size
-    return base > 0 && stats.uploaded / base >= policy.ratio
+    if (base > 0 && stats.uploaded / base >= policy.ratio) return true
   }
-  return stats.seedingSeconds >= policy.minutes * 60
+  if (policy.minutes !== null && stats.seedingSeconds >= policy.minutes * 60) return true
+  return false
 }
