@@ -27,12 +27,15 @@ const CLAIM = {
   background: expect.any(String),
   cover: expect.any(String),
   screenshots: expect.any(Array),
+  // relay sockets are checked against `<all_urls>` and BitTorrent reaches any tracker or peer, so the person allows
+  // it on the card before launch, never mid-session
+  network: ['<all_urls>'],
   // every app may add the package; fkn.app reads this list off the signed package.json, and @fkn/sign 0.0.16 is the
   // first to check it
   embed: ['*'],
 }
 
-it('claims the managed Ripple app, signed, with its address, store images and embed list, and nothing else', () => {
+it('claims the managed Ripple app, signed, with its address, store images, network and embed lists, and nothing else', () => {
   expect(pkg.name).toBe('@banou/ripple')
   // the whole object, so a reserved key riding along is caught too; store-listing.test.ts checks the images
   expect(pkg.fkn).toEqual(CLAIM)
@@ -45,7 +48,7 @@ it('the claim is a managed app id, and not the retired signed one', () => {
 
 // `npm publish ./build` sends the FILTERED manifest, not this one, and that filter once dropped the
 // field without a word (fixed in 7d5b0cf). So the claim is checked where the registry will read it.
-it('the manifest that is actually published carries the whole claim, embed list included', () => {
+it('the manifest that is actually published carries the whole claim, network and embed lists included', () => {
   expect(npmManifest(pkg).fkn).toEqual(CLAIM)
   // build/package.json names no files, so the fkn.json CI writes into build/ ships with the rest
   expect(npmManifest(pkg)).not.toHaveProperty('files')
