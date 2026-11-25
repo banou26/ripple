@@ -29,6 +29,8 @@ import { createGate } from './gate'
 import { ICE_SERVERS } from './vpn-config'
 import { vpnFollower } from './vpn-follow'
 import { onVpnStored, storeVpn, vpnOn } from './vpn-setting'
+import { hasStoredSeedingPolicy, normalizeSeedingPolicy, onSeedingPolicyStored, readSeedingPolicy } from './seeding-policy'
+import type { SeedingPolicy } from './seeding-policy'
 import { pageWorkRunning } from '../utils/page-work'
 
 export type { Persisted, Reachability, TorrentDetail }
@@ -126,6 +128,7 @@ export type TorrentClient = {
    * which reports what is actually in force.
    */
   setSessionLimits: (limits: { down?: number, up?: number }) => void
+  setSeedingPolicy: (policy: SeedingPolicy) => void
   /** The session ceilings in force, replayed immediately to a new subscriber once anything is known. */
   onRateLimits: (cb: (limits: RateLimits) => void) => () => void
   onOwnership: (cb: (owned: boolean) => void) => () => void
@@ -622,6 +625,7 @@ export const createTorrentClient = (): EngineClient => {
         started = true
         resolveReady()
         gate.open()
+        if (owned && hasStoredSeedingPolicy()) send({ type: 'set-seeding-policy', policy: readSeedingPolicy() })
         // a fresh engine, including one in another tab, holds none of this page's reservations
         for (const infoHash of reserved) send({ type: 'reserve-storage', infoHash, on: true })
       } else if (m.type === ENGINE_RESET) {
@@ -696,6 +700,8 @@ export const createTorrentClient = (): EngineClient => {
   const onPageHide = () => { if (owned) send({ type: 'flush-resume' }) }
   window.addEventListener('pagehide', onPageHide)
 
+  const stopSeedingPolicy = onSeedingPolicyStored((policy) => { if (owned) send({ type: 'set-seeding-policy', policy }) })
+
   return {
     ready,
     // each replays its latched value to a new subscriber synchronously, which is safe only because every caller subscribes from inside a useEffect body
@@ -719,6 +725,7 @@ export const createTorrentClient = (): EngineClient => {
     moveInQueue: (handle, where) => send({ type: 'queue-move', handle, where }),
     setLimits: (handle, limits) => send({ type: 'set-limits', handle, ...limits }),
     setSessionLimits: (limits) => send({ type: 'set-session-limits', ...limits }),
+    setSeedingPolicy: (policy) => send({ type: 'set-seeding-policy', policy: normalizeSeedingPolicy(policy) }),
     onRateLimits: (cb) => { rateLimitsCbs.add(cb); if (lastRateLimits) cb(lastRateLimits); return () => { rateLimitsCbs.delete(cb) } },
     onOwnership: (cb) => { ownershipCbs.add(cb); cb(owned); return () => { ownershipCbs.delete(cb) } },
     onEngineReset: (cb) => { engineResetCbs.add(cb); return () => { engineResetCbs.delete(cb) } },
@@ -834,6 +841,7 @@ export const createTorrentClient = (): EngineClient => {
     destroy: () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('pagehide', onPageHide)
+      stopSeedingPolicy()
       die(new Error('torrent client destroyed'))
       transport?.destroy()
       transport = null

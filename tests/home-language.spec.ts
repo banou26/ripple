@@ -1294,7 +1294,7 @@ test.describe('in an Egyptian browser', () => {
 
 // on Settings since RIPPLE-130, reached from the library's gear in the page, so the engine the library made runs on
 test.describe('the Language setting', () => {
-  const select = (page: Page) => page.locator('main .folder select')
+  const select = (page: Page) => page.locator('main .folder').first().locator('select')
   const labels = async (page: Page) => (await page.locator('main .folder > span').allTextContents()).slice(0, 3)
   /** The engine's workers, each with whether it was ended: a thumbnail's libav workers come and go on their own. */
   const engines = (page: Page) => page.evaluate(() => (window as unknown as { workers: () => { url: string, ended: boolean }[] }).workers()
@@ -2457,12 +2457,12 @@ test.describe('the stats strip', () => {
 })
 
 test.describe('Settings', () => {
-  test('the gear opens it with Language, On add, Storage and Auto-save, which the footer no longer has', async ({ page }) => {
+  test('the gear opens it with Language, On add, Storage, Seeding and Auto-save, which the footer no longer has', async ({ page }) => {
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
     await expect(page.locator('footer .folder > span')).toHaveText(['Speed'])
     await toSettings(page)
-    await expect(page.locator('main .folder > span')).toHaveText(['Language', 'On add', 'Storage', 'Auto-save'])
+    await expect(page.locator('main .folder > span')).toHaveText(['Language', 'On add', 'Storage', 'Seeding', 'Auto-save'])
     await expect(page.locator('main .folder', { hasText: 'Storage' }).getByRole('button')).toHaveText('Ask for more room')
   })
 

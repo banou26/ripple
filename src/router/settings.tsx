@@ -2,7 +2,8 @@ import type { SaveLocation } from '../torrent/library'
 
 import { css } from '@emotion/react'
 import { ArrowLeft, MonitorDown } from 'lucide-react'
-import { useState } from 'react'
+import { set } from 'idb-keyval'
+import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
 
@@ -10,13 +11,19 @@ import { hint } from '../components/hint'
 import { LanguageSelect } from '../components/language-select'
 import { PersistControl } from '../components/persist-control'
 import { PluginsSection } from '../plugins/plugins-section'
+import { runningTorrentClient } from '../torrent/client'
 import { ADD_DIALOG_KEY, dialogEnabled } from '../torrent/add-options'
 import { readGlobalDefault, SAVE_LOCATION_KEY } from '../torrent/save-location'
+import {
+  DEFAULT_SEED_MINUTES, DEFAULT_SEED_RATIO, MAX_SEED_MINUTES, MAX_SEED_RATIO, MIN_SEED_MINUTES, MIN_SEED_RATIO,
+  SEEDING_POLICY_KEY, onSeedingPolicyStored, parseSeedMinutes, parseSeedRatio, readSeedingPolicy, writeSeedingPolicy,
+} from '../torrent/seeding-policy'
+import type { SeedingPolicy, SeedingPolicyMode } from '../torrent/seeding-policy'
 import { useFolder } from '../torrent/use-folder'
 import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import {
   BORDER, BORDER_INTERACTIVE, BORDER_STRONG, CONTROL_ACTIVE_BG, CONTROL_BG, CONTROL_HOVER_BG, FOCUS_RING, PAGE_BG,
-  SURFACE_BG, TEXT, TEXT_MUTED,
+  SUNKEN_BG, SURFACE_BG, TEXT, TEXT_MUTED,
 } from '../theme'
 import { setupHandlers } from '../utils/pwa'
 import { getRoutePath, Route } from './path'
@@ -108,7 +115,33 @@ const style = css`
     }
   }
 
-  .back, .folder button, .folder select, .install {
+  .folder select {
+    max-width: 100%;
+  }
+
+  .seeding-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    .unit {
+      font-size: 0.85rem;
+      color: ${TEXT_MUTED};
+    }
+  }
+
+  .folder input[type='number'] {
+    font: inherit;
+    font-size: 0.85rem;
+    width: 5.5rem;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid ${BORDER_INTERACTIVE};
+    background: ${SUNKEN_BG};
+    color: ${TEXT};
+  }
+
+  .back, .folder button, .folder select, .folder input[type='number'], .install {
     &:focus-visible {
       outline: none;
       box-shadow: 0 0 0 2px ${FOCUS_RING};
@@ -151,6 +184,33 @@ const Settings = () => {
   const [defaultLocation, setDefaultLocation] = useState<SaveLocation>(() => {
     try { return readGlobalDefault((k) => localStorage.getItem(k)) } catch { return 'browser' }
   })
+  const [seedingPolicy, setSeedingPolicy] = useState<SeedingPolicy>(() => readSeedingPolicy())
+  const [ratioText, setRatioText] = useState(() => String(seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO))
+  const [minutesText, setMinutesText] = useState(() => String(seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES))
+  useEffect(() => onSeedingPolicyStored((next) => {
+    setSeedingPolicy(next)
+    if (next.mode === 'ratio') setRatioText(String(next.ratio))
+    if (next.mode === 'duration') setMinutesText(String(next.minutes))
+  }), [])
+  const applySeedingPolicy = (next: SeedingPolicy) => {
+    const saved = writeSeedingPolicy(next)
+    setSeedingPolicy(saved)
+    void set(SEEDING_POLICY_KEY, saved).catch(() => {})
+    runningTorrentClient()?.setSeedingPolicy(saved)
+  }
+  const chooseSeedingMode = (mode: SeedingPolicyMode) => {
+    if (mode === 'keep') { applySeedingPolicy({ mode: 'keep' }); return }
+    if (mode === 'stop') { applySeedingPolicy({ mode: 'stop' }); return }
+    if (mode === 'ratio') {
+      const ratio = parseSeedRatio(ratioText) ?? DEFAULT_SEED_RATIO
+      setRatioText(String(ratio))
+      applySeedingPolicy({ mode: 'ratio', ratio })
+      return
+    }
+    const minutes = parseSeedMinutes(minutesText) ?? DEFAULT_SEED_MINUTES
+    setMinutesText(String(minutes))
+    applySeedingPolicy({ mode: 'duration', minutes })
+  }
   const chooseAddDialog = (on: boolean) => {
     setAddDialog(on)
     try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
@@ -161,6 +221,9 @@ const Settings = () => {
   }
 
   const library = intl.formatMessage({ id: 'Library', defaultMessage: 'Library' })
+  const seedingLabel = intl.formatMessage({ id: 'Seeding', defaultMessage: 'Seeding' })
+  const shareRatioLabel = intl.formatMessage({ id: 'Share ratio', defaultMessage: 'Share ratio' })
+  const minutesLabel = intl.formatMessage({ id: 'Minutes', defaultMessage: 'Minutes' })
   const onSetupHandlers = async () => {
     const outcome = await setupHandlers()
     if (outcome === 'installed') setSaid(intl.formatMessage({ id: 'Ripple installed', defaultMessage: 'Ripple installed' }))
@@ -188,6 +251,66 @@ const Settings = () => {
           </button>
         </div>
         <PersistControl persist={persistence} onAsk={() => void persistence.request()}/>
+        <div className="folder">
+          <span>{seedingLabel}</span>
+          <select
+            aria-label={seedingLabel}
+            value={seedingPolicy.mode}
+            onChange={(event) => chooseSeedingMode(event.target.value as SeedingPolicyMode)}
+          >
+            <option value="keep">{intl.formatMessage({ id: 'Keep seeding', defaultMessage: 'Keep seeding' })}</option>
+            <option value="stop">{intl.formatMessage({ id: 'Stop when finished', defaultMessage: 'Stop when finished' })}</option>
+            <option value="ratio">{intl.formatMessage({ id: 'Stop at ratio', defaultMessage: 'Stop at ratio' })}</option>
+            <option value="duration">{intl.formatMessage({ id: 'Stop after duration', defaultMessage: 'Stop after duration' })}</option>
+          </select>
+          {seedingPolicy.mode === 'ratio' && (
+            <div className="seeding-value">
+              <input
+                type="number"
+                inputMode="decimal"
+                min={MIN_SEED_RATIO}
+                max={MAX_SEED_RATIO}
+                step="0.1"
+                aria-label={shareRatioLabel}
+                value={ratioText}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setRatioText(value)
+                  const parsed = parseSeedRatio(value)
+                  if (parsed !== null) applySeedingPolicy({ mode: 'ratio', ratio: parsed })
+                }}
+                onBlur={() => {
+                  const parsed = parseSeedRatio(ratioText)
+                  setRatioText(String(parsed ?? (seedingPolicy.mode === 'ratio' ? seedingPolicy.ratio : DEFAULT_SEED_RATIO)))
+                }}
+              />
+            </div>
+          )}
+          {seedingPolicy.mode === 'duration' && (
+            <div className="seeding-value">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={MIN_SEED_MINUTES}
+                max={MAX_SEED_MINUTES}
+                step="1"
+                aria-label={minutesLabel}
+                value={minutesText}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setMinutesText(value)
+                  const parsed = parseSeedMinutes(value)
+                  if (parsed !== null) applySeedingPolicy({ mode: 'duration', minutes: parsed })
+                }}
+                onBlur={() => {
+                  const parsed = parseSeedMinutes(minutesText)
+                  setMinutesText(String(parsed ?? (seedingPolicy.mode === 'duration' ? seedingPolicy.minutes : DEFAULT_SEED_MINUTES)))
+                }}
+              />
+              <span className="unit">{intl.formatMessage({ id: 'min', defaultMessage: 'min' })}</span>
+            </div>
+          )}
+        </div>
         {folderSupported && (
           <div className="folder">
             <span>{intl.formatMessage({ id: 'Auto-save', defaultMessage: 'Auto-save' })}</span>
