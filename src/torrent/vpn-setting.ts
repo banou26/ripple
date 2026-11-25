@@ -7,8 +7,8 @@ export const vpnOffAvailable = (): boolean => WEBRTC_PEERS && typeof RTCPeerConn
 
 /**
  * The stored choice: On unless a person switched it off in this browser storage. Ripple's own tabs share one
- * storage, and a player embedded in another site has its own, so each keeps its own choice. An engine reads it as
- * it starts.
+ * storage; without an FKN account, a player embedded in another site keeps its own, while signed-in FKN accounts
+ * sync the choice across partitions via `vpn-sync.ts`. An engine reads it as it starts.
  */
 export const vpnOn = (): boolean => {
   if (!vpnOffAvailable()) return true

@@ -54,7 +54,7 @@ describe('the privacy page, with the VPN off', () => {
     expect(claims[0]).toMatch(/^With the VPN on, which is how Ripple starts, connections to peers and to trackers are tunneled through the FKN relay rather than opened directly, so the other peers in a swarm and its trackers see the relay’s IP address, not yours\./)
     expect(text).toContain('The relay also looks up the names of trackers.')
     expect(text).toContain('whether the VPN is on')
-    expect(text).toContain('The VPN setting is kept in your browser’s storage. A player embedded in another site keeps its own.')
+    expect(text).toContain('The VPN setting is kept in your browser’s storage. Without an FKN account, a player embedded in another site keeps its own. With an FKN account connected, the VPN setting syncs across Ripple and embedded players through that account’s encrypted FKN cloud storage.')
   })
 })
 
@@ -62,6 +62,7 @@ describe('the privacy page, signed in', () => {
   it('says each torrent\'s .torrent file syncs with its tracker addresses, and goes with the torrent\'s removal', async () => {
     const screen = await privacy()
     const text = screen.container.textContent
+    expect(text).toContain('custom list order and VPN setting.')
     expect(text).toContain('Each torrent’s .torrent file syncs too, with its tracker addresses.')
     expect(text).toContain('deletes its synced thumbnail and .torrent file;')
     expect(text).toContain('each torrent’s resume data, .torrent file and thumbnail')
@@ -142,6 +143,6 @@ describe('the privacy page, on plugins', () => {
     const text = container.textContent.replace(/\s+/g, ' ')
     expect(text).toContain('neither Ripple nor FKN stores anything about you on a server. A plugin you add may, as its publisher decides.')
     expect(text).toContain('removes everything Ripple stored in your browser. The plugins you added are kept by FKN on this device, so remove them in Settings first.')
-    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 22 November 2026')
+    expect(container.querySelector('.updated')).toHaveTextContent('Last updated 25 November 2026')
   })
 })

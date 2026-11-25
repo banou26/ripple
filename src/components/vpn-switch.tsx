@@ -10,8 +10,9 @@ import type { VpnStatus } from '../torrent/vpn-status'
 import { setVpn } from '../torrent/client'
 import { COUNTRY_LINE, inListedCountry } from '../torrent/country-line'
 import {
-  answerQuotaOffer, onVpnStored, quotaDay, quotaOfferAnswered, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered,
+  answerQuotaOffer, onVpnChange, quotaDay, quotaOfferAnswered, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered,
 } from '../torrent/vpn-setting'
+import { recordVpnChoice } from '../torrent/vpn-sync'
 import { vpnLabels, vpnStatus } from '../torrent/vpn-status'
 import { BORDER_INTERACTIVE, EMPHASIS, FOCUS_RING, HOVER_WASH, OK, SUNKEN_BG, TEXT, TEXT_MUTED, TEXT_ON_LIGHT, WARN } from '../theme'
 import { confirmStyle } from './confirm-dialog'
@@ -55,7 +56,7 @@ export const useVpnSwitch = (
   const [warning, setWarning] = useState(false)
   // the day this page answered the offer, which holds where the browser refuses to store it
   const [answered, setAnswered] = useState<number | null>(null)
-  useEffect(() => onVpnStored(() => setChosen(vpnOn())), [])
+  useEffect(() => onVpnChange(() => setChosen(vpnOn())), [])
 
   const due = available && chosen && !!quota?.throttled && answered !== quotaDay() && !quotaOfferAnswered()
   const answerOffer = () => {
@@ -67,7 +68,9 @@ export const useVpnSwitch = (
     if (!next && due) answerOffer()
     void setVpn(next)
     // read back: a browser that refused to store it keeps the choice it had
-    setChosen(vpnOn())
+    const actual = vpnOn()
+    setChosen(actual)
+    if (actual === next) void recordVpnChoice(next)
   }
   const status = vpnStatus(reachable, transport, available ? chosen : undefined)
   const press = () => {

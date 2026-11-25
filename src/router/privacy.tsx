@@ -4,7 +4,7 @@ import { STUN_HOST, TRACKER_HOSTS } from '../torrent/vpn-config'
 const Privacy = () => (
   <LegalDoc>
     <h1>Privacy</h1>
-    <div className="updated">Last updated 22 November 2026</div>
+    <div className="updated">Last updated 25 November 2026</div>
 
     <p>
       Ripple needs no account and runs no analytics. Used without an account, it keeps
@@ -35,7 +35,7 @@ const Privacy = () => (
       and its totals (data downloaded and uploaded, time active and seeding). It also keeps the
       torrents you removed and when, so other devices remove them too, your groups (each
       group&rsquo;s name, and which torrents were put in it or taken out and when), one
-      thumbnail picture per torrent, plus your group icons and custom list order. Each torrent&rsquo;s .torrent file syncs too, with its
+      thumbnail picture per torrent, plus your group icons, custom list order and VPN setting. Each torrent&rsquo;s .torrent file syncs too, with its
       tracker addresses. It never syncs the downloaded files themselves.
     </p>
     <p>
@@ -83,8 +83,10 @@ const Privacy = () => (
       <li>the name server your device uses, which is asked for the addresses of those hosts as it is for any site.</li>
     </ul>
     <p>
-      The VPN setting is kept in your browser&rsquo;s storage. A player embedded in another
-      site keeps its own.
+      The VPN setting is kept in your browser&rsquo;s storage. Without an FKN account, a player
+      embedded in another site keeps its own. With an FKN account connected, the VPN setting
+      syncs across Ripple and embedded players through that account&rsquo;s encrypted FKN cloud
+      storage.
     </p>
 
     <h2>Plugins</h2>
