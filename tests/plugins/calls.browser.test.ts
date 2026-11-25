@@ -22,6 +22,7 @@ const { rippleFor, ADD_ANSWER_MS, READ_MAX_BYTES } = await import('../../src/plu
 const { createFeed } = await import('../../src/plugins/feed')
 const { answer, SWITCHES_KEY } = await import('../../src/plugins/switches')
 const { createGroup, currentGroups, putInGroup, subscribeGroups } = await import('../../src/torrent/groups')
+const { SETTINGS_SYNC_KEY } = await import('../../src/torrent/settings-sync')
 
 const URI = 'npm:@someone/ripple-plugin-test'
 const A = 'a'.repeat(40)
@@ -558,6 +559,15 @@ describe('peers, trackers and speed limits', () => {
       { type: 'set-limits', handle: 1, down: 250_000 },
       { type: 'set-session-limits', down: 0, up: 50_000 },
     ])
+    await vi.waitFor(() => {
+      const stored = memory.store.get(SETTINGS_SYNC_KEY) as { entries?: { rateLimits?: { value: { down: number, up: number } } } } | undefined
+      expect(stored?.entries?.rateLimits?.value).toEqual({ down: 0, up: 50_000 })
+    })
+    await made.ripple.setSessionLimits({ up: 75_000 })
+    await vi.waitFor(() => {
+      const stored = memory.store.get(SETTINGS_SYNC_KEY) as { entries?: { rateLimits?: { value: { down: number, up: number } } } } | undefined
+      expect(stored?.entries?.rateLimits?.value).toEqual({ down: 0, up: 75_000 })
+    })
     expect(await refusal(made.ripple.setLimits(A, { down: -1 }))).toBe('invalid')
     expect(await refusal(made.ripple.setSessionLimits({ up: Number.NaN }))).toBe('invalid')
   })

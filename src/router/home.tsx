@@ -3960,17 +3960,15 @@ const Home = () => {
       setSearchCollapsed((was) => toggleCollapsed(was, group))
       return
     }
-    setCollapsedGroups((was) => {
-      const next = toggleCollapsed(was, group)
-      try {
-        const serialized = writeCollapsed(next)
-        if (serialized) localStorage.setItem(LIST_COLLAPSED_KEY, serialized)
-        else localStorage.removeItem(LIST_COLLAPSED_KEY)
-      } catch {}
-      void recordSetting('listCollapsed', LIST_GROUPS.filter((g) => next.has(g)))
-      return next
-    })
-  }, [search])
+    const next = toggleCollapsed(collapsedGroups, group)
+    setCollapsedGroups(next)
+    try {
+      const serialized = writeCollapsed(next)
+      if (serialized) localStorage.setItem(LIST_COLLAPSED_KEY, serialized)
+      else localStorage.removeItem(LIST_COLLAPSED_KEY)
+    } catch {}
+    void recordSetting('listCollapsed', LIST_GROUPS.filter((g) => next.has(g)))
+  }, [search, collapsedGroups])
   const visibleRows = useMemo(() => visibleEntryTorrents(entryGroups, collapsed, effectiveExpanded), [entryGroups, collapsed, effectiveExpanded])
   const tableBulkRows = useMemo(
     () => visibleEntryTorrents([{ group: null, rows: entries }], NO_COLLAPSED, effectiveExpanded),

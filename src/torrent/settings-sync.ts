@@ -321,6 +321,7 @@ export const resolveSettingsSync = ({
   extra = {},
   vpnOffAvailable: hasWebRtc = true,
   migratedFromLegacyVpn = false,
+  preserveLocalKeys,
   now = Date.now(),
 }: {
   account: string
@@ -330,6 +331,7 @@ export const resolveSettingsSync = ({
   extra?: Record<string, SyncedEntry>
   vpnOffAvailable?: boolean
   migratedFromLegacyVpn?: boolean
+  preserveLocalKeys?: ReadonlySet<SettingKey>
   now?: number
 }): SettingsSyncResolution => {
   const nextEntries: SyncedEntries = {}
@@ -354,7 +356,7 @@ export const resolveSettingsSync = ({
     const defaultVal = DEFAULT_SETTINGS[key]
     const localVal = local[key]
 
-    if (accountSwitched) {
+    if (accountSwitched && !preserveLocalKeys?.has(key)) {
       const winnerVal = r ? r.value : defaultVal
       if (r) setNext(key, r)
       else if (key === 'vpn') setNext('vpn', { value: true, updatedAt: 0 })
@@ -482,6 +484,8 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
   let choiceSeq = 0
   const keySeq = new Map<SettingKey, number>()
   let lastSeenRemoteAt = 0
+  let pendingAccountSwitch = false
+  const postSwitchKeys = new Set<SettingKey>()
   let inFlight: Promise<SettingsSyncOutcome> | null = null
   let rerun = false
   let recordQueue: Promise<void> = Promise.resolve()
@@ -492,6 +496,8 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
   const runOnce = async (): Promise<SettingsSyncOutcome> => {
     const gen = accountGen
     const seqAtStart = new Map<SettingKey, number>(SYNCED_SETTING_KEYS.map((key) => [key, seqOf(key)]))
+    const switchAtStart = pendingAccountSwitch
+    const preservedAtStart = switchAtStart ? new Set(postSwitchKeys) : undefined
 
     const [available, name] = await Promise.all([deps.fsAvailable(), deps.accountInfo()])
     if (gen !== accountGen) return 'stale'
@@ -561,6 +567,7 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
       extra,
       vpnOffAvailable: deps.vpnOffAvailable(),
       migratedFromLegacyVpn,
+      preserveLocalKeys: preservedAtStart,
       now: deps.now(),
     })
 
@@ -588,6 +595,10 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     if (overtaken || gen !== accountGen || seqBeforeLocal !== choiceSeq) {
       if (overtaken || seqBeforeLocal !== choiceSeq) rerun = true
       return 'stale'
+    }
+    if (switchAtStart && gen === accountGen) {
+      pendingAccountSwitch = false
+      postSwitchKeys.clear()
     }
 
     if (Object.keys(res.apply).length > 0) await deps.applyLocal(res.apply)
@@ -617,6 +628,7 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     if (key === 'vpn' && !deps.vpnOffAvailable()) return 'synced'
     choiceSeq += 1
     keySeq.set(key, seqOf(key) + 1)
+    if (pendingAccountSwitch) postSwitchKeys.add(key)
     const stamp = Math.max(deps.now(), lastSeenRemoteAt + 1)
     recordQueue = recordQueue.then(() =>
       deps.writeStored((prev) => {
@@ -631,10 +643,17 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
       }).catch(() => {})
     )
     await recordQueue
-    return sync()
+    const outcome = await sync()
+    if (outcome === 'stale' && !inFlight) return sync()
+    return outcome
   }
 
-  const noteAccountSwitch = () => { accountGen += 1; lastSeenRemoteAt = 0 }
+  const noteAccountSwitch = () => {
+    accountGen += 1
+    lastSeenRemoteAt = 0
+    pendingAccountSwitch = true
+    postSwitchKeys.clear()
+  }
 
   return { sync, recordChoice, noteAccountSwitch }
 }
@@ -927,6 +946,29 @@ const defaultController = createSettingsSyncController({
 export const recordSetting = <K extends SettingKey>(key: K, value: SettingsValues[K]): Promise<SettingsSyncOutcome> => {
   if (key === 'rateLimits') optimisticRateLimits = { value: normalizeLimits(value), setAt: Date.now() }
   return defaultController.recordChoice(key, value)
+}
+
+/** Merges a partial session speed limit update with active ceilings and records it for cloud sync. */
+export const recordRateLimitsPatch = async (
+  patch: { down?: number, up?: number },
+  fallback?: RateLimits | null,
+): Promise<SettingsSyncOutcome> => {
+  if (patch.down !== undefined && patch.up !== undefined) {
+    return recordSetting('rateLimits', normalizeLimits({ down: patch.down, up: patch.up }))
+  }
+  const optimistic = optimisticRateLimits && Date.now() - optimisticRateLimits.setAt <= OPTIMISTIC_TTL_MS
+    ? optimisticRateLimits.value
+    : null
+  let base: RateLimits | null = optimistic ?? (fallback ? normalizeLimits(fallback) : null)
+  if (!base) {
+    const stored = await get<unknown>(RATE_LIMITS_KEY).catch(() => undefined)
+    if (stored !== undefined) base = normalizeLimits(stored)
+  }
+  if (!base) base = clientApi.runningTorrentClient?.()?.latestRateLimits() ?? NO_LIMITS
+  return recordSetting('rateLimits', normalizeLimits({
+    down: patch.down ?? base.down,
+    up: patch.up ?? base.up,
+  }))
 }
 
 /** Runs one signed-in settings sync pass against `cloud.fs`. */

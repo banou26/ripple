@@ -3,7 +3,7 @@ import type { SaveLocation } from '../torrent/library'
 import { css } from '@emotion/react'
 import { ArrowLeft, MonitorDown } from 'lucide-react'
 import { set } from 'idb-keyval'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
 
@@ -220,6 +220,7 @@ const style = css`
 /** The library's settings and Open torrents with Ripple. Each writes where the library reads it when it opens again. */
 const Settings = () => {
   const intl = useIntl()
+  const seedingHeadingId = useId()
   const [said, setSaid] = useState<string | null>(null)
   const persistence = usePersistentStorage()
   const { supported: folderSupported, folder, permitted, pick: pickFolder, allow: allowFolder, clear: clearFolder } = useFolder()
@@ -323,8 +324,8 @@ const Settings = () => {
         </div>
         <PersistControl persist={persistence} onAsk={() => void persistence.request()}/>
         <div className="folder">
-          <span>{seedingLabel}</span>
-          <div className="seeding-limits">
+          <span id={seedingHeadingId}>{seedingLabel}</span>
+          <div className="seeding-limits" role="group" aria-labelledby={seedingHeadingId}>
             <div className="seeding-limit">
               <label className="seeding-check">
                 <input

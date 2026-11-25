@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_SETTINGS,
@@ -334,5 +334,90 @@ describe('createSettingsSyncController', () => {
     expect(await part.controller.sync()).toBe('synced')
     expect(part.counts().readCalls - readsBeforeMismatch).toBeLessThanOrEqual(2)
     expect(part.getLocal().listView).toBe('table')
+  })
+
+  it('lets an existing cloud entry overwrite an unrecorded local change', async () => {
+    let tick = 1_000
+    const cloud: { payload: Record<string, SyncedEntry> | null } = {
+      payload: { rateLimits: { value: { down: 500_000, up: 100_000 }, updatedAt: 1_500 } },
+    }
+    const account = { name: 'alice', available: true }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    await part.controller.sync()
+    expect(part.getLocal().rateLimits).toEqual({ down: 500_000, up: 100_000 })
+
+    // Mutate local storage without calling recordChoice -> next sync reverts to cloud
+    part.setLocal({ rateLimits: { down: 0, up: 50_000 } })
+    expect(await part.controller.sync()).toBe('synced')
+    expect(part.getLocal().rateLimits).toEqual({ down: 500_000, up: 100_000 })
+  })
+
+  it('uploads a choice recorded during the final MAX_RERUNS attempt immediately', async () => {
+    const gates: (() => void)[] = []
+    let holdReads = true
+    let tick = 1_000
+    const cloud: { payload: Record<string, SyncedEntry> | null } = {
+      payload: { dockHeight: { value: 300, updatedAt: 500 } },
+    }
+    const account = { name: 'alice', available: true }
+    const part = makePartition({
+      cloud,
+      account,
+      clock: () => ++tick,
+      readGate: () => (holdReads ? new Promise<void>((resolve) => { gates.push(resolve) }) : Promise.resolve()),
+    })
+
+    // Attempt 1 enters readGate, second sync sets rerun -> Attempt 2
+    const first = part.controller.sync()
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    part.controller.sync()
+    gates.shift()!()
+
+    // Attempt 2 enters readGate, recordChoice('vpn', false) sets rerun -> Attempt 3 (MAX_RERUNS)
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    const midEdit = part.setSetting('vpn', false)
+    gates.shift()!()
+
+    // Attempt 3 enters readGate, trailing edit arrives during this final MAX_RERUNS attempt
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    holdReads = false
+    const trailing = part.setSetting('listView', 'table')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    gates.shift()!()
+
+    await first
+    await midEdit
+    expect(await trailing).toBe('synced')
+    expect(cloud.payload?.listView?.value).toBe('table')
+    expect(part.getLocal().listView).toBe('table')
+  })
+
+  it('keeps a post-switch choice made before the first sync while discarding other old-account entries', async () => {
+    let tick = 1_000
+    const cloud: { payload: Record<string, SyncedEntry> | null } = { payload: null }
+    const account: { name: string | null, available: boolean | null } = { name: 'alice', available: true }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    await part.setSetting('vpn', false)
+    await part.setSetting('addDialog', true)
+    await part.setSetting('listView', 'table')
+    expect(cloud.payload?.vpn?.value).toBe(false)
+
+    // Switch to Bob, and before Bob's first sync runs, change dockHeight locally
+    account.name = 'bob'
+    cloud.payload = { addDialog: { value: false, updatedAt: 2_000 } }
+    part.controller.noteAccountSwitch()
+    part.setLocal({ dockHeight: 420 })
+    const outcome = await part.controller.recordChoice('dockHeight', 420)
+
+    expect(outcome).toBe('synced')
+    expect(part.getLocal().dockHeight).toBe(420)
+    expect(cloud.payload?.dockHeight?.value).toBe(420)
+    // Prior account's vpn=false and listView='table' were NOT leaked to Bob
+    expect(part.getLocal().vpn).toBe(true)
+    expect(part.getLocal().addDialog).toBe(false)
+    expect(part.getLocal().listView).toBe('cards')
+    expect(cloud.payload?.listView).toBeUndefined()
   })
 })

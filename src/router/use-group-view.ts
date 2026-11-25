@@ -50,24 +50,20 @@ export const useExpandedGroups = (givenGroups?: readonly TorrentGroup[]) => {
   }, [validIds, expanded, stored])
 
   const toggle = useCallback((groupId: string) => {
-    setStored((prev) => {
-      const next = toggleExpandedGroup(prev, groupId)
-      persistExpanded(next)
-      void recordSetting('listExpandedGroups', [...next].sort())
-      return next
-    })
-  }, [])
+    const next = toggleExpandedGroup(stored, groupId)
+    setStored(next)
+    persistExpanded(next)
+    void recordSetting('listExpandedGroups', [...next].sort())
+  }, [stored])
 
   const expand = useCallback((groupId: string) => {
-    setStored((prev) => {
-      if (prev.has(groupId)) return prev
-      const next = new Set(prev)
-      next.add(groupId)
-      persistExpanded(next)
-      void recordSetting('listExpandedGroups', [...next].sort())
-      return next
-    })
-  }, [])
+    if (stored.has(groupId)) return
+    const next = new Set(stored)
+    next.add(groupId)
+    setStored(next)
+    persistExpanded(next)
+    void recordSetting('listExpandedGroups', [...next].sort())
+  }, [stored])
 
   useEffect(() => onSettingApplied('listExpandedGroups', (ids) => {
     setStored(ids.length ? new Set(ids) : NO_EXPANDED)

@@ -494,7 +494,10 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   const [languages, setLanguages] = useState(() => startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
   useEffect(() => {
     const offNorm = onSettingApplied('normalizeVolume', setNormalizeVolume)
-    const syncLangs = () => setLanguages(startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
+    const syncLangs = () => setLanguages((current) => ({
+      ...startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))),
+      ...(current.alwaysSubtitles !== undefined ? { alwaysSubtitles: current.alwaysSubtitles } : {}),
+    }))
     const offAudio = onSettingApplied('audioLanguage', syncLangs)
     const offSub = onSettingApplied('subtitleLanguage', syncLangs)
     return () => { offNorm(); offAudio(); offSub() }

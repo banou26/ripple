@@ -17,6 +17,7 @@ import { hexInfoHash, magnetInfoHash, sameInfoHash } from '../torrent/magnet'
 import { isLimit } from '../torrent/rate-limits'
 import { isSaveCancelled, saveTorrentEntriesAsZipToDisk, saveTorrentFileToDisk } from '../torrent/save-file'
 import { currentLocation } from '../torrent/save-location'
+import { recordRateLimitsPatch } from '../torrent/settings-sync'
 import { forgetThumbnail } from '../torrent/thumbnail-store'
 import { readTorrentFile } from '../torrent/torrent-file'
 import { keepSyncedTorrentFile } from '../torrent/torrent-file-sync'
@@ -489,7 +490,10 @@ export const rippleFor = (
     },
     setSessionLimits: async (limits) => {
       await need('peers')
-      tab.client().setSessionLimits(cleanLimits(limits))
+      const cleaned = cleanLimits(limits)
+      const client = tab.client()
+      client.setSessionLimits(cleaned)
+      void recordRateLimitsPatch(cleaned, peek(client.onRateLimits, null))
     },
     network: async (): Promise<PluginNetwork> => {
       await need('network')

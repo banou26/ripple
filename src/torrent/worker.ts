@@ -2955,7 +2955,7 @@ const handleMessage = async (session: Session, m: any) => {
         const temporary = m.temporary === true
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
         if (h !== undefined) {
-          if (temporary) { ephemeralHandles.add(h); seedStopped.delete(h); seedBypass.delete(h) }
+          if (temporary) { ephemeralHandles.add(h); seedBypass.delete(h) }
           else {
             ephemeralHandles.delete(h)
             // Kept, so the reason it was parked no longer applies. `wake` is what a read or a viewer
