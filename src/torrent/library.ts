@@ -21,6 +21,8 @@ import type { TorrentFormat } from './make-torrent'
 export type Persisted = {
   infoHash: string, magnet: string, savePath: string, addedAt: number,
   started?: boolean, paused?: boolean, resumed?: boolean, forced?: boolean, ephemeral?: boolean, lastUsedAt?: number, rootEntry?: string,
+  /** Device-local seeding-policy pause/override flags, excluded from cloud backups by `portableOf`. */
+  seedStopped?: boolean, seedBypass?: boolean,
   saveTo?: SaveLocation, wantedFiles?: number[], firstLast?: boolean,
   downloadLimit?: number, uploadLimit?: number,
   /**

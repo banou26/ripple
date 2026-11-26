@@ -197,7 +197,7 @@ const fromFileTree = (
  */
 export const isPad = (entry: Map<string, Bencode>): boolean => (text(entry.get('attr')) ?? '').includes('p')
 
-const saysPrivate = (info: Map<string, Bencode>): boolean => {
+export const saysPrivate = (info: Map<string, Bencode>): boolean => {
   const flag = info.get('private')
   return typeof flag === 'number' && flag !== 0
 }

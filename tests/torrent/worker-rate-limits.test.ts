@@ -15,6 +15,7 @@ const engine = vi.hoisted(() => ({
 }))
 const gate = vi.hoisted(() => ({
   blockKey: null as string | null,
+  rejectKey: null as string | null,
   entered: [] as unknown[],
   resolve: null as (() => void) | null,
 }))
@@ -42,6 +43,7 @@ vi.mock('../../src/torrent/hybrid-storage', async (importOriginal) => ({
 vi.mock('idb-keyval', () => ({
   get: async (key: string) => store.get(key),
   set: async (key: string, value: unknown) => {
+    if (gate.rejectKey === key) throw new Error('idb quota exceeded')
     if (gate.blockKey === key) {
       gate.entered.push(value)
       await new Promise<void>((resolve) => { gate.resolve = resolve })
@@ -52,41 +54,61 @@ vi.mock('idb-keyval', () => ({
   update: async (key: string, fn: (prev: unknown) => unknown) => { store.set(key, fn(store.get(key))) },
 }))
 
-it('keeps broadcasting the old limit while IDB persists, then pushes the new limit right after', async () => {
-  await import('../../src/torrent/worker')
-  await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
+const settle = async (check: () => void, stepMs = 50, steps = 40) => {
+  let lastErr: unknown
+  for (let i = 0; i < steps; i++) {
+    try { check(); return } catch (err) { lastErr = err }
+    await vi.advanceTimersByTimeAsync(stepMs)
+  }
+  throw lastErr
+}
 
-  gate.blockKey = RATE_LIMITS_KEY
-  const stateStart = rig.of('state').length
+it('keeps broadcasting the old limit while IDB persists, pushes right after, and survives IDB write failure', async () => {
+  vi.useFakeTimers()
+  try {
+    await import('../../src/torrent/worker')
+    await settle(() => expect(rig.of('ready')).toHaveLength(1), 10)
 
-  rig.send({ type: 'set-session-limits', down: 1_500_000 })
-  await vi.waitFor(() => expect(gate.entered).toHaveLength(1))
-  expect(engine.rateCalls.at(-1)).toEqual({ download: 0, upload: 0 })
+    gate.blockKey = RATE_LIMITS_KEY
+    const stateStart = rig.of('state').length
 
-  // Two+ periodic 500 ms ticks run while IndexedDB is still writing: none may leak the unpersisted ceiling.
-  await new Promise((resolve) => setTimeout(resolve, 1_100))
-  const stalledStates = rig.of('state').slice(stateStart)
-  expect(stalledStates.length).toBeGreaterThanOrEqual(2)
-  for (const state of stalledStates) expect(state.rateLimits).toEqual({ down: 0, up: 0 })
-  expect(store.get(RATE_LIMITS_KEY)).toBeUndefined()
+    rig.send({ type: 'set-session-limits', down: 1_500_000 })
+    await settle(() => expect(gate.entered).toHaveLength(1), 0, 20)
+    expect(engine.rateCalls.at(-1)).toEqual({ download: 0, upload: 0 })
 
-  // Align right after a periodic tick so only an explicit postState() can land inside the 250 ms window.
-  const tickCount = rig.of('state').length
-  await vi.waitFor(() => expect(rig.of('state').length).toBeGreaterThan(tickCount), { timeout: 1_500 })
-  const countBeforeResolve = rig.of('state').length
+    // Advance virtual clock through two+ periodic 500 ms ticks while IDB is still writing.
+    await vi.advanceTimersByTimeAsync(1_100)
+    const stalledStates = rig.of('state').slice(stateStart)
+    expect(stalledStates.length).toBeGreaterThanOrEqual(2)
+    for (const state of stalledStates) expect(state.rateLimits).toEqual({ down: 0, up: 0 })
+    expect(store.get(RATE_LIMITS_KEY)).toBeUndefined()
 
-  gate.resolve!()
-  await vi.waitFor(() => {
-    const fresh = rig.of('state').slice(countBeforeResolve)
-    expect(fresh.some((s) => {
-      const limits = s.rateLimits as { down: number, up: number } | undefined
-      return limits?.down === 1_500_000 && limits?.up === 0
-    })).toBe(true)
-  }, { timeout: 250 })
+    // Flush the pending IDB write and verify an immediate state broadcast without waiting 500 ms.
+    const countBeforeResolve = rig.of('state').length
+    gate.resolve!()
+    gate.blockKey = null
+    await settle(() => {
+      const fresh = rig.of('state').slice(countBeforeResolve)
+      expect(fresh.some((s) => {
+        const limits = s.rateLimits as { down: number, up: number } | undefined
+        return limits?.down === 1_500_000 && limits?.up === 0
+      })).toBe(true)
+    }, 0, 20)
 
-  expect(engine.rateCalls.at(-1)).toEqual({ download: 1_500_000, upload: 0 })
+    expect(engine.rateCalls.at(-1)).toEqual({ download: 1_500_000, upload: 0 })
+    expect(store.get(RATE_LIMITS_KEY)).toEqual({ down: 1_500_000, up: 0 })
+    expect(rig.of('state').at(-1)?.rateLimits).toEqual({ down: 1_500_000, up: 0 })
 
-  expect(store.get(RATE_LIMITS_KEY)).toEqual({ down: 1_500_000, up: 0 })
-  expect(rig.of('state').at(-1)?.rateLimits).toEqual({ down: 1_500_000, up: 0 })
-  expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
-}, 15_000)
+    // If IDB set() rejects, session.setRateLimits and state broadcast still proceed without worker error.
+    gate.rejectKey = RATE_LIMITS_KEY
+    rig.send({ type: 'set-session-limits', down: 2_500_000, up: 500_000 })
+    await settle(() => {
+      expect(engine.rateCalls.at(-1)).toEqual({ download: 2_500_000, upload: 500_000 })
+      expect(rig.of('state').at(-1)?.rateLimits).toEqual({ down: 2_500_000, up: 500_000 })
+    }, 0, 20)
+    gate.rejectKey = null
+    expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
+  } finally {
+    vi.useRealTimers()
+  }
+})

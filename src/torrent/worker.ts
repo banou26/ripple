@@ -31,7 +31,7 @@ import { DEMO_SAVE_PATH } from './constants'
 import { CACHE_ROOT, LIST_KEY, REMOVED_KEY, SHARED_ROOT, SYNCED_FILE_CAP, applyRemovals, cacheSavePathFor, isCacheSavePath, mergeEntry, mergeRemovals, ownsItsDirectory, resumeKey, savePathFor, staysEphemeral, syncedMetadata, thumbnailKey, torrentKey } from './library'
 import { createHybridStorage, folderLacks, isGrantedSavePath, isNativeSavePath, isSourceSavePath, sourceSavePathFor } from './hybrid-storage'
 import { piecePlan, planIsDefault } from './piece-plan'
-import { buildTorrentFile, infoFromResume, magnetExtras } from './torrent-export'
+import { buildTorrentFile, infoFromResume, magnetExtras, resumeHasPrivateInfo } from './torrent-export'
 import { isPrivateTorrent } from './torrent-file'
 import { currentLocation, savePathIn } from './save-location'
 import { RATE_LIMITS_KEY, isLimit, normalizeLimits } from './rate-limits'
@@ -189,7 +189,50 @@ const savePathByHandle = new Map<number, string>()
 // The paused flag of the blob last written for each handle, so a settled torrent is snapshotted
 // once per pause state rather than once per torrent. See the pump for why that distinction matters.
 const resumeSaved = new Map<number, boolean>()
-const userPaused = new Set<number>()
+type StopReason = 'user' | 'cache-idle' | 'seed-policy'
+type HandleControl = {
+  stop?: StopReason
+  userStarted?: boolean
+  forced?: boolean
+  watchedPastQueue?: boolean
+  seedBypass?: boolean
+}
+const handleControl = new Map<number, HandleControl>()
+const ctrl = (h: number): HandleControl => {
+  let state = handleControl.get(h)
+  if (!state) { state = {}; handleControl.set(h, state) }
+  return state
+}
+const stopReasonOf = (h: number): StopReason | undefined => handleControl.get(h)?.stop
+const isUserPaused = (h: number) => stopReasonOf(h) === 'user'
+const isCacheIdle = (h: number) => stopReasonOf(h) === 'cache-idle'
+const isSeedStopped = (h: number) => stopReasonOf(h) === 'seed-policy'
+const isStoppedOnPurpose = (h: number) => stopReasonOf(h) !== undefined
+const isForced = (h: number) => handleControl.get(h)?.forced === true
+const isUserStarted = (h: number) => handleControl.get(h)?.userStarted === true
+const isWatchedPastQueue = (h: number) => handleControl.get(h)?.watchedPastQueue === true
+const hasSeedBypass = (h: number) => handleControl.get(h)?.seedBypass === true
+const setStopReason = (h: number, reason: StopReason) => { ctrl(h).stop = reason }
+const clearStopReason = (h: number, reason?: StopReason): boolean => {
+  const state = handleControl.get(h)
+  if (!state?.stop || (reason && state.stop !== reason)) return false
+  delete state.stop
+  return true
+}
+const setCtrlFlag = (h: number, key: 'userStarted' | 'forced' | 'watchedPastQueue' | 'seedBypass', on: boolean): boolean => {
+  if (on) { ctrl(h)[key] = true; return true }
+  const state = handleControl.get(h)
+  if (!state?.[key]) return false
+  delete state[key]
+  return true
+}
+const clearAllSeedBypass = () => {
+  for (const state of handleControl.values()) delete state.seedBypass
+}
+const hasAnySeedStopped = () => {
+  for (const state of handleControl.values()) if (state.stop === 'seed-policy') return true
+  return false
+}
 /*
  * What Ripple wants the engine's pause flag to be, for torrents whose state it has to see first.
  *
@@ -229,7 +272,7 @@ const snapshot = (): TorrentSnapshot[] =>
       status: session!.status(h),
       bitfield: bf ? { numPieces: bf.numPieces, pieceLength: bf.pieceLength, length: bf.length, pieces: bf.pieces } : null,
       recovery: recovery.state(h),
-      userPaused: userPaused.has(h),
+      userPaused: isUserPaused(h),
       windowed: windows.has(h),
       ephemeral: ephemeralHandles.has(h),
       // left out while it has nothing to say: this rides every beat, for every torrent
@@ -326,22 +369,9 @@ const removeFromList = async (ih: string) => {
 // Torrents the player asked for rather than the user. Their bytes are the cache the budget pass
 // reclaims from, and they are the only ones it will ever delete.
 const ephemeralHandles = new Set<number>()
-// Stopped because nobody is watching, which is NOT the user's pause: it stays out of `userPaused`
-// and out of the persisted `paused` flag, so it never looks like a decision the user made.
-const cacheIdle = new Set<number>()
-// Started by the person, kept as the list's `resumed`: the idle park leaves a temporary one running until their pause, which ends it.
-const userStarted = new Set<number>()
-// Run outside libtorrent's queue, which parks what is past 3 busy downloads or 5 busy seeds: the person's Force start,
-// kept as the list's `forced`, and a torrent somebody is watching, until its last viewer leaves.
-const forced = new Set<number>()
-const watchedPastQueue = new Set<number>()
 const COMPLETE_STATES = new Set([4, 5])
 let seedingPolicy: SeedingPolicy = DEFAULT_SEEDING_POLICY
-// Completed torrents stopped automatically by `seedingPolicy` (distinct from `userPaused`).
-const seedStopped = new Set<number>()
-// Completed torrents explicitly started or force-started by the user to override the active policy.
-const seedBypass = new Set<number>()
-const skipsQueue = (h: number) => forced.has(h) || watchedPastQueue.has(h)
+const skipsQueue = (h: number) => isForced(h) || isWatchedPastQueue(h)
 // `resumeTorrent` turns auto-management back on, which hands the torrent straight back to the queue
 const run = (h: number) => {
   if (skipsQueue(h)) session?.setFlags(h, 0, TORRENT_FLAG.paused | TORRENT_FLAG.autoManaged)
@@ -471,15 +501,14 @@ const track = (h: number, magnet: string, ih: string | null, savePath: string, e
 const untrack = (h: number) => {
   const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1)
   magnetByHandle.delete(h); infoHashByHandle.delete(h); savePathByHandle.delete(h); resumeSaved.delete(h)
-  userPaused.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
+  handleControl.delete(h); recovery.forget(h); resumeInFlight.delete(h); readsByHandle.delete(h)
   wantPaused.delete(h); wantStarted.delete(h); resumeRetry.delete(h)
   viewers.delete(h); newlyWatched.delete(h); pendingViewing.delete(h); needsPriorityReset.delete(h); planByHandle.delete(h)
   limitsByHandle.delete(h)
   uptimeAtAdd.delete(h); uptimeStored.delete(h)
   totalsAtAdd.delete(h); totalsStored.delete(h)
-  ephemeralHandles.delete(h); cacheIdle.delete(h); userStarted.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
-  seedStopped.delete(h); seedBypass.delete(h)
-  forced.delete(h); watchedPastQueue.delete(h); headFirst.delete(h)
+  ephemeralHandles.delete(h); lastReadAt.delete(h); wokenByRead.delete(h); needsRootEntry.delete(h); holdingUpload.delete(h)
+  headFirst.delete(h)
   windows.delete(h); roomByHandle.delete(h); trickling.delete(h); dropsRunning.delete(h); dropsAgain.delete(h)
   exporting.delete(h); noPeersSince.delete(h); folderUnchecked.delete(h)
 }
@@ -487,7 +516,7 @@ const untrack = (h: number) => {
 // A read or a viewer means someone wants these bytes now, so an idle-paused cache torrent goes back
 // to work. Without this a paused torrent would park a read on pieces that can never arrive.
 const wake = (h: number) => {
-  if (!cacheIdle.delete(h)) return
+  if (!clearStopReason(h, 'cache-idle')) return
   wantStart(h)
   session?.resumeTorrent(h)
   recovery.hold(h, Date.now())
@@ -998,11 +1027,11 @@ const planPastFirstRead = () => {
 }
 
 const canAutoParkEphemeral = (h: number) =>
-  ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !userPaused.has(h) && !userStarted.has(h) && !forced.has(h)
+  ephemeralHandles.has(h) && savePathByHandle.get(h) !== DEMO_SAVE_PATH && !isUserPaused(h) && !isUserStarted(h) && !isForced(h)
 
 const parkCache = (h: number) => {
-  watchedPastQueue.delete(h)
-  cacheIdle.add(h)
+  setCtrlFlag(h, 'watchedPastQueue', false)
+  setStopReason(h, 'cache-idle')
   wantPause(h)
   session?.pauseTorrent(h)
   releaseHold(h)
@@ -1048,35 +1077,39 @@ const policyWantsStop = (h: number, files: TorrentFiles | null): boolean => {
 }
 
 const stopForSeedingPolicy = (h: number) => {
-  watchedPastQueue.delete(h)
-  seedStopped.add(h)
+  setCtrlFlag(h, 'watchedPastQueue', false)
+  setStopReason(h, 'seed-policy')
+  setCtrlFlag(h, 'seedBypass', false)
   wantPause(h)
   session?.pauseTorrent(h)
   void persistResume(h)
+  const ih = infoHashByHandle.get(h)
+  if (ih) void patchList(ih, { seedStopped: true, seedBypass: false }).catch(() => {})
 }
 
 const resumeFromPolicy = (h: number) => {
   wantStart(h)
   run(h)
   recovery.hold(h, Date.now())
+  const ih = infoHashByHandle.get(h)
+  if (ih) void patchList(ih, { seedStopped: false }).catch(() => {})
 }
 
 const applySeedingPolicy = () => {
   if (!session) return
-  if (!hasSeedingLimit(seedingPolicy) && seedStopped.size === 0) return
+  if (!hasSeedingLimit(seedingPolicy) && !hasAnySeedStopped()) return
   for (const h of handles) {
     if (savePathByHandle.get(h) === DEMO_SAVE_PATH) continue
-    // Closed ephemeral torrents stay parked in cacheIdle and must never be woken by a policy edit.
-    if (cacheIdle.has(h)) { seedStopped.delete(h); continue }
-    if (userPaused.has(h)) { seedStopped.delete(h); continue }
-    if (forced.has(h) || seedBypass.has(h)) {
-      if (seedStopped.delete(h)) resumeFromPolicy(h)
+    // Closed ephemeral torrents stay parked in cache-idle and must never be woken by a policy edit.
+    if (isCacheIdle(h) || isUserPaused(h)) continue
+    if (isForced(h) || hasSeedBypass(h)) {
+      if (clearStopReason(h, 'seed-policy')) resumeFromPolicy(h)
       continue
     }
     const st = session.status(h)
     if (!st || CHECKING_STATES.has(st.state)) continue
     if (!COMPLETE_STATES.has(st.state)) {
-      if (seedStopped.delete(h)) resumeFromPolicy(h)
+      if (clearStopReason(h, 'seed-policy')) resumeFromPolicy(h)
       continue
     }
     const files = session.files(h) ?? null
@@ -1084,8 +1117,8 @@ const applySeedingPolicy = () => {
     if (ephemeralHandles.has(h) && hasStreamWindow(h, files, active)) continue
     if (policyWantsStop(h, files)) {
       if (waitedOnMissing(h) || (active.length > 0 && (!files || !activeWantedHeld(h, files, active)))) continue
-      if (!seedStopped.has(h)) stopForSeedingPolicy(h)
-    } else if (seedStopped.delete(h)) {
+      if (!isSeedStopped(h)) stopForSeedingPolicy(h)
+    } else if (clearStopReason(h, 'seed-policy')) {
       resumeFromPolicy(h)
     }
   }
@@ -1100,45 +1133,52 @@ const applyViewing = (h: number) => {
   if (!active.length) {
     headFirst.delete(h)
     // before the park below, which would otherwise be undone: the queue starts a paused torrent it manages
-    if (watchedPastQueue.delete(h) && !forced.has(h) && !userPaused.has(h) && !cacheIdle.has(h) && !seedStopped.has(h)) {
+    if (setCtrlFlag(h, 'watchedPastQueue', false) && !isForced(h) && !isStoppedOnPurpose(h)) {
       session.setFlags(h, TORRENT_FLAG.autoManaged, TORRENT_FLAG.autoManaged)
     }
-    // Wait for metadata before clearing priorities and parking: a paused torrent connects to nobody.
+    // Wait for the file layout before resetting priorities and parking: `prioritizePieces` sizes
+    // `new Uint8Array(layout.numPieces)` from it, and a paused torrent connects to nobody.
     if (!session.files(h)) { pendingViewing.add(h); return }
     pendingViewing.delete(h)
     windows.delete(h)
     trickle(h)
     session.clearStreamWindow(h)
     if (!planIsDefault(planByHandle.get(h) ?? {})) applyPiecePlan(h)
-    if (canAutoParkEphemeral(h) && !cacheIdle.has(h)) {
+    if (canAutoParkEphemeral(h) && !isCacheIdle(h)) {
       const st = session.status(h)
+      // Wait for checking to finish before parking so we never freeze an incomplete piece-check state.
       if (!st || CHECKING_STATES.has(st.state)) { pendingViewing.add(h); return }
-      seedStopped.delete(h)
+      if (clearStopReason(h, 'seed-policy')) {
+        const ih = infoHashByHandle.get(h)
+        if (ih) void patchList(ih, { seedStopped: false }).catch(() => {})
+      }
       parkCache(h)
     } else releaseHold(h)
     return
   }
   const files = session.files(h)
-  if (files && (seedStopped.has(h) || (
-    cacheIdle.has(h)
-    && !userPaused.has(h)
-    && !forced.has(h)
-    && !seedBypass.has(h)
+  if (files && (isSeedStopped(h) || (
+    isCacheIdle(h)
+    && !isForced(h)
+    && !hasSeedBypass(h)
     && !waitedOnMissing(h)
     && !(ephemeralHandles.has(h) && hasStreamWindow(h, files, active))
     && policyWantsStop(h, files)
   ))) {
     if (activeWantedHeld(h, files, active)) {
-      if (cacheIdle.delete(h)) seedStopped.add(h)
+      if (stopReasonOf(h) === 'cache-idle') {
+        setStopReason(h, 'seed-policy')
+        const ih = infoHashByHandle.get(h)
+        if (ih) void patchList(ih, { seedStopped: true }).catch(() => {})
+      }
       pendingViewing.delete(h)
       headFirst.delete(h)
       return
     }
-    seedStopped.delete(h)
-    resumeFromPolicy(h)
+    if (clearStopReason(h, 'seed-policy')) resumeFromPolicy(h)
   }
   wake(h)
-  if (!userPaused.has(h) && !seedStopped.has(h) && !watchedPastQueue.has(h)) { watchedPastQueue.add(h); run(h) }
+  if (!isUserPaused(h) && !isSeedStopped(h) && setCtrlFlag(h, 'watchedPastQueue', true)) run(h)
   // Watched, so nothing is left to hold back, and not at the layout: in upload mode libtorrent drops every
   // seed the moment the metadata lands (`upload_upload_connection`). With the VPN off the one WebRTC peer
   // came back at the tracker's next announce, and the player's read gave up first (swarm rig, 2026-11-14).
@@ -1572,14 +1612,17 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   if (from === to) return
   const magnet = magnetByHandle.get(h) ?? ''
   const savePath = savePathIn(to, ih)
-  const wasPaused = userPaused.has(h)
   // Carried across the re-add for the same reason `wasPaused` is. `track` defaults it to false, so
   // a moved cache torrent used to come back as a library one in the engine while the list still had
   // it as cache: it stopped being idle-parked, and the budget pass went on treating it as an
   // eviction candidate, which is a torrent that looks kept and is deleted anyway.
+  const wasPaused = isUserPaused(h)
+  const prevCtrl = handleControl.get(h)
+  const wasSeedStopped = prevCtrl?.stop === 'seed-policy'
+  const wasStarted = prevCtrl?.userStarted === true
+  const wasForced = prevCtrl?.forced === true
+  const wasSeedBypass = prevCtrl?.seedBypass === true
   const wasEphemeral = ephemeralHandles.has(h)
-  const wasStarted = userStarted.has(h)
-  const wasForced = forced.has(h)
   const plan = planByHandle.get(h)
   const entry = (await loadList()).find((e) => e.infoHash === ih)
   const isPriv = entry?.private === true || live.isPrivate?.(h) === true
@@ -1600,13 +1643,10 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   untrack(h)
   await del(resumeKey(ih)).catch(() => {})
 
-  // from the kept .torrent when there is one, as the restore does: a magnet, or a .torrent add's bare hash, gives the
-  // engine no file list until a peer sends it
+  // from the kept .torrent when there is one, as the restore does: `isPriv` already returned above if absent.
   const next = bytes?.byteLength
     ? live.addTorrentFile(bytes, savePath)
-    : isPriv
-      ? -2 >>> 0
-      : addMagnet(live, magnet, savePath)
+    : addMagnet(live, magnet, savePath)
   if (addFailed(next)) {
     post({ type: 'add-failed', message: forPage.formatMessage({ id: 'Moving the files left the torrent unaddable', defaultMessage: 'Moving the files left the torrent unaddable' }) })
     await patchList(ih, { savePath, saveTo: to, started: false })
@@ -1619,9 +1659,12 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
   // so a torrent that could ask for a piece would eventually ask this backend to write and be
   // refused, which reaches libtorrent as a fatal disk error.
   if (to === 'folder') live.setFlags(next, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
-  if (wasPaused) { userPaused.add(next); wantPause(next) } else wantStart(next)
-  if (wasStarted) userStarted.add(next)
-  if (wasForced) { forced.add(next); run(next) }
+  if (wasPaused) { setStopReason(next, 'user'); wantPause(next) }
+  else if (wasSeedStopped) { setStopReason(next, 'seed-policy'); wantPause(next) }
+  else wantStart(next)
+  if (wasStarted) setCtrlFlag(next, 'userStarted', true)
+  if (wasForced && !wasPaused) { setCtrlFlag(next, 'forced', true); run(next) }
+  if (wasSeedBypass && !wasPaused && !wasSeedStopped) setCtrlFlag(next, 'seedBypass', true)
   recovery.hold(next, Date.now())
   // no message of its own: patchList broadcasts the list, and the next state tick carries the new
   // handle, so every tab learns about the move through the two channels it already watches
@@ -1640,8 +1683,8 @@ const relocate = async (live: Session, h: number, ih: string, to: SaveLocation) 
  */
 const addSource = (
   live: Session,
-  { infoHash, magnet, bytes, handles, paused, ephemeral = false }:
-  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (SourceRef | null)[], paused: boolean, ephemeral?: boolean },
+  { infoHash, magnet, bytes, handles, paused, seedStopped = false, ephemeral = false }:
+  { infoHash: string, magnet: string, bytes: Uint8Array, handles: (SourceRef | null)[], paused: boolean, seedStopped?: boolean, ephemeral?: boolean },
 ): number | null => {
   const savePath = sourceSavePathFor(infoHash)
   sourceHandles.set(savePath, handles)
@@ -1649,7 +1692,8 @@ const addSource = (
   if (addFailed(h)) { sourceHandles.delete(savePath); return null }
   track(h, magnet, infoHash, savePath, ephemeral)
   live.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
-  if (paused) { userPaused.add(h); wantPause(h) }
+  if (paused) { setStopReason(h, 'user'); wantPause(h) }
+  else if (seedStopped) { setStopReason(h, 'seed-policy'); wantPause(h) }
   recovery.hold(h, Date.now())
   return h
 }
@@ -2018,18 +2062,26 @@ const init = async () => {
         await del(resumeKey(e.infoHash)).catch(() => {})
         e.started = false; changed = true; continue
       }
+      if (e.private !== true && ((bytes?.byteLength && isPrivateTorrent(bytes)) || (resume?.byteLength && resumeHasPrivateInfo(resume)))) {
+        e.private = true
+        changed = true
+      }
       const isPriv = e.private === true
-      const h = resume && resume.byteLength
-        ? session.addTorrentWithResume(resume, savePath)
+      const safeResume = resume?.byteLength && (!isPriv || resumeHasPrivateInfo(resume)) ? resume : undefined
+      if (isPriv && resume?.byteLength && !safeResume) {
+        await del(resumeKey(e.infoHash)).catch(() => {})
+      }
+      const h = safeResume
+        ? session.addTorrentWithResume(safeResume, savePath)
         : bytes && bytes.byteLength
           ? session.addTorrentFile(bytes, savePath)
           : isPriv
             ? -2 >>> 0
             : addMagnet(session, e.magnet, savePath)
       if (addFailed(h)) {
-        // A private torrent whose resume blob and .torrent file are both gone cannot be added from
-        // its bare magnet (that would announce its infohash on the public DHT); leave it as a ghost.
-        if (isPriv && !resume?.byteLength && !bytes?.byteLength) {
+        // A private torrent whose resume blob and .torrent file are both absent or non-private cannot
+        // fall back to its bare magnet (public DHT); leave it as a ghost.
+        if (isPriv && !safeResume && !bytes?.byteLength) {
           e.started = false
           changed = true
         }
@@ -2061,9 +2113,12 @@ const init = async () => {
        * connects to nobody, so one restored paused with no metadata could never fetch any and
        * would sit stopped for the life of the session.
        */
-      if (e.paused) { userPaused.add(h); wantPause(h) } else wantStart(h)
-      if (e.resumed) userStarted.add(h)
-      if (e.forced && !e.paused) { forced.add(h); run(h) }
+      if (e.paused) { setStopReason(h, 'user'); wantPause(h) }
+      else if (e.seedStopped) { setStopReason(h, 'seed-policy'); wantPause(h) }
+      else wantStart(h)
+      if (e.resumed) setCtrlFlag(h, 'userStarted', true)
+      if (e.forced && !e.paused) { setCtrlFlag(h, 'forced', true); run(h) }
+      if (e.seedBypass && !e.paused && !e.seedStopped) setCtrlFlag(h, 'seedBypass', true)
       recovery.hold(h, Date.now())
       // Held like a page's add until the pump at its layout, or past its check, which parks it or, for one the person
       // started, only releases it: it comes back running, with no saved state or one saved while it ran, and asked a
@@ -2216,9 +2271,8 @@ const init = async () => {
     }
     for (const h of wantStarted) {
       // Stopped on purpose since the want was recorded, so the want is stale. Asked here rather
-      // than withdrawn at every pause site, so this reads from the same sets `recovery.observe`
-      // is given below and cannot drift from them.
-      if (userPaused.has(h) || cacheIdle.has(h) || seedStopped.has(h)) { wantStarted.delete(h); continue }
+      // than withdrawn at every pause site, so this reads the same stop state `recovery.observe` sees.
+      if (isStoppedOnPurpose(h)) { wantStarted.delete(h); continue }
       const st = session.status(h)
       // the state it came back in is not known before the engine reports on it, and a check waiting
       // its turn reports itself paused until libtorrent's queue starts it
@@ -2244,7 +2298,7 @@ const init = async () => {
       const st = session.status(h)
       // an idle-paused cache torrent or policy-stopped library torrent is stopped on purpose too, so recovery must not read it as a
       // failure and start it again five seconds later
-      recovery.observe(h, st && observed(st), userPaused.has(h) || cacheIdle.has(h) || seedStopped.has(h), now)
+      recovery.observe(h, st && observed(st), isStoppedOnPurpose(h), now)
       if (!st || st.paused || !ACTIVE_STATES.has(st.state) || st.numPeers > 0) noPeersSince.delete(h)
       else if (!noPeersSince.has(h)) noPeersSince.set(h, now)
     }
@@ -2440,7 +2494,7 @@ const startEntries = async (session: Session, infoHashes: unknown[]) => {
     recovery.hold(h, Date.now())
     patches.set(e.infoHash, {
       savePath, saveTo: keptSaveTo(e),
-      started: true, paused: false, resumed: false, forced: false, ephemeral: false, lastUsedAt: Date.now(),
+      started: true, paused: false, resumed: false, forced: false, seedStopped: false, seedBypass: false, ephemeral: false, lastUsedAt: Date.now(),
     })
   }
   if (!patches.size) return
@@ -2463,8 +2517,8 @@ const keepInLibrary = async (
   options?: { paused?: boolean, patch?: Partial<Persisted> },
 ) => {
   ephemeralHandles.delete(h)
-  seedStopped.delete(h)
-  seedBypass.delete(h)
+  clearStopReason(h, 'seed-policy')
+  setCtrlFlag(h, 'seedBypass', false)
   /**
    * And it has to START it, because a cache torrent is very likely parked.
    *
@@ -2472,18 +2526,17 @@ const keepInLibrary = async (
    * promotion cleared the flag that made it a cache entry without touching the pause that
    * flag had already caused. So watching something in /watch, closing it, and then adding
    * the same magnet to the library gave a row that sat at Queued for good: not user-paused,
-   * so no Resume was offered, and `recovery` reads `cacheIdle` as stopped on purpose and
+   * so no Resume was offered, and `recovery` reads `cache-idle` as stopped on purpose and
    * leaves it alone.
    */
   if (options?.paused) {
-    cacheIdle.delete(h)
-    userPaused.add(h)
+    setStopReason(h, 'user')
     wantPause(h)
     session?.pauseTorrent(h)
   } else wake(h)
   // a kept download is never windowed, so what its window dropped downloads again
   if (activeViewers(h).length) applyViewing(h)
-  await patchList(ih, { ephemeral: false, lastUsedAt: Date.now(), ...options?.patch })
+  await patchList(ih, { ephemeral: false, seedStopped: false, seedBypass: false, lastUsedAt: Date.now(), ...options?.patch })
 }
 
 const handleMessage = async (session: Session, m: any) => {
@@ -2669,6 +2722,7 @@ const handleMessage = async (session: Session, m: any) => {
         bytes,
         handles: fileHandles,
         paused: entry?.paused === true,
+        seedStopped: entry?.seedStopped === true,
         ephemeral: entry?.ephemeral === true,
       })
       if (h === null) { post({ type: 'add-failed', message: forPage.formatMessage({ id: 'The engine refused that torrent', defaultMessage: 'The engine refused that torrent' }) }); return }
@@ -2676,7 +2730,8 @@ const handleMessage = async (session: Session, m: any) => {
       // as the restore loop does, for the files the person left out after making it
       planByHandle.set(h, { wanted: entry?.wantedFiles, firstLast: entry?.firstLast })
       needsPriorityReset.add(h)
-      if (entry?.forced && !entry.paused) { forced.add(h); run(h) }
+      if (entry?.forced && !entry.paused) { setCtrlFlag(h, 'forced', true); run(h) }
+      if (entry?.seedBypass && !entry.paused && !entry.seedStopped) setCtrlFlag(h, 'seedBypass', true)
       uptimeStored.set(h, { activeSeconds: entry?.activeSeconds ?? 0, seedingSeconds: entry?.seedingSeconds ?? 0 })
       totalsStored.set(h, storedTotals(entry))
       await patchList(ih, { started: true, lastUsedAt: Date.now() })
@@ -2742,7 +2797,7 @@ const handleMessage = async (session: Session, m: any) => {
         session.setFlags(h, TORRENT_FLAG.uploadMode, TORRENT_FLAG.uploadMode)
       }
       if (m.sequential === true) session.setFlags(h, TORRENT_FLAG.sequentialDownload, TORRENT_FLAG.sequentialDownload)
-      if (m.paused === true) { userPaused.add(h); wantPause(h) }
+      if (m.paused === true) { setStopReason(h, 'user'); wantPause(h) }
       if (m.top === true) session.moveInQueue(h, 'top')
       recovery.hold(h, Date.now())
       // the infohash lands with the add alert, popped by the 500ms loop
@@ -2786,7 +2841,7 @@ const handleMessage = async (session: Session, m: any) => {
       const saveTo = m.saveTo === 'browser' || m.saveTo === 'folder' ? { saveTo: m.saveTo as SaveLocation } : {}
       // the session's pause, not the add's: a Pause sent during the poll above had no entry to write itself into
       await upsertList(
-        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: userPaused.has(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}), ...(isPrivateTorrent(bytes) || session.isPrivate?.(h) === true ? { private: true } : {}) },
+        { infoHash: ih, magnet, savePath, addedAt, lastUsedAt: addedAt, ephemeral: m.ephemeral === true, started: true, paused: isUserPaused(h), wantedFiles: wanted, firstLast: firstLast || undefined, ...saveTo, ...(m.created === true ? { created: true } : {}), ...(isPrivateTorrent(bytes) || session.isPrivate?.(h) === true ? { private: true } : {}) },
         known && fetchesToBrowser(known) ? { savePath, saveTo: keptSaveTo(known), ...saveTo } : undefined,
       )
       /*
@@ -2811,12 +2866,12 @@ const handleMessage = async (session: Session, m: any) => {
       // woke every one, and a 276 MB film downloaded its last 56 MB (swarm rig, 2026-11-14). A quiet
       // read of bytes not on disk is refused below.
       if (m.prioritize !== false && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
-        if (cacheIdle.has(m.handle)) wokenByRead.add(m.handle)
+        if (isCacheIdle(m.handle)) wokenByRead.add(m.handle)
         wake(m.handle)
-        if (seedStopped.delete(m.handle)) resumeFromPolicy(m.handle)
+        if (clearStopReason(m.handle, 'seed-policy')) resumeFromPolicy(m.handle)
       }
       if (!m.viewer) lastReadAt.set(m.handle, Date.now())
-      if (userPaused.has(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
+      if (isUserPaused(m.handle) && !hasBytes(m.handle, m.fileIndex, m.offset, m.len)) {
         post({ type: 'read-error', id: m.id, error: TORRENT_PAUSED })
         return
       }
@@ -2955,7 +3010,7 @@ const handleMessage = async (session: Session, m: any) => {
         const temporary = m.temporary === true
         const h = handles.find((x) => infoHashByHandle.get(x) === m.infoHash)
         if (h !== undefined) {
-          if (temporary) { ephemeralHandles.add(h); seedBypass.delete(h) }
+          if (temporary) { ephemeralHandles.add(h); setCtrlFlag(h, 'seedBypass', false) }
           else {
             ephemeralHandles.delete(h)
             // Kept, so the reason it was parked no longer applies. `wake` is what a read or a viewer
@@ -2966,7 +3021,7 @@ const handleMessage = async (session: Session, m: any) => {
           }
           if (activeViewers(h).length) applyViewing(h)
         }
-        await patchList(m.infoHash, { ephemeral: temporary })
+        await patchList(m.infoHash, { ephemeral: temporary, ...(temporary ? { seedBypass: false } : {}) })
       }
     } else if (m.type === 'export-start') {
       // a fresh blob for the metadata and the chunk files holding bytes; only a chunked cache torrent
@@ -3050,7 +3105,9 @@ const handleMessage = async (session: Session, m: any) => {
       let list: Persisted[] = []
       let dropped: Persisted[] = []
       let changed = false
+      const newlyPrivate: string[] = []
       await update<Persisted[]>(LIST_KEY, (prev) => {
+        newlyPrivate.length = 0
         const applied = applyRemovals(prev ?? [], Array.isArray(m.list) ? m.list : [], removals)
         list = applied.list
         dropped = (prev ?? []).filter((e) => !list.includes(e))
@@ -3073,7 +3130,11 @@ const handleMessage = async (session: Session, m: any) => {
             if (mine.name === undefined && meta.name !== undefined) { mine.name = meta.name; changed = true }
             if (mine.size === undefined && meta.size !== undefined) { mine.size = meta.size; changed = true }
             if (mine.files === undefined && meta.files !== undefined) { mine.files = meta.files; changed = true }
-            if (e.private === true && mine.private !== true) { mine.private = true; changed = true }
+            if (e.private === true && mine.private !== true) {
+              mine.private = true
+              newlyPrivate.push(mine.infoHash)
+              changed = true
+            }
             /*
              * THE COUNTERS ARE THE SECOND EXCEPTION, and they are merged rather than filled.
              *
@@ -3106,6 +3167,21 @@ const handleMessage = async (session: Session, m: any) => {
         return list
       })
       for (const e of dropped) await forgetStored(e.infoHash)
+      const stoppedPatches = new Map<string, Partial<Persisted>>()
+      for (const ih of newlyPrivate) {
+        const h = handles.find((x) => infoHashByHandle.get(x) === ih)
+        if (h !== undefined && session.isPrivate?.(h) !== true) {
+          failReads(h, TORRENT_PAUSED)
+          session.removeTorrent(h, false)
+          untrack(h)
+          stoppedPatches.set(ih, { started: false })
+        }
+      }
+      if (stoppedPatches.size) {
+        await patchEntries(stoppedPatches, true)
+        list = await loadList()
+        changed = true
+      }
       if (changed) post({ type: 'list', list, synced: true })
     } else if (m.type === 'start' || m.type === 'start-many') {
       await startEntries(session, m.type === 'start' ? [m.infoHash] : Array.isArray(m.infoHashes) ? m.infoHashes : [])
@@ -3134,33 +3210,34 @@ const handleMessage = async (session: Session, m: any) => {
       }
       post({ type: 'list', list: [], synced: true })
     } else if (m.type === 'pause') {
-      userPaused.add(m.handle)
+      setStopReason(m.handle, 'user')
       // whatever happens next, it is the user's decision now and not an idle cache torrent's
-      cacheIdle.delete(m.handle); userStarted.delete(m.handle); forced.delete(m.handle); seedStopped.delete(m.handle); seedBypass.delete(m.handle)
+      setCtrlFlag(m.handle, 'userStarted', false)
+      setCtrlFlag(m.handle, 'forced', false)
+      setCtrlFlag(m.handle, 'seedBypass', false)
       recovery.forget(m.handle)
       session.pauseTorrent(m.handle)
       failReads(m.handle, TORRENT_PAUSED)
       void persistResume(m.handle)
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: true, resumed: false, forced: false })
+      if (ih) await patchList(ih, { paused: true, resumed: false, forced: false, seedStopped: false, seedBypass: false })
     } else if (m.type === 'resume' || m.type === 'force-start') {
-      userPaused.delete(m.handle)
+      const wasSeedStopped = isSeedStopped(m.handle)
+      clearStopReason(m.handle)
       // a temporary one's only: a Start given while it was the person's own says nothing once it is made temporary
       const sticks = ephemeralHandles.has(m.handle)
-      if (sticks) userStarted.add(m.handle)
-      if (seedStopped.has(m.handle) || COMPLETE_STATES.has(session.status(m.handle)?.state ?? -1)) {
-        seedBypass.add(m.handle)
+      if (sticks) setCtrlFlag(m.handle, 'userStarted', true)
+      if (wasSeedStopped || COMPLETE_STATES.has(session.status(m.handle)?.state ?? -1)) {
+        setCtrlFlag(m.handle, 'seedBypass', true)
       }
-      seedStopped.delete(m.handle)
-      cacheIdle.delete(m.handle)
       const force = m.type === 'force-start'
-      if (force) forced.add(m.handle); else forced.delete(m.handle)
+      setCtrlFlag(m.handle, 'forced', force)
       wantStart(m.handle)
       recovery.forget(m.handle)
       run(m.handle)
       recovery.hold(m.handle, Date.now())
       const ih = infoHashByHandle.get(m.handle)
-      if (ih) await patchList(ih, { paused: false, resumed: sticks, forced: force })
+      if (ih) await patchList(ih, { paused: false, resumed: sticks, forced: force, seedStopped: false, seedBypass: hasSeedBypass(m.handle) })
     } else if (m.type === 'recheck') {
       // the engine forgets every piece before it starts hashing, so the saved blob now describes a have-set that no longer exists
       const ih = infoHashByHandle.get(m.handle)
@@ -3171,16 +3248,17 @@ const handleMessage = async (session: Session, m: any) => {
       // pausing takes a torrent out of the only rotation that starts checks, so wantPaused has to go
       // too. Neither want is recorded in its place: forceRecheck clears the pause itself, and the
       // check is libtorrent's queue to start.
-      userPaused.delete(m.handle)
+      clearStopReason(m.handle)
       wantPaused.delete(m.handle)
       wantStarted.delete(m.handle)
-      cacheIdle.delete(m.handle); wokenByRead.delete(m.handle); seedStopped.delete(m.handle); seedBypass.delete(m.handle)
+      wokenByRead.delete(m.handle)
+      setCtrlFlag(m.handle, 'seedBypass', false)
       recovery.forget(m.handle)
       session.forceRecheck(m.handle)
       // forceRecheck turns auto-management on, as a resume does
       if (skipsQueue(m.handle)) session.setFlags(m.handle, 0, TORRENT_FLAG.autoManaged)
       recovery.hold(m.handle, Date.now())
-      if (ih) await patchList(ih, { paused: false })
+      if (ih) await patchList(ih, { paused: false, seedStopped: false, seedBypass: false })
     } else if (m.type === 'retry-now') {
       recovery.retryNow(Date.now())
     } else if (m.type === 'retry') {
@@ -3254,7 +3332,11 @@ const handleMessage = async (session: Session, m: any) => {
       postState()
     } else if (m.type === 'set-seeding-policy') {
       const next = normalizeSeedingPolicy(m.policy)
-      if (!sameSeedingPolicy(seedingPolicy, next)) seedBypass.clear()
+      if (!sameSeedingPolicy(seedingPolicy, next)) {
+        clearAllSeedBypass()
+        const patches = new Map((await loadList()).filter((e) => e.seedBypass).map((e) => [e.infoHash, { seedBypass: false }]))
+        if (patches.size) await patchEntries(patches, true).catch(() => {})
+      }
       seedingPolicy = next
       await set(SEEDING_POLICY_KEY, seedingPolicy).catch(() => {})
       applySeedingPolicy()

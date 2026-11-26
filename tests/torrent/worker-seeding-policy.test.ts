@@ -161,6 +161,11 @@ it('restores stored ratio policy, pauses satisfied completed torrent, and allows
 
   // restored torrent 1 satisfies stored { ratio: 1, minutes: null } and pauses
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(true), { timeout: 2_000 })
+  await vi.waitFor(() => {
+    const saved = (store.get('ripple:torrents') as Persisted[]).find((e) => e.infoHash === 'a'.repeat(40))
+    expect(saved?.seedStopped).toBe(true)
+    expect(saved?.seedBypass).toBe(false)
+  })
 
   // clearing limits resumes the policy-stopped torrent, while userPaused torrents stay paused
   rig.send({ type: 'add-magnet', magnet: `magnet:?xt=urn:btih:${'b'.repeat(40)}`, ephemeral: false })
@@ -173,6 +178,10 @@ it('restores stored ratio policy, pauses satisfied completed torrent, and allows
   rig.send({ type: 'set-seeding-policy', policy: DEFAULT_SEEDING_POLICY })
   await vi.waitFor(() => expect(store.get(SEEDING_POLICY_KEY)).toEqual(DEFAULT_SEEDING_POLICY))
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(false), { timeout: 2_000 })
+  await vi.waitFor(() => {
+    const saved = (store.get('ripple:torrents') as Persisted[]).find((e) => e.infoHash === 'a'.repeat(40))
+    expect(saved?.seedStopped).toBe(false)
+  })
   expect(engine.paused.has(2)).toBe(true)
 
   // manual Start overrides an active limit on a completed torrent across subsequent pumps
@@ -180,6 +189,11 @@ it('restores stored ratio policy, pauses satisfied completed torrent, and allows
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(true), { timeout: 2_000 })
   rig.send({ type: 'resume', handle: 1 })
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(false), { timeout: 2_000 })
+  await vi.waitFor(() => {
+    const saved = (store.get('ripple:torrents') as Persisted[]).find((e) => e.infoHash === 'a'.repeat(40))
+    expect(saved?.seedBypass).toBe(true)
+    expect(saved?.seedStopped).toBe(false)
+  })
   await pumps()
   expect(engine.paused.has(1)).toBe(false)
 
@@ -190,6 +204,11 @@ it('restores stored ratio policy, pauses satisfied completed torrent, and allows
   // Force start overrides limits too
   rig.send({ type: 'force-start', handle: 1 })
   await vi.waitFor(() => expect(engine.paused.has(1)).toBe(false), { timeout: 2_000 })
+  await vi.waitFor(() => {
+    const saved = (store.get('ripple:torrents') as Persisted[]).find((e) => e.infoHash === 'a'.repeat(40))
+    expect(saved?.seedBypass).toBe(true)
+    expect(saved?.seedStopped).toBe(false)
+  })
   await pumps()
   expect(engine.paused.has(1)).toBe(false)
 }, 20_000)

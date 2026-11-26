@@ -14,16 +14,26 @@ const fixture = vi.hoisted(() => {
   const str = (v: string) => `${enc.encode(v).length}:${v}`
   const PRIV_INFO = `d6:lengthi11e4:name5:p.bin12:piece lengthi16384e6:pieces20:${'p'.repeat(20)}7:privatei1ee`
   const KEPT_PRIV_INFO = `d6:lengthi11e4:name5:k.bin12:piece lengthi16384e6:pieces20:${'k'.repeat(20)}7:privatei1ee`
+  const PRE92_PRIV_INFO = `d6:lengthi11e4:name5:o.bin12:piece lengthi16384e6:pieces20:${'o'.repeat(20)}7:privatei1ee`
+  const RELOCATE_PRIV_INFO = `d6:lengthi11e4:name5:r.bin12:piece lengthi16384e6:pieces20:${'r'.repeat(20)}7:privatei1ee`
   const PUB_INFO = `d6:lengthi11e4:name5:u.bin12:piece lengthi16384e6:pieces20:${'u'.repeat(20)}e`
   const PRIV_TORRENT = enc.encode(`d8:announce${str('https://tracker.private/announce')}4:info${PRIV_INFO}e`)
   const KEPT_PRIV_TORRENT = enc.encode(`d8:announce${str('https://tracker.private/announce')}4:info${KEPT_PRIV_INFO}e`)
+  const PRE92_PRIV_TORRENT = enc.encode(`d8:announce${str('https://tracker.private/announce')}4:info${PRE92_PRIV_INFO}e`)
+  const RELOCATE_PRIV_RESUME = enc.encode(`d4:info${RELOCATE_PRIV_INFO}e`)
+  const UNSAFE_RESUME = enc.encode('d4:spami1ee')
   const PUB_TORRENT = enc.encode(`d8:announce${str('http://tracker.pub/announce')}4:info${PUB_INFO}e`)
   return {
     PRIV_INFO,
     KEPT_PRIV_INFO,
+    PRE92_PRIV_INFO,
+    RELOCATE_PRIV_INFO,
     PUB_INFO,
     PRIV_TORRENT,
     KEPT_PRIV_TORRENT,
+    PRE92_PRIV_TORRENT,
+    RELOCATE_PRIV_RESUME,
+    UNSAFE_RESUME,
     PUB_TORRENT,
     store: new Map<string, unknown>(),
     engine: {
@@ -40,7 +50,9 @@ const fixture = vi.hoisted(() => {
 const hashOf = (info: string) => createHash('sha1').update(info).digest('hex')
 const RESTORE_MISSING_HASH = '1'.repeat(40)
 const START_MISSING_HASH = '2'.repeat(40)
-const RELOCATE_MISSING_HASH = '3'.repeat(40)
+const RELOCATE_MISSING_HASH = hashOf(fixture.RELOCATE_PRIV_INFO)
+const UNSAFE_RESUME_HASH = '6'.repeat(40)
+const PRE92_PRIV_HASH = hashOf(fixture.PRE92_PRIV_INFO)
 const ADD_PRIV_HASH = hashOf(fixture.PRIV_INFO)
 const KEPT_PRIV_HASH = hashOf(fixture.KEPT_PRIV_INFO)
 const IMPORT_PRIV_HASH = '4'.repeat(40)
@@ -48,7 +60,7 @@ const START_PUBLIC_HASH = '5'.repeat(40)
 
 const rig = installWorkerGlobals({
   estimate: async () => ({ usage: 0, quota: 10 * 1024 ** 3 }),
-  root: fakeDir('', [fakeDir('dl', [fakeDir(RESTORE_MISSING_HASH), fakeDir(RELOCATE_MISSING_HASH)])]),
+  root: fakeDir('', [fakeDir('dl', [fakeDir(RESTORE_MISSING_HASH), fakeDir(RELOCATE_MISSING_HASH), fakeDir(UNSAFE_RESUME_HASH), fakeDir(PRE92_PRIV_HASH)])]),
 })
 
 vi.mock('@fkn/lib/net', () => ({}))
@@ -61,7 +73,7 @@ vi.mock('libtorrent-wasm', async () => {
       addTorrentWithResume: (resume: Uint8Array) => {
         const h = next++
         fixture.engine.resumes.push(resume)
-        // RELOCATE_MISSING_HASH restores from resume (no kept .torrent) and is private
+        // RELOCATE_MISSING_HASH restores from valid private resume and is private
         fixture.engine.privateHandles.add(h)
         fixture.engine.infohashByHandle.set(h, RELOCATE_MISSING_HASH)
         return h
@@ -69,9 +81,10 @@ vi.mock('libtorrent-wasm', async () => {
       addTorrentFile: (bytes: Uint8Array) => {
         const h = next++
         fixture.engine.files.push(bytes)
-        if (bytes === fixture.PRIV_TORRENT || bytes === fixture.KEPT_PRIV_TORRENT) {
+        if (bytes === fixture.PRIV_TORRENT || bytes === fixture.KEPT_PRIV_TORRENT || bytes === fixture.PRE92_PRIV_TORRENT) {
           fixture.engine.privateHandles.add(h)
-          fixture.engine.infohashByHandle.set(h, bytes === fixture.PRIV_TORRENT ? ADD_PRIV_HASH : KEPT_PRIV_HASH)
+          const hash = bytes === fixture.PRIV_TORRENT ? ADD_PRIV_HASH : bytes === fixture.KEPT_PRIV_TORRENT ? KEPT_PRIV_HASH : PRE92_PRIV_HASH
+          fixture.engine.infohashByHandle.set(h, hash)
         }
         return h
       },
@@ -125,25 +138,35 @@ describe('private torrent bare-magnet DHT fallback guard', () => {
     fixture.store.set('ripple:torrents', [
       // 1. Restore case: private entry with NO resume blob and NO kept .torrent
       entry(RESTORE_MISSING_HASH, { private: true }),
-      // 2. Relocate case: private entry restored from a resume blob without info dict and no kept .torrent
+      // 2. Relocate case: private entry restored from a valid private resume blob (files cleaned before relocate below)
       entry(RELOCATE_MISSING_HASH, { private: true }),
-      // 3. startEntries / add-magnet missing case: synced private ghost with no kept .torrent yet
+      // 3. Unsafe non-private resume blob on a private entry: blocked in restore (neither addTorrentWithResume nor addMagnet)
+      entry(UNSAFE_RESUME_HASH, { private: true }),
+      // 4. Pre-0.0.92 entry with kept private .torrent and no `private` field: backfills private: true during restore
+      entry(PRE92_PRIV_HASH),
+      // 5. startEntries / add-magnet missing case: synced private ghost with no kept .torrent yet
       entry(START_MISSING_HASH, { started: false, private: true }),
-      // 4. add-magnet kept case: non-running private ghost whose kept .torrent IS stored
+      // 6. add-magnet kept case: non-running private ghost whose kept .torrent IS stored
       entry(KEPT_PRIV_HASH, { started: false, private: true }),
-      // 5. Control: public ghost with no kept .torrent MUST still fall back to addMagnet on start
+      // 7. Control: public ghost with no kept .torrent MUST still fall back to addMagnet on start
       entry(START_PUBLIC_HASH, { started: false }),
     ])
-    fixture.store.set('ripple:resume:' + RELOCATE_MISSING_HASH, new TextEncoder().encode('d4:spami1ee'))
+    fixture.store.set('ripple:resume:' + RELOCATE_MISSING_HASH, fixture.RELOCATE_PRIV_RESUME)
+    fixture.store.set('ripple:resume:' + UNSAFE_RESUME_HASH, fixture.UNSAFE_RESUME)
+    fixture.store.set('ripple:torrent:' + PRE92_PRIV_HASH, fixture.PRE92_PRIV_TORRENT)
     fixture.store.set('ripple:torrent:' + KEPT_PRIV_HASH, fixture.KEPT_PRIV_TORRENT)
 
     await import('../../src/torrent/worker')
     await vi.waitFor(() => expect(rig.of('ready')).toHaveLength(1))
 
-    // Restore: never called addMagnet for RESTORE_MISSING_HASH, and marked it started: false
+    // Restore: never called addMagnet, only passed valid private resume to addTorrentWithResume (blocked UNSAFE_RESUME),
+    // marked RESTORE_MISSING and UNSAFE_RESUME started: false, and backfilled PRE92_PRIV_HASH private: true.
     expect(fixture.engine.magnets).toEqual([])
+    expect(fixture.engine.resumes).toEqual([fixture.RELOCATE_PRIV_RESUME])
     const afterRestore = fixture.store.get('ripple:torrents') as Persisted[]
     expect(afterRestore.find((e) => e.infoHash === RESTORE_MISSING_HASH)?.started).toBe(false)
+    expect(afterRestore.find((e) => e.infoHash === UNSAFE_RESUME_HASH)?.started).toBe(false)
+    expect(afterRestore.find((e) => e.infoHash === PRE92_PRIV_HASH)?.private).toBe(true)
 
     // startEntries on private ghost with no .torrent: refuses addMagnet and posts add-failed
     const failedBeforeStart = rig.of('add-failed').length
@@ -164,8 +187,10 @@ describe('private torrent bare-magnet DHT fallback guard', () => {
     expect(fixture.engine.files.length).toBe(filesBeforeKept + 1)
     expect(fixture.engine.files.at(-1)).toBe(fixture.KEPT_PRIV_TORRENT)
 
-    // Relocate on private running torrent with no .torrent (and unrecoverable resume):
+    // Relocate on private running torrent with no .torrent (and unrecoverable/absent resume):
     // refuses addMagnet, posts add-failed, and NEVER removes the running handle!
+    fixture.store.delete('ripple:torrent:' + RELOCATE_MISSING_HASH)
+    fixture.store.delete('ripple:resume:' + RELOCATE_MISSING_HASH)
     const failedBeforeRelocate = rig.of('add-failed').length
     rig.send({ type: 'relocate', infoHash: RELOCATE_MISSING_HASH, to: 'folder' })
     await vi.waitFor(() => expect(rig.of('add-failed').length).toBe(failedBeforeRelocate + 1))
@@ -184,16 +209,24 @@ describe('private torrent bare-magnet DHT fallback guard', () => {
       expect(list.find((e) => e.infoHash === ADD_PRIV_HASH)?.private).toBe(true)
     })
 
-    // import-list preserves private: true on new ghost entries
+    // import-list preserves private: true on new ghost entries AND tears down an already-running non-private handle
+    const removedBeforeImport = fixture.engine.removed.length
     rig.send({
       type: 'import-list',
-      list: [entry(IMPORT_PRIV_HASH, { private: true })],
+      list: [
+        entry(IMPORT_PRIV_HASH, { private: true }),
+        entry(START_PUBLIC_HASH, { private: true }),
+      ],
       removed: [],
     })
     await vi.waitFor(() => {
       const list = fixture.store.get('ripple:torrents') as Persisted[]
       expect(list.find((e) => e.infoHash === IMPORT_PRIV_HASH)?.private).toBe(true)
+      const stopped = list.find((e) => e.infoHash === START_PUBLIC_HASH)
+      expect(stopped?.private).toBe(true)
+      expect(stopped?.started).toBe(false)
     })
+    expect(fixture.engine.removed.length).toBe(removedBeforeImport + 1)
 
     expect([...rig.of('worker-error'), ...rig.of('error')]).toEqual([])
   })

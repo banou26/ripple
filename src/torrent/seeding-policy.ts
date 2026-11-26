@@ -143,7 +143,10 @@ export const shouldStopSeeding = (
   stats: { uploaded: number, downloaded: number, size: number, seedingSeconds: number },
 ): boolean => {
   if (policy.ratio !== null) {
-    const base = stats.downloaded > 0 ? stats.downloaded : stats.size
+    // qBittorrent fallback: ignore tiny initial downloaded counts (< 1% of size) so ratio isn't skewed.
+    const base = stats.downloaded > 0 && (stats.size <= 0 || stats.downloaded >= stats.size * 0.01)
+      ? stats.downloaded
+      : stats.size
     if (base > 0 && stats.uploaded / base >= policy.ratio) return true
   }
   if (policy.minutes !== null && stats.seedingSeconds >= policy.minutes * 60) return true

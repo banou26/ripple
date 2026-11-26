@@ -168,8 +168,8 @@ describe('the list a write publishes', () => {
   })
 
   it('publishes no device-local field', () => {
-    const [published] = backupOf([entry(HASH, { started: true, paused: true, ephemeral: false, lastUsedAt: 9, saveTo: 'folder' })], null, [])
-    expect(Object.keys(published!).filter((key) => ['started', 'paused', 'ephemeral', 'lastUsedAt', 'saveTo'].includes(key))).toEqual([])
+    const [published] = backupOf([entry(HASH, { started: true, paused: true, seedStopped: true, seedBypass: true, ephemeral: false, lastUsedAt: 9, saveTo: 'folder' })], null, [])
+    expect(Object.keys(published!).filter((key) => ['started', 'paused', 'seedStopped', 'seedBypass', 'ephemeral', 'lastUsedAt', 'saveTo'].includes(key))).toEqual([])
   })
 
   it('mirrors private: true across devices and preserves it monotonically on merge', () => {

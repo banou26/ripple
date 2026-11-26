@@ -1,6 +1,6 @@
 import { get } from 'idb-keyval'
 
-import { infoRange, isPrivateTorrent, readTorrentFile } from './torrent-file'
+import { decode, infoRange, isPrivateTorrent, readTorrentFile, saysPrivate } from './torrent-file'
 import { magnetParam, magnetParams } from './magnet'
 import { resumeKey, torrentKey } from './library'
 
@@ -97,6 +97,18 @@ export const infoFromResume = (resume: Uint8Array): Uint8Array | null => {
   // sliced into its own buffer rather than viewed: ripple is cross-origin isolated, so the source may
   // sit on a SharedArrayBuffer, and a view over one is not a BufferSource anything else will take
   return new Uint8Array(resume.slice(start, end))
+}
+
+/** True only when a resume blob carries a bencoded `info` dict with BEP 27's `private` flag set. */
+export const resumeHasPrivateInfo = (resume: Uint8Array): boolean => {
+  try {
+    const raw = infoFromResume(resume)
+    if (!raw) return false
+    const [decoded] = decode(raw, 0)
+    return decoded instanceof Map && saysPrivate(decoded)
+  } catch {
+    return false
+  }
 }
 
 const keptTorrentFile = async (infoHash: string): Promise<Uint8Array | null> => {

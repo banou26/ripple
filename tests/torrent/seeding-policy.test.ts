@@ -119,4 +119,11 @@ describe('seeding-policy rules', () => {
     expect(shouldStopSeeding({ ratio: 2, minutes: 10 }, { uploaded: 200, downloaded: 100, size: 100, seedingSeconds: 10 })).toBe(true)
     expect(shouldStopSeeding({ ratio: 2, minutes: 10 }, { uploaded: 10, downloaded: 100, size: 100, seedingSeconds: 600 })).toBe(true)
   })
+
+  it('uses torrent size instead of downloaded when downloaded is below 1% of size (qBittorrent fallback)', () => {
+    expect(shouldStopSeeding({ ratio: 1, minutes: null }, { uploaded: 100, downloaded: 50, size: 10_000, seedingSeconds: 0 })).toBe(false)
+    expect(shouldStopSeeding({ ratio: 1, minutes: null }, { uploaded: 99, downloaded: 99, size: 10_000, seedingSeconds: 0 })).toBe(false)
+    expect(shouldStopSeeding({ ratio: 1, minutes: null }, { uploaded: 100, downloaded: 100, size: 10_000, seedingSeconds: 0 })).toBe(true)
+    expect(shouldStopSeeding({ ratio: 1, minutes: null }, { uploaded: 50, downloaded: 50, size: 0, seedingSeconds: 0 })).toBe(true)
+  })
 })
