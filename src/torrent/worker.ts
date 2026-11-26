@@ -220,7 +220,12 @@ const clearStopReason = (h: number, reason?: StopReason): boolean => {
   return true
 }
 const setCtrlFlag = (h: number, key: 'userStarted' | 'forced' | 'watchedPastQueue' | 'seedBypass', on: boolean): boolean => {
-  if (on) { ctrl(h)[key] = true; return true }
+  if (on) {
+    const state = ctrl(h)
+    if (state[key]) return false
+    state[key] = true
+    return true
+  }
   const state = handleControl.get(h)
   if (!state?.[key]) return false
   delete state[key]
@@ -3320,8 +3325,7 @@ const handleMessage = async (session: Session, m: any) => {
     } else if (m.type === 'set-session-limits') {
       // When a worker runs, it is the sole writer of RATE_LIMITS_KEY on the serialized command lane so two tabs cannot
       // interleave a read-modify-write; settings sync writes IDB only when no engine session is running.
-      // Persist to IndexedDB before updating `sessionLimits` and push `postState()` right after,
-      // so neither periodic 500 ms state ticks nor the UI label advance past what a reload will read.
+      // Persist to IndexedDB before updating `sessionLimits` and pushing `postState()`, ignoring an IDB write error so live rate limits still apply.
       const next = {
         down: isLimit(m.down) ? m.down : sessionLimits.down,
         up: isLimit(m.up) ? m.up : sessionLimits.up,

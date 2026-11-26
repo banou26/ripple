@@ -169,8 +169,8 @@ const clientApi: {
   runningTorrentClient?: typeof clientModule.runningTorrentClient
 } = clientModule
 
-// Tracks the latest rate-limit write while an engine worker commits RATE_LIMITS_KEY on its serialized lane;
-// cleared once IDB matches, sync IDB is reset/replaced, remote limits apply, or the account switches.
+// Tracks the latest rate-limit write (local or remote) while an engine worker commits RATE_LIMITS_KEY on its serialized lane;
+// cleared once IDB matches, sync IDB is reset/replaced, a non-worker write runs, or the account switches.
 let pendingWorkerRateLimits: RateLimits | null = null
 
 const readLocalPlayerVolume = (): PlayerVolume => {

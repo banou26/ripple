@@ -241,11 +241,18 @@ export const backupOf = (local: Persisted[], cloud: Persisted[] | null, removals
  * feeds the merge, where every one of those cases has the same correct response: publish this
  * device's own view, which still moves every number forwards.
  */
-const readBackup = async (): Promise<Persisted[] | null> => {
-  const text = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
-  if (text === null) return null
-  const parsed = JSON.parse(text) as unknown
-  return Array.isArray(parsed) ? parsed as Persisted[] : null
+const readBackupStatus = async (): Promise<{ existing: Persisted[] | null, readOk: boolean }> => {
+  try {
+    const text = await bounded<string | null>(cloud.fs.promises.readFile(BACKUP_PATH, 'utf8').then(String), null)
+    if (text === null) return { existing: null, readOk: false }
+    const parsed = JSON.parse(text) as unknown
+    return Array.isArray(parsed)
+      ? { existing: parsed as Persisted[], readOk: true }
+      : { existing: null, readOk: false }
+  } catch (err) {
+    const message = (err as { message?: string })?.message ?? String(err)
+    return { existing: null, readOk: isAbsent(err, message) }
+  }
 }
 
 /**
@@ -262,11 +269,12 @@ const readBackup = async (): Promise<Persisted[] | null> => {
  * each device always holds its own true totals locally.
  *
  * A failure to read is not a failure to write. The catch falls back to publishing this device's
- * own view, which is exactly the old behaviour and still moves every number forwards.
+ * own view, which is the old behaviour and still moves every number forwards, while reporting
+ * `readOk: false` so order pruning waits until a clean cloud read succeeds.
  */
-export const publishLibrary = async (local: Persisted[]) => {
+const syncLibrary = async (local: Persisted[]): Promise<{ list: Persisted[], readOk: boolean }> => {
   // one read at a time, since each read of a locked scope raises the unlock card
-  const existing = await readBackup().catch(() => null)
+  const { existing, readOk } = await readBackupStatus()
   const published = await readRemovals()
   const removals = mergeRemovals(await get<Removal[]>(REMOVED_KEY).catch(() => undefined), published)
   const list = backupOf(local, existing, removals)
@@ -283,8 +291,10 @@ export const publishLibrary = async (local: Persisted[]) => {
     void forgetSyncedTorrentFiles(gone).catch(() => {})
   }
   await cloud.fs.promises.writeFile(BACKUP_PATH, JSON.stringify(list), { contentType: 'application/json' })
-  return list
+  return { list, readOk }
 }
+
+export const publishLibrary = async (local: Persisted[]) => (await syncLibrary(local)).list
 
 const readAccountJson = async (path: string, emptyFallback: string): Promise<string | null> => {
   try {
@@ -362,6 +372,24 @@ export const publishListOrder = async (
   )
 }
 
+const pruneArg = (groupsList: TorrentGroup[] | null, hashes: ReadonlySet<string> | null) =>
+  groupsList && hashes
+    ? { hashes, groupIds: new Set(groupsList.filter((g) => g.deletedAt === undefined).map((g) => g.id)) }
+    : undefined
+
+export const publishBackupPass = async (
+  local: Persisted[],
+  forAccount: string | null,
+  isLive = () => true,
+) => {
+  const { list: published, readOk } = await syncLibrary(local)
+  const syncedGroups = await publishGroups(forAccount, false, isLive)
+  const appearances = await publishGroupAppearance(forAccount, false, isLive)
+  const liveHashes = readOk ? new Set(published.map((e) => e.infoHash)) : null
+  await publishListOrder(forAccount, false, isLive, pruneArg(syncedGroups, liveHashes))
+  return { published, appearances }
+}
+
 export const useCloudBackup = (): SyncState => {
   const client = getTorrentClient()
   const [state, setState] = useState<SyncState>({ status: 'off', reason: 'signed-out' })
@@ -399,22 +427,12 @@ export const useCloudBackup = (): SyncState => {
       try { return localStorage.getItem(SYNC_ACCOUNT_KEY) } catch { return null }
     }
 
-    const pruneArg = (groupsList: TorrentGroup[] | null, hashes: ReadonlySet<string> | null) =>
-      groupsList && hashes
-        ? { hashes, groupIds: new Set(groupsList.filter((g) => g.deletedAt === undefined).map((g) => g.id)) }
-        : undefined
-
     const writeNow = async () => {
       pending = false
       window.clearTimeout(timer)
       // a switch during the list write nulls `writesFor`, and the groups step must not then go to the new account
       const forAccount = writesFor
-      const published = await publishLibrary(latest)
-      const isLive = () => writesFor === forAccount
-      const syncedGroups = await publishGroups(forAccount, false, isLive)
-      const appearances = await publishGroupAppearance(forAccount, false, isLive)
-      await publishListOrder(forAccount, false, isLive, pruneArg(syncedGroups, new Set(published.map((e) => e.infoHash))))
-      return { published, appearances }
+      return publishBackupPass(latest, forAccount, () => writesFor === forAccount)
     }
     const write = async () => {
       if (cancelled || !connected || !restored) return

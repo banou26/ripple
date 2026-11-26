@@ -13,26 +13,25 @@ export type ListOrder = {
 }
 export type StoredListOrder = { account: string | null, order: ListOrder }
 
-/** Prunes stale torrent hashes and deleted group IDs from `order`, bumping timestamps only on changed lists. */
-export const pruneListOrder = (
+const filterListOrder = (
   order: ListOrder,
-  liveHashes: ReadonlySet<string>,
-  liveGroupIds: ReadonlySet<string>,
+  keepHash: (hash: string) => boolean,
+  keepGroup: (groupId: string) => boolean,
   now = Date.now(),
 ): { order: ListOrder, changed: boolean } => {
   const nextTop = order.top.filter((key) =>
-    key.startsWith('t:') ? liveHashes.has(key.slice(2)) : liveGroupIds.has(key.slice(2)))
+    key.startsWith('t:') ? keepHash(key.slice(2)) : keepGroup(key.slice(2)))
   const topChanged = nextTop.length !== order.top.length
 
   let groupsDropped = false
   let membersChanged = false
   const nextGroups: Record<string, GroupMemberOrder> = {}
   for (const [id, group] of Object.entries(order.groups)) {
-    if (!liveGroupIds.has(id)) {
+    if (!keepGroup(id)) {
       groupsDropped = true
       continue
     }
-    const nextMembers = group.members.filter((hash) => liveHashes.has(hash))
+    const nextMembers = group.members.filter(keepHash)
     if (nextMembers.length !== group.members.length) {
       membersChanged = true
       nextGroups[id] = { updatedAt: Math.max(now, group.updatedAt + 1), members: nextMembers }
@@ -51,6 +50,15 @@ export const pruneListOrder = (
     changed: true,
   }
 }
+
+/** Prunes stale torrent hashes and deleted group IDs from `order`, bumping timestamps only on changed lists. */
+export const pruneListOrder = (
+  order: ListOrder,
+  liveHashes: ReadonlySet<string>,
+  liveGroupIds: ReadonlySet<string>,
+  now = Date.now(),
+): { order: ListOrder, changed: boolean } =>
+  filterListOrder(order, (hash) => liveHashes.has(hash), (id) => liveGroupIds.has(id), now)
 
 export const EMPTY_LIST_ORDER: ListOrder = { updatedAt: 0, top: [], groups: {} }
 export const LIST_ORDER_KEY = 'ripple:list-order'
@@ -252,34 +260,10 @@ export const removeFromListOrder = async (
   await update<StoredListOrder | undefined>(LIST_ORDER_KEY, (stored) => {
     const base = mergeListOrder(heldFor(stored, tag))
     if (emptyOrder(base)) return stored
-    const nextTop = base.top.filter((key) =>
-      key.startsWith('t:') ? !deadHashes.has(key.slice(2)) : !deadGroups.has(key.slice(2)))
-    const topChanged = nextTop.length !== base.top.length
-    let groupsChanged = false
-    const nextGroups: Record<string, GroupMemberOrder> = {}
-    for (const [id, group] of Object.entries(base.groups)) {
-      if (deadGroups.has(id)) {
-        groupsChanged = true
-        continue
-      }
-      const nextMembers = group.members.filter((hash) => !deadHashes.has(hash))
-      if (nextMembers.length !== group.members.length) {
-        groupsChanged = true
-        nextGroups[id] = { updatedAt: Math.max(now, group.updatedAt + 1), members: nextMembers }
-      } else {
-        nextGroups[id] = group
-      }
-    }
-    if (!topChanged && !groupsChanged) return stored
+    const filtered = filterListOrder(base, (hash) => !deadHashes.has(hash), (id) => !deadGroups.has(id), now)
+    if (!filtered.changed) return stored
     changed = true
-    return {
-      account: tag ?? stored?.account ?? null,
-      order: {
-        updatedAt: topChanged || deadGroups.size > 0 ? Math.max(now, base.updatedAt + 1) : base.updatedAt,
-        top: nextTop,
-        groups: nextGroups,
-      },
-    }
+    return { account: tag ?? stored?.account ?? null, order: filtered.order }
   })
   if (changed) await announce()
 }

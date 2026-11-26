@@ -9,10 +9,17 @@ const cloudText = new Map<string, string>()
 const forgotten: string[][] = []
 const forgottenFiles: string[][] = []
 let removalsUnreadable = false
+let backupUnreadable = false
+let groupsUnreadable = false
 
 vi.mock('idb-keyval', () => ({
   get: async (k: string) => store.get(k),
   set: async (k: string, v: unknown) => { store.set(k, v) },
+  update: async (k: string, fn: (v: unknown) => unknown) => {
+    const next = fn(store.get(k))
+    store.set(k, next)
+    return next
+  },
 }))
 
 vi.mock('@fkn/lib', () => ({
@@ -22,6 +29,8 @@ vi.mock('@fkn/lib', () => ({
       promises: {
         readFile: async (path: string) => {
           if (path === 'ripple/removed.json' && removalsUnreadable) throw new Error('broker said no')
+          if (path === 'ripple/torrents.json' && backupUnreadable) throw new Error('broker said no')
+          if (path === 'ripple/groups.json' && groupsUnreadable) throw new Error('broker said no')
           const hit = cloudText.get(path)
           if (hit === undefined) throw Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
           return hit
@@ -46,16 +55,20 @@ vi.mock('../../src/torrent/torrent-file-sync', () => ({
   syncTorrentFiles: async () => {},
 }))
 
-const { BACKUP_PATH, REMOVALS_PATH, publishLibrary } = await import('../../src/torrent/use-cloud-backup')
+const { BACKUP_PATH, GROUPS_PATH, REMOVALS_PATH, publishBackupPass, publishLibrary } = await import('../../src/torrent/use-cloud-backup')
+const { LIST_ORDER_PATH } = await import('../../src/torrent/list-order')
 
 const HASH = 'a'.repeat(40)
 const OTHER = 'b'.repeat(40)
+const REMOTE = 'c'.repeat(40)
 const entry = (infoHash: string, addedAt = 1_000): Persisted =>
   ({ infoHash, magnet: 'magnet:?xt=urn:btih:' + infoHash, savePath: '/dl/' + infoHash, addedAt })
 
 beforeEach(() => {
   store.clear(); cloudText.clear(); forgotten.length = 0; forgottenFiles.length = 0
   removalsUnreadable = false
+  backupUnreadable = false
+  groupsUnreadable = false
 })
 
 describe('publishing the library', () => {
@@ -99,5 +112,71 @@ describe('publishing the library', () => {
     const published = await publishLibrary([entry(HASH), entry(OTHER)])
     expect(published.map((e) => e.infoHash)).toEqual([OTHER])
     expect(JSON.parse(cloudText.get(BACKUP_PATH)!)).toEqual(published)
+  })
+
+  it('does not prune remote-only torrents from custom list order when the cloud library read fails', async () => {
+    backupUnreadable = true
+    const group = {
+      id: 'g1',
+      name: 'Shows',
+      namedAt: 50,
+      members: [{ infoHash: HASH, at: 50 }, { infoHash: REMOTE, at: 50 }],
+    }
+    const order = {
+      updatedAt: 100,
+      top: ['g:g1', `t:${REMOTE}`, `t:${HASH}`],
+      groups: { g1: { updatedAt: 80, members: [REMOTE, HASH] } },
+    }
+    cloudText.set(GROUPS_PATH, JSON.stringify([group]))
+    cloudText.set(LIST_ORDER_PATH, JSON.stringify(order))
+
+    await publishBackupPass([entry(HASH)], null)
+
+    expect(JSON.parse(cloudText.get(LIST_ORDER_PATH)!)).toEqual(order)
+  })
+
+  it('does not prune remote-only groups or torrents from custom list order when the cloud groups read fails', async () => {
+    groupsUnreadable = true
+    const order = {
+      updatedAt: 100,
+      top: ['g:g-remote', `t:${HASH}`],
+      groups: { 'g-remote': { updatedAt: 80, members: [HASH, REMOTE] } },
+    }
+    cloudText.set(BACKUP_PATH, JSON.stringify([entry(HASH)]))
+    cloudText.set(LIST_ORDER_PATH, JSON.stringify(order))
+
+    await publishBackupPass([entry(HASH)], null)
+
+    expect(JSON.parse(cloudText.get(LIST_ORDER_PATH)!)).toEqual(order)
+  })
+
+  it('prunes stale torrents and deleted groups from custom list order when both cloud reads succeed', async () => {
+    const activeGroup = {
+      id: 'g1',
+      name: 'Shows',
+      namedAt: 50,
+      members: [{ infoHash: HASH, at: 50 }],
+    }
+    const deletedGroup = { id: 'g-dead', name: '', namedAt: 0, members: [], deletedAt: 70 }
+    const order = {
+      updatedAt: 100,
+      top: ['g:g-dead', 'g:g1', `t:${REMOTE}`, `t:${HASH}`],
+      groups: {
+        g1: { updatedAt: 80, members: [REMOTE, HASH] },
+        'g-dead': { updatedAt: 80, members: [HASH] },
+      },
+    }
+    cloudText.set(BACKUP_PATH, JSON.stringify([entry(HASH)]))
+    cloudText.set(GROUPS_PATH, JSON.stringify([activeGroup, deletedGroup]))
+    cloudText.set(LIST_ORDER_PATH, JSON.stringify(order))
+
+    await publishBackupPass([entry(HASH)], null)
+
+    const written = JSON.parse(cloudText.get(LIST_ORDER_PATH)!)
+    expect(written.top).toEqual(['g:g1', `t:${HASH}`])
+    expect(written.groups).toEqual({
+      g1: { updatedAt: expect.any(Number), members: [HASH] },
+    })
+    expect(written.updatedAt).toBeGreaterThan(100)
   })
 })
