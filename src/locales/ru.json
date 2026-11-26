@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Дневная квота FKN израсходована.",
   "Your folder": "Ваша папка",
   "Your storage is locked. Unlock it to sync.": "Хранилище заблокировано. Разблокируйте его для синхронизации.",
+  "Your synced settings have the VPN turned off.": "В ваших синхронизированных настройках VPN выключен.",
   "attempt {count}": "попытка {count}",
   "attempt {count}, {reason}": "попытка {count}, {reason}",
   "commit {hash}": "коммит {hash}",

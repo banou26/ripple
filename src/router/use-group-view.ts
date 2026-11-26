@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createGroup, groupName, putInGroup, torrentsIn, useGroups } from '../torrent/groups'
 import { savePathFor } from '../torrent/library'
 import { LIST_EXPANDED_GROUPS_KEY, NO_EXPANDED, readExpandedGroups, toggleExpandedGroup, writeExpandedGroups } from '../torrent/list-view'
-import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
+import { onSettingApplied, setSetting } from '../torrent/settings-sync'
 import { useShareableMagnets } from '../torrent/use-shareable-magnet'
 import { buildGroupLink } from './group-link'
 
@@ -52,8 +52,7 @@ export const useExpandedGroups = (givenGroups?: readonly TorrentGroup[]) => {
   const toggle = useCallback((groupId: string) => {
     const next = toggleExpandedGroup(stored, groupId)
     setStored(next)
-    persistExpanded(next)
-    void recordSetting('listExpandedGroups', [...next].sort())
+    void setSetting('listExpandedGroups', [...next].sort())
   }, [stored])
 
   const expand = useCallback((groupId: string) => {
@@ -61,8 +60,7 @@ export const useExpandedGroups = (givenGroups?: readonly TorrentGroup[]) => {
     const next = new Set(stored)
     next.add(groupId)
     setStored(next)
-    persistExpanded(next)
-    void recordSetting('listExpandedGroups', [...next].sort())
+    void setSetting('listExpandedGroups', [...next].sort())
   }, [stored])
 
   useEffect(() => onSettingApplied('listExpandedGroups', (ids) => {

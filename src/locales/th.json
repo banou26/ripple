@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "โควตา FKN รายวันของคุณหมดแล้ว",
   "Your folder": "โฟลเดอร์ของคุณ",
   "Your storage is locked. Unlock it to sync.": "พื้นที่จัดเก็บของคุณถูกล็อก ปลดล็อกเพื่อซิงค์",
+  "Your synced settings have the VPN turned off.": "การตั้งค่าที่ซิงค์ของคุณปิด VPN อยู่",
   "attempt {count}": "ครั้งที่ {count}",
   "attempt {count}, {reason}": "ครั้งที่ {count}, {reason}",
   "commit {hash}": "คอมมิต {hash}",

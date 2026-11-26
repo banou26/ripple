@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Sua cota diária do FKN acabou.",
   "Your folder": "Sua pasta",
   "Your storage is locked. Unlock it to sync.": "Seu armazenamento está bloqueado. Desbloqueie-o para sincronizar.",
+  "Your synced settings have the VPN turned off.": "Suas configurações sincronizadas estão com a VPN desativada.",
   "attempt {count}": "tentativa {count}",
   "attempt {count}, {reason}": "tentativa {count}, {reason}",
   "commit {hash}": "commit {hash}",

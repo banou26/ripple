@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Je dagelijkse FKN-quotum is op.",
   "Your folder": "Je map",
   "Your storage is locked. Unlock it to sync.": "Je opslag is vergrendeld. Ontgrendel hem om te synchroniseren.",
+  "Your synced settings have the VPN turned off.": "In je gesynchroniseerde instellingen staat de VPN uit.",
   "attempt {count}": "poging {count}",
   "attempt {count}, {reason}": "poging {count}, {reason}",
   "commit {hash}": "commit {hash}",

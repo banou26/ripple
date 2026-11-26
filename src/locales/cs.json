@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Vaše denní kvóta FKN je vyčerpaná.",
   "Your folder": "Vaše složka",
   "Your storage is locked. Unlock it to sync.": "Vaše úložiště je zamčené. Odemkněte ho a synchronizujte.",
+  "Your synced settings have the VPN turned off.": "Vaše synchronizovaná nastavení mají VPN vypnutou.",
   "attempt {count}": "pokus {count}",
   "attempt {count}, {reason}": "pokus {count}, {reason}",
   "commit {hash}": "commit {hash}",

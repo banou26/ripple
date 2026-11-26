@@ -19,7 +19,7 @@ import { getTorrentClient } from '../torrent/client'
 import { isGrantedSavePath } from '../torrent/hybrid-storage'
 import {
   DEFAULT_DOCK_HEIGHT, DOCK_HEIGHT_KEY, MAX_DOCK_HEIGHT, MIN_DOCK_HEIGHT, clampDockHeight,
-  onSettingApplied, recordSetting,
+  onSettingApplied, setSetting,
 } from '../torrent/settings-sync'
 import { useTorrentDetail } from '../torrent/use-torrent-detail'
 import { unitLocale } from '../i18n/languages'
@@ -1007,8 +1007,7 @@ export const TorrentDetailDock = ({
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       setHeight(latestHeight)
-      try { localStorage.setItem(DOCK_HEIGHT_KEY, String(latestHeight)) } catch { /* storage blocked */ }
-      void recordSetting('dockHeight', latestHeight)
+      void setSetting('dockHeight', latestHeight)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)

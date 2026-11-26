@@ -17,7 +17,7 @@ import { ChevronDown, ChevronRight, CirclePlay, Clock, Download, Ellipsis, FileP
 
 import { hexInfoHash, magnetInfoHash, readMagnets, sameInfoHash } from '../torrent/magnet'
 import { useTorrents } from '../torrent/use-torrents'
-import { onSettingApplied, recordRateLimitsPatch, recordSetting } from '../torrent/settings-sync'
+import { onSettingApplied, recordRateLimitsPatch, setSetting } from '../torrent/settings-sync'
 import { useFolder } from '../torrent/use-folder'
 import { useQuota } from '../torrent/use-quota'
 import { LOW_STORAGE_BYTES, useStorageUsage } from '../torrent/use-storage-usage'
@@ -30,7 +30,7 @@ import { copyKey, holdsChosen } from '../torrent/sync'
 import { describeAddRequest, namedMagnet } from './add-request'
 import { AddTorrentDialog } from '../components/add-torrent-dialog'
 import {
-  ADD_DIALOG_KEY, defaultChoices, dialogEnabled, flagsFor, planFor,
+  defaultChoices, dialogEnabled, flagsFor, planFor,
 } from '../torrent/add-options'
 import type { AddChoices } from '../torrent/add-options'
 import {
@@ -100,11 +100,10 @@ import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torr
 import type { TorrentGroup } from '../torrent/groups'
 import { DEFAULT_ICON, type GroupIcon, clearGroupAppearance, saveGroupImage, setGroupIcon, useGroupAppearance } from '../torrent/group-appearance'
 import { reorderKeys, saveGroupMemberOrder, saveTopOrder, useListOrder } from '../torrent/list-order'
-import { cardEntryGroups, groupMemberKeys, summarizeGroup, visibleEntryTorrents, visibleTopKeys, type GroupEntry, type GroupSummary, type LibraryEntry } from '../torrent/group-rows'
+import { cardEntryGroups, groupMemberKeys, summarizeGroup, visibleEntryTorrents, visibleTopKeys, type GroupEntry, type GroupSummary } from '../torrent/group-rows'
 import {
-  GROUP_LABEL, LIST_COLLAPSED_KEY, LIST_FILTER_KEY, LIST_GROUPS, LIST_SORT_KEY, LIST_VIEW_KEY, NO_COLLAPSED, TEMPORARY_HINT,
+  GROUP_LABEL, LIST_GROUPS, NO_COLLAPSED, TEMPORARY_HINT,
   filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
-  writeCollapsed, writeSort,
 } from '../torrent/list-view'
 import type { CardGroup, CollapsedGroups, ListFilter, ListGroup, SortDir, SortKey, ViewMode } from '../torrent/list-view'
 import type { ShareSubject } from '../torrent/torrent-file'
@@ -3007,8 +3006,7 @@ const Home = () => {
   const [addDialog, setAddDialog] = useState(() => dialogEnabled((k) => localStorage.getItem(k)))
   const chooseAddDialog = (on: boolean) => {
     setAddDialog(on)
-    try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
-    void recordSetting('addDialog', on)
+    void setSetting('addDialog', on)
   }
 
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
@@ -3544,18 +3542,15 @@ const Home = () => {
 
   const chooseFilter = (filter: ListFilter) => {
     setListFilter(filter)
-    try { localStorage.setItem(LIST_FILTER_KEY, filter) } catch {}
-    void recordSetting('listFilter', filter)
+    void setSetting('listFilter', filter)
   }
   const chooseView = (view: ViewMode) => {
     setListView(view)
-    try { localStorage.setItem(LIST_VIEW_KEY, view) } catch {}
-    void recordSetting('listView', view)
+    void setSetting('listView', view)
   }
   const chooseSort = (key: SortKey, dir: SortDir) => {
     setListSort({ key, dir })
-    try { localStorage.setItem(LIST_SORT_KEY, writeSort(key, dir)) } catch {}
-    void recordSetting('listSort', { key, dir })
+    void setSetting('listSort', { key, dir })
   }
 
   const [params, setParams] = useSearchParams()
@@ -3598,8 +3593,7 @@ const Home = () => {
 
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
-    try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
-    if (location === 'browser' || location === 'folder') void recordSetting('saveLocation', location)
+    if (location === 'browser' || location === 'folder') void setSetting('saveLocation', location)
   }
   // a default chosen in another tab or cloud sync updates this one too
   useEffect(() => {
@@ -3960,12 +3954,7 @@ const Home = () => {
     }
     const next = toggleCollapsed(collapsedGroups, group)
     setCollapsedGroups(next)
-    try {
-      const serialized = writeCollapsed(next)
-      if (serialized) localStorage.setItem(LIST_COLLAPSED_KEY, serialized)
-      else localStorage.removeItem(LIST_COLLAPSED_KEY)
-    } catch {}
-    void recordSetting('listCollapsed', LIST_GROUPS.filter((g) => next.has(g)))
+    void setSetting('listCollapsed', LIST_GROUPS.filter((g) => next.has(g)))
   }, [search, collapsedGroups])
   const visibleRows = useMemo(() => visibleEntryTorrents(entryGroups, collapsed, effectiveExpanded), [entryGroups, collapsed, effectiveExpanded])
   const tableBulkRows = useMemo(

@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Kuota FKN harian Anda sudah habis.",
   "Your folder": "Folder Anda",
   "Your storage is locked. Unlock it to sync.": "Penyimpanan Anda terkunci. Buka kuncinya untuk menyinkronkan.",
+  "Your synced settings have the VPN turned off.": "Pengaturan yang disinkronkan menonaktifkan VPN.",
   "attempt {count}": "percobaan {count}",
   "attempt {count}, {reason}": "percobaan {count}, {reason}",
   "commit {hash}": "commit {hash}",

@@ -10,9 +10,9 @@ import type { VpnStatus } from '../torrent/vpn-status'
 import { setVpn } from '../torrent/client'
 import { COUNTRY_LINE, inListedCountry } from '../torrent/country-line'
 import {
-  answerQuotaOffer, onVpnChange, quotaDay, quotaOfferAnswered, rememberVpnWarning, vpnOffAvailable, vpnOn, vpnWarningRemembered,
+  answerQuotaOffer, onVpnChange, quotaDay, quotaOfferAnswered, vpnOffAvailable, vpnOn, vpnWarningRemembered,
 } from '../torrent/vpn-setting'
-import { recordSetting } from '../torrent/settings-sync'
+import { recordSetting, setSetting } from '../torrent/settings-sync'
 import { vpnLabels, vpnStatus } from '../torrent/vpn-status'
 import { BORDER_INTERACTIVE, EMPHASIS, FOCUS_RING, HOVER_WASH, OK, SUNKEN_BG, TEXT, TEXT_MUTED, TEXT_ON_LIGHT, WARN } from '../theme'
 import { confirmStyle } from './confirm-dialog'
@@ -89,10 +89,7 @@ export const useVpnSwitch = (
       ? (off, remember) => {
         setWarning(false)
         if (!off) return
-        if (remember) {
-          rememberVpnWarning()
-          void recordSetting('vpnWarningRemembered', true)
-        }
+        if (remember) void setSetting('vpnWarningRemembered', true)
         choose(false)
       }
       : null,
@@ -145,7 +142,12 @@ const warningStyle = css`
  * What switching the VPN off asks first. `inline` draws it inside the player, which in fullscreen shows nothing
  * outside itself.
  */
-export const VpnWarning = ({ onAnswer, inline }: { onAnswer: (off: boolean, remember: boolean) => void, inline?: boolean }) => {
+export const VpnWarning = ({ onAnswer, inline, lead, rememberable = true }: {
+  onAnswer: (off: boolean, remember: boolean) => void
+  inline?: boolean
+  lead?: string
+  rememberable?: boolean
+}) => {
   const intl = useIntl()
   const [remember, setRemember] = useState(false)
   const cancel = useRef<HTMLButtonElement>(null)
@@ -155,6 +157,7 @@ export const VpnWarning = ({ onAnswer, inline }: { onAnswer: (off: boolean, reme
       <div css={[confirmStyle, warningStyle]}>
         <div className="card">
           <div id="vpn-warning">
+            {lead && <p>{lead}</p>}
             <p>
               {intl.formatMessage({
                 id: 'Peers and trackers of every running torrent will see your IP address.',
@@ -164,10 +167,12 @@ export const VpnWarning = ({ onAnswer, inline }: { onAnswer: (off: boolean, reme
             {/* asked as the warning is drawn, and kept nowhere */}
             {inListedCountry() && <p>{intl.formatMessage(COUNTRY_LINE)}</p>}
           </div>
-          <label>
-            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)}/>
-            {intl.formatMessage({ id: 'Remember this decision', defaultMessage: 'Remember this decision' })}
-          </label>
+          {rememberable && (
+            <label>
+              <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)}/>
+              {intl.formatMessage({ id: 'Remember this decision', defaultMessage: 'Remember this decision' })}
+            </label>
+          )}
           <div className="actions">
             <button type="button" ref={cancel} onClick={() => onAnswer(false, false)}>
               {intl.formatMessage({ id: 'Cancel', defaultMessage: 'Cancel' })}
@@ -179,6 +184,21 @@ export const VpnWarning = ({ onAnswer, inline }: { onAnswer: (off: boolean, reme
         </div>
       </div>
     </Modal>
+  )
+}
+
+/** Asks local confirmation before applying a synced remote `vpn: false` choice to this browser. */
+export const VpnSyncPrompt = ({ onAnswer }: { onAnswer: (off: boolean) => void }) => {
+  const intl = useIntl()
+  return (
+    <VpnWarning
+      lead={intl.formatMessage({
+        id: 'Your synced settings have the VPN turned off.',
+        defaultMessage: 'Your synced settings have the VPN turned off.',
+      })}
+      rememberable={false}
+      onAnswer={(off) => onAnswer(off)}
+    />
   )
 }
 

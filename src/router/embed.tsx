@@ -34,12 +34,12 @@ import { browserLanguage, embedPath, linkLanguages } from './embed-link'
 import { tellPicked, useEmbedder } from './embedder'
 import { parseFileSelection } from './file-selection'
 import { decodeMagnetParam, encodeMagnetParam } from './magnet-codec'
-import { NORMALIZE_VOLUME_KEY, normalizeVolumeSaved } from './normalize-volume'
+import { normalizeVolumeSaved } from './normalize-volume'
 import { keepPlayerVolume } from './player-volume'
 import { usePlayingTitle } from './playing-title'
-import { OFF, saveLanguages, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
+import { OFF, savedLanguages, startLanguages, type TrackLanguages } from './track-languages'
 import { Route, getRoutePath, linkParams, linkPath } from './path'
-import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
+import { onSettingApplied, setSetting } from '../torrent/settings-sync'
 import { STATE_LABEL } from './torrent-format'
 
 const playerStyle = css`
@@ -488,8 +488,7 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   const [normalizeVolume, setNormalizeVolume] = useState(() => normalizeVolumeSaved((k) => localStorage.getItem(k)))
   const chooseNormalizeVolume = (on: boolean) => {
     setNormalizeVolume(on)
-    try { localStorage.setItem(NORMALIZE_VOLUME_KEY, on ? '1' : '0') } catch {}
-    void recordSetting('normalizeVolume', on)
+    void setSetting('normalizeVolume', on)
   }
   const [languages, setLanguages] = useState(() => startLanguages(linked, savedLanguages((k) => localStorage.getItem(k))))
   useEffect(() => {
@@ -504,9 +503,8 @@ const Player = ({ linked }: { linked: LinkLanguages }) => {
   }, [linked])
   const chooseLanguage = (picked: TrackLanguages) => {
     setLanguages((current) => ({ ...current, ...picked }))
-    saveLanguages((k, v) => localStorage.setItem(k, v), picked)
-    if (picked.audio !== undefined) void recordSetting('audioLanguage', picked.audio ?? null)
-    if (picked.subtitles !== undefined) void recordSetting('subtitleLanguage', picked.subtitles === null ? OFF : picked.subtitles)
+    if (picked.audio !== undefined) void setSetting('audioLanguage', picked.audio || null)
+    if (picked.subtitles !== undefined) void setSetting('subtitleLanguage', picked.subtitles === null ? OFF : picked.subtitles)
     tellPicked(picked)
   }
   // The player keeps no volume of its own: it writes it onto its <video> and reads it back from there, and in

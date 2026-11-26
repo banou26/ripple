@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "आपका रोज़ का FKN कोटा खत्म हो गया है।",
   "Your folder": "आपका फ़ोल्डर",
   "Your storage is locked. Unlock it to sync.": "आपका स्टोरेज लॉक है। सिंक करने के लिए इसे अनलॉक करें।",
+  "Your synced settings have the VPN turned off.": "आपकी सिंक की गई सेटिंग में VPN बंद है।",
   "attempt {count}": "कोशिश {count}",
   "attempt {count}, {reason}": "कोशिश {count}, {reason}",
   "commit {hash}": "कमिट {hash}",

@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Din dagliga FKN-kvot är slut.",
   "Your folder": "Din mapp",
   "Your storage is locked. Unlock it to sync.": "Din lagring är låst. Lås upp den för att synkronisera.",
+  "Your synced settings have the VPN turned off.": "Dina synkroniserade inställningar har VPN avstängd.",
   "attempt {count}": "försök {count}",
   "attempt {count}, {reason}": "försök {count}, {reason}",
   "commit {hash}": "commit {hash}",

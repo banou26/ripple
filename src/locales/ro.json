@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Cota zilnică FKN s-a epuizat.",
   "Your folder": "Dosarul dvs.",
   "Your storage is locked. Unlock it to sync.": "Stocarea dvs. este blocată. Deblocați-o pentru sincronizare.",
+  "Your synced settings have the VPN turned off.": "Setările sincronizate au VPN-ul oprit.",
   "attempt {count}": "încercarea {count}",
   "attempt {count}, {reason}": "încercarea {count}, {reason}",
   "commit {hash}": "commit {hash}",

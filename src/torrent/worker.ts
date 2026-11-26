@@ -3240,16 +3240,15 @@ const handleMessage = async (session: Session, m: any) => {
         if (Object.keys(patch).length) await patchList(ih, patch)
       }
     } else if (m.type === 'set-session-limits') {
-      // The worker is the only writer of this key, deliberately. It runs on the same serialized
-      // command lane as every other list mutation, so applying and persisting are one act and two
-      // tabs cannot interleave a read-modify-write of it.
+      // When a worker runs, it is the sole writer of RATE_LIMITS_KEY on the serialized command lane so two tabs cannot
+      // interleave a read-modify-write; settings sync writes IDB only when no engine session is running.
       // Persist to IndexedDB before updating `sessionLimits` and push `postState()` right after,
       // so neither periodic 500 ms state ticks nor the UI label advance past what a reload will read.
       const next = {
         down: isLimit(m.down) ? m.down : sessionLimits.down,
         up: isLimit(m.up) ? m.up : sessionLimits.up,
       }
-      await set(RATE_LIMITS_KEY, { ...next })
+      await set(RATE_LIMITS_KEY, { ...next }).catch(() => {})
       sessionLimits = next
       session.setRateLimits({ download: next.down, upload: next.up })
       postState()

@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Elfogyott a napi FKN-kereted.",
   "Your folder": "A mappád",
   "Your storage is locked. Unlock it to sync.": "A tárhelyed zárolva van. Oldd fel a szinkronizáláshoz.",
+  "Your synced settings have the VPN turned off.": "A szinkronizált beállításaidban a VPN ki van kapcsolva.",
   "attempt {count}": "{count}. próbálkozás",
   "attempt {count}, {reason}": "{count}. próbálkozás, {reason}",
   "commit {hash}": "commit {hash}",

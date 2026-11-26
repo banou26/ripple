@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Hạn mức FKN hằng ngày của bạn đã hết.",
   "Your folder": "Thư mục của bạn",
   "Your storage is locked. Unlock it to sync.": "Bộ nhớ của bạn đang bị khóa. Hãy mở khóa để đồng bộ.",
+  "Your synced settings have the VPN turned off.": "Cài đặt đã đồng bộ của bạn đang tắt VPN.",
   "attempt {count}": "lần thử {count}",
   "attempt {count}, {reason}": "lần thử {count}, {reason}",
   "commit {hash}": "commit {hash}",

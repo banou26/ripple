@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 
-import { automaticLanguage, OFFERED, onLanguageShown, pickLanguage, readPickedLanguage } from '../i18n'
-import { recordSetting } from '../torrent/settings-sync'
+import { automaticLanguage, OFFERED, onLanguageShown, readPickedLanguage } from '../i18n'
+import { setSetting } from '../torrent/settings-sync'
 
 /**
  * `tag`'s name in `locale`, its own by default, as a menu row writes it: CLDR names a language as written mid-sentence
@@ -31,8 +31,7 @@ export const LanguageSelect = () => {
       onChange={(event) => {
         const next = event.currentTarget.value
         setPicked(next)
-        void pickLanguage(next || undefined)
-        void recordSetting('language', next || null)
+        void setSetting('language', next || null)
       }}
     >
       <option value="">{intl.formatMessage({ id: 'Automatic ({language})', defaultMessage: 'Automatic ({language})' }, { language: languageName(automaticLanguage()) })}</option>

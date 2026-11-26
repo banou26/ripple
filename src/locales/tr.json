@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Günlük FKN kotanız doldu.",
   "Your folder": "Klasörünüz",
   "Your storage is locked. Unlock it to sync.": "Depolamanız kilitli. Eşitlemek için kilidini açın.",
+  "Your synced settings have the VPN turned off.": "Eşitlenen ayarlarınızda VPN kapalı.",
   "attempt {count}": "{count}. deneme",
   "attempt {count}, {reason}": "{count}. deneme, {reason}",
   "commit {hash}": "commit {hash}",

@@ -45,8 +45,41 @@ describe('parseSettingsSync & parseLegacyVpnSync', () => {
         dockHeight: { value: 420, updatedAt: 600 },
       },
       extra: {
+        rateLimits: { value: { down: 500_000, up: -1 }, updatedAt: 400 },
+        playerVolume: { value: { volume: 1.5, muted: false }, updatedAt: 500 },
         futureSetting: { value: { enabled: true }, updatedAt: 700 },
       },
+    })
+  })
+
+  it('preserves unrecognized values for known keys in extra across older-client round-trips', () => {
+    const parsed = parseSettingsSync({
+      listFilter: { value: 'future-filter', updatedAt: 1_500 },
+      listView: { value: 'compact-grid', updatedAt: 2_000 },
+      addDialog: { value: true, updatedAt: 2_500 },
+    })
+    expect(parsed).toEqual({
+      entries: {
+        addDialog: { value: true, updatedAt: 2_500 },
+      },
+      extra: {
+        listFilter: { value: 'future-filter', updatedAt: 1_500 },
+        listView: { value: 'compact-grid', updatedAt: 2_000 },
+      },
+    })
+
+    const merged = resolveSettingsSync({
+      account: ACCT_A,
+      local: baseLocal({ addDialog: true }),
+      stored: undefined,
+      remote: parsed!.entries,
+      extra: parsed!.extra,
+      now: 3_000,
+    })
+    expect(merged.cloudPayload).toEqual({
+      addDialog: { value: true, updatedAt: 2_500 },
+      listFilter: { value: 'future-filter', updatedAt: 1_500 },
+      listView: { value: 'compact-grid', updatedAt: 2_000 },
     })
   })
 
@@ -155,7 +188,7 @@ describe('resolveSettingsSync', () => {
     })
   })
 
-  it('writes cloud when migrating legacy ripple/vpn.json even with no newer local edits', () => {
+  it('writes cloud when migrating legacy ripple/vpn.json without applying vpn=false silently', () => {
     const res = resolveSettingsSync({
       account: ACCT_A,
       local: baseLocal(),
@@ -163,7 +196,8 @@ describe('resolveSettingsSync', () => {
       remote: { vpn: { value: false, updatedAt: 1_234 } },
       migratedFromLegacyVpn: true,
     })
-    expect(res.apply).toEqual({ vpn: false })
+    expect(res.apply).toEqual({})
+    expect(res.pendingVpnOffAt).toBe(1_234)
     expect(res.writeCloud).toBe(true)
     expect(res.cloudPayload).toEqual({ vpn: { value: false, updatedAt: 1_234 } })
   })
@@ -258,6 +292,9 @@ describe('createSettingsSyncController', () => {
 
     expect(await stubEmbed.controller.sync()).toBe('synced')
     expect(await ripple.controller.sync()).toBe('synced')
+    expect(ripple.getLocal().vpn).toBe(true)
+    expect(ripple.controller.currentPendingVpnOff()).toMatchObject({ account: `tag:${sharedAccount.name}` })
+    await ripple.controller.confirmPendingVpnOff()
 
     expect(stubEmbed.getLocal()).toEqual(ripple.getLocal())
     expect(stubEmbed.getLocal().vpn).toBe(false)
@@ -307,11 +344,12 @@ describe('createSettingsSyncController', () => {
     expect(part.counts()).toEqual({ readCalls: 0, writeCalls: 0 })
     expect(part.getLocal().vpn).toBe(false)
 
-    // Sign in to Alice -> seeds Alice's cloud
+    // Sign in to Alice -> signed-out unrecorded vpn=false does not overwrite Alice's default vpn=true
     account.name = 'alice'
     account.available = true
     expect(await part.controller.sync()).toBe('synced')
-    expect(cloud.payload?.vpn?.value).toBe(false)
+    expect(cloud.payload?.vpn).toBeUndefined()
+    expect(part.getLocal().vpn).toBe(true)
 
     // Locked / error states bail cleanly
     cloud.state = 'locked'
@@ -420,5 +458,32 @@ describe('createSettingsSyncController', () => {
     expect(part.getLocal().addDialog).toBe(false)
     expect(part.getLocal().listView).toBe('cards')
     expect(cloud.payload?.listView).toBeUndefined()
+  })
+
+  it('requires local confirmation before applying remote vpn=false and blocks signed-out vpn=false propagation on sign-in', async () => {
+    let tick = 5_000
+    const cloud: { payload: Record<string, SyncedEntry> | null } = {
+      payload: { vpn: { value: true, updatedAt: 1_000 } },
+    }
+    const account: { name: string | null, available: boolean | null } = { name: null, available: false }
+    const part = makePartition({ cloud, account, clock: () => ++tick })
+
+    // User turns VPN off while signed out (`account: null` in IDB)
+    await part.setSetting('vpn', false)
+    expect(part.getLocal().vpn).toBe(false)
+    expect(cloud.payload?.vpn).toEqual({ value: true, updatedAt: 1_000 })
+
+    // Signing into an account with vpn=true must NOT overwrite cloud with signed-out vpn=false
+    account.name = 'alice'
+    account.available = true
+    expect(await part.controller.sync()).toBe('synced')
+    expect(cloud.payload?.vpn).toEqual({ value: true, updatedAt: 1_000 })
+    expect(part.getLocal().vpn).toBe(true)
+
+    // Remote device later sets vpn=false -> local stays on until explicitly confirmed
+    cloud.payload = { vpn: { value: false, updatedAt: 8_000 } }
+    expect(await part.controller.sync()).toBe('synced')
+    expect(part.getLocal().vpn).toBe(true)
+    expect(cloud.payload?.vpn).toEqual({ value: false, updatedAt: 8_000 })
   })
 })

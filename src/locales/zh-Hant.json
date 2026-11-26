@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "你的每日 FKN 配額已用完。",
   "Your folder": "你的資料夾",
   "Your storage is locked. Unlock it to sync.": "你的儲存空間已鎖定。請解鎖後同步。",
+  "Your synced settings have the VPN turned off.": "你同步的設定已關閉 VPN。",
   "attempt {count}": "第{count}次嘗試",
   "attempt {count}, {reason}": "第{count}次嘗試，{reason}",
   "commit {hash}": "提交 {hash}",

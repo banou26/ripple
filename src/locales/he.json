@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "המכסה היומית שלכם ב-FKN נוצלה.",
   "Your folder": "התיקייה שלכם",
   "Your storage is locked. Unlock it to sync.": "האחסון שלכם נעול. בטלו את הנעילה כדי לסנכרן.",
+  "Your synced settings have the VPN turned off.": "בהגדרות המסונכרנות שלכם ה-VPN כבוי.",
   "attempt {count}": "ניסיון {count}",
   "attempt {count}, {reason}": "ניסיון {count}, {reason}",
   "commit {hash}": "קומיט {hash}",

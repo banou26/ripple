@@ -2,7 +2,6 @@ import type { SaveLocation } from '../torrent/library'
 
 import { css } from '@emotion/react'
 import { ArrowLeft, MonitorDown } from 'lucide-react'
-import { set } from 'idb-keyval'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
@@ -11,16 +10,14 @@ import { hint } from '../components/hint'
 import { LanguageSelect } from '../components/language-select'
 import { PersistControl } from '../components/persist-control'
 import { PluginsSection } from '../plugins/plugins-section'
-import { runningTorrentClient } from '../torrent/client'
-import { ADD_DIALOG_KEY, dialogEnabled } from '../torrent/add-options'
-import { readGlobalDefault, SAVE_LOCATION_KEY } from '../torrent/save-location'
+import { dialogEnabled } from '../torrent/add-options'
+import { readGlobalDefault } from '../torrent/save-location'
 import {
   DEFAULT_SEED_MINUTES, DEFAULT_SEED_RATIO, MAX_SEED_MINUTES, MAX_SEED_RATIO, MIN_SEED_MINUTES, MIN_SEED_RATIO,
-  SEEDING_POLICY_KEY, onSeedingPolicyChange, parseSeedMinutes, parseSeedRatio, readSeedingPolicy, sameSeedingPolicy,
-  writeSeedingPolicy,
+  normalizeSeedingPolicy, onSeedingPolicyChange, parseSeedMinutes, parseSeedRatio, readSeedingPolicy, sameSeedingPolicy,
 } from '../torrent/seeding-policy'
 import type { SeedingPolicy } from '../torrent/seeding-policy'
-import { onSettingApplied, recordSetting } from '../torrent/settings-sync'
+import { onSettingApplied, setSetting } from '../torrent/settings-sync'
 import { useFolder } from '../torrent/use-folder'
 import { usePersistentStorage } from '../torrent/use-persistent-storage'
 import {
@@ -244,12 +241,10 @@ const Settings = () => {
     return () => { offSeeding(); offAdd(); offLoc() }
   }, [])
   const applySeedingPolicy = (next: SeedingPolicy) => {
-    if (sameSeedingPolicy(seedingPolicy, next)) return
-    const saved = writeSeedingPolicy(next)
-    setSeedingPolicy(saved)
-    void set(SEEDING_POLICY_KEY, saved).catch(() => {})
-    runningTorrentClient()?.setSeedingPolicy(saved)
-    void recordSetting('seedingPolicy', saved)
+    const normalized = normalizeSeedingPolicy(next)
+    if (sameSeedingPolicy(seedingPolicy, normalized)) return
+    setSeedingPolicy(normalized)
+    void setSetting('seedingPolicy', normalized)
   }
   const commitRatio = () => {
     if (skipRatioCommit.current) { skipRatioCommit.current = false; return }
@@ -281,13 +276,11 @@ const Settings = () => {
   }
   const chooseAddDialog = (on: boolean) => {
     setAddDialog(on)
-    try { localStorage.setItem(ADD_DIALOG_KEY, on ? '1' : '0') } catch {}
-    void recordSetting('addDialog', on)
+    void setSetting('addDialog', on)
   }
   const chooseDefaultLocation = (location: SaveLocation) => {
     setDefaultLocation(location)
-    try { localStorage.setItem(SAVE_LOCATION_KEY, location) } catch {}
-    if (location === 'browser' || location === 'folder') void recordSetting('saveLocation', location)
+    if (location === 'browser' || location === 'folder') void setSetting('saveLocation', location)
   }
 
   const library = intl.formatMessage({ id: 'Library', defaultMessage: 'Library' })

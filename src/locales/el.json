@@ -520,6 +520,7 @@
   "Your daily FKN quota is used up.": "Το ημερήσιο όριο FKN σας εξαντλήθηκε.",
   "Your folder": "Ο φάκελός σας",
   "Your storage is locked. Unlock it to sync.": "Ο χώρος αποθήκευσής σας είναι κλειδωμένος. Ξεκλειδώστε τον για συγχρονισμό.",
+  "Your synced settings have the VPN turned off.": "Οι συγχρονισμένες ρυθμίσεις σας έχουν το VPN απενεργοποιημένο.",
   "attempt {count}": "προσπάθεια {count}",
   "attempt {count}, {reason}": "προσπάθεια {count}, {reason}",
   "commit {hash}": "commit {hash}",

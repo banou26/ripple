@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
 import { account, cloud } from '@fkn/lib'
 
@@ -45,7 +45,6 @@ const SIGNED_OUT_COOLDOWN_MS = 30_000
 const POLL_INTERVAL_MS = 30_000
 const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000]
 const MAX_RERUNS = 3
-const OPTIMISTIC_TTL_MS = 5_000
 
 export type PlayerVolume = { volume: number, muted: boolean }
 export type ListSort = { key: SortKey, dir: SortDir }
@@ -72,9 +71,15 @@ export type SettingsValues = {
 }
 
 export type SettingKey = keyof SettingsValues
-export type SyncedEntry<T = unknown> = { value: T, updatedAt: number }
+export type SyncedEntry<T = unknown> = { value: T, updatedAt: number, signedOut?: true }
 export type SyncedEntries = { [K in SettingKey]?: SyncedEntry<SettingsValues[K]> }
-export type StoredSettingsSync = { account: string | null, entries: SyncedEntries }
+export type PendingVpnOff = { account: string, updatedAt: number }
+export type StoredSettingsSync = {
+  account: string | null
+  entries: SyncedEntries
+  declinedVpnOffAt?: number
+  legacyVpnChecked?: boolean
+}
 export type ParsedSettingsSync = { entries: SyncedEntries, extra: Record<string, SyncedEntry> }
 export type SettingsSyncOutcome = 'signed-out' | 'locked' | 'stale' | 'retry' | 'synced'
 
@@ -83,32 +88,10 @@ export type SettingsSyncResolution = {
   cloudPayload: Record<string, SyncedEntry>
   apply: Partial<SettingsValues>
   writeCloud: boolean
+  pendingVpnOffAt?: number
 }
 
 const DEFAULT_PLAYER_VOLUME: PlayerVolume = { volume: 1, muted: false }
-
-export const DEFAULT_SETTINGS: SettingsValues = {
-  vpn: true,
-  vpnWarningRemembered: false,
-  language: null,
-  addDialog: false,
-  seedingPolicy: DEFAULT_SEEDING_POLICY,
-  rateLimits: NO_LIMITS,
-  saveLocation: 'browser',
-  confirmRemove: false,
-  normalizeVolume: true,
-  playerVolume: DEFAULT_PLAYER_VOLUME,
-  audioLanguage: null,
-  subtitleLanguage: null,
-  listFilter: 'all',
-  listSort: DEFAULT_SORT,
-  listView: 'cards',
-  listCollapsed: [],
-  listExpandedGroups: [],
-  dockHeight: DEFAULT_DOCK_HEIGHT,
-}
-
-export const SYNCED_SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingKey[]
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -165,49 +148,205 @@ const parseSeedingPolicyStrict = (raw: unknown): SeedingPolicy | undefined => {
   return ratio === null && minutes === null ? DEFAULT_SEEDING_POLICY : { ratio, minutes }
 }
 
+/** Clamps a detail dock height into its allowed `[MIN_DOCK_HEIGHT, MAX_DOCK_HEIGHT]` range. */
+export const clampDockHeight = (value: number): number =>
+  Math.min(MAX_DOCK_HEIGHT, Math.max(MIN_DOCK_HEIGHT, Math.round(value)))
+
+const safeGetItem = (key: string): string | null => {
+  try { return globalThis.localStorage?.getItem(key) ?? null } catch { return null }
+}
+
+const safeSetItem = (key: string, value: string): void => {
+  try { globalThis.localStorage?.setItem(key, value) } catch {}
+}
+
+const safeRemoveItem = (key: string): void => {
+  try { globalThis.localStorage?.removeItem(key) } catch {}
+}
+
+const clientApi: {
+  setVpn?: typeof clientModule.setVpn
+  runningTorrentClient?: typeof clientModule.runningTorrentClient
+} = clientModule
+
+// Tracks the latest rate-limit write while an engine worker commits RATE_LIMITS_KEY on its serialized lane;
+// cleared once IDB matches, sync IDB is reset/replaced, remote limits apply, or the account switches.
+let pendingWorkerRateLimits: RateLimits | null = null
+
+const readLocalPlayerVolume = (): PlayerVolume => {
+  try {
+    const raw = JSON.parse(safeGetItem(PLAYER_VOLUME_KEY) ?? '{}')
+    return SETTINGS_SPEC.playerVolume.parse(raw) ?? DEFAULT_PLAYER_VOLUME
+  } catch {
+    return DEFAULT_PLAYER_VOLUME
+  }
+}
+
+const readLocalDockHeight = (): number => {
+  const raw = safeGetItem(DOCK_HEIGHT_KEY)
+  if (!raw) return DEFAULT_DOCK_HEIGHT
+  return SETTINGS_SPEC.dockHeight.parse(Number(raw)) ?? DEFAULT_DOCK_HEIGHT
+}
+
+const migrateLegacyStored = async (): Promise<StoredSettingsSync | undefined> => {
+  const current = await get<StoredSettingsSync>(SETTINGS_SYNC_KEY)
+  if (current) return current
+  const legacy = await get<{ account?: string | null, on?: boolean, updatedAt?: number }>(LEGACY_VPN_SYNC_KEY)
+  if (!legacy || typeof legacy.on !== 'boolean' || !isTimestamp(legacy.updatedAt)) return undefined
+  const migrated: StoredSettingsSync = {
+    account: typeof legacy.account === 'string' ? legacy.account : null,
+    entries: { vpn: { value: legacy.on, updatedAt: legacy.updatedAt } },
+  }
+  let committed: StoredSettingsSync | undefined = migrated
+  await update<StoredSettingsSync | undefined>(SETTINGS_SYNC_KEY, (prev) => {
+    committed = prev ?? migrated
+    return committed
+  })
+  return committed
+}
+
 type SettingSpec<K extends SettingKey> = {
+  default: SettingsValues[K]
   parse: (raw: unknown) => SettingsValues[K] | undefined
   equal: (a: SettingsValues[K], b: SettingsValues[K]) => boolean
+  read: () => SettingsValues[K] | Promise<SettingsValues[K]>
+  write: (value: SettingsValues[K]) => SettingsValues[K] | Promise<SettingsValues[K]>
 }
+
+const boolEqual = (a: boolean, b: boolean) => a === b
+const scalarEqual = <T>(a: T, b: T) => a === b
+const boolParse = (raw: unknown) => (typeof raw === 'boolean' ? raw : undefined)
 
 const SETTINGS_SPEC: { [K in SettingKey]: SettingSpec<K> } = {
   vpn: {
-    parse: (raw) => (typeof raw === 'boolean' ? raw : undefined),
-    equal: (a, b) => a === b,
+    default: true,
+    parse: boolParse,
+    equal: boolEqual,
+    read: () => vpnOn(),
+    write: async (val) => {
+      await clientApi.setVpn?.(val)
+      if (vpnOn() !== val) storeVpn(val)
+      return vpnOn()
+    },
   },
   vpnWarningRemembered: {
-    parse: (raw) => (typeof raw === 'boolean' ? raw : undefined),
-    equal: (a, b) => a === b,
+    default: false,
+    parse: boolParse,
+    equal: boolEqual,
+    read: () => safeGetItem(VPN_REMEMBERED_KEY) === '1',
+    write: (val) => {
+      if (val) safeSetItem(VPN_REMEMBERED_KEY, '1')
+      else safeRemoveItem(VPN_REMEMBERED_KEY)
+      return val
+    },
   },
   language: {
+    default: null,
     parse: (raw) => (raw === null ? null : typeof raw === 'string' && OFFERED.includes(raw) ? raw : undefined),
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => readPickedLanguage() ?? null,
+    write: async (val) => {
+      await pickLanguage(val ?? undefined).catch(() => {})
+      return val
+    },
   },
   addDialog: {
-    parse: (raw) => (typeof raw === 'boolean' ? raw : undefined),
-    equal: (a, b) => a === b,
+    default: false,
+    parse: boolParse,
+    equal: boolEqual,
+    read: () => dialogEnabled(safeGetItem),
+    write: (val) => {
+      safeSetItem(ADD_DIALOG_KEY, val ? '1' : '0')
+      return val
+    },
   },
   seedingPolicy: {
+    default: DEFAULT_SEEDING_POLICY,
     parse: parseSeedingPolicyStrict,
     equal: sameSeedingPolicy,
+    read: () => readSeedingPolicy(safeGetItem),
+    write: (val) => {
+      const saved = writeSeedingPolicy(val)
+      const client = clientApi.runningTorrentClient?.()
+      if (client) {
+        client.setSeedingPolicy(saved)
+        return saved
+      }
+      return set(SEEDING_POLICY_KEY, saved).catch(() => {}).then(() => saved)
+    },
   },
   rateLimits: {
+    default: NO_LIMITS,
     parse: (raw) => (isRecord(raw) && isLimit(raw.down) && isLimit(raw.up) ? { down: raw.down, up: raw.up } : undefined),
     equal: (a, b) => a.down === b.down && a.up === b.up,
+    read: async () => {
+      const storedLimits = await get<unknown>(RATE_LIMITS_KEY).catch(() => undefined)
+      const normalizedIdb = storedLimits !== undefined ? normalizeLimits(storedLimits) : undefined
+      if (pendingWorkerRateLimits) {
+        if (normalizedIdb && SETTINGS_SPEC.rateLimits.equal(normalizedIdb, pendingWorkerRateLimits)) {
+          pendingWorkerRateLimits = null
+          return normalizedIdb
+        }
+        const storedSync = await migrateLegacyStored().catch(() => undefined)
+        const syncedRate = storedSync?.entries?.rateLimits?.value
+        if (syncedRate && SETTINGS_SPEC.rateLimits.equal(syncedRate, pendingWorkerRateLimits)) {
+          return pendingWorkerRateLimits
+        }
+        pendingWorkerRateLimits = null
+      }
+      if (normalizedIdb) return normalizedIdb
+      const storedSync = await migrateLegacyStored().catch(() => undefined)
+      if (storedSync?.entries?.rateLimits) return normalizeLimits(storedSync.entries.rateLimits.value)
+      return clientApi.runningTorrentClient?.()?.latestRateLimits() ?? NO_LIMITS
+    },
+    write: async (val) => {
+      const normalized = normalizeLimits(val)
+      const client = clientApi.runningTorrentClient?.()
+      if (client) client.setSessionLimits(normalized)
+      // Worker is the sole IDB writer of RATE_LIMITS_KEY while an engine session is running.
+      const startedFn = client ? Reflect.get(client, 'started') : undefined
+      if (typeof startedFn === 'function' && Boolean((startedFn as () => boolean).call(client))) {
+        pendingWorkerRateLimits = normalized
+      } else {
+        pendingWorkerRateLimits = null
+        await update(RATE_LIMITS_KEY, () => normalized).catch(() => {})
+      }
+      return normalized
+    },
   },
   saveLocation: {
+    default: 'browser',
     parse: (raw) => (raw === 'browser' || raw === 'folder' ? raw : undefined),
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => (readGlobalDefault(safeGetItem) === 'folder' ? 'folder' : 'browser'),
+    write: (val) => {
+      safeSetItem(SAVE_LOCATION_KEY, val)
+      return val
+    },
   },
   confirmRemove: {
-    parse: (raw) => (typeof raw === 'boolean' ? raw : undefined),
-    equal: (a, b) => a === b,
+    default: false,
+    parse: boolParse,
+    equal: boolEqual,
+    read: () => safeGetItem(CONFIRM_REMOVE_KEY) === 'skip',
+    write: (val) => {
+      if (val) safeSetItem(CONFIRM_REMOVE_KEY, 'skip')
+      else safeRemoveItem(CONFIRM_REMOVE_KEY)
+      return val
+    },
   },
   normalizeVolume: {
-    parse: (raw) => (typeof raw === 'boolean' ? raw : undefined),
-    equal: (a, b) => a === b,
+    default: true,
+    parse: boolParse,
+    equal: boolEqual,
+    read: () => normalizeVolumeSaved(safeGetItem),
+    write: (val) => {
+      safeSetItem(NORMALIZE_VOLUME_KEY, val ? '1' : '0')
+      return val
+    },
   },
   playerVolume: {
+    default: DEFAULT_PLAYER_VOLUME,
     parse: (raw) => (
       isRecord(raw)
       && typeof raw.volume === 'number'
@@ -219,63 +358,131 @@ const SETTINGS_SPEC: { [K in SettingKey]: SettingSpec<K> } = {
         : undefined
     ),
     equal: (a, b) => a.volume === b.volume && a.muted === b.muted,
+    read: () => readLocalPlayerVolume(),
+    write: (val) => {
+      safeSetItem(PLAYER_VOLUME_KEY, JSON.stringify(val))
+      return val
+    },
   },
   audioLanguage: {
+    default: null,
     parse: cleanLanguageTag,
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => cleanLanguageTag(safeGetItem(AUDIO_LANGUAGE_KEY)) ?? null,
+    write: (val) => {
+      if (val) safeSetItem(AUDIO_LANGUAGE_KEY, val)
+      else safeRemoveItem(AUDIO_LANGUAGE_KEY)
+      return val
+    },
   },
   subtitleLanguage: {
+    default: null,
     parse: cleanLanguageTag,
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => cleanLanguageTag(safeGetItem(SUBTITLE_LANGUAGE_KEY)) ?? null,
+    write: (val) => {
+      if (val) safeSetItem(SUBTITLE_LANGUAGE_KEY, val === OFF ? OFF : val)
+      else safeRemoveItem(SUBTITLE_LANGUAGE_KEY)
+      return val
+    },
   },
   listFilter: {
+    default: 'all',
     parse: (raw) => ((FILTERS as readonly unknown[]).includes(raw) ? raw as ListFilter : undefined),
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => readFilter(safeGetItem),
+    write: (val) => {
+      safeSetItem(LIST_FILTER_KEY, val)
+      return val
+    },
   },
   listSort: {
+    default: DEFAULT_SORT,
     parse: (raw) => (
       isRecord(raw) && typeof raw.key === 'string' && raw.key in SORT_LABEL && (raw.dir === 'asc' || raw.dir === 'desc')
         ? { key: raw.key as SortKey, dir: raw.dir }
         : undefined
     ),
     equal: (a, b) => a.key === b.key && a.dir === b.dir,
+    read: () => readSort(safeGetItem),
+    write: (val) => {
+      safeSetItem(LIST_SORT_KEY, writeSort(val.key, val.dir))
+      return val
+    },
   },
   listView: {
+    default: 'cards',
     parse: (raw) => (raw === 'cards' || raw === 'table' ? raw : undefined),
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => readView(safeGetItem),
+    write: (val) => {
+      safeSetItem(LIST_VIEW_KEY, val)
+      return val
+    },
   },
   listCollapsed: {
+    default: [],
     parse: (raw) => (Array.isArray(raw) && raw.every(isListGroup) ? canonicalCollapsed(raw) : undefined),
     equal: arraysEqual,
+    read: () => LIST_GROUPS.filter((g) => readCollapsed(safeGetItem).has(g)),
+    write: (val) => {
+      const next = canonicalCollapsed(val)
+      const serialized = writeCollapsed(new Set(next))
+      if (serialized) safeSetItem(LIST_COLLAPSED_KEY, serialized)
+      else safeRemoveItem(LIST_COLLAPSED_KEY)
+      return next
+    },
   },
   listExpandedGroups: {
+    default: [],
     parse: (raw) => (
       Array.isArray(raw) && raw.every((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128)
         ? canonicalExpanded(raw)
         : undefined
     ),
     equal: arraysEqual,
+    read: () => canonicalExpanded([...readExpandedGroups(safeGetItem)]),
+    write: (val) => {
+      const next = canonicalExpanded(val)
+      const expanded = next.length ? new Set(next) : NO_EXPANDED
+      const serialized = expanded.size ? writeExpandedGroups(expanded) : ''
+      if (serialized) safeSetItem(LIST_EXPANDED_GROUPS_KEY, serialized)
+      else safeRemoveItem(LIST_EXPANDED_GROUPS_KEY)
+      return next
+    },
   },
   dockHeight: {
+    default: DEFAULT_DOCK_HEIGHT,
     parse: (raw) => (
       typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= MIN_DOCK_HEIGHT && raw <= MAX_DOCK_HEIGHT
         ? raw
         : undefined
     ),
-    equal: (a, b) => a === b,
+    equal: scalarEqual,
+    read: () => readLocalDockHeight(),
+    write: (val) => {
+      const height = clampDockHeight(val)
+      safeSetItem(DOCK_HEIGHT_KEY, String(height))
+      return height
+    },
   },
 }
+
+export const SYNCED_SETTING_KEYS = Object.keys(SETTINGS_SPEC) as SettingKey[]
+
+export const DEFAULT_SETTINGS = Object.fromEntries(
+  SYNCED_SETTING_KEYS.map((key) => [key, SETTINGS_SPEC[key].default]),
+) as SettingsValues
 
 const isKnownKey = (key: string): key is SettingKey => key in SETTINGS_SPEC
 
 export const equalSetting = <K extends SettingKey>(key: K, a: SettingsValues[K], b: SettingsValues[K]): boolean =>
   SETTINGS_SPEC[key].equal(a, b)
 
-/** Clamps a detail dock height into its allowed `[MIN_DOCK_HEIGHT, MAX_DOCK_HEIGHT]` range. */
-export const clampDockHeight = (value: number): number =>
-  Math.min(MAX_DOCK_HEIGHT, Math.max(MIN_DOCK_HEIGHT, Math.round(value)))
-
-/** Parses a cloud `ripple/settings.json` payload, keeping valid known keys and preserving unknown `{ value, updatedAt }` entries. */
+/**
+ * Parses a cloud `ripple/settings.json` payload. Unparseable known keys with valid `updatedAt` timestamps
+ * stay inside `extra` so older clients never overwrite newer enum, filter, or schema additions on `cloud.fs`.
+ */
 export const parseSettingsSync = (raw: unknown): ParsedSettingsSync | null => {
   if (!isRecord(raw)) return null
   const entries: SyncedEntries = {}
@@ -286,6 +493,8 @@ export const parseSettingsSync = (raw: unknown): ParsedSettingsSync | null => {
       const parsed = SETTINGS_SPEC[key].parse(item.value)
       if (parsed !== undefined) {
         ;(entries as Record<string, SyncedEntry>)[key] = { value: parsed, updatedAt: item.updatedAt }
+      } else {
+        extra[key] = { value: item.value, updatedAt: item.updatedAt }
       }
     } else {
       extra[key] = { value: item.value, updatedAt: item.updatedAt }
@@ -301,17 +510,22 @@ export const parseLegacyVpnSync = (raw: unknown): { on: boolean, updatedAt: numb
 }
 
 const sameEntry = <K extends SettingKey>(key: K, a: SyncedEntry<SettingsValues[K]> | undefined, b: SyncedEntry<SettingsValues[K]> | undefined): boolean =>
-  a === b || (!!a && !!b && a.updatedAt === b.updatedAt && equalSetting(key, a.value, b.value))
+  a === b || (!!a && !!b && a.updatedAt === b.updatedAt && !!a.signedOut === !!b.signedOut && equalSetting(key, a.value, b.value))
+
+const cleanEntry = <T>(entry: SyncedEntry<T>): SyncedEntry<T> => ({ value: entry.value, updatedAt: entry.updatedAt })
 
 const sameStored = (a: StoredSettingsSync | undefined, b: StoredSettingsSync | undefined): boolean => {
   if (a === b) return true
   if (!a || !b || a.account !== b.account) return false
+  if (a.declinedVpnOffAt !== b.declinedVpnOffAt) return false
+  if (!!a.legacyVpnChecked !== !!b.legacyVpnChecked) return false
   return SYNCED_SETTING_KEYS.every((key) => sameEntry(key, a.entries[key], b.entries[key]))
 }
 
 /**
  * Reconciles every portable setting between local storage (`local`, `stored`) and `cloud.fs`
- * (`remote`, `extra`) per key using LWW timestamps, discarding prior-account state on switch.
+ * (`remote`, `extra`) per key using LWW timestamps, discarding prior-account state on switch,
+ * preserving unrecognized future values in `extra`, and requiring local confirmation for `vpn: false`.
  */
 export const resolveSettingsSync = ({
   account: accountId,
@@ -322,6 +536,7 @@ export const resolveSettingsSync = ({
   vpnOffAvailable: hasWebRtc = true,
   migratedFromLegacyVpn = false,
   preserveLocalKeys,
+  legacyVpnChecked,
   now = Date.now(),
 }: {
   account: string
@@ -332,19 +547,36 @@ export const resolveSettingsSync = ({
   vpnOffAvailable?: boolean
   migratedFromLegacyVpn?: boolean
   preserveLocalKeys?: ReadonlySet<SettingKey>
+  legacyVpnChecked?: boolean
   now?: number
 }): SettingsSyncResolution => {
   const nextEntries: SyncedEntries = {}
+  const nextExtra: Record<string, SyncedEntry> = { ...extra }
   const apply: Partial<SettingsValues> = {}
   let writeCloud = migratedFromLegacyVpn
   const remoteEntries = remote ?? {}
   const accountSwitched = !!stored?.account && stored.account !== accountId
+  const signedOutCarryover = !stored?.account
+  let nextDeclinedVpnOffAt: number | undefined = accountSwitched ? undefined : stored?.declinedVpnOffAt
+  let pendingVpnOffAt: number | undefined
+  let cloudVpnOverride: SyncedEntry<boolean> | undefined
 
   const setNext = (key: SettingKey, entry: SyncedEntry) => {
-    ;(nextEntries as Record<string, SyncedEntry>)[key] = entry
+    ;(nextEntries as Record<string, SyncedEntry>)[key] = cleanEntry(entry)
   }
   const setApply = (key: SettingKey, value: unknown) => {
     ;(apply as Record<string, unknown>)[key] = value
+  }
+  const handleRemoteVpnOff = (r: SyncedEntry<boolean>, localVpn: boolean, storedVpn: SyncedEntry<boolean> | undefined) => {
+    if (localVpn) {
+      if (nextDeclinedVpnOffAt !== r.updatedAt) pendingVpnOffAt = r.updatedAt
+      // Preserve cloud's vpn: false across unrelated writes without marking this device locally false.
+      cloudVpnOverride = r
+      if (storedVpn && !storedVpn.signedOut && !signedOutCarryover) setNext('vpn', storedVpn)
+    } else {
+      setNext('vpn', r)
+      nextDeclinedVpnOffAt = undefined
+    }
   }
 
   for (const key of SYNCED_SETTING_KEYS) {
@@ -355,39 +587,88 @@ export const resolveSettingsSync = ({
     }
     const defaultVal = DEFAULT_SETTINGS[key]
     const localVal = local[key]
+    const remoteExtra = nextExtra[key]
+    const s = stored?.entries[key]
+
+    // Switching accounts OR signing in with a prior or unrecorded signed-out vpn=false choice:
+    // never push signed-out vpn=false to cloud.fs or apply remote vpn=false without local confirmation.
+    const isSignedOutVpnOff = key === 'vpn' && !preserveLocalKeys?.has('vpn') && (
+      s?.signedOut === true
+      || (!s && localVal === false)
+      || (signedOutCarryover && s?.value === false)
+    )
+    if (key === 'vpn' && ((accountSwitched && !preserveLocalKeys?.has('vpn')) || isSignedOutVpnOff)) {
+      const rv = r as SyncedEntry<boolean> | undefined
+      if (rv) {
+        if (rv.value) {
+          setNext('vpn', rv)
+          if (localVal !== true) setApply('vpn', true)
+          nextDeclinedVpnOffAt = undefined
+        } else {
+          handleRemoteVpnOff(rv, localVal as boolean, s as SyncedEntry<boolean> | undefined)
+        }
+      } else if (!remoteExtra) {
+        setNext('vpn', { value: true, updatedAt: 0 })
+        if (localVal !== true) setApply('vpn', true)
+        nextDeclinedVpnOffAt = undefined
+      }
+      continue
+    }
 
     if (accountSwitched && !preserveLocalKeys?.has(key)) {
+      if (remoteExtra) continue
       const winnerVal = r ? r.value : defaultVal
       if (r) setNext(key, r)
-      else if (key === 'vpn') setNext('vpn', { value: true, updatedAt: 0 })
       if (!equalSetting(key, winnerVal, localVal)) setApply(key, winnerVal)
       continue
     }
 
-    const s = stored?.entries[key]
     let candidate: SyncedEntry<SettingsValues[typeof key]>
     if (s && equalSetting(key, s.value, localVal)) {
       candidate = s
     } else if (r && equalSetting(key, localVal, r.value)) {
       candidate = r
     } else if (!equalSetting(key, localVal, defaultVal)) {
-      candidate = { value: localVal, updatedAt: r ? 0 : now }
+      candidate = { value: localVal, updatedAt: r || remoteExtra ? 0 : now }
     } else {
       candidate = { value: defaultVal, updatedAt: 0 }
+    }
+
+    if (remoteExtra) {
+      if (s && candidate.updatedAt > remoteExtra.updatedAt) {
+        delete nextExtra[key]
+        setNext(key, candidate)
+        writeCloud = true
+        if (key === 'vpn') nextDeclinedVpnOffAt = undefined
+      }
+      continue
     }
 
     const remoteAt = r ? r.updatedAt : 0
     if (candidate.updatedAt > remoteAt) {
       setNext(key, candidate)
       writeCloud = true
+      if (key === 'vpn') nextDeclinedVpnOffAt = undefined
     } else if (remoteAt > candidate.updatedAt && r) {
-      setNext(key, r)
-      if (!equalSetting(key, r.value, localVal)) setApply(key, r.value)
+      if (key === 'vpn') {
+        const rv = r as SyncedEntry<boolean>
+        if (rv.value) {
+          setNext('vpn', rv)
+          if (localVal !== true) setApply('vpn', true)
+          nextDeclinedVpnOffAt = undefined
+        } else {
+          handleRemoteVpnOff(rv, localVal as boolean, s as SyncedEntry<boolean> | undefined)
+        }
+      } else {
+        setNext(key, r)
+        if (!equalSetting(key, r.value, localVal)) setApply(key, r.value)
+      }
     } else {
       const remoteVal = r ? r.value : defaultVal
       if (equalSetting(key, candidate.value, remoteVal)) {
         if (r) setNext(key, r)
         else if (candidate.updatedAt > 0 || !equalSetting(key, candidate.value, defaultVal)) setNext(key, candidate)
+        if (key === 'vpn' && remoteVal === true) nextDeclinedVpnOffAt = undefined
       } else if (key === 'vpn') {
         if (candidate.value === true) {
           setNext('vpn', { value: true, updatedAt: candidate.updatedAt })
@@ -396,6 +677,7 @@ export const resolveSettingsSync = ({
           setNext('vpn', { value: true, updatedAt: remoteAt })
           if (localVal !== true) setApply('vpn', true)
         }
+        nextDeclinedVpnOffAt = undefined
       } else if (r) {
         setNext(key, r)
         if (!equalSetting(key, r.value, localVal)) setApply(key, r.value)
@@ -403,25 +685,35 @@ export const resolveSettingsSync = ({
     }
   }
 
-  const cloudPayload: Record<string, SyncedEntry> = { ...extra }
+  const cloudPayload: Record<string, SyncedEntry> = { ...nextExtra }
   for (const key of SYNCED_SETTING_KEYS) {
     const entry = nextEntries[key]
     if (!entry) continue
     if (entry.updatedAt === 0 && equalSetting(key, entry.value, DEFAULT_SETTINGS[key])) continue
-    cloudPayload[key] = entry
+    cloudPayload[key] = cleanEntry(entry as SyncedEntry)
+  }
+  if (cloudVpnOverride) cloudPayload.vpn = cleanEntry(cloudVpnOverride)
+
+  const nextChecked = legacyVpnChecked ?? (!accountSwitched ? stored?.legacyVpnChecked : undefined)
+  const record: StoredSettingsSync = {
+    account: accountId,
+    entries: nextEntries,
+    ...(nextDeclinedVpnOffAt !== undefined ? { declinedVpnOffAt: nextDeclinedVpnOffAt } : {}),
+    ...(nextChecked ? { legacyVpnChecked: true } : {}),
   }
 
   return {
-    record: { account: accountId, entries: nextEntries },
+    record,
     cloudPayload,
     apply,
     writeCloud,
+    ...(pendingVpnOffAt !== undefined ? { pendingVpnOffAt } : {}),
   }
 }
 
 export type CloudReadResult =
-  | { kind: 'ok', parsed: ParsedSettingsSync, migratedFromLegacyVpn: boolean }
-  | { kind: 'absent' }
+  | { kind: 'ok', parsed: ParsedSettingsSync, migratedFromLegacyVpn: boolean, legacyChecked?: boolean }
+  | { kind: 'absent', legacyChecked?: boolean }
   | { kind: 'locked' }
   | { kind: 'error' }
 
@@ -431,7 +723,7 @@ export type SettingsSyncDeps = {
   applyLocal: (patch: Partial<SettingsValues>) => Promise<void> | void
   accountInfo: () => Promise<string | null>
   fsAvailable: () => Promise<boolean | null>
-  readCloud: () => Promise<CloudReadResult>
+  readCloud: (options?: { account?: string, skipLegacyVpn?: boolean }) => Promise<CloudReadResult>
   writeCloud: (payload: Record<string, SyncedEntry>) => Promise<'ok' | 'locked' | 'error'>
   readStored: () => Promise<StoredSettingsSync | undefined>
   writeStored: (updater: (prev: StoredSettingsSync | undefined) => StoredSettingsSync | undefined) => Promise<void>
@@ -477,7 +769,8 @@ const highestRemoteAt = (entries: SyncedEntries): number => {
 
 /**
  * Serialized multi-setting sync controller tying per-key IDB timestamps (`ripple:settings-sync`)
- * to encrypted `cloud.fs` (`ripple/settings.json`), preventing mid-flight clobbers and account-switch loops.
+ * to encrypted `cloud.fs` (`ripple/settings.json`), preventing mid-flight clobbers, account-switch leaks,
+ * and unconfirmed remote VPN-off changes.
  */
 export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
   let accountGen = 0
@@ -489,6 +782,16 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
   let inFlight: Promise<SettingsSyncOutcome> | null = null
   let rerun = false
   let recordQueue: Promise<void> = Promise.resolve()
+  let pendingVpnOff: PendingVpnOff | null = null
+  const pendingListeners = new Set<(pending: PendingVpnOff | null) => void>()
+
+  const setPendingVpnOff = (next: PendingVpnOff | null) => {
+    const unchanged = (pendingVpnOff?.account ?? null) === (next?.account ?? null)
+      && (pendingVpnOff?.updatedAt ?? null) === (next?.updatedAt ?? null)
+    if (unchanged) return
+    pendingVpnOff = next
+    for (const listener of pendingListeners) listener(next)
+  }
 
   const seqOf = (key: SettingKey): number => keySeq.get(key) ?? 0
   const maxEntryAt = (entries: SyncedEntries): number => highestRemoteAt(entries)
@@ -501,21 +804,31 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
 
     const [available, name] = await Promise.all([deps.fsAvailable(), deps.accountInfo()])
     if (gen !== accountGen) return 'stale'
-    if (available !== true) return available === null || name !== null ? 'retry' : 'signed-out'
+    if (available !== true) {
+      if (name === null) setPendingVpnOff(null)
+      return available === null || name !== null ? 'retry' : 'signed-out'
+    }
     if (!name) return 'retry'
 
-    const cloudRead = await deps.readCloud()
+    const tag = await deps.tagAccount(name)
+    if (gen !== accountGen || !tag) return 'stale'
+
+    const preStored = await deps.readStored().catch(() => undefined)
+    if (gen !== accountGen) return 'stale'
+    const skipLegacyVpn = preStored?.account === tag && preStored?.legacyVpnChecked === true
+
+    const cloudRead = await deps.readCloud({ account: tag, skipLegacyVpn })
     if (gen !== accountGen) return 'stale'
     if (cloudRead.kind === 'locked') return 'locked'
     if (cloudRead.kind === 'error') return 'retry'
     const remote = cloudRead.kind === 'ok' ? cloudRead.parsed.entries : null
     const extra = cloudRead.kind === 'ok' ? cloudRead.parsed.extra : {}
     const migratedFromLegacyVpn = cloudRead.kind === 'ok' ? cloudRead.migratedFromLegacyVpn : false
+    const legacyChecked = cloudRead.legacyChecked || skipLegacyVpn
     if (remote !== null) lastSeenRemoteAt = Math.max(lastSeenRemoteAt, maxEntryAt(remote))
 
-    const tag = await deps.tagAccount(name)
-    if (gen !== accountGen || !tag) return 'stale'
-
+    await recordQueue
+    if (gen !== accountGen) return 'stale'
     const changedDuringRead = SYNCED_SETTING_KEYS.filter((key) => seqAtStart.get(key) !== seqOf(key))
     const seqBeforeLocal = choiceSeq
     const [storedRead, local] = await Promise.all([
@@ -537,7 +850,11 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
         const cur = nextEntries[key]
         if (cur && cur.updatedAt <= lastSeenRemoteAt) {
           bumpAt += 1
-          ;(nextEntries as Record<SettingKey, SyncedEntry>)[key] = { value: cur.value, updatedAt: bumpAt }
+          ;(nextEntries as Record<SettingKey, SyncedEntry>)[key] = {
+            value: cur.value,
+            updatedAt: bumpAt,
+            ...(cur.signedOut ? { signedOut: true as const } : {}),
+          }
           needsBump = true
         }
       }
@@ -568,6 +885,7 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
       vpnOffAvailable: deps.vpnOffAvailable(),
       migratedFromLegacyVpn,
       preserveLocalKeys: preservedAtStart,
+      legacyVpnChecked: legacyChecked || undefined,
       now: deps.now(),
     })
 
@@ -602,6 +920,7 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     }
 
     if (Object.keys(res.apply).length > 0) await deps.applyLocal(res.apply)
+    setPendingVpnOff(res.pendingVpnOffAt !== undefined ? { account: tag, updatedAt: res.pendingVpnOffAt } : null)
     return 'synced'
   }
 
@@ -628,24 +947,76 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     if (key === 'vpn' && !deps.vpnOffAvailable()) return 'synced'
     choiceSeq += 1
     keySeq.set(key, seqOf(key) + 1)
+    if (key === 'vpn') setPendingVpnOff(null)
     if (pendingAccountSwitch) postSwitchKeys.add(key)
     const stamp = Math.max(deps.now(), lastSeenRemoteAt + 1)
-    recordQueue = recordQueue.then(() =>
-      deps.writeStored((prev) => {
+    recordQueue = recordQueue.then(async () => {
+      const accountName = await deps.accountInfo().catch(() => null)
+      const activeTag = accountName ? await deps.tagAccount(accountName).catch(() => null) : null
+      await deps.writeStored((prev) => {
         const prevEntries = prev?.entries ?? {}
         const prevMax = maxEntryAt(prevEntries)
         const nextEntries: SyncedEntries = { ...prevEntries }
         ;(nextEntries as Record<SettingKey, SyncedEntry>)[key] = {
           value,
           updatedAt: Math.max(stamp, prevMax + 1),
+          ...(key === 'vpn' && value === false && !activeTag ? { signedOut: true as const } : {}),
         }
-        return { account: prev?.account ?? null, entries: nextEntries }
+        const declinedVpnOffAt = key === 'vpn' ? undefined : prev?.declinedVpnOffAt
+        return {
+          account: prev?.account ?? activeTag ?? null,
+          entries: nextEntries,
+          ...(declinedVpnOffAt !== undefined ? { declinedVpnOffAt } : {}),
+          ...(prev?.legacyVpnChecked ? { legacyVpnChecked: true } : {}),
+        }
       }).catch(() => {})
-    )
+    })
     await recordQueue
     const outcome = await sync()
     if (outcome === 'stale') return sync()
     return outcome
+  }
+
+  const confirmPendingVpnOff = async (): Promise<void> => {
+    const current = pendingVpnOff
+    if (!current) return
+    choiceSeq += 1
+    keySeq.set('vpn', seqOf('vpn') + 1)
+    setPendingVpnOff(null)
+    await deps.applyLocal({ vpn: false })
+    recordQueue = recordQueue.then(() =>
+      deps.writeStored((prev) => {
+        if (prev?.account && prev.account !== current.account) return prev
+        const nextEntries: SyncedEntries = {
+          ...prev?.entries,
+          vpn: { value: false, updatedAt: current.updatedAt },
+        }
+        return {
+          account: current.account,
+          entries: nextEntries,
+          ...(prev?.legacyVpnChecked ? { legacyVpnChecked: true } : {}),
+        }
+      }).catch(() => {})
+    )
+    await recordQueue
+  }
+
+  const declinePendingVpnOff = async (): Promise<void> => {
+    const current = pendingVpnOff
+    if (!current) return
+    setPendingVpnOff(null)
+    recordQueue = recordQueue.then(() =>
+      deps.writeStored((prev) => {
+        if (prev?.account && prev.account !== current.account) return prev
+        return {
+          account: current.account,
+          entries: prev?.entries ?? {},
+          declinedVpnOffAt: current.updatedAt,
+          ...(prev?.legacyVpnChecked ? { legacyVpnChecked: true } : {}),
+        }
+      }).catch(() => {})
+    )
+    await recordQueue
   }
 
   const noteAccountSwitch = () => {
@@ -653,17 +1024,32 @@ export const createSettingsSyncController = (deps: SettingsSyncDeps) => {
     lastSeenRemoteAt = 0
     pendingAccountSwitch = true
     postSwitchKeys.clear()
+    setPendingVpnOff(null)
   }
 
-  return { sync, recordChoice, noteAccountSwitch }
+  const onPendingVpnOff = (listener: (pending: PendingVpnOff | null) => void): (() => void) => {
+    pendingListeners.add(listener)
+    listener(pendingVpnOff)
+    return () => { pendingListeners.delete(listener) }
+  }
+
+  return {
+    sync,
+    recordChoice,
+    noteAccountSwitch,
+    onPendingVpnOff,
+    confirmPendingVpnOff,
+    declinePendingVpnOff,
+    currentPendingVpnOff: () => pendingVpnOff,
+  }
 }
 
 const appliedListeners = new Map<SettingKey, Set<(value: unknown) => void>>()
 
 const notifyApplied = <K extends SettingKey>(key: K, value: SettingsValues[K]) => {
-  const set = appliedListeners.get(key)
-  if (!set) return
-  for (const listener of set) listener(value)
+  const setForKey = appliedListeners.get(key)
+  if (!setForKey) return
+  for (const listener of setForKey) listener(value)
 }
 
 /** Subscribes to remote setting changes applied by cloud sync for `key`. */
@@ -681,171 +1067,21 @@ export const onSettingApplied = <K extends SettingKey>(
   return () => { listeners.delete(wrapped) }
 }
 
-const clientApi: {
-  setVpn?: typeof clientModule.setVpn
-  runningTorrentClient?: typeof clientModule.runningTorrentClient
-} = clientModule
-
-let optimisticRateLimits: { value: RateLimits, setAt: number } | null = null
-
-const safeGetItem = (key: string): string | null => {
-  try { return globalThis.localStorage?.getItem(key) ?? null } catch { return null }
-}
-
-const safeSetItem = (key: string, value: string): void => {
-  try { globalThis.localStorage?.setItem(key, value) } catch {}
-}
-
-const safeRemoveItem = (key: string): void => {
-  try { globalThis.localStorage?.removeItem(key) } catch {}
-}
-
-const readLocalPlayerVolume = (): PlayerVolume => {
-  try {
-    const raw = JSON.parse(safeGetItem(PLAYER_VOLUME_KEY) ?? '{}')
-    return SETTINGS_SPEC.playerVolume.parse(raw) ?? DEFAULT_PLAYER_VOLUME
-  } catch {
-    return DEFAULT_PLAYER_VOLUME
-  }
-}
-
-const readLocalDockHeight = (): number => {
-  const raw = safeGetItem(DOCK_HEIGHT_KEY)
-  if (!raw) return DEFAULT_DOCK_HEIGHT
-  const parsed = Number(raw)
-  return SETTINGS_SPEC.dockHeight.parse(parsed) ?? DEFAULT_DOCK_HEIGHT
-}
-
 const readLocalSettings = async (): Promise<SettingsValues> => {
-  const storedLimits = await get<unknown>(RATE_LIMITS_KEY).catch(() => undefined)
-  let rateLimits: RateLimits
-  if (optimisticRateLimits) {
-    const normalizedIdb = storedLimits !== undefined ? normalizeLimits(storedLimits) : undefined
-    const expired = Date.now() - optimisticRateLimits.setAt > OPTIMISTIC_TTL_MS
-    const idbCaughtUp = normalizedIdb !== undefined && SETTINGS_SPEC.rateLimits.equal(normalizedIdb, optimisticRateLimits.value)
-    if (expired || idbCaughtUp) {
-      rateLimits = idbCaughtUp ? normalizedIdb : (normalizedIdb ?? optimisticRateLimits.value)
-      optimisticRateLimits = null
-    } else {
-      rateLimits = optimisticRateLimits.value
-    }
-  } else {
-    rateLimits = storedLimits !== undefined
-      ? normalizeLimits(storedLimits)
-      : (clientApi.runningTorrentClient?.()?.latestRateLimits() ?? NO_LIMITS)
+  const values: Partial<SettingsValues> = {}
+  for (const key of SYNCED_SETTING_KEYS) {
+    ;(values as Record<SettingKey, unknown>)[key] = await SETTINGS_SPEC[key].read()
   }
-  const defaultLoc = readGlobalDefault(safeGetItem)
-
-  return {
-    vpn: vpnOn(),
-    vpnWarningRemembered: safeGetItem(VPN_REMEMBERED_KEY) === '1',
-    language: readPickedLanguage() ?? null,
-    addDialog: dialogEnabled(safeGetItem),
-    seedingPolicy: readSeedingPolicy(safeGetItem),
-    rateLimits,
-    saveLocation: defaultLoc === 'folder' ? 'folder' : 'browser',
-    confirmRemove: safeGetItem(CONFIRM_REMOVE_KEY) === 'skip',
-    normalizeVolume: normalizeVolumeSaved(safeGetItem),
-    playerVolume: readLocalPlayerVolume(),
-    audioLanguage: cleanLanguageTag(safeGetItem(AUDIO_LANGUAGE_KEY)) ?? null,
-    subtitleLanguage: cleanLanguageTag(safeGetItem(SUBTITLE_LANGUAGE_KEY)) ?? null,
-    listFilter: readFilter(safeGetItem),
-    listSort: readSort(safeGetItem),
-    listView: readView(safeGetItem),
-    listCollapsed: LIST_GROUPS.filter((g) => readCollapsed(safeGetItem).has(g)),
-    listExpandedGroups: canonicalExpanded([...readExpandedGroups(safeGetItem)]),
-    dockHeight: readLocalDockHeight(),
-  }
+  return values as SettingsValues
 }
 
 const applyLocalSettings = async (patch: Partial<SettingsValues>): Promise<void> => {
-  if ('vpn' in patch && patch.vpn !== undefined) {
-    await clientApi.setVpn?.(patch.vpn)
-    if (vpnOn() !== patch.vpn) storeVpn(patch.vpn)
-    notifyApplied('vpn', patch.vpn)
-  }
-  if ('vpnWarningRemembered' in patch && patch.vpnWarningRemembered !== undefined) {
-    if (patch.vpnWarningRemembered) safeSetItem(VPN_REMEMBERED_KEY, '1')
-    else safeRemoveItem(VPN_REMEMBERED_KEY)
-    notifyApplied('vpnWarningRemembered', patch.vpnWarningRemembered)
-  }
-  if ('language' in patch && patch.language !== undefined) {
-    await pickLanguage(patch.language ?? undefined).catch(() => {})
-    notifyApplied('language', patch.language)
-  }
-  if ('addDialog' in patch && patch.addDialog !== undefined) {
-    safeSetItem(ADD_DIALOG_KEY, patch.addDialog ? '1' : '0')
-    notifyApplied('addDialog', patch.addDialog)
-  }
-  if ('seedingPolicy' in patch && patch.seedingPolicy !== undefined) {
-    const saved = writeSeedingPolicy(patch.seedingPolicy)
-    await set(SEEDING_POLICY_KEY, saved).catch(() => {})
-    clientApi.runningTorrentClient?.()?.setSeedingPolicy(saved)
-    notifyApplied('seedingPolicy', saved)
-  }
-  if ('rateLimits' in patch && patch.rateLimits !== undefined) {
-    const normalized = normalizeLimits(patch.rateLimits)
-    optimisticRateLimits = { value: normalized, setAt: Date.now() }
-    await update(RATE_LIMITS_KEY, () => normalized).catch(() => {})
-    clientApi.runningTorrentClient?.()?.setSessionLimits(normalized)
-    notifyApplied('rateLimits', normalized)
-  }
-  if ('saveLocation' in patch && patch.saveLocation !== undefined) {
-    safeSetItem(SAVE_LOCATION_KEY, patch.saveLocation)
-    notifyApplied('saveLocation', patch.saveLocation)
-  }
-  if ('confirmRemove' in patch && patch.confirmRemove !== undefined) {
-    if (patch.confirmRemove) safeSetItem(CONFIRM_REMOVE_KEY, 'skip')
-    else safeRemoveItem(CONFIRM_REMOVE_KEY)
-    notifyApplied('confirmRemove', patch.confirmRemove)
-  }
-  if ('normalizeVolume' in patch && patch.normalizeVolume !== undefined) {
-    safeSetItem(NORMALIZE_VOLUME_KEY, patch.normalizeVolume ? '1' : '0')
-    notifyApplied('normalizeVolume', patch.normalizeVolume)
-  }
-  if ('playerVolume' in patch && patch.playerVolume !== undefined) {
-    safeSetItem(PLAYER_VOLUME_KEY, JSON.stringify(patch.playerVolume))
-    notifyApplied('playerVolume', patch.playerVolume)
-  }
-  if ('audioLanguage' in patch && patch.audioLanguage !== undefined) {
-    if (patch.audioLanguage) safeSetItem(AUDIO_LANGUAGE_KEY, patch.audioLanguage)
-    else safeRemoveItem(AUDIO_LANGUAGE_KEY)
-    notifyApplied('audioLanguage', patch.audioLanguage)
-  }
-  if ('subtitleLanguage' in patch && patch.subtitleLanguage !== undefined) {
-    if (patch.subtitleLanguage) safeSetItem(SUBTITLE_LANGUAGE_KEY, patch.subtitleLanguage === OFF ? OFF : patch.subtitleLanguage)
-    else safeRemoveItem(SUBTITLE_LANGUAGE_KEY)
-    notifyApplied('subtitleLanguage', patch.subtitleLanguage)
-  }
-  if ('listFilter' in patch && patch.listFilter !== undefined) {
-    safeSetItem(LIST_FILTER_KEY, patch.listFilter)
-    notifyApplied('listFilter', patch.listFilter)
-  }
-  if ('listSort' in patch && patch.listSort !== undefined) {
-    safeSetItem(LIST_SORT_KEY, writeSort(patch.listSort.key, patch.listSort.dir))
-    notifyApplied('listSort', patch.listSort)
-  }
-  if ('listView' in patch && patch.listView !== undefined) {
-    safeSetItem(LIST_VIEW_KEY, patch.listView)
-    notifyApplied('listView', patch.listView)
-  }
-  if ('listCollapsed' in patch && patch.listCollapsed !== undefined) {
-    const serialized = writeCollapsed(new Set(patch.listCollapsed))
-    if (serialized) safeSetItem(LIST_COLLAPSED_KEY, serialized)
-    else safeRemoveItem(LIST_COLLAPSED_KEY)
-    notifyApplied('listCollapsed', patch.listCollapsed)
-  }
-  if ('listExpandedGroups' in patch && patch.listExpandedGroups !== undefined) {
-    const expanded = patch.listExpandedGroups.length ? new Set(patch.listExpandedGroups) : NO_EXPANDED
-    const serialized = expanded.size ? writeExpandedGroups(expanded) : ''
-    if (serialized) safeSetItem(LIST_EXPANDED_GROUPS_KEY, serialized)
-    else safeRemoveItem(LIST_EXPANDED_GROUPS_KEY)
-    notifyApplied('listExpandedGroups', patch.listExpandedGroups)
-  }
-  if ('dockHeight' in patch && patch.dockHeight !== undefined) {
-    const height = clampDockHeight(patch.dockHeight)
-    safeSetItem(DOCK_HEIGHT_KEY, String(height))
-    notifyApplied('dockHeight', height)
+  for (const key of SYNCED_SETTING_KEYS) {
+    if (!(key in patch)) continue
+    const next = patch[key]
+    if (next === undefined) continue
+    const applied = await (SETTINGS_SPEC[key].write as (value: unknown) => unknown)(next)
+    notifyApplied(key, applied as SettingsValues[typeof key])
   }
 }
 
@@ -855,7 +1091,7 @@ type ReadOneResult =
   | { kind: 'locked' }
   | { kind: 'error' }
 
-const defaultReadCloud = async (): Promise<CloudReadResult> => {
+const defaultReadCloud = async (options?: { account?: string, skipLegacyVpn?: boolean }): Promise<CloudReadResult> => {
   const readOne = async (path: string): Promise<ReadOneResult> => {
     let text: string | null = null
     try {
@@ -875,42 +1111,35 @@ const defaultReadCloud = async (): Promise<CloudReadResult> => {
   if (raw.kind === 'ok') {
     try {
       const parsed = parseSettingsSync(JSON.parse(raw.text))
-      return parsed ? { kind: 'ok', parsed, migratedFromLegacyVpn: false } : { kind: 'absent' }
+      return parsed ? { kind: 'ok', parsed, migratedFromLegacyVpn: false, legacyChecked: true } : { kind: 'absent', legacyChecked: true }
     } catch {
-      return { kind: 'absent' }
+      return { kind: 'absent', legacyChecked: true }
     }
   }
 
+  if (options?.skipLegacyVpn) {
+    return { kind: 'absent', legacyChecked: true }
+  }
+
   const legacyRaw = await readOne(LEGACY_VPN_SYNC_PATH)
-  if (legacyRaw.kind !== 'ok') return { kind: legacyRaw.kind }
+  if (legacyRaw.kind === 'locked') return { kind: 'locked' }
+  if (legacyRaw.kind === 'error') return { kind: 'error' }
+  if (legacyRaw.kind === 'absent') {
+    return { kind: 'absent', legacyChecked: true }
+  }
   try {
     const legacy = parseLegacyVpnSync(JSON.parse(legacyRaw.text))
-    if (!legacy) return { kind: 'absent' }
+    if (!legacy) {
+      return { kind: 'absent', legacyChecked: true }
+    }
     return {
       kind: 'ok',
       parsed: { entries: { vpn: { value: legacy.on, updatedAt: legacy.updatedAt } }, extra: {} },
       migratedFromLegacyVpn: true,
     }
   } catch {
-    return { kind: 'absent' }
+    return { kind: 'absent', legacyChecked: true }
   }
-}
-
-const migrateLegacyStored = async (): Promise<StoredSettingsSync | undefined> => {
-  const current = await get<StoredSettingsSync>(SETTINGS_SYNC_KEY)
-  if (current) return current
-  const legacy = await get<{ account?: string | null, on?: boolean, updatedAt?: number }>(LEGACY_VPN_SYNC_KEY)
-  if (!legacy || typeof legacy.on !== 'boolean' || !isTimestamp(legacy.updatedAt)) return undefined
-  const migrated: StoredSettingsSync = {
-    account: typeof legacy.account === 'string' ? legacy.account : null,
-    entries: { vpn: { value: legacy.on, updatedAt: legacy.updatedAt } },
-  }
-  let committed: StoredSettingsSync | undefined = migrated
-  await update<StoredSettingsSync | undefined>(SETTINGS_SYNC_KEY, (prev) => {
-    committed = prev ?? migrated
-    return committed
-  })
-  return committed
 }
 
 const defaultWriteStored = async (updater: (prev: StoredSettingsSync | undefined) => StoredSettingsSync | undefined): Promise<void> => {
@@ -942,10 +1171,19 @@ const defaultController = createSettingsSyncController({
   now: () => Date.now(),
 })
 
-/** Records a user-initiated setting update locally and pushes it to `cloud.fs` when signed in. */
+/** Records a user-initiated setting update locally (without touching localStorage/worker) and syncs it to `cloud.fs`. */
 export const recordSetting = <K extends SettingKey>(key: K, value: SettingsValues[K]): Promise<SettingsSyncOutcome> => {
-  if (key === 'rateLimits') optimisticRateLimits = { value: normalizeLimits(value), setAt: Date.now() }
+  if (key === 'rateLimits') pendingWorkerRateLimits = normalizeLimits(value)
   return defaultController.recordChoice(key, value)
+}
+
+/**
+ * Applies a user-initiated setting update to local storage/runtime through {@link SETTINGS_SPEC} and records
+ * it for cloud sync. Synchronous `localStorage` keys flush before the returned Promise resolves.
+ */
+export const setSetting = async <K extends SettingKey>(key: K, value: SettingsValues[K]): Promise<SettingsSyncOutcome> => {
+  const written = await (SETTINGS_SPEC[key] as SettingSpec<K>).write(value)
+  return recordSetting(key, written)
 }
 
 /** Merges a partial session speed limit update with active ceilings and records it for cloud sync. */
@@ -956,15 +1194,20 @@ export const recordRateLimitsPatch = async (
   if (patch.down !== undefined && patch.up !== undefined) {
     return recordSetting('rateLimits', normalizeLimits({ down: patch.down, up: patch.up }))
   }
-  const optimistic = optimisticRateLimits && Date.now() - optimisticRateLimits.setAt <= OPTIMISTIC_TTL_MS
-    ? optimisticRateLimits.value
-    : null
-  let base: RateLimits | null = optimistic ?? (fallback ? normalizeLimits(fallback) : null)
-  if (!base) {
-    const stored = await get<unknown>(RATE_LIMITS_KEY).catch(() => undefined)
-    if (stored !== undefined) base = normalizeLimits(stored)
+  const storedLimits = await get<unknown>(RATE_LIMITS_KEY).catch(() => undefined)
+  const storedSync = await migrateLegacyStored().catch(() => undefined)
+  let base: RateLimits | null = null
+  if (pendingWorkerRateLimits && storedSync?.entries?.rateLimits && SETTINGS_SPEC.rateLimits.equal(storedSync.entries.rateLimits.value, pendingWorkerRateLimits)) {
+    base = pendingWorkerRateLimits
+  } else if (storedLimits !== undefined) {
+    base = normalizeLimits(storedLimits)
+  } else if (storedSync?.entries?.rateLimits) {
+    base = normalizeLimits(storedSync.entries.rateLimits.value)
+  } else if (fallback) {
+    base = normalizeLimits(fallback)
+  } else {
+    base = clientApi.runningTorrentClient?.()?.latestRateLimits() ?? NO_LIMITS
   }
-  if (!base) base = clientApi.runningTorrentClient?.()?.latestRateLimits() ?? NO_LIMITS
   return recordSetting('rateLimits', normalizeLimits({
     down: patch.down ?? base.down,
     up: patch.up ?? base.up,
@@ -975,7 +1218,9 @@ export const recordRateLimitsPatch = async (
 export const syncSettings = (): Promise<SettingsSyncOutcome> => defaultController.sync()
 
 /** Keeps every Ripple partition (top-level or embedded) synced with the signed-in account's settings. */
-export const useSettingsCloudSync = (): void => {
+export const useSettingsCloudSync = (): PendingVpnOff | null => {
+  const [pendingVpnOff, setPendingVpnOff] = useState<PendingVpnOff | null>(null)
+
   useEffect(() => {
     let cancelled = false
     let lastCheckAt = 0
@@ -984,6 +1229,9 @@ export const useSettingsCloudSync = (): void => {
     let retryPending = false
     let retryTimer: number | undefined
     let offAccount: (() => void) | undefined
+    const offPending = defaultController.onPendingVpnOff((pending) => {
+      if (!cancelled) setPendingVpnOff(pending)
+    })
 
     const trigger = (force = false) => {
       if (cancelled) return
@@ -1033,7 +1281,7 @@ export const useSettingsCloudSync = (): void => {
     account.onChange((change?: { switched?: boolean }) => {
       if (cancelled) return
       if (change?.switched) {
-        optimisticRateLimits = null
+        pendingWorkerRateLimits = null
         defaultController.noteAccountSwitch()
       }
       trigger(true)
@@ -1057,9 +1305,13 @@ export const useSettingsCloudSync = (): void => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('online', onOnline)
+      offPending()
       offAccount?.()
     }
   }, [])
+
+  return pendingVpnOff
 }
 
-export const SettingsCloudSync = () => { useSettingsCloudSync(); return null }
+export const confirmPendingVpnOff = (): Promise<void> => defaultController.confirmPendingVpnOff()
+export const declinePendingVpnOff = (): Promise<void> => defaultController.declinePendingVpnOff()

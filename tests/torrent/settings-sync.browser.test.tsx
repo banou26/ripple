@@ -8,6 +8,7 @@ const cloudState = vi.hoisted(() => ({
   available: true,
   account: 'alice' as string | null,
   files: new Map<string, string>(),
+  reads: [] as string[],
   accountListeners: new Set<(change: { switched: boolean }) => void>(),
   unlockCalls: 0,
 }))
@@ -32,6 +33,7 @@ vi.mock('@fkn/lib', () => ({
       isNotFound: (err: unknown) => (err as { code?: string } | null)?.code === 'FKN_STORAGE_NOT_FOUND',
       promises: {
         readFile: async (path: string) => {
+          cloudState.reads.push(path)
           const hit = cloudState.files.get(path)
           if (hit === undefined) throw Object.assign(new Error('Not found'), { code: 'FKN_STORAGE_NOT_FOUND' })
           return hit
@@ -67,8 +69,9 @@ const { accountTag } = await import('../../src/torrent/groups')
 const { RATE_LIMITS_KEY } = await import('../../src/torrent/rate-limits')
 const { SEEDING_POLICY_KEY } = await import('../../src/torrent/seeding-policy')
 const {
-  LEGACY_VPN_SYNC_KEY, LEGACY_VPN_SYNC_PATH, SETTINGS_SYNC_KEY, SETTINGS_SYNC_PATH, SettingsCloudSync, syncSettings,
+  LEGACY_VPN_SYNC_KEY, LEGACY_VPN_SYNC_PATH, SETTINGS_SYNC_KEY, SETTINGS_SYNC_PATH, syncSettings,
 } = await import('../../src/torrent/settings-sync')
+const { SettingsCloudSync } = await import('../../src/components/settings-cloud-sync')
 
 const REACHABLE_ON: Reachability = {
   listening: { tcp: '0.0.0.0:41337' },
@@ -106,6 +109,7 @@ beforeEach(async () => {
   cloudState.available = true
   cloudState.account = 'alice'
   cloudState.files.clear()
+  cloudState.reads.length = 0
   cloudState.accountListeners.clear()
   cloudState.unlockCalls = 0
   clientMocks.setVpn.mockReset().mockImplementation(async (on: boolean) => { storeVpn(on) })
@@ -181,16 +185,19 @@ describe('SettingsCloudSync', () => {
     }
   })
 
-  it('migrates legacy ripple/vpn.json into ripple/settings.json when settings.json does not exist yet', async () => {
+  it('migrates legacy ripple/vpn.json into ripple/settings.json and prompts before turning local VPN off', async () => {
     cloudState.files.set(LEGACY_VPN_SYNC_PATH, JSON.stringify({ on: false, updatedAt: 123_456 }))
     const screen = await render(<Harness/>)
     const sw = screen.getByRole('switch')
-    await expect.element(sw).toHaveAttribute('aria-checked', 'false')
     await vi.waitFor(() => {
       const migrated = cloudState.files.get(SETTINGS_SYNC_PATH)
       expect(migrated).toBeTruthy()
       expect(JSON.parse(migrated!).vpn).toEqual({ value: false, updatedAt: 123_456 })
     }, { timeout: 2_000 })
+    await expect.element(sw).toHaveAttribute('aria-checked', 'true')
+    await expect.element(screen.getByText('Your synced settings have the VPN turned off.')).toBeInTheDocument()
+    await screen.getByRole('button', { name: 'Turn off' }).click()
+    await expect.element(sw).toHaveAttribute('aria-checked', 'false')
   })
 
   it('keeps local state untouched when signed out', async () => {
@@ -218,12 +225,42 @@ describe('SettingsCloudSync', () => {
     const outcome = await syncSettings()
     expect(outcome).toBe('synced')
 
-    const migrated = await get<{ account: string | null, entries: { vpn?: { value: boolean, updatedAt: number } } }>(SETTINGS_SYNC_KEY)
+    const migrated = await get<{ account: string | null, entries: { vpn?: { value: boolean, updatedAt: number } }, legacyVpnChecked?: boolean }>(SETTINGS_SYNC_KEY)
     expect(migrated).toEqual({
       account: tag,
       entries: { vpn: { value: false, updatedAt: 456_789 } },
+      legacyVpnChecked: true,
     })
     const uploaded = JSON.parse(cloudState.files.get(SETTINGS_SYNC_PATH)!)
     expect(uploaded.vpn).toEqual({ value: false, updatedAt: 456_789 })
+  })
+
+  it('asks confirmation before applying remote vpn=false and stops re-reading absent legacy vpn.json', async () => {
+    await syncSettings()
+    await syncSettings()
+    expect(cloudState.reads.filter((p) => p === LEGACY_VPN_SYNC_PATH)).toHaveLength(1)
+
+    cloudState.files.set(SETTINGS_SYNC_PATH, JSON.stringify({
+      vpn: { value: false, updatedAt: 2_000_000_000_000 },
+    }))
+    const screen = await render(<Harness/>)
+    const sw = screen.getByRole('switch')
+    await expect.element(screen.getByText('Your synced settings have the VPN turned off.')).toBeInTheDocument()
+    await expect.element(sw).toHaveAttribute('aria-checked', 'true')
+
+    await screen.getByRole('button', { name: 'Cancel' }).click()
+    await expect.element(sw).toHaveAttribute('aria-checked', 'true')
+    // Re-syncing the same declined timestamp does not re-open the prompt
+    await syncSettings()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    // A newer remote vpn=false timestamp prompts again, and confirming turns local VPN off
+    cloudState.files.set(SETTINGS_SYNC_PATH, JSON.stringify({
+      vpn: { value: false, updatedAt: 2_000_000_005_000 },
+    }))
+    await syncSettings()
+    await expect.element(screen.getByText('Your synced settings have the VPN turned off.')).toBeInTheDocument()
+    await screen.getByRole('button', { name: 'Turn off' }).click()
+    await expect.element(sw).toHaveAttribute('aria-checked', 'false')
   })
 })
