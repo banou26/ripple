@@ -2268,6 +2268,7 @@ const MissingRow = ({
   dragKey, parentGroupId, dropPlace, isDragging, dragActions,
 }: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick' | 'dragKey' | 'parentGroupId' | 'dropPlace' | 'isDragging' | 'dragActions'> & { poster: string | null }) => {
   const intl = useIntl()
+  const openOptions = (at: MenuPosition | null) => (parentGroupId ? onOptions(t, at, parentGroupId) : onOptions(t, at))
   const payload: DragPayload | null = t.infoHash
     ? (parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` })
     : null
@@ -2287,7 +2288,7 @@ const MissingRow = ({
         if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
         // no onSelect: see the live row's handler for why the right button leaves the dock alone
-        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
+        openOptions({ x: e.clientX, y: e.clientY })
       }}
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
@@ -2333,7 +2334,7 @@ const MissingRow = ({
                 aria-haspopup="dialog"
                 aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
                 {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-                onClick={() => onOptions(t, null, parentGroupId)}
+                onClick={() => openOptions(null)}
               >
                 <Ellipsis size={16} aria-hidden="true"/>
               </button>
@@ -2401,6 +2402,7 @@ export const TorrentRow = memo(({
   dragKey, parentGroupId, dropPlace, isDragging, dragActions,
 }: RowProps) => {
   const intl = useIntl()
+  const openOptions = (at: MenuPosition | null) => (parentGroupId ? onOptions(t, at, parentGroupId) : onOptions(t, at))
   /**
    * Before the missing branch, not after it.
    *
@@ -2477,7 +2479,7 @@ export const TorrentRow = memo(({
          * `selectedId`), it opens at the pointer on the row it belongs to, and it names that torrent
          * in its own label, so there is no ambiguity left for a selection to resolve.
          */
-        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
+        openOptions({ x: e.clientX, y: e.clientY })
       }}
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
@@ -2495,7 +2497,7 @@ export const TorrentRow = memo(({
               {t.ephemeral === true && (
                 <button
                   type="button" className="temp"
-                  onClick={() => onOptions(t, null, parentGroupId)}
+                  onClick={() => openOptions(null)}
                   aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
                   {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
                 >
@@ -2609,7 +2611,7 @@ export const TorrentRow = memo(({
                 aria-haspopup="dialog"
                 aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
                 {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-                onClick={() => onOptions(t, null, parentGroupId)}
+                onClick={() => openOptions(null)}
               >
                 <Ellipsis size={16} aria-hidden="true"/>
               </button>

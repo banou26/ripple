@@ -92,7 +92,7 @@ const handlers = () => ({
  * it renders correctly and reports every box at the origin with zero size, which makes a geometry
  * assertion pass or fail on nothing at all.
  */
-const inPage = async (t: Torrent, extra: Partial<Torrent> = {}, over: Partial<ReturnType<typeof handlers>> & { transport?: 'relay' | 'direct' } = {}) => {
+const inPage = async (t: Torrent, extra: Partial<Torrent> = {}, over: Partial<ReturnType<typeof handlers>> & { transport?: 'relay' | 'direct', parentGroupId?: string } = {}) => {
   const { TorrentRow, style } = await import('../../src/router/home')
   const props = { ...handlers(), ...over }
   const screen = await render(
@@ -294,6 +294,20 @@ describe('a library row', () => {
     expect(props.onOptions).toHaveBeenCalledTimes(2)
     // null means the dialog, which is not anchored to anything
     expect(props.onOptions.mock.calls[1]![1]).toBeNull()
+  })
+
+  it('passes parentGroupId only when rendered inside a group', async () => {
+    thumbnail.current = null
+    const tLoose = torrent({ name: 'Loose.Item' })
+    const loose = await inPage(tLoose)
+    await loose.screen.getByRole('button', { name: `Options for ${tLoose.name}` }).click()
+    expect(loose.props.onOptions).toHaveBeenCalledWith(tLoose, null)
+    await loose.screen.unmount()
+
+    const tGrouped = torrent({ name: 'Grouped.Item' })
+    const grouped = await inPage(tGrouped, {}, { parentGroupId: 'g1' })
+    await grouped.screen.getByRole('button', { name: `Options for ${tGrouped.name}` }).click()
+    expect(grouped.props.onOptions).toHaveBeenCalledWith(tGrouped, null, 'g1')
   })
 
   /**

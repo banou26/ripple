@@ -397,22 +397,24 @@ export const TorrentTable = ({
       dropPlace: dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined,
     })
 
-  const renderTorrentRow = (t: Torrent, key: string, dragKey: string, dragPayload: DragPayload | null, parentGroupId?: string) => (
-    <tr
-      key={key}
-      className={parentGroupId ? 'group-child' : undefined}
-      data-state={t.state}
-      data-selected={t.id === selectedId || undefined}
-      data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-      {...dragPropsFor(dragKey, dragPayload, !parentGroupId && !!t.infoHash)}
-      {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
-      onContextMenu={(e) => {
-        if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
-        if (e.shiftKey || e.ctrlKey) return
-        e.preventDefault()
-        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
-      }}
-    >
+  const renderTorrentRow = (t: Torrent, key: string, dragKey: string, dragPayload: DragPayload | null, parentGroupId?: string) => {
+    const openOptions = (at: MenuPosition | null) => (parentGroupId ? onOptions(t, at, parentGroupId) : onOptions(t, at))
+    return (
+      <tr
+        key={key}
+        className={parentGroupId ? 'group-child' : undefined}
+        data-state={t.state}
+        data-selected={t.id === selectedId || undefined}
+        data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
+        {...dragPropsFor(dragKey, dragPayload, !parentGroupId && !!t.infoHash)}
+        {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
+        onContextMenu={(e) => {
+          if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
+          if (e.shiftKey || e.ctrlKey) return
+          e.preventDefault()
+          openOptions({ x: e.clientX, y: e.clientY })
+        }}
+      >
       <td className="check">
         {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
       </td>
@@ -460,13 +462,14 @@ export const TorrentTable = ({
           aria-haspopup="dialog"
           aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
           {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-          onClick={(e) => { e.stopPropagation(); onOptions(t, null, parentGroupId) }}
+          onClick={(e) => { e.stopPropagation(); openOptions(null) }}
         >
           <Ellipsis size={16} aria-hidden="true"/>
         </button>
       </td>
     </tr>
-  )
+    )
+  }
 
   return <table css={style} className="torrent-table">
     <thead>
