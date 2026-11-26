@@ -206,6 +206,7 @@
   "Limit upload rate...": "アップロード速度を制限...",
   "Link copied": "リンクをコピーしました",
   "Links hold up to {max} torrents": "リンクに入れられる Torrent は{max}件までです",
+  "List order": "リストの順序",
   "Loading metadata…": "メタデータを読み込んでいます…",
   "Loading the file list...": "ファイル一覧を読み込んでいます...",
   "Loading torrent…": "Torrent を読み込んでいます…",

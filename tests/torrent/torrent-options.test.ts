@@ -877,4 +877,21 @@ describe('in the language of the page', () => {
     expect(english.filter((text, i) => german[i] === text)).toEqual([])
     expect(german).toContain('Position 3 in der Warteschlange')
   })
+
+  it('includes Custom list-order Move up and Move down actions only when supplied', () => {
+    expect(find(torrent(), 'list-move-up')).toBeUndefined()
+    expect(find(torrent(), 'list-move-down')).toBeUndefined()
+
+    const moveUp = vi.fn()
+    const moveDown = vi.fn()
+    const a = { ...actions(), moveUp, moveDown }
+    const up = find(torrent(), 'list-move-up', a)
+    const down = find(torrent(), 'list-move-down', a)
+    expect(up?.kind).toBe('action')
+    expect(down?.kind).toBe('action')
+    if (up?.kind === 'action') up.run()
+    if (down?.kind === 'action') down.run()
+    expect(moveUp).toHaveBeenCalledTimes(1)
+    expect(moveDown).toHaveBeenCalledTimes(1)
+  })
 })

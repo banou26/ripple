@@ -206,6 +206,7 @@
   "Limit upload rate...": "限制上傳速度...",
   "Link copied": "已複製連結",
   "Links hold up to {max} torrents": "一個連結最多包含{max}個 torrent",
+  "List order": "列表順序",
   "Loading metadata…": "正在載入中繼資料…",
   "Loading the file list...": "正在載入檔案清單...",
   "Loading torrent…": "正在載入 torrent…",

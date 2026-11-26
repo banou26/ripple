@@ -74,8 +74,9 @@ export const useOrderedEntries = (
     || fresh.some((e) => {
       if (e.kind !== 'group') return false
       const prevM = heldMembers.current.get(e.group.id)
-      const nowM = e.summary.members.map((m) => m.infoHash ?? m.id)
-      return !prevM || prevM.length !== nowM.length || nowM.some((id) => !prevM.includes(id))
+      if (!prevM || prevM.length !== e.summary.members.length) return true
+      const prevSet = new Set(prevM)
+      return e.summary.members.some((m) => !prevSet.has(m.infoHash ?? m.id))
     })
 
   const touching = interacting.current
@@ -113,8 +114,9 @@ export const useOrderedEntries = (
       const m = byId.get(id)
       return m ? [m] : []
     })
+    const orderedSet = new Set(orderedMembers)
     for (const m of entry.summary.members) {
-      if (!orderedMembers.includes(m)) orderedMembers.push(m)
+      if (!orderedSet.has(m)) orderedMembers.push(m)
     }
     entries.push({ ...entry, summary: { ...entry.summary, members: orderedMembers } })
   }

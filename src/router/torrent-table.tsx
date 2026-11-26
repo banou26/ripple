@@ -1,4 +1,3 @@
-import type { DragEvent as ReactDragEvent } from 'react'
 import type { IntlShape, MessageDescriptor } from 'react-intl'
 
 import type { GroupIcon } from '../torrent/group-appearance'
@@ -8,7 +7,7 @@ import type { Torrent } from '../torrent/types'
 import type { ExpandedGroups, SortDir, SortKey } from '../torrent/list-view'
 import type { EngineTransport } from '../torrent/vpn-config'
 import type { MenuPosition } from '../components/menu'
-import type { DragPayload, DropIndicator } from './list-drag'
+import { rowDragAttrs, type DragPayload, type DropIndicator, type RowDragActions } from './list-drag'
 import type { Picked } from './bulk-selection'
 
 import { css } from '@emotion/react'
@@ -120,6 +119,7 @@ const style = css`
     }
 
     &[data-dragging='true'] { opacity: 0.55; }
+    &:focus-visible { outline: none; box-shadow: inset 0 0 0 2px ${FOCUS_RING}; }
     &[data-drop='before'] td { box-shadow: inset 0 2px 0 0 ${FOCUS_RING}; }
     &[data-drop='after'] td { box-shadow: inset 0 -2px 0 0 ${FOCUS_RING}; }
     &[data-drop='into'] {
@@ -352,7 +352,7 @@ export type TorrentTableProps = {
   onSort: (key: SortKey, dir: SortDir) => void
   selectedId: string | null
   onSelect: (t: Torrent) => void
-  onOptions: (t: Torrent, at: MenuPosition | null) => void
+  onOptions: (t: Torrent, at: MenuPosition | null, parentGroupId?: string) => void
   /** The ticked rows, by info hash, which are not the one row the dock shows. */
   picked: Picked
   /** Ticks or unticks `t`, or with `shift` the run from the box clicked before, and ignores a row that cannot be ticked. */
@@ -361,11 +361,7 @@ export type TorrentTableProps = {
   transport?: EngineTransport | null
   draggingKey?: string | null
   dropIndicator?: DropIndicator
-  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
-  onRowDragEnd?: () => void
-  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
-  onRowDragLeave?: (targetKey: string) => void
-  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  dragActions?: RowDragActions
 }
 
 export const TorrentTable = ({
@@ -386,40 +382,36 @@ export const TorrentTable = ({
   transport,
   draggingKey,
   dropIndicator,
-  onRowDragStart,
-  onRowDragEnd,
-  onRowDragOver,
-  onRowDragLeave,
-  onRowDrop,
+  dragActions,
 }: TorrentTableProps) => {
   const intl = useIntl()
   const rows: readonly LibraryEntry[] = entries ?? (torrents ?? []).map((t) => ({ kind: 'torrent', key: `t:${t.id}`, torrent: t }))
 
-  const dragPropsFor = (dragKey: string, payload: DragPayload | null, allowInto: boolean) => (
-    onRowDragStart
-      ? {
-        draggable: payload !== null,
-        onDragStart: payload ? (e: ReactDragEvent) => onRowDragStart(payload, dragKey, e) : undefined,
-        onDragEnd: onRowDragEnd,
-        onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
-        onDragLeave: () => onRowDragLeave?.(dragKey),
-        onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
-        'data-dragging': draggingKey === dragKey || undefined,
-        'data-drop': dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined,
-      }
-      : {}
-  )
+  const dragPropsFor = (dragKey: string, payload: DragPayload | null, allowInto: boolean) =>
+    rowDragAttrs({
+      dragActions,
+      dragKey,
+      payload,
+      allowInto,
+      isDragging: draggingKey === dragKey,
+      dropPlace: dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined,
+    })
 
-  const renderTorrentRow = (t: Torrent, key: string, dragKey: string, dragPayload: DragPayload | null, child = false) => (
+  const renderTorrentRow = (t: Torrent, key: string, dragKey: string, dragPayload: DragPayload | null, parentGroupId?: string) => (
     <tr
       key={key}
-      className={child ? 'group-child' : undefined}
+      className={parentGroupId ? 'group-child' : undefined}
       data-state={t.state}
       data-selected={t.id === selectedId || undefined}
       data-picked={(pickable(t) && picked.has(t.infoHash)) || undefined}
-      {...dragPropsFor(dragKey, dragPayload, !child && !!t.infoHash)}
+      {...dragPropsFor(dragKey, dragPayload, !parentGroupId && !!t.infoHash)}
       {...rowClicks((shift) => onPick(t, shift), () => onSelect(t))}
-      onContextMenu={(e) => { e.preventDefault(); onOptions(t, { x: e.clientX, y: e.clientY }) }}
+      onContextMenu={(e) => {
+        if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
+        if (e.shiftKey || e.ctrlKey) return
+        e.preventDefault()
+        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
+      }}
     >
       <td className="check">
         {pickable(t) && <RowCheck name={t.name} checked={picked.has(t.infoHash)} onChange={(shift) => onPick(t, shift)}/>}
@@ -461,14 +453,14 @@ export const TorrentTable = ({
       <td className={'c-up num' + (t.up > 0 ? ' live' : '')}>{t.up > 0 ? speed(t.up) : UNKNOWN}</td>
       <td className="c-peers num">{t.state === 'missing' ? UNKNOWN : t.peers}</td>
       <td className="c-added num">{relativeDay(t.addedAt)}</td>
-      <td className="more">
+        <td className="more">
         <button
           type="button"
           className="more"
           aria-haspopup="dialog"
           aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
           {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-          onClick={(e) => { e.stopPropagation(); onOptions(t, null) }}
+          onClick={(e) => { e.stopPropagation(); onOptions(t, null, parentGroupId) }}
         >
           <Ellipsis size={16} aria-hidden="true"/>
         </button>
@@ -533,6 +525,7 @@ export const TorrentTable = ({
               onToggleExpand?.(group.id)
             }}
             onContextMenu={(e) => {
+              if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
               if (e.shiftKey || e.ctrlKey) return
               e.preventDefault()
               onGroupOptions?.(group, { x: e.clientX, y: e.clientY })
@@ -594,7 +587,7 @@ export const TorrentTable = ({
               `group:${group.id}:${m.id}`,
               `child:${group.id}:${m.infoHash ?? m.id}`,
               m.infoHash ? { kind: 'member', groupId: group.id, infoHash: m.infoHash } : null,
-              true,
+              group.id,
             ))
             : []),
         ]

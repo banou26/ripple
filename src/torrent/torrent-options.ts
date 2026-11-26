@@ -166,6 +166,10 @@ export interface TorrentOptionActions {
   setInGroup: (id: string, on: boolean) => void
   /** Ask for a name, and make a group of this torrent. */
   newGroup: () => void
+  /** Move one step earlier in custom list order (present only when movable). */
+  moveUp?: () => void
+  /** Move one step later in custom list order (present only when movable). */
+  moveDown?: () => void
 }
 
 const has = (t: Torrent, flag: number) => (t.flags & flag) !== 0
@@ -623,6 +627,16 @@ export const buildTorrentOptions = (
       items: [
         ...context.groups.map((g): OptionItem => ({ kind: 'toggle', id: `group-${g.id}`, label: g.name, typed: true, checked: g.holds, apply: (on) => a.setInGroup(g.id, on) })),
         { kind: 'action', id: 'new-group', label: intl.formatMessage({ id: 'New group...', defaultMessage: 'New group...' }), run: a.newGroup },
+      ],
+    })
+  }
+  if (a.moveUp || a.moveDown) {
+    groups.push({
+      id: 'list-order',
+      label: intl.formatMessage({ id: 'List order', defaultMessage: 'List order' }),
+      items: [
+        ...(a.moveUp ? [{ kind: 'action' as const, id: 'list-move-up', label: intl.formatMessage({ id: 'Move up', defaultMessage: 'Move up' }), run: a.moveUp }] : []),
+        ...(a.moveDown ? [{ kind: 'action' as const, id: 'list-move-down', label: intl.formatMessage({ id: 'Move down', defaultMessage: 'Move down' }), run: a.moveDown }] : []),
       ],
     })
   }

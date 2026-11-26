@@ -206,6 +206,7 @@
   "Limit upload rate...": "Begränsa sändningshastigheten...",
   "Link copied": "Länken kopierad",
   "Links hold up to {max} torrents": "En länk rymmer högst {max} torrenter",
+  "List order": "Listordning",
   "Loading metadata…": "Läser in metadata…",
   "Loading the file list...": "Läser in fillistan...",
   "Loading torrent…": "Läser in torrenten…",

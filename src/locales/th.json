@@ -206,6 +206,7 @@
   "Limit upload rate...": "จำกัดความเร็วอัปโหลด...",
   "Link copied": "คัดลอกลิงก์แล้ว",
   "Links hold up to {max} torrents": "ลิงก์หนึ่งรายการมีทอร์เรนต์ได้สูงสุด {max} รายการ",
+  "List order": "ลำดับรายการ",
   "Loading metadata…": "กำลังโหลดข้อมูลเมตา…",
   "Loading the file list...": "กำลังโหลดรายการไฟล์...",
   "Loading torrent…": "กำลังโหลดทอร์เรนต์…",

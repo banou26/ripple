@@ -2,7 +2,7 @@ import type { Torrent } from '../torrent/types'
 
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { Link, matchPath, useNavigate, useSearchParams } from 'react-router-dom'
@@ -87,7 +87,10 @@ import { badgeRules, stateHues } from './badge-style'
 import { STATE_LABEL, chosenBytes, retryLine, speed, withWhole } from './torrent-format'
 import { TorrentTable } from './torrent-table'
 import { useOrderedEntries } from './use-ordered-entries'
-import { canDropInto, computeDropPlace, decodeDrag, encodeDrag, ROW_DRAG_MIME, type DragPayload, type DropIndicator, type DropPlace } from './list-drag'
+import {
+  buildNewGroupTopOrder, canDropInto, computeDropPlace, decodeDrag, encodeDrag, moveEntryByStep,
+  resolveDrop, ROW_DRAG_MIME, rowDragAttrs, type DragPayload, type DropIndicator, type DropPlace, type RowDragActions,
+} from './list-drag'
 import { ListToolbar } from '../components/list-toolbar'
 import { BulkBar, RowCheck, pickedRowStyle, rowClicks } from '../components/bulk-actions'
 import { GroupPoster } from '../components/group-icon'
@@ -99,8 +102,8 @@ import type { LinkedGroup } from './group-link'
 import { createGroup, deleteGroup, putInGroup, renameGroup, takeOutOfGroup, torrentsIn } from '../torrent/groups'
 import type { TorrentGroup } from '../torrent/groups'
 import { DEFAULT_ICON, type GroupIcon, clearGroupAppearance, saveGroupImage, setGroupIcon, useGroupAppearance } from '../torrent/group-appearance'
-import { reorderKeys, saveGroupMemberOrder, saveTopOrder, useListOrder } from '../torrent/list-order'
-import { cardEntryGroups, groupMemberKeys, summarizeGroup, visibleEntryTorrents, visibleTopKeys, type GroupEntry, type GroupSummary } from '../torrent/group-rows'
+import { removeFromListOrder, saveGroupMemberOrder, saveTopOrder, useListOrder } from '../torrent/list-order'
+import { cardEntryGroups, summarizeGroup, visibleEntryTorrents, type GroupEntry, type GroupSummary } from '../torrent/group-rows'
 import {
   GROUP_LABEL, LIST_GROUPS, NO_COLLAPSED, TEMPORARY_HINT,
   filterCounts, readCollapsed, readFilter, readSort, readView, reclaimable, toggleCollapsed,
@@ -1005,6 +1008,7 @@ export const style = css`
   }
 
   .torrent[data-dragging='true'], .group-row[data-dragging='true'] { opacity: 0.55; }
+  .torrent[tabindex]:focus-visible, .group-row[tabindex]:focus-visible { outline: 2px solid ${FOCUS_RING}; outline-offset: -2px; }
   .torrent[data-drop='before'], .group-row[data-drop='before'] { box-shadow: 0 -2px 0 0 ${FOCUS_RING}; }
   .torrent[data-drop='after'], .group-row[data-drop='after'] { box-shadow: 0 2px 0 0 ${FOCUS_RING}; }
   .torrent[data-drop='into'], .group-row[data-drop='into'] { border-color: ${FOCUS_RING}; box-shadow: 0 0 0 2px ${FOCUS_RING}; }
@@ -2196,7 +2200,7 @@ type RowProps = {
   onSaveZip: (t: Torrent) => void
   onStart: (t: Torrent) => void
   /** `at` opens the menu at a point; null opens the options dialog instead. */
-  onOptions: (t: Torrent, at: MenuPosition | null) => void
+  onOptions: (t: Torrent, at: MenuPosition | null, parentGroupId?: string) => void
   selected: boolean
   /** Selects, and only selects. Deselecting is the dock's own gesture, not a second click here. */
   onSelect: (t: Torrent) => void
@@ -2214,11 +2218,7 @@ type RowProps = {
   parentGroupId?: string
   dropPlace?: DropPlace
   isDragging?: boolean
-  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
-  onRowDragEnd?: () => void
-  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
-  onRowDragLeave?: (targetKey: string) => void
-  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  dragActions?: RowDragActions
 }
 
 /** A torrent's name with a break chance after each dot, underscore and dash, so a release name wraps between its parts. */
@@ -2265,25 +2265,13 @@ const StartingRow = ({ t, poster }: { t: Torrent, poster: string | null }) => {
 
 const MissingRow = ({
   t, poster, onStart, onOptions, selected, onSelect, checked, onPick,
-  dragKey, parentGroupId, dropPlace, isDragging,
-  onRowDragStart, onRowDragEnd, onRowDragOver, onRowDragLeave, onRowDrop,
-}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick' | 'dragKey' | 'parentGroupId' | 'dropPlace' | 'isDragging' | 'onRowDragStart' | 'onRowDragEnd' | 'onRowDragOver' | 'onRowDragLeave' | 'onRowDrop'> & { poster: string | null }) => {
+  dragKey, parentGroupId, dropPlace, isDragging, dragActions,
+}: Pick<RowProps, 't' | 'onStart' | 'onOptions' | 'selected' | 'onSelect' | 'checked' | 'onPick' | 'dragKey' | 'parentGroupId' | 'dropPlace' | 'isDragging' | 'dragActions'> & { poster: string | null }) => {
   const intl = useIntl()
-  const allowInto = !parentGroupId && !!t.infoHash
-  const dragProps = dragKey && onRowDragStart
-    ? {
-      draggable: !!t.infoHash,
-      'data-dragging': isDragging || undefined,
-      'data-drop': dropPlace || undefined,
-      onDragStart: (e: ReactDragEvent) => {
-        if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
-      },
-      onDragEnd: onRowDragEnd,
-      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
-      onDragLeave: () => onRowDragLeave?.(dragKey),
-      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
-    }
-    : {}
+  const payload: DragPayload | null = t.infoHash
+    ? (parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` })
+    : null
+  const dragProps = rowDragAttrs({ dragActions, dragKey, payload, allowInto: !parentGroupId && !!t.infoHash, isDragging, dropPlace })
   return (
     <div
       className={'torrent surface missing' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
@@ -2295,10 +2283,11 @@ const MissingRow = ({
         onSelect(t)
       })}
       onContextMenu={(e) => {
+        if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
         if (e.shiftKey || e.ctrlKey) return
         e.preventDefault()
         // no onSelect: see the live row's handler for why the right button leaves the dock alone
-        onOptions(t, { x: e.clientX, y: e.clientY })
+        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
       }}
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
@@ -2344,7 +2333,7 @@ const MissingRow = ({
                 aria-haspopup="dialog"
                 aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
                 {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-                onClick={() => onOptions(t, null)}
+                onClick={() => onOptions(t, null, parentGroupId)}
               >
                 <Ellipsis size={16} aria-hidden="true"/>
               </button>
@@ -2409,8 +2398,7 @@ const same = (a: unknown, b: unknown): boolean => {
 export const TorrentRow = memo(({
   t, saving, onToggle, onSave, onSaveZip, onStart, onOptions, selected, onSelect, checked, onPick,
   savedToUserStorage, rates, transport,
-  dragKey, parentGroupId, dropPlace, isDragging,
-  onRowDragStart, onRowDragEnd, onRowDragOver, onRowDragLeave, onRowDrop,
+  dragKey, parentGroupId, dropPlace, isDragging, dragActions,
 }: RowProps) => {
   const intl = useIntl()
   /**
@@ -2431,8 +2419,7 @@ export const TorrentRow = memo(({
         onOptions={onOptions} selected={selected} onSelect={onSelect}
         checked={checked} onPick={onPick}
         dragKey={dragKey} parentGroupId={parentGroupId} dropPlace={dropPlace} isDragging={isDragging}
-        onRowDragStart={onRowDragStart} onRowDragEnd={onRowDragEnd} onRowDragOver={onRowDragOver}
-        onRowDragLeave={onRowDragLeave} onRowDrop={onRowDrop}
+        dragActions={dragActions}
       />
     )
   }
@@ -2450,21 +2437,10 @@ export const TorrentRow = memo(({
     const s = saving[savingKey(t.id, i)]
     if (s != null) fileSaving[i] = s
   })
-  const allowInto = !parentGroupId && !!t.infoHash
-  const dragProps = dragKey && onRowDragStart
-    ? {
-      draggable: !!t.infoHash,
-      'data-dragging': isDragging || undefined,
-      'data-drop': dropPlace || undefined,
-      onDragStart: (e: ReactDragEvent) => {
-        if (t.infoHash) onRowDragStart(parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` }, dragKey, e)
-      },
-      onDragEnd: onRowDragEnd,
-      onDragOver: (e: ReactDragEvent) => onRowDragOver?.(dragKey, allowInto, e),
-      onDragLeave: () => onRowDragLeave?.(dragKey),
-      onDrop: (e: ReactDragEvent) => onRowDrop?.(dragKey, allowInto, e),
-    }
-    : {}
+  const payload: DragPayload | null = t.infoHash
+    ? (parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` })
+    : null
+  const dragProps = rowDragAttrs({ dragActions, dragKey, payload, allowInto: !parentGroupId && !!t.infoHash, isDragging, dropPlace })
   return (
     <div
       className={'torrent surface' + (selected ? ' selected' : '') + (checked ? ' picked' : '')}
@@ -2481,6 +2457,7 @@ export const TorrentRow = memo(({
         onSelect(t)
       })}
       onContextMenu={(e) => {
+        if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
         // The detail panel keeps the browser's own menu: its peer addresses, tracker URLs and info
         // hash are there to be copied, and replacing Copy with a torrent menu would take away the
         // only reason to select that text.
@@ -2500,7 +2477,7 @@ export const TorrentRow = memo(({
          * `selectedId`), it opens at the pointer on the row it belongs to, and it names that torrent
          * in its own label, so there is no ambiguity left for a selection to resolve.
          */
-        onOptions(t, { x: e.clientX, y: e.clientY })
+        onOptions(t, { x: e.clientX, y: e.clientY }, parentGroupId)
       }}
     >
       {pickable(t) && <RowCheck name={t.name} checked={checked} onChange={(shift) => onPick(t, shift)} overPicture/>}
@@ -2518,7 +2495,7 @@ export const TorrentRow = memo(({
               {t.ephemeral === true && (
                 <button
                   type="button" className="temp"
-                  onClick={() => onOptions(t, null)}
+                  onClick={() => onOptions(t, null, parentGroupId)}
                   aria-label={intl.formatMessage({ id: 'Temporary download: options for {name}', defaultMessage: 'Temporary download: options for {name}' }, { name: t.name })}
                   {...hint(reclaimable(t) ? intl.formatMessage(TEMPORARY_HINT) : null)}
                 >
@@ -2632,7 +2609,7 @@ export const TorrentRow = memo(({
                 aria-haspopup="dialog"
                 aria-label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: t.name })}
                 {...hint(intl.formatMessage({ id: 'Options', defaultMessage: 'Options' }))}
-                onClick={() => onOptions(t, null)}
+                onClick={() => onOptions(t, null, parentGroupId)}
               >
                 <Ellipsis size={16} aria-hidden="true"/>
               </button>
@@ -2655,11 +2632,7 @@ const GroupRow = ({
   onOptions,
   dropPlace,
   isDragging,
-  onRowDragStart,
-  onRowDragEnd,
-  onRowDragOver,
-  onRowDragLeave,
-  onRowDrop,
+  dragActions,
   children,
 }: {
   group: TorrentGroup
@@ -2671,37 +2644,28 @@ const GroupRow = ({
   onOptions: (group: TorrentGroup, at: MenuPosition | null) => void
   dropPlace?: DropPlace
   isDragging?: boolean
-  onRowDragStart?: (payload: DragPayload, dragKey: string, e: ReactDragEvent) => void
-  onRowDragEnd?: () => void
-  onRowDragOver?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
-  onRowDragLeave?: (targetKey: string) => void
-  onRowDrop?: (targetKey: string, allowInto: boolean, e: ReactDragEvent) => void
+  dragActions?: RowDragActions
   children?: ReactNode
 }) => {
   const intl = useIntl()
   const entryKey = `g:${group.id}` as const
   const active = summary.state !== 'missing' && summary.state !== 'starting'
   const showBar = summary.count > 0 && (summary.progress < 1 || summary.state === 'checking')
+  const dragProps = rowDragAttrs({ dragActions, dragKey: entryKey, payload: { kind: 'top', key: entryKey }, allowInto: true, isDragging, dropPlace })
   return (
     <>
       <div
         className="torrent surface group-row"
         data-state={summary.state}
         data-expanded={expanded || undefined}
-        data-dragging={isDragging || undefined}
-        data-drop={dropPlace || undefined}
-        draggable={!!onRowDragStart}
-        onDragStart={onRowDragStart ? (e) => onRowDragStart({ kind: 'top', key: entryKey }, entryKey, e) : undefined}
-        onDragEnd={onRowDragEnd}
-        onDragOver={onRowDragOver ? (e) => onRowDragOver(entryKey, true, e) : undefined}
-        onDragLeave={onRowDragLeave ? () => onRowDragLeave(entryKey) : undefined}
-        onDrop={onRowDrop ? (e) => onRowDrop(entryKey, true, e) : undefined}
+        {...dragProps}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button, a, input, summary')) return
           if (window.getSelection()?.toString()) return
           onToggleExpand(group.id)
         }}
         onContextMenu={(e) => {
+          if (dragActions?.isDraggingActive?.()) { e.preventDefault(); return }
           if (e.shiftKey || e.ctrlKey) return
           e.preventDefault()
           onOptions(group, { x: e.clientX, y: e.clientY })
@@ -3320,10 +3284,13 @@ const Home = () => {
     removeWithFiles(t)
   }
 
-  const removeWithFiles = (t: Torrent) => {
+  const removeWithFiles = (t: Torrent, pruneOrder = true) => {
     // Nothing else would ever collect it: the worker deletes its own three key shapes on removal and
     // never clears the store, so a picture left behind here outlives the torrent it belongs to.
-    if (t.infoHash) void forgetThumbnail(t.infoHash)
+    if (t.infoHash) {
+      void forgetThumbnail(t.infoHash)
+      if (pruneOrder) void removeFromListOrder({ hashes: [t.infoHash] })
+    }
     if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), true)
   }
@@ -3349,7 +3316,10 @@ const Home = () => {
       })
       if (!ok) return
     }
-    if (t.infoHash) void forgetThumbnail(t.infoHash)
+    if (t.infoHash) {
+      void forgetThumbnail(t.infoHash)
+      void removeFromListOrder({ hashes: [t.infoHash] })
+    }
     if (t.state === 'missing') { if (t.infoHash) removeMissing(t.infoHash) }
     else remove(Number(t.id), false)
   }
@@ -3359,8 +3329,8 @@ const Home = () => {
    * Which torrent's options are open, and in which surface. Held here rather than per row because
    * only one may be open at a time, and because both surfaces have to sit above every row.
    */
-  const [menu, setMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
-  const [optionsId, setOptionsId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ id: string, at: MenuPosition, groupId?: string } | null>(null)
+  const [optionsTarget, setOptionsTarget] = useState<{ id: string, groupId?: string } | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ id: string, at: MenuPosition } | null>(null)
   const [groupOptionsId, setGroupOptionsId] = useState<string | null>(null)
   /**
@@ -3388,16 +3358,16 @@ const Home = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const onSelect = useCallback((t: Torrent) => setSelectedId(t.id), [])
 
-  const onOptions = useCallback((t: Torrent, at: MenuPosition | null) => {
+  const onOptions = useCallback((t: Torrent, at: MenuPosition | null, parentGroupId?: string) => {
     setGroupMenu(null)
     setGroupOptionsId(null)
-    if (at) { setOptionsId(null); setMenu({ id: t.id, at }) }
-    else { setMenu(null); setOptionsId(t.id) }
+    if (at) { setOptionsTarget(null); setMenu({ id: t.id, at, groupId: parentGroupId }) }
+    else { setMenu(null); setOptionsTarget({ id: t.id, groupId: parentGroupId }) }
   }, [])
 
   const onGroupOptions = useCallback((g: TorrentGroup, at: MenuPosition | null) => {
     setMenu(null)
-    setOptionsId(null)
+    setOptionsTarget(null)
     if (at) { setGroupOptionsId(null); setGroupMenu({ id: g.id, at }) }
     else { setGroupMenu(null); setGroupOptionsId(g.id) }
   }, [])
@@ -3409,7 +3379,14 @@ const Home = () => {
     ? intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}, {left, plural, one {{left} private torrent left out} other {{left} private torrents left out}}' }, { count, left })
     : intl.formatMessage({ id: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}', defaultMessage: '{count, plural, one {{count} magnet copied} other {{count} magnets copied}}' }, { count }))
 
-  const optionActions = (t: Torrent, magnet: string | undefined | null): TorrentOptionActions => ({
+  const optionActions = (t: Torrent, magnet: string | undefined | null, parentGroupId?: string): TorrentOptionActions => {
+    const moveTarget: DragPayload | null = t.infoHash
+      ? (parentGroupId ? { kind: 'member', groupId: parentGroupId, infoHash: t.infoHash } : { kind: 'top', key: `t:${t.infoHash}` })
+      : null
+    const canCustomMove = listSort.key === 'custom' && moveTarget
+    const upStep = canCustomMove ? stepMoveFor(moveTarget, 'up') : null
+    const downStep = canCustomMove ? stepMoveFor(moveTarget, 'down') : null
+    return {
     setFlags: (flags, mask) => client.setFlags(Number(t.id), flags, mask),
     reannounce: () => {
       client.reannounce(Number(t.id))
@@ -3472,7 +3449,10 @@ const Home = () => {
     start: () => { if (t.infoHash) start(t.infoHash) },
     setInGroup: (id, on) => { const g = groups?.find((one) => one.id === id); if (g && t.infoHash) putIn(g, [t.infoHash], on) },
     newGroup: () => newGroup(() => (t.infoHash ? [t.infoHash] : [])),
-  })
+    ...(upStep ? { moveUp: () => commitStepMove(upStep, true) } : {}),
+    ...(downStep ? { moveDown: () => commitStepMove(downStep, true) } : {}),
+    }
+  }
 
   /**
    * Looked up by id on every render rather than captured when the surface opened, so a switch
@@ -3488,7 +3468,7 @@ const Home = () => {
   })
 
   const menuTorrent = menu ? torrents.find((t) => t.id === menu.id) : undefined
-  const optionsTorrent = optionsId ? torrents.find((t) => t.id === optionsId) : undefined
+  const optionsTorrent = optionsTarget ? torrents.find((t) => t.id === optionsTarget.id) : undefined
   // one of the two is open at a time, and both offer Copy magnet, so neither opens before this is read
   const shared = useShareableMagnet(menuTorrent ?? optionsTorrent)
 
@@ -3989,7 +3969,13 @@ const Home = () => {
     }
     // Unticks each one sent. A row still reconnecting after a handover is sent nothing and stays ticked, so the bar
     // comes back with it rather than the removal looking done.
-    for (const t of pickedNow()) { removeWithFiles(t); bulk.toggle(t) }
+    const pickedHashesToPrune: string[] = []
+    for (const t of pickedNow()) {
+      if (t.infoHash) pickedHashesToPrune.push(t.infoHash)
+      removeWithFiles(t, false)
+      bulk.toggle(t)
+    }
+    if (pickedHashesToPrune.length) void removeFromListOrder({ hashes: pickedHashesToPrune })
   }
 
   const anyPicked = bulk.rows.length > 0
@@ -4053,6 +4039,7 @@ const Home = () => {
     const staleKey = await clearGroupAppearance(g.id)
     if (staleKey) void forgetSyncedThumbnails([staleKey]).catch(() => {})
     await deleteGroup(g.id)
+    await removeFromListOrder({ groupIds: [g.id] })
   }, [confirm, intl])
   const addReceived = (linked: LinkedGroup) => {
     setReceived(null)
@@ -4086,214 +4073,196 @@ const Home = () => {
       intl.formatMessage({ id: 'Could not copy the link', defaultMessage: 'Could not copy the link' }),
     )
   }
-  const buildGroupOptions = (entry: GroupEntry): OptionGroup[] => [{
-    id: 'group',
-    label: entry.group.name,
-    typed: true,
-    items: [
-      ...(entry.summary.fetchable.length > 0 ? [{
-        kind: 'action' as const,
-        id: 'download-all',
-        label: intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }),
-        run: () => startRows(entry.summary.fetchable),
-      }] : []),
-      ...(activeGroupLink?.count ? [{
-        kind: 'action' as const,
-        id: 'copy-link',
-        label: intl.formatMessage({ id: 'Copy link', defaultMessage: 'Copy link' }),
-        run: () => copyGroupLink(activeGroupLink),
-      }] : []),
+  const stepMoveFor = (payload: DragPayload, direction: 'up' | 'down', cur = { entries, listOrder, entryGroups, listView }) => {
+    const topKeys = payload.kind === 'top' && cur.listView === 'cards'
+      ? cur.entryGroups.find((c) => c.rows.some((r) => r.key === payload.key))?.rows.map((r) => r.key)
+      : undefined
+    return moveEntryByStep({ target: payload, direction, entries: cur.entries, listOrder: cur.listOrder, topKeys })
+  }
+
+  const commitStepMove = (step: NonNullable<ReturnType<typeof moveEntryByStep>>, switchToCustom = true) => {
+    if (step.kind === 'top') void saveTopOrder(step.top)
+    else void saveGroupMemberOrder(step.groupId, step.members)
+    if (switchToCustom) chooseSort('custom', 'asc')
+  }
+
+  const buildGroupOptions = (entry: GroupEntry): OptionGroup[] => {
+    const custom = listSort.key === 'custom'
+    const upStep = custom ? stepMoveFor({ kind: 'top', key: entry.key }, 'up') : null
+    const downStep = custom ? stepMoveFor({ kind: 'top', key: entry.key }, 'down') : null
+    return [
       {
-        kind: 'action' as const,
-        id: 'edit',
-        label: intl.formatMessage({ id: 'Edit...', defaultMessage: 'Edit...' }),
-        run: () => openEditGroup(entry.group),
+        id: 'group',
+        label: entry.group.name,
+        typed: true,
+        items: [
+          ...(entry.summary.fetchable.length > 0 ? [{
+            kind: 'action' as const,
+            id: 'download-all',
+            label: intl.formatMessage({ id: 'Download all', defaultMessage: 'Download all' }),
+            run: () => startRows(entry.summary.fetchable),
+          }] : []),
+          ...(activeGroupLink?.count ? [{
+            kind: 'action' as const,
+            id: 'copy-link',
+            label: intl.formatMessage({ id: 'Copy link', defaultMessage: 'Copy link' }),
+            run: () => copyGroupLink(activeGroupLink),
+          }] : []),
+          {
+            kind: 'action' as const,
+            id: 'edit',
+            label: intl.formatMessage({ id: 'Edit...', defaultMessage: 'Edit...' }),
+            run: () => openEditGroup(entry.group),
+          },
+          {
+            kind: 'action' as const,
+            id: 'delete',
+            label: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
+            danger: true,
+            run: () => { void deleteShown(entry.group) },
+          },
+        ],
       },
-      {
-        kind: 'action' as const,
-        id: 'delete',
-        label: intl.formatMessage({ id: 'Delete group', defaultMessage: 'Delete group' }),
-        danger: true,
-        run: () => { void deleteShown(entry.group) },
-      },
-    ],
-  }]
+      ...(upStep || downStep ? [{
+        id: 'list-order',
+        label: intl.formatMessage({ id: 'List order', defaultMessage: 'List order' }),
+        items: [
+          ...(upStep ? [{ kind: 'action' as const, id: 'list-move-up', label: intl.formatMessage({ id: 'Move up', defaultMessage: 'Move up' }), run: () => commitStepMove(upStep, true) }] : []),
+          ...(downStep ? [{ kind: 'action' as const, id: 'list-move-down', label: intl.formatMessage({ id: 'Move down', defaultMessage: 'Move down' }), run: () => commitStepMove(downStep, true) }] : []),
+        ],
+      }] : []),
+    ]
+  }
 
   const activeDragRef = useRef<{ payload: DragPayload, key: string } | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null)
-  const dragCtxRef = useRef({ entries, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup })
-  dragCtxRef.current = { entries, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup }
+  const dragCtxRef = useRef({ entries, entryGroups, listView, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup })
+  dragCtxRef.current = { entries, entryGroups, listView, listOrder, groups, chooseSort, expandGroup, putIn, moveBetweenGroups, newGroup }
 
-  const onRowDragStart = useCallback((payload: DragPayload, key: string, e: ReactDragEvent) => {
-    activeDragRef.current = { payload, key }
-    setDraggingKey(key)
-    setDropIndicator(null)
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move'
-      e.dataTransfer.setData(ROW_DRAG_MIME, encodeDrag(payload))
-    }
-  }, [])
-
-  const onRowDragEnd = useCallback(() => {
-    activeDragRef.current = null
-    setDraggingKey(null)
-    setDropIndicator(null)
-  }, [])
-
-  const onRowDragOver = useCallback((targetKey: string, allowInto: boolean, e: ReactDragEvent) => {
-    const active = activeDragRef.current
-    const hasMime = !!e.dataTransfer?.types && [...e.dataTransfer.types].includes(ROW_DRAG_MIME)
-    if (!active && !hasMime) return
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-    if (active && active.key === targetKey) {
-      setDropIndicator((prev) => (prev ? null : prev))
-      return
-    }
-    const canInto = canDropInto(active?.payload ?? null, targetKey, allowInto)
-    const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
-    setDropIndicator((prev) => (prev?.targetKey === targetKey && prev.place === place ? prev : { targetKey, place }))
-  }, [])
-
-  const onRowDragLeave = useCallback((targetKey: string) => {
-    setDropIndicator((prev) => (prev?.targetKey === targetKey ? null : prev))
-  }, [])
-
-  const onRowDrop = useCallback((targetKey: string, allowInto: boolean, e: ReactDragEvent) => {
-    const payload = decodeDrag(e.dataTransfer?.getData(ROW_DRAG_MIME)) ?? activeDragRef.current?.payload
-    if (!payload) return
-    e.preventDefault()
-    e.stopPropagation()
-    activeDragRef.current = null
-    setDraggingKey(null)
-    setDropIndicator(null)
-
-    const { entries: curEntries, listOrder: curOrder, groups: curGroups, chooseSort: setSort, expandGroup: expand, putIn: moveIn, moveBetweenGroups: transferGroup, newGroup: openNewGroup } = dragCtxRef.current
-    const canInto = canDropInto(payload, targetKey, allowInto)
-    const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
-    const hasLooseHash = (hash: string) => curEntries.some((entry) => entry.kind === 'torrent' && entry.torrent.infoHash === hash)
-    const placeNewGroup = async (targetHash: string, draggedHash: string, groupId: string) => {
-      if (curOrder.top.length > 0) {
-        const base = curOrder.top.includes(`t:${targetHash}`) ? curOrder.top : visibleTopKeys(curEntries)
-        const nextTop = base.flatMap((key) => (key === `t:${targetHash}` ? [`g:${groupId}` as const] : key === `t:${draggedHash}` ? [] : [key]))
-        await saveTopOrder(nextTop)
+  const dragActions = useMemo<RowDragActions>(() => ({
+    onStart: (payload, key, e) => {
+      activeDragRef.current = { payload, key }
+      setDraggingKey(key)
+      setDropIndicator(null)
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData(ROW_DRAG_MIME, encodeDrag(payload))
       }
-      await saveGroupMemberOrder(groupId, [targetHash, draggedHash])
-    }
-
-    if (payload.kind === 'top') {
-      if (targetKey.startsWith('t:') && place === 'into' && payload.key.startsWith('t:') && targetKey !== payload.key) {
-        const draggedHash = payload.key.slice(2)
-        const targetHash = targetKey.slice(2)
-        if (hasLooseHash(targetHash)) openNewGroup(() => [targetHash, draggedHash], (id) => placeNewGroup(targetHash, draggedHash, id))
+    },
+    onEnd: () => {
+      activeDragRef.current = null
+      setDraggingKey(null)
+      setDropIndicator(null)
+    },
+    onOver: (targetKey, allowInto, e) => {
+      const active = activeDragRef.current
+      const hasMime = !!e.dataTransfer?.types && [...e.dataTransfer.types].includes(ROW_DRAG_MIME)
+      if (!active && !hasMime) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+      if (active && active.key === targetKey) {
+        setDropIndicator((prev) => (prev ? null : prev))
         return
       }
-      if (targetKey.startsWith('g:') && place === 'into' && payload.key.startsWith('t:')) {
-        const groupId = targetKey.slice(2)
-        const targetGroup = curGroups?.find((g) => g.id === groupId)
+      const canInto = canDropInto(active?.payload ?? null, targetKey, allowInto)
+      const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
+      setDropIndicator((prev) => (prev?.targetKey === targetKey && prev.place === place ? prev : { targetKey, place }))
+    },
+    onLeave: (targetKey) => {
+      setDropIndicator((prev) => (prev?.targetKey === targetKey ? null : prev))
+    },
+    onDrop: (targetKey, allowInto, e) => {
+      const payload = decodeDrag(e.dataTransfer?.getData(ROW_DRAG_MIME)) ?? activeDragRef.current?.payload
+      if (!payload) return
+      e.preventDefault()
+      e.stopPropagation()
+      activeDragRef.current = null
+      setDraggingKey(null)
+      setDropIndicator(null)
+
+      const cur = dragCtxRef.current
+      const canInto = canDropInto(payload, targetKey, allowInto)
+      const place = computeDropPlace(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect(), canInto)
+      const action = resolveDrop({
+        payload,
+        targetKey,
+        place,
+        entries: cur.entries,
+        groups: cur.groups ?? [],
+        listOrder: cur.listOrder,
+      })
+      if (!action) return
+
+      const placeNewGroup = async (targetHash: string, draggedHash: string, id: string) => {
+        const nextTop = buildNewGroupTopOrder(cur.entries, cur.listOrder.top, targetHash, draggedHash, id)
+        if (nextTop) await saveTopOrder(nextTop)
+        await saveGroupMemberOrder(id, [targetHash, draggedHash])
+      }
+
+      if (action.kind === 'new-group') {
+        cur.newGroup(() => [action.targetHash, action.draggedHash], async (id) => {
+          if (action.removeFromGroupId) await takeOutOfGroup(action.removeFromGroupId, [action.draggedHash])
+          await placeNewGroup(action.targetHash, action.draggedHash, id)
+        })
+        return
+      }
+      if (action.kind === 'add-to-group') {
+        const targetGroup = cur.groups?.find((g) => g.id === action.groupId)
         if (targetGroup) {
-          moveIn(targetGroup, [payload.key.slice(2)], true)
-          expand(groupId)
+          cur.putIn(targetGroup, [action.infoHash], true)
+          cur.expandGroup(action.groupId)
         }
         return
       }
-      if (targetKey.startsWith('child:') && payload.key.startsWith('t:')) {
-        const rest = targetKey.slice('child:'.length)
-        const sep = rest.indexOf(':')
-        const targetGroupId = sep > 0 ? rest.slice(0, sep) : ''
-        const targetChildHash = sep > 0 ? rest.slice(sep + 1) : ''
-        const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
-        const draggedHash = payload.key.slice(2)
-        if (targetGroup && targetChildHash) {
-          const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === targetGroupId)
-          const visibleMembers = parent ? groupMemberKeys(parent.summary) : []
-          const existingMembers = curOrder.groups[targetGroupId]?.members ?? []
-          const nextMembers = reorderKeys([...visibleMembers, draggedHash], existingMembers, draggedHash, targetChildHash, place === 'before' ? 'before' : 'after')
-          moveIn(targetGroup, [draggedHash], true)
-          expand(targetGroupId)
-          void saveGroupMemberOrder(targetGroupId, nextMembers)
-          setSort('custom', 'asc')
+      if (action.kind === 'move-between-groups') {
+        const targetGroup = cur.groups?.find((g) => g.id === action.toGroupId)
+        if (!targetGroup) return
+        const fromGroup = action.fromGroupId ? cur.groups?.find((g) => g.id === action.fromGroupId) : undefined
+        if (action.fromGroupId) cur.moveBetweenGroups(fromGroup, targetGroup, action.infoHash)
+        else {
+          cur.putIn(targetGroup, [action.infoHash], true)
+          cur.expandGroup(action.toGroupId)
+        }
+        if (action.membersOrder) {
+          void saveGroupMemberOrder(action.toGroupId, action.membersOrder)
+          cur.chooseSort('custom', 'asc')
         }
         return
       }
-      if ((targetKey.startsWith('g:') || targetKey.startsWith('t:')) && targetKey !== payload.key) {
-        const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, payload.key, targetKey as `g:${string}` | `t:${string}`, place === 'before' ? 'before' : 'after')
-        void saveTopOrder(nextTop)
-        setSort('custom', 'asc')
-      }
-      return
-    }
-
-    // payload.kind === 'member'
-    if (targetKey.startsWith(`child:${payload.groupId}:`)) {
-      const targetHash = targetKey.slice(`child:${payload.groupId}:`.length)
-      if (targetHash === payload.infoHash) return
-      const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === payload.groupId)
-      if (!parent) return
-      const visibleMembers = groupMemberKeys(parent.summary)
-      const existingMembers = curOrder.groups[payload.groupId]?.members ?? []
-      const nextMembers = reorderKeys(visibleMembers, existingMembers, payload.infoHash, targetHash, place === 'before' ? 'before' : 'after')
-      void saveGroupMemberOrder(payload.groupId, nextMembers)
-      setSort('custom', 'asc')
-      return
-    }
-    if (targetKey.startsWith('child:')) {
-      const rest = targetKey.slice('child:'.length)
-      const sep = rest.indexOf(':')
-      const targetGroupId = sep > 0 ? rest.slice(0, sep) : ''
-      const targetChildHash = sep > 0 ? rest.slice(sep + 1) : ''
-      const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
-      if (targetGroup && targetChildHash) {
-        const parent = curEntries.find((entry): entry is GroupEntry => entry.kind === 'group' && entry.group.id === targetGroupId)
-        const visibleMembers = parent ? groupMemberKeys(parent.summary) : []
-        const existingMembers = curOrder.groups[targetGroupId]?.members ?? []
-        const nextMembers = reorderKeys([...visibleMembers, payload.infoHash], existingMembers, payload.infoHash, targetChildHash, place === 'before' ? 'before' : 'after')
-        const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
-        transferGroup(fromGroup, targetGroup, payload.infoHash)
-        void saveGroupMemberOrder(targetGroupId, nextMembers)
-        setSort('custom', 'asc')
-      }
-      return
-    }
-    if (targetKey.startsWith('g:')) {
-      const targetGroupId = targetKey.slice(2)
-      if (targetGroupId === payload.groupId) return
-      if (place === 'into') {
-        const targetGroup = curGroups?.find((g) => g.id === targetGroupId)
-        if (targetGroup) {
-          const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
-          transferGroup(fromGroup, targetGroup, payload.infoHash)
-        }
+      if (action.kind === 'reorder-members') {
+        void saveGroupMemberOrder(action.groupId, action.members)
+        cur.chooseSort('custom', 'asc')
         return
       }
-      const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
-      if (fromGroup) moveIn(fromGroup, [payload.infoHash], false)
-      const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, `t:${payload.infoHash}`, targetKey as `g:${string}`, place)
-      void saveTopOrder(nextTop)
-      setSort('custom', 'asc')
-      return
-    }
-    if (targetKey.startsWith('t:')) {
-      if (place === 'into') {
-        const targetHash = targetKey.slice(2)
-        if (targetHash !== payload.infoHash && hasLooseHash(targetHash)) {
-          const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
-          openNewGroup(() => [targetHash, payload.infoHash], async (id) => {
-            if (fromGroup) await takeOutOfGroup(fromGroup.id, [payload.infoHash])
-            await placeNewGroup(targetHash, payload.infoHash, id)
-          })
-        }
-        return
+      const removedFrom = action.removeFromGroup
+      if (removedFrom) {
+        const fromGroup = cur.groups?.find((g) => g.id === removedFrom.groupId)
+        if (fromGroup) cur.putIn(fromGroup, [removedFrom.infoHash], false)
       }
-      const fromGroup = curGroups?.find((g) => g.id === payload.groupId)
-      if (fromGroup) moveIn(fromGroup, [payload.infoHash], false)
-      const nextTop = reorderKeys(visibleTopKeys(curEntries), curOrder.top, `t:${payload.infoHash}`, targetKey as `t:${string}`, place === 'before' ? 'before' : 'after')
-      void saveTopOrder(nextTop)
-      setSort('custom', 'asc')
-    }
-  }, [])
+      void saveTopOrder(action.top)
+      cur.chooseSort('custom', 'asc')
+    },
+    onKeyDown: (payload, e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      const target = e.target
+      if (target instanceof Element && target.closest('textarea, select, input:not([type="checkbox"]):not([type="radio"]), [contenteditable], [role="dialog"], [role="menu"]')) return
+      const cur = dragCtxRef.current
+      const topKeys = payload.kind === 'top' && cur.listView === 'cards'
+        ? cur.entryGroups.find((c) => c.rows.some((r) => r.key === payload.key))?.rows.map((r) => r.key)
+        : undefined
+      const step = moveEntryByStep({ target: payload, direction: e.key === 'ArrowUp' ? 'up' : 'down', entries: cur.entries, listOrder: cur.listOrder, topKeys })
+      if (!step) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (step.kind === 'top') void saveTopOrder(step.top)
+      else void saveGroupMemberOrder(step.groupId, step.members)
+      cur.chooseSort('custom', 'asc')
+    },
+    isDraggingActive: () => activeDragRef.current !== null,
+  }), [])
 
   const pickedHashes = () => pickedNow().flatMap((t) => (t.infoHash ? [t.infoHash] : []))
 
@@ -4416,7 +4385,7 @@ const Home = () => {
           viewport; the dialog portals to the body, one step below the broker frame. */}
       {menu && menuTorrent && shared && (
         <ContextMenu
-          groups={[...buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet), optionContext(menuTorrent)), ...rowMenuGroups(rowPlugins, menuTorrent.infoHash)]}
+          groups={[...buildTorrentOptions(menuTorrent, optionActions(menuTorrent, shared.magnet, menu.groupId), optionContext(menuTorrent)), ...rowMenuGroups(rowPlugins, menuTorrent.infoHash)]}
           at={menu.at}
           label={intl.formatMessage({ id: 'Options for {name}', defaultMessage: 'Options for {name}' }, { name: menuTorrent.name })}
           onClose={() => setMenu(null)}
@@ -4425,8 +4394,8 @@ const Home = () => {
       {optionsTorrent && shared && (
         <TorrentOptionsDialog
           title={optionsTorrent.name}
-          groups={[...buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet), optionContext(optionsTorrent)), ...rowMenuGroups(rowPlugins, optionsTorrent.infoHash)]}
-          onClose={() => setOptionsId(null)}
+          groups={[...buildTorrentOptions(optionsTorrent, optionActions(optionsTorrent, shared.magnet, optionsTarget?.groupId), optionContext(optionsTorrent)), ...rowMenuGroups(rowPlugins, optionsTorrent.infoHash)]}
+          onClose={() => setOptionsTarget(null)}
         />
       )}
       {groupMenu && activeGroupEntry && (activeGroupEntry.summary.members.length === 0 || activeGroupLink) && (
@@ -4757,11 +4726,7 @@ const Home = () => {
                 onPick={bulk.toggle}
                 draggingKey={draggingKey}
                 dropIndicator={dropIndicator}
-                onRowDragStart={onRowDragStart}
-                onRowDragEnd={onRowDragEnd}
-                onRowDragOver={onRowDragOver}
-                onRowDragLeave={onRowDragLeave}
-                onRowDrop={onRowDrop}
+                dragActions={dragActions}
               />
             )
             : (
@@ -4791,11 +4756,7 @@ const Home = () => {
                       parentGroupId={parentGroupId}
                       dropPlace={dropIndicator?.targetKey === dragKey ? dropIndicator.place : undefined}
                       isDragging={draggingKey === dragKey}
-                      onRowDragStart={onRowDragStart}
-                      onRowDragEnd={onRowDragEnd}
-                      onRowDragOver={onRowDragOver}
-                      onRowDragLeave={onRowDragLeave}
-                      onRowDrop={onRowDrop}
+                      dragActions={dragActions}
                     />
                   )
                   if (entry.kind === 'torrent') return renderRow(entry.torrent, entry.torrent.id, entry.key)
@@ -4813,11 +4774,7 @@ const Home = () => {
                       onOptions={onGroupOptions}
                       dropPlace={dropIndicator?.targetKey === entry.key ? dropIndicator.place : undefined}
                       isDragging={draggingKey === entry.key}
-                      onRowDragStart={onRowDragStart}
-                      onRowDragEnd={onRowDragEnd}
-                      onRowDragOver={onRowDragOver}
-                      onRowDragLeave={onRowDragLeave}
-                      onRowDrop={onRowDrop}
+                      dragActions={dragActions}
                     >
                       {expanded && summary.members.map((m) => renderRow(m, `group:${g.id}:${m.id}`, `child:${g.id}:${m.infoHash ?? m.id}`, g.id))}
                     </GroupRow>
