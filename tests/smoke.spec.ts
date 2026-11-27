@@ -252,16 +252,15 @@ const addHeld = async (page: Page, names: readonly string[]) => {
   return (name: string) => String(names.indexOf(name) + 1).repeat(40)
 }
 
-test('a press aimed at a new torrent\'s Pause pauses it, though the queue holds it as the press lands', async ({ page }) => {
+test('a press aimed at a new torrent\'s Pause pauses it, though the queue holds it as the press lands', async ({ page, browserName }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.addInitScript(probeEngine)
   await page.goto('/')
   await engineReady(page)
-  // fill libtorrent's three active download slots so the next torrent is deterministically held in Queued
-  for (const [i, name] of ['One', 'Two', 'Three'].entries()) {
-    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 1).repeat(40)}&dn=${name}`)
-    await page.getByRole('button', { name: 'Add', exact: true }).click()
-    await expect(card(page, name).locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+  if (browserName === 'webkit') {
+    // fill libtorrent's three active download slots so Own starts deterministically in Queued on slower WebKit startup
+    await addHeld(page, ['One', 'Two', 'Three'])
+    for (const name of ['One', 'Two', 'Three']) await expect(card(page, name).locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
   }
   const ownHash = 'a'.repeat(40)
   await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
@@ -279,6 +278,11 @@ test('a press aimed at a new torrent\'s Pause pauses it, though the queue holds 
   expect(await row.locator('.badge').textContent(), 'the press lands while the queue holds it').toBe('Queued')
   await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
   await expect(row.locator('.badge')).toHaveText('Paused')
+  if (browserName === 'webkit') {
+    // free an active slot so the 3 s check proves Pause cleared autoManaged on WebKit too
+    await card(page, 'One').getByRole('button', { name: 'Pause One', exact: true }).click()
+    await expect(card(page, 'One').locator('.badge')).toHaveText('Paused')
+  }
   await page.waitForTimeout(3_000)
   await expect(row.locator('.badge')).toHaveText('Paused')
 })

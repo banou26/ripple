@@ -870,7 +870,8 @@ const dialogSurfaces = async (page: Page, width: number, browserName = 'chromium
   await library(page, LIST, TORRENTS)
   await expect(page.locator('.toast')).toBeVisible()
   await read('add, refused')
-  await answer(page, {})
+  // WebKit cannot structured-clone directory handles and copies created folders to OPFS; clear the low-room stub to avoid a second .warn
+  if (browserName === 'webkit') await answer(page, {})
 
   await page.goto(origin)
   await library(page, LIST, TORRENTS)

@@ -105,7 +105,7 @@ const TOPOLOGIES = [
 ] as const
 
 for (const { where, framed } of TOPOLOGIES) {
-  test(`an ASS line is drawn ${where}`, async ({ browser, baseURL }) => {
+  test(`an ASS line is drawn ${where}`, async ({ browser, browserName, baseURL }) => {
     test.setTimeout(240_000)
     const file = makeEpisode(test.info().outputPath())
     const ripple = new URL(baseURL!).origin
@@ -166,7 +166,8 @@ for (const { where, framed } of TOPOLOGIES) {
     expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeGreaterThan(width * 0.4)
     expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeLessThan(width * 0.6)
 
-    expect(served, 'the wasm script came from /jassub/').toContainEqual(expect.stringMatching(/^200 \/jassub\/jassub-worker(?:-modern)?\.js \w+\/javascript/))
+    const worker = browserName === 'webkit' ? /^200 \/jassub\/jassub-worker(?:-modern)?\.js \w+\/javascript/ : /^200 \/jassub\/jassub-worker-modern\.js \w+\/javascript/
+    expect(served, 'the wasm script came from /jassub/').toContainEqual(expect.stringMatching(worker))
     const violations: string[] = await frame.evaluate(() => (window as any).__violations)
     test.info().annotations.push({ type: 'subtitles', description: JSON.stringify({ box, served, violations }) })
     expect(violations.filter((violation) => !violation.endsWith(' blob')), 'only the probe is refused').toEqual([])

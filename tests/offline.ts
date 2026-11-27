@@ -6,10 +6,13 @@
  * and reserves a port on a production relay like any visitor. A route() never sees the relay's WebTransport
  * session, so Chromium blocks at its resolver, Firefox routes non-local hosts to a dead loopback SOCKS5 proxy, and
  * WebKit routes non-local hosts to a dead loopback HTTP proxy (tests/offline-launch.ts). Measured 2026-11-15 on
- * Chrome 156, 2026-11-22 on Firefox 1555, and 2026-11-28 on WebKit 26.5 (build 2311): fetch to a name, an IPv4 or an
- * IPv6 literal, WebSocket, and cross-origin iframes fail in 1 to 50 ms before leaving the machine. WebRTC sends to an address
- * without asking the resolver, so a STUN server named by its address is still reached; ripple names its STUN host,
- * which the block refuses. With no relay to reach, an engine with the VPN on starts only once its 8 s port
+ * Chrome 156 and 2026-11-22 on Firefox 1555: fetch, WebSocket and WebTransport to a name, an IPv4 or an IPv6 literal
+ * all fail before leaving the machine. Measured 2026-11-28 on WebKit 26.5 (build 2311): fetch, WebSocket and
+ * cross-origin iframes to names, IPv4 and IPv6 literals fail in 1 to 50 ms before leaving the machine; an init script
+ * clears iceServers on RTCPeerConnection so WebRTC makes no external STUN lookup or UDP traffic (measured 0
+ * RTCPeerConnections created with the VPN off against a remote wss:// tracker). WebRTC sends to an address without
+ * asking the resolver, so on Chrome and Firefox a STUN server named by its address is still reached; ripple names its
+ * STUN host, which the block refuses. With no relay to reach, an engine with the VPN on starts only once its 8 s port
  * reservation has given up, so every page starts with the VPN off, whose engine reserves no port, except in the specs
  * VPN_ON names.
  */
@@ -70,6 +73,7 @@ export const test = base.extend<{ onlyLocal: void }>({
         const env = process.platform === 'darwin'
           ? { ...definedEnv(process.env), ...definedEnv(effectiveLaunch.env), CFFIXED_USER_HOME: dir }
           : effectiveLaunch.env
+        // WebKit has no mute switch; persistent context isolates OPFS per test
         context = await playwright.webkit.launchPersistentContext(dir, {
           ...effectiveLaunch,
           ...options,
@@ -96,6 +100,16 @@ export const test = base.extend<{ onlyLocal: void }>({
         context = await newContext(options)
       }
       context.on('response', (response) => { if (!isLocal(response.url())) reached.push(response.url()) })
+      if (offline && browserName === 'webkit') {
+        await context.addInitScript(() => {
+          const Orig = window.RTCPeerConnection
+          if (!Orig) return
+          class OfflineRTCPeerConnection extends Orig {
+            constructor (config?: RTCConfiguration) { super(config ? { ...config, iceServers: [] } : { iceServers: [] }) }
+          }
+          window.RTCPeerConnection = OfflineRTCPeerConnection
+        })
+      }
       if (offline && !VPN_ON.includes(basename(base.info().file))) {
         await context.addInitScript(() => { try { localStorage.setItem('ripple:vpn', 'off') } catch { /* a frame with no storage */ } })
       }
@@ -105,7 +119,7 @@ export const test = base.extend<{ onlyLocal: void }>({
       await use(browser)
     } finally {
       for (const entry of [...persistent]) {
-        try { await entry.context.close() } catch { rmSync(entry.dir, { recursive: true, force: true }) }
+        try { await entry.context.close() } catch {}
       }
       await browser.close()
     }

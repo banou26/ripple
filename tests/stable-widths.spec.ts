@@ -139,7 +139,7 @@ const ROWS_FONTS = ['Liberation Sans', 'DejaVu Sans']
  * the strip under it, which is there before the first torrent too. Settings is a square icon button. Create keeps its
  * words from 960 px and is a square under it; any other header button with words keeps them at 1440 px and on a phone.
  */
-test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page }) => {
+test('the library\'s header is one row at the widths most laptops have, in every language, with the VPN switch under it', async ({ page, browserName }) => {
   test.setTimeout(420_000)
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.goto('/')
@@ -151,7 +151,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
   }), candidate)
   const missing = await probeMissing(ROWS_FONTS)
   let fonts: readonly string[] = ROWS_FONTS
-  if (process.platform === 'darwin' && missing.length > 0) {
+  if (browserName === 'webkit' && process.platform === 'darwin' && missing.length > 0) {
     fonts = ['Arial']
     expect(await probeMissing(fonts), 'Arial is missing on macOS').toEqual([])
   } else {
