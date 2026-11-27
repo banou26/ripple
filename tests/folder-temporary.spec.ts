@@ -13,6 +13,8 @@ import { expect, test } from './offline'
 // the page fetches the sample's .torrent itself, so the route below answers it
 test.use({ serviceWorkers: 'block' })
 
+test.skip(({ browserName }) => browserName === 'webkit', 'WebKit has no showDirectoryPicker and throws DataCloneError storing FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)')
+
 const PIECE = 16_384
 
 const bencode = (value: unknown): Buffer => {

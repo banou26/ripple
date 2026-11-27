@@ -85,7 +85,8 @@ const stored = (page: import('@playwright/test').Page) =>
     }
   }))
 
-test('a torrent keeps the time it has been seeding across a reload', async ({ page }) => {
+test('a torrent keeps the time it has been seeding across a reload', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'WebKit has no showDirectoryPicker and throws DataCloneError cloning FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)')
   test.setTimeout(300_000)
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))

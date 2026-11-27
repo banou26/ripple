@@ -18,6 +18,8 @@
  */
 import { expect, test } from './offline'
 
+test.skip(({ browserName }) => browserName === 'webkit', 'WebKit has no showDirectoryPicker and throws DataCloneError cloning FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)')
+
 type Row = {
   progress: number
   state: number | null

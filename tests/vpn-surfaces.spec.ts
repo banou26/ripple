@@ -31,7 +31,8 @@ const stored = (scope: Page | Frame) =>
   scope.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('ripple:vpn'))))
 const vpnOf = (scope: Pick<Page, 'getByRole'>) => scope.getByRole('switch', { name: /^VPN/ })
 
-test('the choice and its Remember this decision stay with the storage they were made in', async ({ browser, baseURL }) => {
+test('the choice and its Remember this decision stay with the storage they were made in', async ({ browser, baseURL, browserName }) => {
+  test.skip(browserName === 'webkit', 'Playwright WebKit 26.5 does not partition storage for 127.0.0.1 framed inside localhost')
   test.setTimeout(240_000)
   const ripple = new URL(baseURL!).origin
   // a device in no listed country, so the warning is its one sentence wherever this runs

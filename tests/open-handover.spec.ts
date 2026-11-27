@@ -158,7 +158,8 @@ test.beforeEach(async ({ context }) => {
   await context.route(`${SITE}/__plant`, (route) => route.fulfill(html('')))
 })
 
-test('the player hands Ripple what it held, and only the pieces that check out are listed', async ({ context }) => {
+test('the player hands Ripple what it held, and only the pieces that check out are listed', async ({ context, browserName }) => {
+  test.skip(browserName === 'webkit', 'Playwright WebKit 26.5 does not partition storage for 127.0.0.1 framed inside localhost')
   test.setTimeout(240_000)
 
   // THE CONTROL: the player's frame does not see what Ripple's own page stores

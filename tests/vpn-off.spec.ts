@@ -17,6 +17,7 @@ import { startTracker } from './vpn-off/tracker.mjs'
 
 // the one constant that stops WebRTC peers leaves the VPN on in every page, and nothing here to drive
 test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
+test.skip(({ browserName }) => browserName === 'webkit', 'WebKit has no --host-resolver-rules for ripple-tracker.test and rejects grantPermissions([microphone]) needed for loopback WebRTC ICE candidates (measured WebKit 26.5)')
 
 test.use({
   launchOptions: {

@@ -69,8 +69,10 @@
     "test:header": "npm run build && node scripts/test-header-layout.mjs",
     "verify:live": "node tests/live-watch.mjs",
     "e2e:local": "playwright test --forbid-only --project=chromium tests/add-trackers.spec.ts tests/app-build.spec.ts tests/bulk-remove.spec.ts tests/create-torrent.spec.ts tests/download-page-hold.spec.ts tests/download-share.spec.ts tests/embed-autoplay-next.spec.ts tests/embed-episode-subtitles.spec.ts tests/embed-header.spec.ts tests/embed-list.spec.ts tests/finish-notice.spec.ts tests/folder-move.spec.ts tests/folder-temporary.spec.ts tests/folder-ticked-file.spec.ts tests/full-room.spec.ts tests/group-link.spec.ts tests/handover-rows.spec.ts tests/hints.spec.ts tests/home-language.spec.ts tests/hybrid-torrent.spec.ts tests/keep-off.spec.ts tests/library-removals.spec.ts tests/list-drag.spec.ts tests/long-name-copy.spec.ts tests/metadata-broadcast.spec.ts tests/multi-tab.spec.ts tests/name-lookups.spec.ts tests/next-in-place.spec.ts tests/offline.spec.ts tests/one-file-torrent.spec.ts tests/open-handover.spec.ts tests/player-language.spec.ts tests/rate-limits.spec.ts tests/seeding-policy.spec.ts tests/smoke.spec.ts tests/stable-widths.spec.ts tests/stale-pause-flag.spec.ts tests/startup-list.spec.ts tests/storage-check.spec.ts tests/temporary-restart.spec.ts tests/stream-download.spec.ts tests/subtitles.spec.ts tests/torrent-share-menu.spec.ts tests/unreadable-link.spec.ts tests/uptime-persists.spec.ts tests/volume-normalizer.spec.ts tests/vpn-off.spec.ts tests/vpn-surfaces.spec.ts tests/webrtc-wasm.spec.ts",
+    "e2e:local:webkit": "node scripts/e2e-webkit.mjs",
     "e2e:swarm": "playwright test --forbid-only --project=chromium tests/embed-remote.spec.ts tests/embed-remote-autoplay.spec.ts tests/embed-download.spec.ts tests/resume-verify.spec.ts tests/sample-reload.spec.ts tests/startup-breakdown.spec.ts tests/storage-eviction.spec.ts tests/stream-contiguity.spec.ts tests/torrent-ramp.spec.ts",
     "test:e2e:local": "npm run build && npm run e2e:local",
+    "test:e2e:local:webkit": "npm run build && npm run e2e:local:webkit",
     "test:e2e:swarm": "npm run build && npm run e2e:swarm",
     "e2e:rig": "playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig.spec.ts && playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig-webrtc.spec.ts && playwright test --forbid-only --config playwright.rig.config.ts tests/swarm-rig-relay-drop.spec.ts",
     "test:e2e:rig": "node scripts/rig-prepare.mjs && npm run build && npm run e2e:rig"
@@ -103,7 +105,7 @@
   },
   "devDependencies": {
     "@formatjs/cli": "^6.16.35",
-    "@playwright/test": "1.58.0",
+    "@playwright/test": "1.61.1",
     "@rollup/plugin-inject": "^5.0.3",
     "@types/node": "^25.9.3",
     "@types/react": "^19.0.0",
@@ -120,7 +122,7 @@
     "eslint-plugin-react-refresh": "^0.4.3",
     "jassub": "^2.5.37",
     "node-stdlib-browser": "^1.2.0",
-    "playwright": "^1.58.0",
+    "playwright": "1.61.1",
     "serve": "^14.2.1",
     "shx": "^0.3.4",
     "typescript": "^7.0.2",

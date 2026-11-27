@@ -140,7 +140,8 @@ test('a temporary torrent started again with no saved state, nobody watching, re
   await parkedWhole(page)
 })
 
-test('a temporary torrent moved into the folder with nobody watching reads Completed and stays parked', async ({ page }) => {
+test('a temporary torrent moved into the folder with nobody watching reads Completed and stays parked', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'WebKit has no showDirectoryPicker and throws DataCloneError storing FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)')
   test.setTimeout(180_000)
   await prepare(page)
   await page.goto('/settings')

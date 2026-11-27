@@ -5,7 +5,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
 
 import { GROUP_LINK_PREFIX } from '../src/router/group-link'
 
@@ -30,9 +30,9 @@ const openGroupMenu = async (page: Page, name: string) => {
   await expect(page.getByRole('dialog')).toBeVisible()
 }
 
-test('a group copied by its link opens in another browser as the same group, its torrents not on that device', async ({ page, context, browser }) => {
+test('a group copied by its link opens in another browser as the same group, its torrents not on that device', async ({ page, context, browser, browserName }) => {
   test.setTimeout(180_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   await prepare(context)
   await page.goto('/')
   for (const magnet of MAGNETS) {

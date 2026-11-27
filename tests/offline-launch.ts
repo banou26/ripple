@@ -19,12 +19,30 @@ export const FIREFOX_OFFLINE: Readonly<Record<string, string | number | boolean>
   'network.trr.mode': 5,
 }
 
+/*
+ * WebKit has neither host-resolver flags nor Firefox prefs, so non-local traffic routes through a closed
+ * loopback HTTP proxy while loopback hosts stay on the bypass list.
+ */
+export const WEBKIT_OFFLINE = {
+  server: 'http://127.0.0.1:1',
+  bypass: 'localhost,127.0.0.1,::1',
+} as const
+
 /**
  * Adds the browser's offline block under whatever `launchOptions` the project or spec set, keeping `executablePath`,
  * mute flags and every other option intact. The offline block goes first so a spec that names rules or prefs of its
- * own replaces it.
+ * own replaces it. On WebKit, Chromium-only flags and `executablePath` overrides from spec `test.use` are stripped so
+ * WebKit always uses `RIPPLE_WEBKIT` (or Playwright's default WebKit) rather than inheriting Chromium options.
  */
 export const offlineLaunchOptions = (browserName: string, launchOptions: LaunchOptions = {}, deployed = false): LaunchOptions => {
+  if (browserName === 'webkit') {
+    const { args: _args, ignoreDefaultArgs: _ignore, ...rest } = launchOptions
+    return {
+      ...rest,
+      executablePath: process.env.RIPPLE_WEBKIT || undefined,
+      ...(deployed ? {} : { proxy: launchOptions.proxy ?? { ...WEBKIT_OFFLINE } }),
+    }
+  }
   if (deployed) return launchOptions
   if (browserName === 'chromium') return { ...launchOptions, args: [CHROMIUM_OFFLINE, ...(launchOptions.args ?? [])] }
   if (browserName === 'firefox') return { ...launchOptions, firefoxUserPrefs: { ...FIREFOX_OFFLINE, ...launchOptions.firefoxUserPrefs } }

@@ -5,7 +5,9 @@ import type { AddressInfo } from 'node:net'
 import type { Frame, Locator, Page } from '@playwright/test'
 import type { Plugin } from 'vite-plus'
 
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
+
+const WEBKIT_NO_FOLDER_PICKER = 'WebKit has no showDirectoryPicker and throws DataCloneError storing FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)'
 import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -401,7 +403,7 @@ const expectAllTranslated = async (page: Page, language: string, { words, cut }:
 }
 
 /** Draws every surface of the page at `width`, and returns all they showed and all that had no room. */
-const everySurface = async (page: Page, width: number) => {
+const everySurface = async (page: Page, width: number, browserName = 'chromium') => {
   const { words, cut, read } = walk(page, width)
   const reopen = async (filter: string) => {
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LIST_FILTER_KEY, filter])
@@ -462,13 +464,15 @@ const everySurface = async (page: Page, width: number) => {
 
   await toSettings(page)
   await read('settings')
-  const autoSave = page.locator('main .folder').last().getByRole('button')
-  await autoSave.first().click()
-  await expect(autoSave).toHaveCount(3)
-  await read('settings, a folder')
-  await autoSave.last().click()
-  await drawn(page)
-  await read('settings, the folder the default')
+  if (browserName !== 'webkit') {
+    const autoSave = page.locator('main .folder').last().getByRole('button')
+    await autoSave.first().click()
+    await expect(autoSave).toHaveCount(3)
+    await read('settings, a folder')
+    await autoSave.last().click()
+    await drawn(page)
+    await read('settings, the folder the default')
+  }
   await toLibrary(page)
 
   await post(page, { type: 'state', torrents: [{ ...TORRENTS[3]!, handle: 5 }, ...TORRENTS.slice(3)] })
@@ -526,7 +530,7 @@ const firstVisit = async (page: Page) => {
 }
 
 /** Draws what asks a storage, an account or a first visit of the browser, at `width`. */
-const smallParts = async (page: Page, width: number) => {
+const smallParts = async (page: Page, width: number, browserName = 'chromium') => {
   const { words, cut, read } = walk(page, width)
   const open = async () => {
     await page.goto(origin)
@@ -543,14 +547,16 @@ const smallParts = async (page: Page, width: number) => {
   await room.getByRole('button').first().click()
   await expect(room.getByRole('button')).toHaveCount(1)
   await read('room, the ask refused')
-  // the library opens again on the way back from Settings, and offers the move to the folder chosen there
-  await chooseFolder(page)
-  const move = room.getByRole('button', { name: FOLDER })
-  await expect(move).toBeVisible()
-  await read('room, a folder chosen')
-  await move.click()
-  await expect(move).toHaveCount(0)
-  await read('room, finished downloads moving out')
+  if (browserName !== 'webkit') {
+    // the library opens again on the way back from Settings, and offers the move to the folder chosen there
+    await chooseFolder(page)
+    const move = room.getByRole('button', { name: FOLDER })
+    await expect(move).toBeVisible()
+    await read('room, a folder chosen')
+    await move.click()
+    await expect(move).toHaveCount(0)
+    await read('room, finished downloads moving out')
+  }
 
   // Storage's control is on Settings
   await answer(page, { persisted: true })
@@ -587,7 +593,7 @@ const HELD = { ...LIST[0]!, downloadLimit: 8_000_000 }
 const QUEUED = snapshot(1, 'a', 'Some.Release.Name.S01.1080p', { queuePosition: 2 })
 
 /** Draws the options menu, the options dialog, both speed limit dialogs and a confirmation, at `width`. */
-const optionSurfaces = async (page: Page, width: number) => {
+const optionSurfaces = async (page: Page, width: number, browserName = 'chromium') => {
   const { words, cut, read } = walk(page, width)
   const row = (name: string) => page.locator('.torrent', { hasText: name })
   const menu = page.getByRole('menu')
@@ -596,7 +602,7 @@ const optionSurfaces = async (page: Page, width: number) => {
   await page.goto(origin)
   await library(page, [HELD, ...LIST.slice(1)], [QUEUED, ...TORRENTS.slice(1)])
   // a folder, so the options offer to move a torrent there
-  await chooseFolder(page)
+  if (browserName !== 'webkit') await chooseFolder(page)
 
   // a menu closes when the list under it scrolls, and a click's own scroll to its row is heard a frame after the menu
   // opens, so the row is brought into view first
@@ -622,12 +628,14 @@ const optionSurfaces = async (page: Page, width: number) => {
     await dialog.locator('footer button').click()
     await expect(dialog).toHaveCount(0)
   }
-  // the folder for a torrent still downloading, so the move waits and a toast says so
-  await dialog.getByRole('radio').nth(1).click()
-  await expect(page.locator('.toast')).toBeVisible()
-  await read('a move that waits')
-  // the speed group's first item, by the order buildTorrentOptions gives: actions, manage, location, storage, piece order, speed
-  await dialog.getByRole('group').nth(5).getByRole('button').first().click()
+  if (browserName !== 'webkit') {
+    // the folder for a torrent still downloading, so the move waits and a toast says so
+    await dialog.getByRole('radio').nth(1).click()
+    await expect(page.locator('.toast')).toBeVisible()
+    await read('a move that waits')
+  }
+  // the speed group's first item, by the order buildTorrentOptions gives: actions, manage, (location), storage, piece order, speed
+  await dialog.getByRole('group').nth(browserName === 'webkit' ? 4 : 5).getByRole('button').first().click()
   await expect(dialog.locator('.note')).toBeVisible()
   await read('limit held by the total')
   await dialog.locator('input[type=number]').fill('')
@@ -669,13 +677,13 @@ const groupTicked = async (page: Page, name: string) => {
 }
 
 /** Draws the New group button, inline group rows, menus, dialogs and a group sent by link, at `width`. */
-const groupSurfaces = async (page: Page, width: number) => {
+const groupSurfaces = async (page: Page, width: number, browserName = 'chromium') => {
   const { words, cut, read } = walk(page, width)
   const menu = page.getByRole('menu')
   const dialog = page.getByRole('dialog')
   const newBtn = page.locator('.list-toolbar .chip.new-group')
   await page.setViewportSize({ width, height: 1500 })
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await grantClipboard(page.context(), browserName, { origin })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
 
@@ -825,7 +833,7 @@ const folderToShare = (page: Page, whole: boolean) => page.evaluate(async (whole
 }, whole)
 
 /** Draws the add, share and create dialogs in each of their states, at `width`. */
-const dialogSurfaces = async (page: Page, width: number) => {
+const dialogSurfaces = async (page: Page, width: number, browserName = 'chromium') => {
   const { words, cut, read } = walk(page, width)
   const dialog = page.getByRole('dialog')
   const header = page.locator('header')
@@ -837,7 +845,7 @@ const dialogSurfaces = async (page: Page, width: number) => {
   await answer(page, { low: true })
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
-  await chooseFolder(page)
+  if (browserName !== 'webkit') await chooseFolder(page)
 
   await field.fill(FRESH)
   await field.press('Enter')
@@ -862,6 +870,7 @@ const dialogSurfaces = async (page: Page, width: number) => {
   await library(page, LIST, TORRENTS)
   await expect(page.locator('.toast')).toBeVisible()
   await read('add, refused')
+  await answer(page, {})
 
   await page.goto(origin)
   await library(page, LIST, TORRENTS)
@@ -890,7 +899,7 @@ const dialogSurfaces = async (page: Page, width: number) => {
   await dialog.locator('.seg button').first().click()
   await expect(dialog.locator('#share-file')).toBeVisible()
   await read('share, a watch link')
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await grantClipboard(page.context(), browserName, { origin })
   await dialog.locator('.out button').first().click()
   await expect(page.locator('.toast')).toBeVisible()
   await read('share, copied')
@@ -1154,21 +1163,21 @@ const engineSurfaces = async (page: Page, width: number) => {
 // all in Latin, passed these on 2026-11-20, about 100 s each, too long for every push
 test.describe('in each language', () => {
   for (const language of [PSEUDO, 'de', 'ja', 'fr', 'ar', 'he', 'th', 'hi', 'el', 'uk']) {
-    test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page }) => {
+    test(`${language}: every surface fits at 1280 and 390 px, with none of the page's own words in English`, async ({ page, browserName }) => {
       test.setTimeout(240_000)
       await opening(page, language)
       for (const width of [1280, 390]) {
-        const seen = await everySurface(page, width)
+        const seen = await everySurface(page, width, browserName)
         expect(seen.words.length, `${width} px: the control, the page's words were read`).toBeGreaterThan(150)
         await expectAllTranslated(page, language, seen)
       }
     })
 
     for (const width of [1280, 390]) {
-      test(`${language} at ${width} px: the storage notice, the account and the sample fit, in the language`, async ({ page }) => {
+      test(`${language} at ${width} px: the storage notice, the account and the sample fit, in the language`, async ({ page, browserName }) => {
         test.setTimeout(120_000)
         await opening(page, language)
-        await expectAllTranslated(page, language, await smallParts(page, width))
+        await expectAllTranslated(page, language, await smallParts(page, width, browserName))
       })
 
       test(`${language} at ${width} px: the details panel fits, in the language`, async ({ page }) => {
@@ -1176,10 +1185,10 @@ test.describe('in each language', () => {
         await expectAllTranslated(page, language, await detailSurfaces(page, width))
       })
 
-      test(`${language} at ${width} px: the add, share and create dialogs fit, in the language`, async ({ page }) => {
+      test(`${language} at ${width} px: the add, share and create dialogs fit, in the language`, async ({ page, browserName }) => {
         test.setTimeout(120_000)
         await opening(page, language)
-        await expectAllTranslated(page, language, await dialogSurfaces(page, width))
+        await expectAllTranslated(page, language, await dialogSurfaces(page, width, browserName))
       })
 
       test(`${language} at ${width} px: the download page fits, in the language`, async ({ page }) => {
@@ -1194,16 +1203,16 @@ test.describe('in each language', () => {
         await expectAllTranslated(page, language, await engineSurfaces(page, width))
       })
 
-      test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page }) => {
+      test(`${language} at ${width} px: the options menu and its dialogs fit, in the language`, async ({ page, browserName }) => {
         test.setTimeout(120_000)
         await opening(page, language)
-        await expectAllTranslated(page, language, await optionSurfaces(page, width))
+        await expectAllTranslated(page, language, await optionSurfaces(page, width, browserName))
       })
 
-      test(`${language} at ${width} px: the groups, their menus and dialogs fit, in the language`, async ({ page }) => {
+      test(`${language} at ${width} px: the groups, their menus and dialogs fit, in the language`, async ({ page, browserName }) => {
         test.setTimeout(120_000)
         await opening(page, language)
-        await expectAllTranslated(page, language, await groupSurfaces(page, width))
+        await expectAllTranslated(page, language, await groupSurfaces(page, width, browserName))
       })
 
       test(`${language} at ${width} px: a tab another took over, and an update on its way, fit, in the language`, async ({ page }) => {
@@ -1269,7 +1278,7 @@ test.describe('in each language', () => {
 
 // Egypt's own digits are ٠ to ٩, which ripple never writes: every number is in 0 to 9, in every language and region
 test.describe('in an Egyptian browser', () => {
-  test('ar: every count, size, speed, percent, time and date on every surface in the digits 0 to 9', async ({ browser }) => {
+  test('ar: every count, size, speed, percent, time and date on every surface in the digits 0 to 9', async ({ browser, browserName }) => {
     test.setTimeout(300_000)
     const words: string[] = []
     // each walk from a page of its own, as each is written to start
@@ -1278,13 +1287,14 @@ test.describe('in an Egyptian browser', () => {
       const walked = await context.newPage()
       await prepare(walked)
       await opening(walked, 'ar')
-      words.push(...(await surfaces(walked, 1280)).words)
+      words.push(...(await surfaces(walked, 1280, browserName)).words)
       await context.close()
     }
     const numbered = [...new Set(words)].filter(word => /\p{Nd}/u.test(word))
     expect(numbered.filter(word => /[^\P{Nd}0-9]/u.test(word))).toEqual([])
     const kinds = {
-      count: /\d\u2069 قرينًا/u, size: /\d [كمغ]\.ب(?!\/)/u, speed: /\d [كمغ]\.ب\/ث/u, percent: /\d\u200e%/u, time: /\d د \d+ ث/u,
+      // Apple ICU omits the space before narrow Arabic duration units ('4د 18ث' vs Linux ICU '4 د 18 ث')
+      count: /\d\u2069 قرينًا/u, size: /\d [كمغ]\.ب(?!\/)/u, speed: /\d [كمغ]\.ب\/ث/u, percent: /\d\u200e%/u, time: /\d\s?د \d+\s?ث/u,
       // Chromium 145 writes no comma before the time, later ones do
       date: /\d\u200f?\/\d+\u200f?\/\d{4}،? \d+:\d\d:\d\d/u,
     }
@@ -1757,7 +1767,7 @@ test.describe('the header', () => {
     })
   }
 
-  test('on a phone the folded field opens to a press, takes a paste and the keyboard, narrows the list, and hands the row back', async ({ page }) => {
+  test('on a phone the folded field opens to a press, takes a paste and the keyboard, narrows the list, and hands the row back', async ({ page, browserName }) => {
     await page.setViewportSize({ width: 320, height: 844 })
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
@@ -1777,7 +1787,7 @@ test.describe('the header', () => {
     await expect(page.locator('.torrent')).toHaveCount(LIST.length)
 
     const sent = await sending(page, ['add-magnet'])
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+    await grantClipboard(page.context(), browserName, { origin })
     await page.evaluate(magnet => navigator.clipboard.writeText(magnet), magnetOf('7', 'Seven'))
     await page.keyboard.press('ControlOrMeta+V')
     await expect(field(page)).toHaveValue(magnetOf('7', 'Seven'))
@@ -1786,9 +1796,11 @@ test.describe('the header', () => {
     expect((await sent()).map(({ magnet }) => magnet)).toEqual([magnetOf('7', 'Seven')])
 
     // past the file picker, the next stop is Create, and the field folds to give it back its row
+    // macOS WebKit skips file inputs and buttons on plain Tab unless Option+Tab is pressed
+    const tab = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab'
     await field(page).focus()
-    await page.keyboard.press('Tab')
-    await page.keyboard.press('Tab')
+    await page.keyboard.press(tab)
+    await page.keyboard.press(tab)
     await expect(page.locator('header button.create')).toBeFocused()
     await expect(page.locator('header button.create')).toHaveCSS('opacity', '1')
     expect(await field(page).evaluate(input => input.getBoundingClientRect().width)).toBe(30)
@@ -2218,7 +2230,7 @@ test.describe('right to left', () => {
       await hinted(swarm.locator('.client'), PEER_CLIENT, 'the hint on a peer\'s client')
     })
 
-    test(`${language}: a name somebody wrote keeps its own order in the account, Settings, the add and create dialogs, the download page and the player`, async ({ page }) => {
+    test(`${language}: a name somebody wrote keeps its own order in the account, Settings, the add and create dialogs, the download page and the player`, async ({ page, browserName }) => {
       test.setTimeout(120_000)
       await opening(page, language)
       await page.addInitScript((folder) => { localStorage.setItem('spec:folder', folder); localStorage.setItem('ripple:add-dialog', '1') }, SAVE_FOLDER)
@@ -2233,12 +2245,14 @@ test.describe('right to left', () => {
       expect(await turned(menu.locator('.lucide-log-out')), 'the way out').toBe(rtl)
       await page.keyboard.press('Escape')
 
-      await toSettings(page)
-      const autoSave = page.locator('main .folder').last()
-      await autoSave.getByRole('button').first().click()
-      await expect(autoSave.getByRole('button')).toHaveCount(3)
-      await expectInOrder(autoSave, [SAVE_FOLDER], 'the folder on Settings')
-      await toLibrary(page)
+      if (browserName !== 'webkit') {
+        await toSettings(page)
+        const autoSave = page.locator('main .folder').last()
+        await autoSave.getByRole('button').first().click()
+        await expect(autoSave.getByRole('button')).toHaveCount(3)
+        await expectInOrder(autoSave, [SAVE_FOLDER], 'the folder on Settings')
+        await toLibrary(page)
+      }
 
       // the add dialog: the name, its files and the folder they can go to
       const added = magnetOf('b', encodeURIComponent(RELEASE))
@@ -2251,7 +2265,9 @@ test.describe('right to left', () => {
       await expect(dialog.locator('.file')).toHaveCount(2)
       await expectInOrder(dialog.locator('h2'), [RELEASE], 'the add dialog\'s name')
       await expectInOrder(dialog.locator('.file').first(), [RELEASE], 'a file in the add dialog')
-      await expectInOrder(dialog.locator('label.check', { hasText: SAVE_FOLDER }), [SAVE_FOLDER], 'the folder in the add dialog')
+      if (browserName !== 'webkit') {
+        await expectInOrder(dialog.locator('label.check', { hasText: SAVE_FOLDER }), [SAVE_FOLDER], 'the folder in the add dialog')
+      }
       await dialog.locator('footer button:not(.primary)').click()
       await expect(dialog).toHaveCount(0)
 
@@ -2307,7 +2323,7 @@ test.describe('right to left', () => {
       }
     })
 
-    test(`${language}: what is typed in the add field takes its own direction, the empty field the page's`, async ({ page }) => {
+    test(`${language}: what is typed in the add field takes its own direction, the empty field the page's`, async ({ page, browserName }) => {
       await opening(page, language)
       await page.setViewportSize({ width: 1280, height: 900 })
       await page.goto(origin)
@@ -2323,7 +2339,9 @@ test.describe('right to left', () => {
       await field.fill('بحث عربي')
       await field.blur()
       const arabic = await caretsAcross(field)
-      expect(arabic.at(-1), 'Arabic\'s first character is its rightmost').toBe(0)
+      expect(arabic[0], 'Arabic\'s last character is its leftmost').toBe('بحث عربي'.length)
+      // WebKit caretPositionFromPoint at a flush-right RTL Arabic glyph edge resolves to offset 1 while keeping RTL order
+      expect(arabic.at(-1), 'Arabic\'s first character is its rightmost').toBeLessThanOrEqual(browserName === 'webkit' ? 1 : 0)
       expect(arabic, 'and reads right to left').toEqual(arabic.toSorted((a, b) => b - a))
     })
 
@@ -2509,7 +2527,8 @@ test.describe('Settings', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 
-  test('a folder chosen there is the one the library saves to, and its default stays when it comes back', async ({ page }) => {
+  test('a folder chosen there is the one the library saves to, and its default stays when it comes back', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', WEBKIT_NO_FOLDER_PICKER)
     await page.goto(origin)
     await library(page, LIST, TORRENTS)
     await toSettings(page)
@@ -3178,8 +3197,8 @@ const str = (value: string) => `${Buffer.byteLength(value)}:${value}`
 // a .torrent whose info dictionary says private, as a private tracker hands one out
 const PRIVATE_TORRENT = Buffer.from(`d${str('announce')}${str('https://members.example/key/announce')}${str('info')}d${str('length')}i11e${str('name')}${str('Members')}${str('piece length')}i16384e${str('pieces')}${str('p'.repeat(20))}${str('private')}i1eee`)
 
-test('Copy link copies the shown group\'s link inside the click, leaves a private torrent out and says so, and reads back as the group', async ({ page }) => {
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+test('Copy link copies the shown group\'s link inside the click, leaves a private torrent out and says so, and reads back as the group', async ({ page, browserName }) => {
+  await grantClipboard(page.context(), browserName, { origin })
   await page.goto(origin)
   // Elsewhere's kept .torrent says private
   await keepTorrentFile(page, 'f'.repeat(40), PRIVATE_TORRENT)
@@ -3216,9 +3235,9 @@ test('Copy link copies the shown group\'s link inside the click, leaves a privat
   expect(read?.torrents.map(t => t.infoHash).sort()).toEqual(['b'.repeat(40), 'c'.repeat(40)])
 })
 
-test('Copy link for a group past the most a link holds says so, and copies nothing', async ({ page }) => {
+test('Copy link for a group past the most a link holds says so, and copies nothing', async ({ page, browserName }) => {
   test.setTimeout(180_000)
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await grantClipboard(page.context(), browserName, { origin })
   await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [LIST_VIEW_KEY, 'table'])
   await page.goto(origin)
   const hashOf = (i: number) => i.toString(16).padStart(40, '0')
@@ -3252,7 +3271,8 @@ test('a state filter says nothing matches from the engine\'s first report on, an
   await expect(page.locator('.empty')).toContainText('Nothing matches this filter.')
 })
 
-test('the auto-save folder takes a completed torrent as well as a seeding one, and no download', async ({ page }) => {
+test('the auto-save folder takes a completed torrent as well as a seeding one, and no download', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', WEBKIT_NO_FOLDER_PICKER)
   // as the engine reports a finished torrent: its files placed in the pieces and every piece held, which is what the
   // copy reads before it takes one
   const held = (snap: typeof TORRENTS[0]) => {
@@ -3724,17 +3744,17 @@ test('the table narrows to what the add field holds too, and Select all ticks on
   await expect(page.locator('.bulk-bar')).toContainText('1 selected')
 })
 
-test('the control: in English the same reading finds the page\'s own words', async ({ page }) => {
+test('the control: in English the same reading finds the page\'s own words', async ({ page, browserName }) => {
   test.setTimeout(120_000)
-  const { words } = await everySurface(page, 1280)
+  const { words } = await everySurface(page, 1280, browserName)
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   expect(englishIn([...new Set(words)], english()).length).toBeGreaterThan(100)
   for (const text of ['Seeding', 'Stop', 'Stop A.Season.Pack', 'Completed', 'Start', 'Start Watched.Film']) expect(words).toContain(text)
 })
 
-test('the control: in English the small parts\' own words are read too', async ({ page }) => {
+test('the control: in English the small parts\' own words are read too', async ({ page, browserName }) => {
   test.setTimeout(120_000)
-  const { words } = await smallParts(page, 1280)
+  const { words } = await smallParts(page, 1280, browserName)
   for (const text of ['Running out of room', 'Persistent', 'Blocked', 'Manage account', 'Add Sintel']) expect(words).toContain(text)
 })
 
@@ -3783,19 +3803,19 @@ test('the control: in English the player\'s top row and the engine\'s words are 
   ]) expect(read).toContain(text)
 })
 
-test('the control: in English the options menu\'s and its dialogs\' own words are read too', async ({ page }) => {
+test('the control: in English the options menu\'s and its dialogs\' own words are read too', async ({ page, browserName }) => {
   test.setTimeout(120_000)
-  const { words } = await optionSurfaces(page, 1280)
+  const { words } = await optionSurfaces(page, 1280, browserName)
   for (const text of [
     'Force recheck', 'Force recheck. Not on this device', 'Queue position 3', 'Try again now', 'Unlimited, 5 MB/s in total',
-    '8 MB/s, held to 5 MB/s in total', `Moves to ${FOLDER} when it finishes`, 'Done', 'Capped at 5 MB/s by the total limit.',
+    '8 MB/s, held to 5 MB/s in total', ...(browserName === 'webkit' ? [] : [`Moves to ${FOLDER} when it finishes`]), 'Done', 'Capped at 5 MB/s by the total limit.',
     'kB/s', 'Enter a speed in kB/s, or tick Unlimited.', 'Remove limit', 'Cancel', 'Don\'t ask again',
   ]) expect(words).toContain(text)
 })
 
-test('the control: in English the groups\' surfaces and a group sent by link are read too, and fit', async ({ page }) => {
+test('the control: in English the groups\' surfaces and a group sent by link are read too, and fit', async ({ page, browserName }) => {
   test.setTimeout(120_000)
-  const { words, cut } = await groupSurfaces(page, 1280)
+  const { words, cut } = await groupSurfaces(page, 1280, browserName)
   expect(cut).toEqual([])
   for (const text of ['Icon', 'Auto', 'Image', 'Download all', 'Copy link', 'Edit...', 'Link copied', 'Weekend watch list', '2 torrents', 'No torrents in this group', 'Add', 'That link could not be read']) expect(words).toContain(text)
 })

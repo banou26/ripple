@@ -159,7 +159,8 @@ const dialogueSpans = (offset: number): Span[] => [
   ...BURSTS.map((start, i): Span => [offset + start + 1.5, offset + (BURSTS[i + 1] ?? HALF) - 0.5]),
 ]
 
-test('short bursts are held and the dialogue is left as it is, on by default, and off is the control', async ({ browser, baseURL }) => {
+test('short bursts are held and the dialogue is left as it is, on by default, and off is the control', async ({ browser, baseURL, browserName }) => {
+  test.skip(browserName === 'webkit', '@banou/ponyfill createMediaElementSource refuses WebKit with NotSupportedError because routing a media element into Web Audio breaks volume/mute or silences audio in WebKit')
   test.setTimeout(300_000)
   const dir = test.info().outputPath()
   const file = makeEpisode(dir)

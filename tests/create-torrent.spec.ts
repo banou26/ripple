@@ -18,7 +18,9 @@
  *
  * No network and no transfer: the torrent is complete from the moment it exists, so this is headless.
  */
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
+
+const WEBKIT_NO_FOLDER_PICKER = 'WebKit has no showDirectoryPicker and throws DataCloneError cloning FileSystemDirectoryHandle (measured WebKit 26.5)'
 
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 import { linkParams } from '../src/router/path'
@@ -93,7 +95,8 @@ const lastRows = (page: import('@playwright/test').Page) =>
     return frames[frames.length - 1] ?? []
   })
 
-test('a folder on this device becomes a torrent the engine verifies and seeds', async ({ page }) => {
+test('a folder on this device becomes a torrent the engine verifies and seeds', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', WEBKIT_NO_FOLDER_PICKER)
   test.setTimeout(240_000)
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))
@@ -256,9 +259,9 @@ test('a v2 torrent says up front that a folder holding one file will not survive
   expect(pageErrors).toEqual([])
 })
 
-test('a torrent just made is copied and shared from the dialog that made it', async ({ page, context }) => {
+test('a torrent just made is copied and shared from the dialog that made it', async ({ page, context, browserName }) => {
   test.setTimeout(120_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   await page.addInitScript(install, LONE)
 
   await page.goto('/')
@@ -290,7 +293,8 @@ test('a torrent just made is copied and shared from the dialog that made it', as
  * A torrent made in place reads the person's own files, so removing it deletes nothing. The bar's Remove still asks the
  * engine to delete them, which is why the files are read after it.
  */
-test('a torrent made in place is only removed from the library, and its files stay', async ({ page }) => {
+test('a torrent made in place is only removed from the library, and its files stay', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', WEBKIT_NO_FOLDER_PICKER)
   test.setTimeout(240_000)
   const NAME = 'ripple-test-source'
   await page.addInitScript(install, PACK)

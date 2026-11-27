@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 import type { Download, Frame, Page } from '@playwright/test'
 import { Route, linkPath } from '../src/router/path'
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
 import { hideController } from './worker-control'
 
 const TOTAL = 3 * 1024 * 1024
@@ -271,9 +271,9 @@ const opened = (target: Page | Frame) => target.evaluate(() => (window as any)._
  * worker that does not take the save, the page waits for the button as before, and a press before the 2 s is its
  * only save.
  */
-test('a download link opened as its own page starts saving by itself', async ({ page, context }) => {
+test('a download link opened as its own page starts saving by itself', async ({ page, context, browserName }) => {
   test.setTimeout(300_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   await context.addInitScript(watchSaves)
   await libraryFile(page)
   await page.locator('.torrent', { hasText: FILE.name }).click({ button: 'right' })
@@ -387,9 +387,9 @@ test('a download link opened as its own page starts saving by itself', async ({ 
  * given a new src. The second still gets a page of its own, with nothing of the first's and a start of its own,
  * and the way back to the first does not save it again.
  */
-test('a second download link opened in the same tab is a page of its own', async ({ page, context }) => {
+test('a second download link opened in the same tab is a page of its own', async ({ page, context, browserName }) => {
   test.setTimeout(300_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   const SECOND = { name: 'E02.mkv', bytes: 200_000, fill: 0x22 }
   const linkTo = async (file: typeof FILE) => {
     await libraryFile(page, file)
@@ -463,5 +463,6 @@ test('closing the page mid-save fails the browser\'s download', async ({ page, b
     download.failure().then((failure) => failure ?? 'finished'),
     new Promise((resolve) => setTimeout(() => resolve('still in progress 30 s after the page closed'), 30_000)),
   ])
-  expect(outcome).toBe('canceled')
+  if (browserName === 'webkit') expect(outcome).toMatch(/cancel/i)
+  else expect(outcome).toBe('canceled')
 })

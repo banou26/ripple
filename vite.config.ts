@@ -38,13 +38,24 @@ const findFirefox = () => {
   return build && existsSync(path) ? path : undefined
 }
 
+const findWebkit = () => {
+  if (process.env.RIPPLE_WEBKIT) return process.env.RIPPLE_WEBKIT
+  if (process.platform !== 'darwin') return undefined
+  const set = process.env.PLAYWRIGHT_BROWSERS_PATH
+  const build = set && existsSync(set) ? readdirSync(set).find((name) => name.startsWith('webkit-')) : undefined
+  // macOS Playwright WebKit needs pw_run.sh so DYLD_FRAMEWORK_PATH resolves bundled WebKit.framework
+  const path = `${set}/${build}/pw_run.sh`
+  return build && existsSync(path) ? path : undefined
+}
+
 /**
  * A Playwright run-server for WebKit (scripts/webkit-server.sh), because the store's WebKit is built for another
- * Playwright and opens no page here. CI launches Playwright's own. Anywhere else the browser suite runs no WebKit, and
- * says so.
+ * Playwright and opens no page here. macOS uses Playwright's WebKit binary directly via findWebkit(). CI launches
+ * Playwright's own. Anywhere else the browser suite runs no WebKit, and says so.
  */
 const webkitServer = process.env.RIPPLE_WEBKIT_WS
-const withWebkit = Boolean(webkitServer || process.env.CI)
+const webkitBin = findWebkit()
+const withWebkit = Boolean(webkitServer || webkitBin || process.env.CI)
 // not on `npm test`, which runs the unit project only
 if (process.env.VITEST && !withWebkit && !process.argv.includes('unit')) console.warn('ripple: no RIPPLE_WEBKIT_WS, so the browser suite runs no WebKit (scripts/webkit-server.sh starts one)')
 
@@ -377,6 +388,7 @@ export default defineConfig((env) => ({
                 viewport: { width: 1280, height: 720 },
                 include: ACROSS_ENGINES,
                 provider: playwright({
+                  launchOptions: !webkitServer && webkitBin ? { executablePath: webkitBin } : undefined,
                   // the test server is reached through this client's loopback, and the container's network reaches nothing
                   connectOptions: webkitServer ? { wsEndpoint: webkitServer, exposeNetwork: '<loopback>' } : undefined,
                   contextOptions: { locale: 'en-US' },

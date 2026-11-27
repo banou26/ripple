@@ -2,16 +2,16 @@
  * The download page's share actions that need nothing from the swarm. Rebuilding the .torrent needs Sintel's
  * metadata from it, so that test is in embed-download.spec.ts.
  */
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
 
 const SINTEL = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F'
 const SINTEL_HASH = '08ada5a7a6183aae1e09d831df6748d566095a10'
 const downloadUrl = `/download?magnet=${Buffer.from(SINTEL).toString('base64')}`
 
 test.describe('the download page share actions', () => {
-  test('copies the magnet to the clipboard', async ({ page, context }) => {
+  test('copies the magnet to the clipboard', async ({ page, context, browserName }) => {
     test.setTimeout(120_000)
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await grantClipboard(context, browserName)
     await page.goto(downloadUrl)
 
     const copy = page.getByRole('button', { name: 'Copy magnet' })

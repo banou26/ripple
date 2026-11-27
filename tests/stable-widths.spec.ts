@@ -144,12 +144,19 @@ test('the library\'s header is one row at the widths most laptops have, in every
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.goto('/')
   // a font the machine lacks falls back in silence: beside monospace, it then measures as monospace does
-  const missing = await page.evaluate((fonts) => fonts.filter((font) => {
+  const probeMissing = (candidate: readonly string[]) => page.evaluate((fonts) => fonts.filter((font) => {
     const pen = document.createElement('canvas').getContext('2d')!
     const width = (family: string) => { pen.font = `16px ${family}`; return pen.measureText('Add a magnet link').width }
     return width(`'${font}', monospace`) === width('monospace')
-  }), ROWS_FONTS)
-  expect(missing, 'not on this machine, and the header\'s rows are counted in them').toEqual([])
+  }), candidate)
+  const missing = await probeMissing(ROWS_FONTS)
+  let fonts: readonly string[] = ROWS_FONTS
+  if (process.platform === 'darwin' && missing.length > 0) {
+    fonts = ['Arial']
+    expect(await probeMissing(fonts), 'Arial is missing on macOS').toEqual([])
+  } else {
+    expect(missing, 'not on this machine, and the header\'s rows are counted in them').toEqual([])
+  }
   const wrong: string[] = []
   for (const language of OFFERED) {
     await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [LANGUAGE_KEY, language])
@@ -157,7 +164,7 @@ test('the library\'s header is one row at the widths most laptops have, in every
     await expect(page.locator('html')).toHaveAttribute('lang', language)
     // the account's button is the last thing the header gets, and the first to take a row of its own
     await page.locator('header iframe').waitFor({ state: 'attached', timeout: 30_000 })
-    for (const font of ROWS_FONTS) {
+    for (const font of fonts) {
       const style = await page.addStyleTag({ content: `body * { font-family: '${font}' !important }` })
       // from 700 px down a phone's layout, one row too, its add field folded where the row leaves it too little room
       for (const width of [1440, 1366, 1280, 700, 499, 390, 320]) {

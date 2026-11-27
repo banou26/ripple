@@ -178,7 +178,7 @@ test('a torrent of one\'s own answers the offer too, and removing it does not br
   await expect(offer).toHaveCount(0)
 })
 
-test('closing the tab asks first while a torrent of one\'s own downloads, and not once it is paused', async ({ page }) => {
+test('closing the tab asks first while a torrent of one\'s own downloads, and not once it is paused', async ({ page, browserName }) => {
   await page.addInitScript(() => localStorage.setItem('ripple:demo-seeded', '1'))
   await page.addInitScript(probeEngine)
   await page.goto('/')
@@ -197,8 +197,15 @@ test('closing the tab asks first while a torrent of one\'s own downloads, and no
 
   await row.getByRole('button', { name: 'Pause Own', exact: true }).click()
   await expect(row.locator('.badge')).toHaveText('Paused')
-  await page.close({ runBeforeUnload: true })
-  await expect.poll(() => page.isClosed()).toBe(true)
+  if (browserName === 'webkit') {
+    // Playwright WebKit leaves page.isClosed() false on a second close({ runBeforeUnload: true })
+    // after a dismissed beforeunload dialog even when no listener remains; navigating proves it is gone.
+    await page.goto('about:blank')
+    expect(page.url()).toBe('about:blank')
+  } else {
+    await page.close({ runBeforeUnload: true })
+    await expect.poll(() => page.isClosed()).toBe(true)
+  }
   expect(asked).toEqual(['beforeunload'])
 })
 
@@ -233,9 +240,13 @@ const statusOf = (page: Page, hash: string) =>
  * holds the rest for their first minute, so from the fourth on each reads Queued until then.
  */
 const addHeld = async (page: Page, names: readonly string[]) => {
+  const field = page.getByPlaceholder('Add a magnet link')
   for (const [i, name] of names.entries()) {
-    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 1).repeat(40)}&dn=${name}`)
+    const magnet = `magnet:?xt=urn:btih:${String(i + 1).repeat(40)}&dn=${name}`
+    await field.fill(magnet)
+    await expect(field).toHaveValue(magnet)
     await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(field).toHaveValue('')
   }
   for (const name of names.slice(3)) await expect(card(page, name).locator('.badge')).toHaveText('Queued', { timeout: 30_000 })
   return (name: string) => String(names.indexOf(name) + 1).repeat(40)
@@ -246,13 +257,24 @@ test('a press aimed at a new torrent\'s Pause pauses it, though the queue holds 
   await page.addInitScript(probeEngine)
   await page.goto('/')
   await engineReady(page)
+  // fill libtorrent's three active download slots so the next torrent is deterministically held in Queued
+  for (const [i, name] of ['One', 'Two', 'Three'].entries()) {
+    await page.getByPlaceholder('Add a magnet link').fill(`magnet:?xt=urn:btih:${String(i + 1).repeat(40)}&dn=${name}`)
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(card(page, name).locator('.badge')).toHaveText('Downloading', { timeout: 30_000 })
+  }
+  const ownHash = 'a'.repeat(40)
   await page.getByPlaceholder('Add a magnet link').fill(NOBODY)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
-  const row = page.locator('.torrent').first()
+  const row = card(page, 'Own')
   // where the Pause icon first shows, before the engine has reported on the magnet
-  const at = (await row.getByRole('button', { name: 'Pause Own', exact: true }).boundingBox({ timeout: 30_000 }))!
-  // the half second libtorrent's queue holds every new torrent, once the page has drawn it
-  await page.waitForFunction(() => ((window as any).__state ?? []).some((t: any) => t.status?.paused && t.status.autoManaged), undefined, { timeout: 30_000 })
+  const at = await row.getByRole('button', { name: 'Pause Own', exact: true }).boundingBox({ timeout: 30_000 })
+  if (!at) throw new Error('missing Pause button boundingBox')
+  await page.waitForFunction(
+    (hash) => ((window as any).__state ?? []).some((t: any) => t.magnet?.includes(hash) && t.status?.paused && t.status.autoManaged),
+    ownHash,
+    { timeout: 30_000 },
+  )
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   expect(await row.locator('.badge').textContent(), 'the press lands while the queue holds it').toBe('Queued')
   await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)

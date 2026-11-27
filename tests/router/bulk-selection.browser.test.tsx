@@ -227,6 +227,8 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
     t({ name: 'Peach', state: 'starting' }),
   ], 'name', 'asc')
   const NONE = [false, false, false, false, false, false]
+  const isMac = /Mac/i.test(navigator.platform)
+  const mod = isMac ? 'Meta' : 'Control'
 
   for (const view of ['cards', 'table'] as const) {
     it(`picks in the ${view} as the box would, and opens nothing`, async () => {
@@ -234,7 +236,7 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       expect(DRAWN.map((x) => x.name)).toEqual(['Jujube', 'Kiwi', 'Lime', 'Mango', 'Nectarine', 'Peach', 'Olive'])
       const row = (name: string) => screen.getByText(name, { exact: true })
       window.getSelection()?.removeAllRanges()
-      await userEvent.click(row('Lime'), { modifiers: ['Control'] })
+      await userEvent.click(row('Lime'), { modifiers: [mod] })
       expect(ticked()).toEqual([false, false, true, false, false, false])
       // Firefox selects a table cell under a Ctrl+click of its own
       expect(window.getSelection()?.toString()).toBe('')
@@ -246,9 +248,9 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       // nor any text from the click before it
       expect(window.getSelection()?.toString()).toBe('')
       // Lime is ticked, so the run from Olive back to it unticks
-      await userEvent.click(row('Lime'), { modifiers: ['Control', 'Shift'] })
+      await userEvent.click(row('Lime'), { modifiers: [mod, 'Shift'] })
       expect(ticked()).toEqual([false, true, false, false, false, false])
-      await userEvent.click(row('Peach'), { modifiers: ['Control'] })
+      await userEvent.click(row('Peach'), { modifiers: [mod] })
       await userEvent.click(row('Peach'), { modifiers: ['Shift'] })
       expect(ticked()).toEqual([false, true, false, false, false, false])
       // nor did Peach become the row a run starts from: it is still Lime
@@ -277,7 +279,8 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       document.body.prepend(field)
       try {
         const { screen } = await library(view, DRAWN)
-        for (const key of ['Control', 'Meta', 'Shift'] as const) {
+        const keys = isMac ? (['Meta', 'Shift'] as const) : (['Control', 'Meta', 'Shift'] as const)
+        for (const key of keys) {
           field.focus()
           await userEvent.click(screen.getByText('Lime', { exact: true }), { modifiers: [key] })
           expect(document.activeElement, key).toBe(document.body)
@@ -289,7 +292,7 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
 
     it(`leaves a Ctrl+click on a control of the row's own to it in the ${view}`, async () => {
       const { screen, ticked, onSelect, onOptions } = await library(view, DRAWN)
-      await userEvent.click(screen.getByRole('button', { name: 'Options for Lime' }), { modifiers: ['Control'] })
+      await userEvent.click(screen.getByRole('button', { name: 'Options for Lime' }), { modifiers: [mod] })
       expect(onOptions).toHaveBeenCalledWith(expect.objectContaining({ name: 'Lime' }), null)
       await userEvent.click(screen.getByRole('button', { name: 'Options for Olive' }), { modifiers: ['Shift'] })
       expect(onOptions).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Olive' }), null)
@@ -301,11 +304,15 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
       const { screen } = await library(view, DRAWN)
       const prevented: boolean[] = []
       const look = (e: MouseEvent) => { prevented.push(e.defaultPrevented) }
+      // suppress the native context menu on macOS WebKit so it does not swallow clicks in later tests
+      const noMenu = (e: MouseEvent) => e.preventDefault()
       document.addEventListener('mousedown', look)
+      document.addEventListener('contextmenu', noMenu)
       try {
         await userEvent.click(screen.getByText('Lime', { exact: true }), { button: 'right', modifiers: ['Shift'] })
       } finally {
         document.removeEventListener('mousedown', look)
+        document.removeEventListener('contextmenu', noMenu)
       }
       expect(prevented).toEqual([false])
     })
@@ -323,7 +330,7 @@ describe('a click on a row with Ctrl, Cmd or Shift held', () => {
     document.addEventListener('mousedown', look)
     document.addEventListener('click', look)
     try {
-      await userEvent.click(screen.getByRole('link', { name: 'Watch Jujube' }), { modifiers: ['Control'] })
+      await userEvent.click(screen.getByRole('link', { name: 'Watch Jujube' }), { modifiers: [mod] })
     } finally {
       document.removeEventListener('mousedown', look)
       document.removeEventListener('click', look)

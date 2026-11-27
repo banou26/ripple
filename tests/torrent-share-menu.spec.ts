@@ -7,16 +7,16 @@
  */
 import type { Page } from '@playwright/test'
 
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
 
 import { addSample } from './sample-offer'
 import { decodeMagnetParam } from '../src/router/magnet-codec'
 import { linkParams } from '../src/router/path'
 import { magnetParam, magnetParams } from '../src/torrent/magnet'
 
-test('a torrent offers its magnet, name, info hash and .torrent from the right-click menu', async ({ page, context }) => {
+test('a torrent offers its magnet, name, info hash and .torrent from the right-click menu', async ({ page, context, browserName }) => {
   test.setTimeout(180_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   await page.goto('/')
 
   const row = await addSample(page, { pause: true })
@@ -136,9 +136,9 @@ test('a private .torrent gets no share link from its row, before a reload and af
  * A row's Copy magnet leaves a private torrent out as the bar's Copy magnets does: nothing is written, so the clipboard
  * keeps what it held, and the message is the bar's. The public pack is the control: its magnet is copied, key and all.
  */
-test('a private .torrent\'s Copy magnet copies nothing, from its menu and from its options', async ({ page, context }) => {
+test('a private .torrent\'s Copy magnet copies nothing, from its menu and from its options', async ({ page, context, browserName }) => {
   test.setTimeout(180_000)
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await grantClipboard(context, browserName)
   await page.goto('/')
   await addPacks(page)
   for (const name of ['Private pack', 'Public pack']) {

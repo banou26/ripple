@@ -15,6 +15,7 @@ import { startTracker } from './vpn-off/tracker.mjs'
 
 // with WebRTC peers stopped nothing announces to a WebSocket tracker
 test.skip(!WEBRTC_PEERS, 'WebRTC peers are stopped in this build')
+test.skip(({ browserName }) => browserName === 'webkit', 'WebKit has no --host-resolver-rules for ripple-tracker.test (measured WebKit 26.5)')
 
 test.use({
   launchOptions: {

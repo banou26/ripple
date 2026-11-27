@@ -13,6 +13,8 @@ import { createHash } from 'node:crypto'
 
 import { expect, test } from './offline'
 
+test.skip(({ browserName }) => browserName === 'webkit', 'WebKit has no showDirectoryPicker and throws DataCloneError storing FileSystemDirectoryHandle in IndexedDB (measured WebKit 26.5)')
+
 const PIECE = 16_384
 
 const bencode = (value: unknown): Buffer => {

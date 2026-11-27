@@ -220,7 +220,10 @@ test('Settings Seeding limits default unchecked, persist ratio & time across rel
   expect(errors).toEqual([])
 })
 
-test('ephemeral /watch playback keeps seeding by default on completion and stops only when viewing closes', async ({ browser, baseURL }) => {
+const WEBKIT_NO_TRACKER_RIG = 'WebKit has no --host-resolver-rules for ripple-tracker.test and rejects grantPermissions([microphone]) needed for loopback WebRTC ICE candidates (measured WebKit 26.5)'
+
+test('ephemeral /watch playback keeps seeding by default on completion and stops only when viewing closes', async ({ browser, baseURL, browserName }) => {
+  test.skip(browserName === 'webkit', WEBKIT_NO_TRACKER_RIG)
   test.setTimeout(240_000)
   const trackerUrl = `ws://ripple-tracker.test:${tracker.port}`
   const seeder = await openVisitor(await browser.newContext(), `${baseURL}/`)
@@ -274,7 +277,8 @@ test('ephemeral /watch playback keeps seeding by default on completion and stops
   }
 })
 
-test('library seeding limits keep default Seeding after serving peers, stop at ratio limit, and resume on manual Start', async ({ browser, baseURL }) => {
+test('library seeding limits keep default Seeding after serving peers, stop at ratio limit, and resume on manual Start', async ({ browser, baseURL, browserName }) => {
+  test.skip(browserName === 'webkit', WEBKIT_NO_TRACKER_RIG)
   test.setTimeout(240_000)
   const trackerUrl = `ws://ripple-tracker.test:${tracker.port}`
   const seeder = await openVisitor(await browser.newContext(), `${baseURL}/`)

@@ -12,7 +12,7 @@
  */
 import type { Page } from '@playwright/test'
 
-import { expect, test } from './offline'
+import { expect, grantClipboard, test } from './offline'
 
 import { REORDER_QUIET_MS } from '../src/torrent/list-view'
 import { magnetParam } from '../src/torrent/magnet'
@@ -248,9 +248,11 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
   const row = (name: string) => page.locator('main').getByText(name, { exact: true })
   const [apple, banana, cherry] = names
 
+  // on macOS Control+click opens a context menu rather than toggling a row click
+  const primaryMod = process.platform === 'darwin' ? 'Meta' : 'Control'
   for (const view of ['cards', 'table'] as const) {
     if (view === 'table') await page.getByRole('button', { name: 'Table' }).click()
-    await row(banana).click({ modifiers: ['Control'] })
+    await row(banana).click({ modifiers: [primaryMod] })
     await expect(bar).toContainText('1 selected')
     await expect(details).toHaveCount(0)
     // the control: a click with no key held opens the panel, and picks nothing
@@ -260,7 +262,7 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
 
     await row(banana).click({ modifiers: ['Meta'] })
     await expect(bar).toHaveCount(0)
-    await row(cherry).click({ modifiers: ['Control'] })
+    await row(cherry).click({ modifiers: [primaryMod] })
     // on another row than the plain click's, which left the caret to extend a selection from
     await row(apple).click({ modifiers: ['Shift'] })
     await expect(bar).toContainText('3 selected')
@@ -270,7 +272,7 @@ test('a click on a row with Ctrl, Cmd or Shift held picks it, and the detail pan
 
     // from the search field, which such a click leaves as a plain click does, so Escape clears the picks
     await field.focus()
-    await row(banana).click({ modifiers: ['Control'] })
+    await row(banana).click({ modifiers: [primaryMod] })
     await expect(bar).toContainText('2 selected')
     await page.keyboard.press('Escape')
     await expect(bar).toHaveCount(0)
@@ -397,8 +399,8 @@ test('a removal confirmed while the engine moves to another tab leaves its torre
  * leaves out the one whose kept .torrent says it is private, as a share link does. With it unticked the message names
  * no private torrent. With only that one ticked nothing is written, and the clipboard keeps what it held.
  */
-test('Copy magnets copies the ticked torrents\' magnets in list order, and leaves a private one out', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+test('Copy magnets copies the ticked torrents\' magnets in list order, and leaves a private one out', async ({ page, context, browserName }) => {
+  await grantClipboard(context, browserName)
   await prepare(page)
   await page.goto('/')
   for (const magnet of [`magnet:?xt=urn:btih:${'1a'.repeat(20)}&dn=Copy.One`, `magnet:?xt=urn:btih:${'2b'.repeat(20)}&dn=Copy.Two`]) {

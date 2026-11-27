@@ -8,7 +8,8 @@ import { expect, test } from './offline'
 
 const MAGNET = 'input[aria-label="Add a magnet link, or search"]'
 
-test('a return visit runs the entry from the service worker cache, with no request to the server', async ({ page, request }) => {
+test('a return visit runs the entry from the service worker cache, with no request to the server', async ({ page, request, browserName }) => {
+  test.skip(browserName === 'webkit', 'Playwright newCDPSession is Chromium-only')
   const entry = /<script type="module"[^>]* src="([^"]+)"/.exec(await (await request.get('/')).text())?.[1]
   expect(entry, 'the page loads no module').toBeDefined()
   await page.goto('/')

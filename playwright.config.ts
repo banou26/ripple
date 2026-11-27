@@ -88,5 +88,15 @@ export default defineConfig({
         },
       },
     },
+    {
+      name: 'webkit',
+      use: {
+        ...devices['Desktop Safari'],
+        launchOptions: {
+          // optional override; unset uses PLAYWRIGHT_BROWSERS_PATH or Playwright's own install
+          executablePath: process.env.RIPPLE_WEBKIT || undefined,
+        },
+      },
+    },
   ],
 })
