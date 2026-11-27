@@ -175,6 +175,8 @@ const style = css`
 
     input[type='file'] {
       position: absolute;
+      inset-block-start: 0;
+      inset-inline-start: 0;
       width: 1px;
       height: 1px;
       opacity: 0;

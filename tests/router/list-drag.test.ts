@@ -6,7 +6,7 @@ import type { ListOrder } from '../../src/torrent/list-order'
 import type { Torrent } from '../../src/torrent/types'
 
 import { summarizeGroup } from '../../src/torrent/group-rows'
-import { buildNewGroupTopOrder, moveEntryByStep, parseChildKey, resolveDrop } from '../../src/router/list-drag'
+import { buildNewGroupTopOrder, moveEntryByStep, parseChildKey, resolveDrop, rowDragAttrs, type RowDragActions } from '../../src/router/list-drag'
 
 const makeTorrent = (infoHash: string, name = infoHash): Torrent => ({
   id: infoHash,
@@ -303,5 +303,27 @@ describe('list-drag pure helpers', () => {
       entries,
       listOrder: emptyOrder,
     })).toBeNull()
+  })
+
+  it('wires onDragEnter to dragActions.onOver so WebKit allows drops without an extra move', () => {
+    const called: string[] = []
+    const dragActions: RowDragActions = {
+      onStart: () => {},
+      onEnd: () => {},
+      onOver: (targetKey, allowInto) => called.push(`over:${targetKey}:${String(allowInto)}`),
+      onLeave: () => {},
+      onDrop: () => {},
+    }
+    const attrs = rowDragAttrs({
+      dragActions,
+      dragKey: 'g:g1',
+      payload: { kind: 'top', key: 'g:g1' },
+      allowInto: true,
+    })
+    expect('onDragEnter' in attrs && typeof attrs.onDragEnter).toBe('function')
+    if ('onDragEnter' in attrs && attrs.onDragEnter) {
+      attrs.onDragEnter({} as Parameters<NonNullable<typeof attrs.onDragEnter>>[0])
+    }
+    expect(called).toEqual(['over:g:g1:true'])
   })
 })

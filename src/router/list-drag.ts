@@ -50,6 +50,8 @@ export const rowDragAttrs = ({
       onDragStart: payload ? (e: ReactDragEvent) => dragActions.onStart(payload, dragKey, e) : undefined,
       onDragEnd: dragActions.onEnd,
       onTouchCancel: dragActions.onEnd,
+      // WebKit cancels the drop if the target only listens to dragover without calling preventDefault() on dragenter.
+      onDragEnter: (e: ReactDragEvent) => dragActions.onOver(dragKey, allowInto, e),
       onDragOver: (e: ReactDragEvent) => dragActions.onOver(dragKey, allowInto, e),
       onDragLeave: () => dragActions.onLeave(dragKey),
       onDrop: (e: ReactDragEvent) => dragActions.onDrop(dragKey, allowInto, e),

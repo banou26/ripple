@@ -224,6 +224,7 @@ const style = css`
     /* the busy label names a file, and a release's name is one word with no spaces */
     overflow-wrap: anywhere;
 
+    span { min-width: 0; }
     svg { width: 18px; height: 18px; flex: none; }
 
     /* Down, not up: EMPHASIS is already the brightest fill the palette has, so the hover steps to
@@ -267,6 +268,7 @@ const style = css`
     text-align: center;
     overflow-wrap: anywhere;
 
+    span { min-width: 0; }
     svg { width: 17px; height: 17px; flex: none; }
 
     &:hover { background: ${CONTROL_HOVER_BG}; border-color: ${BORDER_INTERACTIVE}; }
@@ -1130,7 +1132,7 @@ const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
 
           <button className="cta" onClick={() => start(entries, downloading)} disabled={!ready || busy}>
             {!busy && <Download />}
-            {label}
+            <span>{label}</span>
           </button>
 
           {/**
@@ -1145,7 +1147,7 @@ const DownloadPage = ({ magnet, selection, linked, link }: Props) => {
           {watchHere && !busy && (
             <Link className="watch" to={watchHere}>
               <Play />
-              {watchLabel}
+              <span>{watchLabel}</span>
             </Link>
           )}
 
