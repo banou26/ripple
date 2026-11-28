@@ -359,34 +359,38 @@ test('a torrent checking its files at the folder shows no download speed', async
   /*
    * A speed is read from engine reports a second apart, which come every 500 ms. Measured 2026-11-28 on Chromium 149
    * (64 KiB pieces took 1,498 ms on 608 MiB, leaving too little margin on smaller CI origins), 16 KiB pieces keep a
-   * multi-second check even around 256 to 320 MiB while keeping the .torrent under ~1.3 MiB.
+   * multi-second check even around 256 to 320 MiB while keeping the .torrent under ~700 KiB.
    */
   const BIG_PIECE = 16 * 1024
   await page.goto('/')
   /*
    * The file sits in browser storage and is copied into the picked folder, which is browser storage here too, so it
    * needs twice its size plus engine headroom. Chromium 149 reports a privacy-bucketed estimate().quota (4 to 5 GiB
-   * in incognito) above its actual OPFS write cap (1,600 MiB on 24 GiB macOS, under 1 GiB on 16 GiB CI runners), so
-   * measure what a write actually accepts and take 40% of it (80% across both copies).
+   * in incognito) above its actual OPFS write cap (1,232 to 1,600 MiB on 24 GiB macOS, under 1 GiB on 16 GiB CI
+   * runners), and hitting the cap mid-stream on Linux can surface as either QuotaExceededError or AbortError ("Failed
+   * to write data to data pipe") when the browser closes the Mojo pipe before the error reply lands; measure what a
+   * write actually accepts (up to 1,280 MiB, enough for a 512 MiB file) and take 40% of it (80% across both copies).
    */
   const taken = await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory()
     const name = 'probe-room.bin'
-    const chunk = new Uint8Array(16 * 1024 * 1024)
-    const limit = 2560 * 1024 * 1024
+    const chunk = new Uint8Array(4 * 1024 * 1024)
+    const limit = 1280 * 1024 * 1024
     const writable = await (await root.getFileHandle(name, { create: true })).createWritable()
     let at = 0
     try {
       for (; at < limit; at += chunk.length) await writable.write(chunk)
     } catch (error) {
-      if ((error as DOMException).name !== 'QuotaExceededError') throw error
+      const dom = error as DOMException
+      const quotaStop = dom.name === 'QuotaExceededError' || (dom.name === 'AbortError' && at > 0 && /data pipe/i.test(dom.message))
+      if (!quotaStop) throw error
     } finally {
       await writable.abort().catch(() => {})
       await root.removeEntry(name).catch(() => {})
     }
     return at
   })
-  const size = Math.min(1024 * 1024 * 1024, Math.floor((taken * 0.4) / BIG_PIECE) * BIG_PIECE)
+  const size = Math.min(512 * 1024 * 1024, Math.floor((taken * 0.4) / BIG_PIECE) * BIG_PIECE)
   test.skip(size < 256 * 1024 * 1024, `browser storage took ${taken} bytes (room for ${size} per copy), too few for a check long enough to read a speed`)
   const file = { path: 'large.bin', size, fill: 0x61 }
   // every piece holds the same bytes, so one hash stands for all of them

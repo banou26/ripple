@@ -115,11 +115,6 @@ for (const { where, framed } of TOPOLOGIES) {
     try {
       const page = await context.newPage()
       await page.addInitScript(instrument)
-      const logs: string[] = []
-      page.on('pageerror', (error) => logs.push(`pageerror:${String(error)}`))
-      page.on('console', (msg) => {
-        if (msg.type() === 'warning' || msg.type() === 'error') logs.push(`${msg.type()}:${msg.text()}`)
-      })
       const served: string[] = []
       context.on('response', (response) => {
         const url = new URL(response.url())
@@ -165,19 +160,7 @@ for (const { where, framed } of TOPOLOGIES) {
         expect(blobRefused, 'the tenant CSP is not in force on /watch').toBe(true)
       }
 
-      try {
-        await expect.poll(() => inked(frame), { timeout: 60_000, intervals: [250] }).not.toBeNull()
-      } catch (error) {
-        const state = await frame.evaluate(() => {
-          const v = document.querySelector('video')
-          const c = document.querySelector<HTMLCanvasElement>('.subtitles canvas')
-          return {
-            video: v ? { readyState: v.readyState, w: v.videoWidth, h: v.videoHeight, t: v.currentTime, paused: v.paused, err: v.error?.code ?? null } : null,
-            canvas: c ? { w: c.width, h: c.height, pending: c.dataset.pending ?? null } : null,
-          }
-        }).catch((evalError) => String(evalError))
-        throw new Error(`${error instanceof Error ? error.message : String(error)}\ndiag=${JSON.stringify({ state, served, logs })}`, { cause: error })
-      }
+      await expect.poll(() => inked(frame), { timeout: 60_000, intervals: [250] }).not.toBeNull()
       const box = (await inked(frame))!
       const { width, height } = box
       expect(box.y1, JSON.stringify(box)).toBeGreaterThan(height / 2)

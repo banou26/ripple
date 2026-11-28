@@ -305,11 +305,6 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
   try {
     const page = await context.newPage()
     await page.addInitScript(instrument)
-    const logs: string[] = []
-    page.on('pageerror', (error) => logs.push(`pageerror:${String(error)}`))
-    page.on('console', (msg) => {
-      if (msg.type() === 'warning' || msg.type() === 'error') logs.push(`${msg.type()}:${msg.text()}`)
-    })
     await context.route(
       (url) => url.origin === rippleOrigin && (url.pathname === '/watch' || url.pathname.startsWith('/jassub/')),
       async (route) => {
@@ -370,19 +365,7 @@ test('an embedder pushes external SRT and ASS subtitles, serves subtitleloadrequ
     }))
     expect(blobRefused, 'the tenant CSP is not in force on /watch').toBe(true)
 
-    try {
-      await expect.poll(() => colourOf(watchFrame), { timeout: 60_000, intervals: [250] }).toBe('white')
-    } catch (error) {
-      const state = await watchFrame.evaluate(() => {
-        const v = document.querySelector('video')
-        const c = document.querySelector<HTMLCanvasElement>('.subtitles canvas')
-        return {
-          video: v ? { readyState: v.readyState, w: v.videoWidth, h: v.videoHeight, t: v.currentTime, paused: v.paused, err: v.error?.code ?? null } : null,
-          canvas: c ? { w: c.width, h: c.height, pending: c.dataset.pending ?? null } : null,
-        }
-      }).catch((evalError) => String(evalError))
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\ndiag=${JSON.stringify({ state, logs })}`, { cause: error })
-    }
+    await expect.poll(() => colourOf(watchFrame), { timeout: 60_000, intervals: [250] }).toBe('white')
     await page.evaluate(() => (window as unknown as EmbedderWindow).player.pause())
     await expect.poll(() => page.evaluate(() => (window as unknown as EmbedderWindow).player.paused)).toBe(true)
 
