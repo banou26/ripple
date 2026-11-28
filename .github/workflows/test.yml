@@ -165,7 +165,8 @@ jobs:
   e2e-webkit:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
-    timeout-minutes: 90
+    # 120, not 90: the full 49-spec WebKit suite finished in 84 minutes on macos-15 (run 46081898863).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

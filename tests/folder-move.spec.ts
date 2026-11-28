@@ -357,20 +357,43 @@ test('a torrent checking its files at the folder shows no download speed', async
   test.setTimeout(180_000)
   const BIG = 'Large'
   /*
-   * A speed is read from engine reports a second apart, which come every 500 ms. Measured 2026-11-17 on a 16 thread
-   * desktop, the check at the folder ran at 100 to 350 MB/s, and 512 MiB in 256 KiB pieces checked in 1.5 s.
+   * A speed is read from engine reports a second apart, which come every 500 ms. Measured 2026-11-28 on Chromium 149
+   * (64 KiB pieces took 1,498 ms on 608 MiB, leaving too little margin on smaller CI origins), 16 KiB pieces keep a
+   * multi-second check even around 256 to 320 MiB while keeping the .torrent under ~1.3 MiB.
    */
-  const BIG_PIECE = 64 * 1024
+  const BIG_PIECE = 16 * 1024
   await page.goto('/')
-  // the file sits in browser storage and is copied into the picked folder, which is browser storage here too, so it
-  // needs twice its size; GitHub's runner gives the origin less than the 2 GiB a 1 GiB file takes
-  const { quota = 0, usage = 0 } = await page.evaluate(() => navigator.storage.estimate())
-  const size = Math.min(1024 * 1024 * 1024, Math.floor((quota - usage) / 3 / BIG_PIECE) * BIG_PIECE)
-  test.skip(size < 256 * 1024 * 1024, `browser storage leaves room for ${size} bytes, too few for a check long enough to read a speed`)
+  /*
+   * The file sits in browser storage and is copied into the picked folder, which is browser storage here too, so it
+   * needs twice its size plus engine headroom. Chromium 149 reports a privacy-bucketed estimate().quota (4 to 5 GiB
+   * in incognito) above its actual OPFS write cap (1,600 MiB on 24 GiB macOS, under 1 GiB on 16 GiB CI runners), so
+   * measure what a write actually accepts and take 40% of it (80% across both copies).
+   */
+  const taken = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const name = 'probe-room.bin'
+    const chunk = new Uint8Array(16 * 1024 * 1024)
+    const limit = 2560 * 1024 * 1024
+    const writable = await (await root.getFileHandle(name, { create: true })).createWritable()
+    let at = 0
+    try {
+      for (; at < limit; at += chunk.length) await writable.write(chunk)
+    } catch (error) {
+      if ((error as DOMException).name !== 'QuotaExceededError') throw error
+    } finally {
+      await writable.abort().catch(() => {})
+      await root.removeEntry(name).catch(() => {})
+    }
+    return at
+  })
+  const size = Math.min(1024 * 1024 * 1024, Math.floor((taken * 0.4) / BIG_PIECE) * BIG_PIECE)
+  test.skip(size < 256 * 1024 * 1024, `browser storage took ${taken} bytes (room for ${size} per copy), too few for a check long enough to read a speed`)
   const file = { path: 'large.bin', size, fill: 0x61 }
   // every piece holds the same bytes, so one hash stands for all of them
   const piece = createHash('sha1').update(Buffer.alloc(BIG_PIECE, file.fill)).digest()
-  const bigInfo = { name: BIG, 'piece length': BIG_PIECE, pieces: Buffer.concat(Array.from({ length: file.size / BIG_PIECE }, () => piece)), files: [{ length: file.size, path: [file.path] }] }
+  const pieces = Buffer.alloc((file.size / BIG_PIECE) * piece.length)
+  for (let at = 0; at < pieces.length; at += piece.length) piece.copy(pieces, at)
+  const bigInfo = { name: BIG, 'piece length': BIG_PIECE, pieces, files: [{ length: file.size, path: [file.path] }] }
   const reports = await watchMove(page, createHash('sha1').update(bencode(bigInfo)).digest('hex'))
   await chooseFolder(page)
   await place(page, BIG, [file])

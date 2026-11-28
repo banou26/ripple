@@ -112,65 +112,85 @@ for (const { where, framed } of TOPOLOGIES) {
 
     // no service worker, so the CSP below lands on the responses the page actually uses
     const context = await browser.newContext({ serviceWorkers: 'block' })
-    const page = await context.newPage()
-    await page.addInitScript(instrument)
-    const served: string[] = []
-    context.on('response', (response) => {
-      const url = new URL(response.url())
-      if (url.origin === ripple && url.pathname.startsWith('/jassub/')) served.push(`${response.status()} ${url.pathname} ${response.headers()['content-type']}`)
-    })
-    if (framed) {
-      const tenant = (url: URL) => url.origin === ripple && (url.pathname === '/watch' || url.pathname.startsWith('/jassub/'))
-      await context.route(tenant, async (route) => {
-        const response = await route.fetch()
-        await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': TENANT_CSP } })
+    try {
+      const page = await context.newPage()
+      await page.addInitScript(instrument)
+      const logs: string[] = []
+      page.on('pageerror', (error) => logs.push(`pageerror:${String(error)}`))
+      page.on('console', (msg) => {
+        if (msg.type() === 'warning' || msg.type() === 'error') logs.push(`${msg.type()}:${msg.text()}`)
       })
+      const served: string[] = []
+      context.on('response', (response) => {
+        const url = new URL(response.url())
+        if (url.origin === ripple && url.pathname.startsWith('/jassub/')) served.push(`${response.status()} ${url.pathname} ${response.headers()['content-type']}`)
+      })
+      if (framed) {
+        const tenant = (url: URL) => url.origin === ripple && (url.pathname === '/watch' || url.pathname.startsWith('/jassub/'))
+        await context.route(tenant, async (route) => {
+          const response = await route.fetch()
+          await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': TENANT_CSP } })
+        })
+      }
+
+      let frame = page.mainFrame()
+      if (framed) {
+        // the same server under another name is another site, and the top document is a plain file of it
+        const host = new URL('/README.md', ripple)
+        host.hostname = 'localhost'
+        await page.goto(host.href)
+        await page.evaluate((src) => {
+          const iframe = document.createElement('iframe')
+          iframe.src = src
+          iframe.allow = 'autoplay; fullscreen'
+          iframe.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0'
+          document.body.append(iframe)
+        }, `${ripple}/`)
+        await expect.poll(() => page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(ripple))).toBeTruthy()
+        frame = page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(ripple))!
+      } else {
+        await page.goto('/')
+      }
+      await watch(page, framed ? page.frameLocator('iframe') : page, frame, file)
+
+      if (framed) {
+        // the control for the CSP: a blob worker is refused on /watch, so a pass below means the urls worked
+        const blobRefused = await frame.evaluate(() => new Promise<boolean>((resolve) => {
+          try {
+            const probe = new Worker(URL.createObjectURL(new Blob(['postMessage(1)'], { type: 'text/javascript' })))
+            probe.onmessage = () => resolve(false)
+            probe.onerror = () => resolve(true)
+          } catch { resolve(true) }
+        }))
+        expect(blobRefused, 'the tenant CSP is not in force on /watch').toBe(true)
+      }
+
+      try {
+        await expect.poll(() => inked(frame), { timeout: 60_000, intervals: [250] }).not.toBeNull()
+      } catch (error) {
+        const state = await frame.evaluate(() => {
+          const v = document.querySelector('video')
+          const c = document.querySelector<HTMLCanvasElement>('.subtitles canvas')
+          return {
+            video: v ? { readyState: v.readyState, w: v.videoWidth, h: v.videoHeight, t: v.currentTime, paused: v.paused, err: v.error?.code ?? null } : null,
+            canvas: c ? { w: c.width, h: c.height, pending: c.dataset.pending ?? null } : null,
+          }
+        }).catch((evalError) => String(evalError))
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\ndiag=${JSON.stringify({ state, served, logs })}`, { cause: error })
+      }
+      const box = (await inked(frame))!
+      const { width, height } = box
+      expect(box.y1, JSON.stringify(box)).toBeGreaterThan(height / 2)
+      expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeGreaterThan(width * 0.4)
+      expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeLessThan(width * 0.6)
+
+      const worker = browserName === 'webkit' ? /^200 \/jassub\/jassub-worker(?:-modern)?\.js \w+\/javascript/ : /^200 \/jassub\/jassub-worker-modern\.js \w+\/javascript/
+      expect(served, 'the wasm script came from /jassub/').toContainEqual(expect.stringMatching(worker))
+      const violations: string[] = await frame.evaluate(() => (window as any).__violations)
+      test.info().annotations.push({ type: 'subtitles', description: JSON.stringify({ box, served, violations }) })
+      expect(violations.filter((violation) => !violation.endsWith(' blob')), 'only the probe is refused').toEqual([])
+    } finally {
+      await context.close()
     }
-
-    let frame = page.mainFrame()
-    if (framed) {
-      // the same server under another name is another site, and the top document is a plain file of it
-      const host = new URL('/README.md', ripple)
-      host.hostname = 'localhost'
-      await page.goto(host.href)
-      await page.evaluate((src) => {
-        const iframe = document.createElement('iframe')
-        iframe.src = src
-        iframe.allow = 'autoplay; fullscreen'
-        iframe.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0'
-        document.body.append(iframe)
-      }, `${ripple}/`)
-      await expect.poll(() => page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(ripple))).toBeTruthy()
-      frame = page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(ripple))!
-    } else {
-      await page.goto('/')
-    }
-    await watch(page, framed ? page.frameLocator('iframe') : page, frame, file)
-
-    if (framed) {
-      // the control for the CSP: a blob worker is refused on /watch, so a pass below means the urls worked
-      const blobRefused = await frame.evaluate(() => new Promise<boolean>((resolve) => {
-        try {
-          const probe = new Worker(URL.createObjectURL(new Blob(['postMessage(1)'], { type: 'text/javascript' })))
-          probe.onmessage = () => resolve(false)
-          probe.onerror = () => resolve(true)
-        } catch { resolve(true) }
-      }))
-      expect(blobRefused, 'the tenant CSP is not in force on /watch').toBe(true)
-    }
-
-    await expect.poll(() => inked(frame), { timeout: 60_000, intervals: [250] }).not.toBeNull()
-    const box = (await inked(frame))!
-    const { width, height } = box
-    expect(box.y1, JSON.stringify(box)).toBeGreaterThan(height / 2)
-    expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeGreaterThan(width * 0.4)
-    expect((box.x1 + box.x2) / 2, JSON.stringify(box)).toBeLessThan(width * 0.6)
-
-    const worker = browserName === 'webkit' ? /^200 \/jassub\/jassub-worker(?:-modern)?\.js \w+\/javascript/ : /^200 \/jassub\/jassub-worker-modern\.js \w+\/javascript/
-    expect(served, 'the wasm script came from /jassub/').toContainEqual(expect.stringMatching(worker))
-    const violations: string[] = await frame.evaluate(() => (window as any).__violations)
-    test.info().annotations.push({ type: 'subtitles', description: JSON.stringify({ box, served, violations }) })
-    expect(violations.filter((violation) => !violation.endsWith(' blob')), 'only the probe is refused').toEqual([])
-    await context.close()
   })
 }
